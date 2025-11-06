@@ -1,0 +1,635 @@
+package com.knapsack.fixtool.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.knapsack.fixtool.model.NotificationType
+import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
+import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import org.jetbrains.compose.ui.tooling.preview.Preview
+import java.awt.Cursor
+
+private val DarkColorScheme =
+    darkColorScheme(
+        primary = Color(0xFF3A3A3A),
+        secondary = Color(0xFF2B2B2B),
+        background = Color(0xFF1E1E1E),
+        surface = Color(0xFF2B2B2B),
+        onPrimary = Color(0xFFE0E0E0),
+        onSecondary = Color(0xFFE0E0E0),
+        onBackground = Color(0xFFE0E0E0),
+        onSurface = Color(0xFFE0E0E0),
+    )
+
+@Composable
+@Preview
+fun App() {
+    MaterialTheme(
+        colorScheme = DarkColorScheme,
+    ) {
+        val viewModel: FixMessageViewModel = viewModel { FixMessageViewModel() }
+        var viewMode by rememberSaveable { mutableStateOf(ViewMode.SPLIT_HORIZONTAL) }
+
+        // Collect global state
+        val selectedMessage by viewModel.selectedMessage.collectAsState()
+        val showDetailPanel by viewModel.showDetailPanel.collectAsState()
+        val showMessageEditor by viewModel.showMessageEditor.collectAsState()
+        val showConnectionPanel by viewModel.showConnectionPanel.collectAsState()
+        val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
+        val demoServerRunning by viewModel.demoServerRunning.collectAsState()
+        val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
+        val savedMessages = viewModel.savedMessages
+        val currentLoadedMessageName by viewModel.currentLoadedMessageName.collectAsState()
+        val currentProfileId = viewModel.getCurrentProfileId()
+        val notifications = viewModel.notifications
+        val density = LocalDensity.current
+        val activeSessionViewMode by viewModel.activeSession?.viewMode?.collectAsState() ?: remember { mutableStateOf(null) }
+
+        // Load saved messages when active session changes
+        LaunchedEffect(viewModel.activeSessionIndex) {
+            viewModel.loadSavedMessagesForActiveSession()
+        }
+        var detailPanelSplitRatio by remember { mutableStateOf(0.2f) }
+        var editorPanelSplitRatio by remember {
+            mutableStateOf(0.28f)
+        } // Message editor panel width (28% when description shown, 20% when hidden) - starts at 28% since description is visible by default
+        var connectionPanelSplitRatio by remember { mutableStateOf(0.2f) }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1E1E1E)),
+            ) {
+                Toolbar(
+                    viewMode = viewMode,
+                    onViewModeChange = { viewMode = it },
+                    showMessageEditor = showMessageEditor,
+                    showDetailPanel = showDetailPanel,
+                    showConnectionPanel = showConnectionPanel,
+                    demoServerRunning = demoServerRunning,
+                    connectionProfiles = viewModel.connectionProfiles,
+                    isDictionaryValid = isDictionaryValid,
+                    activeSessionViewMode = activeSessionViewMode,
+                    onOpenMessageEditor = { viewModel.toggleMessageEditor() },
+                    onToggleDetailPanel = { viewModel.toggleDetailPanel() },
+                    onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
+                    onToggleDemoServer = {
+                        if (demoServerRunning) {
+                            viewModel.stopDemoServer()
+                        } else {
+                            viewModel.startDemoServer()
+                        }
+                    },
+                    onToggleGridView = { viewModel.toggleViewModeForAllSessions() },
+                    onQuickConnect = { profileId, profile ->
+                        viewModel.connectProfile(profileId, profile)
+                    },
+                    onGetProfileConnectionState = { profileId ->
+                        viewModel.getProfileConnectionState(profileId)
+                    },
+                    onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
+                    onClearAll = { viewModel.clearAllSessions() },
+                    onOpenSettings = { viewModel.toggleSettingsDialog() },
+                )
+
+                // Settings Dialog
+                if (showSettingsDialog) {
+                    SettingsDialog(
+                        currentSettings = viewModel.appSettings,
+                        dictionary = viewModel.dictionary,
+                        onSave = { settings -> viewModel.saveAppSettings(settings) },
+                        onDismiss = { viewModel.toggleSettingsDialog() },
+                    )
+                }
+
+                when (viewMode) {
+                    ViewMode.TABS -> {
+                        // All panels in same row: editor, tabs, detail
+                        BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                            val maxWidthPx = with(density) { maxWidth.toPx() }
+
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                // Leftmost panel - Message editor (if shown)
+                                if (showMessageEditor) {
+                                    Box(
+                                        modifier =
+                                            Modifier.width(
+                                                with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
+                                            ),
+                                    ) {
+                                        MessageEditorPanel(
+                                            sessions = viewModel.sessions,
+                                            selectedSessionIndex = viewModel.activeSessionIndex,
+                                            dictionary = viewModel.dictionary,
+                                            fields = viewModel.editorFields,
+                                            selectedFieldIndex = viewModel.editorSelectedFieldIndex,
+                                            selectedFieldIndices = viewModel.editorSelectedIndices,
+                                            onFieldUpdate = { index, field ->
+                                                viewModel.updateEditorField(
+                                                    index,
+                                                    field,
+                                                )
+                                            },
+                                            onFieldAdd = { viewModel.addEditorField() },
+                                            onFieldDelete = { index -> viewModel.deleteEditorField(index) },
+                                            onFieldMoveUp = { index -> viewModel.moveEditorFieldUp(index) },
+                                            onFieldMoveDown = { index -> viewModel.moveEditorFieldDown(index) },
+                                            onFieldSelect = { index, isCtrl, isShift ->
+                                                viewModel.selectEditorField(
+                                                    index,
+                                                    isCtrl,
+                                                    isShift,
+                                                )
+                                            },
+                                            onClearFields = { viewModel.clearEditorFields() },
+                                            onClose = { viewModel.toggleMessageEditor() },
+                                            onSend = { sessionIndex, fields ->
+                                                val rawMessage = fields.toRawMessage()
+                                                viewModel.sendMessage(sessionIndex, rawMessage)
+                                            },
+                                            onValidate = { fields ->
+                                                viewModel.validateEditorMessage(fields)
+                                            },
+                                            validationErrors = viewModel.editorValidationErrors,
+                                            onClearValidationErrors = { viewModel.clearEditorValidationErrors() },
+                                            onSetValidationErrors = { errors ->
+                                                viewModel.setEditorValidationErrors(
+                                                    errors,
+                                                )
+                                            },
+                                            onDescriptionVisibilityChanged = { showingDescription ->
+                                                // Adjust panel width: 28% when showing description, 20% when hidden
+                                                editorPanelSplitRatio = if (showingDescription) 0.28f else 0.20f
+                                            },
+                                            onSaveMessage = { name, fields, profileId ->
+                                                viewModel.saveEditorMessage(
+                                                    name,
+                                                    fields,
+                                                    profileId,
+                                                )
+                                            },
+                                            savedMessages = savedMessages,
+                                            onLoadMessage = { savedMessage ->
+                                                viewModel.loadEditorMessage(savedMessage)
+                                            },
+                                            onDeleteMessage = { messageId, profileId ->
+                                                viewModel.deleteSavedMessage(
+                                                    messageId,
+                                                    profileId,
+                                                )
+                                            },
+                                            connectionProfiles = viewModel.connectionProfiles,
+                                            currentProfileId = currentProfileId,
+                                            currentLoadedMessageName = currentLoadedMessageName,
+                                            onSessionChange = { index -> viewModel.setActiveSession(index) },
+                                            onError = { errorMsg ->
+                                                viewModel.showNotification(
+                                                    errorMsg,
+                                                    NotificationType.ERROR,
+                                                )
+                                            },
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+
+                                    // Resizable divider for editor panel
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .width(AppTheme.Separators.panelSeparatorWidth)
+                                                .fillMaxHeight()
+                                                .background(AppTheme.Separators.color)
+                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                .pointerInput(maxWidthPx) {
+                                                    detectDragGestures { change, dragAmount ->
+                                                        change.consume()
+                                                        val newOffset =
+                                                            editorPanelSplitRatio + (dragAmount.x / maxWidthPx)
+                                                        editorPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                    }
+                                                },
+                                    )
+                                }
+
+                                // Center panel - Tabs and Message display
+                                Column(modifier = Modifier.weight(1f)) {
+                                    TabBar(
+                                        sessions = viewModel.sessions,
+                                        activeIndex = viewModel.activeSessionIndex,
+                                        onTabClick = { index -> viewModel.setActiveSession(index) },
+                                        onCloseTab = { index -> viewModel.closeSession(index) },
+                                        onToggleViewMode = { index ->
+                                            viewModel.sessions.getOrNull(index)?.toggleViewMode()
+                                        },
+                                        onToggleWrapText = { index ->
+                                            viewModel.sessions.getOrNull(index)?.toggleWrapText()
+                                        },
+                                        onConnect = { index ->
+                                            viewModel.sessions.getOrNull(index)?.reconnect()
+                                        },
+                                        onDisconnect = { index ->
+                                            viewModel.sessions.getOrNull(index)?.disconnect()
+                                        },
+                                    )
+
+                                    viewModel.activeSession?.let { session ->
+                                        val messages by session.messages.collectAsState()
+                                        val sessionViewMode by session.viewMode.collectAsState()
+                                        val wrapText by session.wrapText.collectAsState()
+                                        val hideProtocolTags by session.hideProtocolTags.collectAsState()
+
+                                        FixMessageDisplay(
+                                            messages = messages,
+                                            viewMode = sessionViewMode,
+                                            dictionary = viewModel.dictionary,
+                                            wrapText = wrapText,
+                                            selectedMessage = selectedMessage,
+                                            onSelectMessage = { message -> viewModel.selectMessage(message) },
+                                            showDetailPanel = false,
+                                            hideProtocolTags = hideProtocolTags,
+                                            gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                            appSettings = viewModel.appSettings,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    } ?: Box(
+                                        modifier = Modifier.weight(1f).fillMaxSize(),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = "No active sessions. Click the connection button to connect to a FIX server.",
+                                            color = Color(0xFF6A6A6A),
+                                            fontSize = 14.sp,
+                                        )
+                                    }
+                                }
+
+                                // Message detail panel (if shown)
+                                if (showDetailPanel) {
+                                    // Resizable divider for detail panel
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .width(AppTheme.Separators.panelSeparatorWidth)
+                                                .fillMaxHeight()
+                                                .background(AppTheme.Separators.color)
+                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                .pointerInput(maxWidthPx) {
+                                                    detectDragGestures { change, dragAmount ->
+                                                        change.consume()
+                                                        val newOffset =
+                                                            detailPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                                        detailPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                    }
+                                                },
+                                    )
+
+                                    Box(
+                                        modifier =
+                                            Modifier.width(
+                                                with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
+                                            ),
+                                    ) {
+                                        MessageDetailPanel(
+                                            message = selectedMessage,
+                                            dictionary = viewModel.dictionary,
+                                            onClose = { viewModel.toggleDetailPanel() },
+                                            onPasteMessage = { rawMessage ->
+                                                viewModel.pasteAndDisplayMessage(rawMessage)
+                                            },
+                                            appSettings = viewModel.appSettings,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+                                }
+
+                                // Rightmost panel - Connection panel (if shown)
+                                if (showConnectionPanel) {
+                                    // Resizable divider for connection panel
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .width(AppTheme.Separators.panelSeparatorWidth)
+                                                .fillMaxHeight()
+                                                .background(AppTheme.Separators.color)
+                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                .pointerInput(maxWidthPx) {
+                                                    detectDragGestures { change, dragAmount ->
+                                                        change.consume()
+                                                        val newOffset =
+                                                            connectionPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                                        connectionPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                    }
+                                                },
+                                    )
+
+                                    Box(
+                                        modifier =
+                                            Modifier.width(
+                                                with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
+                                            ),
+                                    ) {
+                                        ConnectionPanel(
+                                            profiles = viewModel.connectionProfiles,
+                                            sessions = viewModel.sessions,
+                                            onConnect = { profileId, profile ->
+                                                viewModel.connectProfile(
+                                                    profileId,
+                                                    profile,
+                                                )
+                                            },
+                                            onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
+                                            onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
+                                            onDeleteProfile = { profileId ->
+                                                viewModel.deleteConnectionProfile(profileId)
+                                            },
+                                            onCloneProfile = { profile -> viewModel.cloneConnectionProfile(profile) },
+                                            onGetProfileSession = { profileId ->
+                                                viewModel.getProfileSession(profileId)
+                                            },
+                                            onClose = { viewModel.toggleConnectionPanel() },
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ViewMode.SPLIT_HORIZONTAL, ViewMode.SPLIT_VERTICAL -> {
+                        val splitOrientation =
+                            if (viewMode == ViewMode.SPLIT_HORIZONTAL) {
+                                SplitOrientation.HORIZONTAL
+                            } else {
+                                SplitOrientation.VERTICAL
+                            }
+
+                        // Wrap content in split pane if detail panel, message editor, or connection panel is shown
+                        if (showDetailPanel || showMessageEditor || showConnectionPanel) {
+                            BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                                val maxWidthPx = with(density) { maxWidth.toPx() }
+
+                                Row(modifier = Modifier.fillMaxSize()) {
+                                    // Leftmost panel - Message editor (if shown)
+                                    if (showMessageEditor) {
+                                        Box(
+                                            modifier =
+                                                Modifier.width(
+                                                    with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
+                                                ),
+                                        ) {
+                                            MessageEditorPanel(
+                                                sessions = viewModel.sessions,
+                                                selectedSessionIndex = viewModel.activeSessionIndex,
+                                                dictionary = viewModel.dictionary,
+                                                fields = viewModel.editorFields,
+                                                selectedFieldIndex = viewModel.editorSelectedFieldIndex,
+                                                selectedFieldIndices = viewModel.editorSelectedIndices,
+                                                onFieldUpdate = { index, field ->
+                                                    viewModel.updateEditorField(
+                                                        index,
+                                                        field,
+                                                    )
+                                                },
+                                                onFieldAdd = { viewModel.addEditorField() },
+                                                onFieldDelete = { index -> viewModel.deleteEditorField(index) },
+                                                onFieldMoveUp = { index -> viewModel.moveEditorFieldUp(index) },
+                                                onFieldMoveDown = { index -> viewModel.moveEditorFieldDown(index) },
+                                                onFieldSelect = { index, isCtrl, isShift ->
+                                                    viewModel.selectEditorField(
+                                                        index,
+                                                        isCtrl,
+                                                        isShift,
+                                                    )
+                                                },
+                                                onClearFields = { viewModel.clearEditorFields() },
+                                                onClose = { viewModel.toggleMessageEditor() },
+                                                onSend = { sessionIndex, fields ->
+                                                    val rawMessage =
+                                                        fields.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+                                                    viewModel.sendMessage(sessionIndex, rawMessage)
+                                                },
+                                                onValidate = { fields ->
+                                                    viewModel.validateEditorMessage(fields)
+                                                },
+                                                validationErrors = viewModel.editorValidationErrors,
+                                                onClearValidationErrors = { viewModel.clearEditorValidationErrors() },
+                                                onSetValidationErrors = { errors ->
+                                                    viewModel.setEditorValidationErrors(
+                                                        errors,
+                                                    )
+                                                },
+                                                onDescriptionVisibilityChanged = { showingDescription ->
+                                                    // Adjust panel width: 28% when showing description, 20% when hidden
+                                                    editorPanelSplitRatio = if (showingDescription) 0.28f else 0.20f
+                                                },
+                                                onSaveMessage = { name, fields, profileId ->
+                                                    viewModel.saveEditorMessage(
+                                                        name,
+                                                        fields,
+                                                        profileId,
+                                                    )
+                                                },
+                                                savedMessages = savedMessages,
+                                                onLoadMessage = { savedMessage ->
+                                                    viewModel.loadEditorMessage(
+                                                        savedMessage,
+                                                    )
+                                                },
+                                                onDeleteMessage = { messageId, profileId ->
+                                                    viewModel.deleteSavedMessage(
+                                                        messageId,
+                                                        profileId,
+                                                    )
+                                                },
+                                                connectionProfiles = viewModel.connectionProfiles,
+                                                currentProfileId = currentProfileId,
+                                                currentLoadedMessageName = currentLoadedMessageName,
+                                                onSessionChange = { index -> viewModel.setActiveSession(index) },
+                                                onError = { errorMsg ->
+                                                    viewModel.showNotification(
+                                                        errorMsg,
+                                                        NotificationType.ERROR,
+                                                    )
+                                                },
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
+
+                                        // Resizable divider for editor panel
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .width(1.dp)
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFF3A3A3A))
+                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                    .pointerInput(maxWidthPx) {
+                                                        detectDragGestures { change, dragAmount ->
+                                                            change.consume()
+                                                            val newOffset =
+                                                                editorPanelSplitRatio + (dragAmount.x / maxWidthPx)
+                                                            editorPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                        }
+                                                    },
+                                        )
+                                    }
+
+                                    // Center panel - Split view
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        SplitView(
+                                            sessions = viewModel.sessions,
+                                            dictionary = viewModel.dictionary,
+                                            onCloseSession = { index -> viewModel.closeSession(index) },
+                                            onMoveSession = { from, to -> viewModel.moveSession(from, to) },
+                                            selectedMessage = selectedMessage,
+                                            onSelectMessage = { message -> viewModel.selectMessage(message) },
+                                            onPasteMessage = { rawMessage ->
+                                                viewModel.pasteAndDisplayMessage(rawMessage)
+                                            },
+                                            orientation = splitOrientation,
+                                            gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                            appSettings = viewModel.appSettings,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+
+                                    // Message detail panel (if shown)
+                                    if (showDetailPanel) {
+                                        // Resizable divider for detail panel
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .width(1.dp)
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFF3A3A3A))
+                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                    .pointerInput(maxWidthPx) {
+                                                        detectDragGestures { change, dragAmount ->
+                                                            change.consume()
+                                                            val newOffset =
+                                                                detailPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                                            detailPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                        }
+                                                    },
+                                        )
+
+                                        Box(
+                                            modifier =
+                                                Modifier.width(
+                                                    with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
+                                                ),
+                                        ) {
+                                            MessageDetailPanel(
+                                                message = selectedMessage,
+                                                dictionary = viewModel.dictionary,
+                                                onClose = { viewModel.toggleDetailPanel() },
+                                                onPasteMessage = { rawMessage ->
+                                                    viewModel.pasteAndDisplayMessage(rawMessage)
+                                                },
+                                                appSettings = viewModel.appSettings,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
+                                    }
+
+                                    // Rightmost panel - Connection panel (if shown)
+                                    if (showConnectionPanel) {
+                                        // Resizable divider for connection panel
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .width(1.dp)
+                                                    .fillMaxHeight()
+                                                    .background(Color(0xFF3A3A3A))
+                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                    .pointerInput(maxWidthPx) {
+                                                        detectDragGestures { change, dragAmount ->
+                                                            change.consume()
+                                                            val newOffset =
+                                                                connectionPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                                            connectionPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                        }
+                                                    },
+                                        )
+
+                                        Box(
+                                            modifier =
+                                                Modifier.width(
+                                                    with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
+                                                ),
+                                        ) {
+                                            ConnectionPanel(
+                                                profiles = viewModel.connectionProfiles,
+                                                sessions = viewModel.sessions,
+                                                onConnect = { profileId, profile ->
+                                                    viewModel.connectProfile(
+                                                        profileId,
+                                                        profile,
+                                                    )
+                                                },
+                                                onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
+                                                onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
+                                                onDeleteProfile = { profileId ->
+                                                    viewModel.deleteConnectionProfile(
+                                                        profileId,
+                                                    )
+                                                },
+                                                onCloneProfile = { profile ->
+                                                    viewModel.cloneConnectionProfile(profile)
+                                                },
+                                                onGetProfileSession = { profileId ->
+                                                    viewModel.getProfileSession(
+                                                        profileId,
+                                                    )
+                                                },
+                                                onClose = { viewModel.toggleConnectionPanel() },
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            SplitView(
+                                sessions = viewModel.sessions,
+                                dictionary = viewModel.dictionary,
+                                onCloseSession = { index -> viewModel.closeSession(index) },
+                                onMoveSession = { from, to -> viewModel.moveSession(from, to) },
+                                selectedMessage = selectedMessage,
+                                onSelectMessage = { message -> viewModel.selectMessage(message) },
+                                onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
+                                orientation = splitOrientation,
+                                gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                appSettings = viewModel.appSettings,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Notification popup overlay in bottom-right corner
+            NotificationPopupContainer(
+                notifications = notifications,
+                onDismiss = { notificationId -> viewModel.dismissNotification(notificationId) },
+            )
+        }
+    }
+}

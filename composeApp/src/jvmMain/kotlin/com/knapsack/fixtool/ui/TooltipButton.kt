@@ -1,0 +1,140 @@
+package com.knapsack.fixtool.ui
+
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import java.util.*
+
+// Global tooltip state to ensure only one tooltip is visible at a time
+private object TooltipState {
+    var activeTooltipId: String? by mutableStateOf(null)
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun TooltipIconButton(
+    tooltip: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val buttonId = remember { UUID.randomUUID().toString() }
+    var showTooltip by remember { mutableStateOf(false) }
+
+    // Manage tooltip visibility based on hover and global state
+    LaunchedEffect(isHovered) {
+        if (isHovered) {
+            // Wait for the delay before showing tooltip
+            delay(600)
+            // Set this button as the active tooltip
+            TooltipState.activeTooltipId = buttonId
+            showTooltip = true
+        } else {
+            // Clear tooltip immediately when hover ends
+            showTooltip = false
+            if (TooltipState.activeTooltipId == buttonId) {
+                TooltipState.activeTooltipId = null
+            }
+        }
+    }
+
+    // Check if this tooltip should be displayed
+    val shouldShowTooltip = showTooltip && TooltipState.activeTooltipId == buttonId
+
+    TooltipArea(
+        tooltip = {
+            if (shouldShowTooltip) {
+                Text(
+                    text = tooltip,
+                    modifier =
+                        Modifier
+                            .shadow(4.dp, RoundedCornerShape(4.dp))
+                            .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 11.sp,
+                )
+            }
+        },
+        delayMillis = 0, // We handle delay manually now
+        tooltipPlacement =
+            TooltipPlacement.ComponentRect(
+                anchor = Alignment.BottomCenter,
+                alignment = Alignment.BottomCenter,
+                offset = DpOffset(0.dp, 4.dp),
+            ),
+    ) {
+        IconButton(
+            onClick = onClick,
+            modifier = modifier.hoverable(interactionSource),
+            enabled = enabled,
+            colors =
+                IconButtonDefaults.iconButtonColors(
+                    containerColor = if (isHovered) Color(0xFF3A3A3A) else Color.Transparent,
+                ),
+            interactionSource = interactionSource,
+        ) {
+            content()
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun TooltipFloatingActionButton(
+    tooltip: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color.Unspecified,
+    contentColor: Color = Color.Unspecified,
+    content: @Composable () -> Unit,
+) {
+    TooltipArea(
+        tooltip = {
+            Text(
+                text = tooltip,
+                modifier =
+                    Modifier
+                        .shadow(4.dp, RoundedCornerShape(4.dp))
+                        .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                color = Color(0xFFE0E0E0),
+                fontSize = 11.sp,
+            )
+        },
+        delayMillis = 600,
+        tooltipPlacement =
+            TooltipPlacement.ComponentRect(
+                anchor = Alignment.TopCenter,
+                alignment = Alignment.TopCenter,
+                offset = DpOffset(0.dp, (-4).dp),
+            ),
+    ) {
+        FloatingActionButton(
+            onClick = onClick,
+            modifier = modifier,
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ) {
+            content()
+        }
+    }
+}

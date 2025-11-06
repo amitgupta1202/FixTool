@@ -1,0 +1,863 @@
+package com.knapsack.fixtool.ui
+
+import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.*
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.AppMessage
+import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.FixMessageSession.ViewMode
+import com.knapsack.fixtool.model.Separator
+import kotlinx.coroutines.launch
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
+
+@Composable
+fun FixMessageDisplay(
+    messages: List<AppMessage>,
+    viewMode: ViewMode,
+    dictionary: FixDictionary,
+    wrapText: Boolean = true,
+    selectedMessage: FixMessage? = null,
+    onSelectMessage: ((FixMessage?) -> Unit)? = null,
+    onPasteMessage: ((String) -> Unit)? = null,
+    showDetailPanel: Boolean = false,
+    searchVisible: Boolean = false,
+    hideProtocolTags: Boolean = true,
+    gridViewColumns: List<Int> = emptyList(),
+    appSettings: com.knapsack.fixtool.model.AppSettings =
+        com.knapsack.fixtool.model.AppSettings
+            .default(),
+    onToggleSearch: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    var detailPanelSplitRatio by remember { mutableStateOf(0.3f) } // Detail panel takes 30% by default
+
+    // Auto-scroll mode - automatically scroll to bottom when new messages arrive (default true, like terminal)
+    var autoScroll by remember { mutableStateOf(true) }
+
+    // Search state
+    var searchQuery by remember { mutableStateOf("") }
+    var currentMatchIndex by remember { mutableStateOf(0) }
+
+    // Find all matches in messages
+    val searchMatches =
+        remember(messages, searchQuery) {
+            if (searchQuery.isBlank()) {
+                emptyList()
+            } else {
+                messages.flatMapIndexed { index, message ->
+                    val text = message.toDisplayString() // Search in full display text
+                    val matches = mutableListOf<Pair<Int, Int>>() // message index, char offset
+                    var startIndex = 0
+                    while (startIndex < text.length) {
+                        val matchIndex = text.indexOf(searchQuery, startIndex, ignoreCase = true)
+                        if (matchIndex != -1) {
+                            matches.add(index to matchIndex)
+                            startIndex = matchIndex + 1
+                        } else {
+                            break
+                        }
+                    }
+                    matches
+                }
+            }
+        }
+
+    // Track if user is at the bottom
+    // Simple check: if we can't scroll forward (down), we're at the bottom
+    val isAtBottom by derivedStateOf {
+        !listState.canScrollForward
+    }
+
+    // When a new message arrives, scroll to bottom if autoScroll is enabled
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty() && autoScroll) {
+            listState.scrollToItem(messages.size - 1)
+        }
+    }
+
+    // Scroll to current search match
+    LaunchedEffect(currentMatchIndex, searchMatches.size) {
+        if (searchMatches.isNotEmpty() && currentMatchIndex in searchMatches.indices) {
+            val (messageIndex, _) = searchMatches[currentMatchIndex]
+            listState.scrollToItem(messageIndex)
+        }
+    }
+
+    // Search navigation functions
+    fun nextMatch() {
+        if (searchMatches.isNotEmpty()) {
+            currentMatchIndex = (currentMatchIndex + 1) % searchMatches.size
+        }
+    }
+
+    fun previousMatch() {
+        if (searchMatches.isNotEmpty()) {
+            currentMatchIndex =
+                if (currentMatchIndex > 0) {
+                    currentMatchIndex - 1
+                } else {
+                    searchMatches.size - 1
+                }
+        }
+    }
+
+    // Reset match index when search query changes
+    LaunchedEffect(searchQuery) {
+        currentMatchIndex = 0
+    }
+
+    // Message navigation functions for keyboard navigation
+    fun navigateToPreviousMessage() {
+        val fixMessages = messages.filterIsInstance<FixMessage>()
+        if (fixMessages.isEmpty() || onSelectMessage == null) return
+
+        val currentIndex =
+            if (selectedMessage != null) {
+                fixMessages.indexOf(selectedMessage)
+            } else {
+                fixMessages.size // Start from end if nothing selected
+            }
+
+        val previousIndex = if (currentIndex > 0) currentIndex - 1 else 0
+        onSelectMessage(fixMessages[previousIndex])
+
+        // Scroll to the selected message
+        coroutineScope.launch {
+            val messageIndex = messages.indexOf(fixMessages[previousIndex])
+            if (messageIndex >= 0) {
+                listState.scrollToItem(messageIndex)
+            }
+        }
+    }
+
+    fun navigateToNextMessage() {
+        val fixMessages = messages.filterIsInstance<FixMessage>()
+        if (fixMessages.isEmpty() || onSelectMessage == null) return
+
+        val currentIndex =
+            if (selectedMessage != null) {
+                fixMessages.indexOf(selectedMessage)
+            } else {
+                -1 // Start from beginning if nothing selected
+            }
+
+        val nextIndex = if (currentIndex < fixMessages.size - 1) currentIndex + 1 else fixMessages.size - 1
+        onSelectMessage(fixMessages[nextIndex])
+
+        // Scroll to the selected message
+        coroutineScope.launch {
+            val messageIndex = messages.indexOf(fixMessages[nextIndex])
+            if (messageIndex >= 0) {
+                listState.scrollToItem(messageIndex)
+            }
+        }
+    }
+
+    // Detect when user is not at bottom (they scrolled up manually)
+    // Use snapshotFlow to observe scroll state and disable autoScroll when user scrolls away
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            listState.isScrollInProgress to isAtBottom
+        }.collect { (isScrolling, atBottom) ->
+            // If user is actively scrolling and not at bottom, disable auto-scroll
+            if (isScrolling && !atBottom) {
+                autoScroll = false
+            }
+        }
+    }
+
+    // Wrap content in split pane if detail panel is shown
+    if (showDetailPanel) {
+        BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+            val maxWidthPx = with(density) { maxWidth.toPx() }
+
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Left panel - Message display
+                Box(modifier = Modifier.weight(1f)) {
+                    MessageDisplayContent(
+                        viewMode = viewMode,
+                        messages = messages,
+                        listState = listState,
+                        isAtBottom = isAtBottom,
+                        coroutineScope = coroutineScope,
+                        wrapText = wrapText,
+                        selectedMessage = selectedMessage,
+                        onSelectMessage = onSelectMessage,
+                        dictionary = dictionary,
+                        onEnableAutoScroll = { autoScroll = true },
+                        searchQuery = searchQuery,
+                        searchMatches = searchMatches,
+                        currentMatchIndex = currentMatchIndex,
+                        searchVisible = searchVisible,
+                        hideProtocolTags = hideProtocolTags,
+                        gridViewColumns = gridViewColumns,
+                        appSettings = appSettings,
+                        onToggleSearch = onToggleSearch,
+                        onSearchQueryChange = { searchQuery = it },
+                        onNextMatch = ::nextMatch,
+                        onPreviousMatch = ::previousMatch,
+                        onNavigatePrevious = ::navigateToPreviousMessage,
+                        onNavigateNext = ::navigateToNextMessage,
+                    )
+                }
+
+                // Resizable divider
+                Box(
+                    modifier =
+                        Modifier
+                            .width(AppTheme.Separators.panelSeparatorWidth)
+                            .fillMaxHeight()
+                            .background(AppTheme.Separators.color)
+                            .pointerInput(Unit) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    // Invert drag direction since detail panel is on the right
+                                    val newOffset = detailPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                    detailPanelSplitRatio = newOffset.coerceIn(0.2f, 0.6f)
+                                }
+                            },
+                )
+
+                // Right panel - Message detail
+                Box(
+                    modifier =
+                        Modifier.width(
+                            with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
+                        ),
+                ) {
+                    MessageDetailPanel(
+                        message = selectedMessage,
+                        dictionary = dictionary,
+                        onClose = { onSelectMessage?.invoke(null) },
+                        onPasteMessage = onPasteMessage,
+                        appSettings = appSettings,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+    } else {
+        MessageDisplayContent(
+            viewMode = viewMode,
+            messages = messages,
+            listState = listState,
+            isAtBottom = isAtBottom,
+            coroutineScope = coroutineScope,
+            wrapText = wrapText,
+            selectedMessage = selectedMessage,
+            onSelectMessage = onSelectMessage,
+            dictionary = dictionary,
+            onEnableAutoScroll = { autoScroll = true },
+            searchQuery = searchQuery,
+            searchMatches = searchMatches,
+            currentMatchIndex = currentMatchIndex,
+            searchVisible = searchVisible,
+            hideProtocolTags = hideProtocolTags,
+            gridViewColumns = gridViewColumns,
+            appSettings = appSettings,
+            onToggleSearch = onToggleSearch,
+            onSearchQueryChange = { searchQuery = it },
+            onNextMatch = ::nextMatch,
+            onPreviousMatch = ::previousMatch,
+            onNavigatePrevious = ::navigateToPreviousMessage,
+            onNavigateNext = ::navigateToNextMessage,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun MessageDisplayContent(
+    viewMode: ViewMode,
+    messages: List<AppMessage>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    isAtBottom: Boolean,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    wrapText: Boolean,
+    selectedMessage: FixMessage?,
+    onSelectMessage: ((FixMessage?) -> Unit)?,
+    dictionary: FixDictionary,
+    onEnableAutoScroll: () -> Unit = {},
+    searchQuery: String = "",
+    searchMatches: List<Pair<Int, Int>> = emptyList(),
+    currentMatchIndex: Int = 0,
+    searchVisible: Boolean = false,
+    hideProtocolTags: Boolean = true,
+    gridViewColumns: List<Int> = emptyList(),
+    appSettings: com.knapsack.fixtool.model.AppSettings =
+        com.knapsack.fixtool.model.AppSettings
+            .default(),
+    onToggleSearch: () -> Unit = {},
+    onSearchQueryChange: (String) -> Unit = {},
+    onNextMatch: () -> Unit = {},
+    onPreviousMatch: () -> Unit = {},
+    onNavigatePrevious: () -> Unit = {},
+    onNavigateNext: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    val focusRequester = remember { FocusRequester() }
+
+    // Request focus when the component is first displayed
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+    when (viewMode) {
+        ViewMode.PARSED -> {
+            // Parsed view only - hierarchical grid with all messages
+            // Messages are already filtered in SplitView, just display them
+            Box(
+                modifier =
+                    modifier
+                        .fillMaxSize()
+                        .focusRequester(focusRequester)
+                        .focusable()
+                        .onKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown) {
+                                when (event.key) {
+                                    Key.DirectionUp -> {
+                                        onNavigatePrevious()
+                                        true
+                                    }
+                                    Key.DirectionDown -> {
+                                        onNavigateNext()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            } else {
+                                false
+                            }
+                        },
+            ) {
+                HierarchicalGridView(
+                    messages = messages,
+                    dictionary = dictionary,
+                    hideProtocolTags = hideProtocolTags,
+                    gridViewColumns = gridViewColumns,
+                    selectedMessage = selectedMessage,
+                    onSelectMessage = onSelectMessage,
+                    appSettings = appSettings,
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF1E1E1E)),
+                )
+            }
+        }
+
+        ViewMode.RAW -> {
+            // Raw view only
+            val horizontalScrollState = rememberScrollState()
+
+            // Scroll to selected message when it changes
+            LaunchedEffect(selectedMessage) {
+                if (selectedMessage != null) {
+                    val messageIndex = messages.indexOf(selectedMessage)
+                    if (messageIndex >= 0) {
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(messageIndex)
+                        }
+                    }
+                }
+            }
+
+            Box(
+                modifier =
+                    modifier
+                        .fillMaxSize()
+                        .focusRequester(focusRequester)
+                        .focusable()
+                        .onKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown) {
+                                when (event.key) {
+                                    Key.DirectionUp -> {
+                                        onNavigatePrevious()
+                                        true
+                                    }
+                                    Key.DirectionDown -> {
+                                        onNavigateNext()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            } else {
+                                false
+                            }
+                        },
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .then(if (!wrapText) Modifier.horizontalScroll(horizontalScrollState) else Modifier),
+                ) {
+                    SelectionContainer {
+                        LazyColumn(
+                            state = listState,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF1E1E1E))
+                                    .padding(
+                                        start = 8.dp,
+                                        top = 8.dp,
+                                        bottom = if (wrapText) 8.dp else 24.dp,
+                                        end = 16.dp,
+                                    ),
+                        ) {
+                            itemsIndexed(messages) { index, message ->
+                                // Find matches for this message
+                                val messageMatches = searchMatches.filter { it.first == index }
+                                val isCurrentMatch =
+                                    searchMatches.isNotEmpty() &&
+                                        currentMatchIndex in searchMatches.indices &&
+                                        searchMatches[currentMatchIndex].first == index
+
+                                MessageRow(
+                                    message = message,
+                                    messageIndex = index,
+                                    wrapText = wrapText,
+                                    isSelected = message == selectedMessage,
+                                    onSelect =
+                                        if (onSelectMessage != null) {
+                                            { onSelectMessage(message as FixMessage) }
+                                        } else {
+                                            null
+                                        },
+                                    searchQuery = searchQuery,
+                                    messageMatches = messageMatches,
+                                    currentMatchOffset =
+                                        if (isCurrentMatch && searchMatches.isNotEmpty()) {
+                                            searchMatches[currentMatchIndex].second
+                                        } else {
+                                            -1
+                                        },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Scrollbar
+                VerticalScrollbar(
+                    adapter = rememberScrollbarAdapter(listState),
+                    modifier =
+                        Modifier
+                            .align(Alignment.CenterEnd)
+                            .fillMaxHeight()
+                            .padding(end = 4.dp),
+                )
+
+                // Horizontal scrollbar (shown when text is not wrapped)
+                if (!wrapText) {
+                    HorizontalScrollbar(
+                        adapter = rememberScrollbarAdapter(horizontalScrollState),
+                        modifier =
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(start = 8.dp, end = 20.dp, bottom = 4.dp)
+                                .height(8.dp),
+                    )
+                }
+
+                // Search bar
+                if (searchVisible) {
+                    SearchBar(
+                        searchQuery = searchQuery,
+                        onSearchQueryChange = onSearchQueryChange,
+                        searchMatches = searchMatches,
+                        currentMatchIndex = currentMatchIndex,
+                        onNextMatch = onNextMatch,
+                        onPreviousMatch = onPreviousMatch,
+                        onClose = onToggleSearch,
+                        modifier =
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp),
+                    )
+                }
+
+                // Scroll to bottom button (shown when not at bottom and there are messages)
+                if (!isAtBottom && messages.isNotEmpty()) {
+                    TooltipFloatingActionButton(
+                        tooltip = "Scroll to Bottom (Resume Auto-Scroll)",
+                        onClick = {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(messages.size - 1)
+                                onEnableAutoScroll() // Re-enable auto-scroll mode
+                            }
+                        },
+                        containerColor = Color(0xFF4EC9B0),
+                        contentColor = Color.White,
+                        modifier =
+                            Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(16.dp)
+                                .size(40.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = "Scroll to bottom",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageRow(
+    message: AppMessage,
+    messageIndex: Int,
+    wrapText: Boolean = true,
+    isSelected: Boolean = false,
+    onSelect: (() -> Unit)? = null,
+    searchQuery: String = "",
+    messageMatches: List<Pair<Int, Int>> = emptyList(),
+    currentMatchOffset: Int = -1,
+) {
+    // Special handling for separator/blank lines
+    when (message) {
+        is Separator -> {
+            // Use a large fixed width to ensure visibility in unwrapped/horizontal scroll mode
+            // fillMaxWidth() doesn't work inside horizontal scroll context
+            val separatorWidth = if (wrapText) Modifier.fillMaxWidth() else Modifier.width(5000.dp)
+
+            Box(
+                modifier =
+                    Modifier
+                        .then(separatorWidth)
+                        .height(20.dp) // Minimum height for blank line to be visible
+                        .padding(vertical = 8.dp, horizontal = 8.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                // Dotted line separator for visual indication
+                Canvas(
+                    modifier =
+                        Modifier
+                            .matchParentSize()
+                            .height(1.dp),
+                ) {
+                    val pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                    drawLine(
+                        color =
+                            androidx.compose.ui.graphics
+                                .Color(0xFF4A4A4A),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, 0f),
+                        strokeWidth = 1f,
+                        pathEffect = pathEffect,
+                    )
+                }
+            }
+        }
+
+        is FixMessage -> {
+            // Use absolute index for alternating colors (odd=bright, even=dull)
+            val isBright = messageIndex % 2 == 1
+
+            val textColor =
+                if (message.isRejectionOrLogout()) {
+                    // Use red shades for rejection messages (matches theme)
+                    if (isBright) {
+                        Color(0xFFE06C75) // Brighter red
+                    } else {
+                        Color(0xFFC55A64) // Duller red
+                    }
+                } else {
+                    when (message.direction) {
+                        FixMessage.Direction.INCOMING -> {
+                            // Alternate between two shades of green based on index
+                            if (isBright) {
+                                Color(0xFF4EC9B0) // Brighter cyan/green
+                            } else {
+                                Color(0xFF3DA89F) // Duller cyan/green
+                            }
+                        }
+
+                        FixMessage.Direction.OUTGOING -> {
+                            // Alternate between two shades of blue based on index
+                            if (isBright) {
+                                Color(0xFF569CD6) // Brighter blue
+                            } else {
+                                Color(0xFF4A7DAF) // Duller blue
+                            }
+                        }
+                    }
+                }
+
+            val backgroundColor = if (isSelected) Color(0xFF3A3A3A) else Color.Transparent
+            val interactionSource = remember { MutableInteractionSource() }
+            val isHovered by interactionSource.collectIsHoveredAsState()
+
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(backgroundColor)
+                        .hoverable(interactionSource)
+                        .then(
+                            if (onSelect != null) {
+                                Modifier.clickable { onSelect() }
+                            } else {
+                                Modifier
+                            },
+                        ).padding(vertical = 2.dp),
+            ) {
+                // Text with proper wrapping and search highlighting
+                val displayText = message.toDisplayString()
+                val highlightedText =
+                    if (searchQuery.isNotBlank() && messageMatches.isNotEmpty()) {
+                        buildAnnotatedString {
+                            var lastIndex = 0
+
+                            // Get all match offsets for this message (sorted)
+                            // Offsets are now already in displayText coordinates (since we search in toDisplayString())
+                            val matchOffsets = messageMatches.map { it.second }.sorted()
+
+                            for (offset in matchOffsets) {
+                                // Add text before match with default color
+                                if (offset > lastIndex) {
+                                    withStyle(SpanStyle(color = textColor)) {
+                                        append(displayText.substring(lastIndex, offset))
+                                    }
+                                }
+
+                                // Add highlighted match
+                                val matchEnd = (offset + searchQuery.length).coerceAtMost(displayText.length)
+                                val isCurrentMatch = offset == currentMatchOffset
+
+                                withStyle(
+                                    SpanStyle(
+                                        background =
+                                            if (isCurrentMatch) {
+                                                Color(0xFFFF9800) // Bright orange for current match
+                                            } else {
+                                                Color(0xFFFFEB3B).copy(alpha = 0.4f) // Semi-transparent yellow for other matches
+                                            },
+                                        color = if (isCurrentMatch) Color.Black else textColor,
+                                    ),
+                                ) {
+                                    append(displayText.substring(offset, matchEnd))
+                                }
+
+                                lastIndex = matchEnd
+                            }
+
+                            // Add remaining text with default color
+                            if (lastIndex < displayText.length) {
+                                withStyle(SpanStyle(color = textColor)) {
+                                    append(displayText.substring(lastIndex))
+                                }
+                            }
+                        }
+                    } else {
+                        AnnotatedString(displayText)
+                    }
+
+                Text(
+                    text = highlightedText,
+                    color = if (searchQuery.isBlank() || messageMatches.isEmpty()) textColor else Color.Unspecified,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    softWrap = wrapText,
+                    maxLines = if (wrapText) Int.MAX_VALUE else 1,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(end = if (isHovered || isSelected) 28.dp else 0.dp),
+                )
+
+                // Copy button positioned at the right side (shown on hover or when selected)
+                if (isHovered || isSelected) {
+                    Row(
+                        modifier =
+                            Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 4.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TooltipIconButton(
+                            tooltip = "Copy Message",
+                            onClick = {
+                                val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+                                clipboard.setContents(StringSelection(message.rawMessage), null)
+                            },
+                            modifier = Modifier.size(20.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy",
+                                tint = Color(0xFFB0B0B0),
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchBar(
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    searchMatches: List<Pair<Int, Int>>,
+    currentMatchIndex: Int,
+    onNextMatch: () -> Unit,
+    onPreviousMatch: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val focusRequester = remember { FocusRequester() }
+
+    // Auto-focus when search bar becomes visible
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Row(
+        modifier =
+            modifier
+                .background(Color(0xFF2D2D2D))
+                .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        // Search input
+        Box(
+            modifier =
+                Modifier
+                    .width(200.dp)
+                    .height(28.dp),
+        ) {
+            BasicTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .focusRequester(focusRequester)
+                        .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
+                        .border(
+                            width = 1.dp,
+                            color = if (isFocused) Color(0xFF4EC9B0) else Color(0xFF3A3A3A),
+                            shape = RoundedCornerShape(2.dp),
+                        ).padding(horizontal = 6.dp, vertical = 6.dp),
+                textStyle =
+                    TextStyle(
+                        fontSize = 11.sp,
+                        color = Color(0xFFE0E0E0),
+                    ),
+                singleLine = true,
+                cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                interactionSource = interactionSource,
+                decorationBox = { innerTextField ->
+                    if (searchQuery.isEmpty() && !isFocused) {
+                        Text(
+                            text = "Search...",
+                            style =
+                                TextStyle(
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF6A6A6A),
+                                ),
+                        )
+                    }
+                    innerTextField()
+                },
+            )
+        }
+
+        // Match counter
+        if (searchMatches.isNotEmpty()) {
+            Text(
+                text = "${currentMatchIndex + 1} of ${searchMatches.size}",
+                color = Color(0xFFB0B0B0),
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+        }
+
+        // Previous button
+        IconButton(
+            onClick = onPreviousMatch,
+            enabled = searchMatches.isNotEmpty(),
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowUp,
+                contentDescription = "Previous match",
+                tint = if (searchMatches.isNotEmpty()) Color(0xFFB0B0B0) else Color(0xFF6A6A6A),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        // Next button
+        IconButton(
+            onClick = onNextMatch,
+            enabled = searchMatches.isNotEmpty(),
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Next match",
+                tint = if (searchMatches.isNotEmpty()) Color(0xFFB0B0B0) else Color(0xFF6A6A6A),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        // Close button
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier.size(32.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Close search",
+                tint = Color(0xFFB0B0B0),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}

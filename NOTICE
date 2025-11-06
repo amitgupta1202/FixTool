@@ -1,0 +1,88 @@
+FixTool
+Copyright 2024 Amit Gupta
+
+This product includes software developed by Amit Gupta.
+
+================================================================================
+
+This product includes the following third-party components:
+
+================================================================================
+QuickFIX/J
+Copyright (c) 2001-2024 quickfixengine.org
+License: QuickFIX Software License, Version 1.0 (BSD-style)
+Website: https://www.quickfixj.org/
+
+This product includes software developed by quickfixengine.org
+(http://www.quickfixengine.org/).
+
+QuickFIX/J is used for FIX protocol implementation and message processing.
+
+================================================================================
+SLF4J (Simple Logging Facade for Java)
+Copyright (c) 2004-2024 QOS.ch
+License: MIT License
+Website: https://www.slf4j.org/
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+================================================================================
+Kotlin Serialization
+Copyright (c) 2017-2024 JetBrains s.r.o. and Kotlin Programming Language contributors
+License: Apache License 2.0
+Website: https://github.com/Kotlin/kotlinx.serialization
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+================================================================================
+Compose Multiplatform
+Copyright (c) 2020-2024 JetBrains s.r.o. and respective authors and developers
+License: Apache License 2.0
+Website: https://github.com/JetBrains/compose-multiplatform
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+================================================================================
+Jetpack Compose
+Copyright (c) 2019-2024 The Android Open Source Project
+License: Apache License 2.0
+Website: https://developer.android.com/jetpack/compose
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+================================================================================
+Kotlin Standard Library and Coroutines
+Copyright (c) 2010-2024 JetBrains s.r.o. and Kotlin Programming Language contributors
+License: Apache License 2.0
+Website: https://kotlinlang.org/
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+================================================================================
+
+For complete license texts, please refer to the LICENSE file and the
+respective project websites listed above.

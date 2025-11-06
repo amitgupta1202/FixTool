@@ -38,7 +38,7 @@ private val DarkColorScheme =
 
 @Composable
 @Preview
-fun App() {
+fun App(modifier: Modifier = Modifier) {
     MaterialTheme(
         colorScheme = DarkColorScheme,
     ) {
@@ -70,7 +70,7 @@ fun App() {
         } // Message editor panel width (28% when description shown, 20% when hidden) - starts at 28% since description is visible by default
         var connectionPanelSplitRatio by remember { mutableStateOf(0.2f) }
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = modifier.fillMaxSize()) {
             Column(
                 modifier =
                     Modifier

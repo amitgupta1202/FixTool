@@ -105,7 +105,7 @@ private fun NotificationPopup(
             // Message text
             Text(
                 text = notification.message,
-                color = notificationTextColor,
+                color = AppTheme.Colors.text,
                 fontSize = 11.sp,
                 lineHeight = 14.sp,
                 modifier = Modifier.weight(1f),
@@ -115,7 +115,7 @@ private fun NotificationPopup(
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Dismiss",
-                tint = closeButtonColor,
+                tint = AppTheme.Colors.textSecondary,
                 modifier =
                     closeButtonSize
                         .clickable { onDismiss() },
@@ -134,32 +134,24 @@ private data class NotificationStyle(
     val iconTint: Color,
 )
 
-// Color constants
-private val errorBackgroundColor = Color(0xFF3D2828)
-private val errorBorderColor = Color(0xFFFF5555)
+// Component-specific colors (warning notification colors not in AppTheme)
 private val warningBackgroundColor = Color(0xFF3D3528)
 private val warningBorderColor = Color(0xFFFFA500)
-private val infoBackgroundColor = Color(0xFF283D3D)
-private val infoBorderColor = Color(0xFF5599FF)
-private val successBackgroundColor = Color(0xFF283D28)
-private val successBorderColor = Color(0xFF55FF55)
-private val notificationTextColor = Color(0xFFE0E0E0)
-private val closeButtonColor = Color(0xFFB0B0B0)
 
 // Modifier constants
 private val notificationIconSize = Modifier.size(20.dp)
 private val closeButtonSize = Modifier.size(16.dp)
 private val notificationShape = RoundedCornerShape(4.dp)
 
-// Helper function
+// Helper function using AppTheme notification colors
 private fun getNotificationStyle(type: NotificationType): NotificationStyle =
     when (type) {
         NotificationType.ERROR ->
             NotificationStyle(
-                backgroundColor = errorBackgroundColor,
-                borderColor = errorBorderColor,
+                backgroundColor = AppTheme.Colors.notificationErrorBackground,
+                borderColor = AppTheme.Colors.notificationErrorBorder,
                 icon = Icons.Default.Error,
-                iconTint = errorBorderColor,
+                iconTint = AppTheme.Colors.notificationErrorBorder,
             )
         NotificationType.WARNING ->
             NotificationStyle(
@@ -170,16 +162,16 @@ private fun getNotificationStyle(type: NotificationType): NotificationStyle =
             )
         NotificationType.INFO ->
             NotificationStyle(
-                backgroundColor = infoBackgroundColor,
-                borderColor = infoBorderColor,
+                backgroundColor = AppTheme.Colors.notificationInfoBackground,
+                borderColor = AppTheme.Colors.notificationInfoBorder,
                 icon = Icons.Default.Info,
-                iconTint = infoBorderColor,
+                iconTint = AppTheme.Colors.notificationInfoBorder,
             )
         NotificationType.SUCCESS ->
             NotificationStyle(
-                backgroundColor = successBackgroundColor,
-                borderColor = successBorderColor,
+                backgroundColor = AppTheme.Colors.notificationSuccessBackground,
+                borderColor = AppTheme.Colors.notificationSuccessBorder,
                 icon = Icons.Default.CheckCircle,
-                iconTint = successBorderColor,
+                iconTint = AppTheme.Colors.notificationSuccessBorder,
             )
     }

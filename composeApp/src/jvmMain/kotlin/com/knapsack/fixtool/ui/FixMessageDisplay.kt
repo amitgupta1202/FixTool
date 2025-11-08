@@ -829,25 +829,25 @@ private fun SearchBar(
 }
 
 // Constants
-private val messageBackgroundColor = Color(0xFF1E1E1E)
-private val selectedBackgroundColor = Color(0xFF3A3A3A)
-private val borderColor = Color(0xFF3A3A3A)
-private val rejectionBrightColor = Color(0xFFE06C75)
-private val rejectionDullColor = Color(0xFFC55A64)
-private val incomingBrightColor = Color(0xFF4EC9B0)
-private val incomingDullColor = Color(0xFF3DA89F)
-private val outgoingBrightColor = Color(0xFF569CD6)
-private val outgoingDullColor = Color(0xFF4A7DAF)
-private val iconTintColor = Color(0xFFB0B0B0)
-private val placeholderTextColor = Color(0xFF6A6A6A)
-private val textPrimaryColor = Color(0xFFE0E0E0)
-private val searchBarBackgroundColor = Color(0xFF2D2D2D)
-private val textFieldBackgroundColor = Color(0xFF2B2B2B)
-private val separatorLineColor = Color(0xFF4A4A4A)
-private val currentMatchHighlightColor = Color(0xFFFF9800)
-private val otherMatchHighlightColor = Color(0xFFFFEB3B)
-private val activeColor = Color(0xFF4EC9B0)
-private val fabBackgroundColor = Color(0xFF4EC9B0)
+private val messageBackgroundColor = AppTheme.Colors.background
+private val selectedBackgroundColor = AppTheme.Colors.border
+private val borderColor = AppTheme.Colors.border
+private val rejectionBrightColor = AppTheme.Colors.messageRejection
+private val rejectionDullColor = Color(0xFFC55A64) // Keep unique dull variant
+private val incomingBrightColor = AppTheme.Colors.messageIncoming
+private val incomingDullColor = Color(0xFF3DA89F) // Keep unique dull variant
+private val outgoingBrightColor = AppTheme.Colors.messageOutgoing
+private val outgoingDullColor = Color(0xFF4A7DAF) // Keep unique dull variant
+private val iconTintColor = AppTheme.Colors.textSecondary
+private val placeholderTextColor = AppTheme.Colors.textDisabled
+private val textPrimaryColor = AppTheme.Colors.text
+private val searchBarBackgroundColor = Color(0xFF2D2D2D) // Keep unique search bar color
+private val textFieldBackgroundColor = AppTheme.Colors.surface
+private val separatorLineColor = Color(0xFF4A4A4A) // Keep unique separator line color
+private val currentMatchHighlightColor = AppTheme.Colors.highlightCurrent
+private val otherMatchHighlightColor = Color(0xFFFFEB3B) // Keep unique yellow for other matches
+private val activeColor = AppTheme.Colors.primary
+private val fabBackgroundColor = AppTheme.Colors.primary
 
 private val textFieldBorderRadius = RoundedCornerShape(2.dp)
 private val iconSize = 20.dp

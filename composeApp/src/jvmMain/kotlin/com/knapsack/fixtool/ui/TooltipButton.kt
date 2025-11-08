@@ -67,9 +67,9 @@ fun TooltipIconButton(
                     modifier =
                         Modifier
                             .shadow(4.dp, tooltipShape)
-                            .background(tooltipBackgroundColor, tooltipShape)
+                            .background(AppTheme.Colors.border, tooltipShape)
                             .padding(horizontal = 8.dp, vertical = 4.dp),
-                    color = tooltipTextColor,
+                    color = AppTheme.Colors.text,
                     fontSize = 11.sp,
                 )
             }
@@ -88,7 +88,7 @@ fun TooltipIconButton(
             enabled = enabled,
             colors =
                 IconButtonDefaults.iconButtonColors(
-                    containerColor = if (isHovered) buttonHoverColor else Color.Transparent,
+                    containerColor = if (isHovered) AppTheme.Colors.border else Color.Transparent,
                 ),
             interactionSource = interactionSource,
         ) {
@@ -114,9 +114,9 @@ fun TooltipFloatingActionButton(
                 modifier =
                     Modifier
                         .shadow(4.dp, tooltipShape)
-                        .background(tooltipBackgroundColor, tooltipShape)
+                        .background(AppTheme.Colors.border, tooltipShape)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
-                color = tooltipTextColor,
+                color = AppTheme.Colors.text,
                 fontSize = 11.sp,
             )
         },
@@ -139,10 +139,7 @@ fun TooltipFloatingActionButton(
     }
 }
 
-// Color constants
-private val tooltipBackgroundColor = Color(0xFF3A3A3A)
-private val tooltipTextColor = Color(0xFFE0E0E0)
-private val buttonHoverColor = Color(0xFF3A3A3A)
+// No local color constants needed - all colors now use AppTheme.Colors
 
 // Shape constants
 private val tooltipShape = RoundedCornerShape(4.dp)

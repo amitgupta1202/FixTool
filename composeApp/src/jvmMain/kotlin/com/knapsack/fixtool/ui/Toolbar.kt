@@ -54,7 +54,7 @@ fun Toolbar(
         modifier =
             modifier
                 .fillMaxWidth()
-                .background(backgroundColor)
+                .background(AppTheme.Colors.surface)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -68,7 +68,7 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.EditNote,
                     contentDescription = "Message Editor",
-                    tint = toggleActiveColor(showMessageEditor),
+                    tint = toggleActiveColor(showMessageEditor, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
                     modifier = tooltipIconModifier,
                 )
             }
@@ -76,7 +76,7 @@ fun Toolbar(
 
         Text(
             text = "FixTool",
-            color = textColor,
+            color = AppTheme.Colors.text,
             fontSize = 14.sp,
             modifier = Modifier.padding(horizontal = 8.dp),
         )
@@ -92,7 +92,7 @@ fun Toolbar(
                     modifier =
                         Modifier
                             .height(28.dp)
-                            .background(dropdownBackgroundColor, RoundedCornerShape(4.dp))
+                            .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
                             .clickable { expanded = true }
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -101,18 +101,18 @@ fun Toolbar(
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Quick Connect",
-                        tint = activeColor,
+                        tint = AppTheme.Colors.primary,
                         modifier = Modifier.size(16.dp),
                     )
                     Text(
                         text = "Quick Connect",
-                        color = textColor,
+                        color = AppTheme.Colors.text,
                         fontSize = 11.sp,
                     )
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
                         contentDescription = "Dropdown",
-                        tint = textColor,
+                        tint = AppTheme.Colors.text,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -122,7 +122,7 @@ fun Toolbar(
                     onDismissRequest = { expanded = false },
                     modifier =
                         Modifier
-                            .background(backgroundColor)
+                            .background(AppTheme.Colors.surface)
                             .widthIn(min = 200.dp),
                 ) {
                     connectionProfiles.forEach { profile ->
@@ -145,7 +145,7 @@ fun Toolbar(
                                     )
                                     Text(
                                         text = profile.name,
-                                        color = textColor,
+                                        color = AppTheme.Colors.text,
                                         fontSize = 11.sp,
                                     )
                                 }
@@ -172,7 +172,7 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.Notes,
                     contentDescription = "Blank Line",
-                    tint = textColor,
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = tooltipIconModifier,
                 )
             }
@@ -188,7 +188,7 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Clear All",
-                    tint = textColor,
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = tooltipIconModifier,
                 )
             }
@@ -221,7 +221,7 @@ fun Toolbar(
                         ViewMode.SPLIT_VERTICAL -> Icons.Default.ViewArray
                     },
                 contentDescription = "Toggle Layout",
-                tint = textColor,
+                tint = AppTheme.Colors.textSecondary,
                 modifier = tooltipIconModifier,
             )
         }
@@ -250,7 +250,7 @@ fun Toolbar(
                             null -> Icons.Default.Apps
                         },
                     contentDescription = "Toggle View for All Sessions",
-                    tint = toggleDisabledColor(activeSessionViewMode != null),
+                    tint = toggleDisabledColor(activeSessionViewMode != null, AppTheme.Colors.textSecondary, AppTheme.Colors.textDisabled),
                     modifier = tooltipIconModifier,
                 )
             }
@@ -274,7 +274,7 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.Computer,
                     contentDescription = "Toggle Demo Server",
-                    tint = toggleActiveColor(demoServerRunning),
+                    tint = toggleActiveColor(demoServerRunning, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
                     modifier = tooltipIconModifier,
                 )
             }
@@ -290,7 +290,7 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.ElectricalServices,
                     contentDescription = "Toggle Connection Panel",
-                    tint = toggleActiveColor(showConnectionPanel),
+                    tint = toggleActiveColor(showConnectionPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
                     modifier = tooltipIconModifier,
                 )
             }
@@ -306,7 +306,7 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.Settings,
                     contentDescription = "Settings",
-                    tint = if (isDictionaryValid) textColor else invalidColor,
+                    tint = if (isDictionaryValid) AppTheme.Colors.textSecondary else AppTheme.Colors.error,
                     modifier = tooltipIconModifier,
                 )
             }
@@ -322,7 +322,7 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.Article,
                     contentDescription = "Toggle Message Detail Panel",
-                    tint = toggleActiveColor(showDetailPanel),
+                    tint = toggleActiveColor(showDetailPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
                     modifier = tooltipIconModifier,
                 )
             }
@@ -330,16 +330,12 @@ fun Toolbar(
     }
 }
 
-private val textColor = Color(0xFFB0B0B0)
-private val activeColor = Color(0xFF4EC9B0)
-private val invalidColor = Color(0xFFE06C75)
-private val backgroundColor = Color(0xFF2B2B2B)
-private val disabledColor = Color(0xFF6A6A6A)
-private val dropdownBackgroundColor = Color(0xFF3A3A3A)
+// Helper functions now take colors as parameters to use AppTheme.Colors
+private fun toggleActiveColor(condition: Boolean, activeColor: Color, inactiveColor: Color) =
+    if (condition) activeColor else inactiveColor
 
-private fun toggleActiveColor(condition: Boolean) = if (condition) activeColor else textColor
-
-private fun toggleDisabledColor(condition: Boolean) = if (condition) textColor else disabledColor
+private fun toggleDisabledColor(condition: Boolean, enabledColor: Color, disabledColor: Color) =
+    if (condition) enabledColor else disabledColor
 
 private val tooltipModifier = Modifier.size(32.dp)
 private val tooltipIconModifier = Modifier.size(20.dp)

@@ -42,7 +42,7 @@ fun TabBar(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(tabBarBackgroundColor)
+                    .background(AppTheme.Colors.surface)
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -80,7 +80,7 @@ fun TabBar(
                         Icon(
                             imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
                             contentDescription = "Toggle Text Wrap",
-                            tint = iconTintColor,
+                            tint = AppTheme.Colors.textSecondary,
                             modifier = toolbarIconSize,
                         )
                     }
@@ -94,7 +94,7 @@ fun TabBar(
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Toggle Search",
-                            tint = if (searchVisible) AppTheme.Colors.primary else iconTintColor,
+                            tint = if (searchVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                             modifier = toolbarIconSize,
                         )
                     }
@@ -109,7 +109,7 @@ fun TabBar(
                     Icon(
                         imageVector = Icons.Default.FilterAlt,
                         contentDescription = "Toggle Filter",
-                        tint = if (filterVisible) AppTheme.Colors.primary else iconTintColor,
+                        tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )
                 }
@@ -123,7 +123,7 @@ fun TabBar(
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add Separator",
-                        tint = iconTintColor,
+                        tint = AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )
                 }
@@ -137,7 +137,7 @@ fun TabBar(
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Clear All Messages",
-                        tint = iconTintColor,
+                        tint = AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )
                 }
@@ -162,7 +162,7 @@ fun TabBar(
                     Icon(
                         imageVector = icon,
                         contentDescription = "Toggle View (${viewMode.name})",
-                        tint = iconTintColor,
+                        tint = AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )
                 }
@@ -178,7 +178,7 @@ fun TabBar(
                         Icon(
                             imageVector = Icons.Default.PowerSettingsNew,
                             contentDescription = "Connect",
-                            tint = disconnectedIconColor,
+                            tint = AppTheme.Colors.textSecondary,
                             modifier = toolbarIconSize,
                         )
                     }
@@ -192,7 +192,7 @@ fun TabBar(
                         Icon(
                             imageVector = Icons.Default.PowerSettingsNew,
                             contentDescription = "Disconnect",
-                            tint = connectedIconColor,
+                            tint = AppTheme.Colors.success,
                             modifier = toolbarIconSize,
                         )
                     }
@@ -210,8 +210,8 @@ private fun Tab(
     onClose: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val backgroundColor = if (isActive) tabActiveBackgroundColor else tabInactiveBackgroundColor
-    val textColor = if (isActive) tabActiveTextColor else tabInactiveTextColor
+    val backgroundColor = if (isActive) AppTheme.Colors.background else AppTheme.Colors.surface
+    val textColor = if (isActive) AppTheme.Colors.text else AppTheme.Colors.textSecondary
 
     Row(
         modifier =
@@ -246,15 +246,7 @@ private fun Tab(
     }
 }
 
-// Color constants
-private val tabBarBackgroundColor = Color(0xFF2B2B2B)
-private val tabActiveBackgroundColor = Color(0xFF1E1E1E)
-private val tabInactiveBackgroundColor = Color(0xFF2B2B2B)
-private val tabActiveTextColor = Color(0xFFE0E0E0)
-private val tabInactiveTextColor = Color(0xFFB0B0B0)
-private val iconTintColor = Color(0xFFB0B0B0)
-private val connectedIconColor = Color(0xFF7AD67A)
-private val disconnectedIconColor = Color(0xFFB0B0B0)
+// No local color constants needed - all colors now use AppTheme.Colors
 
 // Modifier constants
 private val toolbarButtonSize = Modifier.size(28.dp)

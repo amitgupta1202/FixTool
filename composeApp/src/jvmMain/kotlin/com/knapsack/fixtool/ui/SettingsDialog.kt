@@ -219,7 +219,7 @@ fun SettingsDialog(
                     Text(
                         text = "Enable strict validation (recommended: keep all disabled for flexibility)",
                         fontSize = 11.sp,
-                        color = AppTheme.Colors.textTertiary,
+                        color = AppTheme.Colors.textDisabled,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
 
@@ -262,7 +262,7 @@ fun SettingsDialog(
                     Text(
                         text = "Select FIX tags to display as columns in grid view (top-level tags only)",
                         fontSize = 11.sp,
-                        color = AppTheme.Colors.textTertiary,
+                        color = AppTheme.Colors.textDisabled,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
 
@@ -407,7 +407,7 @@ fun SettingsDialog(
                         Text(
                             text = "No data dictionary loaded. Configure a dictionary above to enable this feature.",
                             fontSize = 11.sp,
-                            color = AppTheme.Colors.textTertiary,
+                            color = AppTheme.Colors.textDisabled,
                         )
                     }
 
@@ -428,7 +428,7 @@ fun SettingsDialog(
                     Text(
                         text = "Configure which FIX tags are considered protocol/session-level tags",
                         fontSize = 11.sp,
-                        color = AppTheme.Colors.textTertiary,
+                        color = AppTheme.Colors.textDisabled,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
 
@@ -671,7 +671,7 @@ private fun SlimTextField(
                     Text(
                         text = placeholder,
                         fontSize = 13.sp,
-                        color = AppTheme.Colors.textTertiary,
+                        color = AppTheme.Colors.textDisabled,
                     )
                 }
                 innerTextField()
@@ -701,7 +701,7 @@ private fun SlimButton(
     ) {
         Text(
             text = text,
-            color = if (enabled) contentColor else AppTheme.Colors.textTertiary,
+            color = if (enabled) contentColor else AppTheme.Colors.textDisabled,
             fontSize = 13.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
         )
@@ -763,7 +763,7 @@ private fun CheckboxSetting(
             Text(
                 text = description,
                 fontSize = 11.sp,
-                color = AppTheme.Colors.textTertiary,
+                color = AppTheme.Colors.textDisabled,
                 lineHeight = 14.sp,
             )
         }

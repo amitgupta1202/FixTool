@@ -81,12 +81,12 @@ fun HierarchicalGridView(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().background(Color(0xFF1E1E1E))) {
+    Column(modifier = modifier.fillMaxSize().background(mainBackgroundColor)) {
         // Header row
         Row(
             modifier =
                 Modifier
-                    .background(Color(0xFF2D2D2D))
+                    .background(headerBackgroundColor)
                     .height(24.dp)
                     .fillMaxWidth(),
         ) {
@@ -95,12 +95,12 @@ fun HierarchicalGridView(
                     Modifier
                         .width(40.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF454545)),
+                        .border(0.5.dp, headerBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "",
-                    color = Color(0xFFB0B0B0),
+                    color = headerTextColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -111,12 +111,12 @@ fun HierarchicalGridView(
                     Modifier
                         .width(120.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF454545)),
+                        .border(0.5.dp, headerBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "Time",
-                    color = Color(0xFFB0B0B0),
+                    color = headerTextColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -127,12 +127,12 @@ fun HierarchicalGridView(
                     Modifier
                         .width(50.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF454545)),
+                        .border(0.5.dp, headerBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "Dir",
-                    color = Color(0xFFB0B0B0),
+                    color = headerTextColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -143,12 +143,12 @@ fun HierarchicalGridView(
                     Modifier
                         .width(100.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF454545)),
+                        .border(0.5.dp, headerBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "MsgType",
-                    color = Color(0xFFB0B0B0),
+                    color = headerTextColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -162,12 +162,12 @@ fun HierarchicalGridView(
                         Modifier
                             .width(120.dp)
                             .fillMaxHeight()
-                            .border(0.5.dp, Color(0xFF454545)),
+                            .border(0.5.dp, headerBorderColor),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = fieldName,
-                        color = Color(0xFFB0B0B0),
+                        color = headerTextColor,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -182,12 +182,12 @@ fun HierarchicalGridView(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF454545)),
+                        .border(0.5.dp, headerBorderColor),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Text(
                     text = "Summary",
-                    color = Color(0xFFB0B0B0),
+                    color = headerTextColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 4.dp),
@@ -213,7 +213,7 @@ fun HierarchicalGridView(
                                     Modifier
                                         .fillMaxWidth()
                                         .height(20.dp)
-                                        .background(Color(0xFF2A2A2A)),
+                                        .background(separatorBackgroundColor),
                             )
                         }
                     }
@@ -274,17 +274,13 @@ fun MessageSummaryRow(
             }
         }
     // Match session coloring: blue for outgoing, red for incoming rejects, green for other incoming
-    val directionColor =
-        when (message.direction) {
-            FixMessage.Direction.OUTGOING -> Color(0xFF569CD6) // Blue
-            FixMessage.Direction.INCOMING -> if (message.isRejectionOrLogout()) Color(0xFFE06C75) else Color(0xFF4EC9B0) // Green/cyan
-        }
+    val directionColor = getDirectionColor(message)
 
     val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
     val msgTypeDesc = dictionary.getFieldValueDescription(35, message.messageType) ?: message.messageType
 
     // Background color: highlight if selected, otherwise default
-    val backgroundColor = if (isSelected) Color(0xFF2D4F7C) else Color(0xFF1E1E1E)
+    val backgroundColor = if (isSelected) selectedRowBackgroundColor else mainBackgroundColor
 
     Row(
         modifier =
@@ -309,7 +305,7 @@ fun MessageSummaryRow(
                 imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                 contentDescription = if (isExpanded) "Collapse" else "Expand",
                 tint = Color(0xFFB0B0B0),
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(iconSize),
             )
         }
 
@@ -337,12 +333,12 @@ fun MessageSummaryRow(
                     Modifier
                         .width(120.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF3A3A3A)),
+                        .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = message.timestamp.format(timeFormatter),
-                    color = Color(0xFFE0E0E0),
+                    color = textPrimaryColor,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                 )
@@ -354,7 +350,7 @@ fun MessageSummaryRow(
                     Modifier
                         .width(50.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF3A3A3A)),
+                        .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -371,12 +367,12 @@ fun MessageSummaryRow(
                     Modifier
                         .width(100.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF3A3A3A)),
+                        .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = message.messageType,
-                    color = Color(0xFFDCDCAA),
+                    color = tagNumberColor,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                 )
@@ -389,13 +385,13 @@ fun MessageSummaryRow(
                         Modifier
                             .width(120.dp)
                             .fillMaxHeight()
-                            .border(0.5.dp, Color(0xFF3A3A3A)),
+                            .border(0.5.dp, cellBorderColor),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     SelectionContainer {
                         Text(
                             text = value,
-                            color = Color(0xFF9CDCFE),
+                            color = valueColor,
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1,
@@ -412,7 +408,7 @@ fun MessageSummaryRow(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .border(0.5.dp, Color(0xFF3A3A3A)),
+                        .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 TooltipArea(
@@ -421,10 +417,10 @@ fun MessageSummaryRow(
                             text = msgTypeDesc,
                             modifier =
                                 Modifier
-                                    .shadow(4.dp, RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                                    .shadow(4.dp, tooltipCornerRadius)
+                                    .background(tooltipBackgroundColor, tooltipCornerRadius)
                                     .padding(horizontal = 8.dp, vertical = 4.dp),
-                            color = Color(0xFFE0E0E0),
+                            color = textPrimaryColor,
                             fontSize = 11.sp,
                         )
                     },
@@ -439,7 +435,7 @@ fun MessageSummaryRow(
                     SelectionContainer {
                         Text(
                             text = msgTypeDesc,
-                            color = Color(0xFFE0E0E0),
+                            color = textPrimaryColor,
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1,
@@ -621,7 +617,7 @@ private fun HierarchicalFieldRow(
             Modifier
                 .height(20.dp)
                 .fillMaxWidth()
-                .background(Color(0xFF252525)),
+                .background(fieldRowBackgroundColor),
     ) {
         // Empty space for indent + icon column
         Box(
@@ -645,7 +641,7 @@ private fun HierarchicalFieldRow(
                 Row(modifier = Modifier.padding(start = indent).padding(start = 4.dp)) {
                     Text(
                         text = tag.toString(),
-                        color = Color(0xFFDCDCAA),
+                        color = tagNumberColor,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                     )
@@ -668,10 +664,10 @@ private fun HierarchicalFieldRow(
                         text = fieldName,
                         modifier =
                             Modifier
-                                .shadow(4.dp, RoundedCornerShape(4.dp))
-                                .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                                .shadow(4.dp, tooltipCornerRadius)
+                                .background(tooltipBackgroundColor, tooltipCornerRadius)
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = Color(0xFFE0E0E0),
+                        color = textPrimaryColor,
                         fontSize = 11.sp,
                     )
                 },
@@ -686,7 +682,7 @@ private fun HierarchicalFieldRow(
                 SelectionContainer {
                     Text(
                         text = fieldName,
-                        color = Color(0xFFE0E0E0),
+                        color = textPrimaryColor,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
@@ -712,10 +708,10 @@ private fun HierarchicalFieldRow(
                         text = value,
                         modifier =
                             Modifier
-                                .shadow(4.dp, RoundedCornerShape(4.dp))
-                                .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                                .shadow(4.dp, tooltipCornerRadius)
+                                .background(tooltipBackgroundColor, tooltipCornerRadius)
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = Color(0xFFE0E0E0),
+                        color = textPrimaryColor,
                         fontSize = 11.sp,
                     )
                 },
@@ -756,10 +752,10 @@ private fun HierarchicalFieldRow(
                         text = valueDesc,
                         modifier =
                             Modifier
-                                .shadow(4.dp, RoundedCornerShape(4.dp))
-                                .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                                .shadow(4.dp, tooltipCornerRadius)
+                                .background(tooltipBackgroundColor, tooltipCornerRadius)
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = Color(0xFFE0E0E0),
+                        color = textPrimaryColor,
                         fontSize = 11.sp,
                     )
                 },
@@ -774,7 +770,7 @@ private fun HierarchicalFieldRow(
                 SelectionContainer {
                     Text(
                         text = valueDesc,
-                        color = Color(0xFFE0E0E0),
+                        color = textPrimaryColor,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
@@ -808,7 +804,7 @@ private fun HierarchicalGroupHeaderRow(
             Modifier
                 .height(20.dp)
                 .fillMaxWidth()
-                .background(Color(0xFF2A2A2A))
+                .background(separatorBackgroundColor)
                 .clickable { onToggle() },
     ) {
         // Expand icon
@@ -824,7 +820,7 @@ private fun HierarchicalGroupHeaderRow(
                 imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                 contentDescription = if (isExpanded) "Collapse" else "Expand",
                 tint = Color(0xFFB0B0B0),
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(iconSize),
             )
         }
 
@@ -841,7 +837,7 @@ private fun HierarchicalGroupHeaderRow(
                 Row(modifier = Modifier.padding(start = indent).padding(start = 4.dp)) {
                     Text(
                         text = tag.toString(),
-                        color = Color(0xFFDCDCAA),
+                        color = tagNumberColor,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
@@ -865,10 +861,10 @@ private fun HierarchicalGroupHeaderRow(
                         text = "$fieldName ($count instances)",
                         modifier =
                             Modifier
-                                .shadow(4.dp, RoundedCornerShape(4.dp))
-                                .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                                .shadow(4.dp, tooltipCornerRadius)
+                                .background(tooltipBackgroundColor, tooltipCornerRadius)
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = Color(0xFFE0E0E0),
+                        color = textPrimaryColor,
                         fontSize = 11.sp,
                     )
                 },
@@ -943,7 +939,7 @@ private fun HierarchicalGroupInstanceHeader(
             Modifier
                 .height(20.dp)
                 .fillMaxWidth()
-                .background(Color(0xFF202020)),
+                .background(groupInstanceBackgroundColor),
     ) {
         // Empty icon column
         Box(
@@ -1023,4 +1019,33 @@ private fun extractTopLevelFieldValue(message: quickfix.Message, tag: Int): Stri
         }
     } catch (e: Exception) {
         ""
+    }
+
+// Constants
+private val mainBackgroundColor = Color(0xFF1E1E1E)
+private val headerBackgroundColor = Color(0xFF2D2D2D)
+private val headerTextColor = Color(0xFFB0B0B0)
+private val headerBorderColor = Color(0xFF454545)
+private val separatorBackgroundColor = Color(0xFF2A2A2A)
+private val cellBorderColor = Color(0xFF3A3A3A)
+private val tooltipBackgroundColor = Color(0xFF3A3A3A)
+private val textPrimaryColor = Color(0xFFE0E0E0)
+private val outgoingColor = Color(0xFF569CD6)
+private val incomingColor = Color(0xFF4EC9B0)
+private val rejectionColor = Color(0xFFE06C75)
+private val selectedRowBackgroundColor = Color(0xFF2D4F7C)
+private val tagNumberColor = Color(0xFFDCDCAA)
+private val valueColor = Color(0xFF9CDCFE)
+private val fieldRowBackgroundColor = Color(0xFF252525)
+private val groupInstanceBackgroundColor = Color(0xFF202020)
+
+private val tooltipCornerRadius = RoundedCornerShape(4.dp)
+private val iconSize = 14.dp
+
+// Helper function for direction color
+private fun getDirectionColor(message: FixMessage): Color =
+    when (message.direction) {
+        FixMessage.Direction.OUTGOING -> outgoingColor
+        FixMessage.Direction.INCOMING ->
+            if (message.isRejectionOrLogout()) rejectionColor else incomingColor
     }

@@ -577,7 +577,7 @@ class AppIntegrationTest {
         }
 
         // Then: Add separator button should be displayed
-        composeTestRule.onNodeWithContentDescription("Add Separator to All").assertExists()
+        composeTestRule.onNodeWithContentDescription("Blank Line").assertExists()
     }
 
     @Test

@@ -15,9 +15,12 @@ import com.knapsack.fixtool.ui.App
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
+import java.awt.Window
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
 import java.io.File
+import javax.swing.JOptionPane
+import javax.swing.JOptionPane.ERROR_MESSAGE
 
 fun main() {
     // Create log directory before any logger is instantiated
@@ -31,11 +34,11 @@ fun main() {
         logger.error("Uncaught exception in thread ${thread.name}", throwable)
         // Try to show error dialog if possible
         try {
-            javax.swing.JOptionPane.showMessageDialog(
+            JOptionPane.showMessageDialog(
                 null,
                 "An unexpected error occurred:\n${throwable.message ?: throwable.toString()}\n\nThe application may continue but might be in an unstable state.\nPlease check the logs for details.",
                 "Unexpected Error",
-                javax.swing.JOptionPane.ERROR_MESSAGE,
+                ERROR_MESSAGE,
             )
         } catch (e: Exception) {
             // If showing dialog fails, just log it
@@ -56,21 +59,24 @@ fun main() {
             // When window gains focus, automatically request focus on compose content
             // This prevents users from having to click multiple times on toolbar buttons
             LaunchedEffect(Unit) {
-                val window = java.awt.Window.getWindows().firstOrNull()
-                window?.addWindowListener(object : WindowAdapter() {
-                    override fun windowActivated(e: WindowEvent?) {
-                        try {
-                            focusRequester.requestFocus()
-                            // Additional delayed focus request for reliability on Windows/Mac
-                            launch {
-                                delay(100)
+                val window = Window.getWindows().firstOrNull()
+                window?.addWindowListener(
+                    object : WindowAdapter() {
+                        override fun windowActivated(ignored: WindowEvent?) {
+                            try {
                                 focusRequester.requestFocus()
+                                // Additional delayed focus request for reliability on Windows/Mac
+                                launch {
+                                    delay(100)
+                                    focusRequester.requestFocus()
+                                }
+                            } catch (e: IllegalStateException) {
+                                // Ignore if focus requester is not yet initialized
+                                logger.warn("Uncaught exception while focusing request", e)
                             }
-                        } catch (e: IllegalStateException) {
-                            // Ignore if focus requester is not yet initialized
                         }
-                    }
-                })
+                    },
+                )
             }
 
             App(modifier = Modifier.focusRequester(focusRequester).focusable())

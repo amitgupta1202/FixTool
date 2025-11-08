@@ -98,7 +98,7 @@ fun SettingsDialog(
                                 hideProtocolTagsByDefault = defaults.hideProtocolTagsByDefault
                                 protocolTags = defaults.protocolTags.toMutableSet()
                             },
-                            containerColor = Color(0xFF4A4A4A),
+                            containerColor = restoreDefaultsButtonColor,
                             contentColor = AppTheme.Colors.textSecondary,
                             modifier = Modifier.height(28.dp).width(140.dp),
                         )
@@ -197,7 +197,7 @@ fun SettingsDialog(
                             Text(
                                 text = "⚠ File not found",
                                 fontSize = 11.sp,
-                                color = Color(0xFFFFA500),
+                                color = warningColor,
                             )
                         }
                     }
@@ -381,7 +381,7 @@ fun SettingsDialog(
                                                     } else {
                                                         gridViewColumns = (gridViewColumns + tag).toMutableList()
                                                     }
-                                                }.background(if (isSelected) Color(0xFF2D4F7C) else Color.Transparent)
+                                                }.background(if (isSelected) selectedItemBackgroundColor else Color.Transparent)
                                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically,
@@ -389,7 +389,7 @@ fun SettingsDialog(
                                         Text(
                                             text = "$tag - $name",
                                             fontSize = 12.sp,
-                                            color = if (isSelected) Color(0xFFE0E0E0) else AppTheme.Colors.text,
+                                            color = if (isSelected) selectedItemTextColor else AppTheme.Colors.text,
                                         )
                                         if (isSelected) {
                                             Icon(
@@ -552,7 +552,7 @@ fun SettingsDialog(
                                                     } else {
                                                         protocolTags = (protocolTags + tag).toMutableSet()
                                                     }
-                                                }.background(if (isSelected) Color(0xFF2D4F7C) else Color.Transparent)
+                                                }.background(if (isSelected) selectedItemBackgroundColor else Color.Transparent)
                                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically,
@@ -560,7 +560,7 @@ fun SettingsDialog(
                                         Text(
                                             text = "$tag - $name",
                                             fontSize = 12.sp,
-                                            color = if (isSelected) Color(0xFFE0E0E0) else AppTheme.Colors.text,
+                                            color = if (isSelected) selectedItemTextColor else AppTheme.Colors.text,
                                         )
                                         if (isSelected) {
                                             Icon(
@@ -598,7 +598,7 @@ fun SettingsDialog(
                     SlimButton(
                         text = "Cancel",
                         onClick = onDismiss,
-                        containerColor = Color(0xFF3A3A3A),
+                        containerColor = cancelButtonColor,
                         contentColor = AppTheme.Colors.textSecondary,
                         modifier = Modifier.width(90.dp),
                     )
@@ -694,8 +694,8 @@ private fun SlimButton(
             modifier
                 .height(32.dp)
                 .background(
-                    color = if (enabled) containerColor else Color(0xFF3A3A3A),
-                    shape = RoundedCornerShape(4.dp),
+                    color = if (enabled) containerColor else cancelButtonColor,
+                    shape = buttonCornerRadius,
                 ).clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
@@ -802,3 +802,12 @@ private fun TwoColumnCheckboxRow(
         )
     }
 }
+
+// Constants
+private val warningColor = Color(0xFFFFA500)
+private val restoreDefaultsButtonColor = Color(0xFF4A4A4A)
+private val cancelButtonColor = Color(0xFF3A3A3A)
+private val selectedItemBackgroundColor = Color(0xFF2D4F7C)
+private val selectedItemTextColor = Color(0xFFE0E0E0)
+
+private val buttonCornerRadius = RoundedCornerShape(4.dp)

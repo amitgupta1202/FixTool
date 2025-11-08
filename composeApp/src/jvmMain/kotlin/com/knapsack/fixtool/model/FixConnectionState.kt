@@ -1,5 +1,7 @@
 package com.knapsack.fixtool.model
 
+import androidx.compose.ui.graphics.Color
+
 enum class FixConnectionState {
     DISCONNECTED,
     CONNECTING,
@@ -21,22 +23,12 @@ enum class FixConnectionState {
             ERROR -> "Error"
         }
 
-    fun getColor(): androidx.compose.ui.graphics.Color =
+    fun getColor(): Color =
         when (this) {
-            DISCONNECTED ->
-                androidx.compose.ui.graphics
-                    .Color(0xFF6A6A6A)
-            CONNECTING ->
-                androidx.compose.ui.graphics
-                    .Color(0xFFFFA500)
-            CONNECTED ->
-                androidx.compose.ui.graphics
-                    .Color(0xFF4EC9B0)
-            LOGGED_ON ->
-                androidx.compose.ui.graphics
-                    .Color(0xFF4EC9B0)
-            ERROR ->
-                androidx.compose.ui.graphics
-                    .Color(0xFFCE9178)
+            DISCONNECTED -> Color(0xFF6A6A6A)
+            CONNECTING -> Color(0xFFFFA500)
+            CONNECTED -> Color(0xFF7AD67A)
+            LOGGED_ON -> Color(0xFF4EC9B0)
+            ERROR -> Color(0xFFFF6B6B)
         }
 }

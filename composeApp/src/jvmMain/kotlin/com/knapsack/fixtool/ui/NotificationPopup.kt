@@ -69,40 +69,7 @@ private fun NotificationPopup(
         onDismiss()
     }
 
-    val (backgroundColor, borderColor, icon, iconTint) =
-        when (notification.type) {
-            NotificationType.ERROR ->
-                NotificationStyle(
-                    backgroundColor = Color(0xFF3D2828),
-                    borderColor = Color(0xFFFF5555),
-                    icon = Icons.Default.Error,
-                    iconTint = Color(0xFFFF5555),
-                )
-
-            NotificationType.WARNING ->
-                NotificationStyle(
-                    backgroundColor = Color(0xFF3D3528),
-                    borderColor = Color(0xFFFFA500),
-                    icon = Icons.Default.Warning,
-                    iconTint = Color(0xFFFFA500),
-                )
-
-            NotificationType.INFO ->
-                NotificationStyle(
-                    backgroundColor = Color(0xFF283D3D),
-                    borderColor = Color(0xFF5599FF),
-                    icon = Icons.Default.Info,
-                    iconTint = Color(0xFF5599FF),
-                )
-
-            NotificationType.SUCCESS ->
-                NotificationStyle(
-                    backgroundColor = Color(0xFF283D28),
-                    borderColor = Color(0xFF55FF55),
-                    icon = Icons.Default.CheckCircle,
-                    iconTint = Color(0xFF55FF55),
-                )
-        }
+    val (backgroundColor, borderColor, icon, iconTint) = getNotificationStyle(notification.type)
 
     AnimatedVisibility(
         visible = true,
@@ -120,8 +87,8 @@ private fun NotificationPopup(
         Row(
             modifier =
                 modifier
-                    .background(backgroundColor, RoundedCornerShape(4.dp))
-                    .border(1.dp, borderColor, RoundedCornerShape(4.dp))
+                    .background(backgroundColor, notificationShape)
+                    .border(1.dp, borderColor, notificationShape)
                     .padding(12.dp)
                     .widthIn(min = 250.dp, max = 400.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -132,13 +99,13 @@ private fun NotificationPopup(
                 imageVector = icon,
                 contentDescription = null,
                 tint = iconTint,
-                modifier = Modifier.size(20.dp),
+                modifier = notificationIconSize,
             )
 
             // Message text
             Text(
                 text = notification.message,
-                color = Color(0xFFE0E0E0),
+                color = notificationTextColor,
                 fontSize = 11.sp,
                 lineHeight = 14.sp,
                 modifier = Modifier.weight(1f),
@@ -148,10 +115,9 @@ private fun NotificationPopup(
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Dismiss",
-                tint = Color(0xFFB0B0B0),
+                tint = closeButtonColor,
                 modifier =
-                    Modifier
-                        .size(16.dp)
+                    closeButtonSize
                         .clickable { onDismiss() },
             )
         }
@@ -167,3 +133,53 @@ private data class NotificationStyle(
     val icon: ImageVector,
     val iconTint: Color,
 )
+
+// Color constants
+private val errorBackgroundColor = Color(0xFF3D2828)
+private val errorBorderColor = Color(0xFFFF5555)
+private val warningBackgroundColor = Color(0xFF3D3528)
+private val warningBorderColor = Color(0xFFFFA500)
+private val infoBackgroundColor = Color(0xFF283D3D)
+private val infoBorderColor = Color(0xFF5599FF)
+private val successBackgroundColor = Color(0xFF283D28)
+private val successBorderColor = Color(0xFF55FF55)
+private val notificationTextColor = Color(0xFFE0E0E0)
+private val closeButtonColor = Color(0xFFB0B0B0)
+
+// Modifier constants
+private val notificationIconSize = Modifier.size(20.dp)
+private val closeButtonSize = Modifier.size(16.dp)
+private val notificationShape = RoundedCornerShape(4.dp)
+
+// Helper function
+private fun getNotificationStyle(type: NotificationType): NotificationStyle =
+    when (type) {
+        NotificationType.ERROR ->
+            NotificationStyle(
+                backgroundColor = errorBackgroundColor,
+                borderColor = errorBorderColor,
+                icon = Icons.Default.Error,
+                iconTint = errorBorderColor,
+            )
+        NotificationType.WARNING ->
+            NotificationStyle(
+                backgroundColor = warningBackgroundColor,
+                borderColor = warningBorderColor,
+                icon = Icons.Default.Warning,
+                iconTint = warningBorderColor,
+            )
+        NotificationType.INFO ->
+            NotificationStyle(
+                backgroundColor = infoBackgroundColor,
+                borderColor = infoBorderColor,
+                icon = Icons.Default.Info,
+                iconTint = infoBorderColor,
+            )
+        NotificationType.SUCCESS ->
+            NotificationStyle(
+                backgroundColor = successBackgroundColor,
+                borderColor = successBorderColor,
+                icon = Icons.Default.CheckCircle,
+                iconTint = successBorderColor,
+            )
+    }

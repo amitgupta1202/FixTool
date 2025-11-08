@@ -54,7 +54,7 @@ fun Toolbar(
         modifier =
             modifier
                 .fillMaxWidth()
-                .background(Color(0xFF2B2B2B))
+                .background(backgroundColor)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -63,20 +63,20 @@ fun Toolbar(
             TooltipIconButton(
                 tooltip = if (showMessageEditor) "Message Editor: On (click to hide)" else "Message Editor: Off (click to show)",
                 onClick = onOpenMessageEditor,
-                modifier = Modifier.size(32.dp),
+                modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector = Icons.Default.EditNote,
                     contentDescription = "Message Editor",
-                    tint = if (showMessageEditor) Color(0xFF4EC9B0) else Color(0xFFB0B0B0),
-                    modifier = Modifier.size(20.dp),
+                    tint = toggleActiveColor(showMessageEditor),
+                    modifier = tooltipIconModifier,
                 )
             }
         }
 
         Text(
             text = "FixTool",
-            color = Color(0xFFE0E0E0),
+            color = textColor,
             fontSize = 14.sp,
             modifier = Modifier.padding(horizontal = 8.dp),
         )
@@ -92,7 +92,7 @@ fun Toolbar(
                     modifier =
                         Modifier
                             .height(28.dp)
-                            .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                            .background(dropdownBackgroundColor, RoundedCornerShape(4.dp))
                             .clickable { expanded = true }
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -101,18 +101,18 @@ fun Toolbar(
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Quick Connect",
-                        tint = Color(0xFF4EC9B0),
+                        tint = activeColor,
                         modifier = Modifier.size(16.dp),
                     )
                     Text(
                         text = "Quick Connect",
-                        color = Color(0xFFE0E0E0),
+                        color = textColor,
                         fontSize = 11.sp,
                     )
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
                         contentDescription = "Dropdown",
-                        tint = Color(0xFFB0B0B0),
+                        tint = textColor,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -122,20 +122,13 @@ fun Toolbar(
                     onDismissRequest = { expanded = false },
                     modifier =
                         Modifier
-                            .background(Color(0xFF2B2B2B))
+                            .background(backgroundColor)
                             .widthIn(min = 200.dp),
                 ) {
                     connectionProfiles.forEach { profile ->
                         val connectionState =
                             onGetProfileConnectionState?.invoke(profile.id) ?: FixConnectionState.DISCONNECTED
-                        val stateColor =
-                            when (connectionState) {
-                                FixConnectionState.DISCONNECTED -> Color(0xFF6A6A6A) // Gray
-                                FixConnectionState.CONNECTING -> Color(0xFFFFA500) // Orange
-                                FixConnectionState.CONNECTED -> Color(0xFF7AD67A) // Light Green
-                                FixConnectionState.LOGGED_ON -> Color(0xFF4EC9B0) // Teal/Green
-                                FixConnectionState.ERROR -> Color(0xFFFF6B6B) // Red
-                            }
+                        val stateColor = connectionState.getColor()
 
                         DropdownMenuItem(
                             text = {
@@ -152,7 +145,7 @@ fun Toolbar(
                                     )
                                     Text(
                                         text = profile.name,
-                                        color = Color(0xFFE0E0E0),
+                                        color = textColor,
                                         fontSize = 11.sp,
                                     )
                                 }
@@ -172,15 +165,15 @@ fun Toolbar(
         // Add Separator to All Sessions
         if (onAddSeparatorToAll != null) {
             TooltipIconButton(
-                tooltip = "Add Separator to All Sessions",
+                tooltip = "Add Blank Line to All Sessions",
                 onClick = onAddSeparatorToAll,
-                modifier = Modifier.size(32.dp),
+                modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector = Icons.Default.Notes,
-                    contentDescription = "Add Separator to All",
-                    tint = Color(0xFFB0B0B0),
-                    modifier = Modifier.size(20.dp),
+                    contentDescription = "Blank Line",
+                    tint = textColor,
+                    modifier = tooltipIconModifier,
                 )
             }
         }
@@ -190,13 +183,13 @@ fun Toolbar(
             TooltipIconButton(
                 tooltip = "Clear All Sessions",
                 onClick = onClearAll,
-                modifier = Modifier.size(32.dp),
+                modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Clear All",
-                    tint = Color(0xFFB0B0B0),
-                    modifier = Modifier.size(20.dp),
+                    tint = textColor,
+                    modifier = tooltipIconModifier,
                 )
             }
         }
@@ -218,7 +211,7 @@ fun Toolbar(
                     }
                 onViewModeChange(newMode)
             },
-            modifier = Modifier.size(32.dp),
+            modifier = tooltipModifier,
         ) {
             Icon(
                 imageVector =
@@ -228,8 +221,8 @@ fun Toolbar(
                         ViewMode.SPLIT_VERTICAL -> Icons.Default.ViewArray
                     },
                 contentDescription = "Toggle Layout",
-                tint = Color(0xFFB0B0B0),
-                modifier = Modifier.size(20.dp),
+                tint = textColor,
+                modifier = tooltipIconModifier,
             )
         }
 
@@ -247,7 +240,7 @@ fun Toolbar(
                     },
                 onClick = onToggleGridView,
                 enabled = activeSessionViewMode != null,
-                modifier = Modifier.size(32.dp),
+                modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector =
@@ -257,8 +250,8 @@ fun Toolbar(
                             null -> Icons.Default.Apps
                         },
                     contentDescription = "Toggle View for All Sessions",
-                    tint = if (activeSessionViewMode != null) Color(0xFFB0B0B0) else Color(0xFF6A6A6A),
-                    modifier = Modifier.size(20.dp),
+                    tint = toggleDisabledColor(activeSessionViewMode != null),
+                    modifier = tooltipIconModifier,
                 )
             }
         }
@@ -276,13 +269,13 @@ fun Toolbar(
                         "Demo Server: Stopped (click to start)\nWill create 4 demo user profiles"
                     },
                 onClick = onToggleDemoServer,
-                modifier = Modifier.size(32.dp),
+                modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector = Icons.Default.Computer,
                     contentDescription = "Toggle Demo Server",
-                    tint = if (demoServerRunning) Color(0xFF4EC9B0) else Color(0xFFB0B0B0),
-                    modifier = Modifier.size(20.dp),
+                    tint = toggleActiveColor(demoServerRunning),
+                    modifier = tooltipIconModifier,
                 )
             }
         }
@@ -292,13 +285,13 @@ fun Toolbar(
             TooltipIconButton(
                 tooltip = if (showConnectionPanel) "Connection: On (click to hide)" else "Connection: Off (click to show)",
                 onClick = onToggleConnectionPanel,
-                modifier = Modifier.size(32.dp),
+                modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector = Icons.Default.ElectricalServices,
                     contentDescription = "Toggle Connection Panel",
-                    tint = if (showConnectionPanel) Color(0xFF4EC9B0) else Color(0xFFB0B0B0),
-                    modifier = Modifier.size(20.dp),
+                    tint = toggleActiveColor(showConnectionPanel),
+                    modifier = tooltipIconModifier,
                 )
             }
         }
@@ -308,13 +301,13 @@ fun Toolbar(
             TooltipIconButton(
                 tooltip = if (isDictionaryValid) "Settings" else "Settings - Data Dictionary Configuration Required!",
                 onClick = onOpenSettings,
-                modifier = Modifier.size(32.dp),
+                modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector = Icons.Default.Settings,
                     contentDescription = "Settings",
-                    tint = if (isDictionaryValid) Color(0xFFB0B0B0) else Color(0xFFE06C75), // Red when invalid
-                    modifier = Modifier.size(20.dp),
+                    tint = if (isDictionaryValid) textColor else invalidColor,
+                    modifier = tooltipIconModifier,
                 )
             }
         }
@@ -324,15 +317,29 @@ fun Toolbar(
             TooltipIconButton(
                 tooltip = if (showDetailPanel) "Message Detail: On (click to hide)" else "Message Detail: Off (click to show)",
                 onClick = onToggleDetailPanel,
-                modifier = Modifier.size(32.dp),
+                modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector = Icons.Default.Article,
                     contentDescription = "Toggle Message Detail Panel",
-                    tint = if (showDetailPanel) Color(0xFF4EC9B0) else Color(0xFFB0B0B0),
-                    modifier = Modifier.size(20.dp),
+                    tint = toggleActiveColor(showDetailPanel),
+                    modifier = tooltipIconModifier,
                 )
             }
         }
     }
 }
+
+private val textColor = Color(0xFFB0B0B0)
+private val activeColor = Color(0xFF4EC9B0)
+private val invalidColor = Color(0xFFE06C75)
+private val backgroundColor = Color(0xFF2B2B2B)
+private val disabledColor = Color(0xFF6A6A6A)
+private val dropdownBackgroundColor = Color(0xFF3A3A3A)
+
+private fun toggleActiveColor(condition: Boolean) = if (condition) activeColor else textColor
+
+private fun toggleDisabledColor(condition: Boolean) = if (condition) textColor else disabledColor
+
+private val tooltipModifier = Modifier.size(32.dp)
+private val tooltipIconModifier = Modifier.size(20.dp)

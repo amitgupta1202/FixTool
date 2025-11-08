@@ -116,7 +116,7 @@ fun ConnectionPanel(
         modifier =
             modifier
                 .fillMaxHeight()
-                .background(Color(0xFF1E1E1E)),
+                .background(darkBackgroundColor),
     ) {
         // Top border
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -126,13 +126,13 @@ fun ConnectionPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2B2B2B))
+                    .background(backgroundColorDark)
                     .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = "FIX Connection",
-                color = Color(0xFFE0E0E0),
+                color = textColor,
                 fontSize = 11.sp,
             )
 
@@ -142,13 +142,13 @@ fun ConnectionPanel(
             TooltipIconButton(
                 tooltip = "Close Connection Panel",
                 onClick = onClose,
-                modifier = Modifier.size(24.dp),
+                modifier = iconSize24,
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Close",
-                    tint = Color(0xFFB0B0B0),
-                    modifier = Modifier.size(16.dp),
+                    tint = labelColor,
+                    modifier = iconSize16,
                 )
             }
         }
@@ -319,7 +319,7 @@ fun ConnectionPanel(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Status",
-                        color = Color(0xFFB0B0B0),
+                        color = labelColor,
                         fontSize = 9.sp,
                         modifier = Modifier.padding(bottom = 2.dp),
                     )
@@ -329,7 +329,7 @@ fun ConnectionPanel(
                             Modifier
                                 .fillMaxWidth()
                                 .height(24.dp)
-                                .background(Color(0xFF252525), RoundedCornerShape(2.dp))
+                                .background(fieldBackgroundColor, inputShape)
                                 .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -432,7 +432,7 @@ fun ConnectionPanel(
             // Info text about auto-detection
             Text(
                 text = "ℹ FIX Version is automatically detected from the Data Dictionary (configured in Settings)",
-                color = Color(0xFF6A6A6A),
+                color = disabledTextColor,
                 fontSize = 9.sp,
                 modifier = Modifier.padding(vertical = 4.dp),
                 lineHeight = 12.sp,
@@ -449,13 +449,13 @@ fun ConnectionPanel(
                 TooltipIconButton(
                     tooltip = if (showAdvanced) "Hide Advanced Settings" else "Show Advanced Settings",
                     onClick = { showAdvanced = !showAdvanced },
-                    modifier = Modifier.size(20.dp),
+                    modifier = iconSize20,
                 ) {
                     Icon(
                         imageVector = if (showAdvanced) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                         contentDescription = "Toggle Advanced",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(16.dp),
+                        tint = labelColor,
+                        modifier = iconSize16,
                     )
                 }
 
@@ -463,7 +463,7 @@ fun ConnectionPanel(
 
                 Text(
                     text = "Advanced Settings",
-                    color = Color(0xFFB0B0B0),
+                    color = labelColor,
                     fontSize = 10.sp,
                 )
             }
@@ -495,15 +495,14 @@ fun ConnectionPanel(
                     ) {
                         Box(
                             modifier =
-                                Modifier
-                                    .size(16.dp)
+                                checkboxSize16
                                     .background(
-                                        color = if (showHeartbeat) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBackgroundColor(showHeartbeat),
+                                        shape = checkboxShape,
                                     ).border(
                                         width = 1.dp,
-                                        color = if (showHeartbeat) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBorderColor(showHeartbeat),
+                                        shape = checkboxShape,
                                     ),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -511,14 +510,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = Color(0xFF1E1E1E),
-                                    modifier = Modifier.size(12.dp),
+                                    tint = darkBackgroundColor,
+                                    modifier = iconSize12,
                                 )
                             }
                         }
                         Text(
                             text = "Show Heartbeat",
-                            color = Color(0xFFB0B0B0),
+                            color = labelColor,
                             fontSize = 9.sp,
                         )
                     }
@@ -528,7 +527,7 @@ fun ConnectionPanel(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Reset Options",
-                    color = Color(0xFFB0B0B0),
+                    color = labelColor,
                     fontSize = 9.sp,
                 )
 
@@ -545,15 +544,14 @@ fun ConnectionPanel(
                     ) {
                         Box(
                             modifier =
-                                Modifier
-                                    .size(14.dp)
+                                checkboxSize14
                                     .background(
-                                        color = if (resetOnLogon) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBackgroundColor(resetOnLogon),
+                                        shape = checkboxShape,
                                     ).border(
                                         width = 1.dp,
-                                        color = if (resetOnLogon) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBorderColor(resetOnLogon),
+                                        shape = checkboxShape,
                                     ),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -561,14 +559,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = Color(0xFF1E1E1E),
-                                    modifier = Modifier.size(10.dp),
+                                    tint = darkBackgroundColor,
+                                    modifier = iconSize10,
                                 )
                             }
                         }
                         Text(
                             text = "Logon",
-                            color = Color(0xFFB0B0B0),
+                            color = labelColor,
                             fontSize = 9.sp,
                         )
                     }
@@ -581,15 +579,14 @@ fun ConnectionPanel(
                     ) {
                         Box(
                             modifier =
-                                Modifier
-                                    .size(14.dp)
+                                checkboxSize14
                                     .background(
-                                        color = if (resetOnLogout) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBackgroundColor(resetOnLogout),
+                                        shape = checkboxShape,
                                     ).border(
                                         width = 1.dp,
-                                        color = if (resetOnLogout) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBorderColor(resetOnLogout),
+                                        shape = checkboxShape,
                                     ),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -597,14 +594,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = Color(0xFF1E1E1E),
-                                    modifier = Modifier.size(10.dp),
+                                    tint = darkBackgroundColor,
+                                    modifier = iconSize10,
                                 )
                             }
                         }
                         Text(
                             text = "Logout",
-                            color = Color(0xFFB0B0B0),
+                            color = labelColor,
                             fontSize = 9.sp,
                         )
                     }
@@ -617,15 +614,14 @@ fun ConnectionPanel(
                     ) {
                         Box(
                             modifier =
-                                Modifier
-                                    .size(14.dp)
+                                checkboxSize14
                                     .background(
-                                        color = if (resetOnDisconnect) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBackgroundColor(resetOnDisconnect),
+                                        shape = checkboxShape,
                                     ).border(
                                         width = 1.dp,
-                                        color = if (resetOnDisconnect) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBorderColor(resetOnDisconnect),
+                                        shape = checkboxShape,
                                     ),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -633,14 +629,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = Color(0xFF1E1E1E),
-                                    modifier = Modifier.size(10.dp),
+                                    tint = darkBackgroundColor,
+                                    modifier = iconSize10,
                                 )
                             }
                         }
                         Text(
                             text = "Disconnect",
-                            color = Color(0xFFB0B0B0),
+                            color = labelColor,
                             fontSize = 9.sp,
                         )
                     }
@@ -656,15 +652,14 @@ fun ConnectionPanel(
                 ) {
                     Box(
                         modifier =
-                            Modifier
-                                .size(14.dp)
+                            checkboxSize14
                                 .background(
-                                    color = if (useSSL) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = checkboxBackgroundColor(useSSL),
+                                    shape = checkboxShape,
                                 ).border(
                                     width = 1.dp,
-                                    color = if (useSSL) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = checkboxBorderColor(useSSL),
+                                    shape = checkboxShape,
                                 ),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -672,14 +667,14 @@ fun ConnectionPanel(
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
-                                tint = Color(0xFF1E1E1E),
-                                modifier = Modifier.size(10.dp),
+                                tint = darkBackgroundColor,
+                                modifier = iconSize10,
                             )
                         }
                     }
                     Text(
                         text = "Use SSL/TLS",
-                        color = Color(0xFFB0B0B0),
+                        color = labelColor,
                         fontSize = 9.sp,
                     )
                 }
@@ -759,15 +754,14 @@ fun ConnectionPanel(
                     ) {
                         Box(
                             modifier =
-                                Modifier
-                                    .size(14.dp)
+                                checkboxSize14
                                     .background(
-                                        color = if (needClientAuth) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBackgroundColor(needClientAuth),
+                                        shape = checkboxShape,
                                     ).border(
                                         width = 1.dp,
-                                        color = if (needClientAuth) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                        shape = RoundedCornerShape(2.dp),
+                                        color = checkboxBorderColor(needClientAuth),
+                                        shape = checkboxShape,
                                     ),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -775,14 +769,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = Color(0xFF1E1E1E),
-                                    modifier = Modifier.size(10.dp),
+                                    tint = darkBackgroundColor,
+                                    modifier = iconSize10,
                                 )
                             }
                         }
                         Text(
                             text = "Require Client Auth (Acceptor only)",
-                            color = Color(0xFFB0B0B0),
+                            color = labelColor,
                             fontSize = 9.sp,
                         )
                     }
@@ -798,7 +792,7 @@ fun ConnectionPanel(
                 ) {
                     Text(
                         text = "Custom Parameters",
-                        color = Color(0xFFB0B0B0),
+                        color = labelColor,
                         fontSize = 9.sp,
                     )
 
@@ -807,13 +801,13 @@ fun ConnectionPanel(
                         onClick = {
                             customParameters = customParameters + ("" to "")
                         },
-                        modifier = Modifier.size(18.dp),
+                        modifier = iconSize18,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add Parameter",
-                            tint = Color(0xFF4EC9B0),
-                            modifier = Modifier.size(14.dp),
+                            tint = activeColor,
+                            modifier = iconSize14,
                         )
                     }
                 }
@@ -842,24 +836,17 @@ fun ConnectionPanel(
                                 Modifier
                                     .weight(1f)
                                     .height(24.dp)
-                                    .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
-                                    .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(2.dp))
+                                    .background(backgroundColorDark, inputShape)
+                                    .border(1.dp, borderColor, inputShape)
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                             textStyle =
                                 TextStyle(
                                     fontSize = 10.sp,
-                                    color =
-                                        if (param.first.isEmpty() && !keyIsFocused) {
-                                            Color(0xFF6A6A6A)
-                                        } else {
-                                            Color(
-                                                0xFFE0E0E0,
-                                            )
-                                        },
+                                    color = placeholderColor(param.first.isEmpty(), keyIsFocused),
                                     fontFamily = FontFamily.Monospace,
                                 ),
                             singleLine = true,
-                            cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                            cursorBrush = SolidColor(activeColor),
                             interactionSource = keyInteractionSource,
                             decorationBox = { innerTextField ->
                                 if (param.first.isEmpty() && !keyIsFocused) {
@@ -868,7 +855,7 @@ fun ConnectionPanel(
                                         style =
                                             TextStyle(
                                                 fontSize = 10.sp,
-                                                color = Color(0xFF6A6A6A),
+                                                color = disabledTextColor,
                                                 fontFamily = FontFamily.Monospace,
                                             ),
                                     )
@@ -892,24 +879,17 @@ fun ConnectionPanel(
                                 Modifier
                                     .weight(1f)
                                     .height(24.dp)
-                                    .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
-                                    .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(2.dp))
+                                    .background(backgroundColorDark, inputShape)
+                                    .border(1.dp, borderColor, inputShape)
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                             textStyle =
                                 TextStyle(
                                     fontSize = 10.sp,
-                                    color =
-                                        if (param.second.isEmpty() && !valueIsFocused) {
-                                            Color(0xFF6A6A6A)
-                                        } else {
-                                            Color(
-                                                0xFFE0E0E0,
-                                            )
-                                        },
+                                    color = placeholderColor(param.second.isEmpty(), valueIsFocused),
                                     fontFamily = FontFamily.Monospace,
                                 ),
                             singleLine = true,
-                            cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                            cursorBrush = SolidColor(activeColor),
                             interactionSource = valueInteractionSource,
                             decorationBox = { innerTextField ->
                                 if (param.second.isEmpty() && !valueIsFocused) {
@@ -918,7 +898,7 @@ fun ConnectionPanel(
                                         style =
                                             TextStyle(
                                                 fontSize = 10.sp,
-                                                color = Color(0xFF6A6A6A),
+                                                color = disabledTextColor,
                                                 fontFamily = FontFamily.Monospace,
                                             ),
                                     )
@@ -935,13 +915,13 @@ fun ConnectionPanel(
                                         removeAt(index)
                                     }
                             },
-                            modifier = Modifier.size(18.dp),
+                            modifier = iconSize18,
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete",
-                                tint = Color(0xFFE06C75),
-                                modifier = Modifier.size(14.dp),
+                                tint = errorColor,
+                                modifier = iconSize14,
                             )
                         }
                     }
@@ -957,7 +937,7 @@ fun ConnectionPanel(
                 ) {
                     Text(
                         text = "Logon Message Fields",
-                        color = Color(0xFFB0B0B0),
+                        color = labelColor,
                         fontSize = 9.sp,
                     )
 
@@ -966,13 +946,13 @@ fun ConnectionPanel(
                         onClick = {
                             logonFields = logonFields + ("" to "")
                         },
-                        modifier = Modifier.size(18.dp),
+                        modifier = iconSize18,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add Logon Field",
-                            tint = Color(0xFF4EC9B0),
-                            modifier = Modifier.size(14.dp),
+                            tint = activeColor,
+                            modifier = iconSize14,
                         )
                     }
                 }
@@ -1001,24 +981,17 @@ fun ConnectionPanel(
                                 Modifier
                                     .weight(1f)
                                     .height(24.dp)
-                                    .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
-                                    .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(2.dp))
+                                    .background(backgroundColorDark, inputShape)
+                                    .border(1.dp, borderColor, inputShape)
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                             textStyle =
                                 TextStyle(
                                     fontSize = 10.sp,
-                                    color =
-                                        if (field.first.isEmpty() && !tagIsFocused) {
-                                            Color(0xFF6A6A6A)
-                                        } else {
-                                            Color(
-                                                0xFFE0E0E0,
-                                            )
-                                        },
+                                    color = placeholderColor(field.first.isEmpty(), tagIsFocused),
                                     fontFamily = FontFamily.Monospace,
                                 ),
                             singleLine = true,
-                            cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                            cursorBrush = SolidColor(activeColor),
                             interactionSource = tagInteractionSource,
                             decorationBox = { innerTextField ->
                                 if (field.first.isEmpty() && !tagIsFocused) {
@@ -1027,7 +1000,7 @@ fun ConnectionPanel(
                                         style =
                                             TextStyle(
                                                 fontSize = 10.sp,
-                                                color = Color(0xFF6A6A6A),
+                                                color = disabledTextColor,
                                                 fontFamily = FontFamily.Monospace,
                                             ),
                                     )
@@ -1051,24 +1024,17 @@ fun ConnectionPanel(
                                 Modifier
                                     .weight(1f)
                                     .height(24.dp)
-                                    .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
-                                    .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(2.dp))
+                                    .background(backgroundColorDark, inputShape)
+                                    .border(1.dp, borderColor, inputShape)
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                             textStyle =
                                 TextStyle(
                                     fontSize = 10.sp,
-                                    color =
-                                        if (field.second.isEmpty() && !valueIsFocused) {
-                                            Color(0xFF6A6A6A)
-                                        } else {
-                                            Color(
-                                                0xFFE0E0E0,
-                                            )
-                                        },
+                                    color = placeholderColor(field.second.isEmpty(), valueIsFocused),
                                     fontFamily = FontFamily.Monospace,
                                 ),
                             singleLine = true,
-                            cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                            cursorBrush = SolidColor(activeColor),
                             interactionSource = valueInteractionSource,
                             decorationBox = { innerTextField ->
                                 if (field.second.isEmpty() && !valueIsFocused) {
@@ -1077,7 +1043,7 @@ fun ConnectionPanel(
                                         style =
                                             TextStyle(
                                                 fontSize = 10.sp,
-                                                color = Color(0xFF6A6A6A),
+                                                color = disabledTextColor,
                                                 fontFamily = FontFamily.Monospace,
                                             ),
                                     )
@@ -1094,13 +1060,13 @@ fun ConnectionPanel(
                                         removeAt(index)
                                     }
                             },
-                            modifier = Modifier.size(18.dp),
+                            modifier = iconSize18,
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete",
-                                tint = Color(0xFFE06C75),
-                                modifier = Modifier.size(14.dp),
+                                tint = errorColor,
+                                modifier = iconSize14,
                             )
                         }
                     }
@@ -1117,7 +1083,7 @@ fun ConnectionPanel(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF3A1F1F))
+                        .background(errorBackgroundColor)
                         .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1125,25 +1091,25 @@ fun ConnectionPanel(
                 Icon(
                     imageVector = Icons.Default.Error,
                     contentDescription = "Error",
-                    tint = Color(0xFFE06C75),
-                    modifier = Modifier.size(16.dp),
+                    tint = errorColor,
+                    modifier = iconSize16,
                 )
                 Text(
                     text = connectionError ?: "",
-                    color = Color(0xFFE06C75),
+                    color = errorColor,
                     fontSize = 10.sp,
                     modifier = Modifier.weight(1f),
                 )
                 TooltipIconButton(
                     tooltip = "Dismiss",
                     onClick = { connectionError = null },
-                    modifier = Modifier.size(20.dp),
+                    modifier = iconSize20,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Dismiss",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(14.dp),
+                        tint = labelColor,
+                        modifier = iconSize14,
                     )
                 }
             }
@@ -1154,7 +1120,7 @@ fun ConnectionPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2B2B2B))
+                    .background(backgroundColorDark)
                     .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1205,8 +1171,8 @@ fun ConnectionPanel(
                     onConnect(profile.id, profile)
                 },
                 enabled = connectionState.canConnect() && isFormValid(),
-                containerColor = Color(0xFF4EC9B0),
-                contentColor = Color(0xFF1E1E1E),
+                containerColor = activeColor,
+                contentColor = darkBackgroundColor,
                 modifier = Modifier.weight(1f),
             )
 
@@ -1217,8 +1183,8 @@ fun ConnectionPanel(
                     selectedProfile?.let { onDisconnect(it.id) }
                 },
                 enabled = connectionState.canDisconnect(),
-                containerColor = Color(0xFFCE9178),
-                contentColor = Color(0xFF1E1E1E),
+                containerColor = warningColor,
+                contentColor = darkBackgroundColor,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -1229,7 +1195,7 @@ fun ConnectionPanel(
 private fun SectionLabel(text: String) {
     Text(
         text = text,
-        color = Color(0xFF4EC9B0),
+        color = activeColor,
         fontSize = 10.sp,
         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
         modifier = Modifier.padding(top = 4.dp),
@@ -1250,7 +1216,7 @@ private fun ConnectionField(
     Column(modifier = modifier) {
         Text(
             text = label,
-            color = if (isError) Color(0xFFE06C75) else Color(0xFFB0B0B0),
+            color = if (isError) errorColor else labelColor,
             fontSize = 9.sp,
             modifier = Modifier.padding(bottom = 2.dp),
         )
@@ -1259,7 +1225,7 @@ private fun ConnectionField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth().height(24.dp),
-            textStyle = TextStyle(fontSize = 10.sp, color = Color(0xFFE0E0E0)),
+            textStyle = TextStyle(fontSize = 10.sp, color = textColor),
             visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
             isError = isError,
         )
@@ -1267,7 +1233,7 @@ private fun ConnectionField(
         if (isError && errorMessage.isNotEmpty()) {
             Text(
                 text = errorMessage,
-                color = Color(0xFFE06C75),
+                color = errorColor,
                 fontSize = 8.sp,
                 modifier = Modifier.padding(top = 2.dp),
             )
@@ -1281,18 +1247,18 @@ private fun SlimTextField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
-    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = Color(0xFFE0E0E0)),
+    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = textColor),
     visualTransformation: VisualTransformation = VisualTransformation.None,
     isError: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val borderColor =
+    val fieldBorderColor =
         when {
-            isError -> Color(0xFFE06C75)
-            isFocused -> Color(0xFF4EC9B0)
-            else -> Color(0xFF3A3A3A)
+            isError -> errorColor
+            isFocused -> activeColor
+            else -> borderColor
         }
 
     BasicTextField(
@@ -1300,15 +1266,15 @@ private fun SlimTextField(
         onValueChange = onValueChange,
         modifier =
             modifier
-                .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
+                .background(backgroundColorDark, inputShape)
                 .border(
                     width = 1.dp,
-                    color = borderColor,
-                    shape = RoundedCornerShape(2.dp),
+                    color = fieldBorderColor,
+                    shape = inputShape,
                 ).padding(horizontal = 4.dp, vertical = 4.dp),
         textStyle = textStyle,
         singleLine = singleLine,
-        cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+        cursorBrush = SolidColor(activeColor),
         interactionSource = interactionSource,
         visualTransformation = visualTransformation,
     )
@@ -1353,13 +1319,13 @@ private fun ProfileSection(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
-                            .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(2.dp))
+                            .background(backgroundColorDark, inputShape)
+                            .border(1.dp, borderColor, inputShape)
                             .padding(horizontal = 4.dp, vertical = 4.dp),
                 ) {
                     Text(
                         text = "No saved profiles",
-                        color = Color(0xFF6A6A6A),
+                        color = disabledTextColor,
                         fontSize = 10.sp,
                     )
                 }
@@ -1369,13 +1335,13 @@ private fun ProfileSection(
             TooltipIconButton(
                 tooltip = "Save Profile",
                 onClick = onSaveProfile,
-                modifier = Modifier.size(24.dp),
+                modifier = iconSize24,
             ) {
                 Icon(
                     imageVector = Icons.Default.Save,
                     contentDescription = "Save Profile",
-                    tint = Color(0xFF4EC9B0),
-                    modifier = Modifier.size(16.dp),
+                    tint = activeColor,
+                    modifier = iconSize16,
                 )
             }
 
@@ -1384,13 +1350,13 @@ private fun ProfileSection(
                 TooltipIconButton(
                     tooltip = "Clone Profile",
                     onClick = { onCloneProfile(selectedProfile) },
-                    modifier = Modifier.size(24.dp),
+                    modifier = iconSize24,
                 ) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = "Clone Profile",
-                        tint = Color(0xFF61AFEF),
-                        modifier = Modifier.size(16.dp),
+                        tint = infoColor,
+                        modifier = iconSize16,
                     )
                 }
             }
@@ -1400,13 +1366,13 @@ private fun ProfileSection(
                 TooltipIconButton(
                     tooltip = "Delete Profile",
                     onClick = { onDeleteProfile(selectedProfile) },
-                    modifier = Modifier.size(24.dp),
+                    modifier = iconSize24,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Delete Profile",
-                        tint = Color(0xFFCE9178),
-                        modifier = Modifier.size(16.dp),
+                        tint = warningColor,
+                        modifier = iconSize16,
                     )
                 }
             }
@@ -1435,21 +1401,20 @@ private fun SlimCheckbox(
     ) {
         Text(
             text = label,
-            color = Color(0xFFB0B0B0),
+            color = labelColor,
             fontSize = 9.sp,
         )
 
         Box(
             modifier =
-                Modifier
-                    .size(16.dp)
+                checkboxSize16
                     .background(
-                        color = if (checked) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                        shape = RoundedCornerShape(2.dp),
+                        color = checkboxBackgroundColor(checked),
+                        shape = checkboxShape,
                     ).border(
                         width = 1.dp,
-                        color = if (checked) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                        shape = RoundedCornerShape(2.dp),
+                        color = checkboxBorderColor(checked),
+                        shape = checkboxShape,
                     ),
             contentAlignment = Alignment.Center,
         ) {
@@ -1457,8 +1422,8 @@ private fun SlimCheckbox(
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
-                    tint = Color(0xFF1E1E1E),
-                    modifier = Modifier.size(12.dp),
+                    tint = darkBackgroundColor,
+                    modifier = iconSize12,
                 )
             }
         }
@@ -1473,8 +1438,8 @@ private fun SlimButton(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    containerColor: Color = Color(0xFF4EC9B0),
-    contentColor: Color = Color(0xFF1E1E1E),
+    containerColor: Color = activeColor,
+    contentColor: Color = darkBackgroundColor,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -1482,16 +1447,50 @@ private fun SlimButton(
             modifier
                 .height(24.dp)
                 .background(
-                    color = if (enabled) containerColor else Color(0xFF3A3A3A),
+                    color = if (enabled) containerColor else borderColor,
                     shape = RoundedCornerShape(2.dp),
                 ).clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            color = if (enabled) contentColor else Color(0xFF6A6A6A),
+            color = if (enabled) contentColor else disabledTextColor,
             fontSize = 10.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
         )
     }
 }
+
+// Private color constants
+private val darkBackgroundColor = Color(0xFF1E1E1E)
+private val backgroundColorDark = Color(0xFF2B2B2B)
+private val borderColor = Color(0xFF3A3A3A)
+private val fieldBackgroundColor = Color(0xFF252525)
+private val textColor = Color(0xFFE0E0E0)
+private val labelColor = Color(0xFFB0B0B0)
+private val disabledTextColor = Color(0xFF6A6A6A)
+private val activeColor = Color(0xFF4EC9B0)
+private val errorColor = Color(0xFFE06C75)
+private val warningColor = Color(0xFFCE9178)
+private val infoColor = Color(0xFF61AFEF)
+private val errorBackgroundColor = Color(0xFF3A1F1F)
+
+// Helper functions for conditional colors
+private fun checkboxBackgroundColor(checked: Boolean) = if (checked) activeColor else backgroundColorDark
+
+private fun checkboxBorderColor(checked: Boolean) = if (checked) activeColor else disabledTextColor
+
+private fun placeholderColor(isEmpty: Boolean, isFocused: Boolean) = if (isEmpty && !isFocused) disabledTextColor else textColor
+
+// Common modifiers
+private val iconSize24 = Modifier.size(24.dp)
+private val iconSize20 = Modifier.size(20.dp)
+private val iconSize18 = Modifier.size(18.dp)
+private val iconSize16 = Modifier.size(16.dp)
+private val iconSize14 = Modifier.size(14.dp)
+private val iconSize12 = Modifier.size(12.dp)
+private val iconSize10 = Modifier.size(10.dp)
+private val checkboxSize16 = Modifier.size(16.dp)
+private val checkboxSize14 = Modifier.size(14.dp)
+private val checkboxShape = RoundedCornerShape(2.dp)
+private val inputShape = RoundedCornerShape(2.dp)

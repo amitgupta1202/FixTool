@@ -205,7 +205,7 @@ fun MessageDetailPanel(
                                 .padding(12.dp),
                     ) {
                         // Match session coloring: blue for outgoing, red for incoming rejects, green for other incoming
-                        val (directionColor, directionText) = getDirectionInfo(message)
+                        val (directionColor, directionText) = getDirectionInfo(message, appSettings)
 
                         Text(
                             text = directionText,
@@ -974,13 +974,18 @@ private val searchPlaceholderStyle =
 private fun getSearchBorderColor(isFocused: Boolean): Color =
     if (isFocused) focusedBorderColor else unfocusedBorderColor
 
-private fun getDirectionInfo(message: FixMessage): Pair<Color, String> =
+private fun getDirectionInfo(message: FixMessage, appSettings: com.knapsack.fixtool.model.AppSettings): Pair<Color, String> =
     when (message.direction) {
         FixMessage.Direction.INCOMING ->
-            if (message.isRejectionOrLogout()) {
-                rejectionMessageColor to "INCOMING"
-            } else {
-                incomingMessageColor to "INCOMING"
-            }
-        FixMessage.Direction.OUTGOING -> outgoingMessageColor to "OUTGOING"
+            appSettings.messageColorScheme.getMessageColor(
+                message.direction,
+                message.isRejectionOrLogout(),
+                true
+            ) to "INCOMING"
+        FixMessage.Direction.OUTGOING ->
+            appSettings.messageColorScheme.getMessageColor(
+                message.direction,
+                false,
+                true
+            ) to "OUTGOING"
     }

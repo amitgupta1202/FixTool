@@ -231,6 +231,7 @@ fun HierarchicalGridView(
                                     expandedMessages[messageId] = !isExpanded
                                 },
                                 onSelectMessage = onSelectMessage,
+                                appSettings = appSettings,
                             )
                         }
 
@@ -265,6 +266,9 @@ fun MessageSummaryRow(
     isSelected: Boolean = false,
     onToggleExpand: () -> Unit,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
+    appSettings: com.knapsack.fixtool.model.AppSettings =
+        com.knapsack.fixtool.model.AppSettings
+            .default(),
 ) {
     // Extract top-level field values (excluding repeating groups)
     val columnValues =
@@ -274,7 +278,7 @@ fun MessageSummaryRow(
             }
         }
     // Match session coloring: blue for outgoing, red for incoming rejects, green for other incoming
-    val directionColor = getDirectionColor(message)
+    val directionColor = getDirectionColor(message, appSettings)
 
     val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
     val msgTypeDesc = dictionary.getFieldValueDescription(35, message.messageType) ?: message.messageType
@@ -1043,9 +1047,9 @@ private val tooltipCornerRadius = RoundedCornerShape(4.dp)
 private val iconSize = 14.dp
 
 // Helper function for direction color
-private fun getDirectionColor(message: FixMessage): Color =
-    when (message.direction) {
-        FixMessage.Direction.OUTGOING -> outgoingColor
-        FixMessage.Direction.INCOMING ->
-            if (message.isRejectionOrLogout()) rejectionColor else incomingColor
-    }
+private fun getDirectionColor(message: FixMessage, appSettings: com.knapsack.fixtool.model.AppSettings): Color =
+    appSettings.messageColorScheme.getMessageColor(
+        message.direction,
+        message.isRejectionOrLogout(),
+        true
+    )

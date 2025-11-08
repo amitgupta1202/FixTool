@@ -26,6 +26,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.MessageColorScheme
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -45,6 +46,7 @@ fun SettingsDialog(
     var gridViewColumns by remember { mutableStateOf(currentSettings.gridViewColumns.toMutableList()) }
     var hideProtocolTagsByDefault by remember { mutableStateOf(currentSettings.hideProtocolTagsByDefault) }
     var protocolTags by remember { mutableStateOf(currentSettings.protocolTags.toMutableSet()) }
+    var messageColorScheme by remember { mutableStateOf(currentSettings.messageColorScheme) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -97,6 +99,7 @@ fun SettingsDialog(
                                 gridViewColumns = defaults.gridViewColumns.toMutableList()
                                 hideProtocolTagsByDefault = defaults.hideProtocolTagsByDefault
                                 protocolTags = defaults.protocolTags.toMutableSet()
+                                messageColorScheme = defaults.messageColorScheme
                             },
                             containerColor = restoreDefaultsButtonColor,
                             contentColor = AppTheme.Colors.textSecondary,
@@ -581,6 +584,136 @@ fun SettingsDialog(
                         thickness = AppTheme.Separators.dividerThickness,
                         modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
                     )
+
+                    // Section: Message Color Scheme
+                    Text(
+                        text = "Message Color Scheme",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Text(
+                        text = "Choose color scheme for message display based on direction and type",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.textDisabled,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+
+                    // Preset buttons in a row
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // Default scheme button
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .weight(1f)
+                                .background(
+                                    color = if (messageColorScheme == MessageColorScheme.default()) AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (messageColorScheme == MessageColorScheme.default()) AppTheme.Colors.primary else AppTheme.Separators.color,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .clickable { messageColorScheme = MessageColorScheme.default() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Default",
+                                    fontSize = 11.sp,
+                                    color = if (messageColorScheme == MessageColorScheme.default()) AppTheme.Colors.background else AppTheme.Colors.text
+                                )
+                                // Color preview boxes
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Box(Modifier.size(12.dp).background(Color(0xFF569CD6), RoundedCornerShape(2.dp))) // Outgoing
+                                    Box(Modifier.size(12.dp).background(Color(0xFF4EC9B0), RoundedCornerShape(2.dp))) // Incoming
+                                    Box(Modifier.size(12.dp).background(Color(0xFFE06C75), RoundedCornerShape(2.dp))) // Rejection
+                                }
+                            }
+                        }
+
+                        // Green/Red scheme button
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .weight(1f)
+                                .background(
+                                    color = if (messageColorScheme == MessageColorScheme.greenRed()) AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (messageColorScheme == MessageColorScheme.greenRed()) AppTheme.Colors.primary else AppTheme.Separators.color,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .clickable { messageColorScheme = MessageColorScheme.greenRed() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Green/Red",
+                                    fontSize = 11.sp,
+                                    color = if (messageColorScheme == MessageColorScheme.greenRed()) AppTheme.Colors.background else AppTheme.Colors.text
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Box(Modifier.size(12.dp).background(Color(0xFF98C379), RoundedCornerShape(2.dp))) // Outgoing
+                                    Box(Modifier.size(12.dp).background(Color(0xFF569CD6), RoundedCornerShape(2.dp))) // Incoming
+                                    Box(Modifier.size(12.dp).background(Color(0xFFE06C75), RoundedCornerShape(2.dp))) // Rejection
+                                }
+                            }
+                        }
+
+                        // Monochrome scheme button
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .weight(1f)
+                                .background(
+                                    color = if (messageColorScheme == MessageColorScheme.monochrome()) AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (messageColorScheme == MessageColorScheme.monochrome()) AppTheme.Colors.primary else AppTheme.Separators.color,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .clickable { messageColorScheme = MessageColorScheme.monochrome() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Monochrome",
+                                    fontSize = 11.sp,
+                                    color = if (messageColorScheme == MessageColorScheme.monochrome()) AppTheme.Colors.background else AppTheme.Colors.text
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Box(Modifier.size(12.dp).background(Color(0xFF87CEEB), RoundedCornerShape(2.dp))) // Outgoing
+                                    Box(Modifier.size(12.dp).background(Color(0xFFC0C0C0), RoundedCornerShape(2.dp))) // Incoming
+                                    Box(Modifier.size(12.dp).background(Color(0xFFE06C75), RoundedCornerShape(2.dp))) // Rejection
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
+                    )
                 }
 
                 HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -616,6 +749,7 @@ fun SettingsDialog(
                                     gridViewColumns = gridViewColumns.toList(),
                                     hideProtocolTagsByDefault = hideProtocolTagsByDefault,
                                     protocolTags = protocolTags.toSet(),
+                                    messageColorScheme = messageColorScheme,
                                 )
                             onSave(newSettings)
                             onDismiss()

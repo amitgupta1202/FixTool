@@ -295,7 +295,7 @@ fun MessageSummaryRow(
                 Modifier
                     .width(40.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A))
+                    .border(0.5.dp, cellBorderColor)
                     .clickable {
                         onToggleExpand()
                     },
@@ -304,7 +304,7 @@ fun MessageSummaryRow(
             Icon(
                 imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                 contentDescription = if (isExpanded) "Collapse" else "Expand",
-                tint = Color(0xFFB0B0B0),
+                tint = headerTextColor,
                 modifier = Modifier.size(iconSize),
             )
         }
@@ -625,7 +625,7 @@ private fun HierarchicalFieldRow(
                 Modifier
                     .width(40.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
         )
 
         // Tag
@@ -634,7 +634,7 @@ private fun HierarchicalFieldRow(
                 Modifier
                     .width(120.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             SelectionContainer {
@@ -655,7 +655,7 @@ private fun HierarchicalFieldRow(
                 Modifier
                     .width(200.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             TooltipArea(
@@ -699,7 +699,7 @@ private fun HierarchicalFieldRow(
                 Modifier
                     .width(150.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             TooltipArea(
@@ -726,7 +726,7 @@ private fun HierarchicalFieldRow(
                 SelectionContainer {
                     Text(
                         text = value,
-                        color = Color(0xFF9CDCFE),
+                        color = valueColor,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         maxLines = 1,
@@ -743,7 +743,7 @@ private fun HierarchicalFieldRow(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             TooltipArea(
@@ -813,13 +813,13 @@ private fun HierarchicalGroupHeaderRow(
                 Modifier
                     .width(40.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
                 contentDescription = if (isExpanded) "Collapse" else "Expand",
-                tint = Color(0xFFB0B0B0),
+                tint = headerTextColor,
                 modifier = Modifier.size(iconSize),
             )
         }
@@ -830,7 +830,7 @@ private fun HierarchicalGroupHeaderRow(
                 Modifier
                     .width(120.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             SelectionContainer {
@@ -852,7 +852,7 @@ private fun HierarchicalGroupHeaderRow(
                 Modifier
                     .width(200.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             TooltipArea(
@@ -879,7 +879,7 @@ private fun HierarchicalGroupHeaderRow(
                 SelectionContainer {
                     Text(
                         text = "$fieldName ($count instances)",
-                        color = Color(0xFF9CDCFE),
+                        color = valueColor,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
@@ -897,13 +897,13 @@ private fun HierarchicalGroupHeaderRow(
                 Modifier
                     .width(150.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             SelectionContainer {
                 Text(
                     text = count.toString(),
-                    color = Color(0xFF9CDCFE),
+                    color = valueColor,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
@@ -919,7 +919,7 @@ private fun HierarchicalGroupHeaderRow(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
         )
     }
 }
@@ -947,7 +947,7 @@ private fun HierarchicalGroupInstanceHeader(
                 Modifier
                     .width(40.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
         )
 
         // Instance label spanning first columns
@@ -956,14 +956,14 @@ private fun HierarchicalGroupInstanceHeader(
                 Modifier
                     .width(320.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             SelectionContainer {
                 Row(modifier = Modifier.padding(start = indent).padding(start = 4.dp)) {
                     Text(
                         text = "[$instanceNumber]",
-                        color = Color(0xFF9CDCFE),
+                        color = valueColor,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -978,7 +978,7 @@ private fun HierarchicalGroupInstanceHeader(
                 Modifier
                     .width(150.dp)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
         )
 
         Box(
@@ -986,7 +986,7 @@ private fun HierarchicalGroupInstanceHeader(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .border(0.5.dp, Color(0xFF3A3A3A)),
+                    .border(0.5.dp, cellBorderColor),
         )
     }
 }
@@ -1022,22 +1022,22 @@ private fun extractTopLevelFieldValue(message: quickfix.Message, tag: Int): Stri
     }
 
 // Constants
-private val mainBackgroundColor = Color(0xFF1E1E1E)
-private val headerBackgroundColor = Color(0xFF2D2D2D)
-private val headerTextColor = Color(0xFFB0B0B0)
-private val headerBorderColor = Color(0xFF454545)
-private val separatorBackgroundColor = Color(0xFF2A2A2A)
-private val cellBorderColor = Color(0xFF3A3A3A)
-private val tooltipBackgroundColor = Color(0xFF3A3A3A)
-private val textPrimaryColor = Color(0xFFE0E0E0)
-private val outgoingColor = Color(0xFF569CD6)
-private val incomingColor = Color(0xFF4EC9B0)
-private val rejectionColor = Color(0xFFE06C75)
-private val selectedRowBackgroundColor = Color(0xFF2D4F7C)
-private val tagNumberColor = Color(0xFFDCDCAA)
-private val valueColor = Color(0xFF9CDCFE)
-private val fieldRowBackgroundColor = Color(0xFF252525)
-private val groupInstanceBackgroundColor = Color(0xFF202020)
+private val mainBackgroundColor = AppTheme.Colors.background
+private val headerBackgroundColor = Color(0xFF2D2D2D) // Keep unique header background
+private val headerTextColor = AppTheme.Colors.textSecondary
+private val headerBorderColor = Color(0xFF454545) // Keep unique header border
+private val separatorBackgroundColor = Color(0xFF2A2A2A) // Keep unique separator background
+private val cellBorderColor = AppTheme.Colors.border
+private val tooltipBackgroundColor = AppTheme.Colors.border
+private val textPrimaryColor = AppTheme.Colors.text
+private val outgoingColor = AppTheme.Colors.messageOutgoing
+private val incomingColor = AppTheme.Colors.messageIncoming
+private val rejectionColor = AppTheme.Colors.messageRejection
+private val selectedRowBackgroundColor = AppTheme.Colors.selectionPrimary
+private val tagNumberColor = AppTheme.Colors.tagNumber
+private val valueColor = AppTheme.Colors.fieldValue
+private val fieldRowBackgroundColor = AppTheme.Colors.surfaceVariant
+private val groupInstanceBackgroundColor = AppTheme.Colors.surfaceHeader
 
 private val tooltipCornerRadius = RoundedCornerShape(4.dp)
 private val iconSize = 14.dp

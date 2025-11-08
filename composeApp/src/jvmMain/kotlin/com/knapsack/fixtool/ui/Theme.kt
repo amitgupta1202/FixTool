@@ -47,21 +47,143 @@ object AppTheme {
     }
 
     /**
-     * Standard colors used throughout the application
+     * Comprehensive color palette organized by semantic meaning
      */
     object Colors {
-        val background: Color = Color(0xFF1E1E1E)
-        val surface: Color = Color(0xFF2B2B2B)
-        val surfaceVariant: Color = Color(0xFF252525)
+        // ========== Background Colors ==========
+        /** Main application background - darkest level */
+        val background = Color(0xFF1E1E1E)
 
-        val text: Color = Color(0xFFE0E0E0)
-        val textSecondary: Color = Color(0xFFB0B0B0)
-        val textTertiary: Color = Color(0xFF6A6A6A)
+        /** Panel and header backgrounds - medium dark level */
+        val surface = Color(0xFF2B2B2B)
 
-        val primary: Color = Color(0xFF4EC9B0)
-        val accent: Color = Color(0xFFCE9178)
+        /** Input fields and nested panel backgrounds - lighter dark level */
+        val surfaceVariant = Color(0xFF252525)
 
-        val separator: Color = Separators.color
-        val separatorHover: Color = Separators.hoverColor
+        /** Even darker header/section backgrounds */
+        val surfaceHeader = Color(0xFF202020)
+
+        // ========== Text Colors ==========
+        /** Primary text - highest contrast */
+        val text = Color(0xFFE0E0E0)
+
+        /** Secondary text - labels, inactive elements */
+        val textSecondary = Color(0xFFB0B0B0)
+
+        /** Tertiary text - disabled, placeholders */
+        val textDisabled = Color(0xFF6A6A6A)
+
+        // ========== Border & Separator Colors ==========
+        /** Standard borders and separators */
+        val border = Color(0xFF3A3A3A)
+
+        /** Darker borders for specific use cases */
+        val borderDark = Color(0xFF555555)
+
+        /** Separator color (alias for consistency) */
+        val separator = Separators.color
+
+        /** Separator hover state */
+        val separatorHover = Separators.hoverColor
+
+        // ========== State Colors ==========
+        /** Primary accent color - active states, links, focus */
+        val primary = Color(0xFF4EC9B0)
+
+        /** Success/positive state */
+        val success = Color(0xFF98C379)
+
+        /** Warning state */
+        val warning = Color(0xFFCE9178)
+
+        /** Error/destructive state */
+        val error = Color(0xFFE06C75)
+
+        /** Info accent */
+        val info = Color(0xFF61AFEF)
+
+        // ========== Message Direction Colors ==========
+        /** Incoming messages - bright */
+        val messageIncoming = Color(0xFF4EC9B0)
+
+        /** Incoming messages - dull */
+        val messageIncomingDull = Color(0xFF2B7A7A)
+
+        /** Outgoing messages - bright */
+        val messageOutgoing = Color(0xFF569CD6)
+
+        /** Outgoing messages - dull */
+        val messageOutgoingDull = Color(0xFF3A5A8A)
+
+        /** Rejected messages - bright */
+        val messageRejection = Color(0xFFE06C75)
+
+        /** Rejected messages - dull */
+        val messageRejectionDull = Color(0xFF8A4A4A)
+
+        // ========== Selection & Highlight Colors ==========
+        /** Selected row/item background */
+        val selectionPrimary = Color(0xFF2D5A8C)
+
+        /** Multi-selection secondary */
+        val selectionSecondary = Color(0xFF1E4A6B)
+
+        /** Current match highlight */
+        val highlightCurrent = Color(0xFFFFAA00)
+
+        /** Other matches highlight */
+        val highlightOther = Color(0xFF4A4A00)
+
+        // ========== Field & Tag Colors ==========
+        /** Field names/labels */
+        val fieldName = Color(0xFF4EC9B0)
+
+        /** Field values */
+        val fieldValue = Color(0xFF9CDCFE)
+
+        /** Tag numbers */
+        val tagNumber = Color(0xFFDCDCAA)
+
+        /** Group instance numbers */
+        val groupInstance = Color(0xFF9CDCFE)
+
+        /** Group tags/headers */
+        val groupTag = Color(0xFFFFAA00)
+
+        // ========== Notification Colors ==========
+        /** Success notification border */
+        val notificationSuccessBorder = success
+
+        /** Success notification background */
+        val notificationSuccessBackground = Color(0xFF1E3A1E)
+
+        /** Error notification border */
+        val notificationErrorBorder = error
+
+        /** Error notification background */
+        val notificationErrorBackground = Color(0xFF3A1E1E)
+
+        /** Info notification border */
+        val notificationInfoBorder = info
+
+        /** Info notification background */
+        val notificationInfoBackground = Color(0xFF1E2A3A)
+    }
+
+    /**
+     * Helper functions for conditional colors
+     */
+    object Helpers {
+        /** Returns primary color if active, otherwise textSecondary */
+        fun activeColor(isActive: Boolean): Color = if (isActive) Colors.primary else Colors.textSecondary
+
+        /** Returns textSecondary if enabled, otherwise textDisabled */
+        fun enabledColor(isEnabled: Boolean): Color = if (isEnabled) Colors.textSecondary else Colors.textDisabled
+
+        /** Returns appropriate checkbox background color */
+        fun checkboxBackground(isChecked: Boolean): Color = if (isChecked) Colors.primary else Colors.surface
+
+        /** Returns appropriate checkbox border color */
+        fun checkboxBorder(isChecked: Boolean): Color = if (isChecked) Colors.primary else Colors.textDisabled
     }
 }

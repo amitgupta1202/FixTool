@@ -358,7 +358,7 @@ private fun SessionPanel(
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Toggle Search",
-                        tint = if (searchVisible) AppTheme.Colors.primary else Color(0xFFB0B0B0),
+                        tint = if (searchVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -375,7 +375,7 @@ private fun SessionPanel(
                 Icon(
                     imageVector = Icons.Default.FilterAlt,
                     contentDescription = "Toggle Filter",
-                    tint = if (filterVisible) AppTheme.Colors.primary else Color(0xFFB0B0B0),
+                    tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -391,7 +391,7 @@ private fun SessionPanel(
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = "Add Blank Line",
-                    tint = Color(0xFFB0B0B0),
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -407,7 +407,7 @@ private fun SessionPanel(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Clear All Messages",
-                    tint = Color(0xFFB0B0B0),
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -452,7 +452,7 @@ private fun SessionPanel(
                 Icon(
                     imageVector = icon,
                     contentDescription = "Toggle View",
-                    tint = Color(0xFFB0B0B0),
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -840,18 +840,18 @@ private fun SessionPanel(
 }
 
 // Constants
-private val emptyStateTextColor = Color(0xFF6A6A6A)
-private val borderColor = Color(0xFF3A3A3A)
-private val panelBackgroundColor = Color(0xFF1E1E1E)
-private val headerBackgroundColor = Color(0xFF2B2B2B)
-private val titleTextColor = Color(0xFFE0E0E0)
-private val iconTintColor = Color(0xFFB0B0B0)
-private val connectedStateColor = Color(0xFF7AD67A)
-private val activeColor = Color(0xFF4EC9B0)
-private val filterPanelBackgroundColor = Color(0xFF252525)
-private val textFieldBackgroundColor = Color(0xFF2B2B2B)
-private val placeholderTextColor = Color(0xFF6A6A6A)
-private val checkboxIconColor = Color(0xFF1E1E1E)
+private val emptyStateTextColor = AppTheme.Colors.textDisabled
+private val borderColor = AppTheme.Colors.border
+private val panelBackgroundColor = AppTheme.Colors.background
+private val headerBackgroundColor = AppTheme.Colors.surface
+private val titleTextColor = AppTheme.Colors.text
+private val iconTintColor = AppTheme.Colors.textSecondary
+private val connectedStateColor = AppTheme.Colors.success
+private val activeColor = AppTheme.Colors.primary
+private val filterPanelBackgroundColor = AppTheme.Colors.surfaceVariant
+private val textFieldBackgroundColor = AppTheme.Colors.surface
+private val placeholderTextColor = AppTheme.Colors.textDisabled
+private val checkboxIconColor = AppTheme.Colors.background
 
 private val iconSize = 16.dp
 private val smallIconSize = 12.dp

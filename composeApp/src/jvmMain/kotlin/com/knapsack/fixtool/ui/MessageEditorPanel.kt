@@ -54,7 +54,7 @@ private fun SlimTextField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
-    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = textColor),
+    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text),
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -64,15 +64,15 @@ private fun SlimTextField(
         onValueChange = onValueChange,
         modifier =
             modifier
-                .background(backgroundColorDark, inputShape)
+                .background(AppTheme.Colors.surface, inputShape)
                 .border(
                     width = 1.dp,
-                    color = if (isFocused) activeColor else borderColor,
+                    color = if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border,
                     shape = inputShape,
                 ).padding(horizontal = 4.dp, vertical = 4.dp),
         textStyle = textStyle,
         singleLine = singleLine,
-        cursorBrush = SolidColor(activeColor),
+        cursorBrush = SolidColor(AppTheme.Colors.primary),
         interactionSource = interactionSource,
     )
 }
@@ -163,7 +163,7 @@ fun MessageEditorPanel(
         modifier =
             modifier
                 .fillMaxSize()
-                .background(darkBackgroundColor),
+                .background(AppTheme.Colors.background),
     ) {
         // Top border
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -173,7 +173,7 @@ fun MessageEditorPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(backgroundColorDark)
+                    .background(AppTheme.Colors.surface)
                     .padding(horizontal = 6.dp, vertical = 4.dp),
         ) {
             Row(
@@ -183,7 +183,7 @@ fun MessageEditorPanel(
             ) {
                 Text(
                     text = "Message Editor",
-                    color = textColor,
+                    color = AppTheme.Colors.text,
                     fontSize = 11.sp,
                 )
 
@@ -194,7 +194,7 @@ fun MessageEditorPanel(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = labelColor,
+                        tint = AppTheme.Colors.textSecondary,
                         modifier = iconSize16,
                     )
                 }
@@ -290,7 +290,7 @@ fun MessageEditorPanel(
                             imageVector = Icons.Default.Send,
                             contentDescription = "Send",
                             modifier = iconSize18,
-                            tint = if (canSend) activeColor else disabledIconColor,
+                            tint = if (canSend) AppTheme.Colors.primary else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -324,7 +324,7 @@ fun MessageEditorPanel(
                             tint =
                                 when {
                                     hasDataDictionary.not() -> disabledIconColor
-                                    validationPassed -> successColor
+                                    validationPassed -> AppTheme.Colors.success
                                     else ->
                                         Color(
                                             0xFFCE9178,
@@ -348,7 +348,7 @@ fun MessageEditorPanel(
                                 imageVector = Icons.Default.FolderOpen,
                                 contentDescription = "Load",
                                 modifier = iconSize18,
-                                tint = labelColor,
+                                tint = AppTheme.Colors.textSecondary,
                             )
                         }
 
@@ -369,7 +369,7 @@ fun MessageEditorPanel(
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
                                                     savedMsg.name,
-                                                    color = textColor,
+                                                    color = AppTheme.Colors.text,
                                                     fontSize = 14.sp,
                                                     fontFamily = FontFamily.Monospace,
                                                 )
@@ -404,7 +404,7 @@ fun MessageEditorPanel(
                                     },
                                     colors =
                                         MenuDefaults.itemColors(
-                                            textColor = textColor,
+                                            textColor = AppTheme.Colors.text,
                                         ),
                                 )
                             }
@@ -425,7 +425,7 @@ fun MessageEditorPanel(
                             imageVector = Icons.Default.Save,
                             contentDescription = "Save",
                             modifier = iconSize18,
-                            tint = labelColor,
+                            tint = AppTheme.Colors.textSecondary,
                         )
                     }
 
@@ -458,7 +458,7 @@ fun MessageEditorPanel(
                             ) {
                                 Text(
                                     "Save Message Template",
-                                    color = textColor,
+                                    color = AppTheme.Colors.text,
                                     fontSize = 16.sp,
                                     modifier = Modifier.padding(bottom = 12.dp),
                                 )
@@ -467,7 +467,7 @@ fun MessageEditorPanel(
                                 if (connectionProfiles.isNotEmpty()) {
                                     Text(
                                         "Connection Profile",
-                                        color = labelColor,
+                                        color = AppTheme.Colors.textSecondary,
                                         fontSize = 12.sp,
                                         modifier = Modifier.padding(bottom = 4.dp),
                                     )
@@ -481,7 +481,7 @@ fun MessageEditorPanel(
                                                         width = 1.dp,
                                                         color =
                                                             if (showProfileDropdown) {
-                                                                activeColor
+                                                                AppTheme.Colors.primary
                                                             } else {
                                                                 Color(
                                                                     0xFF555555,
@@ -502,7 +502,7 @@ fun MessageEditorPanel(
                                                         ?: "Select Profile",
                                                     fontSize = 14.sp,
                                                     fontFamily = FontFamily.Monospace,
-                                                    color = textColor,
+                                                    color = AppTheme.Colors.text,
                                                 )
                                                 Icon(
                                                     imageVector = if (showProfileDropdown) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
@@ -510,7 +510,7 @@ fun MessageEditorPanel(
                                                     modifier = iconSize16,
                                                     tint =
                                                         if (showProfileDropdown) {
-                                                            activeColor
+                                                            AppTheme.Colors.primary
                                                         } else {
                                                             Color(
                                                                 0xFF888888,
@@ -525,7 +525,7 @@ fun MessageEditorPanel(
                                             onDismissRequest = { showProfileDropdown = false },
                                             modifier =
                                                 Modifier
-                                                    .background(backgroundColorDark)
+                                                    .background(AppTheme.Colors.surface)
                                                     .widthIn(min = 280.dp),
                                         ) {
                                             connectionProfiles.forEach { profile ->
@@ -533,7 +533,7 @@ fun MessageEditorPanel(
                                                     text = {
                                                         Text(
                                                             profile.name,
-                                                            color = textColor,
+                                                            color = AppTheme.Colors.text,
                                                             fontSize = 13.sp,
                                                             fontFamily = FontFamily.Monospace,
                                                         )
@@ -547,7 +547,7 @@ fun MessageEditorPanel(
                                                             if (profile.id ==
                                                                 selectedProfileId
                                                             ) {
-                                                                borderColor
+                                                                AppTheme.Colors.border
                                                             } else {
                                                                 Color.Transparent
                                                             },
@@ -562,7 +562,7 @@ fun MessageEditorPanel(
                                 // Template Name field (SECOND)
                                 Text(
                                     "Template Name",
-                                    color = labelColor,
+                                    color = AppTheme.Colors.textSecondary,
                                     fontSize = 12.sp,
                                     modifier = Modifier.padding(bottom = 4.dp),
                                 )
@@ -572,11 +572,11 @@ fun MessageEditorPanel(
                                     singleLine = true,
                                     textStyle =
                                         TextStyle(
-                                            color = textColor,
+                                            color = AppTheme.Colors.text,
                                             fontSize = 14.sp,
                                             fontFamily = FontFamily.Monospace,
                                         ),
-                                    cursorBrush = SolidColor(activeColor),
+                                    cursorBrush = SolidColor(AppTheme.Colors.primary),
                                     interactionSource = nameFieldInteractionSource,
                                     modifier =
                                         Modifier
@@ -592,7 +592,7 @@ fun MessageEditorPanel(
                                                             0xFF4EC9B0,
                                                         )
                                                     } else {
-                                                        borderColorDark
+                                                        AppTheme.Colors.borderDark
                                                     },
                                                 shape = RoundedCornerShape(2.dp),
                                             ).padding(horizontal = 4.dp, vertical = 8.dp)
@@ -617,7 +617,7 @@ fun MessageEditorPanel(
                                     SlimButton(
                                         text = "Cancel",
                                         onClick = { showSaveDialog = false },
-                                        containerColor = borderColor,
+                                        containerColor = AppTheme.Colors.border,
                                         contentColor = AppTheme.Colors.textSecondary,
                                         modifier = Modifier.width(90.dp),
                                     )
@@ -660,7 +660,7 @@ fun MessageEditorPanel(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add",
                             modifier = iconSize18,
-                            tint = labelColor,
+                            tint = AppTheme.Colors.textSecondary,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -678,7 +678,7 @@ fun MessageEditorPanel(
                             imageVector = Icons.Default.Remove,
                             contentDescription = "Delete",
                             modifier = iconSize18,
-                            tint = if (fields.size > 1) labelColor else disabledIconColor,
+                            tint = if (fields.size > 1) AppTheme.Colors.textSecondary else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -696,7 +696,7 @@ fun MessageEditorPanel(
                             imageVector = Icons.Default.ArrowUpward,
                             contentDescription = "Move Up",
                             modifier = iconSize18,
-                            tint = if (selectedFieldIndex > 0) labelColor else disabledIconColor,
+                            tint = if (selectedFieldIndex > 0) AppTheme.Colors.textSecondary else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -714,7 +714,7 @@ fun MessageEditorPanel(
                             imageVector = Icons.Default.ArrowDownward,
                             contentDescription = "Move Down",
                             modifier = iconSize18,
-                            tint = if (selectedFieldIndex < fields.size - 1) labelColor else disabledIconColor,
+                            tint = if (selectedFieldIndex < fields.size - 1) AppTheme.Colors.textSecondary else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -734,7 +734,7 @@ fun MessageEditorPanel(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "Clear",
                             modifier = iconSize18,
-                            tint = labelColor,
+                            tint = AppTheme.Colors.textSecondary,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -751,7 +751,7 @@ fun MessageEditorPanel(
                             imageVector = Icons.Default.FormatIndentIncrease,
                             contentDescription = "Toggle Indentation",
                             modifier = iconSize18,
-                            tint = if (showIndentation) activeColor else labelColor,
+                            tint = if (showIndentation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -771,7 +771,7 @@ fun MessageEditorPanel(
                             imageVector = if (showDescription) Icons.Default.ViewModule else Icons.Default.ViewList,
                             contentDescription = "Toggle Description",
                             modifier = iconSize18,
-                            tint = labelColor,
+                            tint = AppTheme.Colors.textSecondary,
                         )
                     }
                 }
@@ -789,7 +789,7 @@ fun MessageEditorPanel(
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
                                 contentDescription = "More Options",
-                                tint = labelColor,
+                                tint = AppTheme.Colors.textSecondary,
                                 modifier = iconSize18,
                             )
                         }
@@ -805,7 +805,7 @@ fun MessageEditorPanel(
                                     modifier =
                                         Modifier
                                             .background(Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
-                                            .border(1.dp, borderColor, RoundedCornerShape(4.dp))
+                                            .border(1.dp, AppTheme.Colors.border, RoundedCornerShape(4.dp))
                                             .padding(horizontal = 4.dp, vertical = 4.dp),
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -840,7 +840,7 @@ fun MessageEditorPanel(
                                                 imageVector = Icons.Default.Send,
                                                 contentDescription = "Send",
                                                 modifier = iconSize18,
-                                                tint = if (canSend) activeColor else disabledIconColor,
+                                                tint = if (canSend) AppTheme.Colors.primary else disabledIconColor,
                                             )
                                         }
                                     }
@@ -875,7 +875,7 @@ fun MessageEditorPanel(
                                                             Color(
                                                                 0xFF98C379,
                                                             )
-                                                        ; else -> warningColor
+                                                        ; else -> AppTheme.Colors.warning
                                                     },
                                             )
                                         }
@@ -894,7 +894,7 @@ fun MessageEditorPanel(
                                                 imageVector = Icons.Default.FolderOpen,
                                                 contentDescription = "Load",
                                                 modifier = iconSize18,
-                                                tint = labelColor,
+                                                tint = AppTheme.Colors.textSecondary,
                                             )
                                         }
                                     }
@@ -910,7 +910,7 @@ fun MessageEditorPanel(
                                                 imageVector = Icons.Default.Save,
                                                 contentDescription = "Save",
                                                 modifier = iconSize18,
-                                                tint = labelColor,
+                                                tint = AppTheme.Colors.textSecondary,
                                             )
                                         }
                                     }
@@ -925,7 +925,7 @@ fun MessageEditorPanel(
                                                 imageVector = Icons.Default.Add,
                                                 contentDescription = "Add",
                                                 modifier = iconSize18,
-                                                tint = labelColor,
+                                                tint = AppTheme.Colors.textSecondary,
                                             )
                                         }
                                     }
@@ -941,7 +941,7 @@ fun MessageEditorPanel(
                                                 imageVector = Icons.Default.Remove,
                                                 contentDescription = "Delete",
                                                 modifier = iconSize18,
-                                                tint = if (fields.size > 1) labelColor else disabledIconColor,
+                                                tint = if (fields.size > 1) AppTheme.Colors.textSecondary else disabledIconColor,
                                             )
                                         }
                                     }
@@ -959,7 +959,7 @@ fun MessageEditorPanel(
                                                 modifier = iconSize18,
                                                 tint =
                                                     if (selectedFieldIndex > 0) {
-                                                        labelColor
+                                                        AppTheme.Colors.textSecondary
                                                     } else {
                                                         Color(
                                                             0xFF4A4A4A,
@@ -984,7 +984,7 @@ fun MessageEditorPanel(
                                                     if (selectedFieldIndex <
                                                         fields.size - 1
                                                     ) {
-                                                        labelColor
+                                                        AppTheme.Colors.textSecondary
                                                     } else {
                                                         Color(
                                                             0xFF4A4A4A,
@@ -1007,7 +1007,7 @@ fun MessageEditorPanel(
                                                 imageVector = Icons.Default.Delete,
                                                 contentDescription = "Clear",
                                                 modifier = iconSize18,
-                                                tint = labelColor,
+                                                tint = AppTheme.Colors.textSecondary,
                                             )
                                         }
                                     }
@@ -1022,7 +1022,7 @@ fun MessageEditorPanel(
                                                 imageVector = Icons.Default.FormatIndentIncrease,
                                                 contentDescription = "Toggle Indentation",
                                                 modifier = iconSize18,
-                                                tint = if (showIndentation) activeColor else labelColor,
+                                                tint = if (showIndentation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                                             )
                                         }
                                     }
@@ -1043,7 +1043,7 @@ fun MessageEditorPanel(
                                                 imageVector = if (showDescription) Icons.Default.ViewModule else Icons.Default.ViewList,
                                                 contentDescription = "Toggle Description",
                                                 modifier = iconSize18,
-                                                tint = labelColor,
+                                                tint = AppTheme.Colors.textSecondary,
                                             )
                                         }
                                     }
@@ -1079,12 +1079,12 @@ fun MessageEditorPanel(
                         Icon(
                             imageVector = Icons.Default.Error,
                             contentDescription = "Validation Errors",
-                            tint = errorColor,
+                            tint = AppTheme.Colors.error,
                             modifier = iconSize16,
                         )
                         Text(
                             text = "Validation Errors (${validationErrors.size})",
-                            color = errorColor,
+                            color = AppTheme.Colors.error,
                             fontSize = 10.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                         )
@@ -1097,7 +1097,7 @@ fun MessageEditorPanel(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Dismiss",
-                            tint = labelColor,
+                            tint = AppTheme.Colors.textSecondary,
                             modifier = iconSize14,
                         )
                     }
@@ -1107,7 +1107,7 @@ fun MessageEditorPanel(
                 validationErrors.forEach { error ->
                     Text(
                         text = "• $error",
-                        color = errorColor,
+                        color = AppTheme.Colors.error,
                         fontSize = 9.sp,
                         modifier = Modifier.padding(start = 22.dp),
                     )
@@ -1121,7 +1121,7 @@ fun MessageEditorPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(backgroundColorDark)
+                    .background(AppTheme.Colors.surface)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1130,7 +1130,7 @@ fun MessageEditorPanel(
 
             Text(
                 text = "Tag",
-                color = labelColor,
+                color = AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 modifier = Modifier.width(48.dp),
             )
@@ -1139,7 +1139,7 @@ fun MessageEditorPanel(
 
             Text(
                 text = "Field Name",
-                color = labelColor,
+                color = AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 modifier = Modifier.width(120.dp),
             )
@@ -1148,7 +1148,7 @@ fun MessageEditorPanel(
 
             Text(
                 text = "Value",
-                color = labelColor,
+                color = AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 modifier = Modifier.width(180.dp),
             )
@@ -1158,7 +1158,7 @@ fun MessageEditorPanel(
 
                 Text(
                     text = "Description",
-                    color = labelColor,
+                    color = AppTheme.Colors.textSecondary,
                     fontSize = 10.sp,
                     modifier = Modifier.weight(1f),
                 )
@@ -1223,7 +1223,7 @@ fun MessageEditorPanel(
                         Modifier
                             .height(1.dp)
                             .fillMaxWidth()
-                            .background(borderColor)
+                            .background(AppTheme.Colors.border)
                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
                             .pointerInput(maxHeightPx) {
                                 detectDragGestures { change, dragAmount ->
@@ -1245,7 +1245,7 @@ fun MessageEditorPanel(
                         modifier =
                             Modifier
                                 .fillMaxSize()
-                                .background(fieldBackgroundColor, RoundedCornerShape(4.dp))
+                                .background(AppTheme.Colors.surfaceVariant, RoundedCornerShape(4.dp))
                                 .padding(12.dp),
                     ) {
                         // Header with label and copy/paste buttons
@@ -1256,7 +1256,7 @@ fun MessageEditorPanel(
                         ) {
                             Text(
                                 text = "RAW MESSAGE",
-                                color = labelColor,
+                                color = AppTheme.Colors.textSecondary,
                                 fontSize = 10.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             )
@@ -1285,7 +1285,7 @@ fun MessageEditorPanel(
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
                                         contentDescription = "Copy",
-                                        tint = labelColor,
+                                        tint = AppTheme.Colors.textSecondary,
                                         modifier = iconSize14,
                                     )
                                 }
@@ -1351,7 +1351,7 @@ fun MessageEditorPanel(
                                     Icon(
                                         imageVector = Icons.Default.ContentPaste,
                                         contentDescription = "Paste",
-                                        tint = labelColor,
+                                        tint = AppTheme.Colors.textSecondary,
                                         modifier = iconSize14,
                                     )
                                 }
@@ -1385,16 +1385,16 @@ fun MessageEditorPanel(
                                 TextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
                                     unfocusedContainerColor = Color.Transparent,
-                                    focusedTextColor = textColor,
-                                    unfocusedTextColor = textColor,
-                                    cursorColor = activeColor,
+                                    focusedTextColor = AppTheme.Colors.text,
+                                    unfocusedTextColor = AppTheme.Colors.text,
+                                    cursorColor = AppTheme.Colors.primary,
                                     focusedIndicatorColor = Color.Transparent,
                                     unfocusedIndicatorColor = Color.Transparent,
                                 ),
                             textStyle =
                                 LocalTextStyle.current.copy(
                                     fontSize = 10.sp,
-                                    color = textColor,
+                                    color = AppTheme.Colors.text,
                                     fontFamily = FontFamily.Monospace,
                                 ),
                         )
@@ -1635,9 +1635,9 @@ private fun FieldEditorRow(
     // Determine background color based on selection state
     val backgroundColor =
         when {
-            isPrimarySelection -> selectionPrimaryColor // Primary selection - darker blue
+            isPrimarySelection -> AppTheme.Colors.selectionPrimary // Primary selection - darker blue
             isSelected -> selectionSecondaryColor // Part of multi-selection - lighter blue
-            else -> darkBackgroundColor // Not selected
+            else -> AppTheme.Colors.background // Not selected
         }
 
     Column {
@@ -1647,12 +1647,12 @@ private fun FieldEditorRow(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(headerBackgroundColor)
+                        .background(AppTheme.Colors.surfaceHeader)
                         .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             ) {
                 Text(
                     text = "[$instanceNumber]",
-                    color = instanceNumberColor,
+                    color = AppTheme.Colors.fieldValue,
                     fontSize = 9.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
@@ -1715,9 +1715,9 @@ private fun FieldEditorRow(
                     tint =
                         when {
                             isManaged -> disabledIconColor
-                            field.excluded -> disabledTextColor
-                            isGroupTag -> groupTagColor // Orange for group tags
-                            else -> activeColor // Green for regular fields
+                            field.excluded -> AppTheme.Colors.textDisabled
+                            isGroupTag -> AppTheme.Colors.groupTag // Orange for group tags
+                            else -> AppTheme.Colors.primary // Green for regular fields
                         },
                     modifier = iconSize14,
                 )
@@ -1741,9 +1741,9 @@ private fun FieldEditorRow(
                     text = fieldName,
                     color =
                         when {
-                            isManaged -> disabledTextColor
-                            isGroupTag -> groupTagColor // Orange for group tags
-                            else -> activeColor // Green for regular fields
+                            isManaged -> AppTheme.Colors.textDisabled
+                            isGroupTag -> AppTheme.Colors.groupTag // Orange for group tags
+                            else -> AppTheme.Colors.primary // Green for regular fields
                         },
                     fontSize = 10.sp,
                     maxLines = 1,
@@ -1791,7 +1791,7 @@ private fun FieldEditorRow(
                         // Value description (read-only text)
                         Text(
                             text = if (hasValueDescription) valueDescription!! else "",
-                            color = if (isManaged) disabledTextColor else descriptionColor,
+                            color = if (isManaged) AppTheme.Colors.textDisabled else descriptionColor,
                             fontSize = 10.sp,
                             modifier = Modifier.weight(1f),
                         )
@@ -1806,7 +1806,7 @@ private fun FieldEditorRow(
                     ) {
                         Text(
                             text = field.tag,
-                            color = if (isManaged || field.excluded) disabledTextColor else textColor,
+                            color = if (isManaged || field.excluded) AppTheme.Colors.textDisabled else AppTheme.Colors.text,
                             fontSize = 10.sp,
                             modifier = Modifier.width(48.dp),
                         )
@@ -1818,9 +1818,9 @@ private fun FieldEditorRow(
                             text = fieldName,
                             color =
                                 when {
-                                    isManaged || field.excluded -> disabledTextColor
-                                    isGroupTag -> groupTagColor // Orange for group tags
-                                    else -> activeColor // Green for regular fields
+                                    isManaged || field.excluded -> AppTheme.Colors.textDisabled
+                                    isGroupTag -> AppTheme.Colors.groupTag // Orange for group tags
+                                    else -> AppTheme.Colors.primary // Green for regular fields
                                 },
                             fontSize = 10.sp,
                             maxLines = 1,
@@ -1832,7 +1832,7 @@ private fun FieldEditorRow(
 
                         Text(
                             text = field.value,
-                            color = if (isManaged || field.excluded) disabledTextColor else textColor,
+                            color = if (isManaged || field.excluded) AppTheme.Colors.textDisabled else AppTheme.Colors.text,
                             fontSize = 10.sp,
                             modifier = Modifier.width(180.dp),
                         )
@@ -1842,7 +1842,7 @@ private fun FieldEditorRow(
 
                             Text(
                                 text = if (hasValueDescription) valueDescription!! else "",
-                                color = if (isManaged || field.excluded) disabledTextColor else descriptionColor,
+                                color = if (isManaged || field.excluded) AppTheme.Colors.textDisabled else descriptionColor,
                                 fontSize = 10.sp,
                                 modifier = Modifier.weight(1f),
                             )
@@ -1956,41 +1956,25 @@ private fun SlimButton(
             modifier
                 .height(32.dp)
                 .background(
-                    color = if (enabled) containerColor else borderColor,
+                    color = if (enabled) containerColor else AppTheme.Colors.border,
                     shape = RoundedCornerShape(4.dp),
                 ).clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            color = if (enabled) contentColor else AppTheme.Colors.textTertiary,
+            color = if (enabled) contentColor else AppTheme.Colors.textDisabled,
             fontSize = 13.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
         )
     }
 }
 
-// Private color constants
-private val darkBackgroundColor = Color(0xFF1E1E1E)
-private val backgroundColorDark = Color(0xFF2B2B2B)
-private val borderColor = Color(0xFF3A3A3A)
-private val fieldBackgroundColor = Color(0xFF252525)
-private val headerBackgroundColor = Color(0xFF202020)
-private val textColor = Color(0xFFE0E0E0)
-private val labelColor = Color(0xFFB0B0B0)
-private val disabledTextColor = Color(0xFF6A6A6A)
-private val activeColor = Color(0xFF4EC9B0)
-private val errorColor = Color(0xFFE06C75)
+// Component-specific color constants (not in AppTheme)
 private val deleteColor = Color(0xFFFF5555)
-private val warningColor = Color(0xFFCE9178)
-private val successColor = Color(0xFF98C379)
-private val groupTagColor = Color(0xFFFFAA00)
-private val instanceNumberColor = Color(0xFF9CDCFE)
 private val disabledIconColor = Color(0xFF4A4A4A)
-private val selectionPrimaryColor = Color(0xFF2D5A8C)
 private val selectionSecondaryColor = Color(0xFF1E4A6B)
 private val placeholderColor = Color(0xFF888888)
-private val borderColorDark = Color(0xFF555555)
 private val descriptionColor = Color(0xFF9A9A9A)
 
 // Common modifiers

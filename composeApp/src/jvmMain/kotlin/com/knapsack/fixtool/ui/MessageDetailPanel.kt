@@ -920,32 +920,32 @@ private fun collectGroupKeysFromFieldMap(
 }
 
 // Color constants
-private val panelBackgroundColor = Color(0xFF1E1E1E)
-private val headerBackgroundColor = Color(0xFF2B2B2B)
-private val metadataBackgroundColor = Color(0xFF252525)
-private val fieldRowBackgroundColor = Color(0xFF1E1E1E)
-private val groupHeaderBackgroundColor = Color(0xFF252525)
-private val groupInstanceBackgroundColor = Color(0xFF202020)
+private val panelBackgroundColor = AppTheme.Colors.background
+private val headerBackgroundColor = AppTheme.Colors.surface
+private val metadataBackgroundColor = AppTheme.Colors.surfaceVariant
+private val fieldRowBackgroundColor = AppTheme.Colors.background
+private val groupHeaderBackgroundColor = AppTheme.Colors.surfaceVariant
+private val groupInstanceBackgroundColor = AppTheme.Colors.surfaceHeader
 
-private val headerTextColor = Color(0xFFE0E0E0)
-private val iconTintColor = Color(0xFFB0B0B0)
-private val searchIconColor = Color(0xFF6A6A6A)
-private val timestampColor = Color(0xFFB0B0B0)
-private val rawMessageTextColor = Color(0xFFE0E0E0)
-private val placeholderTextColor = Color(0xFF6A6A6A)
+private val headerTextColor = AppTheme.Colors.text
+private val iconTintColor = AppTheme.Colors.textSecondary
+private val searchIconColor = AppTheme.Colors.textDisabled
+private val timestampColor = AppTheme.Colors.textSecondary
+private val rawMessageTextColor = AppTheme.Colors.text
+private val placeholderTextColor = AppTheme.Colors.textDisabled
 
-private val tagNumberColor = Color(0xFF6A6A6A)
-private val fieldNameColor = Color(0xFF4EC9B0)
-private val fieldValueColor = Color(0xFFE0E0E0)
-private val groupHeaderTextColor = Color(0xFFD4A574)
-private val groupInstanceTextColor = Color(0xFF9CDCFE)
+private val tagNumberColor = AppTheme.Colors.tagNumber
+private val fieldNameColor = AppTheme.Colors.primary
+private val fieldValueColor = AppTheme.Colors.text
+private val groupHeaderTextColor = Color(0xFFD4A574) // Keep unique group header color
+private val groupInstanceTextColor = AppTheme.Colors.fieldValue
 
-private val focusedBorderColor = Color(0xFF4EC9B0)
-private val unfocusedBorderColor = Color(0xFF3A3A3A)
+private val focusedBorderColor = AppTheme.Colors.primary
+private val unfocusedBorderColor = AppTheme.Colors.border
 
-private val outgoingMessageColor = Color(0xFF569CD6)
-private val incomingMessageColor = Color(0xFF4EC9B0)
-private val rejectionMessageColor = Color(0xFFE06C75)
+private val outgoingMessageColor = AppTheme.Colors.messageOutgoing
+private val incomingMessageColor = AppTheme.Colors.messageIncoming
+private val rejectionMessageColor = AppTheme.Colors.messageRejection
 
 // Modifier constants
 private val buttonSize = Modifier.size(24.dp)
@@ -959,14 +959,14 @@ private val searchFieldShape = RoundedCornerShape(2.dp)
 private val searchTextStyle =
     TextStyle(
         fontSize = 10.sp,
-        color = Color(0xFFE0E0E0),
+        color = AppTheme.Colors.text,
         fontFamily = FontFamily.Monospace,
     )
 
 private val searchPlaceholderStyle =
     TextStyle(
         fontSize = 10.sp,
-        color = Color(0xFF6A6A6A),
+        color = AppTheme.Colors.textDisabled,
         fontFamily = FontFamily.Monospace,
     )
 

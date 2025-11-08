@@ -116,7 +116,7 @@ fun ConnectionPanel(
         modifier =
             modifier
                 .fillMaxHeight()
-                .background(darkBackgroundColor),
+                .background(AppTheme.Colors.background),
     ) {
         // Top border
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -126,13 +126,13 @@ fun ConnectionPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(backgroundColorDark)
+                    .background(AppTheme.Colors.surface)
                     .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = "FIX Connection",
-                color = textColor,
+                color = AppTheme.Colors.text,
                 fontSize = 11.sp,
             )
 
@@ -147,7 +147,7 @@ fun ConnectionPanel(
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Close",
-                    tint = labelColor,
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = iconSize16,
                 )
             }
@@ -319,7 +319,7 @@ fun ConnectionPanel(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Status",
-                        color = labelColor,
+                        color = AppTheme.Colors.textSecondary,
                         fontSize = 9.sp,
                         modifier = Modifier.padding(bottom = 2.dp),
                     )
@@ -329,7 +329,7 @@ fun ConnectionPanel(
                             Modifier
                                 .fillMaxWidth()
                                 .height(24.dp)
-                                .background(fieldBackgroundColor, inputShape)
+                                .background(AppTheme.Colors.surfaceVariant, inputShape)
                                 .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -432,7 +432,7 @@ fun ConnectionPanel(
             // Info text about auto-detection
             Text(
                 text = "ℹ FIX Version is automatically detected from the Data Dictionary (configured in Settings)",
-                color = disabledTextColor,
+                color = AppTheme.Colors.textDisabled,
                 fontSize = 9.sp,
                 modifier = Modifier.padding(vertical = 4.dp),
                 lineHeight = 12.sp,
@@ -454,7 +454,7 @@ fun ConnectionPanel(
                     Icon(
                         imageVector = if (showAdvanced) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                         contentDescription = "Toggle Advanced",
-                        tint = labelColor,
+                        tint = AppTheme.Colors.textSecondary,
                         modifier = iconSize16,
                     )
                 }
@@ -463,7 +463,7 @@ fun ConnectionPanel(
 
                 Text(
                     text = "Advanced Settings",
-                    color = labelColor,
+                    color = AppTheme.Colors.textSecondary,
                     fontSize = 10.sp,
                 )
             }
@@ -510,14 +510,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = darkBackgroundColor,
+                                    tint = AppTheme.Colors.background,
                                     modifier = iconSize12,
                                 )
                             }
                         }
                         Text(
                             text = "Show Heartbeat",
-                            color = labelColor,
+                            color = AppTheme.Colors.textSecondary,
                             fontSize = 9.sp,
                         )
                     }
@@ -527,7 +527,7 @@ fun ConnectionPanel(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Reset Options",
-                    color = labelColor,
+                    color = AppTheme.Colors.textSecondary,
                     fontSize = 9.sp,
                 )
 
@@ -559,14 +559,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = darkBackgroundColor,
+                                    tint = AppTheme.Colors.background,
                                     modifier = iconSize10,
                                 )
                             }
                         }
                         Text(
                             text = "Logon",
-                            color = labelColor,
+                            color = AppTheme.Colors.textSecondary,
                             fontSize = 9.sp,
                         )
                     }
@@ -594,14 +594,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = darkBackgroundColor,
+                                    tint = AppTheme.Colors.background,
                                     modifier = iconSize10,
                                 )
                             }
                         }
                         Text(
                             text = "Logout",
-                            color = labelColor,
+                            color = AppTheme.Colors.textSecondary,
                             fontSize = 9.sp,
                         )
                     }
@@ -629,14 +629,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = darkBackgroundColor,
+                                    tint = AppTheme.Colors.background,
                                     modifier = iconSize10,
                                 )
                             }
                         }
                         Text(
                             text = "Disconnect",
-                            color = labelColor,
+                            color = AppTheme.Colors.textSecondary,
                             fontSize = 9.sp,
                         )
                     }
@@ -667,14 +667,14 @@ fun ConnectionPanel(
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
-                                tint = darkBackgroundColor,
+                                tint = AppTheme.Colors.background,
                                 modifier = iconSize10,
                             )
                         }
                     }
                     Text(
                         text = "Use SSL/TLS",
-                        color = labelColor,
+                        color = AppTheme.Colors.textSecondary,
                         fontSize = 9.sp,
                     )
                 }
@@ -769,14 +769,14 @@ fun ConnectionPanel(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
-                                    tint = darkBackgroundColor,
+                                    tint = AppTheme.Colors.background,
                                     modifier = iconSize10,
                                 )
                             }
                         }
                         Text(
                             text = "Require Client Auth (Acceptor only)",
-                            color = labelColor,
+                            color = AppTheme.Colors.textSecondary,
                             fontSize = 9.sp,
                         )
                     }
@@ -792,7 +792,7 @@ fun ConnectionPanel(
                 ) {
                     Text(
                         text = "Custom Parameters",
-                        color = labelColor,
+                        color = AppTheme.Colors.textSecondary,
                         fontSize = 9.sp,
                     )
 
@@ -806,7 +806,7 @@ fun ConnectionPanel(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add Parameter",
-                            tint = activeColor,
+                            tint = AppTheme.Colors.primary,
                             modifier = iconSize14,
                         )
                     }
@@ -836,8 +836,8 @@ fun ConnectionPanel(
                                 Modifier
                                     .weight(1f)
                                     .height(24.dp)
-                                    .background(backgroundColorDark, inputShape)
-                                    .border(1.dp, borderColor, inputShape)
+                                    .background(AppTheme.Colors.surface, inputShape)
+                                    .border(1.dp, AppTheme.Colors.border, inputShape)
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                             textStyle =
                                 TextStyle(
@@ -846,7 +846,7 @@ fun ConnectionPanel(
                                     fontFamily = FontFamily.Monospace,
                                 ),
                             singleLine = true,
-                            cursorBrush = SolidColor(activeColor),
+                            cursorBrush = SolidColor(AppTheme.Colors.primary),
                             interactionSource = keyInteractionSource,
                             decorationBox = { innerTextField ->
                                 if (param.first.isEmpty() && !keyIsFocused) {
@@ -855,7 +855,7 @@ fun ConnectionPanel(
                                         style =
                                             TextStyle(
                                                 fontSize = 10.sp,
-                                                color = disabledTextColor,
+                                                color = AppTheme.Colors.textDisabled,
                                                 fontFamily = FontFamily.Monospace,
                                             ),
                                     )
@@ -879,8 +879,8 @@ fun ConnectionPanel(
                                 Modifier
                                     .weight(1f)
                                     .height(24.dp)
-                                    .background(backgroundColorDark, inputShape)
-                                    .border(1.dp, borderColor, inputShape)
+                                    .background(AppTheme.Colors.surface, inputShape)
+                                    .border(1.dp, AppTheme.Colors.border, inputShape)
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                             textStyle =
                                 TextStyle(
@@ -889,7 +889,7 @@ fun ConnectionPanel(
                                     fontFamily = FontFamily.Monospace,
                                 ),
                             singleLine = true,
-                            cursorBrush = SolidColor(activeColor),
+                            cursorBrush = SolidColor(AppTheme.Colors.primary),
                             interactionSource = valueInteractionSource,
                             decorationBox = { innerTextField ->
                                 if (param.second.isEmpty() && !valueIsFocused) {
@@ -898,7 +898,7 @@ fun ConnectionPanel(
                                         style =
                                             TextStyle(
                                                 fontSize = 10.sp,
-                                                color = disabledTextColor,
+                                                color = AppTheme.Colors.textDisabled,
                                                 fontFamily = FontFamily.Monospace,
                                             ),
                                     )
@@ -920,7 +920,7 @@ fun ConnectionPanel(
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete",
-                                tint = errorColor,
+                                tint = AppTheme.Colors.error,
                                 modifier = iconSize14,
                             )
                         }
@@ -937,7 +937,7 @@ fun ConnectionPanel(
                 ) {
                     Text(
                         text = "Logon Message Fields",
-                        color = labelColor,
+                        color = AppTheme.Colors.textSecondary,
                         fontSize = 9.sp,
                     )
 
@@ -951,7 +951,7 @@ fun ConnectionPanel(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add Logon Field",
-                            tint = activeColor,
+                            tint = AppTheme.Colors.primary,
                             modifier = iconSize14,
                         )
                     }
@@ -981,8 +981,8 @@ fun ConnectionPanel(
                                 Modifier
                                     .weight(1f)
                                     .height(24.dp)
-                                    .background(backgroundColorDark, inputShape)
-                                    .border(1.dp, borderColor, inputShape)
+                                    .background(AppTheme.Colors.surface, inputShape)
+                                    .border(1.dp, AppTheme.Colors.border, inputShape)
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                             textStyle =
                                 TextStyle(
@@ -991,7 +991,7 @@ fun ConnectionPanel(
                                     fontFamily = FontFamily.Monospace,
                                 ),
                             singleLine = true,
-                            cursorBrush = SolidColor(activeColor),
+                            cursorBrush = SolidColor(AppTheme.Colors.primary),
                             interactionSource = tagInteractionSource,
                             decorationBox = { innerTextField ->
                                 if (field.first.isEmpty() && !tagIsFocused) {
@@ -1000,7 +1000,7 @@ fun ConnectionPanel(
                                         style =
                                             TextStyle(
                                                 fontSize = 10.sp,
-                                                color = disabledTextColor,
+                                                color = AppTheme.Colors.textDisabled,
                                                 fontFamily = FontFamily.Monospace,
                                             ),
                                     )
@@ -1024,8 +1024,8 @@ fun ConnectionPanel(
                                 Modifier
                                     .weight(1f)
                                     .height(24.dp)
-                                    .background(backgroundColorDark, inputShape)
-                                    .border(1.dp, borderColor, inputShape)
+                                    .background(AppTheme.Colors.surface, inputShape)
+                                    .border(1.dp, AppTheme.Colors.border, inputShape)
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
                             textStyle =
                                 TextStyle(
@@ -1034,7 +1034,7 @@ fun ConnectionPanel(
                                     fontFamily = FontFamily.Monospace,
                                 ),
                             singleLine = true,
-                            cursorBrush = SolidColor(activeColor),
+                            cursorBrush = SolidColor(AppTheme.Colors.primary),
                             interactionSource = valueInteractionSource,
                             decorationBox = { innerTextField ->
                                 if (field.second.isEmpty() && !valueIsFocused) {
@@ -1043,7 +1043,7 @@ fun ConnectionPanel(
                                         style =
                                             TextStyle(
                                                 fontSize = 10.sp,
-                                                color = disabledTextColor,
+                                                color = AppTheme.Colors.textDisabled,
                                                 fontFamily = FontFamily.Monospace,
                                             ),
                                     )
@@ -1065,7 +1065,7 @@ fun ConnectionPanel(
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete",
-                                tint = errorColor,
+                                tint = AppTheme.Colors.error,
                                 modifier = iconSize14,
                             )
                         }
@@ -1091,12 +1091,12 @@ fun ConnectionPanel(
                 Icon(
                     imageVector = Icons.Default.Error,
                     contentDescription = "Error",
-                    tint = errorColor,
+                    tint = AppTheme.Colors.error,
                     modifier = iconSize16,
                 )
                 Text(
                     text = connectionError ?: "",
-                    color = errorColor,
+                    color = AppTheme.Colors.error,
                     fontSize = 10.sp,
                     modifier = Modifier.weight(1f),
                 )
@@ -1108,7 +1108,7 @@ fun ConnectionPanel(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Dismiss",
-                        tint = labelColor,
+                        tint = AppTheme.Colors.textSecondary,
                         modifier = iconSize14,
                     )
                 }
@@ -1120,7 +1120,7 @@ fun ConnectionPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(backgroundColorDark)
+                    .background(AppTheme.Colors.surface)
                     .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1171,8 +1171,8 @@ fun ConnectionPanel(
                     onConnect(profile.id, profile)
                 },
                 enabled = connectionState.canConnect() && isFormValid(),
-                containerColor = activeColor,
-                contentColor = darkBackgroundColor,
+                containerColor = AppTheme.Colors.primary,
+                contentColor = AppTheme.Colors.background,
                 modifier = Modifier.weight(1f),
             )
 
@@ -1183,8 +1183,8 @@ fun ConnectionPanel(
                     selectedProfile?.let { onDisconnect(it.id) }
                 },
                 enabled = connectionState.canDisconnect(),
-                containerColor = warningColor,
-                contentColor = darkBackgroundColor,
+                containerColor = AppTheme.Colors.warning,
+                contentColor = AppTheme.Colors.background,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -1195,7 +1195,7 @@ fun ConnectionPanel(
 private fun SectionLabel(text: String) {
     Text(
         text = text,
-        color = activeColor,
+        color = AppTheme.Colors.primary,
         fontSize = 10.sp,
         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
         modifier = Modifier.padding(top = 4.dp),
@@ -1216,7 +1216,7 @@ private fun ConnectionField(
     Column(modifier = modifier) {
         Text(
             text = label,
-            color = if (isError) errorColor else labelColor,
+            color = if (isError) AppTheme.Colors.error else AppTheme.Colors.textSecondary,
             fontSize = 9.sp,
             modifier = Modifier.padding(bottom = 2.dp),
         )
@@ -1225,7 +1225,7 @@ private fun ConnectionField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth().height(24.dp),
-            textStyle = TextStyle(fontSize = 10.sp, color = textColor),
+            textStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text),
             visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
             isError = isError,
         )
@@ -1233,7 +1233,7 @@ private fun ConnectionField(
         if (isError && errorMessage.isNotEmpty()) {
             Text(
                 text = errorMessage,
-                color = errorColor,
+                color = AppTheme.Colors.error,
                 fontSize = 8.sp,
                 modifier = Modifier.padding(top = 2.dp),
             )
@@ -1247,7 +1247,7 @@ private fun SlimTextField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
-    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = textColor),
+    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text),
     visualTransformation: VisualTransformation = VisualTransformation.None,
     isError: Boolean = false,
 ) {
@@ -1256,9 +1256,9 @@ private fun SlimTextField(
 
     val fieldBorderColor =
         when {
-            isError -> errorColor
-            isFocused -> activeColor
-            else -> borderColor
+            isError -> AppTheme.Colors.error
+            isFocused -> AppTheme.Colors.primary
+            else -> AppTheme.Colors.border
         }
 
     BasicTextField(
@@ -1266,7 +1266,7 @@ private fun SlimTextField(
         onValueChange = onValueChange,
         modifier =
             modifier
-                .background(backgroundColorDark, inputShape)
+                .background(AppTheme.Colors.surface, inputShape)
                 .border(
                     width = 1.dp,
                     color = fieldBorderColor,
@@ -1274,7 +1274,7 @@ private fun SlimTextField(
                 ).padding(horizontal = 4.dp, vertical = 4.dp),
         textStyle = textStyle,
         singleLine = singleLine,
-        cursorBrush = SolidColor(activeColor),
+        cursorBrush = SolidColor(AppTheme.Colors.primary),
         interactionSource = interactionSource,
         visualTransformation = visualTransformation,
     )
@@ -1319,13 +1319,13 @@ private fun ProfileSection(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .background(backgroundColorDark, inputShape)
-                            .border(1.dp, borderColor, inputShape)
+                            .background(AppTheme.Colors.surface, inputShape)
+                            .border(1.dp, AppTheme.Colors.border, inputShape)
                             .padding(horizontal = 4.dp, vertical = 4.dp),
                 ) {
                     Text(
                         text = "No saved profiles",
-                        color = disabledTextColor,
+                        color = AppTheme.Colors.textDisabled,
                         fontSize = 10.sp,
                     )
                 }
@@ -1340,7 +1340,7 @@ private fun ProfileSection(
                 Icon(
                     imageVector = Icons.Default.Save,
                     contentDescription = "Save Profile",
-                    tint = activeColor,
+                    tint = AppTheme.Colors.primary,
                     modifier = iconSize16,
                 )
             }
@@ -1355,7 +1355,7 @@ private fun ProfileSection(
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = "Clone Profile",
-                        tint = infoColor,
+                        tint = AppTheme.Colors.info,
                         modifier = iconSize16,
                     )
                 }
@@ -1371,7 +1371,7 @@ private fun ProfileSection(
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Delete Profile",
-                        tint = warningColor,
+                        tint = AppTheme.Colors.warning,
                         modifier = iconSize16,
                     )
                 }
@@ -1401,7 +1401,7 @@ private fun SlimCheckbox(
     ) {
         Text(
             text = label,
-            color = labelColor,
+            color = AppTheme.Colors.textSecondary,
             fontSize = 9.sp,
         )
 
@@ -1422,7 +1422,7 @@ private fun SlimCheckbox(
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
-                    tint = darkBackgroundColor,
+                    tint = AppTheme.Colors.background,
                     modifier = iconSize12,
                 )
             }
@@ -1438,8 +1438,8 @@ private fun SlimButton(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    containerColor: Color = activeColor,
-    contentColor: Color = darkBackgroundColor,
+    containerColor: Color = AppTheme.Colors.primary,
+    contentColor: Color = AppTheme.Colors.background,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -1447,40 +1447,29 @@ private fun SlimButton(
             modifier
                 .height(24.dp)
                 .background(
-                    color = if (enabled) containerColor else borderColor,
+                    color = if (enabled) containerColor else AppTheme.Colors.border,
                     shape = RoundedCornerShape(2.dp),
                 ).clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            color = if (enabled) contentColor else disabledTextColor,
+            color = if (enabled) contentColor else AppTheme.Colors.textDisabled,
             fontSize = 10.sp,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
         )
     }
 }
 
-// Private color constants
-private val darkBackgroundColor = Color(0xFF1E1E1E)
-private val backgroundColorDark = Color(0xFF2B2B2B)
-private val borderColor = Color(0xFF3A3A3A)
-private val fieldBackgroundColor = Color(0xFF252525)
-private val textColor = Color(0xFFE0E0E0)
-private val labelColor = Color(0xFFB0B0B0)
-private val disabledTextColor = Color(0xFF6A6A6A)
-private val activeColor = Color(0xFF4EC9B0)
-private val errorColor = Color(0xFFE06C75)
-private val warningColor = Color(0xFFCE9178)
-private val infoColor = Color(0xFF61AFEF)
+// Component-specific color constants (not in AppTheme)
 private val errorBackgroundColor = Color(0xFF3A1F1F)
 
 // Helper functions for conditional colors
-private fun checkboxBackgroundColor(checked: Boolean) = if (checked) activeColor else backgroundColorDark
+private fun checkboxBackgroundColor(checked: Boolean) = if (checked) AppTheme.Colors.primary else AppTheme.Colors.surface
 
-private fun checkboxBorderColor(checked: Boolean) = if (checked) activeColor else disabledTextColor
+private fun checkboxBorderColor(checked: Boolean) = if (checked) AppTheme.Colors.primary else AppTheme.Colors.textDisabled
 
-private fun placeholderColor(isEmpty: Boolean, isFocused: Boolean) = if (isEmpty && !isFocused) disabledTextColor else textColor
+private fun placeholderColor(isEmpty: Boolean, isFocused: Boolean) = if (isEmpty && !isFocused) AppTheme.Colors.textDisabled else AppTheme.Colors.text
 
 // Common modifiers
 private val iconSize24 = Modifier.size(24.dp)

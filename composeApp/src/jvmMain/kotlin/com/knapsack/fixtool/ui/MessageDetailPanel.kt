@@ -59,7 +59,7 @@ fun MessageDetailPanel(
         modifier =
             modifier
                 .fillMaxHeight()
-                .background(Color(0xFF1E1E1E)),
+                .background(panelBackgroundColor),
     ) {
         // Always show the panel structure, with raw message section for paste functionality
         run {
@@ -75,13 +75,13 @@ fun MessageDetailPanel(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF2B2B2B))
+                            .background(headerBackgroundColor)
                             .padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = "Message Details",
-                        color = Color(0xFFE0E0E0),
+                        color = headerTextColor,
                         fontSize = 11.sp,
                     )
 
@@ -98,13 +98,13 @@ fun MessageDetailPanel(
                             onClick = {
                                 expandedGroups = if (allExpanded) emptySet() else allGroupKeys
                             },
-                            modifier = Modifier.size(24.dp),
+                            modifier = buttonSize,
                         ) {
                             Icon(
                                 imageVector = if (allExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
                                 contentDescription = if (allExpanded) "Collapse All" else "Expand All",
-                                tint = Color(0xFFB0B0B0),
-                                modifier = Modifier.size(16.dp),
+                                tint = iconTintColor,
+                                modifier = iconSize,
                             )
                         }
 
@@ -114,13 +114,13 @@ fun MessageDetailPanel(
                         TooltipIconButton(
                             tooltip = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
                             onClick = { hideProtocolTags = !hideProtocolTags },
-                            modifier = Modifier.size(24.dp),
+                            modifier = buttonSize,
                         ) {
                             Icon(
                                 imageVector = if (hideProtocolTags) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                                 contentDescription = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
-                                tint = Color(0xFFB0B0B0),
-                                modifier = Modifier.size(16.dp),
+                                tint = iconTintColor,
+                                modifier = iconSize,
                             )
                         }
 
@@ -131,13 +131,13 @@ fun MessageDetailPanel(
                     TooltipIconButton(
                         tooltip = "Close Detail Panel",
                         onClick = onClose,
-                        modifier = Modifier.size(24.dp),
+                        modifier = buttonSize,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = Color(0xFFB0B0B0),
-                            modifier = Modifier.size(16.dp),
+                            tint = iconTintColor,
+                            modifier = iconSize,
                         )
                     }
                 }
@@ -149,7 +149,7 @@ fun MessageDetailPanel(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF2B2B2B))
+                            .background(headerBackgroundColor)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -157,8 +157,8 @@ fun MessageDetailPanel(
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
-                        tint = Color(0xFF6A6A6A),
-                        modifier = Modifier.size(16.dp),
+                        tint = searchIconColor,
+                        modifier = searchIconSize,
                     )
 
                     val searchInteractionSource = remember { MutableInteractionSource() }
@@ -171,31 +171,21 @@ fun MessageDetailPanel(
                             Modifier
                                 .weight(1f)
                                 .height(22.dp)
-                                .background(Color(0xFF1E1E1E), RoundedCornerShape(2.dp))
+                                .background(panelBackgroundColor, searchFieldShape)
                                 .border(
                                     width = 1.dp,
-                                    color = if (searchIsFocused) Color(0xFF4EC9B0) else Color(0xFF3A3A3A),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = getSearchBorderColor(searchIsFocused),
+                                    shape = searchFieldShape,
                                 ).padding(horizontal = 6.dp, vertical = 3.dp),
-                        textStyle =
-                            TextStyle(
-                                fontSize = 10.sp,
-                                color = Color(0xFFE0E0E0),
-                                fontFamily = FontFamily.Monospace,
-                            ),
+                        textStyle = searchTextStyle,
                         singleLine = true,
-                        cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                        cursorBrush = SolidColor(focusedBorderColor),
                         interactionSource = searchInteractionSource,
                         decorationBox = { innerTextField ->
                             if (searchQuery.isEmpty() && !searchIsFocused) {
                                 Text(
                                     text = "Search tags, names, or values...",
-                                    style =
-                                        TextStyle(
-                                            fontSize = 10.sp,
-                                            color = Color(0xFF6A6A6A),
-                                            fontFamily = FontFamily.Monospace,
-                                        ),
+                                    style = searchPlaceholderStyle,
                                 )
                             }
                             innerTextField()
@@ -211,22 +201,11 @@ fun MessageDetailPanel(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF252525))
+                                .background(metadataBackgroundColor)
                                 .padding(12.dp),
                     ) {
                         // Match session coloring: blue for outgoing, red for incoming rejects, green for other incoming
-                        val (directionColor, directionText) =
-                            when (message.direction) {
-                                FixMessage.Direction.INCOMING ->
-                                    (
-                                        if (message.isRejectionOrLogout()) {
-                                            Color(0xFFE06C75) // red
-                                        } else {
-                                            Color(0xFF4EC9B0)
-                                        }
-                                    ) to "INCOMING" // Green/cyan
-                                FixMessage.Direction.OUTGOING -> Color(0xFF569CD6) to "OUTGOING" // Blue
-                            }
+                        val (directionColor, directionText) = getDirectionInfo(message)
 
                         Text(
                             text = directionText,
@@ -237,7 +216,7 @@ fun MessageDetailPanel(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = message.timestamp.toString(),
-                            color = Color(0xFFB0B0B0),
+                            color = timestampColor,
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                         )
@@ -337,7 +316,7 @@ fun MessageDetailPanel(
                                 Modifier
                                     .height(rawMessageHeight)
                                     .fillMaxWidth()
-                                    .background(Color(0xFF252525))
+                                    .background(metadataBackgroundColor)
                                     .padding(12.dp),
                         ) {
                             // Header with label and copy/paste buttons
@@ -348,7 +327,7 @@ fun MessageDetailPanel(
                             ) {
                                 Text(
                                     text = "RAW MESSAGE",
-                                    color = Color(0xFFB0B0B0),
+                                    color = timestampColor,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                 )
@@ -372,13 +351,13 @@ fun MessageDetailPanel(
                                                     // Clipboard error - ignore
                                                 }
                                             },
-                                            modifier = Modifier.size(20.dp),
+                                            modifier = rawActionButtonSize,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.ContentPaste,
                                                 contentDescription = "Paste",
-                                                tint = Color(0xFFB0B0B0),
-                                                modifier = Modifier.size(14.dp),
+                                                tint = iconTintColor,
+                                                modifier = rawActionIconSize,
                                             )
                                         }
                                     }
@@ -396,13 +375,13 @@ fun MessageDetailPanel(
                                                     )
                                                 }
                                             },
-                                            modifier = Modifier.size(20.dp),
+                                            modifier = rawActionButtonSize,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.ContentCopy,
                                                 contentDescription = "Copy All",
-                                                tint = Color(0xFFB0B0B0),
-                                                modifier = Modifier.size(14.dp),
+                                                tint = iconTintColor,
+                                                modifier = rawActionIconSize,
                                             )
                                         }
                                     }
@@ -416,7 +395,7 @@ fun MessageDetailPanel(
                                         val rawScrollState = rememberScrollState()
                                         Text(
                                             text = message.rawMessage,
-                                            color = Color(0xFFE0E0E0),
+                                            color = rawMessageTextColor,
                                             fontSize = 10.sp,
                                             fontFamily = FontFamily.Monospace,
                                             modifier =
@@ -434,7 +413,7 @@ fun MessageDetailPanel(
                                     ) {
                                         Text(
                                             text = "Paste a FIX message to visualize it\n(Click the paste button above)",
-                                            color = Color(0xFF6A6A6A),
+                                            color = placeholderTextColor,
                                             fontSize = 11.sp,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                         )
@@ -480,13 +459,13 @@ private fun FieldRow(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF1E1E1E))
+                .background(fieldRowBackgroundColor)
                 .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
     ) {
         // Tag number
         Text(
             text = tag.toString(),
-            color = Color(0xFF6A6A6A),
+            color = tagNumberColor,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.width(35.dp),
@@ -497,7 +476,7 @@ private fun FieldRow(
         // Field name
         Text(
             text = fieldName,
-            color = Color(0xFF4EC9B0),
+            color = fieldNameColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.width(130.dp),
@@ -508,7 +487,7 @@ private fun FieldRow(
         // Value
         Text(
             text = displayValue,
-            color = Color(0xFFE0E0E0),
+            color = fieldValueColor,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
             softWrap = false,
@@ -533,14 +512,14 @@ private fun GroupHeaderRow(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF252525))
+                .background(groupHeaderBackgroundColor)
                 .clickable { onToggle() }
                 .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
     ) {
         // Group indicator icon (collapsible)
         Text(
             text = if (isExpanded) "▼" else "▶",
-            color = Color(0xFFD4A574),
+            color = groupHeaderTextColor,
             fontSize = 8.sp,
             modifier = Modifier.width(35.dp),
         )
@@ -550,7 +529,7 @@ private fun GroupHeaderRow(
         // Group name
         Text(
             text = "$groupName ($count)",
-            color = Color(0xFFD4A574),
+            color = groupHeaderTextColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
@@ -567,12 +546,12 @@ private fun GroupInstanceHeader(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF202020))
+                .background(groupInstanceBackgroundColor)
                 .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
     ) {
         Text(
             text = "[$instanceNumber]",
-            color = Color(0xFF9CDCFE),
+            color = groupInstanceTextColor,
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,
@@ -939,3 +918,69 @@ private fun collectGroupKeysFromFieldMap(
         }
     }
 }
+
+// Color constants
+private val panelBackgroundColor = Color(0xFF1E1E1E)
+private val headerBackgroundColor = Color(0xFF2B2B2B)
+private val metadataBackgroundColor = Color(0xFF252525)
+private val fieldRowBackgroundColor = Color(0xFF1E1E1E)
+private val groupHeaderBackgroundColor = Color(0xFF252525)
+private val groupInstanceBackgroundColor = Color(0xFF202020)
+
+private val headerTextColor = Color(0xFFE0E0E0)
+private val iconTintColor = Color(0xFFB0B0B0)
+private val searchIconColor = Color(0xFF6A6A6A)
+private val timestampColor = Color(0xFFB0B0B0)
+private val rawMessageTextColor = Color(0xFFE0E0E0)
+private val placeholderTextColor = Color(0xFF6A6A6A)
+
+private val tagNumberColor = Color(0xFF6A6A6A)
+private val fieldNameColor = Color(0xFF4EC9B0)
+private val fieldValueColor = Color(0xFFE0E0E0)
+private val groupHeaderTextColor = Color(0xFFD4A574)
+private val groupInstanceTextColor = Color(0xFF9CDCFE)
+
+private val focusedBorderColor = Color(0xFF4EC9B0)
+private val unfocusedBorderColor = Color(0xFF3A3A3A)
+
+private val outgoingMessageColor = Color(0xFF569CD6)
+private val incomingMessageColor = Color(0xFF4EC9B0)
+private val rejectionMessageColor = Color(0xFFE06C75)
+
+// Modifier constants
+private val buttonSize = Modifier.size(24.dp)
+private val iconSize = Modifier.size(16.dp)
+private val searchIconSize = Modifier.size(16.dp)
+private val rawActionButtonSize = Modifier.size(20.dp)
+private val rawActionIconSize = Modifier.size(14.dp)
+private val searchFieldShape = RoundedCornerShape(2.dp)
+
+// Text styles
+private val searchTextStyle =
+    TextStyle(
+        fontSize = 10.sp,
+        color = Color(0xFFE0E0E0),
+        fontFamily = FontFamily.Monospace,
+    )
+
+private val searchPlaceholderStyle =
+    TextStyle(
+        fontSize = 10.sp,
+        color = Color(0xFF6A6A6A),
+        fontFamily = FontFamily.Monospace,
+    )
+
+// Helper functions
+private fun getSearchBorderColor(isFocused: Boolean): Color =
+    if (isFocused) focusedBorderColor else unfocusedBorderColor
+
+private fun getDirectionInfo(message: FixMessage): Pair<Color, String> =
+    when (message.direction) {
+        FixMessage.Direction.INCOMING ->
+            if (message.isRejectionOrLogout()) {
+                rejectionMessageColor to "INCOMING"
+            } else {
+                incomingMessageColor to "INCOMING"
+            }
+        FixMessage.Direction.OUTGOING -> outgoingMessageColor to "OUTGOING"
+    }

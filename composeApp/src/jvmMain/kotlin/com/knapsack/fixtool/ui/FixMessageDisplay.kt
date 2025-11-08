@@ -375,7 +375,7 @@ private fun MessageDisplayContent(
                     modifier =
                         Modifier
                             .fillMaxSize()
-                            .background(Color(0xFF1E1E1E)),
+                            .background(messageBackgroundColor),
                 )
             }
         }
@@ -432,7 +432,7 @@ private fun MessageDisplayContent(
                             modifier =
                                 Modifier
                                     .fillMaxSize()
-                                    .background(Color(0xFF1E1E1E))
+                                    .background(messageBackgroundColor)
                                     .padding(
                                         start = 8.dp,
                                         top = 8.dp,
@@ -523,7 +523,7 @@ private fun MessageDisplayContent(
                                 onEnableAutoScroll() // Re-enable auto-scroll mode
                             }
                         },
-                        containerColor = Color(0xFF4EC9B0),
+                        containerColor = fabBackgroundColor,
                         contentColor = Color.White,
                         modifier =
                             Modifier
@@ -534,7 +534,7 @@ private fun MessageDisplayContent(
                         Icon(
                             imageVector = Icons.Default.ArrowDownward,
                             contentDescription = "Scroll to bottom",
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(iconSize),
                         )
                     }
                 }
@@ -578,9 +578,7 @@ private fun MessageRow(
                 ) {
                     val pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
                     drawLine(
-                        color =
-                            androidx.compose.ui.graphics
-                                .Color(0xFF4A4A4A),
+                        color = separatorLineColor,
                         start = Offset(0f, 0f),
                         end = Offset(size.width, 0f),
                         strokeWidth = 1f,
@@ -591,40 +589,8 @@ private fun MessageRow(
         }
 
         is FixMessage -> {
-            // Use absolute index for alternating colors (odd=bright, even=dull)
-            val isBright = messageIndex % 2 == 1
-
-            val textColor =
-                if (message.isRejectionOrLogout()) {
-                    // Use red shades for rejection messages (matches theme)
-                    if (isBright) {
-                        Color(0xFFE06C75) // Brighter red
-                    } else {
-                        Color(0xFFC55A64) // Duller red
-                    }
-                } else {
-                    when (message.direction) {
-                        FixMessage.Direction.INCOMING -> {
-                            // Alternate between two shades of green based on index
-                            if (isBright) {
-                                Color(0xFF4EC9B0) // Brighter cyan/green
-                            } else {
-                                Color(0xFF3DA89F) // Duller cyan/green
-                            }
-                        }
-
-                        FixMessage.Direction.OUTGOING -> {
-                            // Alternate between two shades of blue based on index
-                            if (isBright) {
-                                Color(0xFF569CD6) // Brighter blue
-                            } else {
-                                Color(0xFF4A7DAF) // Duller blue
-                            }
-                        }
-                    }
-                }
-
-            val backgroundColor = if (isSelected) Color(0xFF3A3A3A) else Color.Transparent
+            val textColor = getMessageTextColor(message, messageIndex)
+            val backgroundColor = if (isSelected) selectedBackgroundColor else Color.Transparent
             val interactionSource = remember { MutableInteractionSource() }
             val isHovered by interactionSource.collectIsHoveredAsState()
 
@@ -669,9 +635,9 @@ private fun MessageRow(
                                     SpanStyle(
                                         background =
                                             if (isCurrentMatch) {
-                                                Color(0xFFFF9800) // Bright orange for current match
+                                                currentMatchHighlightColor // Bright orange for current match
                                             } else {
-                                                Color(0xFFFFEB3B).copy(alpha = 0.4f) // Semi-transparent yellow for other matches
+                                                otherMatchHighlightColor.copy(alpha = 0.4f) // Semi-transparent yellow for other matches
                                             },
                                         color = if (isCurrentMatch) Color.Black else textColor,
                                     ),
@@ -721,13 +687,13 @@ private fun MessageRow(
                                 val clipboard = Toolkit.getDefaultToolkit().systemClipboard
                                 clipboard.setContents(StringSelection(message.rawMessage), null)
                             },
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(iconSize),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
                                 contentDescription = "Copy",
-                                tint = Color(0xFFB0B0B0),
-                                modifier = Modifier.size(14.dp),
+                                tint = iconTintColor,
+                                modifier = Modifier.size(smallIconSize),
                             )
                         }
                     }
@@ -760,7 +726,7 @@ private fun SearchBar(
     Row(
         modifier =
             modifier
-                .background(Color(0xFF2D2D2D))
+                .background(searchBarBackgroundColor)
                 .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -779,19 +745,19 @@ private fun SearchBar(
                     Modifier
                         .fillMaxSize()
                         .focusRequester(focusRequester)
-                        .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
+                        .background(textFieldBackgroundColor, textFieldBorderRadius)
                         .border(
                             width = 1.dp,
-                            color = if (isFocused) Color(0xFF4EC9B0) else Color(0xFF3A3A3A),
-                            shape = RoundedCornerShape(2.dp),
+                            color = if (isFocused) activeColor else borderColor,
+                            shape = textFieldBorderRadius,
                         ).padding(horizontal = 6.dp, vertical = 6.dp),
                 textStyle =
                     TextStyle(
                         fontSize = 11.sp,
-                        color = Color(0xFFE0E0E0),
+                        color = textPrimaryColor,
                     ),
                 singleLine = true,
-                cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                cursorBrush = SolidColor(activeColor),
                 interactionSource = interactionSource,
                 decorationBox = { innerTextField ->
                     if (searchQuery.isEmpty() && !isFocused) {
@@ -800,7 +766,7 @@ private fun SearchBar(
                             style =
                                 TextStyle(
                                     fontSize = 11.sp,
-                                    color = Color(0xFF6A6A6A),
+                                    color = placeholderTextColor,
                                 ),
                         )
                     }
@@ -813,7 +779,7 @@ private fun SearchBar(
         if (searchMatches.isNotEmpty()) {
             Text(
                 text = "${currentMatchIndex + 1} of ${searchMatches.size}",
-                color = Color(0xFFB0B0B0),
+                color = iconTintColor,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = 4.dp),
             )
@@ -828,8 +794,8 @@ private fun SearchBar(
             Icon(
                 imageVector = Icons.Default.KeyboardArrowUp,
                 contentDescription = "Previous match",
-                tint = if (searchMatches.isNotEmpty()) Color(0xFFB0B0B0) else Color(0xFF6A6A6A),
-                modifier = Modifier.size(20.dp),
+                tint = if (searchMatches.isNotEmpty()) iconTintColor else placeholderTextColor,
+                modifier = Modifier.size(iconSize),
             )
         }
 
@@ -842,8 +808,8 @@ private fun SearchBar(
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
                 contentDescription = "Next match",
-                tint = if (searchMatches.isNotEmpty()) Color(0xFFB0B0B0) else Color(0xFF6A6A6A),
-                modifier = Modifier.size(20.dp),
+                tint = if (searchMatches.isNotEmpty()) iconTintColor else placeholderTextColor,
+                modifier = Modifier.size(iconSize),
             )
         }
 
@@ -855,9 +821,52 @@ private fun SearchBar(
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Close search",
-                tint = Color(0xFFB0B0B0),
-                modifier = Modifier.size(20.dp),
+                tint = iconTintColor,
+                modifier = Modifier.size(iconSize),
             )
+        }
+    }
+}
+
+// Constants
+private val messageBackgroundColor = Color(0xFF1E1E1E)
+private val selectedBackgroundColor = Color(0xFF3A3A3A)
+private val borderColor = Color(0xFF3A3A3A)
+private val rejectionBrightColor = Color(0xFFE06C75)
+private val rejectionDullColor = Color(0xFFC55A64)
+private val incomingBrightColor = Color(0xFF4EC9B0)
+private val incomingDullColor = Color(0xFF3DA89F)
+private val outgoingBrightColor = Color(0xFF569CD6)
+private val outgoingDullColor = Color(0xFF4A7DAF)
+private val iconTintColor = Color(0xFFB0B0B0)
+private val placeholderTextColor = Color(0xFF6A6A6A)
+private val textPrimaryColor = Color(0xFFE0E0E0)
+private val searchBarBackgroundColor = Color(0xFF2D2D2D)
+private val textFieldBackgroundColor = Color(0xFF2B2B2B)
+private val separatorLineColor = Color(0xFF4A4A4A)
+private val currentMatchHighlightColor = Color(0xFFFF9800)
+private val otherMatchHighlightColor = Color(0xFFFFEB3B)
+private val activeColor = Color(0xFF4EC9B0)
+private val fabBackgroundColor = Color(0xFF4EC9B0)
+
+private val textFieldBorderRadius = RoundedCornerShape(2.dp)
+private val iconSize = 20.dp
+private val smallIconSize = 14.dp
+
+// Helper function for message row text color
+private fun getMessageTextColor(
+    message: FixMessage,
+    messageIndex: Int,
+): Color {
+    val isBright = messageIndex % 2 == 1
+    return if (message.isRejectionOrLogout()) {
+        if (isBright) rejectionBrightColor else rejectionDullColor
+    } else {
+        when (message.direction) {
+            FixMessage.Direction.INCOMING ->
+                if (isBright) incomingBrightColor else incomingDullColor
+            FixMessage.Direction.OUTGOING ->
+                if (isBright) outgoingBrightColor else outgoingDullColor
         }
     }
 }

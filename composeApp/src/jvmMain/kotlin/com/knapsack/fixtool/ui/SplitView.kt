@@ -62,7 +62,7 @@ fun SplitView(
         ) {
             Text(
                 text = "No active sessions. Click the connection button to connect to a FIX server.",
-                color = Color(0xFF6A6A6A),
+                color = emptyStateTextColor,
                 fontSize = 14.sp,
             )
         }
@@ -233,7 +233,7 @@ private fun HorizontalDivider(
             modifier
                 .height(1.dp)
                 .fillMaxWidth()
-                .background(Color(0xFF3A3A3A))
+                .background(borderColor)
                 .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
@@ -278,15 +278,15 @@ private fun SessionPanel(
     Column(
         modifier =
             modifier
-                .border(1.dp, Color(0xFF3A3A3A))
-                .background(Color(0xFF1E1E1E)),
+                .border(1.dp, borderColor)
+                .background(panelBackgroundColor),
     ) {
         // Panel header
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2B2B2B))
+                    .background(headerBackgroundColor)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -296,13 +296,13 @@ private fun SessionPanel(
                 TooltipIconButton(
                     tooltip = "Connect Session",
                     onClick = onConnect,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(buttonSize),
                 ) {
                     Icon(
                         imageVector = Icons.Default.PowerSettingsNew,
                         contentDescription = "Connect",
-                        tint = Color(0xFFB0B0B0), // Gray when disconnected
-                        modifier = Modifier.size(16.dp),
+                        tint = iconTintColor, // Gray when disconnected
+                        modifier = Modifier.size(iconSize),
                     )
                 }
             } else if (connectionState.canDisconnect() && onDisconnect != null) {
@@ -310,13 +310,13 @@ private fun SessionPanel(
                 TooltipIconButton(
                     tooltip = "Disconnect Session",
                     onClick = onDisconnect,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(buttonSize),
                 ) {
                     Icon(
                         imageVector = Icons.Default.PowerSettingsNew,
                         contentDescription = "Disconnect",
-                        tint = Color(0xFF7AD67A), // Green when connected
-                        modifier = Modifier.size(16.dp),
+                        tint = connectedStateColor, // Green when connected
+                        modifier = Modifier.size(iconSize),
                     )
                 }
             }
@@ -325,7 +325,7 @@ private fun SessionPanel(
 
             Text(
                 text = session.title,
-                color = Color(0xFFE0E0E0),
+                color = titleTextColor,
                 fontSize = 12.sp,
                 modifier = Modifier.weight(1f),
             )
@@ -337,13 +337,13 @@ private fun SessionPanel(
                 TooltipIconButton(
                     tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
                     onClick = { session.toggleWrapText() },
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(buttonSize),
                 ) {
                     Icon(
                         imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
                         contentDescription = "Toggle Text Wrap",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(16.dp),
+                        tint = iconTintColor,
+                        modifier = Modifier.size(iconSize),
                     )
                 }
 
@@ -353,7 +353,7 @@ private fun SessionPanel(
                 TooltipIconButton(
                     tooltip = if (searchVisible) "Hide Search" else "Show Search (Ctrl+F)",
                     onClick = { session.toggleSearch() },
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(buttonSize),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
@@ -419,13 +419,13 @@ private fun SessionPanel(
                 TooltipIconButton(
                     tooltip = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
                     onClick = { session.toggleHideProtocolTags() },
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(buttonSize),
                 ) {
                     Icon(
                         imageVector = if (hideProtocolTags) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                         contentDescription = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(16.dp),
+                        tint = iconTintColor,
+                        modifier = Modifier.size(iconSize),
                     )
                 }
             }
@@ -464,11 +464,11 @@ private fun SessionPanel(
                 TooltipIconButton(
                     tooltip = "Move Session Left",
                     onClick = onMoveLeft,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(buttonSize),
                 ) {
                     Text(
                         text = "◀",
-                        color = Color(0xFFB0B0B0),
+                        color = iconTintColor,
                         fontSize = 12.sp,
                     )
                 }
@@ -481,11 +481,11 @@ private fun SessionPanel(
                 TooltipIconButton(
                     tooltip = "Move Session Right",
                     onClick = onMoveRight,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(buttonSize),
                 ) {
                     Text(
                         text = "▶",
-                        color = Color(0xFFB0B0B0),
+                        color = iconTintColor,
                         fontSize = 12.sp,
                     )
                 }
@@ -497,13 +497,13 @@ private fun SessionPanel(
                 TooltipIconButton(
                     tooltip = "Close Session",
                     onClick = onClose,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(buttonSize),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close Session",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(16.dp),
+                        tint = iconTintColor,
+                        modifier = Modifier.size(iconSize),
                     )
                 }
             }
@@ -515,7 +515,7 @@ private fun SessionPanel(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF252525))
+                        .background(filterPanelBackgroundColor)
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -523,7 +523,7 @@ private fun SessionPanel(
                 // Regex filter
                 Text(
                     text = "Regex:",
-                    color = Color(0xFFB0B0B0),
+                    color = iconTintColor,
                     fontSize = 10.sp,
                 )
 
@@ -542,20 +542,20 @@ private fun SessionPanel(
                         modifier =
                             Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
+                                .background(textFieldBackgroundColor, textFieldBorderRadius)
                                 .border(
                                     width = 1.dp,
-                                    color = if (regexIsFocused) Color(0xFF4EC9B0) else Color(0xFF3A3A3A),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = if (regexIsFocused) activeColor else borderColor,
+                                    shape = textFieldBorderRadius,
                                 ).padding(horizontal = 6.dp, vertical = 3.dp),
                         textStyle =
                             TextStyle(
                                 fontSize = 10.sp,
-                                color = Color(0xFFE0E0E0),
+                                color = titleTextColor,
                                 fontFamily = FontFamily.Monospace,
                             ),
                         singleLine = true,
-                        cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                        cursorBrush = SolidColor(activeColor),
                         interactionSource = regexInteractionSource,
                         decorationBox = { innerTextField ->
                             if (filterRegex.isEmpty() && !regexIsFocused) {
@@ -564,7 +564,7 @@ private fun SessionPanel(
                                     style =
                                         TextStyle(
                                             fontSize = 10.sp,
-                                            color = Color(0xFF6A6A6A),
+                                            color = placeholderTextColor,
                                             fontFamily = FontFamily.Monospace,
                                         ),
                                 )
@@ -577,7 +577,7 @@ private fun SessionPanel(
                 // Message type filter
                 Text(
                     text = "MsgType:",
-                    color = Color(0xFFB0B0B0),
+                    color = iconTintColor,
                     fontSize = 10.sp,
                 )
 
@@ -596,20 +596,20 @@ private fun SessionPanel(
                         modifier =
                             Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
+                                .background(textFieldBackgroundColor, textFieldBorderRadius)
                                 .border(
                                     width = 1.dp,
-                                    color = if (msgTypeIsFocused) Color(0xFF4EC9B0) else Color(0xFF3A3A3A),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = if (msgTypeIsFocused) activeColor else borderColor,
+                                    shape = textFieldBorderRadius,
                                 ).padding(horizontal = 6.dp, vertical = 3.dp),
                         textStyle =
                             TextStyle(
                                 fontSize = 10.sp,
-                                color = Color(0xFFE0E0E0),
+                                color = titleTextColor,
                                 fontFamily = FontFamily.Monospace,
                             ),
                         singleLine = true,
-                        cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                        cursorBrush = SolidColor(activeColor),
                         interactionSource = msgTypeInteractionSource,
                         decorationBox = { innerTextField ->
                             if (filterMessageTypes.isEmpty() && !msgTypeIsFocused) {
@@ -618,7 +618,7 @@ private fun SessionPanel(
                                     style =
                                         TextStyle(
                                             fontSize = 10.sp,
-                                            color = Color(0xFF6A6A6A),
+                                            color = placeholderTextColor,
                                             fontFamily = FontFamily.Monospace,
                                         ),
                                 )
@@ -631,7 +631,7 @@ private fun SessionPanel(
                 // Direction filter
                 Text(
                     text = "Dir:",
-                    color = Color(0xFFB0B0B0),
+                    color = iconTintColor,
                     fontSize = 10.sp,
                 )
 
@@ -649,12 +649,12 @@ private fun SessionPanel(
                             Modifier
                                 .size(14.dp)
                                 .background(
-                                    color = if (filterShowIncoming) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = if (filterShowIncoming) activeColor else textFieldBackgroundColor,
+                                    shape = textFieldBorderRadius,
                                 ).border(
                                     width = 1.dp,
-                                    color = if (filterShowIncoming) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = if (filterShowIncoming) activeColor else placeholderTextColor,
+                                    shape = textFieldBorderRadius,
                                 ),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -662,14 +662,14 @@ private fun SessionPanel(
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
-                                tint = Color(0xFF1E1E1E),
+                                tint = checkboxIconColor,
                                 modifier = Modifier.size(10.dp),
                             )
                         }
                     }
                     Text(
                         text = "In",
-                        color = Color(0xFFB0B0B0),
+                        color = iconTintColor,
                         fontSize = 9.sp,
                     )
                 }
@@ -688,12 +688,12 @@ private fun SessionPanel(
                             Modifier
                                 .size(14.dp)
                                 .background(
-                                    color = if (filterShowOutgoing) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = if (filterShowOutgoing) activeColor else textFieldBackgroundColor,
+                                    shape = textFieldBorderRadius,
                                 ).border(
                                     width = 1.dp,
-                                    color = if (filterShowOutgoing) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = if (filterShowOutgoing) activeColor else placeholderTextColor,
+                                    shape = textFieldBorderRadius,
                                 ),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -701,14 +701,14 @@ private fun SessionPanel(
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
-                                tint = Color(0xFF1E1E1E),
+                                tint = checkboxIconColor,
                                 modifier = Modifier.size(10.dp),
                             )
                         }
                     }
                     Text(
                         text = "Out",
-                        color = Color(0xFFB0B0B0),
+                        color = iconTintColor,
                         fontSize = 9.sp,
                     )
                 }
@@ -724,12 +724,12 @@ private fun SessionPanel(
                             Modifier
                                 .size(14.dp)
                                 .background(
-                                    color = if (filterShowSeparator) Color(0xFF4EC9B0) else Color(0xFF2B2B2B),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = if (filterShowSeparator) activeColor else textFieldBackgroundColor,
+                                    shape = textFieldBorderRadius,
                                 ).border(
                                     width = 1.dp,
-                                    color = if (filterShowSeparator) Color(0xFF4EC9B0) else Color(0xFF6A6A6A),
-                                    shape = RoundedCornerShape(2.dp),
+                                    color = if (filterShowSeparator) activeColor else placeholderTextColor,
+                                    shape = textFieldBorderRadius,
                                 ),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -737,14 +737,14 @@ private fun SessionPanel(
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
-                                tint = Color(0xFF1E1E1E),
+                                tint = checkboxIconColor,
                                 modifier = Modifier.size(10.dp),
                             )
                         }
                     }
                     Text(
                         text = "Blank",
-                        color = Color(0xFFB0B0B0),
+                        color = iconTintColor,
                         fontSize = 9.sp,
                     )
                 }
@@ -760,8 +760,8 @@ private fun SessionPanel(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Hide Filter",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(12.dp),
+                        tint = iconTintColor,
+                        modifier = Modifier.size(smallIconSize),
                     )
                 }
             }
@@ -838,3 +838,22 @@ private fun SessionPanel(
         )
     }
 }
+
+// Constants
+private val emptyStateTextColor = Color(0xFF6A6A6A)
+private val borderColor = Color(0xFF3A3A3A)
+private val panelBackgroundColor = Color(0xFF1E1E1E)
+private val headerBackgroundColor = Color(0xFF2B2B2B)
+private val titleTextColor = Color(0xFFE0E0E0)
+private val iconTintColor = Color(0xFFB0B0B0)
+private val connectedStateColor = Color(0xFF7AD67A)
+private val activeColor = Color(0xFF4EC9B0)
+private val filterPanelBackgroundColor = Color(0xFF252525)
+private val textFieldBackgroundColor = Color(0xFF2B2B2B)
+private val placeholderTextColor = Color(0xFF6A6A6A)
+private val checkboxIconColor = Color(0xFF1E1E1E)
+
+private val iconSize = 16.dp
+private val smallIconSize = 12.dp
+private val buttonSize = 24.dp
+private val textFieldBorderRadius = RoundedCornerShape(2.dp)

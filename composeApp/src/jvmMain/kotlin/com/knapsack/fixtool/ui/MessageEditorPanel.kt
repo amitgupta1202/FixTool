@@ -54,7 +54,7 @@ private fun SlimTextField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
-    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = Color(0xFFE0E0E0)),
+    textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = textColor),
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -64,15 +64,15 @@ private fun SlimTextField(
         onValueChange = onValueChange,
         modifier =
             modifier
-                .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
+                .background(backgroundColorDark, inputShape)
                 .border(
                     width = 1.dp,
-                    color = if (isFocused) Color(0xFF4EC9B0) else Color(0xFF3A3A3A),
-                    shape = RoundedCornerShape(2.dp),
+                    color = if (isFocused) activeColor else borderColor,
+                    shape = inputShape,
                 ).padding(horizontal = 4.dp, vertical = 4.dp),
         textStyle = textStyle,
         singleLine = singleLine,
-        cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+        cursorBrush = SolidColor(activeColor),
         interactionSource = interactionSource,
     )
 }
@@ -163,7 +163,7 @@ fun MessageEditorPanel(
         modifier =
             modifier
                 .fillMaxSize()
-                .background(Color(0xFF1E1E1E)),
+                .background(darkBackgroundColor),
     ) {
         // Top border
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -173,7 +173,7 @@ fun MessageEditorPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2B2B2B))
+                    .background(backgroundColorDark)
                     .padding(horizontal = 6.dp, vertical = 4.dp),
         ) {
             Row(
@@ -183,19 +183,19 @@ fun MessageEditorPanel(
             ) {
                 Text(
                     text = "Message Editor",
-                    color = Color(0xFFE0E0E0),
+                    color = textColor,
                     fontSize = 11.sp,
                 )
 
                 IconButton(
                     onClick = onClose,
-                    modifier = Modifier.size(24.dp),
+                    modifier = iconSize24,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(16.dp),
+                        tint = labelColor,
+                        modifier = iconSize16,
                     )
                 }
             }
@@ -284,13 +284,13 @@ fun MessageEditorPanel(
                             }
                         },
                         enabled = canSend,
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Send,
                             contentDescription = "Send",
-                            modifier = Modifier.size(18.dp),
-                            tint = if (canSend) Color(0xFF4EC9B0) else Color(0xFF4A4A4A),
+                            modifier = iconSize18,
+                            tint = if (canSend) activeColor else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -315,16 +315,16 @@ fun MessageEditorPanel(
                             }
                         },
                         enabled = hasDataDictionary,
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Validate",
-                            modifier = Modifier.size(18.dp),
+                            modifier = iconSize18,
                             tint =
                                 when {
-                                    hasDataDictionary.not() -> Color(0xFF4A4A4A)
-                                    validationPassed -> Color(0xFF98C379)
+                                    hasDataDictionary.not() -> disabledIconColor
+                                    validationPassed -> successColor
                                     else ->
                                         Color(
                                             0xFFCE9178,
@@ -342,13 +342,13 @@ fun MessageEditorPanel(
                         TooltipIconButton(
                             tooltip = "Load Message Template",
                             onClick = { showLoadMenu = true },
-                            modifier = Modifier.size(28.dp),
+                            modifier = iconSize28,
                         ) {
                             Icon(
                                 imageVector = Icons.Default.FolderOpen,
                                 contentDescription = "Load",
-                                modifier = Modifier.size(18.dp),
-                                tint = Color(0xFFB0B0B0),
+                                modifier = iconSize18,
+                                tint = labelColor,
                             )
                         }
 
@@ -369,14 +369,14 @@ fun MessageEditorPanel(
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
                                                     savedMsg.name,
-                                                    color = Color(0xFFE0E0E0),
+                                                    color = textColor,
                                                     fontSize = 14.sp,
                                                     fontFamily = FontFamily.Monospace,
                                                 )
                                                 if (profileName != null) {
                                                     Text(
                                                         profileName,
-                                                        color = Color(0xFF888888),
+                                                        color = placeholderColor,
                                                         fontSize = 11.sp,
                                                         fontFamily = FontFamily.Monospace,
                                                     )
@@ -387,13 +387,13 @@ fun MessageEditorPanel(
                                                     onDeleteMessage?.invoke(savedMsg.id, savedMsg.profileId)
                                                     showLoadMenu = false
                                                 },
-                                                modifier = Modifier.size(24.dp),
+                                                modifier = iconSize24,
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Delete,
                                                     contentDescription = "Delete Template",
-                                                    modifier = Modifier.size(16.dp),
-                                                    tint = Color(0xFFFF5555),
+                                                    modifier = iconSize16,
+                                                    tint = deleteColor,
                                                 )
                                             }
                                         }
@@ -404,7 +404,7 @@ fun MessageEditorPanel(
                                     },
                                     colors =
                                         MenuDefaults.itemColors(
-                                            textColor = Color(0xFFE0E0E0),
+                                            textColor = textColor,
                                         ),
                                 )
                             }
@@ -419,13 +419,13 @@ fun MessageEditorPanel(
                     TooltipIconButton(
                         tooltip = "Save Message Template",
                         onClick = { showSaveDialog = true },
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Save,
                             contentDescription = "Save",
-                            modifier = Modifier.size(18.dp),
-                            tint = Color(0xFFB0B0B0),
+                            modifier = iconSize18,
+                            tint = labelColor,
                         )
                     }
 
@@ -458,7 +458,7 @@ fun MessageEditorPanel(
                             ) {
                                 Text(
                                     "Save Message Template",
-                                    color = Color(0xFFE0E0E0),
+                                    color = textColor,
                                     fontSize = 16.sp,
                                     modifier = Modifier.padding(bottom = 12.dp),
                                 )
@@ -467,7 +467,7 @@ fun MessageEditorPanel(
                                 if (connectionProfiles.isNotEmpty()) {
                                     Text(
                                         "Connection Profile",
-                                        color = Color(0xFFB0B0B0),
+                                        color = labelColor,
                                         fontSize = 12.sp,
                                         modifier = Modifier.padding(bottom = 4.dp),
                                     )
@@ -481,7 +481,7 @@ fun MessageEditorPanel(
                                                         width = 1.dp,
                                                         color =
                                                             if (showProfileDropdown) {
-                                                                Color(0xFF4EC9B0)
+                                                                activeColor
                                                             } else {
                                                                 Color(
                                                                     0xFF555555,
@@ -502,15 +502,15 @@ fun MessageEditorPanel(
                                                         ?: "Select Profile",
                                                     fontSize = 14.sp,
                                                     fontFamily = FontFamily.Monospace,
-                                                    color = Color(0xFFE0E0E0),
+                                                    color = textColor,
                                                 )
                                                 Icon(
                                                     imageVector = if (showProfileDropdown) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
                                                     contentDescription = null,
-                                                    modifier = Modifier.size(16.dp),
+                                                    modifier = iconSize16,
                                                     tint =
                                                         if (showProfileDropdown) {
-                                                            Color(0xFF4EC9B0)
+                                                            activeColor
                                                         } else {
                                                             Color(
                                                                 0xFF888888,
@@ -525,7 +525,7 @@ fun MessageEditorPanel(
                                             onDismissRequest = { showProfileDropdown = false },
                                             modifier =
                                                 Modifier
-                                                    .background(Color(0xFF2B2B2B))
+                                                    .background(backgroundColorDark)
                                                     .widthIn(min = 280.dp),
                                         ) {
                                             connectionProfiles.forEach { profile ->
@@ -533,7 +533,7 @@ fun MessageEditorPanel(
                                                     text = {
                                                         Text(
                                                             profile.name,
-                                                            color = Color(0xFFE0E0E0),
+                                                            color = textColor,
                                                             fontSize = 13.sp,
                                                             fontFamily = FontFamily.Monospace,
                                                         )
@@ -547,7 +547,7 @@ fun MessageEditorPanel(
                                                             if (profile.id ==
                                                                 selectedProfileId
                                                             ) {
-                                                                Color(0xFF3A3A3A)
+                                                                borderColor
                                                             } else {
                                                                 Color.Transparent
                                                             },
@@ -562,7 +562,7 @@ fun MessageEditorPanel(
                                 // Template Name field (SECOND)
                                 Text(
                                     "Template Name",
-                                    color = Color(0xFFB0B0B0),
+                                    color = labelColor,
                                     fontSize = 12.sp,
                                     modifier = Modifier.padding(bottom = 4.dp),
                                 )
@@ -572,11 +572,11 @@ fun MessageEditorPanel(
                                     singleLine = true,
                                     textStyle =
                                         TextStyle(
-                                            color = Color(0xFFE0E0E0),
+                                            color = textColor,
                                             fontSize = 14.sp,
                                             fontFamily = FontFamily.Monospace,
                                         ),
-                                    cursorBrush = SolidColor(Color(0xFF4EC9B0)),
+                                    cursorBrush = SolidColor(activeColor),
                                     interactionSource = nameFieldInteractionSource,
                                     modifier =
                                         Modifier
@@ -586,13 +586,13 @@ fun MessageEditorPanel(
                                                 width = 1.dp,
                                                 color =
                                                     if (isDuplicate) {
-                                                        Color(0xFFFF5555)
+                                                        deleteColor
                                                     } else if (isNameFieldFocused) {
                                                         Color(
                                                             0xFF4EC9B0,
                                                         )
                                                     } else {
-                                                        Color(0xFF555555)
+                                                        borderColorDark
                                                     },
                                                 shape = RoundedCornerShape(2.dp),
                                             ).padding(horizontal = 4.dp, vertical = 8.dp)
@@ -602,7 +602,7 @@ fun MessageEditorPanel(
                                 if (isDuplicate) {
                                     Text(
                                         "A template with this name already exists for this profile",
-                                        color = Color(0xFFFF5555),
+                                        color = deleteColor,
                                         fontSize = 11.sp,
                                         modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                                     )
@@ -617,7 +617,7 @@ fun MessageEditorPanel(
                                     SlimButton(
                                         text = "Cancel",
                                         onClick = { showSaveDialog = false },
-                                        containerColor = Color(0xFF3A3A3A),
+                                        containerColor = borderColor,
                                         contentColor = AppTheme.Colors.textSecondary,
                                         modifier = Modifier.width(90.dp),
                                     )
@@ -655,12 +655,12 @@ fun MessageEditorPanel(
 
                 // Button 4: Add
                 if (visibleButtonsCount > 4) {
-                    TooltipIconButton(tooltip = "Add Field", onClick = onFieldAdd, modifier = Modifier.size(28.dp)) {
+                    TooltipIconButton(tooltip = "Add Field", onClick = onFieldAdd, modifier = iconSize28) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add",
-                            modifier = Modifier.size(18.dp),
-                            tint = Color(0xFFB0B0B0),
+                            modifier = iconSize18,
+                            tint = labelColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -672,13 +672,13 @@ fun MessageEditorPanel(
                         tooltip = "Delete Field",
                         onClick = { onFieldDelete(selectedFieldIndex) },
                         enabled = fields.size > 1,
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Remove,
                             contentDescription = "Delete",
-                            modifier = Modifier.size(18.dp),
-                            tint = if (fields.size > 1) Color(0xFFB0B0B0) else Color(0xFF4A4A4A),
+                            modifier = iconSize18,
+                            tint = if (fields.size > 1) labelColor else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -690,13 +690,13 @@ fun MessageEditorPanel(
                         tooltip = "Move Up",
                         onClick = { onFieldMoveUp(selectedFieldIndex) },
                         enabled = selectedFieldIndex > 0,
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowUpward,
                             contentDescription = "Move Up",
-                            modifier = Modifier.size(18.dp),
-                            tint = if (selectedFieldIndex > 0) Color(0xFFB0B0B0) else Color(0xFF4A4A4A),
+                            modifier = iconSize18,
+                            tint = if (selectedFieldIndex > 0) labelColor else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -708,13 +708,13 @@ fun MessageEditorPanel(
                         tooltip = "Move Down",
                         onClick = { onFieldMoveDown(selectedFieldIndex) },
                         enabled = selectedFieldIndex < fields.size - 1,
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowDownward,
                             contentDescription = "Move Down",
-                            modifier = Modifier.size(18.dp),
-                            tint = if (selectedFieldIndex < fields.size - 1) Color(0xFFB0B0B0) else Color(0xFF4A4A4A),
+                            modifier = iconSize18,
+                            tint = if (selectedFieldIndex < fields.size - 1) labelColor else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -728,13 +728,13 @@ fun MessageEditorPanel(
                             previewText = ""
                             onClearFields()
                         },
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "Clear",
-                            modifier = Modifier.size(18.dp),
-                            tint = Color(0xFFB0B0B0),
+                            modifier = iconSize18,
+                            tint = labelColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -745,13 +745,13 @@ fun MessageEditorPanel(
                     TooltipIconButton(
                         tooltip = if (showIndentation) "Hide Group Indentation" else "Show Group Indentation",
                         onClick = { showIndentation = !showIndentation },
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.FormatIndentIncrease,
                             contentDescription = "Toggle Indentation",
-                            modifier = Modifier.size(18.dp),
-                            tint = if (showIndentation) Color(0xFF4EC9B0) else Color(0xFFB0B0B0),
+                            modifier = iconSize18,
+                            tint = if (showIndentation) activeColor else labelColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -765,13 +765,13 @@ fun MessageEditorPanel(
                             showDescription = !showDescription
                             onDescriptionVisibilityChanged?.invoke(showDescription)
                         },
-                        modifier = Modifier.size(28.dp),
+                        modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = if (showDescription) Icons.Default.ViewModule else Icons.Default.ViewList,
                             contentDescription = "Toggle Description",
-                            modifier = Modifier.size(18.dp),
-                            tint = Color(0xFFB0B0B0),
+                            modifier = iconSize18,
+                            tint = labelColor,
                         )
                     }
                 }
@@ -784,13 +784,13 @@ fun MessageEditorPanel(
                         TooltipIconButton(
                             tooltip = "More Options",
                             onClick = { showOverflowPopup = !showOverflowPopup },
-                            modifier = Modifier.size(28.dp),
+                            modifier = iconSize28,
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ChevronRight,
                                 contentDescription = "More Options",
-                                tint = Color(0xFFB0B0B0),
-                                modifier = Modifier.size(18.dp),
+                                tint = labelColor,
+                                modifier = iconSize18,
                             )
                         }
 
@@ -805,7 +805,7 @@ fun MessageEditorPanel(
                                     modifier =
                                         Modifier
                                             .background(Color(0xFF2B2B2B), RoundedCornerShape(4.dp))
-                                            .border(1.dp, Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                                            .border(1.dp, borderColor, RoundedCornerShape(4.dp))
                                             .padding(horizontal = 4.dp, vertical = 4.dp),
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -834,13 +834,13 @@ fun MessageEditorPanel(
                                                 }
                                             },
                                             enabled = canSend,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Send,
                                                 contentDescription = "Send",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = if (canSend) Color(0xFF4EC9B0) else Color(0xFF4A4A4A),
+                                                modifier = iconSize18,
+                                                tint = if (canSend) activeColor else disabledIconColor,
                                             )
                                         }
                                     }
@@ -862,20 +862,20 @@ fun MessageEditorPanel(
                                                 }
                                             },
                                             enabled = hasDataDictionary,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.CheckCircle,
                                                 contentDescription = "Validate",
-                                                modifier = Modifier.size(18.dp),
+                                                modifier = iconSize18,
                                                 tint =
                                                     when {
-                                                        hasDataDictionary.not() -> Color(0xFF4A4A4A)
+                                                        hasDataDictionary.not() -> disabledIconColor
                                                         validationPassed ->
                                                             Color(
                                                                 0xFF98C379,
                                                             )
-                                                        ; else -> Color(0xFFCE9178)
+                                                        ; else -> warningColor
                                                     },
                                             )
                                         }
@@ -888,13 +888,13 @@ fun MessageEditorPanel(
                                         TooltipIconButton(
                                             tooltip = "Load Message Template",
                                             onClick = { /* handled by dropdown */ },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.FolderOpen,
                                                 contentDescription = "Load",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = Color(0xFFB0B0B0),
+                                                modifier = iconSize18,
+                                                tint = labelColor,
                                             )
                                         }
                                     }
@@ -904,13 +904,13 @@ fun MessageEditorPanel(
                                         TooltipIconButton(
                                             tooltip = "Save Message Template",
                                             onClick = { showSaveDialog = true },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Save,
                                                 contentDescription = "Save",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = Color(0xFFB0B0B0),
+                                                modifier = iconSize18,
+                                                tint = labelColor,
                                             )
                                         }
                                     }
@@ -919,13 +919,13 @@ fun MessageEditorPanel(
                                         TooltipIconButton(
                                             tooltip = "Add Field",
                                             onClick = { onFieldAdd() },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Add,
                                                 contentDescription = "Add",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = Color(0xFFB0B0B0),
+                                                modifier = iconSize18,
+                                                tint = labelColor,
                                             )
                                         }
                                     }
@@ -935,13 +935,13 @@ fun MessageEditorPanel(
                                             tooltip = "Delete Field",
                                             onClick = { onFieldDelete(selectedFieldIndex) },
                                             enabled = fields.size > 1,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Remove,
                                                 contentDescription = "Delete",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = if (fields.size > 1) Color(0xFFB0B0B0) else Color(0xFF4A4A4A),
+                                                modifier = iconSize18,
+                                                tint = if (fields.size > 1) labelColor else disabledIconColor,
                                             )
                                         }
                                     }
@@ -951,15 +951,15 @@ fun MessageEditorPanel(
                                             tooltip = "Move Up",
                                             onClick = { onFieldMoveUp(selectedFieldIndex) },
                                             enabled = selectedFieldIndex > 0,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.ArrowUpward,
                                                 contentDescription = "Move Up",
-                                                modifier = Modifier.size(18.dp),
+                                                modifier = iconSize18,
                                                 tint =
                                                     if (selectedFieldIndex > 0) {
-                                                        Color(0xFFB0B0B0)
+                                                        labelColor
                                                     } else {
                                                         Color(
                                                             0xFF4A4A4A,
@@ -974,17 +974,17 @@ fun MessageEditorPanel(
                                             tooltip = "Move Down",
                                             onClick = { onFieldMoveDown(selectedFieldIndex) },
                                             enabled = selectedFieldIndex < fields.size - 1,
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.ArrowDownward,
                                                 contentDescription = "Move Down",
-                                                modifier = Modifier.size(18.dp),
+                                                modifier = iconSize18,
                                                 tint =
                                                     if (selectedFieldIndex <
                                                         fields.size - 1
                                                     ) {
-                                                        Color(0xFFB0B0B0)
+                                                        labelColor
                                                     } else {
                                                         Color(
                                                             0xFF4A4A4A,
@@ -1001,13 +1001,13 @@ fun MessageEditorPanel(
                                                 previewText = ""
                                                 onClearFields()
                                             },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Delete,
                                                 contentDescription = "Clear",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = Color(0xFFB0B0B0),
+                                                modifier = iconSize18,
+                                                tint = labelColor,
                                             )
                                         }
                                     }
@@ -1016,13 +1016,13 @@ fun MessageEditorPanel(
                                         TooltipIconButton(
                                             tooltip = if (showIndentation) "Hide Group Indentation" else "Show Group Indentation",
                                             onClick = { showIndentation = !showIndentation },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.FormatIndentIncrease,
                                                 contentDescription = "Toggle Indentation",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = if (showIndentation) Color(0xFF4EC9B0) else Color(0xFFB0B0B0),
+                                                modifier = iconSize18,
+                                                tint = if (showIndentation) activeColor else labelColor,
                                             )
                                         }
                                     }
@@ -1037,13 +1037,13 @@ fun MessageEditorPanel(
                                                     showDescription,
                                                 )
                                             },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = if (showDescription) Icons.Default.ViewModule else Icons.Default.ViewList,
                                                 contentDescription = "Toggle Description",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = Color(0xFFB0B0B0),
+                                                modifier = iconSize18,
+                                                tint = labelColor,
                                             )
                                         }
                                     }
@@ -1079,12 +1079,12 @@ fun MessageEditorPanel(
                         Icon(
                             imageVector = Icons.Default.Error,
                             contentDescription = "Validation Errors",
-                            tint = Color(0xFFE06C75),
-                            modifier = Modifier.size(16.dp),
+                            tint = errorColor,
+                            modifier = iconSize16,
                         )
                         Text(
                             text = "Validation Errors (${validationErrors.size})",
-                            color = Color(0xFFE06C75),
+                            color = errorColor,
                             fontSize = 10.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                         )
@@ -1092,13 +1092,13 @@ fun MessageEditorPanel(
                     TooltipIconButton(
                         tooltip = "Dismiss Errors",
                         onClick = onClearValidationErrors,
-                        modifier = Modifier.size(20.dp),
+                        modifier = iconSize20,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Dismiss",
-                            tint = Color(0xFFB0B0B0),
-                            modifier = Modifier.size(14.dp),
+                            tint = labelColor,
+                            modifier = iconSize14,
                         )
                     }
                 }
@@ -1107,7 +1107,7 @@ fun MessageEditorPanel(
                 validationErrors.forEach { error ->
                     Text(
                         text = "• $error",
-                        color = Color(0xFFE06C75),
+                        color = errorColor,
                         fontSize = 9.sp,
                         modifier = Modifier.padding(start = 22.dp),
                     )
@@ -1121,7 +1121,7 @@ fun MessageEditorPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2B2B2B))
+                    .background(backgroundColorDark)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1130,7 +1130,7 @@ fun MessageEditorPanel(
 
             Text(
                 text = "Tag",
-                color = Color(0xFFB0B0B0),
+                color = labelColor,
                 fontSize = 10.sp,
                 modifier = Modifier.width(48.dp),
             )
@@ -1139,7 +1139,7 @@ fun MessageEditorPanel(
 
             Text(
                 text = "Field Name",
-                color = Color(0xFFB0B0B0),
+                color = labelColor,
                 fontSize = 10.sp,
                 modifier = Modifier.width(120.dp),
             )
@@ -1148,7 +1148,7 @@ fun MessageEditorPanel(
 
             Text(
                 text = "Value",
-                color = Color(0xFFB0B0B0),
+                color = labelColor,
                 fontSize = 10.sp,
                 modifier = Modifier.width(180.dp),
             )
@@ -1158,7 +1158,7 @@ fun MessageEditorPanel(
 
                 Text(
                     text = "Description",
-                    color = Color(0xFFB0B0B0),
+                    color = labelColor,
                     fontSize = 10.sp,
                     modifier = Modifier.weight(1f),
                 )
@@ -1223,7 +1223,7 @@ fun MessageEditorPanel(
                         Modifier
                             .height(1.dp)
                             .fillMaxWidth()
-                            .background(Color(0xFF3A3A3A))
+                            .background(borderColor)
                             .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
                             .pointerInput(maxHeightPx) {
                                 detectDragGestures { change, dragAmount ->
@@ -1245,7 +1245,7 @@ fun MessageEditorPanel(
                         modifier =
                             Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF252525), RoundedCornerShape(4.dp))
+                                .background(fieldBackgroundColor, RoundedCornerShape(4.dp))
                                 .padding(12.dp),
                     ) {
                         // Header with label and copy/paste buttons
@@ -1256,7 +1256,7 @@ fun MessageEditorPanel(
                         ) {
                             Text(
                                 text = "RAW MESSAGE",
-                                color = Color(0xFFB0B0B0),
+                                color = labelColor,
                                 fontSize = 10.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             )
@@ -1280,13 +1280,13 @@ fun MessageEditorPanel(
                                             )
                                         }
                                     },
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = iconSize20,
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
                                         contentDescription = "Copy",
-                                        tint = Color(0xFFB0B0B0),
-                                        modifier = Modifier.size(14.dp),
+                                        tint = labelColor,
+                                        modifier = iconSize14,
                                     )
                                 }
 
@@ -1346,13 +1346,13 @@ fun MessageEditorPanel(
                                             )
                                         }
                                     },
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = iconSize20,
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ContentPaste,
                                         contentDescription = "Paste",
-                                        tint = Color(0xFFB0B0B0),
-                                        modifier = Modifier.size(14.dp),
+                                        tint = labelColor,
+                                        modifier = iconSize14,
                                     )
                                 }
                             }
@@ -1385,16 +1385,16 @@ fun MessageEditorPanel(
                                 TextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
                                     unfocusedContainerColor = Color.Transparent,
-                                    focusedTextColor = Color(0xFFE0E0E0),
-                                    unfocusedTextColor = Color(0xFFE0E0E0),
-                                    cursorColor = Color(0xFF4EC9B0),
+                                    focusedTextColor = textColor,
+                                    unfocusedTextColor = textColor,
+                                    cursorColor = activeColor,
                                     focusedIndicatorColor = Color.Transparent,
                                     unfocusedIndicatorColor = Color.Transparent,
                                 ),
                             textStyle =
                                 LocalTextStyle.current.copy(
                                     fontSize = 10.sp,
-                                    color = Color(0xFFE0E0E0),
+                                    color = textColor,
                                     fontFamily = FontFamily.Monospace,
                                 ),
                         )
@@ -1635,9 +1635,9 @@ private fun FieldEditorRow(
     // Determine background color based on selection state
     val backgroundColor =
         when {
-            isPrimarySelection -> Color(0xFF2D5A8C) // Primary selection - darker blue
-            isSelected -> Color(0xFF1E4A6B) // Part of multi-selection - lighter blue
-            else -> Color(0xFF1E1E1E) // Not selected
+            isPrimarySelection -> selectionPrimaryColor // Primary selection - darker blue
+            isSelected -> selectionSecondaryColor // Part of multi-selection - lighter blue
+            else -> darkBackgroundColor // Not selected
         }
 
     Column {
@@ -1647,12 +1647,12 @@ private fun FieldEditorRow(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF202020))
+                        .background(headerBackgroundColor)
                         .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             ) {
                 Text(
                     text = "[$instanceNumber]",
-                    color = Color(0xFF9CDCFE),
+                    color = instanceNumberColor,
                     fontSize = 9.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
@@ -1700,7 +1700,7 @@ private fun FieldEditorRow(
                         onFieldChange(field.copy(excluded = !field.excluded))
                     }
                 },
-                modifier = Modifier.size(20.dp),
+                modifier = iconSize20,
             ) {
                 Icon(
                     imageVector =
@@ -1714,12 +1714,12 @@ private fun FieldEditorRow(
                     contentDescription = if (field.excluded) "Excluded" else "Included",
                     tint =
                         when {
-                            isManaged -> Color(0xFF4A4A4A)
-                            field.excluded -> Color(0xFF6A6A6A)
-                            isGroupTag -> Color(0xFFFFAA00) // Orange for group tags
-                            else -> Color(0xFF4EC9B0) // Green for regular fields
+                            isManaged -> disabledIconColor
+                            field.excluded -> disabledTextColor
+                            isGroupTag -> groupTagColor // Orange for group tags
+                            else -> activeColor // Green for regular fields
                         },
-                    modifier = Modifier.size(14.dp),
+                    modifier = iconSize14,
                 )
             }
 
@@ -1741,9 +1741,9 @@ private fun FieldEditorRow(
                     text = fieldName,
                     color =
                         when {
-                            isManaged -> Color(0xFF6A6A6A)
-                            isGroupTag -> Color(0xFFFFAA00) // Orange for group tags
-                            else -> Color(0xFF4EC9B0) // Green for regular fields
+                            isManaged -> disabledTextColor
+                            isGroupTag -> groupTagColor // Orange for group tags
+                            else -> activeColor // Green for regular fields
                         },
                     fontSize = 10.sp,
                     maxLines = 1,
@@ -1791,7 +1791,7 @@ private fun FieldEditorRow(
                         // Value description (read-only text)
                         Text(
                             text = if (hasValueDescription) valueDescription!! else "",
-                            color = if (isManaged) Color(0xFF6A6A6A) else Color(0xFF9A9A9A),
+                            color = if (isManaged) disabledTextColor else descriptionColor,
                             fontSize = 10.sp,
                             modifier = Modifier.weight(1f),
                         )
@@ -1806,7 +1806,7 @@ private fun FieldEditorRow(
                     ) {
                         Text(
                             text = field.tag,
-                            color = if (isManaged || field.excluded) Color(0xFF6A6A6A) else Color(0xFFE0E0E0),
+                            color = if (isManaged || field.excluded) disabledTextColor else textColor,
                             fontSize = 10.sp,
                             modifier = Modifier.width(48.dp),
                         )
@@ -1818,9 +1818,9 @@ private fun FieldEditorRow(
                             text = fieldName,
                             color =
                                 when {
-                                    isManaged || field.excluded -> Color(0xFF6A6A6A)
-                                    isGroupTag -> Color(0xFFFFAA00) // Orange for group tags
-                                    else -> Color(0xFF4EC9B0) // Green for regular fields
+                                    isManaged || field.excluded -> disabledTextColor
+                                    isGroupTag -> groupTagColor // Orange for group tags
+                                    else -> activeColor // Green for regular fields
                                 },
                             fontSize = 10.sp,
                             maxLines = 1,
@@ -1832,7 +1832,7 @@ private fun FieldEditorRow(
 
                         Text(
                             text = field.value,
-                            color = if (isManaged || field.excluded) Color(0xFF6A6A6A) else Color(0xFFE0E0E0),
+                            color = if (isManaged || field.excluded) disabledTextColor else textColor,
                             fontSize = 10.sp,
                             modifier = Modifier.width(180.dp),
                         )
@@ -1842,7 +1842,7 @@ private fun FieldEditorRow(
 
                             Text(
                                 text = if (hasValueDescription) valueDescription!! else "",
-                                color = if (isManaged || field.excluded) Color(0xFF6A6A6A) else Color(0xFF9A9A9A),
+                                color = if (isManaged || field.excluded) disabledTextColor else descriptionColor,
                                 fontSize = 10.sp,
                                 modifier = Modifier.weight(1f),
                             )
@@ -1956,7 +1956,7 @@ private fun SlimButton(
             modifier
                 .height(32.dp)
                 .background(
-                    color = if (enabled) containerColor else Color(0xFF3A3A3A),
+                    color = if (enabled) containerColor else borderColor,
                     shape = RoundedCornerShape(4.dp),
                 ).clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center,
@@ -1969,3 +1969,35 @@ private fun SlimButton(
         )
     }
 }
+
+// Private color constants
+private val darkBackgroundColor = Color(0xFF1E1E1E)
+private val backgroundColorDark = Color(0xFF2B2B2B)
+private val borderColor = Color(0xFF3A3A3A)
+private val fieldBackgroundColor = Color(0xFF252525)
+private val headerBackgroundColor = Color(0xFF202020)
+private val textColor = Color(0xFFE0E0E0)
+private val labelColor = Color(0xFFB0B0B0)
+private val disabledTextColor = Color(0xFF6A6A6A)
+private val activeColor = Color(0xFF4EC9B0)
+private val errorColor = Color(0xFFE06C75)
+private val deleteColor = Color(0xFFFF5555)
+private val warningColor = Color(0xFFCE9178)
+private val successColor = Color(0xFF98C379)
+private val groupTagColor = Color(0xFFFFAA00)
+private val instanceNumberColor = Color(0xFF9CDCFE)
+private val disabledIconColor = Color(0xFF4A4A4A)
+private val selectionPrimaryColor = Color(0xFF2D5A8C)
+private val selectionSecondaryColor = Color(0xFF1E4A6B)
+private val placeholderColor = Color(0xFF888888)
+private val borderColorDark = Color(0xFF555555)
+private val descriptionColor = Color(0xFF9A9A9A)
+
+// Common modifiers
+private val iconSize28 = Modifier.size(28.dp)
+private val iconSize20 = Modifier.size(20.dp)
+private val iconSize18 = Modifier.size(18.dp)
+private val iconSize16 = Modifier.size(16.dp)
+private val iconSize14 = Modifier.size(14.dp)
+private val iconSize24 = Modifier.size(24.dp)
+private val inputShape = RoundedCornerShape(2.dp)

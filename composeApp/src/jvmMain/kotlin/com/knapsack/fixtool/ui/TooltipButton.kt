@@ -66,10 +66,10 @@ fun TooltipIconButton(
                     text = tooltip,
                     modifier =
                         Modifier
-                            .shadow(4.dp, RoundedCornerShape(4.dp))
-                            .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                            .shadow(4.dp, tooltipShape)
+                            .background(tooltipBackgroundColor, tooltipShape)
                             .padding(horizontal = 8.dp, vertical = 4.dp),
-                    color = Color(0xFFE0E0E0),
+                    color = tooltipTextColor,
                     fontSize = 11.sp,
                 )
             }
@@ -88,7 +88,7 @@ fun TooltipIconButton(
             enabled = enabled,
             colors =
                 IconButtonDefaults.iconButtonColors(
-                    containerColor = if (isHovered) Color(0xFF3A3A3A) else Color.Transparent,
+                    containerColor = if (isHovered) buttonHoverColor else Color.Transparent,
                 ),
             interactionSource = interactionSource,
         ) {
@@ -113,10 +113,10 @@ fun TooltipFloatingActionButton(
                 text = tooltip,
                 modifier =
                     Modifier
-                        .shadow(4.dp, RoundedCornerShape(4.dp))
-                        .background(Color(0xFF3A3A3A), RoundedCornerShape(4.dp))
+                        .shadow(4.dp, tooltipShape)
+                        .background(tooltipBackgroundColor, tooltipShape)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
-                color = Color(0xFFE0E0E0),
+                color = tooltipTextColor,
                 fontSize = 11.sp,
             )
         },
@@ -138,3 +138,11 @@ fun TooltipFloatingActionButton(
         }
     }
 }
+
+// Color constants
+private val tooltipBackgroundColor = Color(0xFF3A3A3A)
+private val tooltipTextColor = Color(0xFFE0E0E0)
+private val buttonHoverColor = Color(0xFF3A3A3A)
+
+// Shape constants
+private val tooltipShape = RoundedCornerShape(4.dp)

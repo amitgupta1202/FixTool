@@ -42,7 +42,7 @@ fun TabBar(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2B2B2B))
+                    .background(tabBarBackgroundColor)
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -75,13 +75,13 @@ fun TabBar(
                     TooltipIconButton(
                         tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
                         onClick = { onToggleWrapText(activeIndex) },
-                        modifier = Modifier.size(28.dp),
+                        modifier = toolbarButtonSize,
                     ) {
                         Icon(
                             imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
                             contentDescription = "Toggle Text Wrap",
-                            tint = Color(0xFFB0B0B0),
-                            modifier = Modifier.size(18.dp),
+                            tint = iconTintColor,
+                            modifier = toolbarIconSize,
                         )
                     }
 
@@ -89,13 +89,13 @@ fun TabBar(
                     TooltipIconButton(
                         tooltip = if (searchVisible) "Hide Search" else "Show Search (Ctrl+F)",
                         onClick = { activeSession.toggleSearch() },
-                        modifier = Modifier.size(28.dp),
+                        modifier = toolbarButtonSize,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Toggle Search",
-                            tint = if (searchVisible) AppTheme.Colors.primary else Color(0xFFB0B0B0),
-                            modifier = Modifier.size(18.dp),
+                            tint = if (searchVisible) AppTheme.Colors.primary else iconTintColor,
+                            modifier = toolbarIconSize,
                         )
                     }
                 }
@@ -104,13 +104,13 @@ fun TabBar(
                 TooltipIconButton(
                     tooltip = if (filterVisible) "Hide Filter" else "Show Filter (Regex)",
                     onClick = { activeSession.toggleFilter() },
-                    modifier = Modifier.size(28.dp),
+                    modifier = toolbarButtonSize,
                 ) {
                     Icon(
                         imageVector = Icons.Default.FilterAlt,
                         contentDescription = "Toggle Filter",
-                        tint = if (filterVisible) AppTheme.Colors.primary else Color(0xFFB0B0B0),
-                        modifier = Modifier.size(18.dp),
+                        tint = if (filterVisible) AppTheme.Colors.primary else iconTintColor,
+                        modifier = toolbarIconSize,
                     )
                 }
 
@@ -118,13 +118,13 @@ fun TabBar(
                 TooltipIconButton(
                     tooltip = "Add Separator",
                     onClick = { activeSession.addSeparator() },
-                    modifier = Modifier.size(28.dp),
+                    modifier = toolbarButtonSize,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add Separator",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(18.dp),
+                        tint = iconTintColor,
+                        modifier = toolbarIconSize,
                     )
                 }
 
@@ -132,13 +132,13 @@ fun TabBar(
                 TooltipIconButton(
                     tooltip = "Clear All Messages",
                     onClick = { activeSession.clearMessages() },
-                    modifier = Modifier.size(28.dp),
+                    modifier = toolbarButtonSize,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Clear All Messages",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(18.dp),
+                        tint = iconTintColor,
+                        modifier = toolbarIconSize,
                     )
                 }
 
@@ -152,7 +152,7 @@ fun TabBar(
                 TooltipIconButton(
                     tooltip = tooltipText,
                     onClick = { onToggleViewMode(activeIndex) },
-                    modifier = Modifier.size(28.dp),
+                    modifier = toolbarButtonSize,
                 ) {
                     val icon =
                         when (viewMode) {
@@ -162,8 +162,8 @@ fun TabBar(
                     Icon(
                         imageVector = icon,
                         contentDescription = "Toggle View (${viewMode.name})",
-                        tint = Color(0xFFB0B0B0),
-                        modifier = Modifier.size(18.dp),
+                        tint = iconTintColor,
+                        modifier = toolbarIconSize,
                     )
                 }
 
@@ -173,13 +173,13 @@ fun TabBar(
                     TooltipIconButton(
                         tooltip = "Connect Session",
                         onClick = { onConnect(activeIndex) },
-                        modifier = Modifier.size(28.dp),
+                        modifier = toolbarButtonSize,
                     ) {
                         Icon(
                             imageVector = Icons.Default.PowerSettingsNew,
                             contentDescription = "Connect",
-                            tint = Color(0xFFB0B0B0), // Gray when disconnected
-                            modifier = Modifier.size(18.dp),
+                            tint = disconnectedIconColor,
+                            modifier = toolbarIconSize,
                         )
                     }
                 } else if (connectionState.canDisconnect()) {
@@ -187,13 +187,13 @@ fun TabBar(
                     TooltipIconButton(
                         tooltip = "Disconnect Session",
                         onClick = { onDisconnect(activeIndex) },
-                        modifier = Modifier.size(28.dp),
+                        modifier = toolbarButtonSize,
                     ) {
                         Icon(
                             imageVector = Icons.Default.PowerSettingsNew,
                             contentDescription = "Disconnect",
-                            tint = Color(0xFF7AD67A), // Green when connected
-                            modifier = Modifier.size(18.dp),
+                            tint = connectedIconColor,
+                            modifier = toolbarIconSize,
                         )
                     }
                 }
@@ -210,13 +210,13 @@ private fun Tab(
     onClose: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val backgroundColor = if (isActive) Color(0xFF1E1E1E) else Color(0xFF2B2B2B)
-    val textColor = if (isActive) Color(0xFFE0E0E0) else Color(0xFFB0B0B0)
+    val backgroundColor = if (isActive) tabActiveBackgroundColor else tabInactiveBackgroundColor
+    val textColor = if (isActive) tabActiveTextColor else tabInactiveTextColor
 
     Row(
         modifier =
             modifier
-                .clip(RoundedCornerShape(topStart = 1.dp, topEnd = 1.dp))
+                .clip(tabShape)
                 .background(backgroundColor)
                 .clickable(onClick = onClick)
                 .padding(horizontal = 6.dp, vertical = 1.dp),
@@ -233,15 +233,32 @@ private fun Tab(
             TooltipIconButton(
                 tooltip = "Close Tab",
                 onClick = onClose,
-                modifier = Modifier.size(16.dp),
+                modifier = tabCloseButtonSize,
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Close Tab",
                     tint = textColor,
-                    modifier = Modifier.size(14.dp),
+                    modifier = tabCloseIconSize,
                 )
             }
         }
     }
 }
+
+// Color constants
+private val tabBarBackgroundColor = Color(0xFF2B2B2B)
+private val tabActiveBackgroundColor = Color(0xFF1E1E1E)
+private val tabInactiveBackgroundColor = Color(0xFF2B2B2B)
+private val tabActiveTextColor = Color(0xFFE0E0E0)
+private val tabInactiveTextColor = Color(0xFFB0B0B0)
+private val iconTintColor = Color(0xFFB0B0B0)
+private val connectedIconColor = Color(0xFF7AD67A)
+private val disconnectedIconColor = Color(0xFFB0B0B0)
+
+// Modifier constants
+private val toolbarButtonSize = Modifier.size(28.dp)
+private val toolbarIconSize = Modifier.size(18.dp)
+private val tabCloseButtonSize = Modifier.size(16.dp)
+private val tabCloseIconSize = Modifier.size(14.dp)
+private val tabShape = RoundedCornerShape(topStart = 1.dp, topEnd = 1.dp)

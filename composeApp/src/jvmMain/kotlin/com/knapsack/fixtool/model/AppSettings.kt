@@ -19,6 +19,8 @@ data class AppSettings(
     // Protocol Tags Settings
     val hideProtocolTagsByDefault: Boolean = true, // Hide protocol tags by default in message details
     val protocolTags: Set<Int> = defaultProtocolTags, // List of FIX tags considered as protocol tags
+    // Message Color Scheme
+    val messageColorScheme: MessageColorScheme = MessageColorScheme.default(),
     // Future settings can be added here
     // val theme: String = "dark",
     // val fontSize: Int = 12,

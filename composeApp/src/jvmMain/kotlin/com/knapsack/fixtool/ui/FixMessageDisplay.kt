@@ -467,6 +467,7 @@ private fun MessageDisplayContent(
                                         } else {
                                             -1
                                         },
+                                    appSettings = appSettings,
                                 )
                             }
                         }
@@ -553,6 +554,9 @@ private fun MessageRow(
     searchQuery: String = "",
     messageMatches: List<Pair<Int, Int>> = emptyList(),
     currentMatchOffset: Int = -1,
+    appSettings: com.knapsack.fixtool.model.AppSettings =
+        com.knapsack.fixtool.model.AppSettings
+            .default(),
 ) {
     // Special handling for separator/blank lines
     when (message) {
@@ -589,7 +593,7 @@ private fun MessageRow(
         }
 
         is FixMessage -> {
-            val textColor = getMessageTextColor(message, messageIndex)
+            val textColor = getMessageTextColor(message, messageIndex, appSettings)
             val backgroundColor = if (isSelected) selectedBackgroundColor else Color.Transparent
             val interactionSource = remember { MutableInteractionSource() }
             val isHovered by interactionSource.collectIsHoveredAsState()
@@ -857,16 +861,12 @@ private val smallIconSize = 14.dp
 private fun getMessageTextColor(
     message: FixMessage,
     messageIndex: Int,
+    appSettings: com.knapsack.fixtool.model.AppSettings,
 ): Color {
     val isBright = messageIndex % 2 == 1
-    return if (message.isRejectionOrLogout()) {
-        if (isBright) rejectionBrightColor else rejectionDullColor
-    } else {
-        when (message.direction) {
-            FixMessage.Direction.INCOMING ->
-                if (isBright) incomingBrightColor else incomingDullColor
-            FixMessage.Direction.OUTGOING ->
-                if (isBright) outgoingBrightColor else outgoingDullColor
-        }
-    }
+    return appSettings.messageColorScheme.getMessageColor(
+        message.direction,
+        message.isRejectionOrLogout(),
+        isBright
+    )
 }

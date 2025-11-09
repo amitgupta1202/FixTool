@@ -158,25 +158,6 @@ class FixDictionaryAdapter private constructor(
             logger.info("Creating default FixDictionaryAdapter with no DataDictionary")
             return FixDictionaryAdapter(null, null, emptyMap(), emptyList())
         }
-
-        /**
-         * Creates an adapter from an existing QuickFIX DataDictionary instance
-         */
-        fun fromDataDictionary(dataDictionary: DataDictionary?, path: String? = null): FixDictionaryAdapter {
-            // If we have a path, try to parse enum values and all fields from the XML
-            val (enumValues, allFields) =
-                if (path != null) {
-                    try {
-                        val file = File(path)
-                        parseEnumValues(file) to parseAllFields(file)
-                    } catch (e: Exception) {
-                        emptyMap<Int, List<Pair<String, String>>>() to emptyList<Pair<Int, String>>()
-                    }
-                } else {
-                    emptyMap<Int, List<Pair<String, String>>>() to emptyList<Pair<Int, String>>()
-                }
-            return FixDictionaryAdapter(dataDictionary, path, enumValues, allFields)
-        }
     }
 
     /**

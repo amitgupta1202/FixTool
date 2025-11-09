@@ -173,19 +173,22 @@ class FixMessageSession(
         val config = _connectionConfig.value
         val settings = _appSettings
         val dictionary = _dictionary
-        if (config != null && settings != null && dictionary != null) {
+        if (config != null && settings != null) {
             connect(config, settings, dictionary)
         } else {
-            println("Cannot reconnect: No connection config, app settings, or dictionary available")
+            logger.info("Cannot reconnect: No connection config or app settings available")
         }
     }
 
-    fun connect(config: FixConnectionConfig, appSettings: AppSettings, dictionary: FixDictionary) {
+    fun connect(config: FixConnectionConfig, appSettings: AppSettings, dictionary: FixDictionary? = null) {
         try {
+            // Use provided dictionary or create a default empty one
+            val effectiveDictionary = dictionary ?: FixDictionaryAdapter.createDefault()
+
             _connectionState.value = FixConnectionState.CONNECTING
             _connectionConfig.value = config
             _appSettings = appSettings
-            _dictionary = dictionary
+            _dictionary = effectiveDictionary
 
             // Create QuickFIX service
             quickFixService =
@@ -195,7 +198,7 @@ class FixMessageSession(
                 ) { state -> _connectionState.value = state }
 
             // Create connection manager
-            connectionManager = FixConnectionManager(config, quickFixService!!, appSettings, dictionary)
+            connectionManager = FixConnectionManager(config, quickFixService!!, appSettings, effectiveDictionary)
 
             // Start the connection
             connectionManager?.start()

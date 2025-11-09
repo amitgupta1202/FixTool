@@ -125,7 +125,9 @@ fun MessageEditorPanel(
     var previewPanelRatio by remember { mutableStateOf(0.2f) }
     var previewText by remember { mutableStateOf("") }
     var isUpdatingFromFields by remember { mutableStateOf(false) }
-    var showDescription by remember { mutableStateOf(true) } // Toggle for Description column - enabled by default
+
+    // Toggle for Description column - enabled by default, but forced off when no dictionary
+    var showDescription by remember { mutableStateOf(true) }
     var showIndentation by remember { mutableStateOf(false) } // Toggle for Group indentation (off by default)
     val density = LocalDensity.current
 
@@ -147,6 +149,13 @@ fun MessageEditorPanel(
     // Notify parent about initial description visibility on component load
     LaunchedEffect(Unit) {
         onDescriptionVisibilityChanged?.invoke(showDescription)
+    }
+
+    // Force showDescription to false when dictionary is not loaded
+    LaunchedEffect(hasDataDictionary) {
+        if (!hasDataDictionary) {
+            showDescription = false
+        }
     }
 
     // Sync fields to preview text - create a key that changes when field contents change
@@ -303,7 +312,7 @@ fun MessageEditorPanel(
                             if (hasDataDictionary) {
                                 if (validationPassed) "Validation Passed" else "Validate Message against Data Dictionary"
                             } else {
-                                "Validation disabled - No Data Dictionary configured"
+                                "Requires FIX data dictionary"
                             },
                         onClick = {
                             onClearValidationErrors()
@@ -743,15 +752,28 @@ fun MessageEditorPanel(
                 // Button 9: Toggle Indentation
                 if (visibleButtonsCount > 9) {
                     TooltipIconButton(
-                        tooltip = if (showIndentation) "Hide Group Indentation" else "Show Group Indentation",
+                        tooltip =
+                            if (!hasDataDictionary) {
+                                "Requires FIX data dictionary"
+                            } else if (showIndentation) {
+                                "Hide Group Indentation"
+                            } else {
+                                "Show Group Indentation"
+                            },
                         onClick = { showIndentation = !showIndentation },
+                        enabled = hasDataDictionary,
                         modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = Icons.Default.FormatIndentIncrease,
                             contentDescription = "Toggle Indentation",
                             modifier = iconSize18,
-                            tint = if (showIndentation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                            tint =
+                                when {
+                                    !hasDataDictionary -> disabledIconColor
+                                    showIndentation -> AppTheme.Colors.primary
+                                    else -> AppTheme.Colors.textSecondary
+                                },
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -760,18 +782,26 @@ fun MessageEditorPanel(
                 // Button 10: Toggle Description
                 if (visibleButtonsCount > 10) {
                     TooltipIconButton(
-                        tooltip = if (showDescription) "Hide Description column" else "Show Description column",
+                        tooltip =
+                            if (!hasDataDictionary) {
+                                "Requires FIX data dictionary"
+                            } else if (showDescription) {
+                                "Hide Description column"
+                            } else {
+                                "Show Description column"
+                            },
                         onClick = {
                             showDescription = !showDescription
                             onDescriptionVisibilityChanged?.invoke(showDescription)
                         },
+                        enabled = hasDataDictionary,
                         modifier = iconSize28,
                     ) {
                         Icon(
                             imageVector = if (showDescription) Icons.Default.ViewModule else Icons.Default.ViewList,
                             contentDescription = "Toggle Description",
                             modifier = iconSize18,
-                            tint = AppTheme.Colors.textSecondary,
+                            tint = if (hasDataDictionary) AppTheme.Colors.textSecondary else disabledIconColor,
                         )
                     }
                 }
@@ -1014,22 +1044,42 @@ fun MessageEditorPanel(
                                     // Button 9: Toggle Indentation
                                     if (visibleButtonsCount <= 9) {
                                         TooltipIconButton(
-                                            tooltip = if (showIndentation) "Hide Group Indentation" else "Show Group Indentation",
+                                            tooltip =
+                                                if (!hasDataDictionary) {
+                                                    "Requires FIX data dictionary"
+                                                } else if (showIndentation) {
+                                                    "Hide Group Indentation"
+                                                } else {
+                                                    "Show Group Indentation"
+                                                },
                                             onClick = { showIndentation = !showIndentation },
+                                            enabled = hasDataDictionary,
                                             modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.FormatIndentIncrease,
                                                 contentDescription = "Toggle Indentation",
                                                 modifier = iconSize18,
-                                                tint = if (showIndentation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                                                tint =
+                                                    when {
+                                                        !hasDataDictionary -> disabledIconColor
+                                                        showIndentation -> AppTheme.Colors.primary
+                                                        else -> AppTheme.Colors.textSecondary
+                                                    },
                                             )
                                         }
                                     }
                                     // Button 10: Toggle Description
                                     if (visibleButtonsCount <= 10) {
                                         TooltipIconButton(
-                                            tooltip = if (showDescription) "Hide Description column" else "Show Description column",
+                                            tooltip =
+                                                if (!hasDataDictionary) {
+                                                    "Requires FIX data dictionary"
+                                                } else if (showDescription) {
+                                                    "Hide Description column"
+                                                } else {
+                                                    "Show Description column"
+                                                },
                                             onClick = {
                                                 showDescription =
                                                     !showDescription
@@ -1037,13 +1087,14 @@ fun MessageEditorPanel(
                                                     showDescription,
                                                 )
                                             },
+                                            enabled = hasDataDictionary,
                                             modifier = iconSize28,
                                         ) {
                                             Icon(
                                                 imageVector = if (showDescription) Icons.Default.ViewModule else Icons.Default.ViewList,
                                                 contentDescription = "Toggle Description",
                                                 modifier = iconSize18,
-                                                tint = AppTheme.Colors.textSecondary,
+                                                tint = if (hasDataDictionary) AppTheme.Colors.textSecondary else disabledIconColor,
                                             )
                                         }
                                     }
@@ -1135,16 +1186,20 @@ fun MessageEditorPanel(
                 modifier = Modifier.width(48.dp),
             )
 
-            Spacer(modifier = Modifier.width(4.dp))
+            if (hasDataDictionary) {
+                Spacer(modifier = Modifier.width(4.dp))
 
-            Text(
-                text = "Field Name",
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 10.sp,
-                modifier = Modifier.width(120.dp),
-            )
+                Text(
+                    text = "Field Name",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 10.sp,
+                    modifier = Modifier.width(120.dp),
+                )
 
-            Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+            } else {
+                Spacer(modifier = Modifier.width(4.dp))
+            }
 
             Text(
                 text = "Value",
@@ -1210,6 +1265,7 @@ fun MessageEditorPanel(
                                     onFieldSelect(index, isCtrl, isShift)
                                 },
                                 showDescription = showDescription,
+                                showFieldName = hasDataDictionary,
                                 indentLevel = indentLevels.getOrElse(index) { 0 },
                                 instanceNumber = instanceNumbers.getOrElse(index) { null },
                             )
@@ -1592,6 +1648,7 @@ private fun FieldEditorRow(
     onFieldChange: (FixField) -> Unit,
     onClick: (isCtrl: Boolean, isShift: Boolean) -> Unit,
     showDescription: Boolean,
+    showFieldName: Boolean = true,
     indentLevel: Int = 0,
     instanceNumber: Int? = null,
 ) {
@@ -1621,13 +1678,9 @@ private fun FieldEditorRow(
     val hasEnumValues = tagInt?.let { dictionary.hasFieldValues(it) } ?: false
     val enumValues =
         if (hasEnumValues) {
-            tagInt?.let {
-                val values = dictionary.getFieldEnumValues(it)
-                if (values.isNotEmpty()) {
-                    println("DEBUG: Tag $it has ${values.size} enum values: ${values.take(3)}")
-                }
-                values
-            } ?: emptyList()
+            tagInt.let {
+                dictionary.getFieldEnumValues(it)
+            }
         } else {
             emptyList()
         }
@@ -1669,7 +1722,7 @@ private fun FieldEditorRow(
                         awaitPointerEventScope {
                             while (true) {
                                 val event = awaitPointerEvent()
-                                if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Press) {
+                                if (event.type == PointerEventType.Press) {
                                     // Get modifiers directly from the pointer event
                                     val modifiers = event.keyboardModifiers
                                     val isCtrl = modifiers.isCtrlPressed || modifiers.isMetaPressed
@@ -1734,24 +1787,28 @@ private fun FieldEditorRow(
                     modifier = Modifier.width(42.dp).height(24.dp),
                 )
 
-                Spacer(modifier = Modifier.width(4.dp))
+                if (showFieldName) {
+                    Spacer(modifier = Modifier.width(4.dp))
 
-                // Field name (read-only)
-                Text(
-                    text = fieldName,
-                    color =
-                        when {
-                            isManaged -> AppTheme.Colors.textDisabled
-                            isGroupTag -> AppTheme.Colors.groupTag // Orange for group tags
-                            else -> AppTheme.Colors.primary // Green for regular fields
-                        },
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.width(120.dp),
-                )
+                    // Field name (read-only)
+                    Text(
+                        text = fieldName,
+                        color =
+                            when {
+                                isManaged -> AppTheme.Colors.textDisabled
+                                isGroupTag -> AppTheme.Colors.groupTag // Orange for group tags
+                                else -> AppTheme.Colors.primary // Green for regular fields
+                            },
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.width(120.dp),
+                    )
 
-                Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                } else {
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
 
                 // Value input
                 SlimTextField(
@@ -1811,24 +1868,28 @@ private fun FieldEditorRow(
                             modifier = Modifier.width(48.dp),
                         )
 
-                        Spacer(modifier = Modifier.width(4.dp))
+                        if (showFieldName) {
+                            Spacer(modifier = Modifier.width(4.dp))
 
-                        // Field name
-                        Text(
-                            text = fieldName,
-                            color =
-                                when {
-                                    isManaged || field.excluded -> AppTheme.Colors.textDisabled
-                                    isGroupTag -> AppTheme.Colors.groupTag // Orange for group tags
-                                    else -> AppTheme.Colors.primary // Green for regular fields
-                                },
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            modifier = Modifier.width(120.dp),
-                        )
+                            // Field name
+                            Text(
+                                text = fieldName,
+                                color =
+                                    when {
+                                        isManaged || field.excluded -> AppTheme.Colors.textDisabled
+                                        isGroupTag -> AppTheme.Colors.groupTag // Orange for group tags
+                                        else -> AppTheme.Colors.primary // Green for regular fields
+                                    },
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.width(120.dp),
+                            )
 
-                        Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                        } else {
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
 
                         Text(
                             text = field.value,

@@ -163,14 +163,16 @@ class QuickFixService(
         }
 
         try {
-            val dataDictionary =
-                dictionary.getDataDictionary()
-                    ?: throw IllegalStateException("DataDictionary not loaded")
+            val dataDictionary = dictionary.getDataDictionary()
+            val message =
+                if (dataDictionary != null) {
+                    rawMessage.toQuickFixMessage(dataDictionary)
+                } else {
+                    logger.info("Sending message without data dictionary validation")
+                    rawMessage.toQuickFixMessage()
+                }
 
-            return Session.sendToTarget(
-                rawMessage.toQuickFixMessage(dataDictionary),
-                sessionID,
-            )
+            return Session.sendToTarget(message, sessionID)
         } catch (e: Exception) {
             logger.error("Error sending message: {}", e.message, e)
             return false

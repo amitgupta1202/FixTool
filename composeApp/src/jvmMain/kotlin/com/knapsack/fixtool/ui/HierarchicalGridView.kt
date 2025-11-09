@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -17,6 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -31,7 +35,53 @@ import com.knapsack.fixtool.model.Separator
 import kotlinx.coroutines.launch
 import quickfix.Field
 import quickfix.FieldMap
+import java.awt.Cursor
 import java.time.format.DateTimeFormatter
+
+/**
+ * Resize handle for adjusting column widths
+ */
+@Composable
+private fun ResizeHandle(
+    columnKey: String,
+    columnWidths: MutableMap<String, androidx.compose.ui.unit.Dp>,
+    modifier: Modifier = Modifier,
+) {
+    var dragOffset by remember { mutableStateOf(0f) }
+
+    Box(
+        modifier =
+            modifier
+                .width(8.dp)
+                .fillMaxHeight()
+                .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR)))
+                .pointerInput(columnKey) {
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            dragOffset = 0f
+                        },
+                        onDragEnd = {
+                            dragOffset = 0f
+                        },
+                    ) { change, dragAmount ->
+                        change.consume()
+                        dragOffset += dragAmount
+
+                        // Update column width
+                        val currentWidth = columnWidths[columnKey] ?: 120.dp
+                        val newWidth = (currentWidth.value + dragOffset).dp
+
+                        // Enforce min/max constraints
+                        val constrainedWidth = newWidth.coerceIn(50.dp, 400.dp)
+                        columnWidths[columnKey] = constrainedWidth
+
+                        // Reset drag offset after updating width
+                        dragOffset = 0f
+                    }
+                }
+                .background(Color.Transparent),
+    )
+}
 
 /**
  * Hierarchical grid view showing one row per FIX message
@@ -69,6 +119,89 @@ fun HierarchicalGridView(
     // Track which groups are expanded (key: "messageId_groupKey")
     val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
 
+    // Column width state management
+    val columnWidths =
+        remember {
+            mutableStateMapOf<String, androidx.compose.ui.unit.Dp>().apply {
+                put("Icon", 40.dp)
+                put("Time", 120.dp)
+                put("Dir", 50.dp)
+                put("MsgType", 100.dp)
+                put("Summary", 200.dp)
+                // Dynamic columns will be added with default 120.dp
+                gridViewColumns.forEach { tag ->
+                    put("Tag_$tag", 120.dp)
+                }
+            }
+        }
+
+    // Function to calculate optimal width for a column
+    fun calculateOptimalWidth(
+        columnKey: String,
+        messages: List<AppMessage>,
+    ): androidx.compose.ui.unit.Dp {
+        // Minimum and maximum width constraints
+        val minWidth = 50.dp
+        val maxWidth = 400.dp
+
+        // Estimate character widths (approximate for monospace font at 10sp)
+        val charWidth = 7 // pixels per character approximately
+
+        val contentSamples = mutableListOf<String>()
+
+        when (columnKey) {
+            "Icon" -> return 40.dp // Fixed size for icon
+            "Time" -> contentSamples.add("HH:mm:ss.SSS") // Header template
+            "Dir" -> contentSamples.add("[R]")
+            "MsgType" -> contentSamples.add("MsgType")
+            "Summary" -> contentSamples.add("Summary") // Will get actual data below
+            else -> {
+                // Custom tag column
+                val tag = columnKey.removePrefix("Tag_").toIntOrNull()
+                if (tag != null) {
+                    val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
+                    contentSamples.add(fieldName)
+                }
+            }
+        }
+
+        // Sample first 20 visible messages for content
+        messages.filterIsInstance<FixMessage>().take(20).forEach { msg ->
+            when (columnKey) {
+                "Time" -> {
+                    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+                    contentSamples.add(msg.timestamp.format(timeFormatter))
+                }
+                "Dir" -> {} // Already handled above
+                "MsgType" -> {
+                    val msgTypeDesc = dictionary.getFieldValueDescription(35, msg.messageType) ?: msg.messageType
+                    contentSamples.add(msg.messageType)
+                    contentSamples.add(msgTypeDesc)
+                }
+                "Summary" -> {
+                    // Get first few fields as summary
+                    contentSamples.add(msg.rawMessage.take(100))
+                }
+                else -> {
+                    // Custom tag column
+                    val tag = columnKey.removePrefix("Tag_").toIntOrNull()
+                    if (tag != null) {
+                        val value = extractTopLevelFieldValue(msg.quickfixMessage, tag)
+                        if (value.isNotEmpty()) {
+                            contentSamples.add(value)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Calculate max content width
+        val maxContentLength = contentSamples.maxOfOrNull { it.length } ?: 10
+        val calculatedWidth = (maxContentLength * charWidth + 16).dp // +16 for padding
+
+        return calculatedWidth.coerceIn(minWidth, maxWidth)
+    }
+
     // Scroll to selected message when it changes
     LaunchedEffect(selectedMessage) {
         if (selectedMessage != null) {
@@ -90,10 +223,11 @@ fun HierarchicalGridView(
                     .height(24.dp)
                     .fillMaxWidth(),
         ) {
+            // Icon column
             Box(
                 modifier =
                     Modifier
-                        .width(40.dp)
+                        .width(columnWidths["Icon"] ?: 40.dp)
                         .fillMaxHeight()
                         .border(0.5.dp, headerBorderColor),
                 contentAlignment = Alignment.Center,
@@ -106,12 +240,19 @@ fun HierarchicalGridView(
                 )
             }
 
+            // Time column
             Box(
                 modifier =
                     Modifier
-                        .width(120.dp)
+                        .width(columnWidths["Time"] ?: 120.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor),
+                        .border(0.5.dp, headerBorderColor)
+                        .combinedClickable(
+                            onDoubleClick = {
+                                columnWidths["Time"] = calculateOptimalWidth("Time", messages)
+                            },
+                            onClick = {},
+                        ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -122,12 +263,19 @@ fun HierarchicalGridView(
                 )
             }
 
+            // Dir column
             Box(
                 modifier =
                     Modifier
-                        .width(50.dp)
+                        .width(columnWidths["Dir"] ?: 50.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor),
+                        .border(0.5.dp, headerBorderColor)
+                        .combinedClickable(
+                            onDoubleClick = {
+                                columnWidths["Dir"] = calculateOptimalWidth("Dir", messages)
+                            },
+                            onClick = {},
+                        ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -138,12 +286,19 @@ fun HierarchicalGridView(
                 )
             }
 
+            // MsgType column
             Box(
                 modifier =
                     Modifier
-                        .width(100.dp)
+                        .width(columnWidths["MsgType"] ?: 100.dp)
                         .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor),
+                        .border(0.5.dp, headerBorderColor)
+                        .combinedClickable(
+                            onDoubleClick = {
+                                columnWidths["MsgType"] = calculateOptimalWidth("MsgType", messages)
+                            },
+                            onClick = {},
+                        ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -154,15 +309,46 @@ fun HierarchicalGridView(
                 )
             }
 
-            // Dynamic columns for configured tags
+            // Summary column (moved before custom columns)
+            Box(
+                modifier =
+                    Modifier
+                        .width(columnWidths["Summary"] ?: 200.dp)
+                        .fillMaxHeight()
+                        .border(0.5.dp, headerBorderColor)
+                        .combinedClickable(
+                            onDoubleClick = {
+                                columnWidths["Summary"] = calculateOptimalWidth("Summary", messages)
+                            },
+                            onClick = {},
+                        ),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text(
+                    text = "Summary",
+                    color = headerTextColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+
+            // Dynamic columns for configured tags (moved after Summary)
             gridViewColumns.forEach { tag ->
                 val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
+                val columnKey = "Tag_$tag"
                 Box(
                     modifier =
                         Modifier
-                            .width(120.dp)
+                            .width(columnWidths[columnKey] ?: 120.dp)
                             .fillMaxHeight()
-                            .border(0.5.dp, headerBorderColor),
+                            .border(0.5.dp, headerBorderColor)
+                            .combinedClickable(
+                                onDoubleClick = {
+                                    columnWidths[columnKey] = calculateOptimalWidth(columnKey, messages)
+                                },
+                                onClick = {},
+                            ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -177,22 +363,8 @@ fun HierarchicalGridView(
                 }
             }
 
-            Box(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Text(
-                    text = "Summary",
-                    color = headerTextColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
+            // Spacer to fill remaining width
+            Spacer(modifier = Modifier.weight(1f))
         }
 
         // Message rows
@@ -225,6 +397,7 @@ fun HierarchicalGridView(
                                 message = message,
                                 dictionary = dictionary,
                                 gridViewColumns = gridViewColumns,
+                                columnWidths = columnWidths,
                                 isExpanded = isExpanded,
                                 isSelected = message == selectedMessage,
                                 onToggleExpand = {
@@ -262,6 +435,7 @@ fun MessageSummaryRow(
     message: FixMessage,
     dictionary: FixDictionary,
     gridViewColumns: List<Int> = emptyList(),
+    columnWidths: Map<String, androidx.compose.ui.unit.Dp> = emptyMap(),
     isExpanded: Boolean,
     isSelected: Boolean = false,
     onToggleExpand: () -> Unit,
@@ -297,7 +471,7 @@ fun MessageSummaryRow(
         Box(
             modifier =
                 Modifier
-                    .width(40.dp)
+                    .width(columnWidths["Icon"] ?: 40.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor)
                     .clickable {
@@ -335,7 +509,7 @@ fun MessageSummaryRow(
             Box(
                 modifier =
                     Modifier
-                        .width(120.dp)
+                        .width(columnWidths["Time"] ?: 120.dp)
                         .fillMaxHeight()
                         .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.Center,
@@ -352,7 +526,7 @@ fun MessageSummaryRow(
             Box(
                 modifier =
                     Modifier
-                        .width(50.dp)
+                        .width(columnWidths["Dir"] ?: 50.dp)
                         .fillMaxHeight()
                         .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.Center,
@@ -369,7 +543,7 @@ fun MessageSummaryRow(
             Box(
                 modifier =
                     Modifier
-                        .width(100.dp)
+                        .width(columnWidths["MsgType"] ?: 100.dp)
                         .fillMaxHeight()
                         .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.Center,
@@ -382,35 +556,11 @@ fun MessageSummaryRow(
                 )
             }
 
-            // Dynamic columns for configured tags
-            columnValues.forEach { value ->
-                Box(
-                    modifier =
-                        Modifier
-                            .width(120.dp)
-                            .fillMaxHeight()
-                            .border(0.5.dp, cellBorderColor),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    SelectionContainer {
-                        Text(
-                            text = value,
-                            color = valueColor,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                        )
-                    }
-                }
-            }
-
-            // Summary
+            // Summary (moved before custom columns)
             Box(
                 modifier =
                     Modifier
-                        .weight(1f)
+                        .width(columnWidths["Summary"] ?: 200.dp)
                         .fillMaxHeight()
                         .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.CenterStart,
@@ -449,6 +599,35 @@ fun MessageSummaryRow(
                     }
                 }
             }
+
+            // Dynamic columns for configured tags (moved after Summary)
+            columnValues.forEachIndexed { index, value ->
+                val tag = gridViewColumns[index]
+                val columnKey = "Tag_$tag"
+                Box(
+                    modifier =
+                        Modifier
+                            .width(columnWidths[columnKey] ?: 120.dp)
+                            .fillMaxHeight()
+                            .border(0.5.dp, cellBorderColor),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    SelectionContainer {
+                        Text(
+                            text = value,
+                            color = valueColor,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+            }
+
+            // Spacer to fill remaining width
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }

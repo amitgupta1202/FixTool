@@ -213,6 +213,15 @@ class FixMessageSession(
 
     fun disconnect() {
         try {
+            // Send logout message if currently logged on
+            if (_connectionState.value == FixConnectionState.LOGGED_ON) {
+                logger.info("Sending logout before disconnect for session: {}", title)
+                quickFixService?.logout()
+
+                // Give the logout message time to be sent before closing socket
+                Thread.sleep(500)
+            }
+
             connectionManager?.stop()
             connectionManager = null
             quickFixService = null

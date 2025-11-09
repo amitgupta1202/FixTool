@@ -47,8 +47,27 @@ fun main() {
     }
 
     application {
+        // Track if we're closing to avoid duplicate cleanup
+        var isClosing = false
+        var viewModelRef: com.knapsack.fixtool.viewmodel.FixMessageViewModel? = null
+
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = {
+                if (!isClosing) {
+                    isClosing = true
+                    logger.info("Window close requested, disconnecting all sessions...")
+
+                    // Disconnect all sessions synchronously before exit
+                    try {
+                        viewModelRef?.disconnectAllSessions()
+                        // Give logout messages time to be sent
+                        Thread.sleep(1000)
+                    } catch (e: Exception) {
+                        logger.error("Error during disconnect on close", e)
+                    }
+                }
+                exitApplication()
+            },
             title = "FixTool - FiX Message Viewer",
             state = WindowState(size = DpSize(1920.dp, 1080.dp)),
             resizable = true,
@@ -79,7 +98,10 @@ fun main() {
                 )
             }
 
-            App(modifier = Modifier.focusRequester(focusRequester).focusable())
+            App(
+                modifier = Modifier.focusRequester(focusRequester).focusable(),
+                onViewModelCreated = { viewModel -> viewModelRef = viewModel },
+            )
         }
     }
 }

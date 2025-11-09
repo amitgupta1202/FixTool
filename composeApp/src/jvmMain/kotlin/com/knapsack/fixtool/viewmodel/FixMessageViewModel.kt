@@ -359,6 +359,21 @@ class FixMessageViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Disconnects all active sessions
+     * Called during app shutdown to gracefully logout from all servers
+     */
+    fun disconnectAllSessions() {
+        logger.info("Disconnecting all sessions (${_sessions.size})")
+        _sessions.forEach { session ->
+            try {
+                session.disconnect()
+            } catch (e: Exception) {
+                logger.error("Error disconnecting session ${session.title}: ${e.message}", e, notifyUser = false)
+            }
+        }
+    }
+
     fun getProfileConnectionState(profileId: String): FixConnectionState {
         val sessionIndex = profileToSessionMap[profileId]
         return if (sessionIndex != null && sessionIndex in _sessions.indices) {

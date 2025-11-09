@@ -38,11 +38,19 @@ private val DarkColorScheme =
 
 @Composable
 @Preview
-fun App(modifier: Modifier = Modifier) {
+fun App(
+    modifier: Modifier = Modifier,
+    onViewModelCreated: (FixMessageViewModel) -> Unit = {},
+) {
     MaterialTheme(
         colorScheme = DarkColorScheme,
     ) {
         val viewModel: FixMessageViewModel = viewModel { FixMessageViewModel() }
+
+        // Expose viewModel reference to parent
+        LaunchedEffect(viewModel) {
+            onViewModelCreated(viewModel)
+        }
         var viewMode by rememberSaveable { mutableStateOf(ViewMode.SPLIT_HORIZONTAL) }
 
         // Collect global state
@@ -64,6 +72,28 @@ fun App(modifier: Modifier = Modifier) {
         LaunchedEffect(viewModel.activeSessionIndex) {
             viewModel.loadSavedMessagesForActiveSession()
         }
+
+        // Add shutdown hook to disconnect all sessions on app close/crash
+        DisposableEffect(Unit) {
+            val shutdownHook =
+                Thread {
+                    viewModel.disconnectAllSessions()
+                }
+            Runtime.getRuntime().addShutdownHook(shutdownHook)
+
+            onDispose {
+                // Clean up sessions when app window closes
+                viewModel.disconnectAllSessions()
+
+                // Remove shutdown hook to avoid duplicate cleanup
+                try {
+                    Runtime.getRuntime().removeShutdownHook(shutdownHook)
+                } catch (e: IllegalStateException) {
+                    // Shutdown in progress, hook already executing
+                }
+            }
+        }
+
         var detailPanelSplitRatio by remember { mutableStateOf(0.2f) }
         var editorPanelSplitRatio by remember {
             mutableStateOf(0.28f)

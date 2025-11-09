@@ -179,6 +179,26 @@ class QuickFixService(
         }
     }
 
+    /**
+     * Sends a FIX Logout message to gracefully disconnect from the server
+     * Safe to call even if session is not logged on
+     */
+    fun logout() {
+        val sessionID = currentSessionID
+        if (sessionID == null) {
+            logger.warn("Cannot logout: No active session")
+            return
+        }
+
+        try {
+            logger.info("Sending FIX Logout message for session: {}", sessionID)
+            val session = Session.lookupSession(sessionID)
+            session?.logout()
+        } catch (e: Exception) {
+            logger.error("Error sending logout: {}", e.message, e)
+        }
+    }
+
     companion object {
         private val logger = LoggerFactory.getLogger(QuickFixService::class.java)
     }

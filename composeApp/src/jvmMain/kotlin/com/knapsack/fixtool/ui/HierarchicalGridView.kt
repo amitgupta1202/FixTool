@@ -52,7 +52,7 @@ private fun ResizeHandle(
     Box(
         modifier =
             modifier
-                .width(8.dp)
+                .width(1.dp)
                 .fillMaxHeight()
                 .pointerHoverIcon(PointerIcon(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR)))
                 .pointerInput(columnKey) {
@@ -120,20 +120,26 @@ fun HierarchicalGridView(
     val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
 
     // Column width state management
+    val originalWidths =
+        remember {
+            mapOf(
+                "Icon" to 40.dp,
+                "Time" to 120.dp,
+                "Dir" to 50.dp,
+                "MsgType" to 100.dp,
+                "Summary" to 200.dp,
+            ) + gridViewColumns.associate { tag -> "Tag_$tag" to 120.dp }
+        }
+
     val columnWidths =
         remember {
             mutableStateMapOf<String, androidx.compose.ui.unit.Dp>().apply {
-                put("Icon", 40.dp)
-                put("Time", 120.dp)
-                put("Dir", 50.dp)
-                put("MsgType", 100.dp)
-                put("Summary", 200.dp)
-                // Dynamic columns will be added with default 120.dp
-                gridViewColumns.forEach { tag ->
-                    put("Tag_$tag", 120.dp)
-                }
+                putAll(originalWidths)
             }
         }
+
+    // Track which columns have been auto-fitted
+    val autoFittedColumns = remember { mutableStateSetOf<String>() }
 
     // Function to calculate optimal width for a column
     fun calculateOptimalWidth(
@@ -174,13 +180,13 @@ fun HierarchicalGridView(
                 }
                 "Dir" -> {} // Already handled above
                 "MsgType" -> {
-                    val msgTypeDesc = dictionary.getFieldValueDescription(35, msg.messageType) ?: msg.messageType
+                    // Only sample the message type value (e.g., "D", "8"), not the description
                     contentSamples.add(msg.messageType)
-                    contentSamples.add(msgTypeDesc)
                 }
                 "Summary" -> {
-                    // Get first few fields as summary
-                    contentSamples.add(msg.rawMessage.take(100))
+                    // Sample the message type description (e.g., "NewOrderSingle")
+                    val msgTypeDesc = dictionary.getFieldValueDescription(35, msg.messageType) ?: msg.messageType
+                    contentSamples.add(msgTypeDesc)
                 }
                 else -> {
                     // Custom tag column
@@ -200,6 +206,19 @@ fun HierarchicalGridView(
         val calculatedWidth = (maxContentLength * charWidth + 16).dp // +16 for padding
 
         return calculatedWidth.coerceIn(minWidth, maxWidth)
+    }
+
+    // Function to toggle column width between auto-fit and original
+    fun toggleColumnWidth(columnKey: String) {
+        if (autoFittedColumns.contains(columnKey)) {
+            // Restore to original width
+            columnWidths[columnKey] = originalWidths[columnKey] ?: 120.dp
+            autoFittedColumns.remove(columnKey)
+        } else {
+            // Auto-fit to content
+            columnWidths[columnKey] = calculateOptimalWidth(columnKey, messages)
+            autoFittedColumns.add(columnKey)
+        }
     }
 
     // Scroll to selected message when it changes
@@ -244,13 +263,11 @@ fun HierarchicalGridView(
             Box(
                 modifier =
                     Modifier
-                        .width(columnWidths["Time"] ?: 120.dp)
+                        .width((columnWidths["Time"] ?: 120.dp) - 1.dp)
                         .fillMaxHeight()
                         .border(0.5.dp, headerBorderColor)
                         .combinedClickable(
-                            onDoubleClick = {
-                                columnWidths["Time"] = calculateOptimalWidth("Time", messages)
-                            },
+                            onDoubleClick = { toggleColumnWidth("Time") },
                             onClick = {},
                         ),
                 contentAlignment = Alignment.Center,
@@ -263,17 +280,18 @@ fun HierarchicalGridView(
                 )
             }
 
+            // Resize handle
+            ResizeHandle("Time", columnWidths)
+
             // Dir column
             Box(
                 modifier =
                     Modifier
-                        .width(columnWidths["Dir"] ?: 50.dp)
+                        .width((columnWidths["Dir"] ?: 50.dp) - 1.dp)
                         .fillMaxHeight()
                         .border(0.5.dp, headerBorderColor)
                         .combinedClickable(
-                            onDoubleClick = {
-                                columnWidths["Dir"] = calculateOptimalWidth("Dir", messages)
-                            },
+                            onDoubleClick = { toggleColumnWidth("Dir") },
                             onClick = {},
                         ),
                 contentAlignment = Alignment.Center,
@@ -286,17 +304,18 @@ fun HierarchicalGridView(
                 )
             }
 
+            // Resize handle
+            ResizeHandle("Dir", columnWidths)
+
             // MsgType column
             Box(
                 modifier =
                     Modifier
-                        .width(columnWidths["MsgType"] ?: 100.dp)
+                        .width((columnWidths["MsgType"] ?: 100.dp) - 1.dp)
                         .fillMaxHeight()
                         .border(0.5.dp, headerBorderColor)
                         .combinedClickable(
-                            onDoubleClick = {
-                                columnWidths["MsgType"] = calculateOptimalWidth("MsgType", messages)
-                            },
+                            onDoubleClick = { toggleColumnWidth("MsgType") },
                             onClick = {},
                         ),
                 contentAlignment = Alignment.Center,
@@ -309,17 +328,26 @@ fun HierarchicalGridView(
                 )
             }
 
+            // Resize handle
+            ResizeHandle("MsgType", columnWidths)
+
             // Summary column (moved before custom columns)
             Box(
                 modifier =
                     Modifier
-                        .width(columnWidths["Summary"] ?: 200.dp)
+                        .width(
+                            if (gridViewColumns.isEmpty()) {
+                                // Summary is last column - don't subtract
+                                columnWidths["Summary"] ?: 200.dp
+                            } else {
+                                // Summary is not last - subtract for resize handle
+                                (columnWidths["Summary"] ?: 200.dp) - 1.dp
+                            }
+                        )
                         .fillMaxHeight()
                         .border(0.5.dp, headerBorderColor)
                         .combinedClickable(
-                            onDoubleClick = {
-                                columnWidths["Summary"] = calculateOptimalWidth("Summary", messages)
-                            },
+                            onDoubleClick = { toggleColumnWidth("Summary") },
                             onClick = {},
                         ),
                 contentAlignment = Alignment.CenterStart,
@@ -333,20 +361,31 @@ fun HierarchicalGridView(
                 )
             }
 
+            // Resize handle (always add after Summary for resizing functionality)
+            ResizeHandle("Summary", columnWidths)
+
             // Dynamic columns for configured tags (moved after Summary)
-            gridViewColumns.forEach { tag ->
+            gridViewColumns.forEachIndexed { index, tag ->
                 val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
                 val columnKey = "Tag_$tag"
+                val isLastColumn = index == gridViewColumns.size - 1
+
                 Box(
                     modifier =
                         Modifier
-                            .width(columnWidths[columnKey] ?: 120.dp)
+                            .width(
+                                if (isLastColumn) {
+                                    // Last column - don't subtract for alignment
+                                    columnWidths[columnKey] ?: 120.dp
+                                } else {
+                                    // Not last column - subtract for resize handle
+                                    (columnWidths[columnKey] ?: 120.dp) - 1.dp
+                                }
+                            )
                             .fillMaxHeight()
                             .border(0.5.dp, headerBorderColor)
                             .combinedClickable(
-                                onDoubleClick = {
-                                    columnWidths[columnKey] = calculateOptimalWidth(columnKey, messages)
-                                },
+                                onDoubleClick = { toggleColumnWidth(columnKey) },
                                 onClick = {},
                             ),
                     contentAlignment = Alignment.Center,
@@ -361,6 +400,9 @@ fun HierarchicalGridView(
                         modifier = Modifier.padding(horizontal = 4.dp),
                     )
                 }
+
+                // Resize handle (always add for resizing functionality)
+                ResizeHandle(columnKey, columnWidths)
             }
 
             // Spacer to fill remaining width

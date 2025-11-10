@@ -23,8 +23,7 @@ class SessionDisplayGridModeTest {
     @Before
     fun setup() {
         session = FixMessageSession(title = "Grid Mode Test Session")
-        // Start in PARSED mode for grid view
-        session.toggleViewMode()
+        // Default is now PARSED mode (grid view) - no need to toggle
         assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
     }
 

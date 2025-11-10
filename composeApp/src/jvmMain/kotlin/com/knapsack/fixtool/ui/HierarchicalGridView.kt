@@ -126,6 +126,7 @@ fun HierarchicalGridView(
                 "Icon" to 40.dp,
                 "Time" to 120.dp,
                 "Dir" to 50.dp,
+                "SeqNum" to 70.dp,
                 "MsgType" to 100.dp,
                 "Summary" to 200.dp,
             ) + gridViewColumns.associate { tag -> "Tag_$tag" to 120.dp }
@@ -159,6 +160,7 @@ fun HierarchicalGridView(
             "Icon" -> return 40.dp // Fixed size for icon
             "Time" -> contentSamples.add("HH:mm:ss.SSS") // Header template
             "Dir" -> contentSamples.add("[R]")
+            "SeqNum" -> contentSamples.add("SeqNum")
             "MsgType" -> contentSamples.add("MsgType")
             "Summary" -> contentSamples.add("Summary") // Will get actual data below
             else -> {
@@ -179,6 +181,13 @@ fun HierarchicalGridView(
                     contentSamples.add(msg.timestamp.format(timeFormatter))
                 }
                 "Dir" -> {} // Already handled above
+                "SeqNum" -> {
+                    // Sample the sequence number (tag 34)
+                    val seqNum = extractTopLevelFieldValue(msg.quickfixMessage, 34)
+                    if (seqNum.isNotEmpty()) {
+                        contentSamples.add(seqNum)
+                    }
+                }
                 "MsgType" -> {
                     // Only sample the message type value (e.g., "D", "8"), not the description
                     contentSamples.add(msg.messageType)
@@ -306,6 +315,30 @@ fun HierarchicalGridView(
 
             // Resize handle
             ResizeHandle("Dir", columnWidths)
+
+            // SeqNum column
+            Box(
+                modifier =
+                    Modifier
+                        .width((columnWidths["SeqNum"] ?: 70.dp) - 1.dp)
+                        .fillMaxHeight()
+                        .border(0.5.dp, headerBorderColor)
+                        .combinedClickable(
+                            onDoubleClick = { toggleColumnWidth("SeqNum") },
+                            onClick = {},
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "SeqNum",
+                    color = headerTextColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            // Resize handle
+            ResizeHandle("SeqNum", columnWidths)
 
             // MsgType column
             Box(
@@ -576,6 +609,24 @@ fun MessageSummaryRow(
                 Text(
                     text = if (message.direction == FixMessage.Direction.INCOMING) "[R]" else "[S]",
                     color = directionColor,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+
+            // Sequence Number (tag 34)
+            Box(
+                modifier =
+                    Modifier
+                        .width(columnWidths["SeqNum"] ?: 70.dp)
+                        .fillMaxHeight()
+                        .border(0.5.dp, cellBorderColor),
+                contentAlignment = Alignment.Center,
+            ) {
+                val seqNum = extractTopLevelFieldValue(message.quickfixMessage, 34)
+                Text(
+                    text = seqNum,
+                    color = tagNumberColor,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                 )
@@ -1218,11 +1269,16 @@ private fun HierarchicalGroupInstanceHeader(
 
 /**
  * Extracts a top-level field value from a QuickFIX message.
- * Only looks in the message body at the top level, excluding repeating groups.
+ * Checks header, body, and trailer at the top level, excluding repeating groups.
  */
-private fun extractTopLevelFieldValue(message: quickfix.Message, tag: Int): String =
+private fun extractTopLevelFieldValue(message: quickfix.Message, tag: Int): String {
     try {
-        // Check if field exists at top level
+        // Check header first (for fields like MsgSeqNum/34)
+        if (message.header.isSetField(tag)) {
+            return message.header.getString(tag)
+        }
+
+        // Check body
         if (message.isSetField(tag)) {
             // Check if it's a repeating group (we want to skip these)
             val groupCount =
@@ -1233,18 +1289,24 @@ private fun extractTopLevelFieldValue(message: quickfix.Message, tag: Int): Stri
                 }
 
             // If it's a repeating group, return the count instead of the value
-            if (groupCount > 0) {
+            return if (groupCount > 0) {
                 "[$groupCount]"
             } else {
                 // Get the field value
                 message.getString(tag)
             }
-        } else {
-            ""
         }
+
+        // Check trailer
+        if (message.trailer.isSetField(tag)) {
+            return message.trailer.getString(tag)
+        }
+
+        return ""
     } catch (e: Exception) {
-        ""
+        return ""
     }
+}
 
 // Constants
 private val mainBackgroundColor = AppTheme.Colors.background

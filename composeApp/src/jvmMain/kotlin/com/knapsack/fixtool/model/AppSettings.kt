@@ -35,7 +35,7 @@ data class AppSettings(
                 8, // BeginString
                 9, // BodyLength
                 10, // CheckSum
-                34, // MsgSeqNum
+                // 34, // MsgSeqNum - removed from hidden list so it's visible in grid
                 49, // SenderCompID
                 50, // SenderSubID
                 52, // SendingTime

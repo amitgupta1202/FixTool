@@ -80,7 +80,7 @@ private fun SlimTextField(
 @Composable
 fun MessageEditorPanel(
     sessions: List<FixMessageSession>,
-    selectedSessionIndex: Int,
+    selectedSession: FixMessageSession?,
     dictionary: FixDictionary,
     fields: List<FixField>,
     selectedFieldIndex: Int,
@@ -93,7 +93,7 @@ fun MessageEditorPanel(
     onFieldSelect: (Int, Boolean, Boolean) -> Unit,
     onClearFields: () -> Unit,
     onClose: () -> Unit,
-    onSend: (sessionIndex: Int, fields: List<FixField>) -> Unit,
+    onSend: (fields: List<FixField>) -> Unit,
     onValidate: (fields: List<FixField>) -> List<String>,
     validationErrors: List<String>,
     onClearValidationErrors: () -> Unit,
@@ -106,7 +106,7 @@ fun MessageEditorPanel(
     connectionProfiles: List<com.knapsack.fixtool.model.FixConnectionProfile> = emptyList(),
     currentProfileId: String? = null,
     currentLoadedMessageName: String? = null,
-    onSessionChange: ((Int) -> Unit)? = null,
+    onSessionChange: ((FixMessageSession?) -> Unit)? = null,
     onError: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -121,7 +121,7 @@ fun MessageEditorPanel(
     // 52=SendingTime, 56=TargetCompID, 57=TargetSubID, 142=SenderLocationID, 143=TargetLocationID
     val managedTags = remember { setOf("8", "9", "10", "34", "49", "50", "52", "56", "57", "142", "143") }
 
-    var currentSessionIndex by remember { mutableStateOf(selectedSessionIndex) }
+    // Use selectedSession directly - no local state needed
     var previewPanelRatio by remember { mutableStateOf(0.2f) }
     var previewText by remember { mutableStateOf("") }
     var isUpdatingFromFields by remember { mutableStateOf(false) }
@@ -132,8 +132,7 @@ fun MessageEditorPanel(
     val density = LocalDensity.current
 
     // Get the current session's connection state
-    val currentSession = sessions.getOrNull(currentSessionIndex)
-    val connectionState by currentSession?.connectionState?.collectAsState() ?: remember {
+    val connectionState by selectedSession?.connectionState?.collectAsState() ?: remember {
         mutableStateOf(
             FixConnectionState.DISCONNECTED,
         )
@@ -238,12 +237,11 @@ fun MessageEditorPanel(
             ) {
                 // Session dropdown - first in toolbar
                 SlimDropdown(
-                    value = if (currentSessionIndex >= 0) sessions.getOrNull(currentSessionIndex) else null,
+                    value = selectedSession,
                     options = sessions,
                     onValueChange = { session ->
-                        val newIndex = if (session != null) sessions.indexOf(session) else -1
-                        currentSessionIndex = newIndex
-                        onSessionChange?.invoke(newIndex)
+                        logger.info("MessageEditorPanel dropdown changed to: ${session?.title} (ID: ${session?.id})")
+                        onSessionChange?.invoke(session)
                     },
                     displayText = { it.title },
                     placeholder = "Session",
@@ -280,8 +278,13 @@ fun MessageEditorPanel(
                                     onSetValidationErrors(
                                         listOf("No fields to send. Add at least one field with tag and value."),
                                     )
+                                } else if (selectedSession == null) {
+                                    onSetValidationErrors(
+                                        listOf("No session selected. Select a session to send message."),
+                                    )
                                 } else {
-                                    onSend(currentSessionIndex, fieldsToSend)
+                                    logger.info("MessageEditorPanel: Calling onSend with selectedSession: ${selectedSession.title} (ID: ${selectedSession.id})")
+                                    onSend(fieldsToSend)
                                 }
                             } catch (e: Exception) {
                                 val sendError = "Send Error: ${e.message ?: e.toString()}"
@@ -856,8 +859,10 @@ fun MessageEditorPanel(
                                                         }
                                                     if (fieldsToSend.isEmpty()) {
                                                         onSetValidationErrors(listOf("No fields to send."))
+                                                    } else if (selectedSession == null) {
+                                                        onSetValidationErrors(listOf("No session selected."))
                                                     } else {
-                                                        onSend(currentSessionIndex, fieldsToSend)
+                                                        onSend(fieldsToSend)
                                                     }
                                                 } catch (e: Exception) {
                                                     onSetValidationErrors(listOf("Send Error: ${e.message}"))

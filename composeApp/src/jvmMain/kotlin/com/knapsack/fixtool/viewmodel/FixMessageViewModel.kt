@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.viewmodel
 
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
@@ -31,9 +32,13 @@ class FixMessageViewModel : ViewModel() {
     private val _activeSessionIndex = mutableStateOf(-1) // -1 means no session selected
     val activeSessionIndex: Int
         get() = _activeSessionIndex.value
+    val activeSessionIndexState: State<Int> = _activeSessionIndex
 
     val activeSession: FixMessageSession?
         get() = if (_activeSessionIndex.value >= 0) _sessions.getOrNull(_activeSessionIndex.value) else null
+
+    private val _activeSessionState = mutableStateOf<FixMessageSession?>(null)
+    val activeSessionState: State<FixMessageSession?> = _activeSessionState
 
     private val _dictionary = mutableStateOf(FixDictionaryAdapter.createDefault())
     val dictionary: FixDictionary
@@ -196,6 +201,7 @@ class FixMessageViewModel : ViewModel() {
         // Auto-select first session if none is selected
         if (_activeSessionIndex.value == -1) {
             _activeSessionIndex.value = 0
+            _activeSessionState.value = session
         }
         return session
     }
@@ -211,13 +217,17 @@ class FixMessageViewModel : ViewModel() {
             // Adjust active index if needed
             if (_sessions.isEmpty()) {
                 _activeSessionIndex.value = -1 // No sessions, so no selection
+                _activeSessionState.value = null
             } else if (_activeSessionIndex.value >= _sessions.size) {
                 _activeSessionIndex.value = _sessions.size - 1
+                _activeSessionState.value = _sessions.getOrNull(_activeSessionIndex.value)
             } else if (_activeSessionIndex.value > index) {
                 _activeSessionIndex.value--
+                _activeSessionState.value = _sessions.getOrNull(_activeSessionIndex.value)
             } else if (_activeSessionIndex.value == index) {
                 // If closing the active session, select the first available session
                 _activeSessionIndex.value = 0
+                _activeSessionState.value = _sessions.getOrNull(0)
             }
 
             // Adjust all session indices in the map that are greater than the closed index
@@ -232,10 +242,31 @@ class FixMessageViewModel : ViewModel() {
 
     fun setActiveSession(index: Int) {
         if (index == -1 || index in _sessions.indices) {
+            val session = if (index >= 0) _sessions.getOrNull(index) else null
+            logger.info("setActiveSession(index=$index): Switching to session: ${session?.title} (ID: ${session?.id})")
             _activeSessionIndex.value = index
+            _activeSessionState.value = session
             // Reload messages when session selection changes
             loadSavedMessagesForActiveSession()
         }
+    }
+
+    fun setActiveSessionByObject(session: FixMessageSession?) {
+        logger.info("setActiveSessionByObject: Switching to session: ${session?.title} (ID: ${session?.id})")
+        if (session == null) {
+            _activeSessionIndex.value = -1
+            _activeSessionState.value = null
+        } else {
+            val index = _sessions.indexOf(session)
+            if (index >= 0) {
+                logger.info("setActiveSessionByObject: Found session at index $index")
+                _activeSessionIndex.value = index
+                _activeSessionState.value = session
+            } else {
+                logger.warn("setActiveSessionByObject: Session not found in sessions list!")
+            }
+        }
+        loadSavedMessagesForActiveSession()
     }
 
     fun selectMessage(message: FixMessage?) {
@@ -318,9 +349,21 @@ class FixMessageViewModel : ViewModel() {
         validateDataDictionary()
     }
 
-    fun sendMessage(sessionIndex: Int, rawMessage: String) {
-        // Use sendFixMessage which handles both demo and real connections
-        _sessions.getOrNull(sessionIndex)?.sendFixMessage(rawMessage, _dictionary.value)
+    fun sendMessage(rawMessage: String) {
+        // Use the currently active session to send message
+        logger.info("sendMessage called. Active session index: ${_activeSessionIndex.value}")
+        logger.info("sendMessage: _activeSessionState.value = ${_activeSessionState.value?.title} (ID: ${_activeSessionState.value?.id})")
+        logger.info("sendMessage: activeSession computed = ${activeSession?.title} (ID: ${activeSession?.id})")
+
+        // Use _activeSessionState directly instead of computed activeSession
+        val session = _activeSessionState.value
+        if (session == null) {
+            logger.error("sendMessage: No active session found! activeSessionIndex=${_activeSessionIndex.value}, sessions.size=${_sessions.size}", notifyUser = true)
+        } else {
+            logger.info("sendMessage: Sending to session: '${session.title}' (ID: ${session.id})")
+            session.sendFixMessage(rawMessage, _dictionary.value)
+            logger.info("sendMessage: Message sent successfully to ${session.title}")
+        }
     }
 
     // Connection management methods
@@ -861,6 +904,18 @@ class FixMessageViewModel : ViewModel() {
      */
     fun clearAllNotifications() {
         _notifications.clear()
+    }
+
+    // ========================================
+    // Test Helper Methods
+    // ========================================
+
+    /**
+     * Creates a new session for testing purposes.
+     * This is a public wrapper around createNewSession for use in tests.
+     */
+    fun createSessionForTest(title: String = "Test Session"): FixMessageSession {
+        return createNewSession(title)
     }
 
     override fun onCleared() {

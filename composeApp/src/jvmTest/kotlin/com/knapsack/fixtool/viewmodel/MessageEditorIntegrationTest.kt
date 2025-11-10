@@ -402,4 +402,99 @@ class MessageEditorIntegrationTest {
         assertTrue(rawMessage.contains("58=Test message with spaces"))
         assertTrue(rawMessage.contains("100=VALUE=WITH|PIPES"))
     }
+
+    // ========================================
+    // Session Selection Tests
+    // ========================================
+
+    @Test
+    fun testSendMessageToCorrectSessionAfterSessionSwitch() {
+        // Create two sessions
+        val session1 = viewModel.createSessionForTest("Session 1")
+        val session2 = viewModel.createSessionForTest("Session 2")
+
+        // Initially on session 0 (first session)
+        assertEquals(0, viewModel.activeSessionIndex)
+
+        // Build a message
+        viewModel.updateEditorField(0, FixField(tag = "35", value = "D"))
+        viewModel.addEditorField()
+        viewModel.updateEditorField(1, FixField(tag = "11", value = "ORDER_SESSION_1"))
+
+        // Session 1 should be active by default (first session created)
+        assertEquals(0, viewModel.activeSessionIndex)
+        assertEquals(session1, viewModel.activeSession)
+
+        // Build and send message to active session (session1)
+        val testMessage = viewModel.editorFields.toRawMessage()
+        viewModel.sendMessage(testMessage)
+
+        // Verify message contains expected data
+        assertTrue(testMessage.contains("ORDER_SESSION_1"))
+
+        // Switch to session 2 (second session, index 1)
+        viewModel.setActiveSession(1)
+        assertEquals(1, viewModel.activeSessionIndex)
+        assertEquals(session2, viewModel.activeSession)
+
+        // Update the message
+        viewModel.updateEditorField(1, FixField(tag = "11", value = "ORDER_SESSION_2"))
+
+        // Send message - should go to active session (session2)
+        val testMessage2 = viewModel.editorFields.toRawMessage()
+        viewModel.sendMessage(testMessage2)
+
+        // Verify message sent contains expected data
+        assertTrue(testMessage2.contains("ORDER_SESSION_2"))
+    }
+
+    @Test
+    fun testActiveSessionIndexTracksCorrectly() {
+        // Create three sessions
+        viewModel.createSessionForTest("Session 1")
+        viewModel.createSessionForTest("Session 2")
+        viewModel.createSessionForTest("Session 3")
+
+        // Verify initial session is 0
+        assertEquals(0, viewModel.activeSessionIndex)
+
+        // Switch to session 1
+        viewModel.setActiveSession(1)
+        assertEquals(1, viewModel.activeSessionIndex)
+
+        // Switch to session 2
+        viewModel.setActiveSession(2)
+        assertEquals(2, viewModel.activeSessionIndex)
+
+        // Switch back to session 0
+        viewModel.setActiveSession(0)
+        assertEquals(0, viewModel.activeSessionIndex)
+    }
+
+    @Test
+    fun testSessionSwitchBeforeSendingMessage() {
+        // Create two sessions
+        viewModel.createSessionForTest("Session A")
+        viewModel.createSessionForTest("Session B")
+
+        // Build a message while on session 0
+        viewModel.updateEditorField(0, FixField(tag = "35", value = "D"))
+        viewModel.addEditorField()
+        viewModel.updateEditorField(1, FixField(tag = "11", value = "ORDER_A"))
+
+        val message = viewModel.editorFields.toRawMessage()
+
+        // Switch to session 1 (Session B) before sending
+        viewModel.setActiveSession(1)
+        val session2 = viewModel.sessions[1]
+        assertEquals(session2, viewModel.activeSession)
+
+        // Send message - should go to active session (Session B)
+        viewModel.sendMessage(message)
+
+        // Verify we're still on session 1 and message contains expected value
+        assertEquals(1, viewModel.activeSessionIndex)
+        assertEquals(session2, viewModel.activeSession)
+        assertTrue(message.contains("ORDER_A"))
+    }
 }

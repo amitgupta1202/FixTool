@@ -8,6 +8,7 @@ data class FixConnectionConfig(
     val username: String = "",
     val senderCompID: String = "",
     val targetCompID: String = "",
+    val sessionQualifier: String = "", // Optional - differentiates sessions with same SenderCompID/TargetCompID
     val password: String = "",
     val host: String = "localhost",
     val port: String = "",

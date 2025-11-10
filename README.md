@@ -432,6 +432,57 @@ All these tools are designed to run in CI/CD pipelines:
 2. Install "EditorConfig" extension
 3. Configure format-on-save in settings
 
+---
+
+## Contributing
+
+Contributions are welcome! Please follow these guidelines:
+
+### Development Workflow
+
+1. **Create a feature branch** for your changes (never commit directly to main)
+   ```bash
+   git checkout -b feature/your-feature-name
+   git checkout -b fix/bug-description
+   ```
+
+2. **Write tests** for all changes
+   - Prefer integration/E2E tests over unit tests
+   - Keep tests simple and maintainable
+   - See [TEST_SUGGESTIONS.md](TEST_SUGGESTIONS.md) for testing guidelines
+
+3. **Follow code quality standards**
+   - Run `./gradlew detekt` before committing
+   - Run `./gradlew ktlintFormat` to auto-format code
+   - Ensure all tests pass: `./gradlew jvmTest`
+
+4. **Write clear commit messages**
+   - Describe WHAT changed and WHY
+   - Don't mention test status or tools used
+   - Follow conventional commit format (feat:, fix:, docs:, etc.)
+
+5. **Update documentation**
+   - Update README if adding features or changing setup
+   - Add KDoc comments for public APIs
+   - Remove unused code and comments
+
+### AI-Assisted Development
+
+If using AI tools (like Claude Code, GitHub Copilot, etc.) to assist with development, please follow the guidelines in [.ai-guidelines.md](.ai-guidelines.md). This ensures consistency and quality across AI-assisted contributions.
+
+Key AI guidelines:
+- Always use feature branches
+- Write tests for all changes
+- Use generic test data (never commit secrets or org-specific credentials)
+- Keep README up to date
+- Remove unused code
+
+### Security
+
+- Never commit API keys, passwords, or credentials
+- Use generic test data in tests (e.g., `test@example.com`, `localhost`)
+- User configuration in `~/.fixtool/` is not tracked by git
+
 ## License
 
 FixTool is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.

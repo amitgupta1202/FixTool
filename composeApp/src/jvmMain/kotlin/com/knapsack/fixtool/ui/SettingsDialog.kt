@@ -676,6 +676,40 @@ fun SettingsDialog(
                             }
                         }
 
+                        // High Contrast scheme button
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .weight(1f)
+                                .background(
+                                    color = if (messageColorScheme == MessageColorScheme.highContrast()) AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (messageColorScheme == MessageColorScheme.highContrast()) AppTheme.Colors.primary else AppTheme.Separators.color,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .clickable { messageColorScheme = MessageColorScheme.highContrast() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "High Contrast",
+                                    fontSize = 11.sp,
+                                    color = if (messageColorScheme == MessageColorScheme.highContrast()) AppTheme.Colors.background else AppTheme.Colors.text
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Box(Modifier.size(12.dp).background(Color(0xFFFF8C00), RoundedCornerShape(2.dp))) // Outgoing (Orange)
+                                    Box(Modifier.size(12.dp).background(Color(0xFF9370DB), RoundedCornerShape(2.dp))) // Incoming (Purple)
+                                    Box(Modifier.size(12.dp).background(Color(0xFFE06C75), RoundedCornerShape(2.dp))) // Rejection (Red)
+                                }
+                            }
+                        }
+
                         // Monochrome scheme button
                         Box(
                             modifier = Modifier
@@ -703,9 +737,9 @@ fun SettingsDialog(
                                     color = if (messageColorScheme == MessageColorScheme.monochrome()) AppTheme.Colors.background else AppTheme.Colors.text
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Box(Modifier.size(12.dp).background(Color(0xFF87CEEB), RoundedCornerShape(2.dp))) // Outgoing
-                                    Box(Modifier.size(12.dp).background(Color(0xFFC0C0C0), RoundedCornerShape(2.dp))) // Incoming
-                                    Box(Modifier.size(12.dp).background(Color(0xFFE06C75), RoundedCornerShape(2.dp))) // Rejection
+                                    Box(Modifier.size(12.dp).background(Color(0xFFFFFFFF), RoundedCornerShape(2.dp)).border(0.5.dp, Color(0xFF666666), RoundedCornerShape(2.dp))) // Outgoing (White with border)
+                                    Box(Modifier.size(12.dp).background(Color(0xFFFFFFFF), RoundedCornerShape(2.dp)).border(0.5.dp, Color(0xFF666666), RoundedCornerShape(2.dp))) // Incoming (White with border)
+                                    Box(Modifier.size(12.dp).background(Color(0xFFE06C75), RoundedCornerShape(2.dp))) // Rejection (Red - only colored)
                                 }
                             }
                         }

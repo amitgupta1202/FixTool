@@ -62,13 +62,23 @@ data class MessageColorScheme(
                 rejectionDull = 0xFFC55A64,
             )
 
+        fun highContrast(): MessageColorScheme =
+            MessageColorScheme(
+                outgoingBright = 0xFFFF8C00, // Orange - bright
+                outgoingDull = 0xFFE67E00, // Orange - dull
+                incomingBright = 0xFF9370DB, // Purple - bright
+                incomingDull = 0xFF7B5DBB, // Purple - dull
+                rejectionBright = 0xFFE06C75, // Red (same)
+                rejectionDull = 0xFFC55A64,
+            )
+
         fun monochrome(): MessageColorScheme =
             MessageColorScheme(
-                outgoingBright = 0xFF87CEEB, // Light blue - terminal-style outgoing
-                outgoingDull = 0xFF6FA8C8, // Duller light blue
-                incomingBright = 0xFFC0C0C0, // Light gray - for incoming
-                incomingDull = 0xFFA0A0A0, // Medium-light gray - dull variant
-                rejectionBright = 0xFFE06C75, // Red (same)
+                outgoingBright = 0xFFFFFFFF, // White
+                outgoingDull = 0xFFF0F0F0, // Slightly off-white for dull variant
+                incomingBright = 0xFFFFFFFF, // White
+                incomingDull = 0xFFF0F0F0, // Slightly off-white for dull variant
+                rejectionBright = 0xFFE06C75, // Red (only colored exception)
                 rejectionDull = 0xFFC55A64,
             )
     }

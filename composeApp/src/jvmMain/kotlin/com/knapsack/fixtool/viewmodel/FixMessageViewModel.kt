@@ -190,6 +190,7 @@ class FixMessageViewModel : ViewModel() {
             FixMessageSession(
                 title = title,
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+                defaultViewMode = appSettings.defaultViewMode,
             )
         _sessions.add(session)
         // Auto-select first session if none is selected

@@ -568,18 +568,20 @@ class SessionDisplaySplitModeTest {
 
     @Test
     fun testViewModeDefaultsToRaw() {
-        assertEquals(FixMessageSession.ViewMode.RAW, session.viewMode.value)
+        // Default is now PARSED (grid) as per user request
+        assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
     }
 
     @Test
     fun testViewModeToggle() {
-        assertEquals(FixMessageSession.ViewMode.RAW, session.viewMode.value)
-
-        session.toggleViewMode()
+        // Default is now PARSED (grid), so first toggle should change to RAW
         assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
 
         session.toggleViewMode()
         assertEquals(FixMessageSession.ViewMode.RAW, session.viewMode.value)
+
+        session.toggleViewMode()
+        assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
     }
 
     @Test

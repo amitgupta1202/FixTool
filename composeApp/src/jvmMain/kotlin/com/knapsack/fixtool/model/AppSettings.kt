@@ -21,6 +21,8 @@ data class AppSettings(
     val protocolTags: Set<Int> = defaultProtocolTags, // List of FIX tags considered as protocol tags
     // Message Color Scheme
     val messageColorScheme: MessageColorScheme = MessageColorScheme.default(),
+    // Default View Mode
+    val defaultViewMode: String = "grid", // Default view mode for new sessions: "grid" or "terminal"
     // Future settings can be added here
     // val theme: String = "dark",
     // val fontSize: Int = 12,

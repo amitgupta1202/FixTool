@@ -47,6 +47,7 @@ fun SettingsDialog(
     var hideProtocolTagsByDefault by remember { mutableStateOf(currentSettings.hideProtocolTagsByDefault) }
     var protocolTags by remember { mutableStateOf(currentSettings.protocolTags.toMutableSet()) }
     var messageColorScheme by remember { mutableStateOf(currentSettings.messageColorScheme) }
+    var defaultViewMode by remember { mutableStateOf(currentSettings.defaultViewMode) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -100,6 +101,7 @@ fun SettingsDialog(
                                 hideProtocolTagsByDefault = defaults.hideProtocolTagsByDefault
                                 protocolTags = defaults.protocolTags.toMutableSet()
                                 messageColorScheme = defaults.messageColorScheme
+                                defaultViewMode = defaults.defaultViewMode
                             },
                             containerColor = restoreDefaultsButtonColor,
                             contentColor = AppTheme.Colors.textSecondary,
@@ -714,6 +716,81 @@ fun SettingsDialog(
                         thickness = AppTheme.Separators.dividerThickness,
                         modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
                     )
+
+                    // Section: Default View Mode
+                    Text(
+                        text = "Default View Mode",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Text(
+                        text = "Choose the default view mode for new sessions",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.textDisabled,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+
+                    // View mode selection buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // Grid view button
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .weight(1f)
+                                .background(
+                                    color = if (defaultViewMode == "grid") AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (defaultViewMode == "grid") AppTheme.Colors.primary else AppTheme.Separators.color,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .clickable { defaultViewMode = "grid" },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Grid View",
+                                fontSize = 11.sp,
+                                color = if (defaultViewMode == "grid") AppTheme.Colors.background else AppTheme.Colors.text
+                            )
+                        }
+
+                        // Terminal view button
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .weight(1f)
+                                .background(
+                                    color = if (defaultViewMode == "terminal") AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (defaultViewMode == "terminal") AppTheme.Colors.primary else AppTheme.Separators.color,
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .clickable { defaultViewMode = "terminal" },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Terminal View",
+                                fontSize = 11.sp,
+                                color = if (defaultViewMode == "terminal") AppTheme.Colors.background else AppTheme.Colors.text
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
+                    )
                 }
 
                 HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -750,6 +827,7 @@ fun SettingsDialog(
                                     hideProtocolTagsByDefault = hideProtocolTagsByDefault,
                                     protocolTags = protocolTags.toSet(),
                                     messageColorScheme = messageColorScheme,
+                                    defaultViewMode = defaultViewMode,
                                 )
                             onSave(newSettings)
                             onDismiss()

@@ -47,6 +47,7 @@ fun ConnectionPanel(
     var username by remember { mutableStateOf("") }
     var senderCompID by remember { mutableStateOf("") }
     var targetCompID by remember { mutableStateOf("") }
+    var sessionQualifier by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("localhost") }
     var port by remember { mutableStateOf("") }
@@ -174,6 +175,7 @@ fun ConnectionPanel(
                     username = profile.config.username
                     senderCompID = profile.config.senderCompID
                     targetCompID = profile.config.targetCompID
+                    sessionQualifier = profile.config.sessionQualifier
                     password = profile.config.password
                     host = profile.config.host
                     port = profile.config.port
@@ -202,6 +204,7 @@ fun ConnectionPanel(
                             username = username,
                             senderCompID = senderCompID,
                             targetCompID = targetCompID,
+                            sessionQualifier = sessionQualifier,
                             password = password,
                             host = host,
                             port = port,
@@ -246,6 +249,7 @@ fun ConnectionPanel(
                         username = ""
                         senderCompID = ""
                         targetCompID = ""
+                        sessionQualifier = ""
                         password = ""
                         host = "localhost"
                         port = ""
@@ -277,6 +281,7 @@ fun ConnectionPanel(
                     username = clonedProfile.config.username
                     senderCompID = clonedProfile.config.senderCompID
                     targetCompID = clonedProfile.config.targetCompID
+                    sessionQualifier = clonedProfile.config.sessionQualifier
                     password = clonedProfile.config.password
                     host = clonedProfile.config.host
                     port = clonedProfile.config.port
@@ -380,6 +385,15 @@ fun ConnectionPanel(
                     modifier = Modifier.weight(1f),
                 )
             }
+
+            // SessionQualifier (optional field to differentiate sessions with same SenderCompID/TargetCompID)
+            ConnectionField(
+                label = "SessionQualifier (optional)",
+                value = sessionQualifier,
+                onValueChange = { sessionQualifier = it },
+                placeholder = "e.g., DEV, LOCAL, QA - use when multiple sessions share same SenderCompID/TargetCompID",
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             // Username and Password on same row
             Row(
@@ -1135,6 +1149,7 @@ fun ConnectionPanel(
                             username = username,
                             senderCompID = senderCompID,
                             targetCompID = targetCompID,
+                            sessionQualifier = sessionQualifier,
                             password = password,
                             host = host,
                             port = port,

@@ -20,6 +20,7 @@ class ConnectionPanelTest {
         name: String = "Test Profile",
         senderCompID: String = "SENDER",
         targetCompID: String = "TARGET",
+        sessionQualifier: String = "",
     ): FixConnectionProfile =
         FixConnectionProfile(
             id = id,
@@ -28,6 +29,7 @@ class ConnectionPanelTest {
                 FixConnectionConfig(
                     senderCompID = senderCompID,
                     targetCompID = targetCompID,
+                    sessionQualifier = sessionQualifier,
                     username = "testuser",
                     password = "testpass",
                     host = "localhost",
@@ -845,5 +847,118 @@ class ConnectionPanelTest {
 
         // Delete button should now be visible
         composeTestRule.onNodeWithContentDescription("Delete Profile").assertExists()
+    }
+
+    @Test
+    fun testSessionQualifierFieldExists() {
+        composeTestRule.setContent {
+            ConnectionPanel(
+                profiles = emptyList(),
+                sessions = emptyList(),
+                onConnect = { _, _ -> },
+                onDisconnect = { },
+                onSaveProfile = { },
+                onDeleteProfile = { },
+                onCloneProfile = { it },
+                onGetProfileSession = { null },
+                onClose = { },
+            )
+        }
+
+        // SessionQualifier field should be visible
+        composeTestRule.onNodeWithText("SessionQualifier (optional)").assertExists()
+    }
+
+    @Test
+    fun testLoadProfileWithSessionQualifier() {
+        val profileWithQualifier = createTestProfile(
+            id = "dev1",
+            name = "DEV1 Profile",
+            senderCompID = "SENDER_CLIENT",
+            targetCompID = "TARGET_SERVER",
+            sessionQualifier = "DEV1"
+        )
+        val profiles = listOf(profileWithQualifier)
+
+        var savedProfile: FixConnectionProfile? = null
+
+        composeTestRule.setContent {
+            ConnectionPanel(
+                profiles = profiles,
+                sessions = emptyList(),
+                onConnect = { _, _ -> },
+                onDisconnect = { },
+                onSaveProfile = { savedProfile = it },
+                onDeleteProfile = { },
+                onCloneProfile = { it },
+                onGetProfileSession = { null },
+                onClose = { },
+            )
+        }
+
+        // Select the profile with session qualifier
+        composeTestRule.onNodeWithText("Select profile...").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("DEV1 Profile").performClick()
+        composeTestRule.waitForIdle()
+
+        // Verify SessionQualifier field shows the value
+        composeTestRule.onNodeWithText("DEV1").assertExists()
+
+        // Save the profile (should preserve session qualifier)
+        composeTestRule.onNodeWithContentDescription("Save Profile").performClick()
+        composeTestRule.waitForIdle()
+
+        // Verify saved profile has the session qualifier
+        assertNotNull(savedProfile)
+        assertEquals("DEV1", savedProfile?.config?.sessionQualifier)
+    }
+
+    @Test
+    fun testCloneProfilePreservesSessionQualifier() {
+        var clonedProfile: FixConnectionProfile? = null
+        val originalProfile = createTestProfile(
+            id = "original-qual",
+            name = "Original Qualified",
+            senderCompID = "SENDER_QUAL",
+            targetCompID = "TARGET_QUAL",
+            sessionQualifier = "ORIGINAL_QUAL"
+        )
+        val profiles = listOf(originalProfile)
+
+        composeTestRule.setContent {
+            ConnectionPanel(
+                profiles = profiles,
+                sessions = emptyList(),
+                onConnect = { _, _ -> },
+                onDisconnect = { },
+                onSaveProfile = { },
+                onDeleteProfile = { },
+                onCloneProfile = { profile ->
+                    val cloned = profile.copy(
+                        id = "cloned-${profile.id}",
+                        name = "${profile.name} (Copy)"
+                    )
+                    clonedProfile = cloned
+                    cloned
+                },
+                onGetProfileSession = { null },
+                onClose = { },
+            )
+        }
+
+        // Select the profile
+        composeTestRule.onNodeWithText("Select profile...").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("Original Qualified").performClick()
+        composeTestRule.waitForIdle()
+
+        // Clone the profile
+        composeTestRule.onNodeWithContentDescription("Clone Profile").performClick()
+        composeTestRule.waitForIdle()
+
+        // Verify cloned profile preserves session qualifier
+        assertNotNull(clonedProfile)
+        assertEquals("ORIGINAL_QUAL", clonedProfile?.config?.sessionQualifier)
     }
 }

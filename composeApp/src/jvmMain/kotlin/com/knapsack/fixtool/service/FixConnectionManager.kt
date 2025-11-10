@@ -133,6 +133,13 @@ class FixConnectionManager(
                 appendLine("BeginString=$beginString")
                 appendLine("SenderCompID=${config.senderCompID}")
                 appendLine("TargetCompID=${config.targetCompID}")
+
+                // Add SessionQualifier if specified (to differentiate sessions with same SenderCompID/TargetCompID)
+                if (config.sessionQualifier.isNotBlank()) {
+                    appendLine("SessionQualifier=${config.sessionQualifier}")
+                    logger.info("Using SessionQualifier: {}", config.sessionQualifier)
+                }
+
                 appendLine("HeartBtInt=${config.heartBtInt}")
 
                 if (config.connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
@@ -226,7 +233,10 @@ class FixConnectionManager(
             val storeDir = File(config.fileStorePath)
             if (storeDir.exists() && storeDir.isDirectory) {
                 storeDir.listFiles()?.forEach { file ->
-                    if (file.name.contains(config.senderCompID) && file.name.contains(config.targetCompID)) {
+                    val matchesSenderTarget = file.name.contains(config.senderCompID) && file.name.contains(config.targetCompID)
+                    val matchesQualifier = config.sessionQualifier.isBlank() || file.name.contains(config.sessionQualifier)
+
+                    if (matchesSenderTarget && matchesQualifier) {
                         val deleted = file.delete()
                         if (deleted) {
                             logger.info("Deleted store file: {}", file.name)

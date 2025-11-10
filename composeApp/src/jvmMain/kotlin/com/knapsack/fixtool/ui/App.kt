@@ -164,9 +164,10 @@ fun App(
                                                 with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
                                             ),
                                     ) {
+                                        val activeSession by viewModel.activeSessionState
                                         MessageEditorPanel(
                                             sessions = viewModel.sessions,
-                                            selectedSessionIndex = viewModel.activeSessionIndex,
+                                            selectedSession = activeSession,
                                             dictionary = viewModel.dictionary,
                                             fields = viewModel.editorFields,
                                             selectedFieldIndex = viewModel.editorSelectedFieldIndex,
@@ -190,9 +191,9 @@ fun App(
                                             },
                                             onClearFields = { viewModel.clearEditorFields() },
                                             onClose = { viewModel.toggleMessageEditor() },
-                                            onSend = { sessionIndex, fields ->
+                                            onSend = { fields ->
                                                 val rawMessage = fields.toRawMessage()
-                                                viewModel.sendMessage(sessionIndex, rawMessage)
+                                                viewModel.sendMessage(rawMessage)
                                             },
                                             onValidate = { fields ->
                                                 viewModel.validateEditorMessage(fields)
@@ -228,7 +229,7 @@ fun App(
                                             connectionProfiles = viewModel.connectionProfiles,
                                             currentProfileId = currentProfileId,
                                             currentLoadedMessageName = currentLoadedMessageName,
-                                            onSessionChange = { index -> viewModel.setActiveSession(index) },
+                                            onSessionChange = { session -> viewModel.setActiveSessionByObject(session) },
                                             onError = { errorMsg ->
                                                 viewModel.showNotification(
                                                     errorMsg,
@@ -424,9 +425,10 @@ fun App(
                                                     with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
                                                 ),
                                         ) {
+                                            val activeSession by viewModel.activeSessionState
                                             MessageEditorPanel(
                                                 sessions = viewModel.sessions,
-                                                selectedSessionIndex = viewModel.activeSessionIndex,
+                                                selectedSession = activeSession,
                                                 dictionary = viewModel.dictionary,
                                                 fields = viewModel.editorFields,
                                                 selectedFieldIndex = viewModel.editorSelectedFieldIndex,
@@ -450,10 +452,10 @@ fun App(
                                                 },
                                                 onClearFields = { viewModel.clearEditorFields() },
                                                 onClose = { viewModel.toggleMessageEditor() },
-                                                onSend = { sessionIndex, fields ->
+                                                onSend = { fields ->
                                                     val rawMessage =
                                                         fields.joinToString("|") { "${it.tag}=${it.value}" } + "|"
-                                                    viewModel.sendMessage(sessionIndex, rawMessage)
+                                                    viewModel.sendMessage(rawMessage)
                                                 },
                                                 onValidate = { fields ->
                                                     viewModel.validateEditorMessage(fields)
@@ -491,7 +493,7 @@ fun App(
                                                 connectionProfiles = viewModel.connectionProfiles,
                                                 currentProfileId = currentProfileId,
                                                 currentLoadedMessageName = currentLoadedMessageName,
-                                                onSessionChange = { index -> viewModel.setActiveSession(index) },
+                                                onSessionChange = { session -> viewModel.setActiveSessionByObject(session) },
                                                 onError = { errorMsg ->
                                                     viewModel.showNotification(
                                                         errorMsg,

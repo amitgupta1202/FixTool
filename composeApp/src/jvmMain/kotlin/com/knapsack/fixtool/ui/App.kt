@@ -9,8 +9,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -36,6 +38,7 @@ private val DarkColorScheme =
         onSurface = Color(0xFFE0E0E0),
     )
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 @Preview
 fun App(
@@ -59,6 +62,9 @@ fun App(
         val showMessageEditor by viewModel.showMessageEditor.collectAsState()
         val showConnectionPanel by viewModel.showConnectionPanel.collectAsState()
         val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
+        val showGlobalSearchDialog by viewModel.showGlobalSearchDialog.collectAsState()
+        val globalSearchQuery by viewModel.globalSearchQuery.collectAsState()
+        val globalSearchResults by viewModel.globalSearchResults.collectAsState()
         val demoServerRunning by viewModel.demoServerRunning.collectAsState()
         val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
         val savedMessages = viewModel.savedMessages
@@ -100,7 +106,22 @@ fun App(
         } // Message editor panel width (28% when description shown, 20% when hidden) - starts at 28% since description is visible by default
         var connectionPanelSplitRatio by remember { mutableStateOf(0.2f) }
 
-        Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .onKeyEvent { event ->
+                    // Handle Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open search
+                    if (event.type == KeyEventType.KeyDown &&
+                        event.key == Key.F &&
+                        (event.isMetaPressed || event.isCtrlPressed)
+                    ) {
+                        viewModel.toggleGlobalSearchDialog()
+                        true // Consume the event
+                    } else {
+                        false // Don't consume other events
+                    }
+                }
+        ) {
             Column(
                 modifier =
                     Modifier
@@ -134,6 +155,7 @@ fun App(
                     onGetProfileConnectionState = { profileId ->
                         viewModel.getProfileConnectionState(profileId)
                     },
+                    onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
@@ -146,6 +168,17 @@ fun App(
                         dictionary = viewModel.dictionary,
                         onSave = { settings -> viewModel.saveAppSettings(settings) },
                         onDismiss = { viewModel.toggleSettingsDialog() },
+                    )
+                }
+
+                // Global Search Dialog
+                if (showGlobalSearchDialog) {
+                    SearchAllSessionsDialog(
+                        searchQuery = globalSearchQuery,
+                        searchResults = globalSearchResults,
+                        onQueryChange = { query -> viewModel.setGlobalSearchQuery(query) },
+                        onResultClick = { result -> viewModel.navigateToSearchResult(result) },
+                        onDismiss = { viewModel.toggleGlobalSearchDialog() },
                     )
                 }
 

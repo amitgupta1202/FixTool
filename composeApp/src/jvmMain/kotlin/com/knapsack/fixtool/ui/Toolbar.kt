@@ -45,6 +45,7 @@ fun Toolbar(
     onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
+    onSearchAllSessions: (() -> Unit)? = null,
     onAddSeparatorToAll: (() -> Unit)? = null,
     onClearAll: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
@@ -160,6 +161,22 @@ fun Toolbar(
             }
 
             Spacer(modifier = Modifier.width(8.dp))
+        }
+
+        // Search All Sessions
+        if (onSearchAllSessions != null) {
+            TooltipIconButton(
+                tooltip = "Search All Sessions",
+                onClick = onSearchAllSessions,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search All Sessions",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = tooltipIconModifier,
+                )
+            }
         }
 
         // Add Separator to All Sessions

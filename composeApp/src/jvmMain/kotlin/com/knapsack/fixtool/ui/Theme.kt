@@ -150,6 +150,17 @@ object AppTheme {
         /** Group tags/headers */
         val groupTag = Color(0xFFFFAA00)
 
+        // ========== Username Colors (for search results) ==========
+        /** Username color palette - 6 distinct colors for different users */
+        val usernameColors = listOf(
+            Color(0xFF4EC9B0), // Teal
+            Color(0xFF569CD6), // Blue
+            Color(0xFFCE9178), // Orange
+            Color(0xFFC586C0), // Purple
+            Color(0xFFDCDCAA), // Yellow
+            Color(0xFF98C379), // Green
+        )
+
         // ========== Notification Colors ==========
         /** Success notification border */
         val notificationSuccessBorder = success

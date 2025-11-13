@@ -64,6 +64,26 @@ class FixMessageViewModel : ViewModel() {
     private val _showSettingsDialog = MutableStateFlow(false)
     val showSettingsDialog: StateFlow<Boolean> = _showSettingsDialog.asStateFlow()
 
+    // Global search across all sessions
+    private val _showGlobalSearchDialog = MutableStateFlow(false)
+    val showGlobalSearchDialog: StateFlow<Boolean> = _showGlobalSearchDialog.asStateFlow()
+
+    private val _globalSearchQuery = MutableStateFlow("")
+    val globalSearchQuery: StateFlow<String> = _globalSearchQuery.asStateFlow()
+
+    data class SearchResult(
+        val session: FixMessageSession,
+        val message: FixMessage,
+        val matchedText: String,
+        val messageTypeDescription: String,
+        val msgSeqNum: Int?,
+        val senderCompId: String?,
+        val sessionUsername: String
+    )
+
+    private val _globalSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
+    val globalSearchResults: StateFlow<List<SearchResult>> = _globalSearchResults.asStateFlow()
+
     // Connection profiles
     private val profileService =
         ConnectionProfileService(
@@ -331,6 +351,101 @@ class FixMessageViewModel : ViewModel() {
 
     fun toggleSettingsDialog() {
         _showSettingsDialog.value = !_showSettingsDialog.value
+    }
+
+    fun toggleGlobalSearchDialog() {
+        _showGlobalSearchDialog.value = !_showGlobalSearchDialog.value
+        // Clear results when closing
+        if (!_showGlobalSearchDialog.value) {
+            _globalSearchResults.value = emptyList()
+            _globalSearchQuery.value = ""
+        }
+    }
+
+    fun setGlobalSearchQuery(query: String) {
+        _globalSearchQuery.value = query
+        performGlobalSearch(query)
+    }
+
+    private fun performGlobalSearch(query: String) {
+        if (query.isBlank()) {
+            _globalSearchResults.value = emptyList()
+            return
+        }
+
+        val results = mutableListOf<SearchResult>()
+        val regex = try {
+            Regex(query, RegexOption.IGNORE_CASE)
+        } catch (e: Exception) {
+            // Invalid regex, use literal string matching
+            null
+        }
+
+        _sessions.forEach { session ->
+            session.messages.value.forEach { appMessage ->
+                if (appMessage is FixMessage) {
+                    val displayText = appMessage.toDisplayString()
+                    val matchedText = if (regex != null) {
+                        regex.find(displayText)?.value
+                    } else {
+                        if (displayText.contains(query, ignoreCase = true)) query else null
+                    }
+
+                    if (matchedText != null) {
+                        // Extract message type description
+                        val messageTypeDescription = _dictionary.value.getFieldValueDescription(35, appMessage.messageType)
+                            ?: appMessage.messageType
+
+                        // Extract MsgSeqNum (tag 34) from header
+                        val msgSeqNum = try {
+                            if (appMessage.quickfixMessage.header.isSetField(34)) {
+                                appMessage.quickfixMessage.header.getInt(34)
+                            } else null
+                        } catch (e: Exception) {
+                            null
+                        }
+
+                        // Extract SenderCompID (tag 49) from header
+                        val senderCompId = try {
+                            if (appMessage.quickfixMessage.header.isSetField(49)) {
+                                appMessage.quickfixMessage.header.getString(49)
+                            } else null
+                        } catch (e: Exception) {
+                            null
+                        }
+
+                        results.add(SearchResult(
+                            session = session,
+                            message = appMessage,
+                            matchedText = matchedText,
+                            messageTypeDescription = messageTypeDescription,
+                            msgSeqNum = msgSeqNum,
+                            senderCompId = senderCompId,
+                            sessionUsername = session.title
+                        ))
+                    }
+                }
+            }
+        }
+
+        // Sort by timestamp, then MsgSeqNum, then SenderCompID
+        val sortedResults = results.sortedWith(
+            compareBy<SearchResult> { it.message.timestamp }
+                .thenBy(nullsLast()) { it.msgSeqNum }
+                .thenBy(nullsLast()) { it.senderCompId }
+        )
+
+        _globalSearchResults.value = sortedResults
+    }
+
+    fun navigateToSearchResult(result: SearchResult) {
+        // Switch to the session containing the result
+        val sessionIndex = _sessions.indexOf(result.session)
+        if (sessionIndex >= 0) {
+            setActiveSession(sessionIndex)
+            // Select the message
+            selectMessage(result.message)
+        }
     }
 
     fun toggleViewModeForAllSessions() {

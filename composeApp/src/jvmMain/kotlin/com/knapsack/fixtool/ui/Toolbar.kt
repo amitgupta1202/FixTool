@@ -11,9 +11,12 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,6 +41,9 @@ fun Toolbar(
     connectionProfiles: List<FixConnectionProfile> = emptyList(),
     isDictionaryValid: Boolean = true,
     activeSessionViewMode: FixMessageSession.ViewMode? = null,
+    globalFilterRegex: String = "",
+    globalFilterShowIncoming: Boolean = true,
+    globalFilterShowOutgoing: Boolean = true,
     onOpenMessageEditor: (() -> Unit)? = null,
     onToggleDetailPanel: (() -> Unit)? = null,
     onToggleConnectionPanel: (() -> Unit)? = null,
@@ -48,6 +54,9 @@ fun Toolbar(
     onSearchAllSessions: (() -> Unit)? = null,
     onAddSeparatorToAll: (() -> Unit)? = null,
     onClearAll: (() -> Unit)? = null,
+    onGlobalFilterChange: ((String) -> Unit)? = null,
+    onGlobalFilterIncomingChange: ((Boolean) -> Unit)? = null,
+    onGlobalFilterOutgoingChange: ((Boolean) -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -83,6 +92,127 @@ fun Toolbar(
         )
 
         Spacer(modifier = Modifier.weight(1f))
+
+        // Global Filter Text Field
+        if (onGlobalFilterChange != null) {
+            Row(
+                modifier =
+                    Modifier
+                        .height(28.dp)
+                        .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FilterAlt,
+                    contentDescription = "Filter",
+                    tint = if (globalFilterRegex.isNotEmpty()) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+                androidx.compose.foundation.text.BasicTextField(
+                    value = globalFilterRegex,
+                    onValueChange = onGlobalFilterChange,
+                    modifier = Modifier.width(180.dp),
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.text,
+                    ),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(AppTheme.Colors.primary),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (globalFilterRegex.isEmpty()) {
+                                Text(
+                                    text = "Filter all sessions (regex)...",
+                                    fontSize = 11.sp,
+                                    color = AppTheme.Colors.textSecondary,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
+        // Global Filter Direction Checkboxes
+        if (onGlobalFilterIncomingChange != null && onGlobalFilterOutgoingChange != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // Incoming checkbox
+                Row(
+                    modifier =
+                        Modifier
+                            .height(28.dp)
+                            .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
+                            .clickable { onGlobalFilterIncomingChange(!globalFilterShowIncoming) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Box(
+                        modifier = Modifier.size(16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.material3.Checkbox(
+                            checked = globalFilterShowIncoming,
+                            onCheckedChange = onGlobalFilterIncomingChange,
+                            modifier = Modifier.scale(0.75f),
+                            colors = androidx.compose.material3.CheckboxDefaults.colors(
+                                checkedColor = AppTheme.Colors.primary,
+                                uncheckedColor = AppTheme.Colors.textSecondary,
+                                checkmarkColor = AppTheme.Colors.surface,
+                            ),
+                        )
+                    }
+                    Text(
+                        text = "In",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.text,
+                    )
+                }
+
+                // Outgoing checkbox
+                Row(
+                    modifier =
+                        Modifier
+                            .height(28.dp)
+                            .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
+                            .clickable { onGlobalFilterOutgoingChange(!globalFilterShowOutgoing) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Box(
+                        modifier = Modifier.size(16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        androidx.compose.material3.Checkbox(
+                            checked = globalFilterShowOutgoing,
+                            onCheckedChange = onGlobalFilterOutgoingChange,
+                            modifier = Modifier.scale(0.75f),
+                            colors = androidx.compose.material3.CheckboxDefaults.colors(
+                                checkedColor = AppTheme.Colors.primary,
+                                uncheckedColor = AppTheme.Colors.textSecondary,
+                                checkmarkColor = AppTheme.Colors.surface,
+                            ),
+                        )
+                    }
+                    Text(
+                        text = "Out",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.text,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+        }
 
         // Quick Connect Dropdown
         if (onQuickConnect != null && connectionProfiles.isNotEmpty()) {

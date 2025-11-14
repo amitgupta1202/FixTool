@@ -73,6 +73,9 @@ fun App(
         val notifications = viewModel.notifications
         val density = LocalDensity.current
         val activeSessionViewMode by viewModel.activeSession?.viewMode?.collectAsState() ?: remember { mutableStateOf(null) }
+        val globalFilterRegex by viewModel.globalFilterRegex.collectAsState()
+        val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
+        val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
 
         // Load saved messages when active session changes
         LaunchedEffect(viewModel.activeSessionIndex) {
@@ -138,6 +141,9 @@ fun App(
                     connectionProfiles = viewModel.connectionProfiles,
                     isDictionaryValid = isDictionaryValid,
                     activeSessionViewMode = activeSessionViewMode,
+                    globalFilterRegex = globalFilterRegex,
+                    globalFilterShowIncoming = globalFilterShowIncoming,
+                    globalFilterShowOutgoing = globalFilterShowOutgoing,
                     onOpenMessageEditor = { viewModel.toggleMessageEditor() },
                     onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                     onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
@@ -158,6 +164,9 @@ fun App(
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },
+                    onGlobalFilterChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
+                    onGlobalFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
+                    onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
                 )
 

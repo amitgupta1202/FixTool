@@ -84,6 +84,16 @@ class FixMessageViewModel : ViewModel() {
     private val _globalSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
     val globalSearchResults: StateFlow<List<SearchResult>> = _globalSearchResults.asStateFlow()
 
+    // Global filter across all sessions
+    private val _globalFilterRegex = MutableStateFlow("")
+    val globalFilterRegex: StateFlow<String> = _globalFilterRegex.asStateFlow()
+
+    private val _globalFilterShowIncoming = MutableStateFlow(true)
+    val globalFilterShowIncoming: StateFlow<Boolean> = _globalFilterShowIncoming.asStateFlow()
+
+    private val _globalFilterShowOutgoing = MutableStateFlow(true)
+    val globalFilterShowOutgoing: StateFlow<Boolean> = _globalFilterShowOutgoing.asStateFlow()
+
     // App settings (loaded first before other services)
     private val settingsService = AppSettingsService()
     private val _appSettings = mutableStateOf(AppSettings.default())
@@ -900,6 +910,24 @@ class FixMessageViewModel : ViewModel() {
 
     fun clearAllSessions() {
         _sessions.forEach { it.clearMessages() }
+    }
+
+    fun setGlobalFilterRegex(regex: String) {
+        _globalFilterRegex.value = regex
+        // Apply to all sessions
+        _sessions.forEach { it.setFilterRegex(regex) }
+    }
+
+    fun setGlobalFilterShowIncoming(show: Boolean) {
+        _globalFilterShowIncoming.value = show
+        // Apply to all sessions
+        _sessions.forEach { it.setFilterShowIncoming(show) }
+    }
+
+    fun setGlobalFilterShowOutgoing(show: Boolean) {
+        _globalFilterShowOutgoing.value = show
+        // Apply to all sessions
+        _sessions.forEach { it.setFilterShowOutgoing(show) }
     }
 
     // Saved Messages Operations

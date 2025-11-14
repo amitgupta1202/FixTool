@@ -730,7 +730,7 @@ fun MessageSummaryRow(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = if (message.direction == FixMessage.Direction.INCOMING) "[R]" else "[S]",
+                    text = if (message.direction == FixMessage.Direction.INCOMING) "IN" else "OUT",
                     color = directionColor,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,

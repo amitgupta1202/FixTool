@@ -9,11 +9,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -142,6 +144,39 @@ fun HierarchicalGridView(
     // Track which columns have been auto-fitted
     val autoFittedColumns = remember { mutableStateSetOf<String>() }
 
+    // Auto-scroll state
+    var autoScroll by remember { mutableStateOf(true) }
+
+    // Track if user is at the bottom
+    val isAtBottom by derivedStateOf {
+        !listState.canScrollForward
+    }
+
+    // When a new message arrives, scroll to bottom if autoScroll is enabled
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty() && autoScroll) {
+            listState.scrollToItem(messages.size - 1)
+        }
+    }
+
+    // Detect when user scrolls and manage auto-scroll state
+    // Disable auto-scroll when user scrolls up, re-enable when they scroll back to bottom
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            listState.isScrollInProgress to isAtBottom
+        }.collect { (isScrolling, atBottom) ->
+            if (isScrolling) {
+                // If user is actively scrolling and not at bottom, disable auto-scroll
+                if (!atBottom) {
+                    autoScroll = false
+                } else {
+                    // If user scrolled back to bottom, re-enable auto-scroll
+                    autoScroll = true
+                }
+            }
+        }
+    }
+
     // Function to calculate optimal width for a column
     fun calculateOptimalWidth(
         columnKey: String,
@@ -173,8 +208,9 @@ fun HierarchicalGridView(
             }
         }
 
-        // Sample first 20 visible messages for content
-        messages.filterIsInstance<FixMessage>().take(20).forEach { msg ->
+        // Sample last 100 messages for content (prioritizes recent/visible messages)
+        // Using takeLast instead of take gives better representation of what user is likely viewing
+        messages.filterIsInstance<FixMessage>().takeLast(100).forEach { msg ->
             when (columnKey) {
                 "Time" -> {
                     val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
@@ -242,15 +278,25 @@ fun HierarchicalGridView(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize().background(mainBackgroundColor)) {
-        // Header row
-        Row(
+    // Horizontal scroll state for columns that don't fit
+    val horizontalScrollState = rememberScrollState()
+
+    Box(modifier = modifier.fillMaxSize().background(mainBackgroundColor)) {
+        // Main content with horizontal scroll support
+        Box(
             modifier =
                 Modifier
-                    .background(headerBackgroundColor)
-                    .height(24.dp)
-                    .fillMaxWidth(),
+                    .fillMaxSize()
+                    .horizontalScroll(horizontalScrollState),
         ) {
+            Column(modifier = Modifier.fillMaxHeight()) {
+                // Header row
+                Row(
+                    modifier =
+                        Modifier
+                            .background(headerBackgroundColor)
+                            .height(24.dp),
+                ) {
             // Icon column
             Box(
                 modifier =
@@ -434,68 +480,117 @@ fun HierarchicalGridView(
                     )
                 }
 
-                // Resize handle (always add for resizing functionality)
-                ResizeHandle(columnKey, columnWidths)
-            }
+                    // Resize handle (always add for resizing functionality)
+                    ResizeHandle(columnKey, columnWidths)
+                }
 
-            // Spacer to fill remaining width
-            Spacer(modifier = Modifier.weight(1f))
-        }
+                    // Spacer to fill remaining width
+                    Spacer(modifier = Modifier.weight(1f))
+                }
 
-        // Message rows
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-        ) {
-            messages.forEach { message ->
-                val messageId = message.timestamp.toString()
-                val isExpanded = expandedMessages[messageId] ?: false
+                // Message rows
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    messages.forEach { message ->
+                        val messageId = message.timestamp.toString()
+                        val isExpanded = expandedMessages[messageId] ?: false
 
-                when (message) {
-                    is Separator -> {
-                        // Separator row
-                        item {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .height(20.dp)
-                                        .background(separatorBackgroundColor),
-                            )
-                        }
-                    }
+                        when (message) {
+                            is Separator -> {
+                                // Separator row
+                                item {
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .width(5000.dp) // Fixed width for horizontal scroll
+                                                .height(20.dp)
+                                                .background(separatorBackgroundColor),
+                                    )
+                                }
+                            }
 
-                    is FixMessage -> {
-                        // Message summary row
-                        item {
-                            MessageSummaryRow(
-                                message = message,
-                                dictionary = dictionary,
-                                gridViewColumns = gridViewColumns,
-                                columnWidths = columnWidths,
-                                isExpanded = isExpanded,
-                                isSelected = message == selectedMessage,
-                                onToggleExpand = {
-                                    expandedMessages[messageId] = !isExpanded
-                                },
-                                onSelectMessage = onSelectMessage,
-                                appSettings = appSettings,
-                            )
-                        }
+                            is FixMessage -> {
+                                // Message summary row
+                                item {
+                                    MessageSummaryRow(
+                                        message = message,
+                                        dictionary = dictionary,
+                                        gridViewColumns = gridViewColumns,
+                                        columnWidths = columnWidths,
+                                        isExpanded = isExpanded,
+                                        isSelected = message == selectedMessage,
+                                        onToggleExpand = {
+                                            expandedMessages[messageId] = !isExpanded
+                                        },
+                                        onSelectMessage = onSelectMessage,
+                                        appSettings = appSettings,
+                                    )
+                                }
 
-                        // Expanded field details
-                        if (isExpanded) {
-                            renderQuickFixMessage(
-                                message = message.quickfixMessage,
-                                dictionary = dictionary,
-                                hideProtocolTags = hideProtocolTags,
-                                protocolTags = appSettings.protocolTags,
-                                expandedGroups = expandedGroups,
-                                messageId = messageId,
-                            )
+                                // Expanded field details
+                                if (isExpanded) {
+                                    renderQuickFixMessage(
+                                        message = message.quickfixMessage,
+                                        dictionary = dictionary,
+                                        hideProtocolTags = hideProtocolTags,
+                                        protocolTags = appSettings.protocolTags,
+                                        expandedGroups = expandedGroups,
+                                        messageId = messageId,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        // Vertical scrollbar
+        VerticalScrollbar(
+            adapter = rememberScrollbarAdapter(listState),
+            modifier =
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .padding(end = 4.dp),
+        )
+
+        // Horizontal scrollbar
+        HorizontalScrollbar(
+            adapter = rememberScrollbarAdapter(horizontalScrollState),
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, end = 20.dp, bottom = 4.dp)
+                    .height(8.dp),
+        )
+
+        // Scroll to bottom button (shown when not at bottom and there are messages)
+        if (!isAtBottom && messages.isNotEmpty()) {
+            TooltipFloatingActionButton(
+                tooltip = "Scroll to Bottom (Resume Auto-Scroll)",
+                onClick = {
+                    coroutineScope.launch {
+                        listState.animateScrollToItem(messages.size - 1)
+                        autoScroll = true // Re-enable auto-scroll mode
+                    }
+                },
+                containerColor = fabBackgroundColor,
+                contentColor = Color.White,
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 24.dp, bottom = 16.dp)
+                        .size(40.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowDownward,
+                    contentDescription = "Scroll to bottom",
+                    modifier = Modifier.size(iconSize),
+                )
             }
         }
     }
@@ -535,11 +630,21 @@ fun MessageSummaryRow(
     // Background color: highlight if selected, otherwise default
     val backgroundColor = if (isSelected) selectedRowBackgroundColor else mainBackgroundColor
 
+    // Calculate minimum width needed for all columns
+    val minWidth = (columnWidths["Icon"] ?: 40.dp) +
+            (columnWidths["Time"] ?: 120.dp) +
+            (columnWidths["Dir"] ?: 50.dp) +
+            (columnWidths["SeqNum"] ?: 70.dp) +
+            (columnWidths["MsgType"] ?: 100.dp) +
+            (columnWidths["Summary"] ?: 200.dp) +
+            gridViewColumns.sumOf { tag -> (columnWidths["Tag_$tag"] ?: 120.dp).value.toInt() }.dp +
+            200.dp // Extra space for spacer
+
     Row(
         modifier =
             Modifier
                 .height(24.dp)
-                .fillMaxWidth()
+                .widthIn(min = minWidth)
                 .background(backgroundColor),
     ) {
         // Expand/collapse icon - click only expands/collapses
@@ -892,7 +997,7 @@ private fun HierarchicalFieldRow(
         modifier =
             Modifier
                 .height(20.dp)
-                .fillMaxWidth()
+                .width(5000.dp) // Fixed width for horizontal scroll
                 .background(fieldRowBackgroundColor),
     ) {
         // Empty space for indent + icon column
@@ -1079,7 +1184,7 @@ private fun HierarchicalGroupHeaderRow(
         modifier =
             Modifier
                 .height(20.dp)
-                .fillMaxWidth()
+                .width(5000.dp) // Fixed width for horizontal scroll
                 .background(separatorBackgroundColor)
                 .clickable { onToggle() },
     ) {
@@ -1214,7 +1319,7 @@ private fun HierarchicalGroupInstanceHeader(
         modifier =
             Modifier
                 .height(20.dp)
-                .fillMaxWidth()
+                .width(5000.dp) // Fixed width for horizontal scroll
                 .background(groupInstanceBackgroundColor),
     ) {
         // Empty icon column
@@ -1328,6 +1433,7 @@ private val groupInstanceBackgroundColor = AppTheme.Colors.surfaceHeader
 
 private val tooltipCornerRadius = RoundedCornerShape(4.dp)
 private val iconSize = 14.dp
+private val fabBackgroundColor = AppTheme.Colors.primary
 
 // Helper function for direction color
 private fun getDirectionColor(message: FixMessage, appSettings: com.knapsack.fixtool.model.AppSettings): Color =

@@ -31,6 +31,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AppMessage
@@ -188,15 +189,20 @@ fun FixMessageDisplay(
         }
     }
 
-    // Detect when user is not at bottom (they scrolled up manually)
-    // Use snapshotFlow to observe scroll state and disable autoScroll when user scrolls away
+    // Detect when user scrolls and manage auto-scroll state
+    // Disable auto-scroll when user scrolls up, re-enable when they scroll back to bottom
     LaunchedEffect(Unit) {
         snapshotFlow {
             listState.isScrollInProgress to isAtBottom
         }.collect { (isScrolling, atBottom) ->
-            // If user is actively scrolling and not at bottom, disable auto-scroll
-            if (isScrolling && !atBottom) {
-                autoScroll = false
+            if (isScrolling) {
+                // If user is actively scrolling and not at bottom, disable auto-scroll
+                if (!atBottom) {
+                    autoScroll = false
+                } else {
+                    // If user scrolled back to bottom, re-enable auto-scroll
+                    autoScroll = true
+                }
             }
         }
     }
@@ -214,6 +220,7 @@ fun FixMessageDisplay(
                         messages = messages,
                         listState = listState,
                         isAtBottom = isAtBottom,
+                        autoScroll = autoScroll,
                         coroutineScope = coroutineScope,
                         wrapText = wrapText,
                         selectedMessage = selectedMessage,
@@ -277,6 +284,7 @@ fun FixMessageDisplay(
             messages = messages,
             listState = listState,
             isAtBottom = isAtBottom,
+            autoScroll = autoScroll,
             coroutineScope = coroutineScope,
             wrapText = wrapText,
             selectedMessage = selectedMessage,
@@ -307,6 +315,7 @@ private fun MessageDisplayContent(
     messages: List<AppMessage>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isAtBottom: Boolean,
+    autoScroll: Boolean,
     coroutineScope: kotlinx.coroutines.CoroutineScope,
     wrapText: Boolean,
     selectedMessage: FixMessage?,

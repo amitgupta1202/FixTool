@@ -65,6 +65,10 @@ class FixMessageSession(
     private val _hideProtocolTags = MutableStateFlow(true)
     val hideProtocolTags: StateFlow<Boolean> = _hideProtocolTags.asStateFlow()
 
+    // Recently sent message timestamp (for highlighting)
+    private val _recentlySentMessageTimestamp = MutableStateFlow<LocalDateTime?>(null)
+    val recentlySentMessageTimestamp: StateFlow<LocalDateTime?> = _recentlySentMessageTimestamp.asStateFlow()
+
     // Connection state
     private val _connectionState = MutableStateFlow(FixConnectionState.DISCONNECTED)
     val connectionState: StateFlow<FixConnectionState> = _connectionState.asStateFlow()
@@ -243,6 +247,19 @@ class FixMessageSession(
         val success = quickFixService?.sendMessage(rawMessage, dictionary) ?: false
         if (!success) {
             logger.error("Failed to send message") // TODO: handle errors
+        } else {
+            // Mark current time as recently sent - the outgoing message will appear shortly
+            val sentTime = LocalDateTime.now()
+            _recentlySentMessageTimestamp.value = sentTime
+
+            // Clear the highlight after 3 seconds
+            scope.launch {
+                delay(3000)
+                // Only clear if it's still the same timestamp (in case another message was sent)
+                if (_recentlySentMessageTimestamp.value == sentTime) {
+                    _recentlySentMessageTimestamp.value = null
+                }
+            }
         }
     }
 

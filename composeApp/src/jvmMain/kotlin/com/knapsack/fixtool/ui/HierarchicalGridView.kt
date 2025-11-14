@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import quickfix.Field
 import quickfix.FieldMap
 import java.awt.Cursor
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 /**
@@ -107,6 +108,7 @@ fun HierarchicalGridView(
     gridViewColumns: List<Int> = emptyList(),
     selectedMessage: FixMessage? = null,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
+    recentlySentMessageTimestamp: LocalDateTime? = null,
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
@@ -521,6 +523,7 @@ fun HierarchicalGridView(
                                         columnWidths = columnWidths,
                                         isExpanded = isExpanded,
                                         isSelected = message == selectedMessage,
+                                        recentlySentMessageTimestamp = recentlySentMessageTimestamp,
                                         onToggleExpand = {
                                             expandedMessages[messageId] = !isExpanded
                                         },
@@ -608,6 +611,7 @@ fun MessageSummaryRow(
     columnWidths: Map<String, androidx.compose.ui.unit.Dp> = emptyMap(),
     isExpanded: Boolean,
     isSelected: Boolean = false,
+    recentlySentMessageTimestamp: LocalDateTime? = null,
     onToggleExpand: () -> Unit,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
     appSettings: com.knapsack.fixtool.model.AppSettings =
@@ -627,8 +631,22 @@ fun MessageSummaryRow(
     val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
     val msgTypeDesc = dictionary.getFieldValueDescription(35, message.messageType) ?: message.messageType
 
-    // Background color: highlight if selected, otherwise default
-    val backgroundColor = if (isSelected) selectedRowBackgroundColor else mainBackgroundColor
+    // Check if this message was recently sent (outgoing message within a few milliseconds of the sent timestamp)
+    val isRecentlySent = if (recentlySentMessageTimestamp != null && message.direction == FixMessage.Direction.OUTGOING) {
+        val durationMillis = java.time.Duration.between(recentlySentMessageTimestamp, message.timestamp).abs().toMillis()
+        durationMillis < 500
+    } else {
+        false
+    }
+
+    // Background color: highlight if recently sent, selected, or default
+    val backgroundColor = when {
+        isRecentlySent -> {
+            AppTheme.Colors.messageRecentlySent
+        }
+        isSelected -> selectedRowBackgroundColor
+        else -> mainBackgroundColor
+    }
 
     // Calculate minimum width needed for all columns
     val minWidth = (columnWidths["Icon"] ?: 40.dp) +

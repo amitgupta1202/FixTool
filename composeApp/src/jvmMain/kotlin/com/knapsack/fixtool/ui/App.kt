@@ -318,6 +318,7 @@ fun App(
                                         val sessionViewMode by session.viewMode.collectAsState()
                                         val wrapText by session.wrapText.collectAsState()
                                         val hideProtocolTags by session.hideProtocolTags.collectAsState()
+                                        val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
 
                                         FixMessageDisplay(
                                             messages = messages,
@@ -325,6 +326,7 @@ fun App(
                                             dictionary = viewModel.dictionary,
                                             wrapText = wrapText,
                                             selectedMessage = selectedMessage,
+                                            recentlySentMessageTimestamp = recentlySentMessageTimestamp,
                                             onSelectMessage = { message -> viewModel.selectMessage(message) },
                                             showDetailPanel = false,
                                             hideProtocolTags = hideProtocolTags,

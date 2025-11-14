@@ -274,6 +274,7 @@ private fun SessionPanel(
     val filterMessageTypes by session.filterMessageTypes.collectAsState()
     val connectionState by session.connectionState.collectAsState()
     val hideProtocolTags by session.hideProtocolTags.collectAsState()
+    val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
 
     Column(
         modifier =
@@ -826,6 +827,7 @@ private fun SessionPanel(
             dictionary = dictionary,
             wrapText = wrapText,
             selectedMessage = selectedMessage,
+            recentlySentMessageTimestamp = recentlySentMessageTimestamp,
             onSelectMessage = onSelectMessage,
             onPasteMessage = onPasteMessage,
             showDetailPanel = false,

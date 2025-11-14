@@ -121,6 +121,9 @@ object AppTheme {
         /** Rejected messages - dull */
         val messageRejectionDull = Color(0xFF8A4A4A)
 
+        /** Recently sent message highlight - gold/amber tint overlay */
+        val messageRecentlySent = Color(0x40FFA500) // 25% opacity orange/gold
+
         // ========== Selection & Highlight Colors ==========
         /** Selected row/item background */
         val selectionPrimary = Color(0xFF2D5A8C)

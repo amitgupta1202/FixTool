@@ -48,6 +48,8 @@ fun SettingsDialog(
     var protocolTags by remember { mutableStateOf(currentSettings.protocolTags.toMutableSet()) }
     var messageColorScheme by remember { mutableStateOf(currentSettings.messageColorScheme) }
     var defaultViewMode by remember { mutableStateOf(currentSettings.defaultViewMode) }
+    var connectionProfilesPath by remember { mutableStateOf(currentSettings.connectionProfilesPath) }
+    var savedMessagesPath by remember { mutableStateOf(currentSettings.savedMessagesPath) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -102,6 +104,8 @@ fun SettingsDialog(
                                 protocolTags = defaults.protocolTags.toMutableSet()
                                 messageColorScheme = defaults.messageColorScheme
                                 defaultViewMode = defaults.defaultViewMode
+                                connectionProfilesPath = defaults.connectionProfilesPath
+                                savedMessagesPath = defaults.savedMessagesPath
                             },
                             containerColor = restoreDefaultsButtonColor,
                             contentColor = AppTheme.Colors.textSecondary,
@@ -203,6 +207,172 @@ fun SettingsDialog(
                                 text = "⚠ File not found",
                                 fontSize = 11.sp,
                                 color = warningColor,
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
+                    )
+
+                    // Section: Connection Profiles Directory
+                    Text(
+                        text = "Connection Profiles File",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.small),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SlimTextField(
+                            value = connectionProfilesPath,
+                            onValueChange = { connectionProfilesPath = it },
+                            placeholder = "Default: ~/.fixtool/connection_profiles.json",
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        TooltipIconButton(
+                            tooltip = "Browse for Connection Profiles File",
+                            onClick = {
+                                val fileChooser =
+                                    JFileChooser().apply {
+                                        dialogTitle = "Select Connection Profiles File"
+                                        fileSelectionMode = JFileChooser.FILES_ONLY
+                                        fileFilter = FileNameExtensionFilter("JSON Files (*.json)", "json")
+
+                                        // Set initial directory if path exists
+                                        if (connectionProfilesPath.isNotBlank()) {
+                                            val file = File(connectionProfilesPath)
+                                            if (file.exists()) {
+                                                currentDirectory = file.parentFile
+                                                selectedFile = file
+                                            }
+                                        }
+                                    }
+
+                                val result = fileChooser.showSaveDialog(null)
+                                if (result == JFileChooser.APPROVE_OPTION) {
+                                    connectionProfilesPath = fileChooser.selectedFile.absolutePath
+                                }
+                            },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = "Browse",
+                                tint = AppTheme.Colors.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+
+                    // Validation message
+                    if (connectionProfilesPath.isNotBlank()) {
+                        val file = File(connectionProfilesPath)
+                        if (file.exists() && file.isFile) {
+                            Text(
+                                text = "✓ File exists",
+                                fontSize = 11.sp,
+                                color = AppTheme.Colors.primary,
+                            )
+                        } else if (file.parentFile?.exists() == true) {
+                            Text(
+                                text = "⚠ File will be created on first save",
+                                fontSize = 11.sp,
+                                color = AppTheme.Colors.warning,
+                            )
+                        } else {
+                            Text(
+                                text = "⚠ Parent directory does not exist",
+                                fontSize = 11.sp,
+                                color = AppTheme.Colors.error,
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(AppTheme.Spacing.small))
+
+                    // Section: Saved Messages Directory
+                    Text(
+                        text = "Saved Messages File",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.small),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SlimTextField(
+                            value = savedMessagesPath,
+                            onValueChange = { savedMessagesPath = it },
+                            placeholder = "Default: ~/.fixtool/saved_messages.json",
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        TooltipIconButton(
+                            tooltip = "Browse for Saved Messages File",
+                            onClick = {
+                                val fileChooser =
+                                    JFileChooser().apply {
+                                        dialogTitle = "Select Saved Messages File"
+                                        fileSelectionMode = JFileChooser.FILES_ONLY
+                                        fileFilter = FileNameExtensionFilter("JSON Files (*.json)", "json")
+
+                                        // Set initial directory if path exists
+                                        if (savedMessagesPath.isNotBlank()) {
+                                            val file = File(savedMessagesPath)
+                                            if (file.exists()) {
+                                                currentDirectory = file.parentFile
+                                                selectedFile = file
+                                            }
+                                        }
+                                    }
+
+                                val result = fileChooser.showSaveDialog(null)
+                                if (result == JFileChooser.APPROVE_OPTION) {
+                                    savedMessagesPath = fileChooser.selectedFile.absolutePath
+                                }
+                            },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = "Browse",
+                                tint = AppTheme.Colors.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+
+                    // Validation message
+                    if (savedMessagesPath.isNotBlank()) {
+                        val file = File(savedMessagesPath)
+                        if (file.exists() && file.isFile) {
+                            Text(
+                                text = "✓ File exists",
+                                fontSize = 11.sp,
+                                color = AppTheme.Colors.primary,
+                            )
+                        } else if (file.parentFile?.exists() == true) {
+                            Text(
+                                text = "⚠ File will be created on first save",
+                                fontSize = 11.sp,
+                                color = AppTheme.Colors.warning,
+                            )
+                        } else {
+                            Text(
+                                text = "⚠ Parent directory does not exist",
+                                fontSize = 11.sp,
+                                color = AppTheme.Colors.error,
                             )
                         }
                     }
@@ -862,6 +1032,8 @@ fun SettingsDialog(
                                     protocolTags = protocolTags.toSet(),
                                     messageColorScheme = messageColorScheme,
                                     defaultViewMode = defaultViewMode,
+                                    connectionProfilesPath = connectionProfilesPath.trim(),
+                                    savedMessagesPath = savedMessagesPath.trim(),
                                 )
                             onSave(newSettings)
                             onDismiss()

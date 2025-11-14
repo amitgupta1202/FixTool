@@ -23,6 +23,9 @@ data class AppSettings(
     val messageColorScheme: MessageColorScheme = MessageColorScheme.default(),
     // Default View Mode
     val defaultViewMode: String = "grid", // Default view mode for new sessions: "grid" or "terminal"
+    // Configurable Data Directories
+    val connectionProfilesPath: String = "", // Path to connection profiles JSON file (empty = default: ~/.fixtool/connection_profiles.json)
+    val savedMessagesPath: String = "", // Path to saved messages JSON file (empty = default: ~/.fixtool/saved_messages.json)
     // Future settings can be added here
     // val theme: String = "dark",
     // val fontSize: Int = 12,

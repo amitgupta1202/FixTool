@@ -84,25 +84,29 @@ class FixMessageViewModel : ViewModel() {
     private val _globalSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
     val globalSearchResults: StateFlow<List<SearchResult>> = _globalSearchResults.asStateFlow()
 
-    // Connection profiles
-    private val profileService =
-        ConnectionProfileService(
-            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-        )
-    private val _connectionProfiles = mutableStateListOf<FixConnectionProfile>()
-    val connectionProfiles: List<FixConnectionProfile> = _connectionProfiles
-
-    // App settings
+    // App settings (loaded first before other services)
     private val settingsService = AppSettingsService()
     private val _appSettings = mutableStateOf(AppSettings.default())
     val appSettings: AppSettings
         get() = _appSettings.value
 
-    // Saved messages
-    private val savedMessagesService =
+    // Connection profiles (lazy-initialized to use appSettings paths)
+    private val profileService by lazy {
+        ConnectionProfileService(
+            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            customPath = _appSettings.value.connectionProfilesPath,
+        )
+    }
+    private val _connectionProfiles = mutableStateListOf<FixConnectionProfile>()
+    val connectionProfiles: List<FixConnectionProfile> = _connectionProfiles
+
+    // Saved messages (lazy-initialized to use appSettings paths)
+    private val savedMessagesService by lazy {
         SavedMessagesService(
             onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            customPath = _appSettings.value.savedMessagesPath,
         )
+    }
     private val _savedMessages = mutableStateListOf<SavedFixMessage>()
     val savedMessages: List<SavedFixMessage> = _savedMessages
 

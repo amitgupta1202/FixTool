@@ -12,6 +12,7 @@ import java.io.File
  */
 class SavedMessagesService(
     private val onError: ((String) -> Unit)? = null,
+    customPath: String = "",
 ) {
     private val logger = NotifyingLogger(SavedMessagesService::class.java, onError)
 
@@ -21,7 +22,11 @@ class SavedMessagesService(
             ignoreUnknownKeys = true
         }
 
-    private val savedMessagesFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
+    private val savedMessagesFile = if (customPath.isNotBlank()) {
+        File(customPath)
+    } else {
+        File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
+    }
 
     init {
         // Ensure directory exists

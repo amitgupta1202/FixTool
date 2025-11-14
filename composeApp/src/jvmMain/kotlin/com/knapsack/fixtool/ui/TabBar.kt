@@ -142,11 +142,11 @@ fun TabBar(
                     )
                 }
 
-                // Toggle view mode button
+                // Toggle view mode button - shows destination icon (matching global toolbar)
                 val tooltipText =
                     when (viewMode) {
-                        FixMessageSession.ViewMode.RAW -> "View: Terminal (click for Grid)"
-                        FixMessageSession.ViewMode.PARSED -> "View: Grid (click for Terminal)"
+                        FixMessageSession.ViewMode.RAW -> "Switch to Grid View"
+                        FixMessageSession.ViewMode.PARSED -> "Switch to Terminal View"
                     }
 
                 TooltipIconButton(
@@ -156,12 +156,12 @@ fun TabBar(
                 ) {
                     val icon =
                         when (viewMode) {
-                            FixMessageSession.ViewMode.RAW -> Icons.Default.Terminal
-                            FixMessageSession.ViewMode.PARSED -> Icons.Default.Apps
+                            FixMessageSession.ViewMode.RAW -> Icons.Default.Apps  // Show grid icon when in terminal (click to switch to grid)
+                            FixMessageSession.ViewMode.PARSED -> Icons.Default.Terminal  // Show terminal icon when in grid (click to switch to terminal)
                         }
                     Icon(
                         imageVector = icon,
-                        contentDescription = "Toggle View (${viewMode.name})",
+                        contentDescription = "Toggle View",
                         tint = AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )

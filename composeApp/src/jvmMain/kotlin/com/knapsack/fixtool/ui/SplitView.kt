@@ -430,11 +430,11 @@ private fun SessionPanel(
                 }
             }
 
-            // View mode toggle for this session
+            // View mode toggle for this session - shows destination icon (matching global toolbar)
             val viewModeTooltip =
                 when (sessionViewMode) {
-                    FixMessageSession.ViewMode.RAW -> "View: Terminal (click for Grid)"
-                    FixMessageSession.ViewMode.PARSED -> "View: Grid (click for Terminal)"
+                    FixMessageSession.ViewMode.RAW -> "Switch to Grid View"
+                    FixMessageSession.ViewMode.PARSED -> "Switch to Terminal View"
                 }
 
             Spacer(modifier = Modifier.width(2.dp))
@@ -446,8 +446,8 @@ private fun SessionPanel(
             ) {
                 val icon =
                     when (sessionViewMode) {
-                        FixMessageSession.ViewMode.RAW -> Icons.Default.Terminal
-                        FixMessageSession.ViewMode.PARSED -> Icons.Default.Apps
+                        FixMessageSession.ViewMode.RAW -> Icons.Default.Apps  // Show grid icon when in terminal (click to switch to grid)
+                        FixMessageSession.ViewMode.PARSED -> Icons.Default.Terminal  // Show terminal icon when in grid (click to switch to terminal)
                     }
                 Icon(
                     imageVector = icon,

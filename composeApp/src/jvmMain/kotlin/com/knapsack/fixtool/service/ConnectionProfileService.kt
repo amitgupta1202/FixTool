@@ -12,6 +12,7 @@ import java.io.File
  */
 class ConnectionProfileService(
     private val onError: ((String) -> Unit)? = null,
+    customPath: String = "",
 ) {
     private val logger = NotifyingLogger(ConnectionProfileService::class.java, onError)
 
@@ -21,7 +22,11 @@ class ConnectionProfileService(
             ignoreUnknownKeys = true
         }
 
-    private val profilesFile = File(System.getProperty("user.home"), ".fixtool/connection_profiles.json")
+    private val profilesFile = if (customPath.isNotBlank()) {
+        File(customPath)
+    } else {
+        File(System.getProperty("user.home"), ".fixtool/connection_profiles.json")
+    }
 
     init {
         // Ensure directory exists

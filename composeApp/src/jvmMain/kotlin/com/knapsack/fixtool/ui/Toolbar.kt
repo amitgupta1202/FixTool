@@ -187,7 +187,7 @@ fun Toolbar(
                 modifier = tooltipModifier,
             ) {
                 Icon(
-                    imageVector = Icons.Default.Notes,
+                    imageVector = Icons.Default.Add,
                     contentDescription = "Blank Line",
                     tint = AppTheme.Colors.textSecondary,
                     modifier = tooltipIconModifier,

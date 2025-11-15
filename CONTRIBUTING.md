@@ -107,8 +107,10 @@ backoff starting at 1s, doubling up to 30s maximum.
 
 **What NOT to include in commit messages:**
 - ❌ "All tests passing"
-- ❌ "Generated with AI"
+- ❌ "Generated with AI" or "Generated with [Tool Name]"
+- ❌ AI co-author attribution (e.g., "Co-Authored-By: Claude")
 - ❌ Test counts or tool mentions
+- ❌ Any mention of AI assistance or tools used
 
 ### 6. Push and Create Pull Request
 
@@ -330,6 +332,7 @@ If you're using AI tools (Claude Code, GitHub Copilot, ChatGPT, etc.) to assist 
 ❌ **Don't:**
 - Let AI commit directly to main branch
 - Include AI tool mentions in commit messages
+- Include AI co-author attribution in commit messages
 - Commit AI-generated code without review
 - Skip testing because "AI wrote the code"
 - Include organization secrets in prompts
@@ -339,7 +342,7 @@ If you're using AI tools (Claude Code, GitHub Copilot, ChatGPT, etc.) to assist 
 1. **Branch Management**: Always use feature branches
 2. **Testing**: Write integration/E2E tests for all changes
 3. **Test Data**: Use only generic test data (no secrets)
-4. **Commit Messages**: Clear, professional messages (no AI mentions)
+4. **Commit Messages**: Clear, professional messages (no AI mentions, no co-author attribution)
 5. **Documentation**: Keep README and docs up to date
 6. **Code Cleanup**: Remove unused code, debug statements
 

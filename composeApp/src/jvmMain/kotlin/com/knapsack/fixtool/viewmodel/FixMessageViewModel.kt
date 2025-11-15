@@ -84,6 +84,13 @@ class FixMessageViewModel : ViewModel() {
     private val _globalSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
     val globalSearchResults: StateFlow<List<SearchResult>> = _globalSearchResults.asStateFlow()
 
+    // Search results pane (persistent search results at bottom of screen)
+    private val _showSearchResultsPane = MutableStateFlow(false)
+    val showSearchResultsPane: StateFlow<Boolean> = _showSearchResultsPane.asStateFlow()
+
+    private val _pinnedSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
+    val pinnedSearchResults: StateFlow<List<SearchResult>> = _pinnedSearchResults.asStateFlow()
+
     // Global filter across all sessions
     private val _globalFilterRegex = MutableStateFlow("")
     val globalFilterRegex: StateFlow<String> = _globalFilterRegex.asStateFlow()
@@ -374,6 +381,17 @@ class FixMessageViewModel : ViewModel() {
             _globalSearchResults.value = emptyList()
             _globalSearchQuery.value = ""
         }
+    }
+
+    fun pinSearchResults() {
+        // Pin current search results to the pane and show it
+        _pinnedSearchResults.value = _globalSearchResults.value
+        _showSearchResultsPane.value = true
+    }
+
+    fun closeSearchResultsPane() {
+        _showSearchResultsPane.value = false
+        _pinnedSearchResults.value = emptyList()
     }
 
     fun setGlobalSearchQuery(query: String) {

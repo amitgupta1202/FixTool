@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +38,7 @@ fun SearchAllSessionsDialog(
     searchResults: List<FixMessageViewModel.SearchResult>,
     onQueryChange: (String) -> Unit,
     onResultClick: (FixMessageViewModel.SearchResult) -> Unit,
+    onPinResults: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     // Create a stable username to color mapping based on session usernames
@@ -139,6 +141,42 @@ fun SearchAllSessionsDialog(
                         )
                     }
                 }
+
+                HorizontalDivider(color = AppTheme.Colors.background)
+
+                // Footer with action button
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(AppTheme.Colors.surface)
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (searchResults.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .height(32.dp)
+                                .background(
+                                    color = AppTheme.Colors.primary,
+                                    shape = RoundedCornerShape(2.dp),
+                                )
+                                .clickable {
+                                    onPinResults()
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Open in Search Window",
+                                color = AppTheme.Colors.background,
+                                fontSize = 13.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -156,6 +194,7 @@ private fun SearchInputField(
 
     Row(
         modifier = modifier
+            .height(36.dp)
             .background(
                 color = if (isFocused) AppTheme.Colors.surface else AppTheme.Colors.surfaceVariant,
                 shape = RoundedCornerShape(4.dp),
@@ -227,13 +266,13 @@ private fun SearchResultItem(
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .background(AppTheme.Colors.surface)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 8.dp)
             .border(
                 width = 1.dp,
                 color = AppTheme.Colors.border,
                 shape = RoundedCornerShape(4.dp),
             )
-            .padding(12.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
     ) {
         // Header Row: Username • Timestamp • MessageType • Direction (all in one row)
         Row(
@@ -297,7 +336,7 @@ private fun SearchResultItem(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Detail Section: Raw FIX message only
         Text(
@@ -311,5 +350,5 @@ private fun SearchResultItem(
         )
     }
 
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(4.dp))
 }

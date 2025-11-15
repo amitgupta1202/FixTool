@@ -65,6 +65,8 @@ fun App(
         val showGlobalSearchDialog by viewModel.showGlobalSearchDialog.collectAsState()
         val globalSearchQuery by viewModel.globalSearchQuery.collectAsState()
         val globalSearchResults by viewModel.globalSearchResults.collectAsState()
+        val showSearchResultsPane by viewModel.showSearchResultsPane.collectAsState()
+        val pinnedSearchResults by viewModel.pinnedSearchResults.collectAsState()
         val demoServerRunning by viewModel.demoServerRunning.collectAsState()
         val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
         val savedMessages = viewModel.savedMessages
@@ -108,6 +110,7 @@ fun App(
             mutableStateOf(0.28f)
         } // Message editor panel width (28% when description shown, 20% when hidden) - starts at 28% since description is visible by default
         var connectionPanelSplitRatio by remember { mutableStateOf(0.2f) }
+        var searchResultsPanelHeight by remember { mutableStateOf(200.dp) } // Height of search results pane at bottom
 
         Box(
             modifier = modifier
@@ -187,6 +190,7 @@ fun App(
                         searchResults = globalSearchResults,
                         onQueryChange = { query -> viewModel.setGlobalSearchQuery(query) },
                         onResultClick = { result -> viewModel.navigateToSearchResult(result) },
+                        onPinResults = { viewModel.pinSearchResults() },
                         onDismiss = { viewModel.toggleGlobalSearchDialog() },
                     )
                 }
@@ -352,6 +356,37 @@ fun App(
                                             color = Color(0xFF6A6A6A),
                                             fontSize = 14.sp,
                                         )
+                                    }
+
+                                    // Search results pane at bottom (if visible)
+                                    if (showSearchResultsPane) {
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .height(AppTheme.Separators.panelSeparatorWidth)
+                                                    .background(AppTheme.Separators.color)
+                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+                                                    .pointerInput(Unit) {
+                                                        detectDragGestures { change, dragAmount ->
+                                                            change.consume()
+                                                            val newHeight = searchResultsPanelHeight - dragAmount.y.dp
+                                                            searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
+                                                        }
+                                                    },
+                                        )
+
+                                        Box(modifier = Modifier.height(searchResultsPanelHeight)) {
+                                            SearchResultsPane(
+                                                searchResults = pinnedSearchResults,
+                                                selectedMessage = selectedMessage,
+                                                dictionary = viewModel.dictionary,
+                                                appSettings = viewModel.appSettings,
+                                                onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
+                                                onClose = { viewModel.closeSearchResultsPane() },
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
                                     }
                                 }
 
@@ -568,7 +603,7 @@ fun App(
                                     }
 
                                     // Center panel - Split view
-                                    Box(modifier = Modifier.weight(1f)) {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         SplitView(
                                             sessions = viewModel.sessions,
                                             dictionary = viewModel.dictionary,
@@ -582,8 +617,39 @@ fun App(
                                             orientation = splitOrientation,
                                             gridViewColumns = viewModel.appSettings.gridViewColumns,
                                             appSettings = viewModel.appSettings,
-                                            modifier = Modifier.fillMaxSize(),
+                                            modifier = Modifier.weight(1f),
                                         )
+
+                                        // Search results pane at bottom (if visible)
+                                        if (showSearchResultsPane) {
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .height(AppTheme.Separators.panelSeparatorWidth)
+                                                        .background(AppTheme.Separators.color)
+                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+                                                        .pointerInput(Unit) {
+                                                            detectDragGestures { change, dragAmount ->
+                                                                change.consume()
+                                                                val newHeight = searchResultsPanelHeight - dragAmount.y.dp
+                                                                searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
+                                                            }
+                                                        },
+                                            )
+
+                                            Box(modifier = Modifier.height(searchResultsPanelHeight)) {
+                                                SearchResultsPane(
+                                                    searchResults = pinnedSearchResults,
+                                                    selectedMessage = selectedMessage,
+                                                    dictionary = viewModel.dictionary,
+                                                    appSettings = viewModel.appSettings,
+                                                    onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
+                                                    onClose = { viewModel.closeSearchResultsPane() },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+                                        }
                                     }
 
                                     // Message detail panel (if shown)
@@ -683,19 +749,52 @@ fun App(
                                 }
                             }
                         } else {
-                            SplitView(
-                                sessions = viewModel.sessions,
-                                dictionary = viewModel.dictionary,
-                                onCloseSession = { index -> viewModel.closeSession(index) },
-                                onMoveSession = { from, to -> viewModel.moveSession(from, to) },
-                                selectedMessage = selectedMessage,
-                                onSelectMessage = { message -> viewModel.selectMessage(message) },
-                                onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
-                                orientation = splitOrientation,
-                                gridViewColumns = viewModel.appSettings.gridViewColumns,
-                                appSettings = viewModel.appSettings,
-                                modifier = Modifier.weight(1f),
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                SplitView(
+                                    sessions = viewModel.sessions,
+                                    dictionary = viewModel.dictionary,
+                                    onCloseSession = { index -> viewModel.closeSession(index) },
+                                    onMoveSession = { from, to -> viewModel.moveSession(from, to) },
+                                    selectedMessage = selectedMessage,
+                                    onSelectMessage = { message -> viewModel.selectMessage(message) },
+                                    onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
+                                    orientation = splitOrientation,
+                                    gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                    appSettings = viewModel.appSettings,
+                                    modifier = Modifier.weight(1f),
+                                )
+
+                                // Search results pane at bottom (if visible)
+                                if (showSearchResultsPane) {
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .height(AppTheme.Separators.panelSeparatorWidth)
+                                                .background(AppTheme.Separators.color)
+                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+                                                .pointerInput(Unit) {
+                                                    detectDragGestures { change, dragAmount ->
+                                                        change.consume()
+                                                        val newHeight = searchResultsPanelHeight - dragAmount.y.dp
+                                                        searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
+                                                    }
+                                                },
+                                    )
+
+                                    Box(modifier = Modifier.height(searchResultsPanelHeight)) {
+                                        SearchResultsPane(
+                                            searchResults = pinnedSearchResults,
+                                            selectedMessage = selectedMessage,
+                                            dictionary = viewModel.dictionary,
+                                            appSettings = viewModel.appSettings,
+                                            onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
+                                            onClose = { viewModel.closeSearchResultsPane() },
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

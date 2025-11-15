@@ -662,8 +662,7 @@ fun MessageSummaryRow(
         modifier =
             Modifier
                 .height(24.dp)
-                .widthIn(min = minWidth)
-                .background(backgroundColor),
+                .widthIn(min = minWidth),
     ) {
         // Expand/collapse icon - click only expands/collapses
         Box(
@@ -689,8 +688,8 @@ fun MessageSummaryRow(
         Row(
             modifier =
                 Modifier
-                    .weight(1f)
                     .fillMaxHeight()
+                    .background(backgroundColor)
                     .testTag("message-row-${message.timestamp}")
                     .combinedClickable(
                         onClick = {
@@ -841,10 +840,10 @@ fun MessageSummaryRow(
                     }
                 }
             }
-
-            // Spacer to fill remaining width
-            Spacer(modifier = Modifier.weight(1f))
         }
+
+        // Spacer to fill remaining width (outside the selectable row to avoid highlighting)
+        Spacer(modifier = Modifier.weight(1f))
     }
 }
 

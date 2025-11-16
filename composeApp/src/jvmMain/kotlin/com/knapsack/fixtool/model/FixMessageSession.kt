@@ -23,6 +23,8 @@ class FixMessageSession(
     companion object {
         private val BUFFER_MSG_SIZE = System.getProperty("noOfMsgToBuffer", "1000").toInt()
         private val POLL_PERIOD_MS = System.getProperty("pollInMs", "100").toLong()
+        private const val DRAIN_BATCH_SIZE = 100
+        private const val QUEUE_MULTIPLIER = 2
     }
 
     private val logger = NotifyingLogger(FixMessageSession::class.java, onError)
@@ -31,7 +33,7 @@ class FixMessageSession(
     val messages: StateFlow<List<AppMessage>> = _messages.asStateFlow()
 
     private val _viewMode = MutableStateFlow(
-        if (defaultViewMode.lowercase() == "grid") ViewMode.PARSED else ViewMode.RAW
+        if (defaultViewMode.lowercase() == "grid") ViewMode.PARSED else ViewMode.RAW,
     )
     val viewMode: StateFlow<ViewMode> = _viewMode.asStateFlow()
 
@@ -77,7 +79,7 @@ class FixMessageSession(
     private var _appSettings: AppSettings? = null
     private var _dictionary: FixDictionary? = null
 
-    private val messageQueue = LinkedBlockingQueue<AppMessage>()
+    private val messageQueue = LinkedBlockingQueue<AppMessage>(BUFFER_MSG_SIZE * QUEUE_MULTIPLIER)
     private val scope = CoroutineScope(Dispatchers.Default)
 
     private var isActive = true
@@ -140,16 +142,23 @@ class FixMessageSession(
     private fun startMessagePolling() {
         scope.launch {
             while (isActive) {
-                val message = messageQueue.poll()
-                if (message != null) {
-                    val currentMessages = _messages.value
-                    _messages.value =
-                        if (currentMessages.size >= BUFFER_MSG_SIZE) {
-                            // Drop the oldest message and add the new one
-                            currentMessages.drop(1) + message
-                        } else {
-                            currentMessages + message
-                        }
+                val batch = mutableListOf<AppMessage>()
+                // Drain a bounded batch to keep up during bursts
+                messageQueue.drainTo(batch, DRAIN_BATCH_SIZE)
+                // drainTo may return 0 even when one item remains, so poll once more
+                messageQueue.poll()?.let { batch.add(it) }
+
+                if (batch.isNotEmpty()) {
+                    var current = _messages.value
+                    batch.forEach { message ->
+                        current =
+                            if (current.size >= BUFFER_MSG_SIZE) {
+                                current.drop(1) + message
+                            } else {
+                                current + message
+                            }
+                    }
+                    _messages.value = current
                 }
                 delay(POLL_PERIOD_MS) // Poll every 100ms
             }
@@ -163,7 +172,11 @@ class FixMessageSession(
             // Skip heartbeat messages when showHeartbeat is disabled
             return
         }
-        messageQueue.offer(message)
+        // Drop oldest enqueued item if we're at capacity to avoid unbounded growth
+        if (!messageQueue.offer(message)) {
+            messageQueue.poll()
+            messageQueue.offer(message)
+        }
     }
 
     fun addSeparator() {
@@ -219,26 +232,43 @@ class FixMessageSession(
     }
 
     fun disconnect() {
-        try {
-            // Send logout message if currently logged on
-            if (_connectionState.value == FixConnectionState.LOGGED_ON) {
-                logger.info("Sending logout before disconnect for session: {}", title)
-                quickFixService?.logout()
+        scope.launch {
+            try {
+                // Send logout message if currently logged on
+                if (_connectionState.value == FixConnectionState.LOGGED_ON) {
+                    logger.info("Sending logout before disconnect for session: {}", title)
+                    quickFixService?.logout()
 
-                // Give the logout message time to be sent before closing socket
-                Thread.sleep(500)
+                    // Wait for QuickFIX/J to complete the logout sequence via onLogout callback
+                    // The onLogout callback will set state to DISCONNECTED
+                    val logoutTimeout = 2000L // 2 seconds max wait
+                    val startTime = System.currentTimeMillis()
+
+                    while (_connectionState.value == FixConnectionState.LOGGED_ON &&
+                        System.currentTimeMillis() - startTime < logoutTimeout
+                    ) {
+                        delay(50)
+                    }
+
+                    if (_connectionState.value == FixConnectionState.LOGGED_ON) {
+                        logger.warn("Logout timeout - forcing disconnect for session: {}", title)
+                    } else {
+                        logger.info("Logout completed successfully for session: {}", title)
+                    }
+                }
+
+                // Now safely stop the connection manager after logout is complete
+                connectionManager?.stop()
+                connectionManager = null
+                quickFixService = null
+                _connectionState.value = FixConnectionState.DISCONNECTED
+
+                logger.info("Disconnected session: {}", title)
+            } catch (e: Exception) {
+                _connectionState.value = FixConnectionState.ERROR
+                val errorMsg = "Error disconnecting: ${e.message}"
+                logger.error(errorMsg, e, notifyUser = true)
             }
-
-            connectionManager?.stop()
-            connectionManager = null
-            quickFixService = null
-            _connectionState.value = FixConnectionState.DISCONNECTED
-
-            logger.info("Disconnected session: {}", title)
-        } catch (e: Exception) {
-            _connectionState.value = FixConnectionState.ERROR
-            val errorMsg = "Error disconnecting: ${e.message}"
-            logger.error(errorMsg, e, notifyUser = true)
         }
     }
 

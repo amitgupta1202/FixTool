@@ -160,7 +160,7 @@ class FixConnectionManager(
             }
 
         configFile.writeText(configContent)
-        return SessionSettings(FileInputStream(configFile))
+        return FileInputStream(configFile).use { SessionSettings(it) }
     }
 
     /**

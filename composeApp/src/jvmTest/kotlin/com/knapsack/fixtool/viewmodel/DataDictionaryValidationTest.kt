@@ -87,8 +87,8 @@ class DataDictionaryValidationTest {
         val settings = AppSettings(defaultDataDictionary = invalidPath)
 
         // When: Settings are saved and ViewModel is initialized
-        val settingsContent = """{"defaultDataDictionary":"$invalidPath"}"""
-        settingsFile.writeText(settingsContent)
+        val settingsService = com.knapsack.fixtool.service.AppSettingsService()
+        settingsService.saveSettings(settings)
         viewModel = FixMessageViewModel()
 
         // Then: Dictionary should be invalid
@@ -144,8 +144,9 @@ class DataDictionaryValidationTest {
         try {
             // When: Settings are saved with valid path and ViewModel is initialized
             val validPath = tempDictionary.absolutePath
-            val settingsContent = """{"defaultDataDictionary":"$validPath"}"""
-            settingsFile.writeText(settingsContent)
+            val settingsService = com.knapsack.fixtool.service.AppSettingsService()
+            val settings = AppSettings(defaultDataDictionary = validPath)
+            settingsService.saveSettings(settings)
             viewModel = FixMessageViewModel()
 
             // Then: Dictionary should be valid
@@ -197,8 +198,9 @@ class DataDictionaryValidationTest {
     fun testSaveSettings_WithValidPath_ClearsValidationError() {
         // Given: ViewModel is initialized with invalid dictionary
         val invalidPath = "/non/existent/path/dictionary.xml"
-        val settingsContent = """{"defaultDataDictionary":"$invalidPath"}"""
-        settingsFile.writeText(settingsContent)
+        val settingsService = com.knapsack.fixtool.service.AppSettingsService()
+        val initialSettings = AppSettings(defaultDataDictionary = invalidPath)
+        settingsService.saveSettings(initialSettings)
         viewModel = FixMessageViewModel()
 
         // Verify initial state is invalid

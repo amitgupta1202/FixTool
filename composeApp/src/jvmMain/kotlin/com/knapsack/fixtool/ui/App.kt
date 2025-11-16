@@ -20,7 +20,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.NotificationType
+import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -213,79 +215,13 @@ fun App(
                                                 with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
                                             ),
                                     ) {
-                                        val activeSession by viewModel.activeSessionState
-                                        MessageEditorPanel(
-                                            sessions = viewModel.sessions,
-                                            selectedSession = activeSession,
-                                            dictionary = viewModel.dictionary,
-                                            fields = viewModel.editorFields,
-                                            selectedFieldIndex = viewModel.editorSelectedFieldIndex,
-                                            selectedFieldIndices = viewModel.editorSelectedIndices,
-                                            onFieldUpdate = { index, field ->
-                                                viewModel.updateEditorField(
-                                                    index,
-                                                    field,
-                                                )
-                                            },
-                                            onFieldAdd = { viewModel.addEditorField() },
-                                            onFieldDelete = { index -> viewModel.deleteEditorField(index) },
-                                            onFieldMoveUp = { index -> viewModel.moveEditorFieldUp(index) },
-                                            onFieldMoveDown = { index -> viewModel.moveEditorFieldDown(index) },
-                                            onFieldSelect = { index, isCtrl, isShift ->
-                                                viewModel.selectEditorField(
-                                                    index,
-                                                    isCtrl,
-                                                    isShift,
-                                                )
-                                            },
-                                            onClearFields = { viewModel.clearEditorFields() },
-                                            onClose = { viewModel.toggleMessageEditor() },
-                                            onSend = { fields ->
-                                                val resolvedFields = fields.resolveTemplates()
-                                                val rawMessage = resolvedFields.toRawMessage()
-                                                viewModel.sendMessage(rawMessage)
-                                            },
-                                            onValidate = { fields ->
-                                                viewModel.validateEditorMessage(fields)
-                                            },
-                                            validationErrors = viewModel.editorValidationErrors,
-                                            onClearValidationErrors = { viewModel.clearEditorValidationErrors() },
-                                            onSetValidationErrors = { errors ->
-                                                viewModel.setEditorValidationErrors(
-                                                    errors,
-                                                )
-                                            },
-                                            onDescriptionVisibilityChanged = { showingDescription ->
-                                                // Adjust panel width: 28% when showing description, 20% when hidden
-                                                editorPanelSplitRatio = if (showingDescription) 0.28f else 0.20f
-                                            },
-                                            onSaveMessage = { name, fields, profileId ->
-                                                viewModel.saveEditorMessage(
-                                                    name,
-                                                    fields,
-                                                    profileId,
-                                                )
-                                            },
+                                        AppMessageEditorPanel(
+                                            viewModel = viewModel,
                                             savedMessages = savedMessages,
-                                            onLoadMessage = { savedMessage ->
-                                                viewModel.loadEditorMessage(savedMessage)
-                                            },
-                                            onDeleteMessage = { messageId, profileId ->
-                                                viewModel.deleteSavedMessage(
-                                                    messageId,
-                                                    profileId,
-                                                )
-                                            },
-                                            connectionProfiles = viewModel.connectionProfiles,
                                             currentProfileId = currentProfileId,
                                             currentLoadedMessageName = currentLoadedMessageName,
-                                            onSessionChange = { session -> viewModel.setActiveSessionByObject(session) },
-                                            onError = { errorMsg ->
-                                                viewModel.showNotification(
-                                                    errorMsg,
-                                                    NotificationType.ERROR,
-                                                )
-                                            },
+                                            editorPanelSplitRatio = editorPanelSplitRatio,
+                                            onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     }
@@ -377,13 +313,10 @@ fun App(
                                         )
 
                                         Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                            SearchResultsPane(
-                                                searchResults = pinnedSearchResults,
+                                            AppSearchResultsPane(
+                                                viewModel = viewModel,
+                                                pinnedSearchResults = pinnedSearchResults,
                                                 selectedMessage = selectedMessage,
-                                                dictionary = viewModel.dictionary,
-                                                appSettings = viewModel.appSettings,
-                                                onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
-                                                onClose = { viewModel.closeSearchResultsPane() },
                                                 modifier = Modifier.fillMaxSize(),
                                             )
                                         }
@@ -416,14 +349,9 @@ fun App(
                                                 with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
                                             ),
                                     ) {
-                                        MessageDetailPanel(
-                                            message = selectedMessage,
-                                            dictionary = viewModel.dictionary,
-                                            onClose = { viewModel.toggleDetailPanel() },
-                                            onPasteMessage = { rawMessage ->
-                                                viewModel.pasteAndDisplayMessage(rawMessage)
-                                            },
-                                            appSettings = viewModel.appSettings,
+                                        AppMessageDetailPanel(
+                                            viewModel = viewModel,
+                                            selectedMessage = selectedMessage,
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     }
@@ -504,81 +432,13 @@ fun App(
                                                     with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
                                                 ),
                                         ) {
-                                            val activeSession by viewModel.activeSessionState
-                                            MessageEditorPanel(
-                                                sessions = viewModel.sessions,
-                                                selectedSession = activeSession,
-                                                dictionary = viewModel.dictionary,
-                                                fields = viewModel.editorFields,
-                                                selectedFieldIndex = viewModel.editorSelectedFieldIndex,
-                                                selectedFieldIndices = viewModel.editorSelectedIndices,
-                                                onFieldUpdate = { index, field ->
-                                                    viewModel.updateEditorField(
-                                                        index,
-                                                        field,
-                                                    )
-                                                },
-                                                onFieldAdd = { viewModel.addEditorField() },
-                                                onFieldDelete = { index -> viewModel.deleteEditorField(index) },
-                                                onFieldMoveUp = { index -> viewModel.moveEditorFieldUp(index) },
-                                                onFieldMoveDown = { index -> viewModel.moveEditorFieldDown(index) },
-                                                onFieldSelect = { index, isCtrl, isShift ->
-                                                    viewModel.selectEditorField(
-                                                        index,
-                                                        isCtrl,
-                                                        isShift,
-                                                    )
-                                                },
-                                                onClearFields = { viewModel.clearEditorFields() },
-                                                onClose = { viewModel.toggleMessageEditor() },
-                                                onSend = { fields ->
-                                                    val resolvedFields = fields.resolveTemplates()
-                                                    val rawMessage = resolvedFields.toRawMessage()
-                                                    viewModel.sendMessage(rawMessage)
-                                                },
-                                                onValidate = { fields ->
-                                                    viewModel.validateEditorMessage(fields)
-                                                },
-                                                validationErrors = viewModel.editorValidationErrors,
-                                                onClearValidationErrors = { viewModel.clearEditorValidationErrors() },
-                                                onSetValidationErrors = { errors ->
-                                                    viewModel.setEditorValidationErrors(
-                                                        errors,
-                                                    )
-                                                },
-                                                onDescriptionVisibilityChanged = { showingDescription ->
-                                                    // Adjust panel width: 28% when showing description, 20% when hidden
-                                                    editorPanelSplitRatio = if (showingDescription) 0.28f else 0.20f
-                                                },
-                                                onSaveMessage = { name, fields, profileId ->
-                                                    viewModel.saveEditorMessage(
-                                                        name,
-                                                        fields,
-                                                        profileId,
-                                                    )
-                                                },
+                                            AppMessageEditorPanel(
+                                                viewModel = viewModel,
                                                 savedMessages = savedMessages,
-                                                onLoadMessage = { savedMessage ->
-                                                    viewModel.loadEditorMessage(
-                                                        savedMessage,
-                                                    )
-                                                },
-                                                onDeleteMessage = { messageId, profileId ->
-                                                    viewModel.deleteSavedMessage(
-                                                        messageId,
-                                                        profileId,
-                                                    )
-                                                },
-                                                connectionProfiles = viewModel.connectionProfiles,
                                                 currentProfileId = currentProfileId,
                                                 currentLoadedMessageName = currentLoadedMessageName,
-                                                onSessionChange = { session -> viewModel.setActiveSessionByObject(session) },
-                                                onError = { errorMsg ->
-                                                    viewModel.showNotification(
-                                                        errorMsg,
-                                                        NotificationType.ERROR,
-                                                    )
-                                                },
+                                                editorPanelSplitRatio = editorPanelSplitRatio,
+                                                onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
                                                 modifier = Modifier.fillMaxSize(),
                                             )
                                         }
@@ -640,13 +500,10 @@ fun App(
                                             )
 
                                             Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                                SearchResultsPane(
-                                                    searchResults = pinnedSearchResults,
+                                                AppSearchResultsPane(
+                                                    viewModel = viewModel,
+                                                    pinnedSearchResults = pinnedSearchResults,
                                                     selectedMessage = selectedMessage,
-                                                    dictionary = viewModel.dictionary,
-                                                    appSettings = viewModel.appSettings,
-                                                    onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
-                                                    onClose = { viewModel.closeSearchResultsPane() },
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
                                             }
@@ -679,14 +536,9 @@ fun App(
                                                     with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
                                                 ),
                                         ) {
-                                            MessageDetailPanel(
-                                                message = selectedMessage,
-                                                dictionary = viewModel.dictionary,
-                                                onClose = { viewModel.toggleDetailPanel() },
-                                                onPasteMessage = { rawMessage ->
-                                                    viewModel.pasteAndDisplayMessage(rawMessage)
-                                                },
-                                                appSettings = viewModel.appSettings,
+                                            AppMessageDetailPanel(
+                                                viewModel = viewModel,
+                                                selectedMessage = selectedMessage,
                                                 modifier = Modifier.fillMaxSize(),
                                             )
                                         }
@@ -785,13 +637,10 @@ fun App(
                                     )
 
                                     Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                        SearchResultsPane(
-                                            searchResults = pinnedSearchResults,
+                                        AppSearchResultsPane(
+                                            viewModel = viewModel,
+                                            pinnedSearchResults = pinnedSearchResults,
                                             selectedMessage = selectedMessage,
-                                            dictionary = viewModel.dictionary,
-                                            appSettings = viewModel.appSettings,
-                                            onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
-                                            onClose = { viewModel.closeSearchResultsPane() },
                                             modifier = Modifier.fillMaxSize(),
                                         )
                                     }
@@ -809,4 +658,140 @@ fun App(
             )
         }
     }
+}
+
+/**
+ * Helper composable that renders the MessageEditorPanel with all common configuration.
+ * This is extracted to avoid duplication between TABS and SPLIT layout modes.
+ */
+@Composable
+private fun AppMessageEditorPanel(
+    viewModel: FixMessageViewModel,
+    savedMessages: List<SavedFixMessage>,
+    currentProfileId: String?,
+    currentLoadedMessageName: String?,
+    editorPanelSplitRatio: Float,
+    onEditorPanelSplitRatioChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val activeSession by viewModel.activeSessionState
+
+    MessageEditorPanel(
+        sessions = viewModel.sessions,
+        selectedSession = activeSession,
+        dictionary = viewModel.dictionary,
+        fields = viewModel.editorFields,
+        selectedFieldIndex = viewModel.editorSelectedFieldIndex,
+        selectedFieldIndices = viewModel.editorSelectedIndices,
+        onFieldUpdate = { index, field ->
+            viewModel.updateEditorField(
+                index,
+                field,
+            )
+        },
+        onFieldAdd = { viewModel.addEditorField() },
+        onFieldDelete = { index -> viewModel.deleteEditorField(index) },
+        onFieldMoveUp = { index -> viewModel.moveEditorFieldUp(index) },
+        onFieldMoveDown = { index -> viewModel.moveEditorFieldDown(index) },
+        onFieldSelect = { index, isCtrl, isShift ->
+            viewModel.selectEditorField(
+                index,
+                isCtrl,
+                isShift,
+            )
+        },
+        onClearFields = { viewModel.clearEditorFields() },
+        onClose = { viewModel.toggleMessageEditor() },
+        onSend = { fields ->
+            val resolvedFields = fields.resolveTemplates()
+            val rawMessage = resolvedFields.toRawMessage()
+            viewModel.sendMessage(rawMessage)
+        },
+        onValidate = { fields ->
+            viewModel.validateEditorMessage(fields)
+        },
+        validationErrors = viewModel.editorValidationErrors,
+        onClearValidationErrors = { viewModel.clearEditorValidationErrors() },
+        onSetValidationErrors = { errors ->
+            viewModel.setEditorValidationErrors(
+                errors,
+            )
+        },
+        onDescriptionVisibilityChanged = { showingDescription ->
+            // Adjust panel width: 28% when showing description, 20% when hidden
+            onEditorPanelSplitRatioChange(if (showingDescription) 0.28f else 0.20f)
+        },
+        onSaveMessage = { name, fields, profileId ->
+            viewModel.saveEditorMessage(
+                name,
+                fields,
+                profileId,
+            )
+        },
+        savedMessages = savedMessages,
+        onLoadMessage = { savedMessage ->
+            viewModel.loadEditorMessage(savedMessage)
+        },
+        onDeleteMessage = { messageId, profileId ->
+            viewModel.deleteSavedMessage(
+                messageId,
+                profileId,
+            )
+        },
+        connectionProfiles = viewModel.connectionProfiles,
+        currentProfileId = currentProfileId,
+        currentLoadedMessageName = currentLoadedMessageName,
+        onSessionChange = { session -> viewModel.setActiveSessionByObject(session) },
+        onError = { errorMsg ->
+            viewModel.showNotification(
+                errorMsg,
+                NotificationType.ERROR,
+            )
+        },
+        modifier = modifier,
+    )
+}
+
+/**
+ * Helper composable that renders the MessageDetailPanel with all common configuration.
+ * This is extracted to avoid duplication between TABS and SPLIT layout modes.
+ */
+@Composable
+private fun AppMessageDetailPanel(
+    viewModel: FixMessageViewModel,
+    selectedMessage: FixMessage?,
+    modifier: Modifier = Modifier,
+) {
+    MessageDetailPanel(
+        message = selectedMessage,
+        dictionary = viewModel.dictionary,
+        onClose = { viewModel.toggleDetailPanel() },
+        onPasteMessage = { rawMessage ->
+            viewModel.pasteAndDisplayMessage(rawMessage)
+        },
+        appSettings = viewModel.appSettings,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Helper composable that renders the SearchResultsPane with all common configuration.
+ * This is extracted to avoid duplication between TABS and SPLIT layout modes.
+ */
+@Composable
+private fun AppSearchResultsPane(
+    viewModel: FixMessageViewModel,
+    pinnedSearchResults: List<FixMessageViewModel.SearchResult>,
+    selectedMessage: FixMessage?,
+    modifier: Modifier = Modifier,
+) {
+    SearchResultsPane(
+        searchResults = pinnedSearchResults,
+        selectedMessage = selectedMessage,
+        dictionary = viewModel.dictionary,
+        appSettings = viewModel.appSettings,
+        onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
+        onClose = { viewModel.closeSearchResultsPane() },
+        modifier = modifier,
+    )
 }

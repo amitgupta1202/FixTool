@@ -62,23 +62,80 @@ object FixMessageTemplate {
             val engine = ScriptEngineManager().getEngineByExtension("kts")
                 ?: throw IllegalStateException("Kotlin script engine not found.")
 
-            // Pre-import commonly used classes
-            val imports = """
-                import java.util.UUID
-                import java.time.LocalDateTime
-                import java.time.format.DateTimeFormatter
-                import java.time.Instant
-            """.trimIndent()
+            // Build helper objects that can be serialized into the script
+            // Extract message data into simple maps
+            val incomingData = incomingMessages.mapValues { (_, msg) ->
+                val tags = mutableMapOf<Int, String?>()
+                msg.quickfixMessage.iterator().forEach { field ->
+                    tags[field.tag] = field.`object`.toString()
+                }
+                tags.toMap()
+            }
 
-            engine.eval(imports)
+            val outgoingData = outgoingMessages.mapValues { (_, msg) ->
+                val tags = mutableMapOf<Int, String?>()
+                msg.quickfixMessage.iterator().forEach { field ->
+                    tags[field.tag] = field.`object`.toString()
+                }
+                tags.toMap()
+            }
 
-            // Expose the message maps to the script
-            engine.put("incoming", incomingMessages)
-            engine.put("outgoing", outgoingMessages)
+            // Build helper class definition and data as part of the script
+            val helperCode = buildString {
+                appendLine("import java.util.UUID")
+                appendLine("import java.time.LocalDateTime")
+                appendLine("import java.time.format.DateTimeFormatter")
+                appendLine("import java.time.Instant")
+                appendLine()
+                appendLine("// Helper class for message tag access")
+                appendLine("class MessageAccessor(private val tags: Map<Int, String?>) {")
+                appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]")
+                appendLine("    operator fun get(tag: Int): String? = tags[tag]")
+                appendLine("}")
+                appendLine()
+                appendLine("// Wrapper for safe map access - returns empty accessor if message type not found")
+                appendLine("class MessageMap(private val messages: Map<String, MessageAccessor>) {")
+                appendLine("    operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())")
+                appendLine("}")
+                appendLine()
+                appendLine("// Build incoming and outgoing message maps")
+                append("val incoming = MessageMap(mapOf<String, MessageAccessor>(")
+                if (incomingData.isNotEmpty()) {
+                    appendLine()
+                    incomingData.entries.forEachIndexed { index, (msgType, tags) ->
+                        val tagsStr = tags.entries.joinToString(", ") { (tag, value) ->
+                            "$tag to ${value?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"}"
+                        }
+                        append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
+                        if (index < incomingData.size - 1) appendLine(",") else appendLine()
+                    }
+                    appendLine("))")
+                } else {
+                    appendLine("))")
+                }
+                appendLine()
+                append("val outgoing = MessageMap(mapOf<String, MessageAccessor>(")
+                if (outgoingData.isNotEmpty()) {
+                    appendLine()
+                    outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
+                        val tagsStr = tags.entries.joinToString(", ") { (tag, value) ->
+                            "$tag to ${value?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"}"
+                        }
+                        append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
+                        if (index < outgoingData.size - 1) appendLine(",") else appendLine()
+                    }
+                    appendLine("))")
+                } else {
+                    appendLine("))")
+                }
+                appendLine()
+                appendLine("// Evaluate the user's expression")
+                appendLine(expression)
+            }
 
-            // Evaluate the expression
-            val result = engine.eval(expression)
-            result?.toString() ?: ""
+            // Evaluate the complete script
+            val result = engine.eval(helperCode)
+            result?.toString() ?: "null"
         } catch (e: ScriptException) {
             // If evaluation fails, return the original expression
             "\${$expression}"

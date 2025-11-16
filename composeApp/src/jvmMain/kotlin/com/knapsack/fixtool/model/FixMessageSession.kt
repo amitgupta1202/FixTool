@@ -63,10 +63,6 @@ class FixMessageSession(
     private val _filterMessageTypes = MutableStateFlow("")
     val filterMessageTypes: StateFlow<String> = _filterMessageTypes.asStateFlow()
 
-    // Hide protocol tags state (for PARSED view)
-    private val _hideProtocolTags = MutableStateFlow(true)
-    val hideProtocolTags: StateFlow<Boolean> = _hideProtocolTags.asStateFlow()
-
     // Recently sent message timestamp (for highlighting)
     private val _recentlySentMessageTimestamp = MutableStateFlow<LocalDateTime?>(null)
     val recentlySentMessageTimestamp: StateFlow<LocalDateTime?> = _recentlySentMessageTimestamp.asStateFlow()
@@ -133,10 +129,6 @@ class FixMessageSession(
 
     fun setFilterMessageTypes(types: String) {
         _filterMessageTypes.value = types
-    }
-
-    fun toggleHideProtocolTags() {
-        _hideProtocolTags.value = !_hideProtocolTags.value
     }
 
     private fun startMessagePolling() {

@@ -273,7 +273,6 @@ private fun SessionPanel(
     val filterShowSeparator by session.filterShowSeparator.collectAsState()
     val filterMessageTypes by session.filterMessageTypes.collectAsState()
     val connectionState by session.connectionState.collectAsState()
-    val hideProtocolTags by session.hideProtocolTags.collectAsState()
     val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
 
     Column(
@@ -411,24 +410,6 @@ private fun SessionPanel(
                     tint = AppTheme.Colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
-            }
-
-            // Protocol tags toggle (only visible in PARSED mode)
-            if (sessionViewMode == FixMessageSession.ViewMode.PARSED) {
-                Spacer(modifier = Modifier.width(2.dp))
-
-                TooltipIconButton(
-                    tooltip = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
-                    onClick = { session.toggleHideProtocolTags() },
-                    modifier = Modifier.size(buttonSize),
-                ) {
-                    Icon(
-                        imageVector = if (hideProtocolTags) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
-                        tint = iconTintColor,
-                        modifier = Modifier.size(iconSize),
-                    )
-                }
             }
 
             // View mode toggle for this session - shows destination icon (matching global toolbar)
@@ -832,7 +813,7 @@ private fun SessionPanel(
             onPasteMessage = onPasteMessage,
             showDetailPanel = false,
             searchVisible = searchVisible,
-            hideProtocolTags = hideProtocolTags,
+            hideProtocolTags = appSettings.hideProtocolTags,
             gridViewColumns = gridViewColumns,
             appSettings = appSettings,
             onToggleSearch = { session.toggleSearch() },

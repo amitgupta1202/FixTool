@@ -44,6 +44,7 @@ fun Toolbar(
     globalFilterRegex: String = "",
     globalFilterShowIncoming: Boolean = true,
     globalFilterShowOutgoing: Boolean = true,
+    hideProtocolTags: Boolean = true,
     onOpenMessageEditor: (() -> Unit)? = null,
     onToggleDetailPanel: (() -> Unit)? = null,
     onToggleConnectionPanel: (() -> Unit)? = null,
@@ -57,6 +58,7 @@ fun Toolbar(
     onGlobalFilterChange: ((String) -> Unit)? = null,
     onGlobalFilterIncomingChange: ((Boolean) -> Unit)? = null,
     onGlobalFilterOutgoingChange: ((Boolean) -> Unit)? = null,
+    onToggleHideProtocolTags: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -398,6 +400,22 @@ fun Toolbar(
                         },
                     contentDescription = "Toggle View for All Sessions",
                     tint = toggleDisabledColor(activeSessionViewMode != null, AppTheme.Colors.textSecondary, AppTheme.Colors.textDisabled),
+                    modifier = tooltipIconModifier,
+                )
+            }
+        }
+
+        // Hide/Show Protocol Tags Toggle (applies to all sessions)
+        if (onToggleHideProtocolTags != null) {
+            TooltipIconButton(
+                tooltip = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
+                onClick = onToggleHideProtocolTags,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = if (hideProtocolTags) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = tooltipIconModifier,
                 )
             }

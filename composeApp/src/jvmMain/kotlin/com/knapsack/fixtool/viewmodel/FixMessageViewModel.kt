@@ -371,6 +371,11 @@ class FixMessageViewModel : ViewModel() {
         _showConnectionPanel.value = !_showConnectionPanel.value
     }
 
+    fun toggleHideProtocolTags() {
+        val updatedSettings = appSettings.copy(hideProtocolTags = !appSettings.hideProtocolTags)
+        saveAppSettings(updatedSettings)
+    }
+
     fun toggleSettingsDialog() {
         _showSettingsDialog.value = !_showSettingsDialog.value
     }

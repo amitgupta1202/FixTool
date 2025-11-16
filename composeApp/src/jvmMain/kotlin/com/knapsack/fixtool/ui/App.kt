@@ -147,6 +147,7 @@ fun App(
                     globalFilterRegex = globalFilterRegex,
                     globalFilterShowIncoming = globalFilterShowIncoming,
                     globalFilterShowOutgoing = globalFilterShowOutgoing,
+                    hideProtocolTags = viewModel.appSettings.hideProtocolTags,
                     onOpenMessageEditor = { viewModel.toggleMessageEditor() },
                     onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                     onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
@@ -170,6 +171,7 @@ fun App(
                     onGlobalFilterChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
                     onGlobalFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
                     onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
+                    onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
                 )
 
@@ -330,7 +332,6 @@ fun App(
                                         val messages by session.messages.collectAsState()
                                         val sessionViewMode by session.viewMode.collectAsState()
                                         val wrapText by session.wrapText.collectAsState()
-                                        val hideProtocolTags by session.hideProtocolTags.collectAsState()
                                         val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
 
                                         FixMessageDisplay(
@@ -342,7 +343,7 @@ fun App(
                                             recentlySentMessageTimestamp = recentlySentMessageTimestamp,
                                             onSelectMessage = { message -> viewModel.selectMessage(message) },
                                             showDetailPanel = false,
-                                            hideProtocolTags = hideProtocolTags,
+                                            hideProtocolTags = viewModel.appSettings.hideProtocolTags,
                                             gridViewColumns = viewModel.appSettings.gridViewColumns,
                                             appSettings = viewModel.appSettings,
                                             modifier = Modifier.weight(1f),

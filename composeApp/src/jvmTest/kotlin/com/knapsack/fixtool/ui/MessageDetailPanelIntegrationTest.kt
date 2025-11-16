@@ -215,29 +215,6 @@ class MessageDetailPanelIntegrationTest {
     }
 
     @Test
-    fun testProtocolTagToggleButtonExists() {
-        // Given: A Quote Request message
-        val quoteRequest = createQuoteRequest()
-
-        // When: MessageDetailPanel is displayed
-        composeTestRule.setContent {
-            MessageDetailPanel(
-                message = quoteRequest,
-                dictionary = dictionary,
-                onClose = { closeCallCount++ },
-            )
-        }
-
-        // Then: The protocol tag visibility toggle button should be displayed
-        // (Either "Show Protocol Tags" or "Hide Protocol Tags" depending on initial state)
-        try {
-            composeTestRule.onNodeWithContentDescription("Show Protocol Tags").assertExists()
-        } catch (e: AssertionError) {
-            composeTestRule.onNodeWithContentDescription("Hide Protocol Tags").assertExists()
-        }
-    }
-
-    @Test
     fun testExpandCollapseAllButtonExists() {
         // Given: A Quote Request with repeating groups
         val quoteRequest = createQuoteRequest()

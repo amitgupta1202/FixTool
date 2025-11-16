@@ -17,7 +17,7 @@ data class AppSettings(
     // Grid View Settings
     val gridViewColumns: List<Int> = listOf(11, 131, 693), // List of FIX tags to display as columns (ClOrdID, QuoteReqID, QuoteRequestRejectReason)
     // Protocol Tags Settings
-    val hideProtocolTagsByDefault: Boolean = true, // Hide protocol tags by default in message details
+    val hideProtocolTags: Boolean = true, // Hide protocol tags in message details (global setting)
     val protocolTags: Set<Int> = defaultProtocolTags, // List of FIX tags considered as protocol tags
     // Message Color Scheme
     val messageColorScheme: MessageColorScheme = MessageColorScheme.default(),

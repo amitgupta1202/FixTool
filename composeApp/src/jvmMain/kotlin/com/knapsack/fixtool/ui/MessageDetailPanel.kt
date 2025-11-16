@@ -52,7 +52,6 @@ fun MessageDetailPanel(
     val listState = rememberLazyListState()
     val density = LocalDensity.current
     var rawMessageSplitRatio by remember { mutableStateOf(0.2f) } // Raw message section takes 30% by default
-    var hideProtocolTags by remember { mutableStateOf(appSettings.hideProtocolTagsByDefault) } // Use setting
     var searchQuery by remember { mutableStateOf("") }
 
     Box(
@@ -107,25 +106,9 @@ fun MessageDetailPanel(
                                 modifier = iconSize,
                             )
                         }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        // Toggle protocol tags button
-                        TooltipIconButton(
-                            tooltip = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
-                            onClick = { hideProtocolTags = !hideProtocolTags },
-                            modifier = buttonSize,
-                        ) {
-                            Icon(
-                                imageVector = if (hideProtocolTags) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
-                                tint = iconTintColor,
-                                modifier = iconSize,
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
                     }
+
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     // Close button
                     TooltipIconButton(
@@ -250,7 +233,7 @@ fun MessageDetailPanel(
                                         renderQuickFixMessage(
                                             message = message.quickfixMessage,
                                             dictionary = dictionary,
-                                            hideProtocolTags = hideProtocolTags,
+                                            hideProtocolTags = appSettings.hideProtocolTags,
                                             searchQuery = searchQuery,
                                             protocolTags = appSettings.protocolTags,
                                             expandedGroups = expandedGroups,

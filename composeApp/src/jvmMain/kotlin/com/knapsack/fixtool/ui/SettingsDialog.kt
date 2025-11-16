@@ -44,7 +44,7 @@ fun SettingsDialog(
     var validateUserDefinedFields by remember { mutableStateOf(currentSettings.validateUserDefinedFields) }
     var validateIncomingMessage by remember { mutableStateOf(currentSettings.validateIncomingMessage) }
     var gridViewColumns by remember { mutableStateOf(currentSettings.gridViewColumns.toMutableList()) }
-    var hideProtocolTagsByDefault by remember { mutableStateOf(currentSettings.hideProtocolTagsByDefault) }
+    var hideProtocolTags by remember { mutableStateOf(currentSettings.hideProtocolTags) }
     var protocolTags by remember { mutableStateOf(currentSettings.protocolTags.toMutableSet()) }
     var messageColorScheme by remember { mutableStateOf(currentSettings.messageColorScheme) }
     var defaultViewMode by remember { mutableStateOf(currentSettings.defaultViewMode) }
@@ -100,7 +100,7 @@ fun SettingsDialog(
                                 validateUserDefinedFields = defaults.validateUserDefinedFields
                                 validateIncomingMessage = defaults.validateIncomingMessage
                                 gridViewColumns = defaults.gridViewColumns.toMutableList()
-                                hideProtocolTagsByDefault = defaults.hideProtocolTagsByDefault
+                                hideProtocolTags = defaults.hideProtocolTags
                                 protocolTags = defaults.protocolTags.toMutableSet()
                                 messageColorScheme = defaults.messageColorScheme
                                 defaultViewMode = defaults.defaultViewMode
@@ -610,8 +610,8 @@ fun SettingsDialog(
                     CheckboxSetting(
                         label = "Hide Protocol Tags by Default",
                         description = "Automatically hide protocol tags when viewing message details",
-                        checked = hideProtocolTagsByDefault,
-                        onCheckedChange = { hideProtocolTagsByDefault = it },
+                        checked = hideProtocolTags,
+                        onCheckedChange = { hideProtocolTags = it },
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1028,7 +1028,7 @@ fun SettingsDialog(
                                     validateUserDefinedFields = validateUserDefinedFields,
                                     validateIncomingMessage = validateIncomingMessage,
                                     gridViewColumns = gridViewColumns.toList(),
-                                    hideProtocolTagsByDefault = hideProtocolTagsByDefault,
+                                    hideProtocolTags = hideProtocolTags,
                                     protocolTags = protocolTags.toSet(),
                                     messageColorScheme = messageColorScheme,
                                     defaultViewMode = defaultViewMode,

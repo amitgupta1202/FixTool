@@ -69,35 +69,6 @@ class SessionDisplayGridModeTest {
     }
 
     // ========================================
-    // Protocol Tag Hiding Tests
-    // ========================================
-
-    @Test
-    fun testHideProtocolTagsDefaultState() {
-        assertTrue(
-            session.hideProtocolTags.value,
-            "Protocol tags should be hidden by default in grid view",
-        )
-    }
-
-    @Test
-    fun testToggleProtocolTagsVisibility() {
-        assertTrue(session.hideProtocolTags.value)
-
-        session.toggleHideProtocolTags()
-        assertFalse(
-            session.hideProtocolTags.value,
-            "Protocol tags should be visible after toggle",
-        )
-
-        session.toggleHideProtocolTags()
-        assertTrue(
-            session.hideProtocolTags.value,
-            "Protocol tags should be hidden again after second toggle",
-        )
-    }
-
-    // ========================================
     // Grid Mode Message Display Tests
     // ========================================
 

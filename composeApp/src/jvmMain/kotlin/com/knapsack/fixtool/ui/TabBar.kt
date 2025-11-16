@@ -67,7 +67,6 @@ fun TabBar(
                 val connectionState by activeSession.connectionState.collectAsState()
                 val searchVisible by activeSession.searchVisible.collectAsState()
                 val filterVisible by activeSession.filterVisible.collectAsState()
-                val hideProtocolTags by activeSession.hideProtocolTags.collectAsState()
 
                 // RAW mode specific buttons (wrap, search)
                 if (viewMode == FixMessageSession.ViewMode.RAW) {

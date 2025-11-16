@@ -15,33 +15,21 @@ import kotlin.test.assertTrue
  */
 class DataDictionaryValidationTest {
     private lateinit var viewModel: FixMessageViewModel
-    private lateinit var settingsFile: File
-    private lateinit var backupFile: File
+    private lateinit var testDir: File
 
     @Before
     fun setup() {
-        // Backup and clear settings file to ensure test isolation
-        settingsFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json")
-        backupFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json.backup")
-
-        if (settingsFile.exists()) {
-            settingsFile.copyTo(backupFile, overwrite = true)
-            settingsFile.delete()
+        // Create a temporary directory for test files (isolated from production)
+        testDir = File.createTempFile("fixtool-test", "").apply {
+            delete() // Delete the file
+            mkdirs() // Create as directory
         }
     }
 
     @After
     fun cleanup() {
-        // Clean up test data and restore original file
-        if (settingsFile.exists()) {
-            settingsFile.delete()
-        }
-
-        // Restore backup if it exists
-        if (backupFile.exists()) {
-            backupFile.copyTo(settingsFile, overwrite = true)
-            backupFile.delete()
-        }
+        // Clean up test directory and all files
+        testDir.deleteRecursively()
     }
 
     // ========================================
@@ -52,7 +40,7 @@ class DataDictionaryValidationTest {
     fun testNoDictionaryConfigured_ShowsError() {
         // Given: No data dictionary configured (empty path)
         // When: ViewModel is initialized
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Then: Dictionary should be invalid
         assertFalse(viewModel.isDictionaryValid.value, "Dictionary should be invalid when not configured")
@@ -87,9 +75,9 @@ class DataDictionaryValidationTest {
         val settings = AppSettings(defaultDataDictionary = invalidPath)
 
         // When: Settings are saved and ViewModel is initialized
-        val settingsService = com.knapsack.fixtool.service.AppSettingsService()
+        val settingsService = com.knapsack.fixtool.service.AppSettingsService(customSettingsDir = testDir.absolutePath)
         settingsService.saveSettings(settings)
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Then: Dictionary should be invalid
         assertFalse(viewModel.isDictionaryValid.value, "Dictionary should be invalid for non-existent file")
@@ -144,10 +132,10 @@ class DataDictionaryValidationTest {
         try {
             // When: Settings are saved with valid path and ViewModel is initialized
             val validPath = tempDictionary.absolutePath
-            val settingsService = com.knapsack.fixtool.service.AppSettingsService()
+            val settingsService = com.knapsack.fixtool.service.AppSettingsService(customSettingsDir = testDir.absolutePath)
             val settings = AppSettings(defaultDataDictionary = validPath)
             settingsService.saveSettings(settings)
-            viewModel = FixMessageViewModel()
+            viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
             // Then: Dictionary should be valid
             assertTrue(viewModel.isDictionaryValid.value, "Dictionary should be valid for existing file")
@@ -167,7 +155,7 @@ class DataDictionaryValidationTest {
     @Test
     fun testSaveSettings_WithInvalidPath_UpdatesValidationState() {
         // Given: ViewModel is initialized with no dictionary
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Clear any initial notifications
         viewModel.notifications.forEach { viewModel.dismissNotification(it.id) }
@@ -198,10 +186,10 @@ class DataDictionaryValidationTest {
     fun testSaveSettings_WithValidPath_ClearsValidationError() {
         // Given: ViewModel is initialized with invalid dictionary
         val invalidPath = "/non/existent/path/dictionary.xml"
-        val settingsService = com.knapsack.fixtool.service.AppSettingsService()
+        val settingsService = com.knapsack.fixtool.service.AppSettingsService(customSettingsDir = testDir.absolutePath)
         val initialSettings = AppSettings(defaultDataDictionary = invalidPath)
         settingsService.saveSettings(initialSettings)
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Verify initial state is invalid
         assertFalse(viewModel.isDictionaryValid.value, "Should start with invalid dictionary")
@@ -246,7 +234,7 @@ class DataDictionaryValidationTest {
     @Test
     fun testSaveSettings_WithEmptyPath_ShowsConfigurationError() {
         // Given: ViewModel is initialized
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Clear any initial notifications
         viewModel.notifications.forEach { viewModel.dismissNotification(it.id) }

@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
-class FixMessageViewModel : ViewModel() {
+class FixMessageViewModel(
+    testSettingsDir: String? = null,
+) : ViewModel() {
     private val logger =
         NotifyingLogger(
             FixMessageViewModel::class.java,
@@ -102,7 +104,7 @@ class FixMessageViewModel : ViewModel() {
     val globalFilterShowOutgoing: StateFlow<Boolean> = _globalFilterShowOutgoing.asStateFlow()
 
     // App settings (loaded first before other services)
-    private val settingsService = AppSettingsService()
+    private val settingsService = AppSettingsService(customSettingsDir = testSettingsDir)
     private val _appSettings = mutableStateOf(AppSettings.default())
     val appSettings: AppSettings
         get() = _appSettings.value

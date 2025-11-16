@@ -8,8 +8,11 @@ import java.io.File
 
 /**
  * Service for persisting and loading application settings
+ * @param customSettingsDir Optional custom directory path for settings file (for testing)
  */
-class AppSettingsService {
+class AppSettingsService(
+    customSettingsDir: String? = null,
+) {
     companion object {
         private val logger = LoggerFactory.getLogger(AppSettingsService::class.java)
     }
@@ -21,7 +24,12 @@ class AppSettingsService {
             encodeDefaults = true // Always encode all fields, even if they have default values
         }
 
-    private val settingsFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json")
+    private val settingsFile =
+        if (customSettingsDir != null) {
+            File(customSettingsDir, "app_settings.json")
+        } else {
+            File(System.getProperty("user.home"), ".fixtool/app_settings.json")
+        }
 
     init {
         // Ensure directory exists

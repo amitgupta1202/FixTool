@@ -5,18 +5,33 @@ import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import quickfix.Message
+import java.io.File
 import java.time.LocalDateTime
 
 class SearchResultsPaneTest {
     private lateinit var viewModel: FixMessageViewModel
+    private lateinit var testDir: File
 
     @Before
     fun setup() {
-        viewModel = FixMessageViewModel()
+        // Create a temporary directory for test files (isolated from production)
+        testDir = File.createTempFile("fixtool-test", "").apply {
+            delete() // Delete the file
+            mkdirs() // Create as directory
+        }
+
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+    }
+
+    @After
+    fun cleanup() {
+        // Clean up test directory
+        testDir.deleteRecursively()
     }
 
     @Test

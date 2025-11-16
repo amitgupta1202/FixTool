@@ -24,9 +24,16 @@ import kotlin.test.assertTrue
 class GlobalSearchTest {
     private lateinit var viewModel: FixMessageViewModel
     private lateinit var tempDictFile: File
+    private lateinit var testDir: File
 
     @Before
     fun setup() {
+        // Create a temporary directory for test files (isolated from production)
+        testDir = File.createTempFile("fixtool-test", "").apply {
+            delete() // Delete the file
+            mkdirs() // Create as directory
+        }
+
         // Create temporary data dictionary for testing
         tempDictFile = File.createTempFile("test_dict", ".xml")
         tempDictFile.writeText("""
@@ -59,7 +66,7 @@ class GlobalSearchTest {
             </fix>
         """.trimIndent())
 
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Load dictionary
         val dictionary = FixDictionaryAdapter.fromFile(tempDictFile)
@@ -68,10 +75,12 @@ class GlobalSearchTest {
 
     @After
     fun cleanup() {
-        // Clean up temp file
+        // Clean up temp files
         if (tempDictFile.exists()) {
             tempDictFile.delete()
         }
+        // Clean up test directory
+        testDir.deleteRecursively()
     }
 
     // ========================================

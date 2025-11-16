@@ -15,6 +15,7 @@ import kotlin.test.assertTrue
  */
 class ErrorHandlingTest {
     private lateinit var viewModel: FixMessageViewModel
+    private lateinit var testDir: File
     private lateinit var settingsFile: File
     private lateinit var profilesFile: File
     private lateinit var messagesFile: File
@@ -24,6 +25,12 @@ class ErrorHandlingTest {
 
     @Before
     fun setup() {
+        // Create a temporary directory for test files (isolated from production)
+        testDir = File.createTempFile("fixtool-test", "").apply {
+            delete() // Delete the file
+            mkdirs() // Create as directory
+        }
+
         // Backup and prepare test environment
         settingsFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json")
         profilesFile = File(System.getProperty("user.home"), ".fixtool/connection_profiles.json")
@@ -60,6 +67,8 @@ class ErrorHandlingTest {
             if (it.exists()) {
                 it.copyTo(settingsFile, overwrite = true)
                 it.delete()
+        // Clean up test directory
+        testDir.deleteRecursively()
             }
         }
         profilesBackup?.let {
@@ -200,7 +209,7 @@ class ErrorHandlingTest {
         profilesFile.writeText("{ invalid }")
 
         // When: ViewModel is initialized
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Then: Should have error notification (or may be suppressed if no profiles are essential at startup)
         // The error callback mechanism should be wired up properly
@@ -216,7 +225,7 @@ class ErrorHandlingTest {
         messagesFile.writeText("invalid json")
 
         // When: ViewModel is initialized and loads messages
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
         viewModel.loadSavedMessagesForActiveSession()
 
         // Then: Error callback should be invoked (tested via service tests)
@@ -229,7 +238,7 @@ class ErrorHandlingTest {
     fun testViewModel_ValidFiles_NoErrorNotifications() {
         // Given: Valid (empty) state
         // When: ViewModel is initialized
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Then: Should only have dictionary-related errors (if any), not file corruption errors
         val notifications = viewModel.notifications
@@ -250,7 +259,7 @@ class ErrorHandlingTest {
     @Test
     fun testViewModel_ConnectionError_ShowsNotification() {
         // Given: ViewModel is initialized
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Clear any initial notifications
         viewModel.notifications.forEach { viewModel.dismissNotification(it.id) }
@@ -294,7 +303,7 @@ class ErrorHandlingTest {
         messagesFile.writeText("also bad")
 
         // When: ViewModel is initialized and performs operations
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
         viewModel.loadSavedMessagesForActiveSession()
 
         // Then: Should have multiple error notifications
@@ -309,7 +318,7 @@ class ErrorHandlingTest {
     fun testErrorNotification_CanBeDismissed() {
         // Given: ViewModel with an error notification
         profilesFile.writeText("invalid")
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         val initialNotifications = viewModel.notifications.toList()
         assertTrue(initialNotifications.isNotEmpty(), "Should have initial error notifications")
@@ -332,7 +341,7 @@ class ErrorHandlingTest {
         profilesFile.writeText("not json")
 
         // When: ViewModel is initialized
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Then: Error notifications should have ERROR type
         val errorNotifications = viewModel.notifications.filter { it.type == NotificationType.ERROR }

@@ -14,10 +14,17 @@ import kotlin.test.assertTrue
  */
 class MessageEditorOperationsTest {
     private lateinit var viewModel: FixMessageViewModel
+    private lateinit var testDir: File
     private lateinit var originalFile: File
 
     @Before
     fun setup() {
+        // Create a temporary directory for test files (isolated from production)
+        testDir = File.createTempFile("fixtool-test", "").apply {
+            delete() // Delete the file
+            mkdirs() // Create as directory
+        }
+
         // Backup and clear saved messages file to ensure test isolation
         originalFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
         val backupFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json.backup")
@@ -27,7 +34,7 @@ class MessageEditorOperationsTest {
             originalFile.delete()
         }
 
-        viewModel = FixMessageViewModel()
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
     }
 
     @After
@@ -35,6 +42,8 @@ class MessageEditorOperationsTest {
         // Clean up test data and restore original file
         if (originalFile.exists()) {
             originalFile.delete()
+        // Clean up test directory
+        testDir.deleteRecursively()
         }
 
         // Restore backup if it exists

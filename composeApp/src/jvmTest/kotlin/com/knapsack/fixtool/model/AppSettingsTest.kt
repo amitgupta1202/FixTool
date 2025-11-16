@@ -9,37 +9,21 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class AppSettingsTest {
-    private lateinit var originalFile: File
-    private lateinit var testFile: File
+    private lateinit var testDir: File
 
     @Before
     fun setup() {
-        // Save reference to the real file and temporarily move it
-        originalFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json")
-        val backupFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json.backup")
-
-        // Backup existing file if it exists
-        if (originalFile.exists()) {
-            originalFile.copyTo(backupFile, overwrite = true)
-            originalFile.delete()
+        // Create a temporary directory for test files (isolated from production)
+        testDir = File.createTempFile("fixtool-test", "").apply {
+            delete() // Delete the file
+            mkdirs() // Create as directory
         }
-
-        testFile = originalFile
     }
 
     @After
     fun cleanup() {
-        // Clean up test data and restore original file
-        if (testFile.exists()) {
-            testFile.delete()
-        }
-
-        // Restore backup if it exists
-        val backupFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json.backup")
-        if (backupFile.exists()) {
-            backupFile.copyTo(originalFile, overwrite = true)
-            backupFile.delete()
-        }
+        // Clean up test directory and all files
+        testDir.deleteRecursively()
     }
 
     @Test
@@ -54,7 +38,7 @@ class AppSettingsTest {
     @Test
     fun testSaveAndLoadSettingsWithGridViewColumns() {
         // Given: Settings with grid view columns configured
-        val service = AppSettingsService()
+        val service = AppSettingsService(customSettingsDir = testDir.absolutePath)
         val testColumns = listOf(35, 49, 56, 11, 55)
         val settings =
             AppSettings(
@@ -97,7 +81,7 @@ class AppSettingsTest {
     @Test
     fun testSerializationOfEmptyGridViewColumns() {
         // Given: Settings with empty grid view columns
-        val service = AppSettingsService()
+        val service = AppSettingsService(customSettingsDir = testDir.absolutePath)
         val settings =
             AppSettings(
                 defaultDataDictionary = "/path/to/dict.xml",
@@ -115,7 +99,7 @@ class AppSettingsTest {
     @Test
     fun testSerializationOfManyGridViewColumns() {
         // Given: Settings with many grid view columns
-        val service = AppSettingsService()
+        val service = AppSettingsService(customSettingsDir = testDir.absolutePath)
         val manyColumns = (1..50).toList()
         val settings =
             AppSettings(
@@ -134,7 +118,7 @@ class AppSettingsTest {
     @Test
     fun testGridViewColumnsWithDuplicates() {
         // Given: Settings with duplicate columns
-        val service = AppSettingsService()
+        val service = AppSettingsService(customSettingsDir = testDir.absolutePath)
         val columnsWithDuplicates = listOf(35, 49, 35, 56, 49)
         val settings =
             AppSettings(

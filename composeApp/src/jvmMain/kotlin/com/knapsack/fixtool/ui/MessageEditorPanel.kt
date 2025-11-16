@@ -34,6 +34,7 @@ import androidx.compose.ui.window.PopupProperties
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.util.NotifyingLogger
 import java.awt.Cursor
 import java.awt.Toolkit
@@ -45,6 +46,20 @@ data class FixField(
 ) {
     companion object {
         fun List<FixField>.toRawMessage(): String = this.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+
+        /**
+         * Evaluates template expressions in field values and returns new fields with resolved values.
+         * For example, ${UUID.randomUUID()} will be replaced with an actual UUID.
+         */
+        fun List<FixField>.resolveTemplates(): List<FixField> {
+            return this.map { field ->
+                if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
+                    field.copy(value = FixMessageTemplate.evaluate(field.value))
+                } else {
+                    field
+                }
+            }
+        }
     }
 }
 
@@ -1932,7 +1947,12 @@ private fun buildPreviewMessage(
 
     if (fieldsToShow.isEmpty()) return ""
 
-    return fieldsToShow.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+    // Resolve template expressions before displaying
+    val resolvedFields = with(FixField.Companion) {
+        fieldsToShow.resolveTemplates()
+    }
+
+    return resolvedFields.joinToString("|") { "${it.tag}=${it.value}" } + "|"
 }
 
 private fun parseRawMessageToFields(rawMessage: String): List<FixField>? {

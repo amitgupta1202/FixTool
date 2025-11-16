@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.knapsack.fixtool.model.NotificationType
+import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -240,7 +241,8 @@ fun App(
                                             onClearFields = { viewModel.clearEditorFields() },
                                             onClose = { viewModel.toggleMessageEditor() },
                                             onSend = { fields ->
-                                                val rawMessage = fields.toRawMessage()
+                                                val resolvedFields = fields.resolveTemplates()
+                                                val rawMessage = resolvedFields.toRawMessage()
                                                 viewModel.sendMessage(rawMessage)
                                             },
                                             onValidate = { fields ->

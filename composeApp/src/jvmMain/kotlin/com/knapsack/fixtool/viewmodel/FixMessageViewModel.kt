@@ -105,6 +105,16 @@ class FixMessageViewModel(
 
     // Global view mode (applies to all sessions)
     private val _viewMode = MutableStateFlow(FixMessageSession.ViewMode.PARSED) // Will be initialized from settings
+
+    // Message maps for template expressions - stores latest message of each type
+    // These can be referenced in template expressions like: ${incoming["D"].valueOfTag(11)}
+    private val _incomingMessagesByType = mutableMapOf<String, FixMessage>()
+    val incomingMessagesByType: Map<String, FixMessage>
+        get() = _incomingMessagesByType.toMap()
+
+    private val _outgoingMessagesByType = mutableMapOf<String, FixMessage>()
+    val outgoingMessagesByType: Map<String, FixMessage>
+        get() = _outgoingMessagesByType.toMap()
     val viewMode: StateFlow<FixMessageSession.ViewMode> = _viewMode.asStateFlow()
 
     // App settings (loaded first before other services)
@@ -517,6 +527,31 @@ class FixMessageViewModel(
         loadDictionaryFromSettings()
         // Validate the new dictionary
         validateDataDictionary()
+    }
+
+    /**
+     * Updates the message maps with the latest messages from all sessions.
+     * This is called before template evaluation to ensure templates can reference recent messages.
+     */
+    fun updateMessageMaps() {
+        _incomingMessagesByType.clear()
+        _outgoingMessagesByType.clear()
+
+        // Scan all sessions and collect the latest message of each type
+        _sessions.forEach { session ->
+            session.messages.value.filterIsInstance<FixMessage>().forEach { message ->
+                when (message.direction) {
+                    FixMessage.Direction.INCOMING -> {
+                        // Keep the latest incoming message of this type
+                        _incomingMessagesByType[message.messageType] = message
+                    }
+                    FixMessage.Direction.OUTGOING -> {
+                        // Keep the latest outgoing message of this type
+                        _outgoingMessagesByType[message.messageType] = message
+                    }
+                }
+            }
+        }
     }
 
     fun sendMessage(rawMessage: String) {

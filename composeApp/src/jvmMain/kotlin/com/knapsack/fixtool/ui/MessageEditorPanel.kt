@@ -50,11 +50,24 @@ data class FixField(
         /**
          * Evaluates template expressions in field values and returns new fields with resolved values.
          * For example, ${UUID.randomUUID()} will be replaced with an actual UUID.
+         * Can also reference previous messages: ${incoming["D"].valueOfTag(11)}
+         *
+         * @param incomingMessages Map of latest incoming messages by type
+         * @param outgoingMessages Map of latest outgoing messages by type
          */
-        fun List<FixField>.resolveTemplates(): List<FixField> {
+        fun List<FixField>.resolveTemplates(
+            incomingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
+            outgoingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
+        ): List<FixField> {
             return this.map { field ->
                 if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
-                    field.copy(value = FixMessageTemplate.  evaluate(field.value))
+                    field.copy(
+                        value = FixMessageTemplate.evaluate(
+                            field.value,
+                            incomingMessages,
+                            outgoingMessages,
+                        ),
+                    )
                 } else {
                     field
                 }

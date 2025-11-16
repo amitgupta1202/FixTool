@@ -43,6 +43,24 @@ data class FixMessage(
         }
     }
 
+    /**
+     * Extract the value of a specific tag from this message.
+     * Searches in header, body, and trailer.
+     * Returns null if the tag is not found.
+     */
+    fun valueOfTag(tag: Int): String? {
+        return try {
+            when {
+                quickfixMessage.header.isSetField(tag) -> quickfixMessage.header.getString(tag)
+                quickfixMessage.isSetField(tag) -> quickfixMessage.getString(tag)
+                quickfixMessage.trailer.isSetField(tag) -> quickfixMessage.trailer.getString(tag)
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     companion object {
         fun parseMessageType(raw: String): String {
             // Extract message type from tag 35

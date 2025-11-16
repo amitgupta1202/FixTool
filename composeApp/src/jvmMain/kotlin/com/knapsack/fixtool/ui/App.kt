@@ -703,7 +703,14 @@ private fun AppMessageEditorPanel(
         onClearFields = { viewModel.clearEditorFields() },
         onClose = { viewModel.toggleMessageEditor() },
         onSend = { fields ->
-            val resolvedFields = fields.resolveTemplates()
+            // Update message maps before resolving templates
+            viewModel.updateMessageMaps()
+
+            // Resolve template expressions with access to previous messages
+            val resolvedFields = fields.resolveTemplates(
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
             val rawMessage = resolvedFields.toRawMessage()
             viewModel.sendMessage(rawMessage)
         },

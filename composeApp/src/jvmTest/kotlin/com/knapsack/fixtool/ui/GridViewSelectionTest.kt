@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.*
@@ -30,7 +31,7 @@ class GridViewSelectionTest {
 
     private lateinit var dictionary: FixDictionary
     private var selectedMessage by mutableStateOf<FixMessage?>(null)
-    private val messages = mutableListOf<AppMessage>()
+    private val messages = mutableStateListOf<AppMessage>()
 
     @Before
     fun setup() {

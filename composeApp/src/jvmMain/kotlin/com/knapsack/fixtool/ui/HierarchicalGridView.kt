@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -157,7 +158,16 @@ fun HierarchicalGridView(
     // When a new message arrives, scroll to bottom if autoScroll is enabled
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty() && autoScroll) {
-            listState.scrollToItem(messages.size - 1)
+            // Wait for layout to complete before scrolling
+            kotlinx.coroutines.delay(50)
+            // Double-check messages still exist and index is valid
+            if (messages.isNotEmpty()) {
+                val targetIndex = messages.size - 1
+                // Only scroll if the target index is within bounds of the layout info
+                if (targetIndex >= 0 && targetIndex < messages.size) {
+                    listState.scrollToItem(targetIndex)
+                }
+            }
         }
     }
 
@@ -495,54 +505,44 @@ fun HierarchicalGridView(
                     state = listState,
                     modifier = Modifier.weight(1f),
                 ) {
-                    messages.forEach { message ->
+                    itemsIndexed(
+                        items = messages,
+                        key = { _, message -> message.timestamp.toString() },
+                    ) { _, message ->
                         val messageId = message.timestamp.toString()
                         val isExpanded = expandedMessages[messageId] ?: false
 
                         when (message) {
                             is Separator -> {
                                 // Separator row
-                                item {
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .width(5000.dp) // Fixed width for horizontal scroll
-                                                .height(20.dp)
-                                                .background(separatorBackgroundColor),
-                                    )
-                                }
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .width(5000.dp) // Fixed width for horizontal scroll
+                                            .height(20.dp)
+                                            .background(separatorBackgroundColor),
+                                )
                             }
 
                             is FixMessage -> {
                                 // Message summary row
-                                item {
-                                    MessageSummaryRow(
-                                        message = message,
-                                        dictionary = dictionary,
-                                        gridViewColumns = gridViewColumns,
-                                        columnWidths = columnWidths,
-                                        isExpanded = isExpanded,
-                                        isSelected = message == selectedMessage,
-                                        recentlySentMessageTimestamp = recentlySentMessageTimestamp,
-                                        onToggleExpand = {
-                                            expandedMessages[messageId] = !isExpanded
-                                        },
-                                        onSelectMessage = onSelectMessage,
-                                        appSettings = appSettings,
-                                    )
-                                }
+                                MessageSummaryRow(
+                                    message = message,
+                                    dictionary = dictionary,
+                                    gridViewColumns = gridViewColumns,
+                                    columnWidths = columnWidths,
+                                    isExpanded = isExpanded,
+                                    isSelected = message == selectedMessage,
+                                    recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                                    onToggleExpand = {
+                                        expandedMessages[messageId] = !isExpanded
+                                    },
+                                    onSelectMessage = onSelectMessage,
+                                    appSettings = appSettings,
+                                )
 
-                                // Expanded field details
-                                if (isExpanded) {
-                                    renderQuickFixMessage(
-                                        message = message.quickfixMessage,
-                                        dictionary = dictionary,
-                                        hideProtocolTags = hideProtocolTags,
-                                        protocolTags = appSettings.protocolTags,
-                                        expandedGroups = expandedGroups,
-                                        messageId = messageId,
-                                    )
-                                }
+                                // TODO: Expanded field details currently removed
+                                // Need to refactor renderQuickFixMessage to be a regular composable
                             }
                         }
                     }

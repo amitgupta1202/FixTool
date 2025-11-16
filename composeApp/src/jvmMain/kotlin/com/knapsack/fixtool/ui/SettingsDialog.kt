@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -27,6 +28,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.MessageColorScheme
+import com.knapsack.fixtool.model.RejectionRule
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -47,6 +49,7 @@ fun SettingsDialog(
     var hideProtocolTags by remember { mutableStateOf(currentSettings.hideProtocolTags) }
     var protocolTags by remember { mutableStateOf(currentSettings.protocolTags.toMutableSet()) }
     var messageColorScheme by remember { mutableStateOf(currentSettings.messageColorScheme) }
+    var rejectionRules by remember { mutableStateOf(currentSettings.rejectionRules.toMutableList()) }
     var defaultViewMode by remember { mutableStateOf(currentSettings.defaultViewMode) }
     var connectionProfilesPath by remember { mutableStateOf(currentSettings.connectionProfilesPath) }
     var savedMessagesPath by remember { mutableStateOf(currentSettings.savedMessagesPath) }
@@ -103,6 +106,7 @@ fun SettingsDialog(
                                 hideProtocolTags = defaults.hideProtocolTags
                                 protocolTags = defaults.protocolTags.toMutableSet()
                                 messageColorScheme = defaults.messageColorScheme
+                                rejectionRules = defaults.rejectionRules.toMutableList()
                                 defaultViewMode = defaults.defaultViewMode
                                 connectionProfilesPath = defaults.connectionProfilesPath
                                 savedMessagesPath = defaults.savedMessagesPath
@@ -995,6 +999,130 @@ fun SettingsDialog(
                         thickness = AppTheme.Separators.dividerThickness,
                         modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
                     )
+
+                    // Section: Rejection Rules
+                    Text(
+                        text = "Rejection Rules",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Text(
+                        text = "Configure which FIX messages should be highlighted in red as rejections",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.textDisabled,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+
+                    // List of rejection rules
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        rejectionRules.forEachIndexed { index, rule ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(AppTheme.Colors.surface, RoundedCornerShape(4.dp))
+                                    .border(1.dp, AppTheme.Separators.color, RoundedCornerShape(4.dp))
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                // Message Type (Tag 35)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Message Type (35)",
+                                        fontSize = 10.sp,
+                                        color = AppTheme.Colors.textDisabled,
+                                    )
+                                    SlimTextField(
+                                        value = rule.messageType,
+                                        onValueChange = { newValue ->
+                                            rejectionRules[index] = rule.copy(messageType = newValue)
+                                        },
+                                        placeholder = "e.g., 3, j, 9, AZ",
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+
+                                // Additional Tag (optional)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Additional Tag (optional)",
+                                        fontSize = 10.sp,
+                                        color = AppTheme.Colors.textDisabled,
+                                    )
+                                    SlimTextField(
+                                        value = rule.additionalTag?.toString() ?: "",
+                                        onValueChange = { newValue ->
+                                            val tag = newValue.toIntOrNull()
+                                            rejectionRules[index] = rule.copy(additionalTag = tag)
+                                        },
+                                        placeholder = "e.g., 905",
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+
+                                // Additional Value (optional)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Additional Value (optional)",
+                                        fontSize = 10.sp,
+                                        color = AppTheme.Colors.textDisabled,
+                                    )
+                                    SlimTextField(
+                                        value = rule.additionalValue ?: "",
+                                        onValueChange = { newValue ->
+                                            rejectionRules[index] = rule.copy(
+                                                additionalValue = newValue.ifBlank { null }
+                                            )
+                                        },
+                                        placeholder = "e.g., 3",
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+
+                                // Delete button
+                                TooltipIconButton(
+                                    tooltip = "Remove Rule",
+                                    onClick = {
+                                        rejectionRules = rejectionRules.toMutableList().apply {
+                                            removeAt(index)
+                                        }
+                                    },
+                                    modifier = Modifier.size(28.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Remove",
+                                        tint = AppTheme.Colors.textSecondary,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                        }
+
+                        // Add new rule button
+                        SlimButton(
+                            text = "+ Add Rejection Rule",
+                            onClick = {
+                                rejectionRules = rejectionRules.toMutableList().apply {
+                                    add(RejectionRule(messageType = ""))
+                                }
+                            },
+                            containerColor = AppTheme.Colors.surface,
+                            contentColor = AppTheme.Colors.primary,
+                            modifier = Modifier.fillMaxWidth().height(32.dp),
+                        )
+                    }
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
+                    )
                 }
 
                 HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -1031,6 +1159,7 @@ fun SettingsDialog(
                                     hideProtocolTags = hideProtocolTags,
                                     protocolTags = protocolTags.toSet(),
                                     messageColorScheme = messageColorScheme,
+                                    rejectionRules = rejectionRules.toList(),
                                     defaultViewMode = defaultViewMode,
                                     connectionProfilesPath = connectionProfilesPath.trim(),
                                     savedMessagesPath = savedMessagesPath.trim(),

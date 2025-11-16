@@ -78,7 +78,7 @@ class FixMessageViewModel : ViewModel() {
         val messageTypeDescription: String,
         val msgSeqNum: Int?,
         val senderCompId: String?,
-        val sessionUsername: String
+        val sessionUsername: String,
     )
 
     private val _globalSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
@@ -324,6 +324,7 @@ class FixMessageViewModel : ViewModel() {
                 }
             if (sessionIndex >= 0 && sessionIndex != _activeSessionIndex.value) {
                 _activeSessionIndex.value = sessionIndex
+                _activeSessionState.value = _sessions.getOrNull(sessionIndex)
             }
         }
     }
@@ -446,15 +447,17 @@ class FixMessageViewModel : ViewModel() {
                             null
                         }
 
-                        results.add(SearchResult(
-                            session = session,
-                            message = appMessage,
-                            matchedText = matchedText,
-                            messageTypeDescription = messageTypeDescription,
-                            msgSeqNum = msgSeqNum,
-                            senderCompId = senderCompId,
-                            sessionUsername = session.title
-                        ))
+                        results.add(
+                            SearchResult(
+                                session = session,
+                                message = appMessage,
+                                matchedText = matchedText,
+                                messageTypeDescription = messageTypeDescription,
+                                msgSeqNum = msgSeqNum,
+                                senderCompId = senderCompId,
+                                sessionUsername = session.title,
+                            ),
+                        )
                     }
                 }
             }
@@ -464,7 +467,7 @@ class FixMessageViewModel : ViewModel() {
         val sortedResults = results.sortedWith(
             compareBy<SearchResult> { it.message.timestamp }
                 .thenBy(nullsLast()) { it.msgSeqNum }
-                .thenBy(nullsLast()) { it.senderCompId }
+                .thenBy(nullsLast()) { it.senderCompId },
         )
 
         _globalSearchResults.value = sortedResults

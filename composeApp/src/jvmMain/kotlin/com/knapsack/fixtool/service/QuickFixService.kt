@@ -34,6 +34,7 @@ class QuickFixService(
 
     override fun onLogout(sessionId: SessionID) {
         logger.info("QuickFIX Session logged out: {}", sessionId)
+        currentSessionID = null
         onStateChanged(DISCONNECTED)
     }
 

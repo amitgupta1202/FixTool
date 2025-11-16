@@ -177,23 +177,6 @@ class FixDictionaryAdapter private constructor(
     fun isLoaded(): Boolean = dataDictionary != null
 
     /**
-     * Gets all field tags defined in the dictionary.
-     * Note: This is less efficient than the old implementation as QuickFIX doesn't provide
-     * direct access to all fields. Returns empty set if no dictionary is loaded.
-     */
-    fun getAllFieldTags(): Set<Int> {
-        // QuickFIX DataDictionary doesn't provide a way to iterate all fields,
-        // so we check if dictionary is loaded as a proxy
-        return if (dataDictionary != null) {
-            // Return a non-empty set to indicate dictionary is loaded
-            // In practice, this is only used to check if dictionary is configured
-            setOf(1) // Dummy value
-        } else {
-            emptySet()
-        }
-    }
-
-    /**
      * Checks if a field has enumerated values defined in the dictionary
      */
     fun hasFieldValues(tag: Int): Boolean = fieldEnumValues.containsKey(tag) && fieldEnumValues[tag]!!.isNotEmpty()

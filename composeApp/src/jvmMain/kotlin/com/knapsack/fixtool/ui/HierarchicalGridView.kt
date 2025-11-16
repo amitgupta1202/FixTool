@@ -1465,6 +1465,6 @@ private val fabBackgroundColor = AppTheme.Colors.primary
 private fun getDirectionColor(message: FixMessage, appSettings: com.knapsack.fixtool.model.AppSettings): Color =
     appSettings.messageColorScheme.getMessageColor(
         message.direction,
-        message.isRejectionOrLogout(),
+        message.isRejectionOrLogout(appSettings.rejectionRules),
         true
     )

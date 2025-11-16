@@ -34,13 +34,13 @@ data class FixMessage(
         return "$time $dir [$messageType] $rawMessage"
     }
 
-    fun isRejectionOrLogout(): Boolean {
-        // Common FIX rejection message types:
-        // 3 = Reject (Session-level reject)
-        // j = Business Message Reject (Application-level reject)
-        // 9 = Order Cancel Reject
-        // 5 = Logout
-        return messageType in setOf("3", "j", "9") // TODO: move to settings
+    /**
+     * Check if this message matches any rejection rule
+     */
+    fun isRejectionOrLogout(rejectionRules: List<RejectionRule> = RejectionRule.defaultRules()): Boolean {
+        return rejectionRules.any { rule ->
+            rule.matches(quickfixMessage, messageType)
+        }
     }
 
     companion object {

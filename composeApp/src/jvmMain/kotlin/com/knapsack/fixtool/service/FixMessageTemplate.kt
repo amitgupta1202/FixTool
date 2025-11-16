@@ -3,24 +3,54 @@ package com.knapsack.fixtool.service
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import javax.script.ScriptEngineManager
+import javax.script.ScriptException
 
 /**
- * Evaluates template expressions in FIX message field values.
+ * Evaluates Kotlin expressions in FIX message field values using Kotlin's scripting engine.
  *
- * Supports expressions like:
- * - ${UUID.randomUUID()} - Generates a random UUID
- * - ${timestamp()} - Current timestamp in FIX format (YYYYMMDD-HH:MM:SS.sss)
- * - ${timestamp("yyyyMMdd")} - Custom timestamp format
- * - ${now()} - Alias for timestamp()
- * - ${currentTimeMillis()} - Unix timestamp in milliseconds
+ * Allows users to write any valid Kotlin expression in field values, for example:
+ * - UUID.randomUUID()
+ * - LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))
+ * - System.currentTimeMillis()
+ * - "ORDER-${UUID.randomUUID()}"
+ *
+ * The expression is evaluated when the message is sent, ensuring fresh timestamps.
  */
 object FixMessageTemplate {
 
     private val EXPRESSION_REGEX = """\$\{([^}]+)}""".toRegex()
 
+    // Create script engine with common imports available
+    private val scriptEngine by lazy {
+        val engine = ScriptEngineManager().getEngineByExtension("kts")
+            ?: throw IllegalStateException("Kotlin script engine not found. Ensure kotlin-scripting-jsr223 is in classpath.")
+
+        // Pre-import commonly used classes for convenience
+        val imports = """
+            import java.util.UUID
+            import java.time.LocalDateTime
+            import java.time.format.DateTimeFormatter
+            import java.time.Instant
+        """.trimIndent()
+
+        try {
+            engine.eval(imports)
+        } catch (e: ScriptException) {
+            // Imports failed, but engine is still usable
+        }
+
+        engine
+    }
+
     /**
-     * Evaluates all template expressions in the given string value.
-     * Returns the string with all expressions replaced by their evaluated results.
+     * Evaluates all Kotlin expressions in the given string value.
+     * Expressions are in the format: ${kotlinExpression}
+     *
+     * Examples:
+     * - "${UUID.randomUUID()}" → "a1b2c3d4-..."
+     * - "ORDER-${UUID.randomUUID()}" → "ORDER-a1b2c3d4-..."
+     * - "${LocalDateTime.now()}" → "2025-01-16T14:32:45.123"
      */
     fun evaluate(value: String): String {
         return EXPRESSION_REGEX.replace(value) { matchResult ->
@@ -30,46 +60,19 @@ object FixMessageTemplate {
     }
 
     /**
-     * Evaluates a single expression and returns its string value.
+     * Evaluates a single Kotlin expression and returns its string value.
      */
     private fun evaluateExpression(expression: String): String {
         return try {
-            when {
-                // UUID generation
-                expression == "UUID.randomUUID()" -> UUID.randomUUID().toString()
-
-                // Timestamp functions
-                expression == "timestamp()" || expression == "now()" -> {
-                    LocalDateTime.now().format(FIX_TIMESTAMP_FORMAT)
-                }
-
-                expression.startsWith("timestamp(") && expression.endsWith(")") -> {
-                    val formatStr = extractStringArg(expression, "timestamp")
-                    val formatter = DateTimeFormatter.ofPattern(formatStr)
-                    LocalDateTime.now().format(formatter)
-                }
-
-                expression == "currentTimeMillis()" -> System.currentTimeMillis().toString()
-
-                // If no match, return the expression as-is
-                else -> "\${$expression}"
-            }
-        } catch (e: Exception) {
+            val result = scriptEngine.eval(expression)
+            result?.toString() ?: ""
+        } catch (e: ScriptException) {
             // If evaluation fails, return the original expression
             "\${$expression}"
+        } catch (e: Exception) {
+            // Any other error, return original
+            "\${$expression}"
         }
-    }
-
-    /**
-     * Extracts a string argument from a function call like: functionName("arg")
-     */
-    private fun extractStringArg(expression: String, functionName: String): String {
-        val argsStart = expression.indexOf('(') + 1
-        val argsEnd = expression.lastIndexOf(')')
-        val args = expression.substring(argsStart, argsEnd).trim()
-
-        // Remove quotes if present
-        return args.removeSurrounding("\"").removeSurrounding("'")
     }
 
     /**
@@ -78,7 +81,4 @@ object FixMessageTemplate {
     fun hasTemplateExpressions(value: String): Boolean {
         return EXPRESSION_REGEX.containsMatchIn(value)
     }
-
-    // FIX timestamp format: YYYYMMDD-HH:MM:SS.sss
-    private val FIX_TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS")
 }

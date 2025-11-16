@@ -532,8 +532,8 @@ fun App(
                                                 onClearFields = { viewModel.clearEditorFields() },
                                                 onClose = { viewModel.toggleMessageEditor() },
                                                 onSend = { fields ->
-                                                    val rawMessage =
-                                                        fields.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+                                                    val resolvedFields = fields.resolveTemplates()
+                                                    val rawMessage = resolvedFields.toRawMessage()
                                                     viewModel.sendMessage(rawMessage)
                                                 },
                                                 onValidate = { fields ->

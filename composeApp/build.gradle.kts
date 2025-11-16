@@ -48,6 +48,9 @@ kotlin {
 
             // JSON serialization for connection profiles
             implementation(libs.kotlinx.serialization.json)
+
+            // Kotlin scripting for dynamic field expressions
+            implementation(libs.kotlin.scripting.jsr223)
         }
     }
 }

@@ -27,26 +27,18 @@ class FixMessageTemplateTest {
     }
 
     @Test
-    fun testTimestampGeneration() {
-        val template = "\${timestamp()}"
+    fun testLocalDateTimeNow() {
+        val template = "\${LocalDateTime.now()}"
         val result = FixMessageTemplate.evaluate(template)
 
-        // Should match FIX timestamp format: YYYYMMDD-HH:MM:SS.sss
-        assertTrue(result.matches(Regex("\\d{8}-\\d{2}:\\d{2}:\\d{2}\\.\\d{3}")))
-    }
-
-    @Test
-    fun testNowIsAliasForTimestamp() {
-        val template = "\${now()}"
-        val result = FixMessageTemplate.evaluate(template)
-
-        // Should match FIX timestamp format
-        assertTrue(result.matches(Regex("\\d{8}-\\d{2}:\\d{2}:\\d{2}\\.\\d{3}")))
+        // Should contain timestamp components
+        assertTrue(result.isNotEmpty())
+        assertTrue(result.contains("T") || result.contains("-"))
     }
 
     @Test
     fun testCustomTimestampFormat() {
-        val template = "\${timestamp(\"yyyyMMdd\")}"
+        val template = "\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}"
         val result = FixMessageTemplate.evaluate(template)
 
         // Should match YYYYMMDD format
@@ -54,17 +46,8 @@ class FixMessageTemplateTest {
     }
 
     @Test
-    fun testCustomTimestampFormatWithSingleQuotes() {
-        val template = "\${timestamp('HHmmss')}"
-        val result = FixMessageTemplate.evaluate(template)
-
-        // Should match HHmmss format
-        assertTrue(result.matches(Regex("\\d{6}")))
-    }
-
-    @Test
     fun testCurrentTimeMillis() {
-        val template = "\${currentTimeMillis()}"
+        val template = "\${System.currentTimeMillis()}"
         val result = FixMessageTemplate.evaluate(template)
 
         // Should be a valid timestamp (numeric)
@@ -77,7 +60,7 @@ class FixMessageTemplateTest {
 
     @Test
     fun testMultipleExpressionsInOneString() {
-        val template = "QuoteReq-\${UUID.randomUUID()}-\${timestamp(\"yyyyMMdd\")}"
+        val template = "QuoteReq-\${UUID.randomUUID()}-\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}"
         val result = FixMessageTemplate.evaluate(template)
 
         assertTrue(result.startsWith("QuoteReq-"))
@@ -104,10 +87,10 @@ class FixMessageTemplateTest {
 
     @Test
     fun testInvalidExpressionReturnsAsIs() {
-        val template = "\${timestamp(\"invalid format\")}"
+        val template = "\${this is not valid kotlin}"
         val result = FixMessageTemplate.evaluate(template)
 
-        assertEquals("\${timestamp(\"invalid format\")}", result)
+        assertEquals("\${this is not valid kotlin}", result)
     }
 
     @Test
@@ -123,8 +106,8 @@ class FixMessageTemplateTest {
     @Test
     fun testHasTemplateExpressionsDetectsExpressions() {
         assertTrue(FixMessageTemplate.hasTemplateExpressions("\${UUID.randomUUID()}"))
-        assertTrue(FixMessageTemplate.hasTemplateExpressions("Text with \${timestamp()} inside"))
-        assertTrue(FixMessageTemplate.hasTemplateExpressions("Multiple \${now()} and \${currentTimeMillis()}"))
+        assertTrue(FixMessageTemplate.hasTemplateExpressions("Text with \${LocalDateTime.now()} inside"))
+        assertTrue(FixMessageTemplate.hasTemplateExpressions("Multiple \${UUID.randomUUID()} and \${System.currentTimeMillis()}"))
     }
 
     @Test
@@ -136,7 +119,7 @@ class FixMessageTemplateTest {
 
     @Test
     fun testRealWorldFixMessageExample() {
-        val template = "8=FIX.4.2|9=100|35=D|49=SENDER|56=TARGET|11=\${UUID.randomUUID()}|52=\${timestamp()}|55=EUR/USD|10=123|"
+        val template = "8=FIX.4.2|9=100|35=D|49=SENDER|56=TARGET|11=\${UUID.randomUUID()}|52=\${LocalDateTime.now()}|55=EUR/USD|10=123|"
         val result = FixMessageTemplate.evaluate(template)
 
         assertTrue(result.contains("8=FIX.4.2"))
@@ -147,7 +130,7 @@ class FixMessageTemplateTest {
 
         // Should have replaced the templates
         assertFalse(result.contains("\${UUID.randomUUID()}"))
-        assertFalse(result.contains("\${timestamp()}"))
+        assertFalse(result.contains("\${LocalDateTime.now()}"))
     }
 
     @Test
@@ -160,15 +143,30 @@ class FixMessageTemplateTest {
     }
 
     @Test
-    fun testMultipleTimestampsGeneratedSequentially() {
-        val template = "\${timestamp()}|\${timestamp()}|\${timestamp()}"
+    fun testStringConcatenation() {
+        val template = "\${\"ORDER-\" + UUID.randomUUID()}"
         val result = FixMessageTemplate.evaluate(template)
 
-        // All timestamps should be valid
-        val parts = result.split("|")
-        assertEquals(3, parts.size)
-        parts.forEach { part ->
-            assertTrue(part.matches(Regex("\\d{8}-\\d{2}:\\d{2}:\\d{2}\\.\\d{3}")))
-        }
+        assertTrue(result.startsWith("ORDER-"))
+        assertTrue(result.length > 6) // "ORDER-" + UUID
+    }
+
+    @Test
+    fun testArithmeticExpression() {
+        val template = "\${1 + 2 + 3}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("6", result)
+    }
+
+    @Test
+    fun testInstantNow() {
+        val template = "\${Instant.now().toEpochMilli()}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        // Should be a valid timestamp
+        assertTrue(result.matches(Regex("\\d+")))
+        val timestamp = result.toLong()
+        assertTrue(timestamp > 1577836800000L)
     }
 }

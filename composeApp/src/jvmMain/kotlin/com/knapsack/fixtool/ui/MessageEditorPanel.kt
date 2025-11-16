@@ -54,7 +54,7 @@ data class FixField(
         fun List<FixField>.resolveTemplates(): List<FixField> {
             return this.map { field ->
                 if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
-                    field.copy(value = FixMessageTemplate.evaluate(field.value))
+                    field.copy(value = FixMessageTemplate.  evaluate(field.value))
                 } else {
                     field
                 }
@@ -1947,12 +1947,7 @@ private fun buildPreviewMessage(
 
     if (fieldsToShow.isEmpty()) return ""
 
-    // Resolve template expressions before displaying
-    val resolvedFields = with(FixField.Companion) {
-        fieldsToShow.resolveTemplates()
-    }
-
-    return resolvedFields.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+    return fieldsToShow.joinToString("|") { "${it.tag}=${it.value}" } + "|"
 }
 
 private fun parseRawMessageToFields(rawMessage: String): List<FixField>? {

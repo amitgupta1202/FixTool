@@ -40,7 +40,7 @@ fun Toolbar(
     demoServerRunning: Boolean = false,
     connectionProfiles: List<FixConnectionProfile> = emptyList(),
     isDictionaryValid: Boolean = true,
-    activeSessionViewMode: FixMessageSession.ViewMode? = null,
+    globalSessionViewMode: FixMessageSession.ViewMode,
     globalFilterRegex: String = "",
     globalFilterShowIncoming: Boolean = true,
     globalFilterShowOutgoing: Boolean = true,
@@ -379,27 +379,21 @@ fun Toolbar(
         if (onToggleGridView != null) {
             TooltipIconButton(
                 tooltip =
-                    if (activeSessionViewMode != null) {
-                        when (activeSessionViewMode) {
-                            FixMessageSession.ViewMode.RAW -> "Switch All Sessions to Grid View"
-                            FixMessageSession.ViewMode.PARSED -> "Switch All Sessions to Terminal View"
-                        }
-                    } else {
-                        "View Toggle (no sessions)"
+                    when (globalSessionViewMode) {
+                        FixMessageSession.ViewMode.RAW -> "Switch All Sessions to Grid View"
+                        FixMessageSession.ViewMode.PARSED -> "Switch All Sessions to Terminal View"
                     },
                 onClick = onToggleGridView,
-                enabled = activeSessionViewMode != null,
                 modifier = tooltipModifier,
             ) {
                 Icon(
                     imageVector =
-                        when (activeSessionViewMode) {
+                        when (globalSessionViewMode) {
                             FixMessageSession.ViewMode.RAW -> Icons.Default.Apps
                             FixMessageSession.ViewMode.PARSED -> Icons.Default.Terminal
-                            null -> Icons.Default.Apps
                         },
                     contentDescription = "Toggle View for All Sessions",
-                    tint = toggleDisabledColor(activeSessionViewMode != null, AppTheme.Colors.textSecondary, AppTheme.Colors.textDisabled),
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = tooltipIconModifier,
                 )
             }

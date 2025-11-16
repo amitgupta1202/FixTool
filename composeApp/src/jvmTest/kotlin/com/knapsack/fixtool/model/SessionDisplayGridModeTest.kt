@@ -23,8 +23,7 @@ class SessionDisplayGridModeTest {
     @Before
     fun setup() {
         session = FixMessageSession(title = "Grid Mode Test Session")
-        // Default is now PARSED mode (grid view) - no need to toggle
-        assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
+        // Note: ViewMode is now global, managed by ViewModel
     }
 
     @After
@@ -42,30 +41,6 @@ class SessionDisplayGridModeTest {
     // Helper function to wait for async message processing
     private suspend fun waitForMessages(count: Int = 1, waitTimePerMessage: Long = 150) {
         delay((count * waitTimePerMessage))
-    }
-
-    // ========================================
-    // PARSED Mode View Tests
-    // ========================================
-
-    @Test
-    fun testParsedModeEnabled() {
-        assertEquals(
-            FixMessageSession.ViewMode.PARSED,
-            session.viewMode.value,
-            "Session should be in PARSED mode for grid view",
-        )
-    }
-
-    @Test
-    fun testToggleBetweenRawAndParsed() {
-        assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
-
-        session.toggleViewMode()
-        assertEquals(FixMessageSession.ViewMode.RAW, session.viewMode.value)
-
-        session.toggleViewMode()
-        assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
     }
 
     // ========================================

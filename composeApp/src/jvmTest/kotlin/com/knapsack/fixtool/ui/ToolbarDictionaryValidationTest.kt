@@ -4,6 +4,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.knapsack.fixtool.model.FixMessageSession
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -35,6 +36,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
@@ -58,6 +60,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
@@ -79,6 +82,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
@@ -101,6 +105,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
@@ -124,6 +129,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed with all callbacks
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 showMessageEditor = false,
@@ -153,6 +159,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
@@ -167,6 +174,7 @@ class ToolbarDictionaryValidationTest {
         isDictionaryValid = false
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 isDictionaryValid = isDictionaryValid,
@@ -192,6 +200,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 showMessageEditor = false,
@@ -231,6 +240,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { },
                 showMessageEditor = false,
@@ -267,6 +277,7 @@ class ToolbarDictionaryValidationTest {
         // When: Toolbar is displayed
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = ViewMode.TABS,
                 onViewModeChange = { viewModeChangeCount++ },
                 isDictionaryValid = isDictionaryValid,

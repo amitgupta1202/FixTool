@@ -18,7 +18,6 @@ class FixMessageSession(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     private val onError: ((String) -> Unit)? = null,
-    defaultViewMode: String = "grid", // "grid" or "terminal"
 ) {
     companion object {
         private val BUFFER_MSG_SIZE = System.getProperty("noOfMsgToBuffer", "1000").toInt()
@@ -31,11 +30,6 @@ class FixMessageSession(
 
     private val _messages = MutableStateFlow<List<AppMessage>>(emptyList())
     val messages: StateFlow<List<AppMessage>> = _messages.asStateFlow()
-
-    private val _viewMode = MutableStateFlow(
-        if (defaultViewMode.lowercase() == "grid") ViewMode.PARSED else ViewMode.RAW,
-    )
-    val viewMode: StateFlow<ViewMode> = _viewMode.asStateFlow()
 
     private val _wrapText = MutableStateFlow(true)
     val wrapText: StateFlow<Boolean> = _wrapText.asStateFlow()
@@ -89,14 +83,6 @@ class FixMessageSession(
 
     init {
         startMessagePolling()
-    }
-
-    fun toggleViewMode() {
-        _viewMode.value =
-            when (_viewMode.value) {
-                ViewMode.RAW -> ViewMode.PARSED
-                ViewMode.PARSED -> ViewMode.RAW
-            }
     }
 
     fun toggleWrapText() {

@@ -43,6 +43,7 @@ enum class SplitOrientation {
 fun SplitView(
     sessions: List<FixMessageSession>,
     dictionary: FixDictionary,
+    viewMode: FixMessageSession.ViewMode,
     onCloseSession: (Int) -> Unit,
     onMoveSession: ((Int, Int) -> Unit)? = null,
     selectedMessage: FixMessage? = null,
@@ -137,6 +138,7 @@ fun SplitView(
                                 SessionPanel(
                                     session = sessions[index],
                                     dictionary = dictionary,
+                                    viewMode = viewMode,
                                     onClose = { onCloseSession(index) },
                                     onMoveLeft =
                                         if (index > 0 && onMoveSession != null) {
@@ -248,6 +250,7 @@ private fun HorizontalDivider(
 private fun SessionPanel(
     session: FixMessageSession,
     dictionary: FixDictionary,
+    viewMode: FixMessageSession.ViewMode,
     onClose: (() -> Unit)?,
     onMoveLeft: (() -> Unit)?,
     onMoveRight: (() -> Unit)?,
@@ -263,7 +266,6 @@ private fun SessionPanel(
     modifier: Modifier = Modifier,
 ) {
     val messages by session.messages.collectAsState()
-    val sessionViewMode by session.viewMode.collectAsState()
     val wrapText by session.wrapText.collectAsState()
     val searchVisible by session.searchVisible.collectAsState()
     val filterVisible by session.filterVisible.collectAsState()
@@ -333,7 +335,7 @@ private fun SessionPanel(
             // Wrap text toggle (RAW mode only)
             Spacer(modifier = Modifier.width(4.dp))
 
-            if (sessionViewMode == FixMessageSession.ViewMode.RAW) {
+            if (viewMode == FixMessageSession.ViewMode.RAW) {
                 TooltipIconButton(
                     tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
                     onClick = { session.toggleWrapText() },
@@ -407,33 +409,6 @@ private fun SessionPanel(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Clear All Messages",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-
-            // View mode toggle for this session - shows destination icon (matching global toolbar)
-            val viewModeTooltip =
-                when (sessionViewMode) {
-                    FixMessageSession.ViewMode.RAW -> "Switch to Grid View"
-                    FixMessageSession.ViewMode.PARSED -> "Switch to Terminal View"
-                }
-
-            Spacer(modifier = Modifier.width(2.dp))
-
-            TooltipIconButton(
-                tooltip = viewModeTooltip,
-                onClick = { session.toggleViewMode() },
-                modifier = Modifier.size(24.dp),
-            ) {
-                val icon =
-                    when (sessionViewMode) {
-                        FixMessageSession.ViewMode.RAW -> Icons.Default.Apps  // Show grid icon when in terminal (click to switch to grid)
-                        FixMessageSession.ViewMode.PARSED -> Icons.Default.Terminal  // Show terminal icon when in grid (click to switch to terminal)
-                    }
-                Icon(
-                    imageVector = icon,
-                    contentDescription = "Toggle View",
                     tint = AppTheme.Colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
@@ -804,7 +779,7 @@ private fun SessionPanel(
         // Panel content
         FixMessageDisplay(
             messages = filteredMessages,
-            viewMode = sessionViewMode,
+            viewMode = viewMode,
             dictionary = dictionary,
             wrapText = wrapText,
             selectedMessage = selectedMessage,

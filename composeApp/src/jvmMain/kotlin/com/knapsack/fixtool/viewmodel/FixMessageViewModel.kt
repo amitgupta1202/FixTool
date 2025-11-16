@@ -103,6 +103,10 @@ class FixMessageViewModel(
     private val _globalFilterShowOutgoing = MutableStateFlow(true)
     val globalFilterShowOutgoing: StateFlow<Boolean> = _globalFilterShowOutgoing.asStateFlow()
 
+    // Global view mode (applies to all sessions)
+    private val _viewMode = MutableStateFlow(FixMessageSession.ViewMode.PARSED) // Will be initialized from settings
+    val viewMode: StateFlow<FixMessageSession.ViewMode> = _viewMode.asStateFlow()
+
     // App settings (loaded first before other services)
     private val settingsService = AppSettingsService(customSettingsDir = testSettingsDir)
     private val _appSettings = mutableStateOf(AppSettings.default())
@@ -169,6 +173,13 @@ class FixMessageViewModel(
     init {
         // Load app settings first (this also loads the data dictionary)
         loadAppSettings()
+
+        // Initialize global view mode from settings
+        _viewMode.value = if (appSettings.defaultViewMode.lowercase() == "grid") {
+            FixMessageSession.ViewMode.PARSED
+        } else {
+            FixMessageSession.ViewMode.RAW
+        }
 
         // Validate dictionary on startup
         validateDataDictionary()
@@ -238,7 +249,6 @@ class FixMessageViewModel(
             FixMessageSession(
                 title = title,
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-                defaultViewMode = appSettings.defaultViewMode,
             )
         _sessions.add(session)
         // Auto-select first session if none is selected
@@ -490,10 +500,11 @@ class FixMessageViewModel(
         }
     }
 
-    fun toggleViewModeForAllSessions() {
-        // Toggle view mode for all sessions
-        _sessions.forEach { session ->
-            session.toggleViewMode()
+    fun toggleViewMode() {
+        // Toggle global view mode (applies to all sessions)
+        _viewMode.value = when (_viewMode.value) {
+            FixMessageSession.ViewMode.RAW -> FixMessageSession.ViewMode.PARSED
+            FixMessageSession.ViewMode.PARSED -> FixMessageSession.ViewMode.RAW
         }
     }
 

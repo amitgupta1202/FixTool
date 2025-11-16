@@ -567,24 +567,6 @@ class SessionDisplaySplitModeTest {
     // ========================================
 
     @Test
-    fun testViewModeDefaultsToRaw() {
-        // Default is now PARSED (grid) as per user request
-        assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
-    }
-
-    @Test
-    fun testViewModeToggle() {
-        // Default is now PARSED (grid), so first toggle should change to RAW
-        assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
-
-        session.toggleViewMode()
-        assertEquals(FixMessageSession.ViewMode.RAW, session.viewMode.value)
-
-        session.toggleViewMode()
-        assertEquals(FixMessageSession.ViewMode.PARSED, session.viewMode.value)
-    }
-
-    @Test
     fun testWrapTextToggle() {
         assertTrue(session.wrapText.value, "Text should wrap by default")
 

@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.FixMessageSession
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -80,6 +81,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
             )
@@ -94,6 +96,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with message editor callback
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 showMessageEditor = showMessageEditor,
@@ -110,6 +113,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with connection panel callback
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 showConnectionPanel = showConnectionPanel,
@@ -126,6 +130,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
             )
@@ -140,6 +145,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with settings callback
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 onOpenSettings = { showSettingsDialog = !showSettingsDialog },
@@ -155,6 +161,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with demo server callback
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 demoServerRunning = demoServerRunning,
@@ -175,6 +182,7 @@ class AppIntegrationTest {
         // Given: Toolbar with message editor initially off
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 showMessageEditor = showMessageEditor,
@@ -198,6 +206,7 @@ class AppIntegrationTest {
         // Given: Toolbar with connection panel initially off
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 showConnectionPanel = showConnectionPanel,
@@ -221,6 +230,7 @@ class AppIntegrationTest {
         // Given: Toolbar with settings dialog initially off
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 onOpenSettings = { showSettingsDialog = !showSettingsDialog },
@@ -243,6 +253,7 @@ class AppIntegrationTest {
         // Given: Toolbar with initial view mode
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
             )
@@ -278,6 +289,7 @@ class AppIntegrationTest {
         // Given: Toolbar with demo server initially off
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 demoServerRunning = demoServerRunning,
@@ -309,6 +321,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with profiles
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 connectionProfiles = profiles,
@@ -326,6 +339,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 connectionProfiles = emptyList(),
@@ -347,6 +361,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered and dropdown is clicked
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 connectionProfiles = profiles,
@@ -555,6 +570,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with clear all callback
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 onClearAll = { },
@@ -570,6 +586,7 @@ class AppIntegrationTest {
         // When: Toolbar is rendered with add separator callback
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 onAddSeparatorToAll = { },
@@ -585,6 +602,7 @@ class AppIntegrationTest {
         // Given: Toolbar with message detail panel callback
         composeTestRule.setContent {
             Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 showDetailPanel = showDetailPanel,

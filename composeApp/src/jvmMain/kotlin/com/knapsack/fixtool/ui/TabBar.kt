@@ -23,9 +23,9 @@ import com.knapsack.fixtool.model.FixMessageSession
 fun TabBar(
     sessions: List<FixMessageSession>,
     activeIndex: Int,
+    viewMode: FixMessageSession.ViewMode,
     onTabClick: (Int) -> Unit,
     onCloseTab: (Int) -> Unit,
-    onToggleViewMode: (Int) -> Unit,
     onToggleWrapText: (Int) -> Unit,
     onConnect: (Int) -> Unit,
     onDisconnect: (Int) -> Unit,
@@ -62,7 +62,6 @@ fun TabBar(
             // Toolbar buttons for active session
             if (sessions.isNotEmpty() && activeIndex >= 0 && activeIndex < sessions.size) {
                 val activeSession = sessions[activeIndex]
-                val viewMode by activeSession.viewMode.collectAsState()
                 val wrapText by activeSession.wrapText.collectAsState()
                 val connectionState by activeSession.connectionState.collectAsState()
                 val searchVisible by activeSession.searchVisible.collectAsState()
@@ -136,31 +135,6 @@ fun TabBar(
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Clear All Messages",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = toolbarIconSize,
-                    )
-                }
-
-                // Toggle view mode button - shows destination icon (matching global toolbar)
-                val tooltipText =
-                    when (viewMode) {
-                        FixMessageSession.ViewMode.RAW -> "Switch to Grid View"
-                        FixMessageSession.ViewMode.PARSED -> "Switch to Terminal View"
-                    }
-
-                TooltipIconButton(
-                    tooltip = tooltipText,
-                    onClick = { onToggleViewMode(activeIndex) },
-                    modifier = toolbarButtonSize,
-                ) {
-                    val icon =
-                        when (viewMode) {
-                            FixMessageSession.ViewMode.RAW -> Icons.Default.Apps  // Show grid icon when in terminal (click to switch to grid)
-                            FixMessageSession.ViewMode.PARSED -> Icons.Default.Terminal  // Show terminal icon when in grid (click to switch to terminal)
-                        }
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = "Toggle View",
                         tint = AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )

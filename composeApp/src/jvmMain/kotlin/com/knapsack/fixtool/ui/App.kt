@@ -74,7 +74,7 @@ fun App(
         val currentProfileId = viewModel.getCurrentProfileId()
         val notifications = viewModel.notifications
         val density = LocalDensity.current
-        val activeSessionViewMode by viewModel.activeSession?.viewMode?.collectAsState() ?: remember { mutableStateOf(null) }
+        val globalViewMode by viewModel.viewMode.collectAsState()
         val globalFilterRegex by viewModel.globalFilterRegex.collectAsState()
         val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
         val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
@@ -143,7 +143,7 @@ fun App(
                     demoServerRunning = demoServerRunning,
                     connectionProfiles = viewModel.connectionProfiles,
                     isDictionaryValid = isDictionaryValid,
-                    activeSessionViewMode = activeSessionViewMode,
+                    globalSessionViewMode = globalViewMode,
                     globalFilterRegex = globalFilterRegex,
                     globalFilterShowIncoming = globalFilterShowIncoming,
                     globalFilterShowOutgoing = globalFilterShowOutgoing,
@@ -158,7 +158,7 @@ fun App(
                             viewModel.startDemoServer()
                         }
                     },
-                    onToggleGridView = { viewModel.toggleViewModeForAllSessions() },
+                    onToggleGridView = { viewModel.toggleViewMode() },
                     onQuickConnect = { profileId, profile ->
                         viewModel.connectProfile(profileId, profile)
                     },
@@ -312,11 +312,9 @@ fun App(
                                     TabBar(
                                         sessions = viewModel.sessions,
                                         activeIndex = viewModel.activeSessionIndex,
+                                        viewMode = globalViewMode,
                                         onTabClick = { index -> viewModel.setActiveSession(index) },
                                         onCloseTab = { index -> viewModel.closeSession(index) },
-                                        onToggleViewMode = { index ->
-                                            viewModel.sessions.getOrNull(index)?.toggleViewMode()
-                                        },
                                         onToggleWrapText = { index ->
                                             viewModel.sessions.getOrNull(index)?.toggleWrapText()
                                         },
@@ -330,13 +328,12 @@ fun App(
 
                                     viewModel.activeSession?.let { session ->
                                         val messages by session.messages.collectAsState()
-                                        val sessionViewMode by session.viewMode.collectAsState()
                                         val wrapText by session.wrapText.collectAsState()
                                         val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
 
                                         FixMessageDisplay(
                                             messages = messages,
-                                            viewMode = sessionViewMode,
+                                            viewMode = globalViewMode,
                                             dictionary = viewModel.dictionary,
                                             wrapText = wrapText,
                                             selectedMessage = selectedMessage,
@@ -608,6 +605,7 @@ fun App(
                                         SplitView(
                                             sessions = viewModel.sessions,
                                             dictionary = viewModel.dictionary,
+                                            viewMode = globalViewMode,
                                             onCloseSession = { index -> viewModel.closeSession(index) },
                                             onMoveSession = { from, to -> viewModel.moveSession(from, to) },
                                             selectedMessage = selectedMessage,
@@ -754,6 +752,7 @@ fun App(
                                 SplitView(
                                     sessions = viewModel.sessions,
                                     dictionary = viewModel.dictionary,
+                                    viewMode = globalViewMode,
                                     onCloseSession = { index -> viewModel.closeSession(index) },
                                     onMoveSession = { from, to -> viewModel.moveSession(from, to) },
                                     selectedMessage = selectedMessage,

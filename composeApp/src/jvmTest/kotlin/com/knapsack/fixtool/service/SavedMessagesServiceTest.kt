@@ -62,7 +62,7 @@ class SavedMessagesServiceTest {
                 fields = fields,
             )
 
-        val result = service.saveMessage(profileId, message)
+        val result = service.saveMessage(profileId, message).getOrThrow()
 
         assertTrue(result.isNotEmpty(), "Saved messages should not be empty")
         assertEquals(1, result.size, "Should have exactly one message")
@@ -88,8 +88,8 @@ class SavedMessagesServiceTest {
                 fields = listOf(SavedFixField(tag = "35", value = "8")),
             )
 
-        service.saveMessage(profileId, message1)
-        val result = service.saveMessage(profileId, message2)
+        service.saveMessage(profileId, message1).getOrThrow()
+        val result = service.saveMessage(profileId, message2).getOrThrow()
 
         assertEquals(2, result.size, "Should have two messages")
         assertTrue(result.any { it.name == "Message 1" })
@@ -109,7 +109,7 @@ class SavedMessagesServiceTest {
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
-        service.saveMessage(profileId, originalMessage)
+        service.saveMessage(profileId, originalMessage).getOrThrow()
 
         val updatedMessage =
             SavedFixMessage(
@@ -123,7 +123,7 @@ class SavedMessagesServiceTest {
                     ),
             )
 
-        val result = service.saveMessage(profileId, updatedMessage)
+        val result = service.saveMessage(profileId, updatedMessage).getOrThrow()
 
         assertEquals(1, result.size, "Should still have only one message")
         assertEquals("Updated Message", result[0].name)
@@ -140,7 +140,7 @@ class SavedMessagesServiceTest {
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
-        service.saveMessage(profileId, message)
+        service.saveMessage(profileId, message).getOrThrow()
         val loadedMessages = service.loadMessagesForProfile(profileId)
 
         assertNotNull(loadedMessages)
@@ -167,11 +167,11 @@ class SavedMessagesServiceTest {
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
-        service.saveMessage(profileId, message)
+        service.saveMessage(profileId, message).getOrThrow()
         val beforeDelete = service.loadMessagesForProfile(profileId)
         assertEquals(1, beforeDelete.size)
 
-        val result = service.deleteMessage(profileId, "delete-me")
+        val result = service.deleteMessage(profileId, "delete-me").getOrThrow()
 
         assertEquals(0, result.size, "Should have no messages after deletion")
 
@@ -189,8 +189,8 @@ class SavedMessagesServiceTest {
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
-        service.saveMessage(profileId, message)
-        val result = service.deleteMessage(profileId, "non-existent-id")
+        service.saveMessage(profileId, message).getOrThrow()
+        val result = service.deleteMessage(profileId, "non-existent-id").getOrThrow()
 
         assertEquals(1, result.size, "Should still have the original message")
         assertEquals("Keep Message", result[0].name)
@@ -209,10 +209,10 @@ class SavedMessagesServiceTest {
                 lastUsedAt = 1000L,
             )
 
-        service.saveMessage(profileId, message)
+        service.saveMessage(profileId, message).getOrThrow()
         Thread.sleep(10) // Small delay to ensure timestamp difference
 
-        val result = service.markMessageAsUsed(profileId, messageId)
+        val result = service.markMessageAsUsed(profileId, messageId).getOrThrow()
 
         assertEquals(1, result.size)
         assertTrue(result[0].lastUsedAt > 1000L, "lastUsedAt should be updated to a more recent timestamp")
@@ -221,7 +221,7 @@ class SavedMessagesServiceTest {
     @Test
     fun testMarkNonExistentMessageAsUsed() {
         val profileId = "test-profile-mark-nonexistent"
-        val result = service.markMessageAsUsed(profileId, "non-existent-id")
+        val result = service.markMessageAsUsed(profileId, "non-existent-id").getOrThrow()
 
         assertTrue(result.isEmpty(), "Should return empty list when marking non-existent message")
     }
@@ -245,8 +245,8 @@ class SavedMessagesServiceTest {
                 fields = listOf(SavedFixField(tag = "35", value = "8")),
             )
 
-        service.saveMessage(profile1, message1)
-        service.saveMessage(profile2, message2)
+        service.saveMessage(profile1, message1).getOrThrow()
+        service.saveMessage(profile2, message2).getOrThrow()
 
         val profile1Messages = service.loadMessagesForProfile(profile1)
         val profile2Messages = service.loadMessagesForProfile(profile2)
@@ -273,7 +273,7 @@ class SavedMessagesServiceTest {
                 fields = fields,
             )
 
-        val result = service.saveMessage(profileId, message)
+        val result = service.saveMessage(profileId, message).getOrThrow()
 
         assertEquals(1, result.size)
         val savedMessage = result[0]
@@ -299,7 +299,7 @@ class SavedMessagesServiceTest {
                 lastUsedAt = lastUsedAt,
             )
 
-        val result = service.saveMessage(profileId, message)
+        val result = service.saveMessage(profileId, message).getOrThrow()
 
         assertEquals(1, result.size)
         assertEquals(createdAt, result[0].createdAt, "createdAt should be preserved")
@@ -334,11 +334,11 @@ class SavedMessagesServiceTest {
                 fields = listOf(SavedFixField(tag = "35", value = "G")),
             )
 
-        service.saveMessage(profileId, message1)
-        service.saveMessage(profileId, message2)
-        service.saveMessage(profileId, message3)
+        service.saveMessage(profileId, message1).getOrThrow()
+        service.saveMessage(profileId, message2).getOrThrow()
+        service.saveMessage(profileId, message3).getOrThrow()
 
-        val result = service.deleteMessage(profileId, "delete-2")
+        val result = service.deleteMessage(profileId, "delete-2").getOrThrow()
 
         assertEquals(2, result.size, "Should have 2 messages remaining")
         assertTrue(result.none { it.id == "delete-2" }, "Deleted message should not be in results")

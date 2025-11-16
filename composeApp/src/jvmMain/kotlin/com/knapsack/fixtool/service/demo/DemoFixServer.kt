@@ -6,6 +6,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlin.random.Random
 
@@ -61,6 +64,7 @@ class DemoFixServer : Application {
     private var acceptor: SocketAcceptor? = null
     private val activeSessions = mutableMapOf<String, SessionID>() // targetCompID -> SessionID
     private var messageSimulatorThread: Thread? = null
+    private var responseScheduler: ScheduledExecutorService? = null
 
     @Volatile
     private var isRunning = false
@@ -71,6 +75,9 @@ class DemoFixServer : Application {
     fun start() {
         try {
             logger.info("Starting Demo FIX Server on port {}", DEMO_PORT)
+
+            // Initialize response scheduler for non-blocking delays
+            responseScheduler = Executors.newScheduledThreadPool(4)
 
             val settings = createSessionSettings()
             val messageStoreFactory = FileStoreFactory(settings)
@@ -104,6 +111,17 @@ class DemoFixServer : Application {
             isRunning = false
             messageSimulatorThread?.interrupt()
             messageSimulatorThread = null
+
+            // Shutdown response scheduler
+            responseScheduler?.shutdown()
+            try {
+                if (responseScheduler?.awaitTermination(2, TimeUnit.SECONDS) == false) {
+                    responseScheduler?.shutdownNow()
+                }
+            } catch (e: InterruptedException) {
+                responseScheduler?.shutdownNow()
+            }
+            responseScheduler = null
 
             acceptor?.stop()
             acceptor = null
@@ -196,14 +214,15 @@ class DemoFixServer : Application {
     override fun fromApp(message: Message, sessionId: SessionID) {
         logger.info("Demo server fromApp: {}", message.toString().replace('\u0001', '|'))
 
-        // Echo back a response for any message received
-        try {
-            val response = createDummyResponse(message)
-            Thread.sleep(200) // Small delay to simulate processing
-            Session.sendToTarget(response, sessionId)
-        } catch (e: Exception) {
-            logger.error("Error sending demo response: {}", e.message, e)
-        }
+        // Echo back a response after a delay (non-blocking)
+        responseScheduler?.schedule({
+            try {
+                val response = createDummyResponse(message, sessionId)
+                Session.sendToTarget(response, sessionId)
+            } catch (e: Exception) {
+                logger.error("Error sending demo response: {}", e.message, e)
+            }
+        }, 200, TimeUnit.MILLISECONDS)
     }
 
     private fun startMessageSimulator() {
@@ -242,7 +261,7 @@ class DemoFixServer : Application {
             }
     }
 
-    private fun createDummyResponse(request: Message): Message {
+    private fun createDummyResponse(request: Message, sessionId: SessionID): Message {
         val msgType =
             try {
                 request.header.getString(35)
@@ -253,17 +272,15 @@ class DemoFixServer : Application {
         return when (msgType) {
             "D" -> { // New Order -> Execution Report + Trade Capture
                 val execReport = createExecutionReport(request)
-                // Send trade capture report after a short delay
-                Thread.sleep(500)
-                val sessionId = activeSessions.values.firstOrNull()
-                if (sessionId != null) {
+                // Send trade capture report after a short delay (non-blocking)
+                responseScheduler?.schedule({
                     try {
                         val tradeCaptureReport = createTradeCaptureReport(execReport)
                         Session.sendToTarget(tradeCaptureReport, sessionId)
                     } catch (e: Exception) {
                         logger.error("Error sending trade capture report: {}", e.message)
                     }
-                }
+                }, 500, TimeUnit.MILLISECONDS)
                 execReport
             }
             "R" -> createQuoteOrReject(request) // Quote Request -> Quote or Reject (20% rejection rate)

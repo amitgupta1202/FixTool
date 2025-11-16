@@ -48,14 +48,17 @@ class AppSettingsService {
 
     /**
      * Saves application settings to disk
+     * @return true if save succeeded, false if failed
      */
-    fun saveSettings(settings: AppSettings) {
-        try {
+    fun saveSettings(settings: AppSettings): Boolean {
+        return try {
             val content = json.encodeToString(settings)
             settingsFile.writeText(content)
             logger.info("Settings saved to: {}", settingsFile.absolutePath)
+            true
         } catch (e: Exception) {
             logger.error("Failed to save settings: {}", e.message, e)
+            false
         }
     }
 }

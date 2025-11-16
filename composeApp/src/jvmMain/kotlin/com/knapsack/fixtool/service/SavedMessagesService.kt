@@ -57,14 +57,17 @@ class SavedMessagesService(
 
     /**
      * Saves all messages to disk
+     * @return true if save succeeded, false if failed
      */
-    private fun saveAll(container: SavedMessagesContainer) {
-        try {
+    private fun saveAll(container: SavedMessagesContainer): Boolean {
+        return try {
             val content = json.encodeToString(container)
             savedMessagesFile.writeText(content)
+            true
         } catch (e: Exception) {
             val errorMsg = "Failed to save messages: ${e.message}"
             logger.error(errorMsg, e, notifyUser = true)
+            false
         }
     }
 
@@ -78,8 +81,9 @@ class SavedMessagesService(
 
     /**
      * Saves a message for a specific profile
+     * @return Result with updated message list on success, or failure with exception
      */
-    fun saveMessage(profileId: String, message: SavedFixMessage): List<SavedFixMessage> {
+    fun saveMessage(profileId: String, message: SavedFixMessage): Result<List<SavedFixMessage>> {
         val container = loadAll()
         val profileMessages = container.messagesByProfile[profileId]?.toMutableList() ?: mutableListOf()
 
@@ -96,14 +100,18 @@ class SavedMessagesService(
                 messagesByProfile = container.messagesByProfile + (profileId to profileMessages),
             )
 
-        saveAll(updatedContainer)
-        return profileMessages
+        return if (saveAll(updatedContainer)) {
+            Result.success(profileMessages)
+        } else {
+            Result.failure(java.io.IOException("Failed to save message"))
+        }
     }
 
     /**
      * Deletes a saved message for a specific profile
+     * @return Result with updated message list on success, or failure with exception
      */
-    fun deleteMessage(profileId: String, messageId: String): List<SavedFixMessage> {
+    fun deleteMessage(profileId: String, messageId: String): Result<List<SavedFixMessage>> {
         val container = loadAll()
         val profileMessages = container.messagesByProfile[profileId]?.filterNot { it.id == messageId } ?: emptyList()
 
@@ -112,16 +120,21 @@ class SavedMessagesService(
                 messagesByProfile = container.messagesByProfile + (profileId to profileMessages),
             )
 
-        saveAll(updatedContainer)
-        return profileMessages
+        return if (saveAll(updatedContainer)) {
+            Result.success(profileMessages)
+        } else {
+            Result.failure(java.io.IOException("Failed to delete message"))
+        }
     }
 
     /**
      * Updates the lastUsedAt timestamp for a message
+     * @return Result with updated message list on success, or failure with exception
      */
-    fun markMessageAsUsed(profileId: String, messageId: String): List<SavedFixMessage> {
+    fun markMessageAsUsed(profileId: String, messageId: String): Result<List<SavedFixMessage>> {
         val container = loadAll()
-        val profileMessages = container.messagesByProfile[profileId]?.toMutableList() ?: return emptyList()
+        val profileMessages = container.messagesByProfile[profileId]?.toMutableList()
+            ?: return Result.success(emptyList())
 
         val messageIndex = profileMessages.indexOfFirst { it.id == messageId }
         if (messageIndex >= 0) {
@@ -133,9 +146,13 @@ class SavedMessagesService(
                     messagesByProfile = container.messagesByProfile + (profileId to profileMessages),
                 )
 
-            saveAll(updatedContainer)
+            return if (saveAll(updatedContainer)) {
+                Result.success(profileMessages)
+            } else {
+                Result.failure(java.io.IOException("Failed to mark message as used"))
+            }
         }
 
-        return profileMessages
+        return Result.success(profileMessages)
     }
 }

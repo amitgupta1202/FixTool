@@ -128,7 +128,7 @@ class ErrorHandlingTest {
         val service = ConnectionProfileService()
 
         // This should succeed in normal case
-        val result = service.saveProfile(profile)
+        val result = service.saveProfile(profile).getOrThrow()
 
         // Then: Profile should be saved successfully in normal case
         assertTrue(result.isNotEmpty(), "Profile should be saved successfully")
@@ -183,7 +183,7 @@ class ErrorHandlingTest {
                 onError = { errorMsg -> errorCaptured = errorMsg },
             )
 
-        val result = service.saveMessage("profile-1", message)
+        val result = service.saveMessage("profile-1", message).getOrThrow()
 
         // Then: Message should be saved without error
         assertTrue(result.isNotEmpty(), "Message should be saved")

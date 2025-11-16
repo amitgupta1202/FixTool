@@ -492,7 +492,9 @@ class FixMessageViewModel : ViewModel() {
 
     fun saveAppSettings(settings: AppSettings) {
         _appSettings.value = settings
-        settingsService.saveSettings(settings)
+        if (!settingsService.saveSettings(settings)) {
+            logger.error("Failed to save application settings")
+        }
         // Reload dictionary when settings change
         loadDictionaryFromSettings()
         // Validate the new dictionary
@@ -593,8 +595,11 @@ class FixMessageViewModel : ViewModel() {
     }
 
     fun saveConnectionProfile(profile: FixConnectionProfile) {
-        profileService.saveProfile(profile)
-        loadConnectionProfiles()
+        profileService.saveProfile(profile).onSuccess {
+            loadConnectionProfiles()
+        }.onFailure { error ->
+            logger.error("Failed to save connection profile: ${error.message}", error)
+        }
     }
 
     fun deleteConnectionProfile(profileId: String) {
@@ -604,8 +609,11 @@ class FixMessageViewModel : ViewModel() {
             return
         }
 
-        profileService.deleteProfile(profileId)
-        loadConnectionProfiles()
+        profileService.deleteProfile(profileId).onSuccess {
+            loadConnectionProfiles()
+        }.onFailure { error ->
+            logger.error("Failed to delete connection profile: ${error.message}", error)
+        }
     }
 
     fun cloneConnectionProfile(profile: FixConnectionProfile): FixConnectionProfile {
@@ -619,8 +627,11 @@ class FixMessageViewModel : ViewModel() {
                 createdAt = System.currentTimeMillis(),
                 lastUsedAt = System.currentTimeMillis(),
             )
-        profileService.saveProfile(clonedProfile)
-        loadConnectionProfiles()
+        profileService.saveProfile(clonedProfile).onSuccess {
+            loadConnectionProfiles()
+        }.onFailure { error ->
+            logger.error("Failed to clone connection profile: ${error.message}", error)
+        }
         return clonedProfile
     }
 
@@ -956,9 +967,12 @@ class FixMessageViewModel : ViewModel() {
         val savedFields = fields.map { SavedFixField(tag = it.tag, value = it.value, excluded = it.excluded) }
         val savedMessage = SavedFixMessage(name = name, profileId = profileId, fields = savedFields)
 
-        val updatedMessages = savedMessagesService.saveMessage(profileId, savedMessage)
-        _savedMessages.clear()
-        _savedMessages.addAll(updatedMessages)
+        savedMessagesService.saveMessage(profileId, savedMessage).onSuccess { updatedMessages ->
+            _savedMessages.clear()
+            _savedMessages.addAll(updatedMessages)
+        }.onFailure { error ->
+            logger.error("Failed to save message: ${error.message}", error)
+        }
     }
 
     fun getCurrentProfileId(): String? =
@@ -991,6 +1005,9 @@ class FixMessageViewModel : ViewModel() {
             val currentProfileId = profileToSessionMap.entries.find { it.value == _activeSessionIndex.value }?.key
             if (currentProfileId != null) {
                 savedMessagesService.markMessageAsUsed(currentProfileId, savedMessage.id)
+                    .onFailure { error ->
+                        logger.error("Failed to mark message as used: ${error.message}", error)
+                    }
             }
         }
     }
@@ -1026,17 +1043,19 @@ class FixMessageViewModel : ViewModel() {
 
     fun deleteSavedMessage(messageId: String, profileId: String) {
         // Delete the message using the profileId from the message itself
-        val updatedMessages = savedMessagesService.deleteMessage(profileId, messageId)
+        savedMessagesService.deleteMessage(profileId, messageId).onSuccess {
+            // Reload all saved messages to reflect the deletion
+            loadSavedMessagesForActiveSession()
 
-        // Reload all saved messages to reflect the deletion
-        loadSavedMessagesForActiveSession()
-
-        // Clear loaded message name if we just deleted the currently loaded template
-        if (_currentLoadedMessageName.value != null) {
-            val deletedMessage = _savedMessages.find { it.id == messageId }
-            if (deletedMessage?.name == _currentLoadedMessageName.value) {
-                _currentLoadedMessageName.value = null
+            // Clear loaded message name if we just deleted the currently loaded template
+            if (_currentLoadedMessageName.value != null) {
+                val deletedMessage = _savedMessages.find { it.id == messageId }
+                if (deletedMessage?.name == _currentLoadedMessageName.value) {
+                    _currentLoadedMessageName.value = null
+                }
             }
+        }.onFailure { error ->
+            logger.error("Failed to delete message: ${error.message}", error)
         }
     }
 

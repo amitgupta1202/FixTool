@@ -65,6 +65,7 @@ fun App(
         val showMessageEditor by viewModel.showMessageEditor.collectAsState()
         val showConnectionPanel by viewModel.showConnectionPanel.collectAsState()
         val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
+        val showHelpDialog by viewModel.showHelpDialog.collectAsState()
         val showGlobalSearchDialog by viewModel.showGlobalSearchDialog.collectAsState()
         val globalSearchQuery by viewModel.globalSearchQuery.collectAsState()
         val globalSearchResults by viewModel.globalSearchResults.collectAsState()
@@ -176,6 +177,7 @@ fun App(
                     onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
                     onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
+                    onOpenHelp = { viewModel.toggleHelpDialog() },
                 )
 
                 // Settings Dialog
@@ -185,6 +187,13 @@ fun App(
                         dictionary = viewModel.dictionary,
                         onSave = { settings -> viewModel.saveAppSettings(settings) },
                         onDismiss = { viewModel.toggleSettingsDialog() },
+                    )
+                }
+
+                // Help Dialog
+                if (showHelpDialog) {
+                    HelpDialog(
+                        onClose = { viewModel.toggleHelpDialog() },
                     )
                 }
 

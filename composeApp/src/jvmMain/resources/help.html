@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixTool Help</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #e0e0e0;
+            background-color: #1e1e1e;
+            margin: 0;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #4ec9b0;
+            border-bottom: 2px solid #4ec9b0;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #569cd6;
+            margin-top: 30px;
+            border-bottom: 1px solid #3c3c3c;
+            padding-bottom: 5px;
+        }
+        h3 {
+            color: #9cdcfe;
+            margin-top: 20px;
+        }
+        code {
+            background-color: #2d2d2d;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            color: #ce9178;
+        }
+        pre {
+            background-color: #2d2d2d;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            border-left: 3px solid #4ec9b0;
+        }
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            color: #d4d4d4;
+        }
+        .example {
+            background-color: #252526;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 3px solid #569cd6;
+        }
+        .tip {
+            background-color: #264f78;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 3px solid #569cd6;
+        }
+        .warning {
+            background-color: #4a3c2a;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 3px solid #ce9178;
+        }
+        ul, ol {
+            margin-left: 20px;
+        }
+        li {
+            margin: 8px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #3c3c3c;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #2d2d2d;
+            color: #4ec9b0;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #252526;
+        }
+        a {
+            color: #569cd6;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .toc {
+            background-color: #252526;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .toc ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        .toc ul ul {
+            padding-left: 20px;
+        }
+        .toc a {
+            color: #9cdcfe;
+        }
+    </style>
+</head>
+<body>
+    <h1>FixTool User Guide</h1>
+
+    <div class="toc">
+        <h2>Table of Contents</h2>
+        <ul>
+            <li><a href="#getting-started">1. Getting Started</a></li>
+            <li><a href="#connections">2. Managing Connections</a></li>
+            <li><a href="#viewing-messages">3. Viewing Messages</a></li>
+            <li><a href="#sending-messages">4. Sending Messages</a></li>
+            <li><a href="#message-templates">5. Message Templates</a></li>
+            <li><a href="#search">6. Searching Messages</a></li>
+            <li><a href="#filtering">7. Filtering Messages</a></li>
+            <li><a href="#settings">8. Settings</a></li>
+        </ul>
+    </div>
+
+    <h2 id="getting-started">1. Getting Started</h2>
+
+    <h3>What is FixTool?</h3>
+    <p>FixTool is a desktop application for working with the FIX (Financial Information eXchange) protocol. It allows you to:</p>
+    <ul>
+        <li>Connect to FIX servers and receive messages</li>
+        <li>Send FIX messages with custom field values</li>
+        <li>View and analyze message history</li>
+        <li>Search and filter messages</li>
+        <li>Create reusable message templates</li>
+    </ul>
+
+    <h3>Quick Start</h3>
+    <ol>
+        <li>Click the <strong>New Connection</strong> button in the toolbar</li>
+        <li>Enter your connection details (host, port, SenderCompID, TargetCompID)</li>
+        <li>Click <strong>Connect</strong> to establish a FIX session</li>
+        <li>Messages will appear in the grid view as they are sent/received</li>
+    </ol>
+
+    <div class="tip">
+        <strong>Tip:</strong> For testing, use the <strong>Demo Server</strong> option which starts a local FIX server that echoes messages back.
+    </div>
+
+    <h2 id="connections">2. Managing Connections</h2>
+
+    <h3>Creating a Connection Profile</h3>
+    <p>Connection profiles store your FIX session configuration for reuse:</p>
+    <ol>
+        <li>Click <strong>New Connection</strong> in the toolbar</li>
+        <li>Fill in the connection details:
+            <ul>
+                <li><strong>Profile Name:</strong> A friendly name for this connection</li>
+                <li><strong>Host:</strong> FIX server hostname or IP address</li>
+                <li><strong>Port:</strong> FIX server port number</li>
+                <li><strong>SenderCompID:</strong> Your FIX session identifier</li>
+                <li><strong>TargetCompID:</strong> Server's FIX session identifier</li>
+                <li><strong>BeginString:</strong> FIX protocol version (e.g., FIX.4.2, FIX.4.4)</li>
+            </ul>
+        </li>
+        <li>Click <strong>Save Profile</strong> to save for later use</li>
+        <li>Click <strong>Connect</strong> to start the session</li>
+    </ol>
+
+    <h3>Demo Server</h3>
+    <p>The demo server is perfect for testing:</p>
+    <ul>
+        <li>Starts a local FIX server on port 9876</li>
+        <li>Automatically accepts all messages</li>
+        <li>Echoes messages back with a 1-second delay</li>
+        <li>No external dependencies required</li>
+    </ul>
+
+    <h2 id="viewing-messages">3. Viewing Messages</h2>
+
+    <h3>View Modes</h3>
+    <p>FixTool provides two view modes for messages:</p>
+
+    <table>
+        <tr>
+            <th>Mode</th>
+            <th>Description</th>
+            <th>Best For</th>
+        </tr>
+        <tr>
+            <td><strong>Grid View (Parsed)</strong></td>
+            <td>Shows messages in a structured grid with columns for common fields (Time, Direction, SeqNum, MsgType, Summary)</td>
+            <td>Quickly scanning message flow, identifying patterns</td>
+        </tr>
+        <tr>
+            <td><strong>Terminal View (Raw)</strong></td>
+            <td>Shows raw FIX messages as text with SOH (|) delimiters</td>
+            <td>Debugging, seeing exact message format</td>
+        </tr>
+    </table>
+
+    <p>Toggle between views using the view mode button in the toolbar (grid icon / terminal icon).</p>
+
+    <h3>Message Details</h3>
+    <p>Click any message in the grid to view detailed field information in the detail panel:</p>
+    <ul>
+        <li>Shows all FIX fields with tag numbers and values</li>
+        <li>Displays field descriptions from the data dictionary</li>
+        <li>Shows repeating groups in a hierarchical view</li>
+        <li>Toggle protocol tags visibility (BeginString, BodyLength, CheckSum)</li>
+    </ul>
+
+    <h3>Expanding Messages</h3>
+    <p>In grid view, you can expand messages to see all fields:</p>
+    <ul>
+        <li>Click the arrow icon or double-click a message row</li>
+        <li>Fields are displayed with tag numbers and descriptions</li>
+        <li>Collapse by clicking the arrow icon again</li>
+    </ul>
+
+    <h2 id="sending-messages">4. Sending Messages</h2>
+
+    <h3>Opening the Message Editor</h3>
+    <p>Click the <strong>Message Editor</strong> button in the toolbar to open the message editor panel.</p>
+
+    <h3>Building a Message</h3>
+    <ol>
+        <li>Click <strong>Add Field</strong> to add a new field row</li>
+        <li>Enter the <strong>Tag</strong> number (e.g., 35 for MsgType)</li>
+        <li>Enter the <strong>Value</strong> (e.g., D for NewOrderSingle)</li>
+        <li>Repeat for all required fields</li>
+        <li>Click <strong>Send</strong> to send the message</li>
+    </ol>
+
+    <div class="example">
+        <h4>Example: New Order Single (35=D)</h4>
+        <pre><code>Tag 35: D          (MsgType = NewOrderSingle)
+Tag 11: ORDER123   (ClOrdID = Order ID)
+Tag 55: EUR/USD    (Symbol)
+Tag 54: 1          (Side = Buy)
+Tag 38: 1000000    (OrderQty)
+Tag 40: 2          (OrdType = Limit)
+Tag 44: 1.0850     (Price)</code></pre>
+    </div>
+
+    <h3>Saving Message Templates</h3>
+    <p>Save frequently used messages for reuse:</p>
+    <ol>
+        <li>Build your message in the editor</li>
+        <li>Click <strong>Save Message</strong></li>
+        <li>Enter a template name</li>
+        <li>Load it later from the <strong>Saved Messages</strong> dropdown</li>
+    </ol>
+
+    <h2 id="message-templates">5. Message Templates (Advanced)</h2>
+
+    <h3>What are Template Expressions?</h3>
+    <p>Template expressions allow you to dynamically generate field values using Kotlin expressions. This is especially useful for:</p>
+    <ul>
+        <li>Generating unique IDs automatically</li>
+        <li>Inserting current timestamps</li>
+        <li>Referencing values from previously received messages</li>
+        <li>Creating responsive message workflows</li>
+    </ul>
+
+    <h3>Template Syntax</h3>
+    <p>Template expressions are enclosed in <code>${...}</code> and evaluated when you send the message:</p>
+
+    <div class="example">
+        <h4>Basic Templates</h4>
+        <table>
+            <tr>
+                <th>Template</th>
+                <th>Result</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td><code>${UUID.randomUUID()}</code></td>
+                <td><code>a1b2c3d4-e5f6-...</code></td>
+                <td>Generate random UUID</td>
+            </tr>
+            <tr>
+                <td><code>${System.currentTimeMillis()}</code></td>
+                <td><code>1705419265123</code></td>
+                <td>Current Unix timestamp</td>
+            </tr>
+            <tr>
+                <td><code>ORDER-${UUID.randomUUID()}</code></td>
+                <td><code>ORDER-a1b2c3d4-...</code></td>
+                <td>Prefix with text</td>
+            </tr>
+        </table>
+    </div>
+
+    <h3>Timestamp Formatting</h3>
+    <pre><code>${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))}</code></pre>
+    <p>Result: <code>20250116-14:32:45.123</code></p>
+
+    <p>Common patterns:</p>
+    <ul>
+        <li><code>"yyyyMMdd"</code> → <code>20250116</code></li>
+        <li><code>"HHmmss"</code> → <code>143245</code></li>
+        <li><code>"yyyyMMdd-HH:mm:ss"</code> → <code>20250116-14:32:45</code></li>
+    </ul>
+
+    <h3>Message References (Advanced)</h3>
+    <p>Reference field values from previously sent or received messages:</p>
+
+    <div class="example">
+        <h4>Syntax</h4>
+        <pre><code>${incoming["MsgType"].valueOfTag(TagNumber)}</code></pre>
+        <pre><code>${outgoing["MsgType"].valueOfTag(TagNumber)}</code></pre>
+
+        <ul>
+            <li><code>incoming</code> - References latest <strong>received</strong> message of that type</li>
+            <li><code>outgoing</code> - References latest <strong>sent</strong> message of that type</li>
+            <li><code>"MsgType"</code> - FIX message type (e.g., "D", "R", "AJ")</li>
+            <li><code>TagNumber</code> - FIX tag number to extract</li>
+        </ul>
+    </div>
+
+    <h3>Real-World Example: Quote Response</h3>
+    <div class="example">
+        <h4>Scenario:</h4>
+        <p>You receive a QuoteRequest (35=R) and want to send a QuoteResponse (35=AJ) that references the original request:</p>
+
+        <h4>Incoming QuoteRequest:</h4>
+        <pre><code>35=R              (MsgType = QuoteRequest)
+131=QUOTEREQ-001  (QuoteReqID)
+55=EUR/USD        (Symbol)
+38=1000000        (OrderQty)</code></pre>
+
+        <h4>Your QuoteResponse Template:</h4>
+        <pre><code>Tag 35:  AJ                                      (MsgType = QuoteResponse)
+Tag 131: ${incoming["R"].valueOfTag(131)}       (Same QuoteReqID from request)
+Tag 55:  ${incoming["R"].valueOfTag(55)}        (Same Symbol from request)
+Tag 117: QUOTE-${UUID.randomUUID()}             (New unique QuoteID)
+Tag 132: 1.0850                                  (BidPx)
+Tag 133: 1.0852                                  (OfferPx)</code></pre>
+
+        <h4>Resolved Message (when sent):</h4>
+        <pre><code>35=AJ                                    (MsgType = QuoteResponse)
+131=QUOTEREQ-001                         (Matched from incoming)
+55=EUR/USD                               (Matched from incoming)
+117=QUOTE-f7e8d9c6-1234-5678-...        (Generated UUID)
+132=1.0850                               (BidPx)
+133=1.0852                               (OfferPx)</code></pre>
+    </div>
+
+    <div class="tip">
+        <strong>Tip:</strong> Message references always use the <strong>latest</strong> message of each type. The application tracks incoming and outgoing messages separately across all sessions.
+    </div>
+
+    <h3>Common Message Types</h3>
+    <table>
+        <tr>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Common Tags</th>
+        </tr>
+        <tr>
+            <td>D</td>
+            <td>NewOrderSingle</td>
+            <td>11 (ClOrdID), 55 (Symbol), 54 (Side)</td>
+        </tr>
+        <tr>
+            <td>R</td>
+            <td>QuoteRequest</td>
+            <td>131 (QuoteReqID), 55 (Symbol), 38 (OrderQty)</td>
+        </tr>
+        <tr>
+            <td>AJ</td>
+            <td>QuoteResponse</td>
+            <td>131 (QuoteReqID), 117 (QuoteID), 132 (BidPx)</td>
+        </tr>
+        <tr>
+            <td>8</td>
+            <td>ExecutionReport</td>
+            <td>11 (ClOrdID), 37 (OrderID), 17 (ExecID)</td>
+        </tr>
+    </table>
+
+    <div class="warning">
+        <strong>Note:</strong> If a referenced message type doesn't exist (not received yet), the expression will evaluate to <code>null</code>. Make sure you've received the message before referencing it.
+    </div>
+
+    <h2 id="search">6. Searching Messages</h2>
+
+    <h3>Global Search</h3>
+    <p>Search across all sessions for messages containing specific text:</p>
+    <ol>
+        <li>Click the <strong>Search</strong> button in the toolbar</li>
+        <li>Enter your search query (searches in all fields and values)</li>
+        <li>Press Enter or click Search</li>
+        <li>Results show matching messages with context</li>
+        <li>Click <strong>Open in Search Window</strong> to pin results</li>
+    </ol>
+
+    <h3>Search Results Pane</h3>
+    <p>The search results pane shows all matches in a persistent grid:</p>
+    <ul>
+        <li>Appears at the bottom of the window</li>
+        <li>Shows session name, time, direction, message type, and matched content</li>
+        <li>Click any result to navigate to that message in its session</li>
+        <li>Resizable and stays open while you work</li>
+        <li>Close with the X button when done</li>
+    </ul>
+
+    <h2 id="filtering">7. Filtering Messages</h2>
+
+    <h3>Global Filter</h3>
+    <p>Filter messages across all sessions using the global filter controls:</p>
+    <ul>
+        <li><strong>Regex Pattern:</strong> Enter a regular expression to match messages</li>
+        <li><strong>In/Out Checkboxes:</strong> Show/hide incoming or outgoing messages</li>
+        <li>Filters apply to all open sessions simultaneously</li>
+        <li>Clear filters by clearing the regex and checking both boxes</li>
+    </ul>
+
+    <div class="example">
+        <h4>Example Filters:</h4>
+        <ul>
+            <li><code>35=D</code> - Show only NewOrderSingle messages</li>
+            <li><code>EUR/USD</code> - Show only messages mentioning EUR/USD</li>
+            <li><code>ClOrdID=ORDER.*</code> - Show orders with IDs starting with ORDER</li>
+        </ul>
+    </div>
+
+    <h2 id="settings">8. Settings</h2>
+
+    <h3>Data Dictionary</h3>
+    <p>Configure a FIX data dictionary for field descriptions:</p>
+    <ol>
+        <li>Click <strong>Settings</strong> in the toolbar</li>
+        <li>Click <strong>Browse</strong> next to Data Dictionary Path</li>
+        <li>Select your FIX XML data dictionary file</li>
+        <li>Click <strong>Save</strong></li>
+    </ol>
+    <p>The dictionary provides human-readable names for tags and values.</p>
+
+    <h3>Custom Grid Columns</h3>
+    <p>Add custom columns to the grid view:</p>
+    <ul>
+        <li>Enter tag numbers (comma-separated) in the Grid View Columns field</li>
+        <li>These tags will appear as additional columns in the grid</li>
+        <li>Useful for frequently referenced fields</li>
+    </ul>
+
+    <h3>Validation Settings</h3>
+    <ul>
+        <li><strong>Validate Fields Out of Order:</strong> Warn if fields are not in tag order</li>
+        <li><strong>Validate Fields Have Values:</strong> Warn if required fields are empty</li>
+    </ul>
+
+    <h3>Data Directories</h3>
+    <p>Configure where FixTool stores profiles and templates:</p>
+    <ul>
+        <li><strong>Connection Profiles Path:</strong> Location for saved connection profiles</li>
+        <li><strong>Saved Messages Path:</strong> Location for saved message templates</li>
+    </ul>
+    <p>Useful for version control or sharing configurations across systems.</p>
+
+    <h3>Rejection Rules</h3>
+    <p>Configure which messages should be highlighted in red as rejections:</p>
+    <ul>
+        <li>Add rules with message type and optional additional tag matching</li>
+        <li>Default rules: 35=3 (Reject), 35=j (Business Reject), 35=9 (Order Cancel Reject)</li>
+        <li>Add custom rules for your specific workflow</li>
+    </ul>
+
+    <hr style="margin: 40px 0; border: none; border-top: 2px solid #3c3c3c;">
+
+    <div class="tip">
+        <strong>Need More Help?</strong><br>
+        For bugs or feature requests, visit: <a href="https://github.com/amitgupta1202/FixTool" target="_blank">GitHub Issues</a>
+    </div>
+
+    <p style="text-align: center; color: #808080; margin-top: 40px; padding-bottom: 20px;">
+        FixTool v1.0 | <a href="https://www.fixtrading.org/" target="_blank">Learn more about FIX Protocol</a>
+    </p>
+
+</body>
+</html>

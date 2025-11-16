@@ -60,6 +60,7 @@ fun Toolbar(
     onGlobalFilterOutgoingChange: ((Boolean) -> Unit)? = null,
     onToggleHideProtocolTags: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
+    onOpenHelp: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -466,6 +467,22 @@ fun Toolbar(
                     imageVector = Icons.Default.Settings,
                     contentDescription = "Settings",
                     tint = if (isDictionaryValid) AppTheme.Colors.textSecondary else AppTheme.Colors.error,
+                    modifier = tooltipIconModifier,
+                )
+            }
+        }
+
+        // Help button
+        if (onOpenHelp != null) {
+            TooltipIconButton(
+                tooltip = "Help & Documentation",
+                onClick = onOpenHelp,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Help,
+                    contentDescription = "Help",
+                    tint = AppTheme.Colors.textSecondary,
                     modifier = tooltipIconModifier,
                 )
             }

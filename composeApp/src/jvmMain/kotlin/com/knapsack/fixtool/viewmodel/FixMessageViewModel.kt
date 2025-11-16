@@ -66,6 +66,10 @@ class FixMessageViewModel(
     private val _showSettingsDialog = MutableStateFlow(false)
     val showSettingsDialog: StateFlow<Boolean> = _showSettingsDialog.asStateFlow()
 
+    // Help dialog visibility
+    private val _showHelpDialog = MutableStateFlow(false)
+    val showHelpDialog: StateFlow<Boolean> = _showHelpDialog.asStateFlow()
+
     // Global search across all sessions
     private val _showGlobalSearchDialog = MutableStateFlow(false)
     val showGlobalSearchDialog: StateFlow<Boolean> = _showGlobalSearchDialog.asStateFlow()
@@ -400,6 +404,10 @@ class FixMessageViewModel(
 
     fun toggleSettingsDialog() {
         _showSettingsDialog.value = !_showSettingsDialog.value
+    }
+
+    fun toggleHelpDialog() {
+        _showHelpDialog.value = !_showHelpDialog.value
     }
 
     fun toggleGlobalSearchDialog() {

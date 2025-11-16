@@ -18,6 +18,7 @@ class AppSettingsService {
         Json {
             prettyPrint = true
             ignoreUnknownKeys = true
+            encodeDefaults = true // Always encode all fields, even if they have default values
         }
 
     private val settingsFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json")
@@ -37,12 +38,15 @@ class AppSettingsService {
                 AppSettings.default()
             } else {
                 val content = settingsFile.readText()
+                logger.debug("Loading settings from: {}", settingsFile.absolutePath)
+                logger.debug("Settings content: {}", content)
                 val settings = json.decodeFromString<AppSettings>(content)
-                logger.info("Settings loaded from: {}", settingsFile.absolutePath)
+                logger.info("Settings loaded successfully. Dictionary path: '{}'", settings.defaultDataDictionary)
                 settings
             }
         } catch (e: Exception) {
-            logger.error("Failed to load settings: {}", e.message, e)
+            logger.error("Failed to load settings from {}: {}", settingsFile.absolutePath, e.message, e)
+            logger.warn("Returning default settings due to load failure")
             AppSettings.default()
         }
 
@@ -54,7 +58,7 @@ class AppSettingsService {
         return try {
             val content = json.encodeToString(settings)
             settingsFile.writeText(content)
-            logger.info("Settings saved to: {}", settingsFile.absolutePath)
+            logger.info("Settings saved to: {}. Dictionary path: '{}'", settingsFile.absolutePath, settings.defaultDataDictionary)
             true
         } catch (e: Exception) {
             logger.error("Failed to save settings: {}", e.message, e)

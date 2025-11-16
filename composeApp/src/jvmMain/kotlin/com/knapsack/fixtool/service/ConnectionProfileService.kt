@@ -56,18 +56,28 @@ class ConnectionProfileService(
             emptyList()
         }
 
-    fun saveProfiles(profiles: List<FixConnectionProfile>) {
-        try {
+    /**
+     * Saves profiles to disk
+     * @return true if save succeeded, false if failed
+     */
+    fun saveProfiles(profiles: List<FixConnectionProfile>): Boolean {
+        return try {
             val container = ProfilesContainer(profiles)
             val content = json.encodeToString(container)
             profilesFile.writeText(content)
+            true
         } catch (e: Exception) {
             val errorMsg = "Failed to save connection profiles: ${e.message}"
             logger.error(errorMsg, e, notifyUser = true)
+            false
         }
     }
 
-    fun saveProfile(profile: FixConnectionProfile): List<FixConnectionProfile> {
+    /**
+     * Saves a profile (creates new or updates existing)
+     * @return Result with updated profile list on success, or failure with exception
+     */
+    fun saveProfile(profile: FixConnectionProfile): Result<List<FixConnectionProfile>> {
         val profiles = loadProfiles().toMutableList()
         val existingIndex = profiles.indexOfFirst { it.id == profile.id }
 
@@ -77,13 +87,23 @@ class ConnectionProfileService(
             profiles.add(profile)
         }
 
-        saveProfiles(profiles)
-        return profiles
+        return if (saveProfiles(profiles)) {
+            Result.success(profiles)
+        } else {
+            Result.failure(java.io.IOException("Failed to save profile"))
+        }
     }
 
-    fun deleteProfile(profileId: String): List<FixConnectionProfile> {
+    /**
+     * Deletes a profile by ID
+     * @return Result with updated profile list on success, or failure with exception
+     */
+    fun deleteProfile(profileId: String): Result<List<FixConnectionProfile>> {
         val profiles = loadProfiles().filterNot { it.id == profileId }
-        saveProfiles(profiles)
-        return profiles
+        return if (saveProfiles(profiles)) {
+            Result.success(profiles)
+        } else {
+            Result.failure(java.io.IOException("Failed to delete profile"))
+        }
     }
 }

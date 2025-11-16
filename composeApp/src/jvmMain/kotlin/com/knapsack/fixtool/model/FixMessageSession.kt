@@ -149,16 +149,15 @@ class FixMessageSession(
                 messageQueue.poll()?.let { batch.add(it) }
 
                 if (batch.isNotEmpty()) {
-                    var current = _messages.value
+                    // Use mutable list for efficient batch processing, then convert once
+                    val current = _messages.value.toMutableList()
                     batch.forEach { message ->
-                        current =
-                            if (current.size >= BUFFER_MSG_SIZE) {
-                                current.drop(1) + message
-                            } else {
-                                current + message
-                            }
+                        if (current.size >= BUFFER_MSG_SIZE) {
+                            current.removeFirst()
+                        }
+                        current.add(message)
                     }
-                    _messages.value = current
+                    _messages.value = current.toList()
                 }
                 delay(POLL_PERIOD_MS) // Poll every 100ms
             }

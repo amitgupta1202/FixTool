@@ -5,7 +5,6 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -505,44 +504,54 @@ fun HierarchicalGridView(
                     state = listState,
                     modifier = Modifier.weight(1f),
                 ) {
-                    itemsIndexed(
-                        items = messages,
-                        key = { _, message -> message.timestamp.toString() },
-                    ) { _, message ->
+                    messages.forEach { message ->
                         val messageId = message.timestamp.toString()
                         val isExpanded = expandedMessages[messageId] ?: false
 
                         when (message) {
                             is Separator -> {
                                 // Separator row
-                                Box(
-                                    modifier =
-                                        Modifier
-                                            .width(5000.dp) // Fixed width for horizontal scroll
-                                            .height(20.dp)
-                                            .background(separatorBackgroundColor),
-                                )
+                                item(key = messageId) {
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .width(5000.dp) // Fixed width for horizontal scroll
+                                                .height(20.dp)
+                                                .background(separatorBackgroundColor),
+                                    )
+                                }
                             }
 
                             is FixMessage -> {
                                 // Message summary row
-                                MessageSummaryRow(
-                                    message = message,
-                                    dictionary = dictionary,
-                                    gridViewColumns = gridViewColumns,
-                                    columnWidths = columnWidths,
-                                    isExpanded = isExpanded,
-                                    isSelected = message == selectedMessage,
-                                    recentlySentMessageTimestamp = recentlySentMessageTimestamp,
-                                    onToggleExpand = {
-                                        expandedMessages[messageId] = !isExpanded
-                                    },
-                                    onSelectMessage = onSelectMessage,
-                                    appSettings = appSettings,
-                                )
+                                item(key = messageId) {
+                                    MessageSummaryRow(
+                                        message = message,
+                                        dictionary = dictionary,
+                                        gridViewColumns = gridViewColumns,
+                                        columnWidths = columnWidths,
+                                        isExpanded = isExpanded,
+                                        isSelected = message == selectedMessage,
+                                        recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                                        onToggleExpand = {
+                                            expandedMessages[messageId] = !isExpanded
+                                        },
+                                        onSelectMessage = onSelectMessage,
+                                        appSettings = appSettings,
+                                    )
+                                }
 
-                                // TODO: Expanded field details currently removed
-                                // Need to refactor renderQuickFixMessage to be a regular composable
+                                // Expanded field details
+                                if (isExpanded) {
+                                    renderQuickFixMessage(
+                                        message = message.quickfixMessage,
+                                        dictionary = dictionary,
+                                        hideProtocolTags = hideProtocolTags,
+                                        protocolTags = appSettings.protocolTags,
+                                        expandedGroups = expandedGroups,
+                                        messageId = messageId,
+                                    )
+                                }
                             }
                         }
                     }

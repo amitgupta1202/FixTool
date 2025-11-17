@@ -117,10 +117,58 @@
         .toc a {
             color: #9cdcfe;
         }
+        .back-to-top {
+            text-align: right;
+            margin: 20px 0;
+            font-size: 0.9em;
+        }
+        .back-to-top a {
+            color: #4ec9b0;
+            text-decoration: none;
+            padding: 5px 10px;
+            border: 1px solid #4ec9b0;
+            border-radius: 3px;
+            display: inline-block;
+        }
+        .back-to-top a:hover {
+            background-color: #4ec9b0;
+            color: #1e1e1e;
+        }
+        .fix-message {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            white-space: pre;
+            line-height: 1.8;
+        }
+        .fix-table {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            border-collapse: collapse;
+            margin: 10px 0;
+            width: auto;
+        }
+        .fix-table td {
+            padding: 4px 8px;
+            border: none;
+        }
+        .fix-table .tag {
+            text-align: right;
+            color: #ce9178;
+        }
+        .fix-table .sep {
+            text-align: center;
+            color: #569cd6;
+        }
+        .fix-table .value {
+            text-align: left;
+            color: #9cdcfe;
+        }
+        .fix-table .desc {
+            text-align: left;
+            color: #6a9955;
+        }
     </style>
 </head>
 <body>
-    <h1>FixTool User Guide</h1>
+    <h1 id="top">FixTool User Guide</h1>
 
     <div class="toc">
         <h2>Table of Contents</h2>
@@ -160,6 +208,8 @@
         <strong>Tip:</strong> For testing, use the <strong>Demo Server</strong> option which starts a local FIX server that echoes messages back.
     </div>
 
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+
     <h2 id="connections">2. Managing Connections</h2>
 
     <h3>Creating a Connection Profile</h3>
@@ -188,6 +238,8 @@
         <li>Echoes messages back with a 1-second delay</li>
         <li>No external dependencies required</li>
     </ul>
+
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
     <h2 id="viewing-messages">3. Viewing Messages</h2>
 
@@ -231,6 +283,8 @@
         <li>Collapse by clicking the arrow icon again</li>
     </ul>
 
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+
     <h2 id="sending-messages">4. Sending Messages</h2>
 
     <h3>Opening the Message Editor</h3>
@@ -247,13 +301,50 @@
 
     <div class="example">
         <h4>Example: New Order Single (35=D)</h4>
-        <pre><code>Tag 35: D          (MsgType = NewOrderSingle)
-Tag 11: ORDER123   (ClOrdID = Order ID)
-Tag 55: EUR/USD    (Symbol)
-Tag 54: 1          (Side = Buy)
-Tag 38: 1000000    (OrderQty)
-Tag 40: 2          (OrdType = Limit)
-Tag 44: 1.0850     (Price)</code></pre>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">Tag 35</td>
+                <td class="sep">:</td>
+                <td class="value">D</td>
+                <td class="desc">(MsgType = NewOrderSingle)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 11</td>
+                <td class="sep">:</td>
+                <td class="value">ORDER123</td>
+                <td class="desc">(ClOrdID = Order ID)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 55</td>
+                <td class="sep">:</td>
+                <td class="value">EUR/USD</td>
+                <td class="desc">(Symbol)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 54</td>
+                <td class="sep">:</td>
+                <td class="value">1</td>
+                <td class="desc">(Side = Buy)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 38</td>
+                <td class="sep">:</td>
+                <td class="value">1000000</td>
+                <td class="desc">(OrderQty)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 40</td>
+                <td class="sep">:</td>
+                <td class="value">2</td>
+                <td class="desc">(OrdType = Limit)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 44</td>
+                <td class="sep">:</td>
+                <td class="value">1.0850</td>
+                <td class="desc">(Price)</td>
+            </tr>
+        </table>
     </div>
 
     <h3>Saving Message Templates</h3>
@@ -264,6 +355,8 @@ Tag 44: 1.0850     (Price)</code></pre>
         <li>Enter a template name</li>
         <li>Load it later from the <strong>Saved Messages</strong> dropdown</li>
     </ol>
+
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
     <h2 id="message-templates">5. Message Templates (Advanced)</h2>
 
@@ -338,26 +431,112 @@ Tag 44: 1.0850     (Price)</code></pre>
         <p>You receive a QuoteRequest (35=R) and want to send a QuoteResponse (35=AJ) that references the original request:</p>
 
         <h4>Incoming QuoteRequest:</h4>
-        <pre><code>35=R              (MsgType = QuoteRequest)
-131=QUOTEREQ-001  (QuoteReqID)
-55=EUR/USD        (Symbol)
-38=1000000        (OrderQty)</code></pre>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">35</td>
+                <td class="sep">=</td>
+                <td class="value">R</td>
+                <td class="desc">(MsgType = QuoteRequest)</td>
+            </tr>
+            <tr>
+                <td class="tag">131</td>
+                <td class="sep">=</td>
+                <td class="value">QUOTEREQ-001</td>
+                <td class="desc">(QuoteReqID)</td>
+            </tr>
+            <tr>
+                <td class="tag">55</td>
+                <td class="sep">=</td>
+                <td class="value">EUR/USD</td>
+                <td class="desc">(Symbol)</td>
+            </tr>
+            <tr>
+                <td class="tag">38</td>
+                <td class="sep">=</td>
+                <td class="value">1000000</td>
+                <td class="desc">(OrderQty)</td>
+            </tr>
+        </table>
 
         <h4>Your QuoteResponse Template:</h4>
-        <pre><code>Tag 35:  AJ                                      (MsgType = QuoteResponse)
-Tag 131: ${incoming["R"].valueOfTag(131)}       (Same QuoteReqID from request)
-Tag 55:  ${incoming["R"].valueOfTag(55)}        (Same Symbol from request)
-Tag 117: QUOTE-${UUID.randomUUID()}             (New unique QuoteID)
-Tag 132: 1.0850                                  (BidPx)
-Tag 133: 1.0852                                  (OfferPx)</code></pre>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">Tag 35</td>
+                <td class="sep">:</td>
+                <td class="value">AJ</td>
+                <td class="desc">(MsgType = QuoteResponse)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 131</td>
+                <td class="sep">:</td>
+                <td class="value">${incoming["R"].valueOfTag(131)}</td>
+                <td class="desc">(Same QuoteReqID from request)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 55</td>
+                <td class="sep">:</td>
+                <td class="value">${incoming["R"].valueOfTag(55)}</td>
+                <td class="desc">(Same Symbol from request)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 117</td>
+                <td class="sep">:</td>
+                <td class="value">QUOTE-${UUID.randomUUID()}</td>
+                <td class="desc">(New unique QuoteID)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 132</td>
+                <td class="sep">:</td>
+                <td class="value">1.0850</td>
+                <td class="desc">(BidPx)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 133</td>
+                <td class="sep">:</td>
+                <td class="value">1.0852</td>
+                <td class="desc">(OfferPx)</td>
+            </tr>
+        </table>
 
         <h4>Resolved Message (when sent):</h4>
-        <pre><code>35=AJ                                    (MsgType = QuoteResponse)
-131=QUOTEREQ-001                         (Matched from incoming)
-55=EUR/USD                               (Matched from incoming)
-117=QUOTE-f7e8d9c6-1234-5678-...        (Generated UUID)
-132=1.0850                               (BidPx)
-133=1.0852                               (OfferPx)</code></pre>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">35</td>
+                <td class="sep">=</td>
+                <td class="value">AJ</td>
+                <td class="desc">(MsgType = QuoteResponse)</td>
+            </tr>
+            <tr>
+                <td class="tag">131</td>
+                <td class="sep">=</td>
+                <td class="value">QUOTEREQ-001</td>
+                <td class="desc">(Matched from incoming)</td>
+            </tr>
+            <tr>
+                <td class="tag">55</td>
+                <td class="sep">=</td>
+                <td class="value">EUR/USD</td>
+                <td class="desc">(Matched from incoming)</td>
+            </tr>
+            <tr>
+                <td class="tag">117</td>
+                <td class="sep">=</td>
+                <td class="value">QUOTE-f7e8d9c6-1234-5678-...</td>
+                <td class="desc">(Generated UUID)</td>
+            </tr>
+            <tr>
+                <td class="tag">132</td>
+                <td class="sep">=</td>
+                <td class="value">1.0850</td>
+                <td class="desc">(BidPx)</td>
+            </tr>
+            <tr>
+                <td class="tag">133</td>
+                <td class="sep">=</td>
+                <td class="value">1.0852</td>
+                <td class="desc">(OfferPx)</td>
+            </tr>
+        </table>
     </div>
 
     <div class="tip">
@@ -397,6 +576,8 @@ Tag 133: 1.0852                                  (OfferPx)</code></pre>
         <strong>Note:</strong> If a referenced message type doesn't exist (not received yet), the expression will evaluate to <code>null</code>. Make sure you've received the message before referencing it.
     </div>
 
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+
     <h2 id="search">6. Searching Messages</h2>
 
     <h3>Global Search</h3>
@@ -419,6 +600,8 @@ Tag 133: 1.0852                                  (OfferPx)</code></pre>
         <li>Close with the X button when done</li>
     </ul>
 
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+
     <h2 id="filtering">7. Filtering Messages</h2>
 
     <h3>Global Filter</h3>
@@ -438,6 +621,8 @@ Tag 133: 1.0852                                  (OfferPx)</code></pre>
             <li><code>ClOrdID=ORDER.*</code> - Show orders with IDs starting with ORDER</li>
         </ul>
     </div>
+
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
     <h2 id="settings">8. Settings</h2>
 

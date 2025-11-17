@@ -51,6 +51,8 @@ kotlin {
 
             // Kotlin scripting for dynamic field expressions
             implementation(libs.kotlin.scripting.jsr223)
+            implementation(libs.kotlin.script.runtime)
+            implementation(libs.kotlin.compiler.embeddable)
         }
     }
 }
@@ -64,8 +66,8 @@ compose.desktop {
             packageName = "FixTool"
             packageVersion = "1.0.0"
 
-            // Include required Java modules for logback and QuickFIX/J
-            modules("java.naming", "java.sql", "java.instrument", "jdk.unsupported")
+            // Include required Java modules for logback, QuickFIX/J, and Kotlin scripting
+            modules("java.naming", "java.sql", "java.instrument", "jdk.unsupported", "java.compiler", "java.scripting")
 
             val macIconFile = project.file("src/jvmMain/resources/icon.icns")
             val winIconFile = project.file("src/jvmMain/resources/icon.ico")

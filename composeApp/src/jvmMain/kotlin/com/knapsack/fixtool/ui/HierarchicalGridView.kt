@@ -117,7 +117,7 @@ fun HierarchicalGridView(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Track which messages are expanded (key: message timestamp)
+    // Track which messages are expanded (key: message timestamp-index for uniqueness)
     val expandedMessages = remember { mutableStateMapOf<String, Boolean>() }
 
     // Track which groups are expanded (key: "messageId_groupKey")
@@ -504,8 +504,8 @@ fun HierarchicalGridView(
                     state = listState,
                     modifier = Modifier.weight(1f),
                 ) {
-                    messages.forEach { message ->
-                        val messageId = message.timestamp.toString()
+                    messages.forEachIndexed { index, message ->
+                        val messageId = "${message.timestamp}-$index"
                         val isExpanded = expandedMessages[messageId] ?: false
 
                         when (message) {

@@ -32,3 +32,17 @@ detekt-report.md
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# SSL Certificates and Keystores (sensitive)
+*.jks
+*.p12
+*.pfx
+*.crt
+*.cer
+*.pem
+*.key
+
+# User configuration files (may contain credentials)
+**/connection_profiles.json
+**/app_settings.json
+**/saved_messages.json

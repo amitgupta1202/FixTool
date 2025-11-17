@@ -6,10 +6,25 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 
 - **Message Construction**: Build FIX messages with an intuitive UI, supporting standard fields and repeating groups
 - **FIX Client Connectivity**: Connect to FIX servers as a client with configurable connection profiles
+- **SSL/TLS Support**: Secure connections with full SSL/TLS support for encrypted FIX sessions
 - **Message Inspection**: View and analyze incoming and outgoing FIX messages in real-time
 - **Session Management**: Manage multiple FIX sessions with connection profiles
 - **Message Validation**: Validate messages against FIX data dictionaries
 - **Saved Messages**: Save and reuse frequently used message templates
+
+## Quick Start
+
+### SSL/TLS Configuration
+
+For secure FIX connections over SSL/TLS, see the [SSL Setup Guide](SSL_SETUP.md) for detailed instructions on:
+- Extracting server certificates
+- Creating Java truststores
+- Configuring SSL in connection profiles
+- Troubleshooting SSL connection issues
+
+### Running the Application
+
+See the [Development](#development) section below for build and run instructions.
 
 ## Technology
 

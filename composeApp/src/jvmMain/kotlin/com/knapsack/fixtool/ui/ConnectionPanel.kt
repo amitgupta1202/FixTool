@@ -208,6 +208,7 @@ fun ConnectionPanel(
                             password = password,
                             host = host,
                             port = port,
+                            socketConnectHost = host, // Use the same host for connection
                             beginString = fixVersion,
                             heartBtInt = heartBtInt,
                             resetOnLogon = resetOnLogon,
@@ -1153,6 +1154,7 @@ fun ConnectionPanel(
                             password = password,
                             host = host,
                             port = port,
+                            socketConnectHost = host, // Use the same host for connection
                             beginString = fixVersion,
                             heartBtInt = heartBtInt,
                             resetOnLogon = resetOnLogon,

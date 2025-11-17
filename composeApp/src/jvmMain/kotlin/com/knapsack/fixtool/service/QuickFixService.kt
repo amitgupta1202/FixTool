@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixConnectionState.*
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
+import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.FixMessageHelper.toRawFixMessage
 import org.slf4j.LoggerFactory
 import quickfix.Application
@@ -167,7 +168,7 @@ class QuickFixService(
             val dataDictionary = dictionary.getDataDictionary()
             val message =
                 if (dataDictionary != null) {
-                    rawMessage.toQuickFixMessage(dataDictionary)
+                    rawMessage.toQuickFixMessageManual(dataDictionary)
                 } else {
                     logger.info("Sending message without data dictionary validation")
                     rawMessage.toQuickFixMessage()

@@ -3,6 +3,8 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -51,12 +53,19 @@ fun App(
     MaterialTheme(
         colorScheme = DarkColorScheme,
     ) {
-        val viewModel: FixMessageViewModel = viewModel { FixMessageViewModel() }
+        // Custom text selection colors for better visibility in dark theme
+        val customTextSelectionColors = TextSelectionColors(
+            handleColor = AppTheme.Colors.textSelectionHandle,
+            backgroundColor = AppTheme.Colors.textSelectionBackground
+        )
 
-        // Expose viewModel reference to parent
-        LaunchedEffect(viewModel) {
-            onViewModelCreated(viewModel)
-        }
+        CompositionLocalProvider(LocalTextSelectionColors provides customTextSelectionColors) {
+            val viewModel: FixMessageViewModel = viewModel { FixMessageViewModel() }
+
+            // Expose viewModel reference to parent
+            LaunchedEffect(viewModel) {
+                onViewModelCreated(viewModel)
+            }
         var viewMode by rememberSaveable { mutableStateOf(ViewMode.SPLIT_HORIZONTAL) }
 
         // Collect global state
@@ -665,6 +674,7 @@ fun App(
                 notifications = notifications,
                 onDismiss = { notificationId -> viewModel.dismissNotification(notificationId) },
             )
+        }
         }
     }
 }

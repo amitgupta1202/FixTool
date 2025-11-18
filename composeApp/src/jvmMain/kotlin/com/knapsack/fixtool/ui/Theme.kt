@@ -131,6 +131,12 @@ object AppTheme {
         /** Multi-selection secondary */
         val selectionSecondary = Color(0xFF1E4A6B)
 
+        /** Text selection background - visible blue tint for selected text */
+        val textSelectionBackground = Color(0xFF3D5A80)
+
+        /** Text selection handle color */
+        val textSelectionHandle = Color(0xFF4EC9B0)
+
         /** Current match highlight */
         val highlightCurrent = Color(0xFFFFAA00)
 

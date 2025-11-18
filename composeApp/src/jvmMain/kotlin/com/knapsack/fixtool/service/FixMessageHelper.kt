@@ -197,4 +197,69 @@ object FixMessageHelper {
     fun String.toRawFixMessage() = this.replace('\u0001', '|')
 
     fun Message.toRawFixMessage() = this.toString().replace('\u0001', '|')
+
+    /**
+     * Normalizes a FIX message from line-based format to traditional format.
+     * Supports two formats:
+     * 1. Traditional: "35=R|131=ORD-1|"
+     * 2. Line-based: "35 R\n131 ORD-1\n# comment"
+     *
+     * Line-based format rules:
+     * - Each line is "tag value" (space-separated)
+     * - Lines starting with # are comments (ignored)
+     * - Blank lines are ignored
+     * - Extra whitespace is trimmed
+     * - Supports both \n (Mac/Unix) and \r\n (Windows) line endings
+     *
+     * @return Message in traditional format "tag=value|tag=value|"
+     */
+    fun String.normalizeFixMessage(): String {
+        if (this.isBlank()) return ""
+
+        // Detect format: if contains newlines and limited use of '=' or '|', use line-based format
+        val hasNewlines = this.contains('\n')
+        val hasEquals = this.contains('=')
+        val hasPipes = this.contains('|')
+
+        // If already in traditional format, return as-is
+        if (!hasNewlines || (hasEquals && hasPipes)) {
+            return this
+        }
+
+        // Convert line-based format to traditional format
+        val fields = this
+            .lines() // Split by newlines (handles both \n and \r\n)
+            .map { line ->
+                // Strip inline comments (everything after #)
+                val commentIndex = line.indexOf('#')
+                if (commentIndex >= 0) {
+                    line.substring(0, commentIndex).trim()
+                } else {
+                    line.trim()
+                }
+            }
+            .filter { it.isNotBlank() } // Remove blank lines
+            .mapNotNull { line ->
+                // Split by whitespace, taking first token as tag and rest as value
+                val parts = line.split(Regex("\\s+"), limit = 2)
+                if (parts.size == 2) {
+                    val tag = parts[0].trim()
+                    val value = parts[1].trim()
+                    // Validate tag is numeric
+                    if (tag.toIntOrNull() != null) {
+                        "$tag=$value"
+                    } else {
+                        null // Skip non-numeric tags
+                    }
+                } else if (parts.size == 1 && parts[0].toIntOrNull() != null) {
+                    // Tag with no value (edge case)
+                    "${parts[0]}="
+                } else {
+                    null
+                }
+            }
+
+        // Return empty string if no fields, otherwise join with pipe delimiter
+        return if (fields.isEmpty()) "" else fields.joinToString("|", postfix = "|")
+    }
 }

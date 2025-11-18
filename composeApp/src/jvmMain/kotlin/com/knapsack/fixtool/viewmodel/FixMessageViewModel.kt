@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import com.knapsack.fixtool.model.*
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
+import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.SavedMessagesService
@@ -357,16 +358,19 @@ class FixMessageViewModel(
 
     fun pasteAndDisplayMessage(rawMessage: String) {
         try {
+            // Normalize the message format (supports both traditional and line-based formats)
+            val normalizedMessage = rawMessage.normalizeFixMessage()
+
             // Parse the raw message using the loaded data dictionary
             val dataDictionary = _dictionary.value.getDataDictionary()
 
             // Parse the message
             val quickfixMessage =
                 if (dataDictionary != null) {
-                    rawMessage.toQuickFixMessage(dataDictionary)
+                    normalizedMessage.toQuickFixMessage(dataDictionary)
                 } else {
                     // Parse without validation if no data dictionary
-                    rawMessage.toQuickFixMessage()
+                    normalizedMessage.toQuickFixMessage()
                 }
 
             // Create a FixMessage object for display (not connected to any session)
@@ -374,7 +378,7 @@ class FixMessageViewModel(
                 FixMessage(
                     timestamp = java.time.LocalDateTime.now(),
                     direction = FixMessage.Direction.INCOMING, // Default to incoming for pasted messages
-                    rawMessage = rawMessage,
+                    rawMessage = normalizedMessage,
                     quickfixMessage = quickfixMessage,
                 )
 

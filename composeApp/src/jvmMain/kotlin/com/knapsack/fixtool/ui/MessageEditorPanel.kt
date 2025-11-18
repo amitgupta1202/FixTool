@@ -34,6 +34,7 @@ import androidx.compose.ui.window.PopupProperties
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.util.NotifyingLogger
 import java.awt.Cursor
@@ -2071,8 +2072,12 @@ private fun parseRawMessageToFields(rawMessage: String): List<FixField>? {
     val managedTags = setOf("8", "9", "10", "34", "49", "50", "52", "56", "57", "142", "143")
 
     return try {
+        // Normalize message format (handles both traditional and line-based formats)
+        val normalizedMessage = rawMessage.normalizeFixMessage()
+
+        // Parse the normalized traditional format
         val fields =
-            rawMessage
+            normalizedMessage
                 .trim()
                 .trimEnd('|')
                 .split('|')

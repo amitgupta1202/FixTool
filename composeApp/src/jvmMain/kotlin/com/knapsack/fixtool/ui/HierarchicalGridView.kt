@@ -87,6 +87,122 @@ private fun ResizeHandle(
 }
 
 /**
+ * Header row for the expanded grid showing column names and resize handles
+ */
+@Composable
+private fun ExpandedGridHeader(
+    columnWidths: MutableMap<String, androidx.compose.ui.unit.Dp>,
+    modifier: Modifier = Modifier,
+) {
+    val totalWidth = (columnWidths["IconColumn"] ?: 40.dp) +
+            (columnWidths["Tag"] ?: 120.dp) +
+            (columnWidths["TagDescription"] ?: 200.dp) +
+            (columnWidths["Value"] ?: 150.dp) +
+            (columnWidths["ValueDescription"] ?: 250.dp)
+
+    Row(
+        modifier =
+            modifier
+                .height(20.dp)
+                .width(totalWidth)
+                .background(headerBackgroundColor),
+    ) {
+        // Icon column
+        Box(
+            modifier =
+                Modifier
+                    .width(columnWidths["IconColumn"] ?: 40.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "",
+                color = headerTextColor,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        // Tag column
+        Box(
+            modifier =
+                Modifier
+                    .width((columnWidths["Tag"] ?: 120.dp) - 1.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Tag",
+                color = headerTextColor,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        ResizeHandle("Tag", columnWidths)
+
+        // Tag Description column
+        Box(
+            modifier =
+                Modifier
+                    .width((columnWidths["TagDescription"] ?: 200.dp) - 1.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Tag Description",
+                color = headerTextColor,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        ResizeHandle("TagDescription", columnWidths)
+
+        // Value column
+        Box(
+            modifier =
+                Modifier
+                    .width((columnWidths["Value"] ?: 150.dp) - 1.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Value",
+                color = headerTextColor,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        ResizeHandle("Value", columnWidths)
+
+        // Value Description column
+        Box(
+            modifier =
+                Modifier
+                    .width((columnWidths["ValueDescription"] ?: 250.dp) - 1.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Value Description",
+                color = headerTextColor,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        ResizeHandle("ValueDescription", columnWidths)
+    }
+}
+
+/**
  * Hierarchical grid view showing one row per FIX message
  *
  * Click behavior:
@@ -140,6 +256,18 @@ fun HierarchicalGridView(
         remember {
             mutableStateMapOf<String, androidx.compose.ui.unit.Dp>().apply {
                 putAll(originalWidths)
+            }
+        }
+
+    // Expanded grid column widths (for the detail view when a message is expanded)
+    val expandedGridColumnWidths =
+        remember {
+            mutableStateMapOf<String, androidx.compose.ui.unit.Dp>().apply {
+                put("IconColumn", 40.dp)
+                put("Tag", 120.dp)
+                put("TagDescription", 200.dp)
+                put("Value", 150.dp)
+                put("ValueDescription", 250.dp)
             }
         }
 
@@ -275,6 +403,78 @@ fun HierarchicalGridView(
             columnWidths[columnKey] = calculateOptimalWidth(columnKey, messages)
             autoFittedColumns.add(columnKey)
         }
+    }
+
+    // Function to calculate optimal widths for expanded grid columns based on message content
+    fun calculateExpandedGridWidths(message: quickfix.Message): Map<String, androidx.compose.ui.unit.Dp> {
+        val minWidth = 50.dp
+        val maxWidth = 500.dp
+        val charWidth = 7 // pixels per character approximately
+
+        val samples = mutableMapOf(
+            "Tag" to mutableListOf<String>(),
+            "TagDescription" to mutableListOf<String>(),
+            "Value" to mutableListOf<String>(),
+            "ValueDescription" to mutableListOf<String>()
+        )
+
+        // Helper function to collect field samples
+        fun collectFieldSamples(fieldMap: FieldMap) {
+            val iterator = fieldMap.iterator()
+            while (iterator.hasNext()) {
+                @Suppress("UNCHECKED_CAST")
+                val field = iterator.next() as Field<*>
+                val tag = field.tag
+                val value = field.getObject().toString()
+
+                samples["Tag"]?.add(tag.toString())
+
+                val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
+                samples["TagDescription"]?.add(fieldName)
+
+                samples["Value"]?.add(value)
+
+                val valueDesc = dictionary.getFieldValueDescription(tag, value)
+                if (valueDesc != null && valueDesc != value) {
+                    samples["ValueDescription"]?.add(valueDesc)
+                }
+
+                // Process groups recursively
+                try {
+                    val groupCount = fieldMap.getGroupCount(tag)
+                    if (groupCount > 0) {
+                        for (i in 1..groupCount) {
+                            try {
+                                val group = fieldMap.getGroup(i, tag)
+                                collectFieldSamples(group)
+                            } catch (e: Exception) {
+                                // Skip invalid groups
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Not a group
+                }
+            }
+        }
+
+        // Collect samples from all sections
+        collectFieldSamples(message.header)
+        collectFieldSamples(message)
+        collectFieldSamples(message.trailer)
+
+        // Calculate widths based on samples
+        val result = mutableMapOf<String, androidx.compose.ui.unit.Dp>()
+
+        result["IconColumn"] = 40.dp // Fixed size
+
+        samples.forEach { (columnKey, sampleList) ->
+            val maxLength = sampleList.maxOfOrNull { it.length } ?: 10
+            val calculatedWidth = (maxLength * charWidth + 16).dp
+            result[columnKey] = calculatedWidth.coerceIn(minWidth, maxWidth)
+        }
+
+        return result
     }
 
     // Scroll to selected message when it changes
@@ -534,7 +734,14 @@ fun HierarchicalGridView(
                                         isSelected = message == selectedMessage,
                                         recentlySentMessageTimestamp = recentlySentMessageTimestamp,
                                         onToggleExpand = {
+                                            val wasExpanded = isExpanded
                                             expandedMessages[messageId] = !isExpanded
+
+                                            // Auto-fit columns when expanding for the first time
+                                            if (!wasExpanded) {
+                                                val optimalWidths = calculateExpandedGridWidths(message.quickfixMessage)
+                                                expandedGridColumnWidths.putAll(optimalWidths)
+                                            }
                                         },
                                         onSelectMessage = onSelectMessage,
                                         appSettings = appSettings,
@@ -550,6 +757,7 @@ fun HierarchicalGridView(
                                         protocolTags = appSettings.protocolTags,
                                         expandedGroups = expandedGroups,
                                         messageId = messageId,
+                                        expandedGridColumnWidths = expandedGridColumnWidths,
                                     )
                                 }
                             }
@@ -866,7 +1074,13 @@ private fun LazyListScope.renderQuickFixMessage(
     protocolTags: Set<Int>,
     expandedGroups: MutableMap<String, Boolean>,
     messageId: String,
+    expandedGridColumnWidths: MutableMap<String, androidx.compose.ui.unit.Dp>,
 ) {
+    // Render the header row for the expanded grid
+    item(key = "${messageId}_expanded_header") {
+        ExpandedGridHeader(columnWidths = expandedGridColumnWidths)
+    }
+
     // Render header fields
     renderFieldMap(
         fieldMap = message.header,
@@ -876,6 +1090,7 @@ private fun LazyListScope.renderQuickFixMessage(
         expandedGroups = expandedGroups,
         indentLevel = 0,
         parentKey = messageId,
+        columnWidths = expandedGridColumnWidths,
     )
 
     // Render body fields
@@ -887,6 +1102,7 @@ private fun LazyListScope.renderQuickFixMessage(
         expandedGroups = expandedGroups,
         indentLevel = 0,
         parentKey = messageId,
+        columnWidths = expandedGridColumnWidths,
     )
 
     // Render trailer fields
@@ -898,6 +1114,7 @@ private fun LazyListScope.renderQuickFixMessage(
         expandedGroups = expandedGroups,
         indentLevel = 0,
         parentKey = messageId,
+        columnWidths = expandedGridColumnWidths,
     )
 }
 
@@ -912,6 +1129,7 @@ private fun LazyListScope.renderFieldMap(
     expandedGroups: MutableMap<String, Boolean>,
     indentLevel: Int,
     parentKey: String,
+    columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
 ) {
     val iterator = fieldMap.iterator()
 
@@ -946,6 +1164,7 @@ private fun LazyListScope.renderFieldMap(
                             expandedGroups[groupKey] = !isExpanded
                         },
                         indentLevel = indentLevel,
+                        columnWidths = columnWidths,
                     )
                 }
 
@@ -959,6 +1178,7 @@ private fun LazyListScope.renderFieldMap(
                                 HierarchicalGroupInstanceHeader(
                                     instanceNumber = i,
                                     indentLevel = indentLevel + 1,
+                                    columnWidths = columnWidths,
                                 )
                             }
 
@@ -971,6 +1191,7 @@ private fun LazyListScope.renderFieldMap(
                                 expandedGroups = expandedGroups,
                                 indentLevel = indentLevel + 1,
                                 parentKey = groupKey,
+                                columnWidths = columnWidths,
                             )
                         } catch (e: Exception) {
                             // Skip invalid groups
@@ -985,6 +1206,7 @@ private fun LazyListScope.renderFieldMap(
                         value = value,
                         dictionary = dictionary,
                         indentLevel = indentLevel,
+                        columnWidths = columnWidths,
                     )
                 }
             }
@@ -996,6 +1218,7 @@ private fun LazyListScope.renderFieldMap(
                     value = value,
                     dictionary = dictionary,
                     indentLevel = indentLevel,
+                    columnWidths = columnWidths,
                 )
             }
         }
@@ -1012,6 +1235,7 @@ private fun HierarchicalFieldRow(
     value: String,
     dictionary: FixDictionary,
     indentLevel: Int,
+    columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
     val rawValueDesc = dictionary.getFieldValueDescription(tag, value)
@@ -1019,18 +1243,24 @@ private fun HierarchicalFieldRow(
     val valueDesc = if (rawValueDesc != null && rawValueDesc != value) rawValueDesc else ""
     val indent = (indentLevel * 16).dp
 
+    val totalWidth = (columnWidths["IconColumn"] ?: 40.dp) +
+            (columnWidths["Tag"] ?: 120.dp) +
+            (columnWidths["TagDescription"] ?: 200.dp) +
+            (columnWidths["Value"] ?: 150.dp) +
+            (columnWidths["ValueDescription"] ?: 250.dp)
+
     Row(
         modifier =
             Modifier
                 .height(20.dp)
-                .width(5000.dp) // Fixed width for horizontal scroll
+                .width(totalWidth)
                 .background(fieldRowBackgroundColor),
     ) {
         // Empty space for indent + icon column
         Box(
             modifier =
                 Modifier
-                    .width(40.dp)
+                    .width(columnWidths["IconColumn"] ?: 40.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
         )
@@ -1039,7 +1269,7 @@ private fun HierarchicalFieldRow(
         Box(
             modifier =
                 Modifier
-                    .width(120.dp)
+                    .width(columnWidths["Tag"] ?: 120.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -1060,7 +1290,7 @@ private fun HierarchicalFieldRow(
         Box(
             modifier =
                 Modifier
-                    .width(200.dp)
+                    .width(columnWidths["TagDescription"] ?: 200.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -1104,7 +1334,7 @@ private fun HierarchicalFieldRow(
         Box(
             modifier =
                 Modifier
-                    .width(150.dp)
+                    .width(columnWidths["Value"] ?: 150.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -1148,7 +1378,7 @@ private fun HierarchicalFieldRow(
         Box(
             modifier =
                 Modifier
-                    .weight(1f)
+                    .width(columnWidths["ValueDescription"] ?: 250.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -1202,15 +1432,22 @@ private fun HierarchicalGroupHeaderRow(
     isExpanded: Boolean,
     onToggle: () -> Unit,
     indentLevel: Int,
+    columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
     val indent = (indentLevel * 16).dp
+
+    val totalWidth = (columnWidths["IconColumn"] ?: 40.dp) +
+            (columnWidths["Tag"] ?: 120.dp) +
+            (columnWidths["TagDescription"] ?: 200.dp) +
+            (columnWidths["Value"] ?: 150.dp) +
+            (columnWidths["ValueDescription"] ?: 250.dp)
 
     Row(
         modifier =
             Modifier
                 .height(20.dp)
-                .width(5000.dp) // Fixed width for horizontal scroll
+                .width(totalWidth)
                 .background(separatorBackgroundColor)
                 .clickable { onToggle() },
     ) {
@@ -1218,7 +1455,7 @@ private fun HierarchicalGroupHeaderRow(
         Box(
             modifier =
                 Modifier
-                    .width(40.dp)
+                    .width(columnWidths["IconColumn"] ?: 40.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
@@ -1235,7 +1472,7 @@ private fun HierarchicalGroupHeaderRow(
         Box(
             modifier =
                 Modifier
-                    .width(120.dp)
+                    .width(columnWidths["Tag"] ?: 120.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -1257,7 +1494,7 @@ private fun HierarchicalGroupHeaderRow(
         Box(
             modifier =
                 Modifier
-                    .width(200.dp)
+                    .width(columnWidths["TagDescription"] ?: 200.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -1302,7 +1539,7 @@ private fun HierarchicalGroupHeaderRow(
         Box(
             modifier =
                 Modifier
-                    .width(150.dp)
+                    .width(columnWidths["Value"] ?: 150.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -1324,7 +1561,7 @@ private fun HierarchicalGroupHeaderRow(
         Box(
             modifier =
                 Modifier
-                    .weight(1f)
+                    .width(columnWidths["ValueDescription"] ?: 250.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
         )
@@ -1338,30 +1575,37 @@ private fun HierarchicalGroupHeaderRow(
 private fun HierarchicalGroupInstanceHeader(
     instanceNumber: Int,
     indentLevel: Int,
+    columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
 ) {
     val indent = (indentLevel * 16).dp
+
+    val totalWidth = (columnWidths["IconColumn"] ?: 40.dp) +
+            (columnWidths["Tag"] ?: 120.dp) +
+            (columnWidths["TagDescription"] ?: 200.dp) +
+            (columnWidths["Value"] ?: 150.dp) +
+            (columnWidths["ValueDescription"] ?: 250.dp)
 
     Row(
         modifier =
             Modifier
                 .height(20.dp)
-                .width(5000.dp) // Fixed width for horizontal scroll
+                .width(totalWidth)
                 .background(groupInstanceBackgroundColor),
     ) {
         // Empty icon column
         Box(
             modifier =
                 Modifier
-                    .width(40.dp)
+                    .width(columnWidths["IconColumn"] ?: 40.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
         )
 
-        // Instance label spanning first columns
+        // Instance label spanning first columns (Tag + Tag Description)
         Box(
             modifier =
                 Modifier
-                    .width(320.dp)
+                    .width((columnWidths["Tag"] ?: 120.dp) + (columnWidths["TagDescription"] ?: 200.dp))
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
@@ -1383,7 +1627,7 @@ private fun HierarchicalGroupInstanceHeader(
         Box(
             modifier =
                 Modifier
-                    .width(150.dp)
+                    .width(columnWidths["Value"] ?: 150.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
         )
@@ -1391,7 +1635,7 @@ private fun HierarchicalGroupInstanceHeader(
         Box(
             modifier =
                 Modifier
-                    .weight(1f)
+                    .width(columnWidths["ValueDescription"] ?: 250.dp)
                     .fillMaxHeight()
                     .border(0.5.dp, cellBorderColor),
         )

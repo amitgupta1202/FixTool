@@ -11,7 +11,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FixMessageTemplateTest {
-
     // Helper to create a mock FIX message for testing
     private fun createMockFixMessage(messageType: String, vararg tagValues: Pair<Int, String>): FixMessage {
         val message = Message()
@@ -21,8 +20,9 @@ class FixMessageTemplateTest {
             message.setString(tag, value)
         }
 
-        val rawMessage = "8=FIX.4.2|9=100|35=$messageType|" +
-            tagValues.joinToString("|") { "${it.first}=${it.second}" } + "|10=123|"
+        val rawMessage =
+            "8=FIX.4.2|9=100|35=$messageType|" +
+                tagValues.joinToString("|") { "${it.first}=${it.second}" } + "|10=123|"
 
         return FixMessage(
             timestamp = LocalDateTime.now(),
@@ -282,11 +282,12 @@ class FixMessageTemplateTest {
         val outgoingMap = mapOf("D" to outgoingMessage)
 
         val template = "Response to \${incoming[\"R\"].valueOfTag(131)} for \${outgoing[\"D\"].valueOfTag(11)}"
-        val result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = incomingMap,
-            outgoingMessages = outgoingMap
-        )
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = incomingMap,
+                outgoingMessages = outgoingMap,
+            )
 
         assertEquals("Response to QUOTE456 for ORDER123", result)
     }
@@ -298,12 +299,236 @@ class FixMessageTemplateTest {
         val incomingMap = mapOf("R" to incomingQuoteRequest)
 
         // Template for QuoteResponse that references the incoming QuoteReqID
-        val template = "8=FIX.4.2|9=100|35=AJ|131=\${incoming[\"R\"].valueOfTag(131)}|55=\${incoming[\"R\"].valueOfTag(55)}|117=\${UUID.randomUUID()}|10=123|"
+        val template =
+            "8=FIX.4.2|9=100|35=AJ|131=\${incoming[\"R\"].valueOfTag(131)}|" +
+                "55=\${incoming[\"R\"].valueOfTag(55)}|117=\${UUID.randomUUID()}|10=123|"
         val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
 
         assertTrue(result.contains("131=QUOTEREQ-2025-001"))
         assertTrue(result.contains("55=EUR/USD"))
         assertTrue(result.contains("117="))
         assertFalse(result.contains("\${incoming"))
+    }
+
+    // ============ Variable Assignment Tests ============
+
+    @Test
+    fun testBasicVariableAssignment() {
+        val template = "\${myVar = \"test123\"}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("test123", result)
+    }
+
+    @Test
+    fun testVariableAssignmentAndReuse() {
+        val template = "11=\${orderId = UUID.randomUUID()}|37=\${orderId}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        // Extract the two values
+        val parts = result.split("|")
+        val value1 = parts[0].substringAfter("=")
+        val value2 = parts[1].substringAfter("=")
+
+        // Both should be the same UUID
+        assertEquals(value1, value2)
+        assertTrue(value1.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
+
+    @Test
+    fun testMultipleVariableReuse() {
+        val template = "11=\${id = UUID.randomUUID()}|37=\${id}|41=\${id}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        // Extract all three values
+        val parts = result.split("|")
+        val value1 = parts[0].substringAfter("=")
+        val value2 = parts[1].substringAfter("=")
+        val value3 = parts[2].substringAfter("=")
+
+        // All three should be the same
+        assertEquals(value1, value2)
+        assertEquals(value2, value3)
+    }
+
+    @Test
+    fun testMultipleDifferentVariables() {
+        val template = "\${var1 = \"AAA\"}|\${var2 = \"BBB\"}|\${var1}|\${var2}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("AAA|BBB|AAA|BBB", result)
+    }
+
+    @Test
+    fun testVariableWithUuid() {
+        val template = "\${orderId = UUID.randomUUID()}|REUSE=\${orderId}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        val parts = result.split("|")
+        val uuid1 = parts[0]
+        val uuid2 = parts[1].substringAfter("=")
+
+        assertEquals(uuid1, uuid2)
+        assertTrue(uuid1.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
+
+    @Test
+    fun testVariableWithTimestamp() {
+        val template = "\${ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}|COPY=\${ts}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        val parts = result.split("|")
+        val date1 = parts[0]
+        val date2 = parts[1].substringAfter("=")
+
+        assertEquals(date1, date2)
+        assertTrue(date1.matches(Regex("\\d{8}")))
+    }
+
+    @Test
+    fun testVariableWithExpression() {
+        val template = "\${sum = 1 + 2 + 3}|RESULT=\${sum}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("6|RESULT=6", result)
+    }
+
+    @Test
+    fun testUndefinedVariableReturnsAsIs() {
+        val template = "\${undefinedVar}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("\${undefinedVar}", result)
+    }
+
+    @Test
+    fun testVariableDefinedAfterUseStillEvaluated() {
+        // Variables are evaluated left-to-right, so undefined at first
+        val template = "\${laterVar}|\${laterVar = \"VALUE\"}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        // First occurrence should be unevaluated, second should be the value
+        assertEquals("\${laterVar}|VALUE", result)
+    }
+
+    @Test
+    fun testVariableWithIncomingMessageReference() {
+        val incomingMessage = createMockFixMessage("D", 11 to "ORDER123")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        val template = "\${refId = incoming[\"D\"].valueOfTag(11)}|COPY=\${refId}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+
+        assertEquals("ORDER123|COPY=ORDER123", result)
+    }
+
+    @Test
+    fun testVariableWithOutgoingMessageReference() {
+        val outgoingMessage = createMockFixMessage("R", 131 to "QUOTE456")
+        val outgoingMap = mapOf("R" to outgoingMessage)
+
+        val template = "\${quoteId = outgoing[\"R\"].valueOfTag(131)}|REF=\${quoteId}"
+        val result = FixMessageTemplate.evaluate(template, outgoingMessages = outgoingMap)
+
+        assertEquals("QUOTE456|REF=QUOTE456", result)
+    }
+
+    @Test
+    fun testVariableNamesWithUnderscores() {
+        val template = "\${my_var_name = \"test\"}|\${my_var_name}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("test|test", result)
+    }
+
+    @Test
+    fun testVariableNamesWithNumbers() {
+        val template = "\${var123 = \"test\"}|\${var123}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("test|test", result)
+    }
+
+    @Test
+    fun testVariableAssignmentWithWhitespace() {
+        val template = "\${  myVar   =   \"value\"  }|\${myVar}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("value|value", result)
+    }
+
+    @Test
+    fun testRealWorldFixMessageWithVariables() {
+        val template =
+            "8=FIX.4.2|9=100|35=D|49=SENDER|56=TARGET|11=\${orderId = UUID.randomUUID()}|" +
+                "37=\${orderId}|41=\${orderId}|52=\${ts = LocalDateTime.now()}|60=\${ts}|10=123|"
+        val result = FixMessageTemplate.evaluate(template)
+
+        // Should not contain template expressions
+        assertFalse(result.contains("\${"))
+
+        // Should contain field tags
+        assertTrue(result.contains("8=FIX.4.2"))
+        assertTrue(result.contains("35=D"))
+        assertTrue(result.contains("11="))
+        assertTrue(result.contains("37="))
+        assertTrue(result.contains("41="))
+
+        // Extract orderIds and timestamps
+        val parts = result.split("|")
+        val orderId1 = parts.find { it.startsWith("11=") }?.substringAfter("=")
+        val orderId2 = parts.find { it.startsWith("37=") }?.substringAfter("=")
+        val orderId3 = parts.find { it.startsWith("41=") }?.substringAfter("=")
+        val ts1 = parts.find { it.startsWith("52=") }?.substringAfter("=")
+        val ts2 = parts.find { it.startsWith("60=") }?.substringAfter("=")
+
+        // All orderIds should match
+        assertEquals(orderId1, orderId2)
+        assertEquals(orderId2, orderId3)
+
+        // All timestamps should match
+        assertEquals(ts1, ts2)
+    }
+
+    @Test
+    fun testCombinedVariablesAndRegularExpressions() {
+        val template = "\${id = UUID.randomUUID()}|NEW=\${UUID.randomUUID()}|COPY=\${id}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        val parts = result.split("|")
+        val id1 = parts[0]
+        val id2 = parts[1].substringAfter("=")
+        val id3 = parts[2].substringAfter("=")
+
+        // First and third should match
+        assertEquals(id1, id3)
+
+        // Second should be different
+        assertTrue(id1 != id2)
+
+        // All should be valid UUIDs
+        assertTrue(id1.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+        assertTrue(id2.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
+
+    @Test
+    fun testVariableWithStringConcatenation() {
+        val template = "\${prefix = \"ORDER-\" + UUID.randomUUID()}|COPY=\${prefix}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        val parts = result.split("|")
+        val value1 = parts[0]
+        val value2 = parts[1].substringAfter("=")
+
+        assertEquals(value1, value2)
+        assertTrue(value1.startsWith("ORDER-"))
+    }
+
+    @Test
+    fun testVariableReferenceInExpression() {
+        val template = "\${base = 10}|\${doubled = base.toInt() * 2}"
+        val result = FixMessageTemplate.evaluate(template)
+
+        assertEquals("10|20", result)
     }
 }

@@ -1,9 +1,6 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.UUID
 import javax.script.ScriptEngineManager
 import javax.script.ScriptException
 
@@ -21,7 +18,6 @@ import javax.script.ScriptException
  * The expression is evaluated when the message is sent, ensuring fresh timestamps.
  */
 object FixMessageTemplate {
-
     private val EXPRESSION_REGEX = """\$\{([^}]+)}""".toRegex()
 
     /**
@@ -33,6 +29,8 @@ object FixMessageTemplate {
      * - "ORDER-${UUID.randomUUID()}" → "ORDER-a1b2c3d4-..."
      * - "${LocalDateTime.now()}" → "2025-01-16T14:32:45.123"
      * - "${incoming[\"D\"].valueOfTag(11)}" → "ORDER123"
+     * - "${orderId = UUID.randomUUID()}" → "a1b2c3d4-..." (and stores in variable 'orderId')
+     * - "${orderId}" → "a1b2c3d4-..." (retrieves stored variable)
      *
      * @param value The string containing template expressions
      * @param incomingMessages Map of latest incoming messages by type (e.g., "D" -> NewOrderSingle message)
@@ -43,95 +41,155 @@ object FixMessageTemplate {
         incomingMessages: Map<String, FixMessage> = emptyMap(),
         outgoingMessages: Map<String, FixMessage> = emptyMap(),
     ): String {
+        // Variables map to store assigned values within this evaluation
+        val variables = mutableMapOf<String, String>()
+
         return EXPRESSION_REGEX.replace(value) { matchResult ->
             val expression = matchResult.groupValues[1].trim()
-            evaluateExpression(expression, incomingMessages, outgoingMessages)
+            evaluateExpression(expression, incomingMessages, outgoingMessages, variables)
         }
     }
 
+    // Regex to detect variable assignments (e.g., "varName = expression")
+    private val ASSIGNMENT_REGEX = """^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$""".toRegex()
+
+    // Regex to detect simple variable references (e.g., "varName")
+    private val VARIABLE_REGEX = """^[a-zA-Z_][a-zA-Z0-9_]*$""".toRegex()
+
     /**
      * Evaluates a single Kotlin expression and returns its string value.
+     * Supports variable assignments and references.
      */
     private fun evaluateExpression(
         expression: String,
         incomingMessages: Map<String, FixMessage>,
         outgoingMessages: Map<String, FixMessage>,
+        variables: MutableMap<String, String>,
     ): String {
-        return try {
+        // Check if this is a variable assignment (e.g., "orderId = UUID.randomUUID()")
+        val assignmentMatch = ASSIGNMENT_REGEX.matchEntire(expression)
+        if (assignmentMatch != null) {
+            val varName = assignmentMatch.groupValues[1]
+            val varExpression = assignmentMatch.groupValues[2]
+
+            // Evaluate the expression and store it
+            val result = evaluateKotlinExpression(varExpression, incomingMessages, outgoingMessages, variables)
+            variables[varName] = result
+            return result
+        }
+
+        // Check if this is a simple variable reference (e.g., "orderId")
+        if (VARIABLE_REGEX.matches(expression)) {
+            // Look up the variable
+            return variables[expression] ?: "\${$expression}" // Return as-is if not found
+        }
+
+        // Otherwise, evaluate as a Kotlin expression
+        return evaluateKotlinExpression(expression, incomingMessages, outgoingMessages, variables)
+    }
+
+    /**
+     * Evaluates a Kotlin expression using the script engine.
+     */
+    private fun evaluateKotlinExpression(
+        expression: String,
+        incomingMessages: Map<String, FixMessage>,
+        outgoingMessages: Map<String, FixMessage>,
+        variables: MutableMap<String, String>,
+    ): String =
+        try {
             // Create a new script engine for this evaluation
-            val engine = ScriptEngineManager().getEngineByExtension("kts")
-                ?: throw IllegalStateException("Kotlin script engine not found.")
+            val engine =
+                ScriptEngineManager().getEngineByExtension("kts")
+                    ?: error("Kotlin script engine not found.")
 
             // Build helper objects that can be serialized into the script
             // Extract message data into simple maps
-            val incomingData = incomingMessages.mapValues { (_, msg) ->
-                val tags = mutableMapOf<Int, String?>()
-                msg.quickfixMessage.iterator().forEach { field ->
-                    tags[field.tag] = field.`object`.toString()
+            val incomingData =
+                incomingMessages.mapValues { (_, msg) ->
+                    val tags = mutableMapOf<Int, String?>()
+                    msg.quickfixMessage.iterator().forEach { field ->
+                        tags[field.tag] = field.`object`.toString()
+                    }
+                    tags.toMap()
                 }
-                tags.toMap()
-            }
 
-            val outgoingData = outgoingMessages.mapValues { (_, msg) ->
-                val tags = mutableMapOf<Int, String?>()
-                msg.quickfixMessage.iterator().forEach { field ->
-                    tags[field.tag] = field.`object`.toString()
+            val outgoingData =
+                outgoingMessages.mapValues { (_, msg) ->
+                    val tags = mutableMapOf<Int, String?>()
+                    msg.quickfixMessage.iterator().forEach { field ->
+                        tags[field.tag] = field.`object`.toString()
+                    }
+                    tags.toMap()
                 }
-                tags.toMap()
-            }
 
             // Build helper class definition and data as part of the script
-            val helperCode = buildString {
-                appendLine("import java.util.UUID")
-                appendLine("import java.time.LocalDateTime")
-                appendLine("import java.time.format.DateTimeFormatter")
-                appendLine("import java.time.Instant")
-                appendLine()
-                appendLine("// Helper class for message tag access")
-                appendLine("class MessageAccessor(private val tags: Map<Int, String?>) {")
-                appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]")
-                appendLine("    operator fun get(tag: Int): String? = tags[tag]")
-                appendLine("}")
-                appendLine()
-                appendLine("// Wrapper for safe map access - returns empty accessor if message type not found")
-                appendLine("class MessageMap(private val messages: Map<String, MessageAccessor>) {")
-                appendLine("    operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())")
-                appendLine("}")
-                appendLine()
-                appendLine("// Build incoming and outgoing message maps")
-                append("val incoming = MessageMap(mapOf<String, MessageAccessor>(")
-                if (incomingData.isNotEmpty()) {
+            val helperCode =
+                buildString {
+                    appendLine("import java.util.UUID")
+                    appendLine("import java.time.LocalDateTime")
+                    appendLine("import java.time.format.DateTimeFormatter")
+                    appendLine("import java.time.Instant")
                     appendLine()
-                    incomingData.entries.forEachIndexed { index, (msgType, tags) ->
-                        val tagsStr = tags.entries.joinToString(", ") { (tag, value) ->
-                            "$tag to ${value?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"}"
-                        }
-                        append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
-                        if (index < incomingData.size - 1) appendLine(",") else appendLine()
-                    }
-                    appendLine("))")
-                } else {
-                    appendLine("))")
-                }
-                appendLine()
-                append("val outgoing = MessageMap(mapOf<String, MessageAccessor>(")
-                if (outgoingData.isNotEmpty()) {
+                    appendLine("// Helper class for message tag access")
+                    appendLine("class MessageAccessor(private val tags: Map<Int, String?>) {")
+                    appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]")
+                    appendLine("    operator fun get(tag: Int): String? = tags[tag]")
+                    appendLine("}")
                     appendLine()
-                    outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
-                        val tagsStr = tags.entries.joinToString(", ") { (tag, value) ->
-                            "$tag to ${value?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"}"
+                    appendLine("// Wrapper for safe map access - returns empty accessor if message type not found")
+                    appendLine("class MessageMap(private val messages: Map<String, MessageAccessor>) {")
+                    appendLine("    operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())")
+                    appendLine("}")
+                    appendLine()
+
+                    // Add user-defined variables to the script
+                    if (variables.isNotEmpty()) {
+                        appendLine("// User-defined variables")
+                        variables.forEach { (varName, value) ->
+                            // Escape the value for use in Kotlin string literal
+                            val escapedValue = value.replace("\\", "\\\\").replace("\"", "\\\"")
+                            appendLine("val $varName = \"$escapedValue\"")
                         }
-                        append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
-                        if (index < outgoingData.size - 1) appendLine(",") else appendLine()
+                        appendLine()
                     }
-                    appendLine("))")
-                } else {
-                    appendLine("))")
+
+                    appendLine("// Build incoming and outgoing message maps")
+                    append("val incoming = MessageMap(mapOf<String, MessageAccessor>(")
+                    if (incomingData.isNotEmpty()) {
+                        appendLine()
+                        incomingData.entries.forEachIndexed { index, (msgType, tags) ->
+                            val tagsStr =
+                                tags.entries.joinToString(", ") { (tag, value) ->
+                                    "$tag to ${value?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"}"
+                                }
+                            append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
+                            if (index < incomingData.size - 1) appendLine(",") else appendLine()
+                        }
+                        appendLine("))")
+                    } else {
+                        appendLine("))")
+                    }
+                    appendLine()
+                    append("val outgoing = MessageMap(mapOf<String, MessageAccessor>(")
+                    if (outgoingData.isNotEmpty()) {
+                        appendLine()
+                        outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
+                            val tagsStr =
+                                tags.entries.joinToString(", ") { (tag, value) ->
+                                    "$tag to ${value?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"}"
+                                }
+                            append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
+                            if (index < outgoingData.size - 1) appendLine(",") else appendLine()
+                        }
+                        appendLine("))")
+                    } else {
+                        appendLine("))")
+                    }
+                    appendLine()
+                    appendLine("// Evaluate the user's expression")
+                    appendLine(expression)
                 }
-                appendLine()
-                appendLine("// Evaluate the user's expression")
-                appendLine(expression)
-            }
 
             // Evaluate the complete script
             val result = engine.eval(helperCode)
@@ -143,12 +201,9 @@ object FixMessageTemplate {
             // Any other error, return original
             "\${$expression}"
         }
-    }
 
     /**
      * Checks if a value contains any template expressions
      */
-    fun hasTemplateExpressions(value: String): Boolean {
-        return EXPRESSION_REGEX.containsMatchIn(value)
-    }
+    fun hasTemplateExpressions(value: String): Boolean = EXPRESSION_REGEX.containsMatchIn(value)
 }

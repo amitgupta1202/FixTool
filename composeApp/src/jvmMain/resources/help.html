@@ -409,6 +409,80 @@
         <li><code>"yyyyMMdd-HH:mm:ss"</code> → <code>20250116-14:32:45</code></li>
     </ul>
 
+    <h3>Variable Assignment and Reuse</h3>
+    <p>When you need to use the same generated value in multiple fields (like using the same UUID in multiple tags), you can assign the value to a variable and reuse it:</p>
+
+    <div class="example">
+        <h4>Assignment Syntax</h4>
+        <pre><code>${varName = expression}</code></pre>
+        <p>The first time you use a value, assign it to a variable. Then reference the variable name elsewhere:</p>
+        <pre><code>${orderId = UUID.randomUUID()}</code></pre>
+        <p>Later in the same message, simply reference the variable:</p>
+        <pre><code>${orderId}</code></pre>
+    </div>
+
+    <div class="example">
+        <h4>Example: Reusing a UUID in Multiple Fields</h4>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">Tag 11</td>
+                <td class="sep">:</td>
+                <td class="value">${orderId = UUID.randomUUID()}</td>
+                <td class="desc">(Assign and use in ClOrdID)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 37</td>
+                <td class="sep">:</td>
+                <td class="value">${orderId}</td>
+                <td class="desc">(Reuse same value in OrderID)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 41</td>
+                <td class="sep">:</td>
+                <td class="value">${orderId}</td>
+                <td class="desc">(Reuse again in OrigClOrdID)</td>
+            </tr>
+        </table>
+        <p><strong>Result:</strong> All three tags will have the same UUID value.</p>
+    </div>
+
+    <div class="example">
+        <h4>Example: Reusing a Timestamp</h4>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">Tag 52</td>
+                <td class="sep">:</td>
+                <td class="value">${ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))}</td>
+                <td class="desc">(SendingTime)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 60</td>
+                <td class="sep">:</td>
+                <td class="value">${ts}</td>
+                <td class="desc">(TransactTime - same timestamp)</td>
+            </tr>
+        </table>
+        <p><strong>Result:</strong> Both timestamps will be identical.</p>
+    </div>
+
+    <h4>Variable Naming Rules</h4>
+    <ul>
+        <li>Variable names must start with a letter or underscore</li>
+        <li>Can contain letters, numbers, and underscores</li>
+        <li>Examples: <code>orderId</code>, <code>my_timestamp</code>, <code>id123</code></li>
+    </ul>
+
+    <h4>Multiple Variables</h4>
+    <p>You can define and use multiple variables in the same message:</p>
+    <pre><code>11=${orderId = UUID.randomUUID()}
+37=${orderId}
+52=${timestamp = LocalDateTime.now()}
+60=${timestamp}</code></pre>
+
+    <div class="tip">
+        <strong>Tip:</strong> Variables are evaluated left-to-right. Make sure to assign a variable before you try to use it. If you reference an undefined variable, it will appear as <code>${varName}</code> in the message.
+    </div>
+
     <h3>Message References (Advanced)</h3>
     <p>Reference field values from previously sent or received messages:</p>
 

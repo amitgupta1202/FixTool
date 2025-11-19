@@ -734,7 +734,20 @@ private fun AppMessageEditorPanel(
                     outgoingMessages = viewModel.outgoingMessagesByType,
                 )
             val rawMessage = resolvedFields.toRawMessage()
-            viewModel.sendMessage(rawMessage)
+            val result = viewModel.sendMessage(rawMessage)
+
+            // Display validation warnings in the message editor validation section
+            when (result) {
+                is com.knapsack.fixtool.service.SendResult.SuccessWithWarning -> {
+                    viewModel.setEditorValidationErrors(listOf("WARNING: ${result.warning}"))
+                }
+                is com.knapsack.fixtool.service.SendResult.Failed -> {
+                    // Error already logged and notified via NotifyingLogger
+                }
+                is com.knapsack.fixtool.service.SendResult.Success, null -> {
+                    // Success or no result - no action needed
+                }
+            }
         },
         onValidate = { fields ->
             viewModel.validateEditorMessage(fields)

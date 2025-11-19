@@ -18,7 +18,6 @@ class FixMessageSession(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     private val onError: ((String) -> Unit)? = null,
-    private val onWarning: ((String) -> Unit)? = null,
 ) {
     companion object {
         private val BUFFER_MSG_SIZE = System.getProperty("noOfMsgToBuffer", "1000").toInt()
@@ -214,7 +213,6 @@ class FixMessageSession(
                     onMessageReceived = { message -> addMessage(message) },
                     onStateChanged = { state -> _connectionState.value = state },
                     onError = onError,
-                    onWarning = onWarning,
                 )
 
             // Create connection manager
@@ -272,25 +270,36 @@ class FixMessageSession(
         }
     }
 
-    fun sendFixMessage(rawMessage: String, dictionary: FixDictionary) {
+    fun sendFixMessage(rawMessage: String, dictionary: FixDictionary): com.knapsack.fixtool.service.SendResult {
         // Send via QuickFIX - outgoing message will be captured by toApp/toAdmin callbacks
-        val success = quickFixService?.sendMessage(rawMessage, dictionary) ?: false
-        if (!success) {
-            logger.error("Failed to send message") // TODO: handle errors
-        } else {
-            // Mark current time as recently sent - the outgoing message will appear shortly
-            val sentTime = LocalDateTime.now()
-            _recentlySentMessageTimestamp.value = sentTime
+        val result =
+            quickFixService?.sendMessage(rawMessage, dictionary)
+                ?: return com.knapsack.fixtool.service.SendResult
+                    .Failed("No QuickFIX service available")
 
-            // Clear the highlight after 3 seconds
-            scope.launch {
-                delay(3000)
-                // Only clear if it's still the same timestamp (in case another message was sent)
-                if (_recentlySentMessageTimestamp.value == sentTime) {
-                    _recentlySentMessageTimestamp.value = null
+        when (result) {
+            is com.knapsack.fixtool.service.SendResult.Success,
+            is com.knapsack.fixtool.service.SendResult.SuccessWithWarning,
+            -> {
+                // Mark current time as recently sent - the outgoing message will appear shortly
+                val sentTime = LocalDateTime.now()
+                _recentlySentMessageTimestamp.value = sentTime
+
+                // Clear the highlight after 3 seconds
+                scope.launch {
+                    delay(3000)
+                    // Only clear if it's still the same timestamp (in case another message was sent)
+                    if (_recentlySentMessageTimestamp.value == sentTime) {
+                        _recentlySentMessageTimestamp.value = null
+                    }
                 }
             }
+            is com.knapsack.fixtool.service.SendResult.Failed -> {
+                logger.error("Failed to send message: ${result.error}")
+            }
         }
+
+        return result
     }
 
     fun destroy() {

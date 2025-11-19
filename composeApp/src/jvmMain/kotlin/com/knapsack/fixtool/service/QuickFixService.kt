@@ -14,12 +14,29 @@ import quickfix.Session
 import quickfix.SessionID
 import java.time.LocalDateTime
 
+/**
+ * Result of sending a FIX message
+ */
+sealed class SendResult {
+    /** Message sent successfully with validation */
+    object Success : SendResult()
+
+    /** Message sent but validation was bypassed (manual construction used) */
+    data class SuccessWithWarning(
+        val warning: String,
+    ) : SendResult()
+
+    /** Message failed to send */
+    data class Failed(
+        val error: String,
+    ) : SendResult()
+}
+
 class QuickFixService(
     private val config: FixConnectionConfig,
     private val onMessageReceived: (FixMessage) -> Unit,
     private val onStateChanged: (FixConnectionState) -> Unit,
     private val onError: ((String) -> Unit)? = null,
-    private val onWarning: ((String) -> Unit)? = null,
 ) : Application {
     private val logger = NotifyingLogger(QuickFixService::class.java, onError)
     private var currentSessionID: SessionID? = null
@@ -162,17 +179,21 @@ class QuickFixService(
      *
      * Uses a two-tier approach:
      * 1. First tries QuickFIX's default parser with validation enabled
-     * 2. If validation fails, falls back to manual construction and warns the user
+     * 2. If validation fails, falls back to manual construction
+     *
+     * @return SendResult indicating success, success with warning, or failure
      */
-    fun sendMessage(rawMessage: String, dictionary: com.knapsack.fixtool.model.FixDictionary): Boolean {
+    fun sendMessage(rawMessage: String, dictionary: com.knapsack.fixtool.model.FixDictionary): SendResult {
         val sessionID = currentSessionID
         if (sessionID == null) {
             logger.error("Cannot send message: No active FIX session", notifyUser = true)
-            return false
+            return SendResult.Failed("No active FIX session")
         }
 
         try {
             val dataDictionary = dictionary.getDataDictionary()
+            var validationWarning: String? = null
+
             val message =
                 if (dataDictionary != null) {
                     // Two-tier approach: try validated construction first
@@ -183,10 +204,8 @@ class QuickFixService(
                         // Validation failed - fall back to manual construction
                         logger.warn("Message validation failed, using manual construction: ${validationException.message}")
 
-                        // Notify user that validation was bypassed
-                        onWarning?.invoke(
-                            "Message sent with validation warnings: ${validationException.message ?: "QuickFIX validation failed"}"
-                        )
+                        // Store warning to return later
+                        validationWarning = validationException.message ?: "QuickFIX validation failed"
 
                         // Use manual construction as fallback (must be last expression to return Message)
                         rawMessage.toQuickFixMessageManual(dataDictionary)
@@ -196,10 +215,19 @@ class QuickFixService(
                     rawMessage.toQuickFixMessage()
                 }
 
-            return Session.sendToTarget(message, sessionID)
+            val sent = Session.sendToTarget(message, sessionID)
+            return if (sent) {
+                if (validationWarning != null) {
+                    SendResult.SuccessWithWarning(validationWarning)
+                } else {
+                    SendResult.Success
+                }
+            } else {
+                SendResult.Failed("Failed to send to target")
+            }
         } catch (e: Exception) {
             logger.error("Error sending message: ${e.message}", e, notifyUser = true)
-            return false
+            return SendResult.Failed(e.message ?: "Unknown error")
         }
     }
 

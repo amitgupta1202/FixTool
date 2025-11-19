@@ -269,7 +269,6 @@ class FixMessageViewModel(
             FixMessageSession(
                 title = title,
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-                onWarning = { warningMsg -> showNotification(warningMsg, NotificationType.WARNING) },
             )
         _sessions.add(session)
         // Auto-select first session if none is selected
@@ -584,7 +583,7 @@ class FixMessageViewModel(
         }
     }
 
-    fun sendMessage(rawMessage: String) {
+    fun sendMessage(rawMessage: String): com.knapsack.fixtool.service.SendResult? {
         // Use the currently active session to send message
         logger.info("sendMessage called. Active session index: ${_activeSessionIndex.value}")
         logger.info("sendMessage: _activeSessionState.value = ${_activeSessionState.value?.title} (ID: ${_activeSessionState.value?.id})")
@@ -597,10 +596,12 @@ class FixMessageViewModel(
                 "sendMessage: No active session found! activeSessionIndex=${_activeSessionIndex.value}, sessions.size=${_sessions.size}",
                 notifyUser = true,
             )
+            return null
         } else {
             logger.info("sendMessage: Sending to session: '${session.title}' (ID: ${session.id})")
-            session.sendFixMessage(rawMessage, _dictionary.value)
-            logger.info("sendMessage: Message sent successfully to ${session.title}")
+            val result = session.sendFixMessage(rawMessage, _dictionary.value)
+            logger.info("sendMessage: Message sent to ${session.title}, result: $result")
+            return result
         }
     }
 

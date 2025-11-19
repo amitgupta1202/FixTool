@@ -32,7 +32,7 @@ import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.slf4j.LoggerFactory
 import java.awt.Cursor
 
-private val logger = LoggerFactory.getLogger("App")
+private val logger = LoggerFactory.getLogger("com.knapsack.fixtool.ui.App")
 
 private val DarkColorScheme =
     darkColorScheme(

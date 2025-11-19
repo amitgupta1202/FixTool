@@ -29,7 +29,10 @@ import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.jetbrains.compose.ui.tooling.preview.Preview
+import org.slf4j.LoggerFactory
 import java.awt.Cursor
+
+private val logger = LoggerFactory.getLogger("App")
 
 private val DarkColorScheme =
     darkColorScheme(
@@ -727,12 +730,26 @@ private fun AppMessageEditorPanel(
             // Update message maps before resolving templates
             viewModel.updateMessageMaps()
 
+            // Debug logging
+            logger.debug("Message maps - Incoming: {}, Outgoing: {}",
+                viewModel.incomingMessagesByType.keys.joinToString(","),
+                viewModel.outgoingMessagesByType.keys.joinToString(",")
+            )
+
             // Resolve template expressions with access to previous messages
             val resolvedFields =
                 fields.resolveTemplates(
                     incomingMessages = viewModel.incomingMessagesByType,
                     outgoingMessages = viewModel.outgoingMessagesByType,
                 )
+
+            // Debug logging to see if templates were resolved
+            fields.forEachIndexed { index, field ->
+                if (field.value != resolvedFields[index].value) {
+                    logger.debug("Field {} resolved: {} -> {}", field.tag, field.value, resolvedFields[index].value)
+                }
+            }
+
             val rawMessage = resolvedFields.toRawMessage()
             val result = viewModel.sendMessage(rawMessage)
 

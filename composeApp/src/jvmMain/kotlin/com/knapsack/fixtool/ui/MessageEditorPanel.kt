@@ -1355,13 +1355,19 @@ fun MessageEditorPanel(
 
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
 
-        // Validation error display section
+        // Validation error/warning display section
         if (validationErrors.isNotEmpty()) {
+            // Check if these are warnings or errors
+            val isWarning = validationErrors.any { it.startsWith("WARNING:") }
+            val backgroundColor = if (isWarning) Color(0xFF3A2F1F) else Color(0xFF3A1F1F) // Amber-tinted vs red-tinted
+            val textColor = if (isWarning) Color(0xFFFFA726) else AppTheme.Colors.error // Amber vs red
+            val label = if (isWarning) "Validation Warnings" else "Validation Errors"
+
             Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF3A1F1F))
+                        .background(backgroundColor)
                         .padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -1375,20 +1381,20 @@ fun MessageEditorPanel(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Error,
-                            contentDescription = "Validation Errors",
-                            tint = AppTheme.Colors.error,
+                            imageVector = if (isWarning) Icons.Default.Warning else Icons.Default.Error,
+                            contentDescription = label,
+                            tint = textColor,
                             modifier = iconSize16,
                         )
                         Text(
-                            text = "Validation Errors (${validationErrors.size})",
-                            color = AppTheme.Colors.error,
+                            text = "$label (${validationErrors.size})",
+                            color = textColor,
                             fontSize = 10.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                         )
                     }
                     TooltipIconButton(
-                        tooltip = "Dismiss Errors",
+                        tooltip = if (isWarning) "Dismiss Warnings" else "Dismiss Errors",
                         onClick = onClearValidationErrors,
                         modifier = iconSize20,
                     ) {
@@ -1401,11 +1407,11 @@ fun MessageEditorPanel(
                     }
                 }
 
-                // Display each error
+                // Display each error/warning
                 validationErrors.forEach { error ->
                     Text(
                         text = "• $error",
-                        color = AppTheme.Colors.error,
+                        color = textColor,
                         fontSize = 9.sp,
                         modifier = Modifier.padding(start = 22.dp),
                     )

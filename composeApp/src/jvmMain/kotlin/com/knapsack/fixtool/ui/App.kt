@@ -739,7 +739,7 @@ private fun AppMessageEditorPanel(
             // Display validation warnings in the message editor validation section
             when (result) {
                 is com.knapsack.fixtool.service.SendResult.SuccessWithWarning -> {
-                    viewModel.setEditorValidationErrors(listOf("WARNING: ${result.warning}"))
+                    viewModel.setEditorValidationErrors(listOf("WARNING: Message sent using manual construction (validation bypassed)"))
                 }
                 is com.knapsack.fixtool.service.SendResult.Failed -> {
                     // Error already logged and notified via NotifyingLogger

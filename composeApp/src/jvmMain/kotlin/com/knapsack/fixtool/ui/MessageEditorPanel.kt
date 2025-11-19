@@ -186,6 +186,7 @@ private fun SlimTextField(
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
     textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text),
+    backgroundColor: Color = AppTheme.Colors.surface,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -195,7 +196,7 @@ private fun SlimTextField(
         onValueChange = onValueChange,
         modifier =
             modifier
-                .background(AppTheme.Colors.surface, inputShape)
+                .background(backgroundColor, inputShape)
                 .border(
                     width = 1.dp,
                     color = if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border,
@@ -2022,6 +2023,12 @@ private fun FieldEditorRow(
                     value = field.tag,
                     onValueChange = { onFieldChange(field.copy(tag = it)) },
                     modifier = Modifier.width(42.dp).height(24.dp),
+                    backgroundColor =
+                        if (field.tag.isBlank()) {
+                            AppTheme.Colors.emptyFieldBackground
+                        } else {
+                            AppTheme.Colors.surface
+                        },
                 )
 
                 if (showFieldName) {
@@ -2052,6 +2059,12 @@ private fun FieldEditorRow(
                     value = field.value,
                     onValueChange = { onFieldChange(field.copy(value = it)) },
                     modifier = Modifier.width(180.dp).height(24.dp),
+                    backgroundColor =
+                        if (field.value.isBlank()) {
+                            AppTheme.Colors.emptyFieldBackground
+                        } else {
+                            AppTheme.Colors.surface
+                        },
                 )
 
                 if (showDescription) {

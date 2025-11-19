@@ -143,6 +143,9 @@ object AppTheme {
         /** Other matches highlight */
         val highlightOther = Color(0xFF4A4A00)
 
+        /** Empty/blank field background highlight */
+        val emptyFieldBackground = Color(0xFF3A3520) // Muted yellow-brown for dark theme
+
         // ========== Field & Tag Colors ==========
         /** Field names/labels */
         val fieldName = Color(0xFF4EC9B0)

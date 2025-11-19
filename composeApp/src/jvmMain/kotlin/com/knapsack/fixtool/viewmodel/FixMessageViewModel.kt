@@ -269,6 +269,7 @@ class FixMessageViewModel(
             FixMessageSession(
                 title = title,
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+                onWarning = { warningMsg -> showNotification(warningMsg, NotificationType.WARNING) },
             )
         _sessions.add(session)
         // Auto-select first session if none is selected

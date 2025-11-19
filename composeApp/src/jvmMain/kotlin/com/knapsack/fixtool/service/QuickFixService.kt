@@ -19,6 +19,7 @@ class QuickFixService(
     private val onMessageReceived: (FixMessage) -> Unit,
     private val onStateChanged: (FixConnectionState) -> Unit,
     private val onError: ((String) -> Unit)? = null,
+    private val onWarning: ((String) -> Unit)? = null,
 ) : Application {
     private val logger = NotifyingLogger(QuickFixService::class.java, onError)
     private var currentSessionID: SessionID? = null
@@ -158,6 +159,10 @@ class QuickFixService(
 
     /**
      * Sends a FIX message through the QuickFIX session
+     *
+     * Uses a two-tier approach:
+     * 1. First tries QuickFIX's default parser with validation enabled
+     * 2. If validation fails, falls back to manual construction and warns the user
      */
     fun sendMessage(rawMessage: String, dictionary: com.knapsack.fixtool.model.FixDictionary): Boolean {
         val sessionID = currentSessionID
@@ -170,7 +175,22 @@ class QuickFixService(
             val dataDictionary = dictionary.getDataDictionary()
             val message =
                 if (dataDictionary != null) {
-                    rawMessage.toQuickFixMessageManual(dataDictionary)
+                    // Two-tier approach: try validated construction first
+                    try {
+                        logger.debug("Attempting message construction with validation enabled")
+                        rawMessage.toQuickFixMessage(dataDictionary, validate = true)
+                    } catch (validationException: Exception) {
+                        // Validation failed - fall back to manual construction
+                        logger.warn("Message validation failed, using manual construction: ${validationException.message}")
+
+                        // Notify user that validation was bypassed
+                        onWarning?.invoke(
+                            "Message sent with validation warnings: ${validationException.message ?: "QuickFIX validation failed"}"
+                        )
+
+                        // Use manual construction as fallback (must be last expression to return Message)
+                        rawMessage.toQuickFixMessageManual(dataDictionary)
+                    }
                 } else {
                     logger.info("Sending message without data dictionary validation")
                     rawMessage.toQuickFixMessage()

@@ -10,10 +10,12 @@ object FixMessageHelper {
     /**
      * Parses a raw FIX message string (with | delimiters) into a QuickFIX Message
      * Uses QuickFIX/J's native fromString method with the configured data dictionary
+     * @param validate if true, validates the message against the data dictionary
      */
     fun String.toQuickFixMessage(
         dataDictionary: DataDictionary,
-    ): Message = Message(this.toWireFixMessage(), dataDictionary, false)
+        validate: Boolean = false,
+    ): Message = Message(this.toWireFixMessage(), dataDictionary, validate)
 
     fun String.toQuickFixMessage(): Message = Message(this.toWireFixMessage(), false)
 

@@ -18,6 +18,7 @@ class FixMessageSession(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     private val onError: ((String) -> Unit)? = null,
+    private val onWarning: ((String) -> Unit)? = null,
 ) {
     companion object {
         private val BUFFER_MSG_SIZE = System.getProperty("noOfMsgToBuffer", "1000").toInt()
@@ -194,6 +195,7 @@ class FixMessageSession(
                     onMessageReceived = { message -> addMessage(message) },
                     onStateChanged = { state -> _connectionState.value = state },
                     onError = onError,
+                    onWarning = onWarning,
                 )
 
             // Create connection manager

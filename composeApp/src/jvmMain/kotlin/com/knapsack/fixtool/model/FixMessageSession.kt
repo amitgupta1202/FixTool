@@ -161,6 +161,25 @@ class FixMessageSession(
         messageQueue.offer(Separator(timestamp = LocalDateTime.now()))
     }
 
+    /**
+     * Flushes the message queue synchronously, immediately processing all queued messages.
+     * This is primarily for testing to ensure messages are processed before assertions.
+     */
+    fun flushMessageQueue() {
+        val batch = mutableListOf<AppMessage>()
+        messageQueue.drainTo(batch)
+        if (batch.isNotEmpty()) {
+            val current = _messages.value.toMutableList()
+            batch.forEach { message ->
+                if (current.size >= BUFFER_MSG_SIZE) {
+                    current.removeFirst()
+                }
+                current.add(message)
+            }
+            _messages.value = current.toList()
+        }
+    }
+
     fun clearMessages() {
         _messages.value = emptyList()
         messageQueue.clear()

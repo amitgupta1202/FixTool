@@ -99,6 +99,8 @@ class MessageTemplateIntegrationTest {
 
         val session = viewModel.activeSession
         session?.addMessage(fixMessage)
+        // Flush the queue to ensure message is immediately available for assertions
+        session?.flushMessageQueue()
     }
 
     @Test
@@ -310,7 +312,7 @@ class MessageTemplateIntegrationTest {
         // Verify it starts with the order ID
         assertTrue(result.startsWith("ORDER123-"))
         // Verify it has a UUID after the dash (36 chars for UUID)
-        assertTrue(result.length > 45) // "ORDER123-" (9) + UUID (36)
+        assertEquals(45, result.length) // "ORDER123-" (9) + UUID (36) = exactly 45
     }
 
     @Test

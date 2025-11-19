@@ -783,29 +783,49 @@ fun SettingsDialog(
                     ) {
                         // Default scheme button
                         Box(
-                            modifier = Modifier
-                                .height(32.dp)
-                                .weight(1f)
-                                .background(
-                                    color = if (messageColorScheme == MessageColorScheme.default()) AppTheme.Colors.primary else AppTheme.Colors.surface,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (messageColorScheme == MessageColorScheme.default()) AppTheme.Colors.primary else AppTheme.Separators.color,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .clickable { messageColorScheme = MessageColorScheme.default() },
-                            contentAlignment = Alignment.Center
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color =
+                                            if (messageColorScheme ==
+                                                MessageColorScheme.default()
+                                            ) {
+                                                AppTheme.Colors.primary
+                                            } else {
+                                                AppTheme.Colors.surface
+                                            },
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color =
+                                            if (messageColorScheme ==
+                                                MessageColorScheme.default()
+                                            ) {
+                                                AppTheme.Colors.primary
+                                            } else {
+                                                AppTheme.Separators.color
+                                            },
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { messageColorScheme = MessageColorScheme.default() },
+                            contentAlignment = Alignment.Center,
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     text = "Default",
                                     fontSize = 11.sp,
-                                    color = if (messageColorScheme == MessageColorScheme.default()) AppTheme.Colors.background else AppTheme.Colors.text
+                                    color =
+                                        if (messageColorScheme ==
+                                            MessageColorScheme.default()
+                                        ) {
+                                            AppTheme.Colors.background
+                                        } else {
+                                            AppTheme.Colors.text
+                                        },
                                 )
                                 // Color preview boxes
                                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -818,29 +838,49 @@ fun SettingsDialog(
 
                         // Green/Red scheme button
                         Box(
-                            modifier = Modifier
-                                .height(32.dp)
-                                .weight(1f)
-                                .background(
-                                    color = if (messageColorScheme == MessageColorScheme.greenRed()) AppTheme.Colors.primary else AppTheme.Colors.surface,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (messageColorScheme == MessageColorScheme.greenRed()) AppTheme.Colors.primary else AppTheme.Separators.color,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .clickable { messageColorScheme = MessageColorScheme.greenRed() },
-                            contentAlignment = Alignment.Center
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color =
+                                            if (messageColorScheme ==
+                                                MessageColorScheme.greenRed()
+                                            ) {
+                                                AppTheme.Colors.primary
+                                            } else {
+                                                AppTheme.Colors.surface
+                                            },
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color =
+                                            if (messageColorScheme ==
+                                                MessageColorScheme.greenRed()
+                                            ) {
+                                                AppTheme.Colors.primary
+                                            } else {
+                                                AppTheme.Separators.color
+                                            },
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { messageColorScheme = MessageColorScheme.greenRed() },
+                            contentAlignment = Alignment.Center,
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     text = "Green/Red",
                                     fontSize = 11.sp,
-                                    color = if (messageColorScheme == MessageColorScheme.greenRed()) AppTheme.Colors.background else AppTheme.Colors.text
+                                    color =
+                                        if (messageColorScheme ==
+                                            MessageColorScheme.greenRed()
+                                        ) {
+                                            AppTheme.Colors.background
+                                        } else {
+                                            AppTheme.Colors.text
+                                        },
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Box(Modifier.size(12.dp).background(Color(0xFF98C379), RoundedCornerShape(2.dp))) // Outgoing
@@ -852,29 +892,49 @@ fun SettingsDialog(
 
                         // High Contrast scheme button
                         Box(
-                            modifier = Modifier
-                                .height(32.dp)
-                                .weight(1f)
-                                .background(
-                                    color = if (messageColorScheme == MessageColorScheme.highContrast()) AppTheme.Colors.primary else AppTheme.Colors.surface,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (messageColorScheme == MessageColorScheme.highContrast()) AppTheme.Colors.primary else AppTheme.Separators.color,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .clickable { messageColorScheme = MessageColorScheme.highContrast() },
-                            contentAlignment = Alignment.Center
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color =
+                                            if (messageColorScheme ==
+                                                MessageColorScheme.highContrast()
+                                            ) {
+                                                AppTheme.Colors.primary
+                                            } else {
+                                                AppTheme.Colors.surface
+                                            },
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color =
+                                            if (messageColorScheme ==
+                                                MessageColorScheme.highContrast()
+                                            ) {
+                                                AppTheme.Colors.primary
+                                            } else {
+                                                AppTheme.Separators.color
+                                            },
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { messageColorScheme = MessageColorScheme.highContrast() },
+                            contentAlignment = Alignment.Center,
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     text = "High Contrast",
                                     fontSize = 11.sp,
-                                    color = if (messageColorScheme == MessageColorScheme.highContrast()) AppTheme.Colors.background else AppTheme.Colors.text
+                                    color =
+                                        if (messageColorScheme ==
+                                            MessageColorScheme.highContrast()
+                                        ) {
+                                            AppTheme.Colors.background
+                                        } else {
+                                            AppTheme.Colors.text
+                                        },
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Box(Modifier.size(12.dp).background(Color(0xFFFF8C00), RoundedCornerShape(2.dp))) // Outgoing (Orange)
@@ -886,34 +946,72 @@ fun SettingsDialog(
 
                         // Monochrome scheme button
                         Box(
-                            modifier = Modifier
-                                .height(32.dp)
-                                .weight(1f)
-                                .background(
-                                    color = if (messageColorScheme == MessageColorScheme.monochrome()) AppTheme.Colors.primary else AppTheme.Colors.surface,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (messageColorScheme == MessageColorScheme.monochrome()) AppTheme.Colors.primary else AppTheme.Separators.color,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .clickable { messageColorScheme = MessageColorScheme.monochrome() },
-                            contentAlignment = Alignment.Center
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color =
+                                            if (messageColorScheme ==
+                                                MessageColorScheme.monochrome()
+                                            ) {
+                                                AppTheme.Colors.primary
+                                            } else {
+                                                AppTheme.Colors.surface
+                                            },
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color =
+                                            if (messageColorScheme ==
+                                                MessageColorScheme.monochrome()
+                                            ) {
+                                                AppTheme.Colors.primary
+                                            } else {
+                                                AppTheme.Separators.color
+                                            },
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { messageColorScheme = MessageColorScheme.monochrome() },
+                            contentAlignment = Alignment.Center,
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     text = "Monochrome",
                                     fontSize = 11.sp,
-                                    color = if (messageColorScheme == MessageColorScheme.monochrome()) AppTheme.Colors.background else AppTheme.Colors.text
+                                    color =
+                                        if (messageColorScheme ==
+                                            MessageColorScheme.monochrome()
+                                        ) {
+                                            AppTheme.Colors.background
+                                        } else {
+                                            AppTheme.Colors.text
+                                        },
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Box(Modifier.size(12.dp).background(Color(0xFFFFFFFF), RoundedCornerShape(2.dp)).border(0.5.dp, Color(0xFF666666), RoundedCornerShape(2.dp))) // Outgoing (White with border)
-                                    Box(Modifier.size(12.dp).background(Color(0xFFFFFFFF), RoundedCornerShape(2.dp)).border(0.5.dp, Color(0xFF666666), RoundedCornerShape(2.dp))) // Incoming (White with border)
-                                    Box(Modifier.size(12.dp).background(Color(0xFFE06C75), RoundedCornerShape(2.dp))) // Rejection (Red - only colored)
+                                    Box(
+                                        Modifier
+                                            .size(
+                                                12.dp,
+                                            ).background(
+                                                Color(0xFFFFFFFF),
+                                                RoundedCornerShape(2.dp),
+                                            ).border(0.5.dp, Color(0xFF666666), RoundedCornerShape(2.dp)),
+                                    ) // Outgoing (White with border)
+                                    Box(
+                                        Modifier
+                                            .size(
+                                                12.dp,
+                                            ).background(
+                                                Color(0xFFFFFFFF),
+                                                RoundedCornerShape(2.dp),
+                                            ).border(0.5.dp, Color(0xFF666666), RoundedCornerShape(2.dp)),
+                                    ) // Incoming (White with border)
+                                    Box(
+                                        Modifier.size(12.dp).background(Color(0xFFE06C75), RoundedCornerShape(2.dp)),
+                                    ) // Rejection (Red - only colored)
                                 }
                             }
                         }
@@ -947,49 +1045,47 @@ fun SettingsDialog(
                     ) {
                         // Grid view button
                         Box(
-                            modifier = Modifier
-                                .height(32.dp)
-                                .weight(1f)
-                                .background(
-                                    color = if (defaultViewMode == "grid") AppTheme.Colors.primary else AppTheme.Colors.surface,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (defaultViewMode == "grid") AppTheme.Colors.primary else AppTheme.Separators.color,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .clickable { defaultViewMode = "grid" },
-                            contentAlignment = Alignment.Center
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color = if (defaultViewMode == "grid") AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color = if (defaultViewMode == "grid") AppTheme.Colors.primary else AppTheme.Separators.color,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { defaultViewMode = "grid" },
+                            contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = "Grid View",
                                 fontSize = 11.sp,
-                                color = if (defaultViewMode == "grid") AppTheme.Colors.background else AppTheme.Colors.text
+                                color = if (defaultViewMode == "grid") AppTheme.Colors.background else AppTheme.Colors.text,
                             )
                         }
 
                         // Terminal view button
                         Box(
-                            modifier = Modifier
-                                .height(32.dp)
-                                .weight(1f)
-                                .background(
-                                    color = if (defaultViewMode == "terminal") AppTheme.Colors.primary else AppTheme.Colors.surface,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (defaultViewMode == "terminal") AppTheme.Colors.primary else AppTheme.Separators.color,
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .clickable { defaultViewMode = "terminal" },
-                            contentAlignment = Alignment.Center
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color = if (defaultViewMode == "terminal") AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color = if (defaultViewMode == "terminal") AppTheme.Colors.primary else AppTheme.Separators.color,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { defaultViewMode = "terminal" },
+                            contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = "Terminal View",
                                 fontSize = 11.sp,
-                                color = if (defaultViewMode == "terminal") AppTheme.Colors.background else AppTheme.Colors.text
+                                color = if (defaultViewMode == "terminal") AppTheme.Colors.background else AppTheme.Colors.text,
                             )
                         }
                     }
@@ -1022,11 +1118,12 @@ fun SettingsDialog(
                     ) {
                         rejectionRules.forEachIndexed { index, rule ->
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(AppTheme.Colors.surface, RoundedCornerShape(4.dp))
-                                    .border(1.dp, AppTheme.Separators.color, RoundedCornerShape(4.dp))
-                                    .padding(8.dp),
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .background(AppTheme.Colors.surface, RoundedCornerShape(4.dp))
+                                        .border(1.dp, AppTheme.Separators.color, RoundedCornerShape(4.dp))
+                                        .padding(8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -1075,9 +1172,10 @@ fun SettingsDialog(
                                     SlimTextField(
                                         value = rule.additionalValue ?: "",
                                         onValueChange = { newValue ->
-                                            rejectionRules[index] = rule.copy(
-                                                additionalValue = newValue.ifBlank { null }
-                                            )
+                                            rejectionRules[index] =
+                                                rule.copy(
+                                                    additionalValue = newValue.ifBlank { null },
+                                                )
                                         },
                                         placeholder = "e.g., 3",
                                         modifier = Modifier.fillMaxWidth(),
@@ -1088,9 +1186,10 @@ fun SettingsDialog(
                                 TooltipIconButton(
                                     tooltip = "Remove Rule",
                                     onClick = {
-                                        rejectionRules = rejectionRules.toMutableList().apply {
-                                            removeAt(index)
-                                        }
+                                        rejectionRules =
+                                            rejectionRules.toMutableList().apply {
+                                                removeAt(index)
+                                            }
                                     },
                                     modifier = Modifier.size(28.dp),
                                 ) {
@@ -1108,9 +1207,10 @@ fun SettingsDialog(
                         SlimButton(
                             text = "+ Add Rejection Rule",
                             onClick = {
-                                rejectionRules = rejectionRules.toMutableList().apply {
-                                    add(RejectionRule(messageType = ""))
-                                }
+                                rejectionRules =
+                                    rejectionRules.toMutableList().apply {
+                                        add(RejectionRule(messageType = ""))
+                                    }
                             },
                             containerColor = AppTheme.Colors.surface,
                             contentColor = AppTheme.Colors.primary,

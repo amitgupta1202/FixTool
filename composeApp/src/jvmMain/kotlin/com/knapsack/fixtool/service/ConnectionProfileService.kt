@@ -22,11 +22,12 @@ class ConnectionProfileService(
             ignoreUnknownKeys = true
         }
 
-    private val profilesFile = if (customPath.isNotBlank()) {
-        File(customPath)
-    } else {
-        File(System.getProperty("user.home"), ".fixtool/connection_profiles.json")
-    }
+    private val profilesFile =
+        if (customPath.isNotBlank()) {
+            File(customPath)
+        } else {
+            File(System.getProperty("user.home"), ".fixtool/connection_profiles.json")
+        }
 
     init {
         // Ensure directory exists
@@ -60,8 +61,8 @@ class ConnectionProfileService(
      * Saves profiles to disk
      * @return true if save succeeded, false if failed
      */
-    fun saveProfiles(profiles: List<FixConnectionProfile>): Boolean {
-        return try {
+    fun saveProfiles(profiles: List<FixConnectionProfile>): Boolean =
+        try {
             val container = ProfilesContainer(profiles)
             val content = json.encodeToString(container)
             profilesFile.writeText(content)
@@ -71,7 +72,6 @@ class ConnectionProfileService(
             logger.error(errorMsg, e, notifyUser = true)
             false
         }
-    }
 
     /**
      * Saves a profile (creates new or updates existing)

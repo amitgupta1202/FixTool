@@ -54,10 +54,11 @@ fun App(
         colorScheme = DarkColorScheme,
     ) {
         // Custom text selection colors for better visibility in dark theme
-        val customTextSelectionColors = TextSelectionColors(
-            handleColor = AppTheme.Colors.textSelectionHandle,
-            backgroundColor = AppTheme.Colors.textSelectionBackground
-        )
+        val customTextSelectionColors =
+            TextSelectionColors(
+                handleColor = AppTheme.Colors.textSelectionHandle,
+                backgroundColor = AppTheme.Colors.textSelectionBackground,
+            )
 
         CompositionLocalProvider(LocalTextSelectionColors provides customTextSelectionColors) {
             val viewModel: FixMessageViewModel = viewModel { FixMessageViewModel() }
@@ -66,378 +67,162 @@ fun App(
             LaunchedEffect(viewModel) {
                 onViewModelCreated(viewModel)
             }
-        var viewMode by rememberSaveable { mutableStateOf(ViewMode.SPLIT_HORIZONTAL) }
+            var viewMode by rememberSaveable { mutableStateOf(ViewMode.SPLIT_HORIZONTAL) }
 
-        // Collect global state
-        val selectedMessage by viewModel.selectedMessage.collectAsState()
-        val showDetailPanel by viewModel.showDetailPanel.collectAsState()
-        val showMessageEditor by viewModel.showMessageEditor.collectAsState()
-        val showConnectionPanel by viewModel.showConnectionPanel.collectAsState()
-        val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
-        val showHelpDialog by viewModel.showHelpDialog.collectAsState()
-        val showGlobalSearchDialog by viewModel.showGlobalSearchDialog.collectAsState()
-        val globalSearchQuery by viewModel.globalSearchQuery.collectAsState()
-        val globalSearchResults by viewModel.globalSearchResults.collectAsState()
-        val showSearchResultsPane by viewModel.showSearchResultsPane.collectAsState()
-        val pinnedSearchResults by viewModel.pinnedSearchResults.collectAsState()
-        val demoServerRunning by viewModel.demoServerRunning.collectAsState()
-        val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
-        val savedMessages = viewModel.savedMessages
-        val currentLoadedMessageName by viewModel.currentLoadedMessageName.collectAsState()
-        val currentProfileId = viewModel.getCurrentProfileId()
-        val notifications = viewModel.notifications
-        val density = LocalDensity.current
-        val globalViewMode by viewModel.viewMode.collectAsState()
-        val globalFilterRegex by viewModel.globalFilterRegex.collectAsState()
-        val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
-        val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
+            // Collect global state
+            val selectedMessage by viewModel.selectedMessage.collectAsState()
+            val showDetailPanel by viewModel.showDetailPanel.collectAsState()
+            val showMessageEditor by viewModel.showMessageEditor.collectAsState()
+            val showConnectionPanel by viewModel.showConnectionPanel.collectAsState()
+            val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
+            val showHelpDialog by viewModel.showHelpDialog.collectAsState()
+            val showGlobalSearchDialog by viewModel.showGlobalSearchDialog.collectAsState()
+            val globalSearchQuery by viewModel.globalSearchQuery.collectAsState()
+            val globalSearchResults by viewModel.globalSearchResults.collectAsState()
+            val showSearchResultsPane by viewModel.showSearchResultsPane.collectAsState()
+            val pinnedSearchResults by viewModel.pinnedSearchResults.collectAsState()
+            val demoServerRunning by viewModel.demoServerRunning.collectAsState()
+            val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
+            val savedMessages = viewModel.savedMessages
+            val currentLoadedMessageName by viewModel.currentLoadedMessageName.collectAsState()
+            val currentProfileId = viewModel.getCurrentProfileId()
+            val notifications = viewModel.notifications
+            val density = LocalDensity.current
+            val globalViewMode by viewModel.viewMode.collectAsState()
+            val globalFilterRegex by viewModel.globalFilterRegex.collectAsState()
+            val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
+            val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
 
-        // Load saved messages when active session changes
-        LaunchedEffect(viewModel.activeSessionIndex) {
-            viewModel.loadSavedMessagesForActiveSession()
-        }
+            // Load saved messages when active session changes
+            LaunchedEffect(viewModel.activeSessionIndex) {
+                viewModel.loadSavedMessagesForActiveSession()
+            }
 
-        // Add shutdown hook to disconnect all sessions on app close/crash
-        DisposableEffect(Unit) {
-            val shutdownHook =
-                Thread {
+            // Add shutdown hook to disconnect all sessions on app close/crash
+            DisposableEffect(Unit) {
+                val shutdownHook =
+                    Thread {
+                        viewModel.disconnectAllSessions()
+                    }
+                Runtime.getRuntime().addShutdownHook(shutdownHook)
+
+                onDispose {
+                    // Clean up sessions when app window closes
                     viewModel.disconnectAllSessions()
-                }
-            Runtime.getRuntime().addShutdownHook(shutdownHook)
 
-            onDispose {
-                // Clean up sessions when app window closes
-                viewModel.disconnectAllSessions()
-
-                // Remove shutdown hook to avoid duplicate cleanup
-                try {
-                    Runtime.getRuntime().removeShutdownHook(shutdownHook)
-                } catch (e: IllegalStateException) {
-                    // Shutdown in progress, hook already executing
+                    // Remove shutdown hook to avoid duplicate cleanup
+                    try {
+                        Runtime.getRuntime().removeShutdownHook(shutdownHook)
+                    } catch (e: IllegalStateException) {
+                        // Shutdown in progress, hook already executing
+                    }
                 }
             }
-        }
 
-        var detailPanelSplitRatio by remember { mutableStateOf(0.2f) }
-        var editorPanelSplitRatio by remember {
-            mutableStateOf(0.28f)
-        } // Message editor panel width (28% when description shown, 20% when hidden) - starts at 28% since description is visible by default
-        var connectionPanelSplitRatio by remember { mutableStateOf(0.2f) }
-        var searchResultsPanelHeight by remember { mutableStateOf(200.dp) } // Height of search results pane at bottom
+            var detailPanelSplitRatio by remember { mutableStateOf(0.2f) }
+            var editorPanelSplitRatio by remember {
+                mutableStateOf(0.28f)
+            } // Message editor panel width (28% when description shown, 20% when hidden) - starts at 28% since description is visible by default
+            var connectionPanelSplitRatio by remember { mutableStateOf(0.2f) }
+            var searchResultsPanelHeight by remember { mutableStateOf(200.dp) } // Height of search results pane at bottom
 
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .onKeyEvent { event ->
-                    // Handle Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open search
-                    if (event.type == KeyEventType.KeyDown &&
-                        event.key == Key.F &&
-                        (event.isMetaPressed || event.isCtrlPressed)
-                    ) {
-                        viewModel.toggleGlobalSearchDialog()
-                        true // Consume the event
-                    } else {
-                        false // Don't consume other events
-                    }
-                }
-        ) {
-            Column(
+            Box(
                 modifier =
-                    Modifier
+                    modifier
                         .fillMaxSize()
-                        .background(Color(0xFF1E1E1E)),
-            ) {
-                Toolbar(
-                    viewMode = viewMode,
-                    onViewModeChange = { viewMode = it },
-                    showMessageEditor = showMessageEditor,
-                    showDetailPanel = showDetailPanel,
-                    showConnectionPanel = showConnectionPanel,
-                    demoServerRunning = demoServerRunning,
-                    connectionProfiles = viewModel.connectionProfiles,
-                    isDictionaryValid = isDictionaryValid,
-                    globalSessionViewMode = globalViewMode,
-                    globalFilterRegex = globalFilterRegex,
-                    globalFilterShowIncoming = globalFilterShowIncoming,
-                    globalFilterShowOutgoing = globalFilterShowOutgoing,
-                    hideProtocolTags = viewModel.appSettings.hideProtocolTags,
-                    onOpenMessageEditor = { viewModel.toggleMessageEditor() },
-                    onToggleDetailPanel = { viewModel.toggleDetailPanel() },
-                    onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
-                    onToggleDemoServer = {
-                        if (demoServerRunning) {
-                            viewModel.stopDemoServer()
-                        } else {
-                            viewModel.startDemoServer()
-                        }
-                    },
-                    onToggleGridView = { viewModel.toggleViewMode() },
-                    onQuickConnect = { profileId, profile ->
-                        viewModel.connectProfile(profileId, profile)
-                    },
-                    onGetProfileConnectionState = { profileId ->
-                        viewModel.getProfileConnectionState(profileId)
-                    },
-                    onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
-                    onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
-                    onClearAll = { viewModel.clearAllSessions() },
-                    onGlobalFilterChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
-                    onGlobalFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
-                    onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
-                    onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
-                    onOpenSettings = { viewModel.toggleSettingsDialog() },
-                    onOpenHelp = { viewModel.toggleHelpDialog() },
-                )
-
-                // Settings Dialog
-                if (showSettingsDialog) {
-                    SettingsDialog(
-                        currentSettings = viewModel.appSettings,
-                        dictionary = viewModel.dictionary,
-                        onSave = { settings -> viewModel.saveAppSettings(settings) },
-                        onDismiss = { viewModel.toggleSettingsDialog() },
-                    )
-                }
-
-                // Help Dialog
-                if (showHelpDialog) {
-                    HelpDialog(
-                        onClose = { viewModel.toggleHelpDialog() },
-                    )
-                }
-
-                // Global Search Dialog
-                if (showGlobalSearchDialog) {
-                    SearchAllSessionsDialog(
-                        searchQuery = globalSearchQuery,
-                        searchResults = globalSearchResults,
-                        onQueryChange = { query -> viewModel.setGlobalSearchQuery(query) },
-                        onResultClick = { result -> viewModel.navigateToSearchResult(result) },
-                        onPinResults = { viewModel.pinSearchResults() },
-                        onDismiss = { viewModel.toggleGlobalSearchDialog() },
-                    )
-                }
-
-                when (viewMode) {
-                    ViewMode.TABS -> {
-                        // All panels in same row: editor, tabs, detail
-                        BoxWithConstraints(modifier = Modifier.weight(1f)) {
-                            val maxWidthPx = with(density) { maxWidth.toPx() }
-
-                            Row(modifier = Modifier.fillMaxSize()) {
-                                // Leftmost panel - Message editor (if shown)
-                                if (showMessageEditor) {
-                                    Box(
-                                        modifier =
-                                            Modifier.width(
-                                                with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
-                                            ),
-                                    ) {
-                                        AppMessageEditorPanel(
-                                            viewModel = viewModel,
-                                            savedMessages = savedMessages,
-                                            currentProfileId = currentProfileId,
-                                            currentLoadedMessageName = currentLoadedMessageName,
-                                            editorPanelSplitRatio = editorPanelSplitRatio,
-                                            onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-
-                                    // Resizable divider for editor panel
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .width(AppTheme.Separators.panelSeparatorWidth)
-                                                .fillMaxHeight()
-                                                .background(AppTheme.Separators.color)
-                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                .pointerInput(maxWidthPx) {
-                                                    detectDragGestures { change, dragAmount ->
-                                                        change.consume()
-                                                        val newOffset =
-                                                            editorPanelSplitRatio + (dragAmount.x / maxWidthPx)
-                                                        editorPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                    }
-                                                },
-                                    )
-                                }
-
-                                // Center panel - Tabs and Message display
-                                Column(modifier = Modifier.weight(1f)) {
-                                    TabBar(
-                                        sessions = viewModel.sessions,
-                                        activeIndex = viewModel.activeSessionIndex,
-                                        viewMode = globalViewMode,
-                                        onTabClick = { index -> viewModel.setActiveSession(index) },
-                                        onCloseTab = { index -> viewModel.closeSession(index) },
-                                        onToggleWrapText = { index ->
-                                            viewModel.sessions.getOrNull(index)?.toggleWrapText()
-                                        },
-                                        onConnect = { index ->
-                                            viewModel.sessions.getOrNull(index)?.reconnect()
-                                        },
-                                        onDisconnect = { index ->
-                                            viewModel.sessions.getOrNull(index)?.disconnect()
-                                        },
-                                    )
-
-                                    viewModel.activeSession?.let { session ->
-                                        val messages by session.messages.collectAsState()
-                                        val wrapText by session.wrapText.collectAsState()
-                                        val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
-
-                                        FixMessageDisplay(
-                                            messages = messages,
-                                            viewMode = globalViewMode,
-                                            dictionary = viewModel.dictionary,
-                                            wrapText = wrapText,
-                                            selectedMessage = selectedMessage,
-                                            recentlySentMessageTimestamp = recentlySentMessageTimestamp,
-                                            onSelectMessage = { message -> viewModel.selectMessage(message) },
-                                            showDetailPanel = false,
-                                            hideProtocolTags = viewModel.appSettings.hideProtocolTags,
-                                            gridViewColumns = viewModel.appSettings.gridViewColumns,
-                                            appSettings = viewModel.appSettings,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                    } ?: Box(
-                                        modifier = Modifier.weight(1f).fillMaxSize(),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            text = "No active sessions. Click the connection button to connect to a FIX server.",
-                                            color = Color(0xFF6A6A6A),
-                                            fontSize = 14.sp,
-                                        )
-                                    }
-
-                                    // Search results pane at bottom (if visible)
-                                    if (showSearchResultsPane) {
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .height(AppTheme.Separators.panelSeparatorWidth)
-                                                    .background(AppTheme.Separators.color)
-                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
-                                                    .pointerInput(Unit) {
-                                                        detectDragGestures { change, dragAmount ->
-                                                            change.consume()
-                                                            val newHeight = searchResultsPanelHeight - dragAmount.y.dp
-                                                            searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
-                                                        }
-                                                    },
-                                        )
-
-                                        Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                            AppSearchResultsPane(
-                                                viewModel = viewModel,
-                                                pinnedSearchResults = pinnedSearchResults,
-                                                selectedMessage = selectedMessage,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Message detail panel (if shown)
-                                if (showDetailPanel) {
-                                    // Resizable divider for detail panel
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .width(AppTheme.Separators.panelSeparatorWidth)
-                                                .fillMaxHeight()
-                                                .background(AppTheme.Separators.color)
-                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                .pointerInput(maxWidthPx) {
-                                                    detectDragGestures { change, dragAmount ->
-                                                        change.consume()
-                                                        val newOffset =
-                                                            detailPanelSplitRatio - (dragAmount.x / maxWidthPx)
-                                                        detailPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                    }
-                                                },
-                                    )
-
-                                    Box(
-                                        modifier =
-                                            Modifier.width(
-                                                with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
-                                            ),
-                                    ) {
-                                        AppMessageDetailPanel(
-                                            viewModel = viewModel,
-                                            selectedMessage = selectedMessage,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-                                }
-
-                                // Rightmost panel - Connection panel (if shown)
-                                if (showConnectionPanel) {
-                                    // Resizable divider for connection panel
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .width(AppTheme.Separators.panelSeparatorWidth)
-                                                .fillMaxHeight()
-                                                .background(AppTheme.Separators.color)
-                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                .pointerInput(maxWidthPx) {
-                                                    detectDragGestures { change, dragAmount ->
-                                                        change.consume()
-                                                        val newOffset =
-                                                            connectionPanelSplitRatio - (dragAmount.x / maxWidthPx)
-                                                        connectionPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                    }
-                                                },
-                                    )
-
-                                    Box(
-                                        modifier =
-                                            Modifier.width(
-                                                with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
-                                            ),
-                                    ) {
-                                        ConnectionPanel(
-                                            profiles = viewModel.connectionProfiles,
-                                            sessions = viewModel.sessions,
-                                            onConnect = { profileId, profile ->
-                                                viewModel.connectProfile(
-                                                    profileId,
-                                                    profile,
-                                                )
-                                            },
-                                            onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
-                                            onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
-                                            onDeleteProfile = { profileId ->
-                                                viewModel.deleteConnectionProfile(profileId)
-                                            },
-                                            onCloneProfile = { profile -> viewModel.cloneConnectionProfile(profile) },
-                                            onGetProfileSession = { profileId ->
-                                                viewModel.getProfileSession(profileId)
-                                            },
-                                            onClose = { viewModel.toggleConnectionPanel() },
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-                                }
+                        .onKeyEvent { event ->
+                            // Handle Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open search
+                            if (event.type == KeyEventType.KeyDown &&
+                                event.key == Key.F &&
+                                (event.isMetaPressed || event.isCtrlPressed)
+                            ) {
+                                viewModel.toggleGlobalSearchDialog()
+                                true // Consume the event
+                            } else {
+                                false // Don't consume other events
                             }
-                        }
+                        },
+            ) {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF1E1E1E)),
+                ) {
+                    Toolbar(
+                        viewMode = viewMode,
+                        onViewModeChange = { viewMode = it },
+                        showMessageEditor = showMessageEditor,
+                        showDetailPanel = showDetailPanel,
+                        showConnectionPanel = showConnectionPanel,
+                        demoServerRunning = demoServerRunning,
+                        connectionProfiles = viewModel.connectionProfiles,
+                        isDictionaryValid = isDictionaryValid,
+                        globalSessionViewMode = globalViewMode,
+                        globalFilterRegex = globalFilterRegex,
+                        globalFilterShowIncoming = globalFilterShowIncoming,
+                        globalFilterShowOutgoing = globalFilterShowOutgoing,
+                        hideProtocolTags = viewModel.appSettings.hideProtocolTags,
+                        onOpenMessageEditor = { viewModel.toggleMessageEditor() },
+                        onToggleDetailPanel = { viewModel.toggleDetailPanel() },
+                        onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
+                        onToggleDemoServer = {
+                            if (demoServerRunning) {
+                                viewModel.stopDemoServer()
+                            } else {
+                                viewModel.startDemoServer()
+                            }
+                        },
+                        onToggleGridView = { viewModel.toggleViewMode() },
+                        onQuickConnect = { profileId, profile ->
+                            viewModel.connectProfile(profileId, profile)
+                        },
+                        onGetProfileConnectionState = { profileId ->
+                            viewModel.getProfileConnectionState(profileId)
+                        },
+                        onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
+                        onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
+                        onClearAll = { viewModel.clearAllSessions() },
+                        onGlobalFilterChange = { regex -> viewModel.setGlobalFilterRegex(regex) },
+                        onGlobalFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
+                        onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
+                        onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
+                        onOpenSettings = { viewModel.toggleSettingsDialog() },
+                        onOpenHelp = { viewModel.toggleHelpDialog() },
+                    )
+
+                    // Settings Dialog
+                    if (showSettingsDialog) {
+                        SettingsDialog(
+                            currentSettings = viewModel.appSettings,
+                            dictionary = viewModel.dictionary,
+                            onSave = { settings -> viewModel.saveAppSettings(settings) },
+                            onDismiss = { viewModel.toggleSettingsDialog() },
+                        )
                     }
 
-                    ViewMode.SPLIT_HORIZONTAL, ViewMode.SPLIT_VERTICAL -> {
-                        val splitOrientation =
-                            if (viewMode == ViewMode.SPLIT_HORIZONTAL) {
-                                SplitOrientation.HORIZONTAL
-                            } else {
-                                SplitOrientation.VERTICAL
-                            }
+                    // Help Dialog
+                    if (showHelpDialog) {
+                        HelpDialog(
+                            onClose = { viewModel.toggleHelpDialog() },
+                        )
+                    }
 
-                        // Wrap content in split pane if detail panel, message editor, or connection panel is shown
-                        if (showDetailPanel || showMessageEditor || showConnectionPanel) {
+                    // Global Search Dialog
+                    if (showGlobalSearchDialog) {
+                        SearchAllSessionsDialog(
+                            searchQuery = globalSearchQuery,
+                            searchResults = globalSearchResults,
+                            onQueryChange = { query -> viewModel.setGlobalSearchQuery(query) },
+                            onResultClick = { result -> viewModel.navigateToSearchResult(result) },
+                            onPinResults = { viewModel.pinSearchResults() },
+                            onDismiss = { viewModel.toggleGlobalSearchDialog() },
+                        )
+                    }
+
+                    when (viewMode) {
+                        ViewMode.TABS -> {
+                            // All panels in same row: editor, tabs, detail
                             BoxWithConstraints(modifier = Modifier.weight(1f)) {
                                 val maxWidthPx = with(density) { maxWidth.toPx() }
 
@@ -465,9 +250,9 @@ fun App(
                                         Box(
                                             modifier =
                                                 Modifier
-                                                    .width(1.dp)
+                                                    .width(AppTheme.Separators.panelSeparatorWidth)
                                                     .fillMaxHeight()
-                                                    .background(Color(0xFF3A3A3A))
+                                                    .background(AppTheme.Separators.color)
                                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
                                                     .pointerInput(maxWidthPx) {
                                                         detectDragGestures { change, dragAmount ->
@@ -480,24 +265,54 @@ fun App(
                                         )
                                     }
 
-                                    // Center panel - Split view
+                                    // Center panel - Tabs and Message display
                                     Column(modifier = Modifier.weight(1f)) {
-                                        SplitView(
+                                        TabBar(
                                             sessions = viewModel.sessions,
-                                            dictionary = viewModel.dictionary,
+                                            activeIndex = viewModel.activeSessionIndex,
                                             viewMode = globalViewMode,
-                                            onCloseSession = { index -> viewModel.closeSession(index) },
-                                            onMoveSession = { from, to -> viewModel.moveSession(from, to) },
-                                            selectedMessage = selectedMessage,
-                                            onSelectMessage = { message -> viewModel.selectMessage(message) },
-                                            onPasteMessage = { rawMessage ->
-                                                viewModel.pasteAndDisplayMessage(rawMessage)
+                                            onTabClick = { index -> viewModel.setActiveSession(index) },
+                                            onCloseTab = { index -> viewModel.closeSession(index) },
+                                            onToggleWrapText = { index ->
+                                                viewModel.sessions.getOrNull(index)?.toggleWrapText()
                                             },
-                                            orientation = splitOrientation,
-                                            gridViewColumns = viewModel.appSettings.gridViewColumns,
-                                            appSettings = viewModel.appSettings,
-                                            modifier = Modifier.weight(1f),
+                                            onConnect = { index ->
+                                                viewModel.sessions.getOrNull(index)?.reconnect()
+                                            },
+                                            onDisconnect = { index ->
+                                                viewModel.sessions.getOrNull(index)?.disconnect()
+                                            },
                                         )
+
+                                        viewModel.activeSession?.let { session ->
+                                            val messages by session.messages.collectAsState()
+                                            val wrapText by session.wrapText.collectAsState()
+                                            val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
+
+                                            FixMessageDisplay(
+                                                messages = messages,
+                                                viewMode = globalViewMode,
+                                                dictionary = viewModel.dictionary,
+                                                wrapText = wrapText,
+                                                selectedMessage = selectedMessage,
+                                                recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                                                onSelectMessage = { message -> viewModel.selectMessage(message) },
+                                                showDetailPanel = false,
+                                                hideProtocolTags = viewModel.appSettings.hideProtocolTags,
+                                                gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                                appSettings = viewModel.appSettings,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        } ?: Box(
+                                            modifier = Modifier.weight(1f).fillMaxSize(),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                text = "No active sessions. Click the connection button to connect to a FIX server.",
+                                                color = Color(0xFF6A6A6A),
+                                                fontSize = 14.sp,
+                                            )
+                                        }
 
                                         // Search results pane at bottom (if visible)
                                         if (showSearchResultsPane) {
@@ -534,9 +349,9 @@ fun App(
                                         Box(
                                             modifier =
                                                 Modifier
-                                                    .width(1.dp)
+                                                    .width(AppTheme.Separators.panelSeparatorWidth)
                                                     .fillMaxHeight()
-                                                    .background(Color(0xFF3A3A3A))
+                                                    .background(AppTheme.Separators.color)
                                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
                                                     .pointerInput(maxWidthPx) {
                                                         detectDragGestures { change, dragAmount ->
@@ -568,9 +383,9 @@ fun App(
                                         Box(
                                             modifier =
                                                 Modifier
-                                                    .width(1.dp)
+                                                    .width(AppTheme.Separators.panelSeparatorWidth)
                                                     .fillMaxHeight()
-                                                    .background(Color(0xFF3A3A3A))
+                                                    .background(AppTheme.Separators.color)
                                                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
                                                     .pointerInput(maxWidthPx) {
                                                         detectDragGestures { change, dragAmount ->
@@ -600,17 +415,11 @@ fun App(
                                                 onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
                                                 onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
                                                 onDeleteProfile = { profileId ->
-                                                    viewModel.deleteConnectionProfile(
-                                                        profileId,
-                                                    )
+                                                    viewModel.deleteConnectionProfile(profileId)
                                                 },
-                                                onCloneProfile = { profile ->
-                                                    viewModel.cloneConnectionProfile(profile)
-                                                },
+                                                onCloneProfile = { profile -> viewModel.cloneConnectionProfile(profile) },
                                                 onGetProfileSession = { profileId ->
-                                                    viewModel.getProfileSession(
-                                                        profileId,
-                                                    )
+                                                    viewModel.getProfileSession(profileId)
                                                 },
                                                 onClose = { viewModel.toggleConnectionPanel() },
                                                 modifier = Modifier.fillMaxSize(),
@@ -619,62 +428,255 @@ fun App(
                                     }
                                 }
                             }
-                        } else {
-                            Column(modifier = Modifier.weight(1f)) {
-                                SplitView(
-                                    sessions = viewModel.sessions,
-                                    dictionary = viewModel.dictionary,
-                                    viewMode = globalViewMode,
-                                    onCloseSession = { index -> viewModel.closeSession(index) },
-                                    onMoveSession = { from, to -> viewModel.moveSession(from, to) },
-                                    selectedMessage = selectedMessage,
-                                    onSelectMessage = { message -> viewModel.selectMessage(message) },
-                                    onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
-                                    orientation = splitOrientation,
-                                    gridViewColumns = viewModel.appSettings.gridViewColumns,
-                                    appSettings = viewModel.appSettings,
-                                    modifier = Modifier.weight(1f),
-                                )
+                        }
 
-                                // Search results pane at bottom (if visible)
-                                if (showSearchResultsPane) {
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .height(AppTheme.Separators.panelSeparatorWidth)
-                                                .background(AppTheme.Separators.color)
-                                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
-                                                .pointerInput(Unit) {
-                                                    detectDragGestures { change, dragAmount ->
-                                                        change.consume()
-                                                        val newHeight = searchResultsPanelHeight - dragAmount.y.dp
-                                                        searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
-                                                    }
+                        ViewMode.SPLIT_HORIZONTAL, ViewMode.SPLIT_VERTICAL -> {
+                            val splitOrientation =
+                                if (viewMode == ViewMode.SPLIT_HORIZONTAL) {
+                                    SplitOrientation.HORIZONTAL
+                                } else {
+                                    SplitOrientation.VERTICAL
+                                }
+
+                            // Wrap content in split pane if detail panel, message editor, or connection panel is shown
+                            if (showDetailPanel || showMessageEditor || showConnectionPanel) {
+                                BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                                    val maxWidthPx = with(density) { maxWidth.toPx() }
+
+                                    Row(modifier = Modifier.fillMaxSize()) {
+                                        // Leftmost panel - Message editor (if shown)
+                                        if (showMessageEditor) {
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * editorPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                AppMessageEditorPanel(
+                                                    viewModel = viewModel,
+                                                    savedMessages = savedMessages,
+                                                    currentProfileId = currentProfileId,
+                                                    currentLoadedMessageName = currentLoadedMessageName,
+                                                    editorPanelSplitRatio = editorPanelSplitRatio,
+                                                    onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+
+                                            // Resizable divider for editor panel
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .width(1.dp)
+                                                        .fillMaxHeight()
+                                                        .background(Color(0xFF3A3A3A))
+                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                        .pointerInput(maxWidthPx) {
+                                                            detectDragGestures { change, dragAmount ->
+                                                                change.consume()
+                                                                val newOffset =
+                                                                    editorPanelSplitRatio + (dragAmount.x / maxWidthPx)
+                                                                editorPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                            }
+                                                        },
+                                            )
+                                        }
+
+                                        // Center panel - Split view
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            SplitView(
+                                                sessions = viewModel.sessions,
+                                                dictionary = viewModel.dictionary,
+                                                viewMode = globalViewMode,
+                                                onCloseSession = { index -> viewModel.closeSession(index) },
+                                                onMoveSession = { from, to -> viewModel.moveSession(from, to) },
+                                                selectedMessage = selectedMessage,
+                                                onSelectMessage = { message -> viewModel.selectMessage(message) },
+                                                onPasteMessage = { rawMessage ->
+                                                    viewModel.pasteAndDisplayMessage(rawMessage)
                                                 },
+                                                orientation = splitOrientation,
+                                                gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                                appSettings = viewModel.appSettings,
+                                                modifier = Modifier.weight(1f),
+                                            )
+
+                                            // Search results pane at bottom (if visible)
+                                            if (showSearchResultsPane) {
+                                                Box(
+                                                    modifier =
+                                                        Modifier
+                                                            .fillMaxWidth()
+                                                            .height(AppTheme.Separators.panelSeparatorWidth)
+                                                            .background(AppTheme.Separators.color)
+                                                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+                                                            .pointerInput(Unit) {
+                                                                detectDragGestures { change, dragAmount ->
+                                                                    change.consume()
+                                                                    val newHeight = searchResultsPanelHeight - dragAmount.y.dp
+                                                                    searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
+                                                                }
+                                                            },
+                                                )
+
+                                                Box(modifier = Modifier.height(searchResultsPanelHeight)) {
+                                                    AppSearchResultsPane(
+                                                        viewModel = viewModel,
+                                                        pinnedSearchResults = pinnedSearchResults,
+                                                        selectedMessage = selectedMessage,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        // Message detail panel (if shown)
+                                        if (showDetailPanel) {
+                                            // Resizable divider for detail panel
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .width(1.dp)
+                                                        .fillMaxHeight()
+                                                        .background(Color(0xFF3A3A3A))
+                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                        .pointerInput(maxWidthPx) {
+                                                            detectDragGestures { change, dragAmount ->
+                                                                change.consume()
+                                                                val newOffset =
+                                                                    detailPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                                                detailPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                            }
+                                                        },
+                                            )
+
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * detailPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                AppMessageDetailPanel(
+                                                    viewModel = viewModel,
+                                                    selectedMessage = selectedMessage,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+                                        }
+
+                                        // Rightmost panel - Connection panel (if shown)
+                                        if (showConnectionPanel) {
+                                            // Resizable divider for connection panel
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .width(1.dp)
+                                                        .fillMaxHeight()
+                                                        .background(Color(0xFF3A3A3A))
+                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                        .pointerInput(maxWidthPx) {
+                                                            detectDragGestures { change, dragAmount ->
+                                                                change.consume()
+                                                                val newOffset =
+                                                                    connectionPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                                                connectionPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
+                                                            }
+                                                        },
+                                            )
+
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * connectionPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                ConnectionPanel(
+                                                    profiles = viewModel.connectionProfiles,
+                                                    sessions = viewModel.sessions,
+                                                    onConnect = { profileId, profile ->
+                                                        viewModel.connectProfile(
+                                                            profileId,
+                                                            profile,
+                                                        )
+                                                    },
+                                                    onDisconnect = { profileId -> viewModel.disconnectProfile(profileId) },
+                                                    onSaveProfile = { profile -> viewModel.saveConnectionProfile(profile) },
+                                                    onDeleteProfile = { profileId ->
+                                                        viewModel.deleteConnectionProfile(
+                                                            profileId,
+                                                        )
+                                                    },
+                                                    onCloneProfile = { profile ->
+                                                        viewModel.cloneConnectionProfile(profile)
+                                                    },
+                                                    onGetProfileSession = { profileId ->
+                                                        viewModel.getProfileSession(
+                                                            profileId,
+                                                        )
+                                                    },
+                                                    onClose = { viewModel.toggleConnectionPanel() },
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    SplitView(
+                                        sessions = viewModel.sessions,
+                                        dictionary = viewModel.dictionary,
+                                        viewMode = globalViewMode,
+                                        onCloseSession = { index -> viewModel.closeSession(index) },
+                                        onMoveSession = { from, to -> viewModel.moveSession(from, to) },
+                                        selectedMessage = selectedMessage,
+                                        onSelectMessage = { message -> viewModel.selectMessage(message) },
+                                        onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
+                                        orientation = splitOrientation,
+                                        gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                        appSettings = viewModel.appSettings,
+                                        modifier = Modifier.weight(1f),
                                     )
 
-                                    Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                        AppSearchResultsPane(
-                                            viewModel = viewModel,
-                                            pinnedSearchResults = pinnedSearchResults,
-                                            selectedMessage = selectedMessage,
-                                            modifier = Modifier.fillMaxSize(),
+                                    // Search results pane at bottom (if visible)
+                                    if (showSearchResultsPane) {
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .height(AppTheme.Separators.panelSeparatorWidth)
+                                                    .background(AppTheme.Separators.color)
+                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+                                                    .pointerInput(Unit) {
+                                                        detectDragGestures { change, dragAmount ->
+                                                            change.consume()
+                                                            val newHeight = searchResultsPanelHeight - dragAmount.y.dp
+                                                            searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
+                                                        }
+                                                    },
                                         )
+
+                                        Box(modifier = Modifier.height(searchResultsPanelHeight)) {
+                                            AppSearchResultsPane(
+                                                viewModel = viewModel,
+                                                pinnedSearchResults = pinnedSearchResults,
+                                                selectedMessage = selectedMessage,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // Notification popup overlay in bottom-right corner
-            NotificationPopupContainer(
-                notifications = notifications,
-                onDismiss = { notificationId -> viewModel.dismissNotification(notificationId) },
-            )
-        }
+                // Notification popup overlay in bottom-right corner
+                NotificationPopupContainer(
+                    notifications = notifications,
+                    onDismiss = { notificationId -> viewModel.dismissNotification(notificationId) },
+                )
+            }
         }
     }
 }
@@ -726,10 +728,11 @@ private fun AppMessageEditorPanel(
             viewModel.updateMessageMaps()
 
             // Resolve template expressions with access to previous messages
-            val resolvedFields = fields.resolveTemplates(
-                incomingMessages = viewModel.incomingMessagesByType,
-                outgoingMessages = viewModel.outgoingMessagesByType,
-            )
+            val resolvedFields =
+                fields.resolveTemplates(
+                    incomingMessages = viewModel.incomingMessagesByType,
+                    outgoingMessages = viewModel.outgoingMessagesByType,
+                )
             val rawMessage = resolvedFields.toRawMessage()
             viewModel.sendMessage(rawMessage)
         },

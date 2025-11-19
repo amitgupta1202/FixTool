@@ -22,11 +22,12 @@ class SavedMessagesService(
             ignoreUnknownKeys = true
         }
 
-    private val savedMessagesFile = if (customPath.isNotBlank()) {
-        File(customPath)
-    } else {
-        File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
-    }
+    private val savedMessagesFile =
+        if (customPath.isNotBlank()) {
+            File(customPath)
+        } else {
+            File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
+        }
 
     init {
         // Ensure directory exists
@@ -59,8 +60,8 @@ class SavedMessagesService(
      * Saves all messages to disk
      * @return true if save succeeded, false if failed
      */
-    private fun saveAll(container: SavedMessagesContainer): Boolean {
-        return try {
+    private fun saveAll(container: SavedMessagesContainer): Boolean =
+        try {
             val content = json.encodeToString(container)
             savedMessagesFile.writeText(content)
             true
@@ -69,7 +70,6 @@ class SavedMessagesService(
             logger.error(errorMsg, e, notifyUser = true)
             false
         }
-    }
 
     /**
      * Loads saved messages for a specific profile
@@ -133,8 +133,9 @@ class SavedMessagesService(
      */
     fun markMessageAsUsed(profileId: String, messageId: String): Result<List<SavedFixMessage>> {
         val container = loadAll()
-        val profileMessages = container.messagesByProfile[profileId]?.toMutableList()
-            ?: return Result.success(emptyList())
+        val profileMessages =
+            container.messagesByProfile[profileId]?.toMutableList()
+                ?: return Result.success(emptyList())
 
         val messageIndex = profileMessages.indexOfFirst { it.id == messageId }
         if (messageIndex >= 0) {

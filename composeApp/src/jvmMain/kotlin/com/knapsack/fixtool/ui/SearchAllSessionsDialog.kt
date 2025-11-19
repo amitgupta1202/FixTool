@@ -1,6 +1,8 @@
 package com.knapsack.fixtool.ui
 
-import androidx.compose.foundation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
@@ -9,14 +11,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -42,12 +46,14 @@ fun SearchAllSessionsDialog(
     onDismiss: () -> Unit,
 ) {
     // Create a stable username to color mapping based on session usernames
-    val usernameColorMap = remember(searchResults) {
-        val uniqueUsernames = searchResults.map { it.sessionUsername }.distinct()
-        uniqueUsernames.mapIndexed { index, username ->
-            username to AppTheme.Colors.usernameColors[index % AppTheme.Colors.usernameColors.size]
-        }.toMap()
-    }
+    val usernameColorMap =
+        remember(searchResults) {
+            val uniqueUsernames = searchResults.map { it.sessionUsername }.distinct()
+            uniqueUsernames
+                .mapIndexed { index, username ->
+                    username to AppTheme.Colors.usernameColors[index % AppTheme.Colors.usernameColors.size]
+                }.toMap()
+        }
 
     // Focus requester for auto-focusing the search input
     val focusRequester = remember { FocusRequester() }
@@ -59,14 +65,16 @@ fun SearchAllSessionsDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-        ),
+        properties =
+            DialogProperties(
+                usePlatformDefaultWidth = false,
+            ),
     ) {
         Surface(
-            modifier = Modifier
-                .width(1000.dp)
-                .heightIn(max = 700.dp),
+            modifier =
+                Modifier
+                    .width(1000.dp)
+                    .heightIn(max = 700.dp),
             shape = RoundedCornerShape(8.dp),
             color = AppTheme.Colors.surface,
         ) {
@@ -75,10 +83,11 @@ fun SearchAllSessionsDialog(
             ) {
                 // Header
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(AppTheme.Colors.background)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(AppTheme.Colors.background)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -108,9 +117,10 @@ fun SearchAllSessionsDialog(
                     query = searchQuery,
                     onQueryChange = onQueryChange,
                     focusRequester = focusRequester,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
                 )
 
                 HorizontalDivider(color = AppTheme.Colors.background)
@@ -125,10 +135,11 @@ fun SearchAllSessionsDialog(
 
                 // Results List
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .background(AppTheme.Colors.background),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .background(AppTheme.Colors.background),
                 ) {
                     items(searchResults) { result ->
                         SearchResultItem(
@@ -146,26 +157,26 @@ fun SearchAllSessionsDialog(
 
                 // Footer with action button
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(AppTheme.Colors.surface)
-                        .padding(16.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(AppTheme.Colors.surface)
+                            .padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (searchResults.isNotEmpty()) {
                         Box(
-                            modifier = Modifier
-                                .height(32.dp)
-                                .background(
-                                    color = AppTheme.Colors.primary,
-                                    shape = RoundedCornerShape(2.dp),
-                                )
-                                .clickable {
-                                    onPinResults()
-                                    onDismiss()
-                                }
-                                .padding(horizontal = 12.dp),
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .background(
+                                        color = AppTheme.Colors.primary,
+                                        shape = RoundedCornerShape(2.dp),
+                                    ).clickable {
+                                        onPinResults()
+                                        onDismiss()
+                                    }.padding(horizontal = 12.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -193,18 +204,17 @@ private fun SearchInputField(
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     Row(
-        modifier = modifier
-            .height(36.dp)
-            .background(
-                color = if (isFocused) AppTheme.Colors.surface else AppTheme.Colors.surfaceVariant,
-                shape = RoundedCornerShape(4.dp),
-            )
-            .border(
-                width = 1.dp,
-                color = if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border,
-                shape = RoundedCornerShape(4.dp),
-            )
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier =
+            modifier
+                .height(36.dp)
+                .background(
+                    color = if (isFocused) AppTheme.Colors.surface else AppTheme.Colors.surfaceVariant,
+                    shape = RoundedCornerShape(4.dp),
+                ).border(
+                    width = 1.dp,
+                    color = if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border,
+                    shape = RoundedCornerShape(4.dp),
+                ).padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -218,14 +228,16 @@ private fun SearchInputField(
         BasicTextField(
             value = query,
             onValueChange = onQueryChange,
-            modifier = Modifier
-                .weight(1f)
-                .focusRequester(focusRequester),
-            textStyle = TextStyle(
-                fontSize = 13.sp,
-                color = AppTheme.Colors.text,
-                fontFamily = FontFamily.Monospace,
-            ),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+            textStyle =
+                TextStyle(
+                    fontSize = 13.sp,
+                    color = AppTheme.Colors.text,
+                    fontFamily = FontFamily.Monospace,
+                ),
             cursorBrush = SolidColor(AppTheme.Colors.primary),
             interactionSource = interactionSource,
             singleLine = true,
@@ -253,26 +265,27 @@ private fun SearchResultItem(
     onClick: () -> Unit,
 ) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss.SSS") }
-    val directionLabel = when (result.message.direction) {
-        com.knapsack.fixtool.model.FixMessage.Direction.INCOMING -> "IN"
-        com.knapsack.fixtool.model.FixMessage.Direction.OUTGOING -> "OUT"
-    }
+    val directionLabel =
+        when (result.message.direction) {
+            com.knapsack.fixtool.model.FixMessage.Direction.INCOMING -> "IN"
+            com.knapsack.fixtool.model.FixMessage.Direction.OUTGOING -> "OUT"
+        }
 
     // Get username color from session username
     val usernameColor = usernameColorMap[result.sessionUsername] ?: AppTheme.Colors.textSecondary
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .background(AppTheme.Colors.surface)
-            .padding(horizontal = 8.dp)
-            .border(
-                width = 1.dp,
-                color = AppTheme.Colors.border,
-                shape = RoundedCornerShape(4.dp),
-            )
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .background(AppTheme.Colors.surface)
+                .padding(horizontal = 8.dp)
+                .border(
+                    width = 1.dp,
+                    color = AppTheme.Colors.border,
+                    shape = RoundedCornerShape(4.dp),
+                ).padding(horizontal = 8.dp, vertical = 6.dp),
     ) {
         // Header Row: Username • Timestamp • MessageType • Direction (all in one row)
         Row(
@@ -327,11 +340,12 @@ private fun SearchResultItem(
             Text(
                 text = directionLabel,
                 fontSize = 11.sp,
-                color = if (result.message.direction == com.knapsack.fixtool.model.FixMessage.Direction.INCOMING) {
-                    AppTheme.Colors.success
-                } else {
-                    AppTheme.Colors.warning
-                },
+                color =
+                    if (result.message.direction == com.knapsack.fixtool.model.FixMessage.Direction.INCOMING) {
+                        AppTheme.Colors.success
+                    } else {
+                        AppTheme.Colors.warning
+                    },
                 fontFamily = FontFamily.Monospace,
             )
         }

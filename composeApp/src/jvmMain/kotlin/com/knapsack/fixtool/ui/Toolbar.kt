@@ -11,8 +11,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -118,11 +116,14 @@ fun Toolbar(
                     onValueChange = onGlobalFilterChange,
                     modifier = Modifier.width(180.dp),
                     singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        fontSize = 11.sp,
-                        color = AppTheme.Colors.text,
-                    ),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(AppTheme.Colors.primary),
+                    textStyle =
+                        androidx.compose.ui.text.TextStyle(
+                            fontSize = 11.sp,
+                            color = AppTheme.Colors.text,
+                        ),
+                    cursorBrush =
+                        androidx.compose.ui.graphics
+                            .SolidColor(AppTheme.Colors.primary),
                     decorationBox = { innerTextField ->
                         Box {
                             if (globalFilterRegex.isEmpty()) {
@@ -166,11 +167,12 @@ fun Toolbar(
                             checked = globalFilterShowIncoming,
                             onCheckedChange = onGlobalFilterIncomingChange,
                             modifier = Modifier.scale(0.75f),
-                            colors = androidx.compose.material3.CheckboxDefaults.colors(
-                                checkedColor = AppTheme.Colors.primary,
-                                uncheckedColor = AppTheme.Colors.textSecondary,
-                                checkmarkColor = AppTheme.Colors.surface,
-                            ),
+                            colors =
+                                androidx.compose.material3.CheckboxDefaults.colors(
+                                    checkedColor = AppTheme.Colors.primary,
+                                    uncheckedColor = AppTheme.Colors.textSecondary,
+                                    checkmarkColor = AppTheme.Colors.surface,
+                                ),
                         )
                     }
                     Text(
@@ -199,11 +201,12 @@ fun Toolbar(
                             checked = globalFilterShowOutgoing,
                             onCheckedChange = onGlobalFilterOutgoingChange,
                             modifier = Modifier.scale(0.75f),
-                            colors = androidx.compose.material3.CheckboxDefaults.colors(
-                                checkedColor = AppTheme.Colors.primary,
-                                uncheckedColor = AppTheme.Colors.textSecondary,
-                                checkmarkColor = AppTheme.Colors.surface,
-                            ),
+                            colors =
+                                androidx.compose.material3.CheckboxDefaults.colors(
+                                    checkedColor = AppTheme.Colors.primary,
+                                    uncheckedColor = AppTheme.Colors.textSecondary,
+                                    checkmarkColor = AppTheme.Colors.surface,
+                                ),
                         )
                     }
                     Text(

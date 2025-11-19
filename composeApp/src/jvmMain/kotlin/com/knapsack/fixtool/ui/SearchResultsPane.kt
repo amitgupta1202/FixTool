@@ -10,12 +10,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,24 +40,28 @@ fun SearchResultsPane(
     modifier: Modifier = Modifier,
 ) {
     // Create a stable username to color mapping based on session usernames
-    val usernameColorMap = remember(searchResults) {
-        val uniqueUsernames = searchResults.map { it.sessionUsername }.distinct()
-        uniqueUsernames.mapIndexed { index, username ->
-            username to AppTheme.Colors.usernameColors[index % AppTheme.Colors.usernameColors.size]
-        }.toMap()
-    }
+    val usernameColorMap =
+        remember(searchResults) {
+            val uniqueUsernames = searchResults.map { it.sessionUsername }.distinct()
+            uniqueUsernames
+                .mapIndexed { index, username ->
+                    username to AppTheme.Colors.usernameColors[index % AppTheme.Colors.usernameColors.size]
+                }.toMap()
+        }
 
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(AppTheme.Colors.background),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.background),
     ) {
         // Header row with title and close button
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF2D2D2D)) // Same as grid header
-                .height(24.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF2D2D2D)) // Same as grid header
+                    .height(24.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -93,9 +97,10 @@ fun SearchResultsPane(
 
             // Main content with horizontal scroll
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .horizontalScroll(horizontalScrollState),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .horizontalScroll(horizontalScrollState),
             ) {
                 Column(modifier = Modifier.fillMaxHeight()) {
                     // Column headers
@@ -109,9 +114,10 @@ fun SearchResultsPane(
                     // Results grid
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
                     ) {
                         items(searchResults) { result ->
                             SearchResultsGridRow(
@@ -131,20 +137,22 @@ fun SearchResultsPane(
             // Vertical scrollbar
             VerticalScrollbar(
                 adapter = rememberScrollbarAdapter(listState),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .fillMaxHeight()
-                    .padding(end = 4.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .padding(end = 4.dp),
             )
 
             // Horizontal scrollbar
             HorizontalScrollbar(
                 adapter = rememberScrollbarAdapter(horizontalScrollState),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, end = 20.dp, bottom = 4.dp)
-                    .height(8.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 20.dp, bottom = 4.dp)
+                        .height(8.dp),
             )
         }
     }
@@ -163,17 +171,19 @@ private fun SearchResultsGridHeader(
     val headerBorderColor = Color(0xFF454545)
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(headerBackgroundColor)
-            .height(24.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(headerBackgroundColor)
+                .height(24.dp),
     ) {
         // Session column
         Box(
-            modifier = Modifier
-                .width(100.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, headerBorderColor),
+            modifier =
+                Modifier
+                    .width(100.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -187,10 +197,11 @@ private fun SearchResultsGridHeader(
 
         // Time column
         Box(
-            modifier = Modifier
-                .width(120.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, headerBorderColor),
+            modifier =
+                Modifier
+                    .width(120.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -204,10 +215,11 @@ private fun SearchResultsGridHeader(
 
         // Direction column
         Box(
-            modifier = Modifier
-                .width(50.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, headerBorderColor),
+            modifier =
+                Modifier
+                    .width(50.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -221,10 +233,11 @@ private fun SearchResultsGridHeader(
 
         // Sequence number column
         Box(
-            modifier = Modifier
-                .width(70.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, headerBorderColor),
+            modifier =
+                Modifier
+                    .width(70.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -238,10 +251,11 @@ private fun SearchResultsGridHeader(
 
         // Message type column
         Box(
-            modifier = Modifier
-                .width(100.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, headerBorderColor),
+            modifier =
+                Modifier
+                    .width(100.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -255,10 +269,11 @@ private fun SearchResultsGridHeader(
 
         // Summary column
         Box(
-            modifier = Modifier
-                .width(200.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, headerBorderColor),
+            modifier =
+                Modifier
+                    .width(200.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, headerBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             Text(
@@ -275,10 +290,11 @@ private fun SearchResultsGridHeader(
         gridViewColumns.forEach { tag ->
             val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
             Box(
-                modifier = Modifier
-                    .width(120.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, headerBorderColor),
+                modifier =
+                    Modifier
+                        .width(120.dp)
+                        .fillMaxHeight()
+                        .border(0.5.dp, headerBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -312,43 +328,48 @@ private fun SearchResultsGridRow(
     onClick: () -> Unit,
 ) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm:ss.SSS") }
-    val directionLabel = when (result.message.direction) {
-        FixMessage.Direction.INCOMING -> "IN"
-        FixMessage.Direction.OUTGOING -> "OUT"
-    }
+    val directionLabel =
+        when (result.message.direction) {
+            FixMessage.Direction.INCOMING -> "IN"
+            FixMessage.Direction.OUTGOING -> "OUT"
+        }
 
     val usernameColor = usernameColorMap[result.sessionUsername] ?: AppTheme.Colors.textSecondary
 
     // Get direction color using the same logic as session grid view
-    val directionColor = appSettings.messageColorScheme.getMessageColor(
-        result.message.direction,
-        result.message.isRejectionOrLogout(),
-        true,
-    )
+    val directionColor =
+        appSettings.messageColorScheme.getMessageColor(
+            result.message.direction,
+            result.message.isRejectionOrLogout(),
+            true,
+        )
 
-    val backgroundColor = if (isSelected) {
-        Color(0xFF2D5A8C) // Same selection color as grid view
-    } else {
-        AppTheme.Colors.background
-    }
+    val backgroundColor =
+        if (isSelected) {
+            Color(0xFF2D5A8C) // Same selection color as grid view
+        } else {
+            AppTheme.Colors.background
+        }
 
     val cellBorderColor = AppTheme.Colors.border
     val textColor = AppTheme.Colors.text
     val tagNumberColor = AppTheme.Colors.tagNumber
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(backgroundColor)
-            .clickable(onClick = onClick)
-            .height(24.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(backgroundColor)
+                .clickable(onClick = onClick)
+                .height(24.dp),
     ) {
         // Session username
         Box(
-            modifier = Modifier
-                .width(100.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, cellBorderColor),
+            modifier =
+                Modifier
+                    .width(100.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -364,10 +385,11 @@ private fun SearchResultsGridRow(
 
         // Time
         Box(
-            modifier = Modifier
-                .width(120.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, cellBorderColor),
+            modifier =
+                Modifier
+                    .width(120.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -380,10 +402,11 @@ private fun SearchResultsGridRow(
 
         // Direction
         Box(
-            modifier = Modifier
-                .width(50.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, cellBorderColor),
+            modifier =
+                Modifier
+                    .width(50.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -396,10 +419,11 @@ private fun SearchResultsGridRow(
 
         // Sequence number
         Box(
-            modifier = Modifier
-                .width(70.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, cellBorderColor),
+            modifier =
+                Modifier
+                    .width(70.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -411,17 +435,20 @@ private fun SearchResultsGridRow(
         }
 
         // Message type code (single character like "D", "8")
-        val msgTypeCode = try {
-            result.message.quickfixMessage.header.getString(35)
-        } catch (e: Exception) {
-            ""
-        }
+        val msgTypeCode =
+            try {
+                result.message.quickfixMessage.header
+                    .getString(35)
+            } catch (e: Exception) {
+                ""
+            }
 
         Box(
-            modifier = Modifier
-                .width(100.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, cellBorderColor),
+            modifier =
+                Modifier
+                    .width(100.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -434,10 +461,11 @@ private fun SearchResultsGridRow(
 
         // Summary (message type description)
         Box(
-            modifier = Modifier
-                .width(200.dp)
-                .fillMaxHeight()
-                .border(0.5.dp, cellBorderColor),
+            modifier =
+                Modifier
+                    .width(200.dp)
+                    .fillMaxHeight()
+                    .border(0.5.dp, cellBorderColor),
             contentAlignment = Alignment.CenterStart,
         ) {
             Text(
@@ -455,10 +483,11 @@ private fun SearchResultsGridRow(
         gridViewColumns.forEach { tag ->
             val fieldValue = extractTopLevelFieldValue(result.message, tag)
             Box(
-                modifier = Modifier
-                    .width(120.dp)
-                    .fillMaxHeight()
-                    .border(0.5.dp, cellBorderColor),
+                modifier =
+                    Modifier
+                        .width(120.dp)
+                        .fillMaxHeight()
+                        .border(0.5.dp, cellBorderColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -494,11 +523,12 @@ private fun extractTopLevelFieldValue(message: FixMessage, tag: Int): String {
         // Check body
         if (qfMessage.isSetField(tag)) {
             // Check if it's a repeating group (we want to skip these)
-            val groupCount = try {
-                qfMessage.getGroupCount(tag)
-            } catch (e: Exception) {
-                0
-            }
+            val groupCount =
+                try {
+                    qfMessage.getGroupCount(tag)
+                } catch (e: Exception) {
+                    0
+                }
 
             // If it's a repeating group, return the count instead of the value
             return if (groupCount > 0) {

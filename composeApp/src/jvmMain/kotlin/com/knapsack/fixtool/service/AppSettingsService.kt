@@ -62,8 +62,8 @@ class AppSettingsService(
      * Saves application settings to disk
      * @return true if save succeeded, false if failed
      */
-    fun saveSettings(settings: AppSettings): Boolean {
-        return try {
+    fun saveSettings(settings: AppSettings): Boolean =
+        try {
             val content = json.encodeToString(settings)
             settingsFile.writeText(content)
             logger.info("Settings saved to: {}. Dictionary path: '{}'", settingsFile.absolutePath, settings.defaultDataDictionary)
@@ -72,5 +72,4 @@ class AppSettingsService(
             logger.error("Failed to save settings: {}", e.message, e)
             false
         }
-    }
 }

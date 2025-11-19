@@ -1,6 +1,5 @@
 package com.knapsack.fixtool.ui
 
-import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.Icon
@@ -8,7 +7,8 @@ import androidx.compose.material.IconButton
 import androidx.compose.material.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
@@ -42,17 +42,19 @@ fun HelpDialog(
         state = dialogState,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(AppTheme.Colors.surface),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(AppTheme.Colors.surface),
         ) {
             // Title bar
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .background(AppTheme.Colors.background)
-                    .padding(horizontal = 16.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .background(AppTheme.Colors.background)
+                        .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -90,52 +92,53 @@ private fun HtmlViewer() {
         modifier = Modifier.fillMaxSize(),
         factory = {
             // Create JEditorPane for HTML rendering
-            val editorPane = JEditorPane("text/html", htmlContent).apply {
-                isEditable = false
+            val editorPane =
+                JEditorPane("text/html", htmlContent).apply {
+                    isEditable = false
 
-                // Make the caret invisible but keep it to avoid NPE
-                caretColor = Color(0, 0, 0, 0)  // Transparent
-                (caret as? DefaultCaret)?.apply {
-                    isVisible = false
-                    blinkRate = 0
-                }
-                highlighter = null  // Remove text selection highlighting
+                    // Make the caret invisible but keep it to avoid NPE
+                    caretColor = Color(0, 0, 0, 0) // Transparent
+                    (caret as? DefaultCaret)?.apply {
+                        isVisible = false
+                        blinkRate = 0
+                    }
+                    highlighter = null // Remove text selection highlighting
 
-                val self = this  // Capture reference for use in lambda
+                    val self = this // Capture reference for use in lambda
 
-                // Handle hyperlink clicks
-                addHyperlinkListener { event ->
-                    if (event.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-                        val description = event.description
-                        try {
-                            // Handle internal anchor links (like #getting-started)
-                            if (description != null && description.startsWith("#")) {
-                                // Extract anchor reference (remove the # prefix)
-                                val anchor = description.substring(1)
-                                // Manually find and scroll to the anchor
-                                SwingUtilities.invokeLater {
-                                    scrollToAnchor(self, anchor)
-                                }
-                            } else {
-                                // Handle external links (http/https)
-                                if (Desktop.isDesktopSupported()) {
-                                    val desktop = Desktop.getDesktop()
-                                    if (desktop.isSupported(Desktop.Action.BROWSE)) {
-                                        desktop.browse(event.url.toURI())
-                                    } else {
-                                        println("Desktop browse action not supported. URL: ${event.url}")
+                    // Handle hyperlink clicks
+                    addHyperlinkListener { event ->
+                        if (event.eventType == HyperlinkEvent.EventType.ACTIVATED) {
+                            val description = event.description
+                            try {
+                                // Handle internal anchor links (like #getting-started)
+                                if (description != null && description.startsWith("#")) {
+                                    // Extract anchor reference (remove the # prefix)
+                                    val anchor = description.substring(1)
+                                    // Manually find and scroll to the anchor
+                                    SwingUtilities.invokeLater {
+                                        scrollToAnchor(self, anchor)
                                     }
                                 } else {
-                                    println("Desktop API not supported. URL: ${event.url}")
+                                    // Handle external links (http/https)
+                                    if (Desktop.isDesktopSupported()) {
+                                        val desktop = Desktop.getDesktop()
+                                        if (desktop.isSupported(Desktop.Action.BROWSE)) {
+                                            desktop.browse(event.url.toURI())
+                                        } else {
+                                            println("Desktop browse action not supported. URL: ${event.url}")
+                                        }
+                                    } else {
+                                        println("Desktop API not supported. URL: ${event.url}")
+                                    }
                                 }
+                            } catch (e: Exception) {
+                                println("Failed to handle hyperlink: $description")
+                                e.printStackTrace()
                             }
-                        } catch (e: Exception) {
-                            println("Failed to handle hyperlink: $description")
-                            e.printStackTrace()
                         }
                     }
                 }
-            }
 
             // Wrap in scroll pane
             JScrollPane(editorPane).apply {
@@ -155,32 +158,32 @@ private fun HtmlViewer() {
 /**
  * Loads the HTML help content from resources.
  */
-private fun loadHelpHtml(): String {
-    return try {
+private fun loadHelpHtml(): String =
+    try {
         val inputStream = object {}.javaClass.getResourceAsStream("/help.html")
-        inputStream?.bufferedReader()?.readText() ?: """
-            <!DOCTYPE html>
-            <html>
-            <head><title>Help Not Found</title></head>
-            <body>
-                <h1>Help documentation not found</h1>
-                <p>The help file could not be loaded.</p>
-            </body>
-            </html>
-        """.trimIndent()
+        inputStream?.bufferedReader()?.readText()
+            ?: """
+                <!DOCTYPE html>
+                <html>
+                <head><title>Help Not Found</title></head>
+                <body>
+                    <h1>Help documentation not found</h1>
+                    <p>The help file could not be loaded.</p>
+                </body>
+                </html>
+                """.trimIndent()
     } catch (e: Exception) {
         """
-            <!DOCTYPE html>
-            <html>
-            <head><title>Error</title></head>
-            <body>
-                <h1>Error loading help</h1>
-                <p>Error: ${e.message}</p>
-            </body>
-            </html>
+        <!DOCTYPE html>
+        <html>
+        <head><title>Error</title></head>
+        <body>
+            <h1>Error loading help</h1>
+            <p>Error: ${e.message}</p>
+        </body>
+        </html>
         """.trimIndent()
     }
-}
 
 /**
  * Scrolls the JEditorPane to the element with the given id attribute.

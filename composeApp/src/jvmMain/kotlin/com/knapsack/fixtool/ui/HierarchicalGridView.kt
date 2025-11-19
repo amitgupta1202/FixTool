@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -81,8 +80,7 @@ private fun ResizeHandle(
                         // Reset drag offset after updating width
                         dragOffset = 0f
                     }
-                }
-                .background(Color.Transparent),
+                }.background(Color.Transparent),
     )
 }
 
@@ -94,7 +92,8 @@ private fun ExpandedGridHeader(
     columnWidths: MutableMap<String, androidx.compose.ui.unit.Dp>,
     modifier: Modifier = Modifier,
 ) {
-    val totalWidth = (columnWidths["IconColumn"] ?: 40.dp) +
+    val totalWidth =
+        (columnWidths["IconColumn"] ?: 40.dp) +
             (columnWidths["Tag"] ?: 120.dp) +
             (columnWidths["TagDescription"] ?: 200.dp) +
             (columnWidths["Value"] ?: 150.dp) +
@@ -355,6 +354,7 @@ fun HierarchicalGridView(
                     val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
                     contentSamples.add(msg.timestamp.format(timeFormatter))
                 }
+
                 "Dir" -> {} // Already handled above
                 "SeqNum" -> {
                     // Sample the sequence number (tag 34)
@@ -363,15 +363,18 @@ fun HierarchicalGridView(
                         contentSamples.add(seqNum)
                     }
                 }
+
                 "MsgType" -> {
                     // Only sample the message type value (e.g., "D", "8"), not the description
                     contentSamples.add(msg.messageType)
                 }
+
                 "Summary" -> {
                     // Sample the message type description (e.g., "NewOrderSingle")
                     val msgTypeDesc = dictionary.getFieldValueDescription(35, msg.messageType) ?: msg.messageType
                     contentSamples.add(msgTypeDesc)
                 }
+
                 else -> {
                     // Custom tag column
                     val tag = columnKey.removePrefix("Tag_").toIntOrNull()
@@ -411,12 +414,13 @@ fun HierarchicalGridView(
         val maxWidth = 500.dp
         val charWidth = 7 // pixels per character approximately
 
-        val samples = mutableMapOf(
-            "Tag" to mutableListOf<String>(),
-            "TagDescription" to mutableListOf<String>(),
-            "Value" to mutableListOf<String>(),
-            "ValueDescription" to mutableListOf<String>()
-        )
+        val samples =
+            mutableMapOf(
+                "Tag" to mutableListOf<String>(),
+                "TagDescription" to mutableListOf<String>(),
+                "Value" to mutableListOf<String>(),
+                "ValueDescription" to mutableListOf<String>(),
+            )
 
         // Helper function to collect field samples
         fun collectFieldSamples(fieldMap: FieldMap) {
@@ -508,192 +512,190 @@ fun HierarchicalGridView(
                             .background(headerBackgroundColor)
                             .height(24.dp),
                 ) {
-            // Icon column
-            Box(
-                modifier =
-                    Modifier
-                        .width(columnWidths["Icon"] ?: 40.dp)
-                        .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "",
-                    color = headerTextColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            // Time column
-            Box(
-                modifier =
-                    Modifier
-                        .width((columnWidths["Time"] ?: 120.dp) - 1.dp)
-                        .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor)
-                        .combinedClickable(
-                            onDoubleClick = { toggleColumnWidth("Time") },
-                            onClick = {},
-                        ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Time",
-                    color = headerTextColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            // Resize handle
-            ResizeHandle("Time", columnWidths)
-
-            // Dir column
-            Box(
-                modifier =
-                    Modifier
-                        .width((columnWidths["Dir"] ?: 50.dp) - 1.dp)
-                        .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor)
-                        .combinedClickable(
-                            onDoubleClick = { toggleColumnWidth("Dir") },
-                            onClick = {},
-                        ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Dir",
-                    color = headerTextColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            // Resize handle
-            ResizeHandle("Dir", columnWidths)
-
-            // SeqNum column
-            Box(
-                modifier =
-                    Modifier
-                        .width((columnWidths["SeqNum"] ?: 70.dp) - 1.dp)
-                        .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor)
-                        .combinedClickable(
-                            onDoubleClick = { toggleColumnWidth("SeqNum") },
-                            onClick = {},
-                        ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "SeqNum",
-                    color = headerTextColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            // Resize handle
-            ResizeHandle("SeqNum", columnWidths)
-
-            // MsgType column
-            Box(
-                modifier =
-                    Modifier
-                        .width((columnWidths["MsgType"] ?: 100.dp) - 1.dp)
-                        .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor)
-                        .combinedClickable(
-                            onDoubleClick = { toggleColumnWidth("MsgType") },
-                            onClick = {},
-                        ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "MsgType",
-                    color = headerTextColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            // Resize handle
-            ResizeHandle("MsgType", columnWidths)
-
-            // Summary column (moved before custom columns)
-            Box(
-                modifier =
-                    Modifier
-                        .width(
-                            if (gridViewColumns.isEmpty()) {
-                                // Summary is last column - don't subtract
-                                columnWidths["Summary"] ?: 200.dp
-                            } else {
-                                // Summary is not last - subtract for resize handle
-                                (columnWidths["Summary"] ?: 200.dp) - 1.dp
-                            }
+                    // Icon column
+                    Box(
+                        modifier =
+                            Modifier
+                                .width(columnWidths["Icon"] ?: 40.dp)
+                                .fillMaxHeight()
+                                .border(0.5.dp, headerBorderColor),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "",
+                            color = headerTextColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
                         )
-                        .fillMaxHeight()
-                        .border(0.5.dp, headerBorderColor)
-                        .combinedClickable(
-                            onDoubleClick = { toggleColumnWidth("Summary") },
-                            onClick = {},
-                        ),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Text(
-                    text = "Summary",
-                    color = headerTextColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
-            }
+                    }
 
-            // Resize handle (always add after Summary for resizing functionality)
-            ResizeHandle("Summary", columnWidths)
+                    // Time column
+                    Box(
+                        modifier =
+                            Modifier
+                                .width((columnWidths["Time"] ?: 120.dp) - 1.dp)
+                                .fillMaxHeight()
+                                .border(0.5.dp, headerBorderColor)
+                                .combinedClickable(
+                                    onDoubleClick = { toggleColumnWidth("Time") },
+                                    onClick = {},
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "Time",
+                            color = headerTextColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
 
-            // Dynamic columns for configured tags (moved after Summary)
-            gridViewColumns.forEachIndexed { index, tag ->
-                val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
-                val columnKey = "Tag_$tag"
-                val isLastColumn = index == gridViewColumns.size - 1
+                    // Resize handle
+                    ResizeHandle("Time", columnWidths)
 
-                Box(
-                    modifier =
-                        Modifier
-                            .width(
-                                if (isLastColumn) {
-                                    // Last column - don't subtract for alignment
-                                    columnWidths[columnKey] ?: 120.dp
-                                } else {
-                                    // Not last column - subtract for resize handle
-                                    (columnWidths[columnKey] ?: 120.dp) - 1.dp
-                                }
+                    // Dir column
+                    Box(
+                        modifier =
+                            Modifier
+                                .width((columnWidths["Dir"] ?: 50.dp) - 1.dp)
+                                .fillMaxHeight()
+                                .border(0.5.dp, headerBorderColor)
+                                .combinedClickable(
+                                    onDoubleClick = { toggleColumnWidth("Dir") },
+                                    onClick = {},
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "Dir",
+                            color = headerTextColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+
+                    // Resize handle
+                    ResizeHandle("Dir", columnWidths)
+
+                    // SeqNum column
+                    Box(
+                        modifier =
+                            Modifier
+                                .width((columnWidths["SeqNum"] ?: 70.dp) - 1.dp)
+                                .fillMaxHeight()
+                                .border(0.5.dp, headerBorderColor)
+                                .combinedClickable(
+                                    onDoubleClick = { toggleColumnWidth("SeqNum") },
+                                    onClick = {},
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "SeqNum",
+                            color = headerTextColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+
+                    // Resize handle
+                    ResizeHandle("SeqNum", columnWidths)
+
+                    // MsgType column
+                    Box(
+                        modifier =
+                            Modifier
+                                .width((columnWidths["MsgType"] ?: 100.dp) - 1.dp)
+                                .fillMaxHeight()
+                                .border(0.5.dp, headerBorderColor)
+                                .combinedClickable(
+                                    onDoubleClick = { toggleColumnWidth("MsgType") },
+                                    onClick = {},
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "MsgType",
+                            color = headerTextColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+
+                    // Resize handle
+                    ResizeHandle("MsgType", columnWidths)
+
+                    // Summary column (moved before custom columns)
+                    Box(
+                        modifier =
+                            Modifier
+                                .width(
+                                    if (gridViewColumns.isEmpty()) {
+                                        // Summary is last column - don't subtract
+                                        columnWidths["Summary"] ?: 200.dp
+                                    } else {
+                                        // Summary is not last - subtract for resize handle
+                                        (columnWidths["Summary"] ?: 200.dp) - 1.dp
+                                    },
+                                ).fillMaxHeight()
+                                .border(0.5.dp, headerBorderColor)
+                                .combinedClickable(
+                                    onDoubleClick = { toggleColumnWidth("Summary") },
+                                    onClick = {},
+                                ),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Text(
+                            text = "Summary",
+                            color = headerTextColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+
+                    // Resize handle (always add after Summary for resizing functionality)
+                    ResizeHandle("Summary", columnWidths)
+
+                    // Dynamic columns for configured tags (moved after Summary)
+                    gridViewColumns.forEachIndexed { index, tag ->
+                        val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
+                        val columnKey = "Tag_$tag"
+                        val isLastColumn = index == gridViewColumns.size - 1
+
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width(
+                                        if (isLastColumn) {
+                                            // Last column - don't subtract for alignment
+                                            columnWidths[columnKey] ?: 120.dp
+                                        } else {
+                                            // Not last column - subtract for resize handle
+                                            (columnWidths[columnKey] ?: 120.dp) - 1.dp
+                                        },
+                                    ).fillMaxHeight()
+                                    .border(0.5.dp, headerBorderColor)
+                                    .combinedClickable(
+                                        onDoubleClick = { toggleColumnWidth(columnKey) },
+                                        onClick = {},
+                                    ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = fieldName,
+                                color = headerTextColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 4.dp),
                             )
-                            .fillMaxHeight()
-                            .border(0.5.dp, headerBorderColor)
-                            .combinedClickable(
-                                onDoubleClick = { toggleColumnWidth(columnKey) },
-                                onClick = {},
-                            ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = fieldName,
-                        color = headerTextColor,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 4.dp),
-                    )
-                }
+                        }
 
-                    // Resize handle (always add for resizing functionality)
-                    ResizeHandle(columnKey, columnWidths)
-                }
+                        // Resize handle (always add for resizing functionality)
+                        ResizeHandle(columnKey, columnWidths)
+                    }
 
                     // Spacer to fill remaining width
                     Spacer(modifier = Modifier.weight(1f))
@@ -849,24 +851,32 @@ fun MessageSummaryRow(
     val msgTypeDesc = dictionary.getFieldValueDescription(35, message.messageType) ?: message.messageType
 
     // Check if this message was recently sent (outgoing message within a few milliseconds of the sent timestamp)
-    val isRecentlySent = if (recentlySentMessageTimestamp != null && message.direction == FixMessage.Direction.OUTGOING) {
-        val durationMillis = java.time.Duration.between(recentlySentMessageTimestamp, message.timestamp).abs().toMillis()
-        durationMillis < 500
-    } else {
-        false
-    }
+    val isRecentlySent =
+        if (recentlySentMessageTimestamp != null && message.direction == FixMessage.Direction.OUTGOING) {
+            val durationMillis =
+                java.time.Duration
+                    .between(recentlySentMessageTimestamp, message.timestamp)
+                    .abs()
+                    .toMillis()
+            durationMillis < 500
+        } else {
+            false
+        }
 
     // Background color: highlight if recently sent, selected, or default
-    val backgroundColor = when {
-        isRecentlySent -> {
-            AppTheme.Colors.messageRecentlySent
+    val backgroundColor =
+        when {
+            isRecentlySent -> {
+                AppTheme.Colors.messageRecentlySent
+            }
+
+            isSelected -> selectedRowBackgroundColor
+            else -> mainBackgroundColor
         }
-        isSelected -> selectedRowBackgroundColor
-        else -> mainBackgroundColor
-    }
 
     // Calculate minimum width needed for all columns
-    val minWidth = (columnWidths["Icon"] ?: 40.dp) +
+    val minWidth =
+        (columnWidths["Icon"] ?: 40.dp) +
             (columnWidths["Time"] ?: 120.dp) +
             (columnWidths["Dir"] ?: 50.dp) +
             (columnWidths["SeqNum"] ?: 70.dp) +
@@ -1243,7 +1253,8 @@ private fun HierarchicalFieldRow(
     val valueDesc = if (rawValueDesc != null && rawValueDesc != value) rawValueDesc else ""
     val indent = (indentLevel * 16).dp
 
-    val totalWidth = (columnWidths["IconColumn"] ?: 40.dp) +
+    val totalWidth =
+        (columnWidths["IconColumn"] ?: 40.dp) +
             (columnWidths["Tag"] ?: 120.dp) +
             (columnWidths["TagDescription"] ?: 200.dp) +
             (columnWidths["Value"] ?: 150.dp) +
@@ -1437,7 +1448,8 @@ private fun HierarchicalGroupHeaderRow(
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
     val indent = (indentLevel * 16).dp
 
-    val totalWidth = (columnWidths["IconColumn"] ?: 40.dp) +
+    val totalWidth =
+        (columnWidths["IconColumn"] ?: 40.dp) +
             (columnWidths["Tag"] ?: 120.dp) +
             (columnWidths["TagDescription"] ?: 200.dp) +
             (columnWidths["Value"] ?: 150.dp) +
@@ -1579,7 +1591,8 @@ private fun HierarchicalGroupInstanceHeader(
 ) {
     val indent = (indentLevel * 16).dp
 
-    val totalWidth = (columnWidths["IconColumn"] ?: 40.dp) +
+    val totalWidth =
+        (columnWidths["IconColumn"] ?: 40.dp) +
             (columnWidths["Tag"] ?: 120.dp) +
             (columnWidths["TagDescription"] ?: 200.dp) +
             (columnWidths["Value"] ?: 150.dp) +
@@ -1710,5 +1723,5 @@ private fun getDirectionColor(message: FixMessage, appSettings: com.knapsack.fix
     appSettings.messageColorScheme.getMessageColor(
         message.direction,
         message.isRejectionOrLogout(appSettings.rejectionRules),
-        true
+        true,
     )

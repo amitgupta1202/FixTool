@@ -190,11 +190,12 @@ class FixMessageViewModel(
         loadAppSettings()
 
         // Initialize global view mode from settings
-        _viewMode.value = if (appSettings.defaultViewMode.lowercase() == "grid") {
-            FixMessageSession.ViewMode.PARSED
-        } else {
-            FixMessageSession.ViewMode.RAW
-        }
+        _viewMode.value =
+            if (appSettings.defaultViewMode.lowercase() == "grid") {
+                FixMessageSession.ViewMode.PARSED
+            } else {
+                FixMessageSession.ViewMode.RAW
+            }
 
         // Validate dictionary on startup
         validateDataDictionary()
@@ -446,45 +447,54 @@ class FixMessageViewModel(
         }
 
         val results = mutableListOf<SearchResult>()
-        val regex = try {
-            Regex(query, RegexOption.IGNORE_CASE)
-        } catch (e: Exception) {
-            // Invalid regex, use literal string matching
-            null
-        }
+        val regex =
+            try {
+                Regex(query, RegexOption.IGNORE_CASE)
+            } catch (e: Exception) {
+                // Invalid regex, use literal string matching
+                null
+            }
 
         _sessions.forEach { session ->
             session.messages.value.forEach { appMessage ->
                 if (appMessage is FixMessage) {
                     val displayText = appMessage.toDisplayString()
-                    val matchedText = if (regex != null) {
-                        regex.find(displayText)?.value
-                    } else {
-                        if (displayText.contains(query, ignoreCase = true)) query else null
-                    }
+                    val matchedText =
+                        if (regex != null) {
+                            regex.find(displayText)?.value
+                        } else {
+                            if (displayText.contains(query, ignoreCase = true)) query else null
+                        }
 
                     if (matchedText != null) {
                         // Extract message type description
-                        val messageTypeDescription = _dictionary.value.getFieldValueDescription(35, appMessage.messageType)
-                            ?: appMessage.messageType
+                        val messageTypeDescription =
+                            _dictionary.value.getFieldValueDescription(35, appMessage.messageType)
+                                ?: appMessage.messageType
 
                         // Extract MsgSeqNum (tag 34) from header
-                        val msgSeqNum = try {
-                            if (appMessage.quickfixMessage.header.isSetField(34)) {
-                                appMessage.quickfixMessage.header.getInt(34)
-                            } else null
-                        } catch (e: Exception) {
-                            null
-                        }
+                        val msgSeqNum =
+                            try {
+                                if (appMessage.quickfixMessage.header.isSetField(34)) {
+                                    appMessage.quickfixMessage.header.getInt(34)
+                                } else {
+                                    null
+                                }
+                            } catch (e: Exception) {
+                                null
+                            }
 
                         // Extract SenderCompID (tag 49) from header
-                        val senderCompId = try {
-                            if (appMessage.quickfixMessage.header.isSetField(49)) {
-                                appMessage.quickfixMessage.header.getString(49)
-                            } else null
-                        } catch (e: Exception) {
-                            null
-                        }
+                        val senderCompId =
+                            try {
+                                if (appMessage.quickfixMessage.header.isSetField(49)) {
+                                    appMessage.quickfixMessage.header.getString(49)
+                                } else {
+                                    null
+                                }
+                            } catch (e: Exception) {
+                                null
+                            }
 
                         results.add(
                             SearchResult(
@@ -503,11 +513,12 @@ class FixMessageViewModel(
         }
 
         // Sort by timestamp, then MsgSeqNum, then SenderCompID
-        val sortedResults = results.sortedWith(
-            compareBy<SearchResult> { it.message.timestamp }
-                .thenBy(nullsLast()) { it.msgSeqNum }
-                .thenBy(nullsLast()) { it.senderCompId },
-        )
+        val sortedResults =
+            results.sortedWith(
+                compareBy<SearchResult> { it.message.timestamp }
+                    .thenBy(nullsLast()) { it.msgSeqNum }
+                    .thenBy(nullsLast()) { it.senderCompId },
+            )
 
         _globalSearchResults.value = sortedResults
     }
@@ -524,10 +535,11 @@ class FixMessageViewModel(
 
     fun toggleViewMode() {
         // Toggle global view mode (applies to all sessions)
-        _viewMode.value = when (_viewMode.value) {
-            FixMessageSession.ViewMode.RAW -> FixMessageSession.ViewMode.PARSED
-            FixMessageSession.ViewMode.PARSED -> FixMessageSession.ViewMode.RAW
-        }
+        _viewMode.value =
+            when (_viewMode.value) {
+                FixMessageSession.ViewMode.RAW -> FixMessageSession.ViewMode.PARSED
+                FixMessageSession.ViewMode.PARSED -> FixMessageSession.ViewMode.RAW
+            }
     }
 
     fun saveAppSettings(settings: AppSettings) {
@@ -557,6 +569,7 @@ class FixMessageViewModel(
                         // Keep the latest incoming message of this type
                         _incomingMessagesByType[message.messageType] = message
                     }
+
                     FixMessage.Direction.OUTGOING -> {
                         // Keep the latest outgoing message of this type
                         _outgoingMessagesByType[message.messageType] = message
@@ -575,7 +588,10 @@ class FixMessageViewModel(
         // Use _activeSessionState directly instead of computed activeSession
         val session = _activeSessionState.value
         if (session == null) {
-            logger.error("sendMessage: No active session found! activeSessionIndex=${_activeSessionIndex.value}, sessions.size=${_sessions.size}", notifyUser = true)
+            logger.error(
+                "sendMessage: No active session found! activeSessionIndex=${_activeSessionIndex.value}, sessions.size=${_sessions.size}",
+                notifyUser = true,
+            )
         } else {
             logger.info("sendMessage: Sending to session: '${session.title}' (ID: ${session.id})")
             session.sendFixMessage(rawMessage, _dictionary.value)
@@ -660,11 +676,13 @@ class FixMessageViewModel(
     }
 
     fun saveConnectionProfile(profile: FixConnectionProfile) {
-        profileService.saveProfile(profile).onSuccess {
-            loadConnectionProfiles()
-        }.onFailure { error ->
-            logger.error("Failed to save connection profile: ${error.message}", error)
-        }
+        profileService
+            .saveProfile(profile)
+            .onSuccess {
+                loadConnectionProfiles()
+            }.onFailure { error ->
+                logger.error("Failed to save connection profile: ${error.message}", error)
+            }
     }
 
     fun deleteConnectionProfile(profileId: String) {
@@ -674,11 +692,13 @@ class FixMessageViewModel(
             return
         }
 
-        profileService.deleteProfile(profileId).onSuccess {
-            loadConnectionProfiles()
-        }.onFailure { error ->
-            logger.error("Failed to delete connection profile: ${error.message}", error)
-        }
+        profileService
+            .deleteProfile(profileId)
+            .onSuccess {
+                loadConnectionProfiles()
+            }.onFailure { error ->
+                logger.error("Failed to delete connection profile: ${error.message}", error)
+            }
     }
 
     fun cloneConnectionProfile(profile: FixConnectionProfile): FixConnectionProfile {
@@ -692,11 +712,13 @@ class FixMessageViewModel(
                 createdAt = System.currentTimeMillis(),
                 lastUsedAt = System.currentTimeMillis(),
             )
-        profileService.saveProfile(clonedProfile).onSuccess {
-            loadConnectionProfiles()
-        }.onFailure { error ->
-            logger.error("Failed to clone connection profile: ${error.message}", error)
-        }
+        profileService
+            .saveProfile(clonedProfile)
+            .onSuccess {
+                loadConnectionProfiles()
+            }.onFailure { error ->
+                logger.error("Failed to clone connection profile: ${error.message}", error)
+            }
         return clonedProfile
     }
 
@@ -1032,12 +1054,14 @@ class FixMessageViewModel(
         val savedFields = fields.map { SavedFixField(tag = it.tag, value = it.value, excluded = it.excluded) }
         val savedMessage = SavedFixMessage(name = name, profileId = profileId, fields = savedFields)
 
-        savedMessagesService.saveMessage(profileId, savedMessage).onSuccess { updatedMessages ->
-            _savedMessages.clear()
-            _savedMessages.addAll(updatedMessages)
-        }.onFailure { error ->
-            logger.error("Failed to save message: ${error.message}", error)
-        }
+        savedMessagesService
+            .saveMessage(profileId, savedMessage)
+            .onSuccess { updatedMessages ->
+                _savedMessages.clear()
+                _savedMessages.addAll(updatedMessages)
+            }.onFailure { error ->
+                logger.error("Failed to save message: ${error.message}", error)
+            }
     }
 
     fun getCurrentProfileId(): String? =
@@ -1069,7 +1093,8 @@ class FixMessageViewModel(
         activeSession?.let { session ->
             val currentProfileId = profileToSessionMap.entries.find { it.value == _activeSessionIndex.value }?.key
             if (currentProfileId != null) {
-                savedMessagesService.markMessageAsUsed(currentProfileId, savedMessage.id)
+                savedMessagesService
+                    .markMessageAsUsed(currentProfileId, savedMessage.id)
                     .onFailure { error ->
                         logger.error("Failed to mark message as used: ${error.message}", error)
                     }
@@ -1108,20 +1133,22 @@ class FixMessageViewModel(
 
     fun deleteSavedMessage(messageId: String, profileId: String) {
         // Delete the message using the profileId from the message itself
-        savedMessagesService.deleteMessage(profileId, messageId).onSuccess {
-            // Reload all saved messages to reflect the deletion
-            loadSavedMessagesForActiveSession()
+        savedMessagesService
+            .deleteMessage(profileId, messageId)
+            .onSuccess {
+                // Reload all saved messages to reflect the deletion
+                loadSavedMessagesForActiveSession()
 
-            // Clear loaded message name if we just deleted the currently loaded template
-            if (_currentLoadedMessageName.value != null) {
-                val deletedMessage = _savedMessages.find { it.id == messageId }
-                if (deletedMessage?.name == _currentLoadedMessageName.value) {
-                    _currentLoadedMessageName.value = null
+                // Clear loaded message name if we just deleted the currently loaded template
+                if (_currentLoadedMessageName.value != null) {
+                    val deletedMessage = _savedMessages.find { it.id == messageId }
+                    if (deletedMessage?.name == _currentLoadedMessageName.value) {
+                        _currentLoadedMessageName.value = null
+                    }
                 }
+            }.onFailure { error ->
+                logger.error("Failed to delete message: ${error.message}", error)
             }
-        }.onFailure { error ->
-            logger.error("Failed to delete message: ${error.message}", error)
-        }
     }
 
     // ========================================
@@ -1166,9 +1193,7 @@ class FixMessageViewModel(
      * Creates a new session for testing purposes.
      * This is a public wrapper around createNewSession for use in tests.
      */
-    fun createSessionForTest(title: String = "Test Session"): FixMessageSession {
-        return createNewSession(title)
-    }
+    fun createSessionForTest(title: String = "Test Session"): FixMessageSession = createNewSession(title)
 
     override fun onCleared() {
         super.onCleared()

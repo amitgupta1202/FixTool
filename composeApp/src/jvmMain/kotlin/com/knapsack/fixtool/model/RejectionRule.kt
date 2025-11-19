@@ -29,15 +29,16 @@ data class RejectionRule(
 
         // Check if additional tag matches
         return try {
-            val actualValue = if (message.header.isSetField(additionalTag)) {
-                message.header.getString(additionalTag)
-            } else if (message.isSetField(additionalTag)) {
-                message.getString(additionalTag)
-            } else if (message.trailer.isSetField(additionalTag)) {
-                message.trailer.getString(additionalTag)
-            } else {
-                null
-            }
+            val actualValue =
+                if (message.header.isSetField(additionalTag)) {
+                    message.header.getString(additionalTag)
+                } else if (message.isSetField(additionalTag)) {
+                    message.getString(additionalTag)
+                } else if (message.trailer.isSetField(additionalTag)) {
+                    message.trailer.getString(additionalTag)
+                } else {
+                    null
+                }
             actualValue == additionalValue
         } catch (e: Exception) {
             false
@@ -58,19 +59,20 @@ data class RejectionRule(
         /**
          * Default rejection rules covering common FIX rejection message types
          */
-        fun defaultRules(): List<RejectionRule> = listOf(
-            // Session-level reject
-            RejectionRule(messageType = "3"),
-            // Business Message Reject (Application-level reject)
-            RejectionRule(messageType = "j"),
-            // Order Cancel Reject
-            RejectionRule(messageType = "9"),
-            // Custom rejection: 35=AZ and 905=3
-            RejectionRule(
-                messageType = "AZ",
-                additionalTag = 905,
-                additionalValue = "3"
-            ),
-        )
+        fun defaultRules(): List<RejectionRule> =
+            listOf(
+                // Session-level reject
+                RejectionRule(messageType = "3"),
+                // Business Message Reject (Application-level reject)
+                RejectionRule(messageType = "j"),
+                // Order Cancel Reject
+                RejectionRule(messageType = "9"),
+                // Custom rejection: 35=AZ and 905=3
+                RejectionRule(
+                    messageType = "AZ",
+                    additionalTag = 905,
+                    additionalValue = "3",
+                ),
+            )
     }
 }

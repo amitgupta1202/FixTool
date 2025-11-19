@@ -12,11 +12,9 @@ data class MessageColorScheme(
     // Outgoing messages (sent from client)
     val outgoingBright: Long = 0xFF569CD6, // Blue - bright variant for odd rows
     val outgoingDull: Long = 0xFF4A7DAF, // Blue - dull variant for even rows
-
     // Incoming messages (received from server)
     val incomingBright: Long = 0xFF4EC9B0, // Teal/Cyan - bright variant for odd rows
     val incomingDull: Long = 0xFF3DA89F, // Teal/Cyan - dull variant for even rows
-
     // Rejection/Logout messages (special case for incoming)
     val rejectionBright: Long = 0xFFE06C75, // Red - bright variant for odd rows
     val rejectionDull: Long = 0xFFC55A64, // Red - dull variant for even rows

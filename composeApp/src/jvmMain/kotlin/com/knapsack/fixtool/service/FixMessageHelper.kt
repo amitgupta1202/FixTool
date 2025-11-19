@@ -29,8 +29,9 @@ object FixMessageHelper {
         val fields = parseFixMessage(this)
 
         // Get message type from tag 35
-        val msgTypeValue = fields.find { it.first == 35 }?.second
-            ?: throw IllegalArgumentException("No message type (tag 35) found in message")
+        val msgTypeValue =
+            fields.find { it.first == 35 }?.second
+                ?: throw IllegalArgumentException("No message type (tag 35) found in message")
 
         // Create message with proper type
         val message = Message()
@@ -60,14 +61,17 @@ object FixMessageHelper {
      */
     private fun parseFixMessage(raw: String): List<Pair<Int, String>> {
         val delimiter = if (raw.contains('|')) '|' else '\u0001'
-        return raw.split(delimiter)
+        return raw
+            .split(delimiter)
             .filter { it.isNotBlank() }
             .mapNotNull { field ->
                 val parts = field.split('=', limit = 2)
                 if (parts.size == 2) {
                     val tag = parts[0].toIntOrNull()
                     if (tag != null) tag to parts[1] else null
-                } else null
+                } else {
+                    null
+                }
             }
     }
 
@@ -92,7 +96,7 @@ object FixMessageHelper {
         msgType: String,
         parentGroupDD: DataDictionary? = null,
         delimiterTag: Int? = null,
-        ancestorDelimiters: Set<Int> = emptySet()
+        ancestorDelimiters: Set<Int> = emptySet(),
     ): Int {
         var index = startIndex
         var seenDelimiter = delimiterTag == null // If no delimiter, consider it seen
@@ -120,15 +124,16 @@ object FixMessageHelper {
             }
 
             // Check if this field belongs to the current context (message or group)
-            val isFieldInContext = if (parentGroupDD != null) {
-                try {
-                    currentDD.isField(tag) || currentDD.isGroup(msgType, tag)
-                } catch (e: Exception) {
-                    false
+            val isFieldInContext =
+                if (parentGroupDD != null) {
+                    try {
+                        currentDD.isField(tag) || currentDD.isGroup(msgType, tag)
+                    } catch (e: Exception) {
+                        false
+                    }
+                } else {
+                    true // At message level, all fields are valid
                 }
-            } else {
-                true // At message level, all fields are valid
-            }
 
             // If field doesn't belong to current group context, return to parent
             if (!isFieldInContext) {
@@ -137,11 +142,12 @@ object FixMessageHelper {
 
             // Check if this is a group count field using the CURRENT context's DataDictionary
             // This is crucial for nested groups (e.g., NoPartyIDs within NoOrders)
-            val isGroup = try {
-                currentDD.isGroup(msgType, tag)
-            } catch (e: Exception) {
-                false
-            }
+            val isGroup =
+                try {
+                    currentDD.isGroup(msgType, tag)
+                } catch (e: Exception) {
+                    false
+                }
 
             if (isGroup) {
                 val groupCount = value.toIntOrNull() ?: 0
@@ -159,17 +165,25 @@ object FixMessageHelper {
                             val group = Group(tag, groupDelimiterTag)
 
                             // Build the set of ancestor delimiters for nested groups to respect
-                            val newAncestorDelimiters = if (delimiterTag != null) {
-                                ancestorDelimiters + delimiterTag
-                            } else {
-                                ancestorDelimiters
-                            }
+                            val newAncestorDelimiters =
+                                if (delimiterTag != null) {
+                                    ancestorDelimiters + delimiterTag
+                                } else {
+                                    ancestorDelimiters
+                                }
 
                             // Recursively process this group's fields
-                            index = processFields(
-                                fields, index, group, dataDictionary, msgType,
-                                groupDD, groupDelimiterTag, newAncestorDelimiters
-                            )
+                            index =
+                                processFields(
+                                    fields,
+                                    index,
+                                    group,
+                                    dataDictionary,
+                                    msgType,
+                                    groupDD,
+                                    groupDelimiterTag,
+                                    newAncestorDelimiters,
+                                )
 
                             // Add the populated group to the parent field map
                             fieldMap.addGroup(group)
@@ -227,37 +241,37 @@ object FixMessageHelper {
         }
 
         // Convert line-based format to traditional format
-        val fields = this
-            .lines() // Split by newlines (handles both \n and \r\n)
-            .map { line ->
-                // Strip inline comments (everything after #)
-                val commentIndex = line.indexOf('#')
-                if (commentIndex >= 0) {
-                    line.substring(0, commentIndex).trim()
-                } else {
-                    line.trim()
-                }
-            }
-            .filter { it.isNotBlank() } // Remove blank lines
-            .mapNotNull { line ->
-                // Split by whitespace, taking first token as tag and rest as value
-                val parts = line.split(Regex("\\s+"), limit = 2)
-                if (parts.size == 2) {
-                    val tag = parts[0].trim()
-                    val value = parts[1].trim()
-                    // Validate tag is numeric
-                    if (tag.toIntOrNull() != null) {
-                        "$tag=$value"
+        val fields =
+            this
+                .lines() // Split by newlines (handles both \n and \r\n)
+                .map { line ->
+                    // Strip inline comments (everything after #)
+                    val commentIndex = line.indexOf('#')
+                    if (commentIndex >= 0) {
+                        line.substring(0, commentIndex).trim()
                     } else {
-                        null // Skip non-numeric tags
+                        line.trim()
                     }
-                } else if (parts.size == 1 && parts[0].toIntOrNull() != null) {
-                    // Tag with no value (edge case)
-                    "${parts[0]}="
-                } else {
-                    null
+                }.filter { it.isNotBlank() } // Remove blank lines
+                .mapNotNull { line ->
+                    // Split by whitespace, taking first token as tag and rest as value
+                    val parts = line.split(Regex("\\s+"), limit = 2)
+                    if (parts.size == 2) {
+                        val tag = parts[0].trim()
+                        val value = parts[1].trim()
+                        // Validate tag is numeric
+                        if (tag.toIntOrNull() != null) {
+                            "$tag=$value"
+                        } else {
+                            null // Skip non-numeric tags
+                        }
+                    } else if (parts.size == 1 && parts[0].toIntOrNull() != null) {
+                        // Tag with no value (edge case)
+                        "${parts[0]}="
+                    } else {
+                        null
+                    }
                 }
-            }
 
         // Return empty string if no fields, otherwise join with pipe delimiter
         return if (fields.isEmpty()) "" else fields.joinToString("|", postfix = "|")

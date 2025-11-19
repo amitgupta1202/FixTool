@@ -31,7 +31,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AppMessage
@@ -366,10 +365,12 @@ private fun MessageDisplayContent(
                                         onNavigatePrevious()
                                         true
                                     }
+
                                     Key.DirectionDown -> {
                                         onNavigateNext()
                                         true
                                     }
+
                                     else -> false
                                 }
                             } else {
@@ -423,10 +424,12 @@ private fun MessageDisplayContent(
                                         onNavigatePrevious()
                                         true
                                     }
+
                                     Key.DirectionDown -> {
                                         onNavigateNext()
                                         true
                                     }
+
                                     else -> false
                                 }
                             } else {
@@ -881,6 +884,6 @@ private fun getMessageTextColor(
     return appSettings.messageColorScheme.getMessageColor(
         message.direction,
         message.isRejectionOrLogout(),
-        isBright
+        isBright,
     )
 }

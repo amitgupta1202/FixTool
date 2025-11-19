@@ -37,19 +37,18 @@ data class FixMessage(
     /**
      * Check if this message matches any rejection rule
      */
-    fun isRejectionOrLogout(rejectionRules: List<RejectionRule> = RejectionRule.defaultRules()): Boolean {
-        return rejectionRules.any { rule ->
+    fun isRejectionOrLogout(rejectionRules: List<RejectionRule> = RejectionRule.defaultRules()): Boolean =
+        rejectionRules.any { rule ->
             rule.matches(quickfixMessage, messageType)
         }
-    }
 
     /**
      * Extract the value of a specific tag from this message.
      * Searches in header, body, and trailer.
      * Returns null if the tag is not found.
      */
-    fun valueOfTag(tag: Int): String? {
-        return try {
+    fun valueOfTag(tag: Int): String? =
+        try {
             when {
                 quickfixMessage.header.isSetField(tag) -> quickfixMessage.header.getString(tag)
                 quickfixMessage.isSetField(tag) -> quickfixMessage.getString(tag)
@@ -59,7 +58,6 @@ data class FixMessage(
         } catch (e: Exception) {
             null
         }
-    }
 
     companion object {
         fun parseMessageType(raw: String): String {

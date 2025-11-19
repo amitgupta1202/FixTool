@@ -963,12 +963,13 @@ private fun getDirectionInfo(message: FixMessage, appSettings: com.knapsack.fixt
             appSettings.messageColorScheme.getMessageColor(
                 message.direction,
                 message.isRejectionOrLogout(),
-                true
+                true,
             ) to "INCOMING"
+
         FixMessage.Direction.OUTGOING ->
             appSettings.messageColorScheme.getMessageColor(
                 message.direction,
                 false,
-                true
+                true,
             ) to "OUTGOING"
     }

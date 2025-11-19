@@ -89,9 +89,10 @@ data class FixField(
             val words = snakeCase.lowercase().split('_')
             if (words.isEmpty()) return snakeCase.lowercase()
 
-            return words.first() + words.drop(1).joinToString("") { word ->
-                word.replaceFirstChar { it.uppercase() }
-            }
+            return words.first() +
+                words.drop(1).joinToString("") { word ->
+                    word.replaceFirstChar { it.uppercase() }
+                }
         }
 
         /**
@@ -2115,7 +2116,18 @@ private fun FieldEditorRow(
                             text = field.tag,
                             color = if (isManaged || field.excluded) AppTheme.Colors.textDisabled else AppTheme.Colors.text,
                             fontSize = 10.sp,
-                            modifier = Modifier.width(48.dp),
+                            modifier =
+                                Modifier
+                                    .width(48.dp)
+                                    .then(
+                                        if (field.tag.isBlank()) {
+                                            Modifier
+                                                .background(AppTheme.Colors.emptyFieldBackground, inputShape)
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
                         )
 
                         if (showFieldName) {
@@ -2145,7 +2157,18 @@ private fun FieldEditorRow(
                             text = field.value,
                             color = if (isManaged || field.excluded) AppTheme.Colors.textDisabled else AppTheme.Colors.text,
                             fontSize = 10.sp,
-                            modifier = Modifier.width(180.dp),
+                            modifier =
+                                Modifier
+                                    .width(180.dp)
+                                    .then(
+                                        if (field.value.isBlank()) {
+                                            Modifier
+                                                .background(AppTheme.Colors.emptyFieldBackground, inputShape)
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
                         )
 
                         if (showDescription) {

@@ -417,10 +417,23 @@ fun MessageEditorPanel(
                                         listOf("No session selected. Select a session to send message."),
                                     )
                                 } else {
-                                    logger.info(
-                                        "MessageEditorPanel: Calling onSend with selectedSession: ${selectedSession.title} (ID: ${selectedSession.id})",
-                                    )
-                                    onSend(fieldsToSend)
+                                    // Validate required fields before sending
+                                    val validationErrors = mutableListOf<String>()
+
+                                    // Check for tag 35 (message type) - required for all FIX messages
+                                    val hasMessageType = fieldsToSend.any { it.tag == "35" }
+                                    if (!hasMessageType) {
+                                        validationErrors.add("Missing required field: Tag 35 (MsgType/Message Type)")
+                                    }
+
+                                    if (validationErrors.isNotEmpty()) {
+                                        onSetValidationErrors(validationErrors)
+                                    } else {
+                                        logger.info(
+                                            "MessageEditorPanel: Calling onSend with selectedSession: ${selectedSession.title} (ID: ${selectedSession.id})",
+                                        )
+                                        onSend(fieldsToSend)
+                                    }
                                 }
                             } catch (e: Exception) {
                                 val sendError = "Send Error: ${e.message ?: e.toString()}"
@@ -998,7 +1011,20 @@ fun MessageEditorPanel(
                                                     } else if (selectedSession == null) {
                                                         onSetValidationErrors(listOf("No session selected."))
                                                     } else {
-                                                        onSend(fieldsToSend)
+                                                        // Validate required fields before sending
+                                                        val validationErrors = mutableListOf<String>()
+
+                                                        // Check for tag 35 (message type) - required for all FIX messages
+                                                        val hasMessageType = fieldsToSend.any { it.tag == "35" }
+                                                        if (!hasMessageType) {
+                                                            validationErrors.add("Missing required field: Tag 35 (MsgType/Message Type)")
+                                                        }
+
+                                                        if (validationErrors.isNotEmpty()) {
+                                                            onSetValidationErrors(validationErrors)
+                                                        } else {
+                                                            onSend(fieldsToSend)
+                                                        }
                                                     }
                                                 } catch (e: Exception) {
                                                     onSetValidationErrors(listOf("Send Error: ${e.message}"))

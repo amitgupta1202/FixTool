@@ -35,18 +35,21 @@ object FixMessageTemplate {
      * @param value The string containing template expressions
      * @param incomingMessages Map of latest incoming messages by type (e.g., "D" -> NewOrderSingle message)
      * @param outgoingMessages Map of latest outgoing messages by type (e.g., "R" -> QuoteRequest message)
+     * @param variables Mutable map to store and retrieve variables across multiple evaluate() calls.
+     *                  If null, a new map is created for this call only.
      */
     fun evaluate(
         value: String,
         incomingMessages: Map<String, FixMessage> = emptyMap(),
         outgoingMessages: Map<String, FixMessage> = emptyMap(),
+        variables: MutableMap<String, String>? = null,
     ): String {
-        // Variables map to store assigned values within this evaluation
-        val variables = mutableMapOf<String, String>()
+        // Use provided variables map or create a new one
+        val vars = variables ?: mutableMapOf()
 
         return EXPRESSION_REGEX.replace(value) { matchResult ->
             val expression = matchResult.groupValues[1].trim()
-            evaluateExpression(expression, incomingMessages, outgoingMessages, variables)
+            evaluateExpression(expression, incomingMessages, outgoingMessages, vars)
         }
     }
 

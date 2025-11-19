@@ -52,6 +52,7 @@ data class FixField(
          * Evaluates template expressions in field values and returns new fields with resolved values.
          * For example, ${UUID.randomUUID()} will be replaced with an actual UUID.
          * Can also reference previous messages: ${incoming["D"].valueOfTag(11)}
+         * Variables assigned in one field can be reused in subsequent fields.
          *
          * @param incomingMessages Map of latest incoming messages by type
          * @param outgoingMessages Map of latest outgoing messages by type
@@ -60,14 +61,19 @@ data class FixField(
             incomingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
             outgoingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
         ): List<FixField> {
+            // Shared variables map for all fields in this message
+            val variables = mutableMapOf<String, String>()
+
             return this.map { field ->
                 if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
                     field.copy(
-                        value = FixMessageTemplate.evaluate(
-                            field.value,
-                            incomingMessages,
-                            outgoingMessages,
-                        ),
+                        value =
+                            FixMessageTemplate.evaluate(
+                                field.value,
+                                incomingMessages,
+                                outgoingMessages,
+                                variables, // Pass shared variables map
+                            ),
                     )
                 } else {
                     field
@@ -313,7 +319,9 @@ fun MessageEditorPanel(
                                         listOf("No session selected. Select a session to send message."),
                                     )
                                 } else {
-                                    logger.info("MessageEditorPanel: Calling onSend with selectedSession: ${selectedSession.title} (ID: ${selectedSession.id})")
+                                    logger.info(
+                                        "MessageEditorPanel: Calling onSend with selectedSession: ${selectedSession.title} (ID: ${selectedSession.id})",
+                                    )
                                     onSend(fieldsToSend)
                                 }
                             } catch (e: Exception) {

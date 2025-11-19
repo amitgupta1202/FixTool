@@ -531,4 +531,36 @@ class FixMessageTemplateTest {
 
         assertEquals("10|20", result)
     }
+
+    @Test
+    fun testSharedVariablesMapAcrossMultipleCalls() {
+        // Simulates how MessageEditorPanel uses variables across multiple fields
+        val variables = mutableMapOf<String, String>()
+
+        // First field: assign variable
+        val result1 = FixMessageTemplate.evaluate("\${orderId = UUID.randomUUID()}", variables = variables)
+
+        // Second field: reuse variable
+        val result2 = FixMessageTemplate.evaluate("\${orderId}", variables = variables)
+
+        // Third field: reuse variable again
+        val result3 = FixMessageTemplate.evaluate("\${orderId}", variables = variables)
+
+        // All three should have the same value
+        assertEquals(result1, result2)
+        assertEquals(result2, result3)
+        assertTrue(result1.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
+
+    @Test
+    fun testSharedVariablesWithMultipleVariables() {
+        val variables = mutableMapOf<String, String>()
+
+        val result1 = FixMessageTemplate.evaluate("\${id1 = UUID.randomUUID()}", variables = variables)
+        val result2 = FixMessageTemplate.evaluate("\${id2 = UUID.randomUUID()}", variables = variables)
+        val result3 = FixMessageTemplate.evaluate("\${id1}|\${id2}", variables = variables)
+
+        // Should be: "uuid1|uuid2"
+        assertEquals("$result1|$result2", result3)
+    }
 }

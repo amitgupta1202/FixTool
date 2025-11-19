@@ -18,8 +18,9 @@ object FixMessageValidator {
                 dictionary.getDataDictionary()
                     ?: return ValidationResult(isValid = false, errors = listOf("Data dictionary not available"))
 
-            val quickFixMessage = rawMessage.toQuickFixMessage(dataDictionary)
-            dataDictionary.validate(quickFixMessage, true)
+            // Use validate=true to match the validation used during message sending
+            // This ensures Validate button and Send button use the same validation logic
+            val quickFixMessage = rawMessage.toQuickFixMessage(dataDictionary, validate = true)
             ValidationResult(isValid = true, errors = emptyList())
         } catch (e: Exception) {
             logger.error("Failed to validate fields: {}", e.message, e)

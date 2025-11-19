@@ -94,6 +94,8 @@ object FixMessageTemplate {
     /**
      * Evaluates a Kotlin expression using the script engine.
      */
+    private val logger = org.slf4j.LoggerFactory.getLogger(FixMessageTemplate::class.java)
+
     private fun evaluateKotlinExpression(
         expression: String,
         incomingMessages: Map<String, FixMessage>,
@@ -101,6 +103,10 @@ object FixMessageTemplate {
         variables: MutableMap<String, String>,
     ): String =
         try {
+            logger.debug("Evaluating expression: {}", expression)
+            logger.debug("Available incoming message types: {}", incomingMessages.keys.joinToString(","))
+            logger.debug("Available outgoing message types: {}", outgoingMessages.keys.joinToString(","))
+
             // Create a new script engine for this evaluation
             val engine =
                 ScriptEngineManager().getEngineByExtension("kts")
@@ -196,12 +202,16 @@ object FixMessageTemplate {
 
             // Evaluate the complete script
             val result = engine.eval(helperCode)
-            result?.toString() ?: "null"
+            val resultStr = result?.toString() ?: "null"
+            logger.debug("Expression '{}' evaluated to: {}", expression, resultStr)
+            resultStr
         } catch (e: ScriptException) {
             // If evaluation fails, return the original expression
+            logger.warn("ScriptException evaluating '{}': {}", expression, e.message)
             "\${$expression}"
         } catch (e: Exception) {
             // Any other error, return original
+            logger.error("Exception evaluating '{}': {}", expression, e.message, e)
             "\${$expression}"
         }
 

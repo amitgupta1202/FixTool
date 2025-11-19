@@ -96,13 +96,14 @@ private fun HtmlViewer() {
                 JEditorPane("text/html", htmlContent).apply {
                     isEditable = false
 
-                    // Make the caret invisible but keep it to avoid NPE
-                    caretColor = Color(0, 0, 0, 0) // Transparent
+                    // Allow text selection and copying while keeping it read-only
+                    // Set caret color to match the text for better visibility when selecting
+                    caretColor = Color(200, 200, 200) // Light gray caret
                     (caret as? DefaultCaret)?.apply {
-                        isVisible = false
+                        // Don't blink the caret to make it less distracting
                         blinkRate = 0
                     }
-                    highlighter = null // Remove text selection highlighting
+                    // Keep highlighter enabled to allow text selection
 
                     val self = this // Capture reference for use in lambda
 

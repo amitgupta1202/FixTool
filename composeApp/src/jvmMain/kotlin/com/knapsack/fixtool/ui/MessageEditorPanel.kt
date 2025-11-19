@@ -146,7 +146,6 @@ data class FixField(
         fun parseCucumberTemplateFormat(text: String): List<FixField> {
             val fields = mutableListOf<FixField>()
             val lines = text.lines()
-            var conditionalDepth = 0
 
             for (line in lines) {
                 val trimmed = line.trim()
@@ -154,22 +153,10 @@ data class FixField(
                 // Skip empty lines
                 if (trimmed.isEmpty()) continue
 
-                // Handle conditional block start
-                if (trimmed.startsWith("@@includeIf:")) {
-                    conditionalDepth++
+                // Skip conditional directives (but not the content inside them)
+                if (trimmed.startsWith("@@includeIf:") || trimmed.startsWith("@@/includeIf")) {
                     continue
                 }
-
-                // Handle conditional block end
-                if (trimmed.startsWith("@@/includeIf")) {
-                    if (conditionalDepth > 0) {
-                        conditionalDepth--
-                    }
-                    continue
-                }
-
-                // Skip lines in conditional blocks
-                if (conditionalDepth > 0) continue
 
                 // Skip comment lines
                 if (trimmed.startsWith("#")) continue

@@ -76,7 +76,7 @@ class CucumberTemplateParserTest {
     }
 
     @Test
-    fun testSkipConditionalBlocks() {
+    fun testIncludeFieldsInConditionalBlocks() {
         val template =
             """
             [ListID]    66 = CREATE_AND_CAPTURE_AS: LIST_ID
@@ -89,9 +89,12 @@ class CucumberTemplateParserTest {
 
         val fields = parseCucumberTemplateFormat(template)
 
-        assertEquals(2, fields.size)
+        // Should include all fields, just skip the @@includeIf directives
+        assertEquals(4, fields.size)
         assertEquals("66", fields[0].tag)
-        assertEquals("394", fields[1].tag)
+        assertEquals("448", fields[1].tag)
+        assertEquals("452", fields[2].tag)
+        assertEquals("394", fields[3].tag)
     }
 
     @Test
@@ -158,7 +161,7 @@ class CucumberTemplateParserTest {
 
         val fields = parseCucumberTemplateFormat(template)
 
-        // Verify all non-conditional, non-comment fields are parsed
+        // Verify all non-comment fields are parsed (including those in conditional blocks)
         val expectedTags =
             listOf(
                 "66",
@@ -172,12 +175,16 @@ class CucumberTemplateParserTest {
                 "448",
                 "447",
                 "452",
+                "448", // Inside @@includeIf:!<hasZeroPartyIDs>
+                "447", // Inside @@includeIf:!<hasZeroPartyIDs>
                 "167",
                 "916",
                 "54",
                 "11",
                 "67",
                 "453",
+                "448", // Inside @@includeIf:<hasInitiatorParty>
+                "452", // Inside @@includeIf:<hasInitiatorParty>
                 "54",
                 "38",
                 "58",
@@ -193,9 +200,9 @@ class CucumberTemplateParserTest {
         assertEquals("2", fields[1].value) // BidType (comment stripped)
         assertEquals("CONTINGENT", fields[2].value) // ListExecInst (comment stripped)
         assertEquals("\${clOrdId = UUID.randomUUID()}", fields[5].value) // First CL_ORD_ID
-        assertEquals("\${clOrdId}", fields[14].value) // Second CL_ORD_ID (captured)
-        assertEquals("", fields[16].value) // <numOfPartyIds> template variable
-        assertEquals("", fields[19].value) // <errorMessage> template variable
+        assertEquals("\${clOrdId}", fields[16].value) // Second CL_ORD_ID (captured)
+        assertEquals("", fields[18].value) // <numOfPartyIds> template variable
+        assertEquals("", fields[23].value) // <errorMessage> template variable
     }
 
     @Test
@@ -256,10 +263,13 @@ class CucumberTemplateParserTest {
 
         val fields = parseCucumberTemplateFormat(template)
 
-        // All fields in conditional blocks should be skipped
-        assertEquals(2, fields.size)
+        // All fields should be included, only @@includeIf directives are skipped
+        assertEquals(5, fields.size)
         assertEquals("66", fields[0].tag)
-        assertEquals("394", fields[1].tag)
+        assertEquals("100", fields[1].tag)
+        assertEquals("101", fields[2].tag)
+        assertEquals("102", fields[3].tag)
+        assertEquals("394", fields[4].tag)
     }
 
     @Test

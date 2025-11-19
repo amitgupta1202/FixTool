@@ -114,6 +114,12 @@ object FixMessageTemplate {
 
             // Build helper objects that can be serialized into the script
             // Extract message data into simple maps
+            // Helper to escape strings for Kotlin script literals
+            fun String.escapeForKotlinString(): String =
+                this.replace("\\", "\\\\")  // Escape backslashes first
+                    .replace("\"", "\\\"")   // Escape double quotes
+                    .replace("$", "\\$")     // Escape dollar signs (template expressions)
+
             val incomingData =
                 incomingMessages.mapValues { (_, msg) ->
                     val tags = mutableMapOf<Int, String?>()
@@ -157,7 +163,7 @@ object FixMessageTemplate {
                         appendLine("// User-defined variables")
                         variables.forEach { (varName, value) ->
                             // Escape the value for use in Kotlin string literal
-                            val escapedValue = value.replace("\\", "\\\\").replace("\"", "\\\"")
+                            val escapedValue = value.escapeForKotlinString()
                             appendLine("val $varName = \"$escapedValue\"")
                         }
                         appendLine()
@@ -170,7 +176,7 @@ object FixMessageTemplate {
                         incomingData.entries.forEachIndexed { index, (msgType, tags) ->
                             val tagsStr =
                                 tags.entries.joinToString(", ") { (tag, value) ->
-                                    "$tag to ${value?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"}"
+                                    "$tag to ${value?.let { "\"${it.escapeForKotlinString()}\"" } ?: "null"}"
                                 }
                             append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
                             if (index < incomingData.size - 1) appendLine(",") else appendLine()
@@ -186,7 +192,7 @@ object FixMessageTemplate {
                         outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
                             val tagsStr =
                                 tags.entries.joinToString(", ") { (tag, value) ->
-                                    "$tag to ${value?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"}"
+                                    "$tag to ${value?.let { "\"${it.escapeForKotlinString()}\"" } ?: "null"}"
                                 }
                             append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
                             if (index < outgoingData.size - 1) appendLine(",") else appendLine()

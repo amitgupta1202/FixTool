@@ -762,4 +762,115 @@ class FixMessageTemplateTest {
         // QuoteReqID and timestamp should be different
         assertNotEquals(resolved[1].value, resolved[5].value)
     }
+
+    @Test
+    fun testTemplateEvaluationResilientToSpecialCharactersInMessageData() {
+        // This test verifies the fix for the script injection bug where unresolved template
+        // expressions containing special characters ($, \, ") would corrupt the Kotlin script
+        // engine and cause all subsequent template evaluations to fail.
+
+        // Scenario: A malformed template fails to evaluate and returns the literal string.
+        // This literal gets sent in a message and received back in a server response.
+        // The response message containing the literal template syntax (${...}) is added to
+        // the message maps. When building the next script, we must properly escape these
+        // special characters to prevent breaking the Kotlin script syntax.
+
+        // Create a message with values containing special characters that would break scripts:
+        // - Template syntax: ${incoming["S"].valueOfTag(131)}
+        // - Dollar signs, quotes, backslashes
+        val messageWithSpecialChars =
+            createMockFixMessage(
+                "AI", // QuoteRequestReject
+                131 to "\${incoming[\"S\"].valueOfTag(131)}", // Literal template syntax (from failed evaluation)
+                117 to "UUID-\${UUID.randomUUID()}", // Literal template with UUID
+                58 to "Error: Missing tag\\nPlease fix", // Backslashes
+                372 to "AJ", // RefMsgType
+            )
+
+        // Add this message to the incoming messages map (simulating server response)
+        val incomingMap = mapOf("AI" to messageWithSpecialChars)
+
+        // Now try to evaluate a template that references this message
+        // Before the fix, this would fail with script compilation errors because the
+        // special characters in the message values would break the Kotlin script syntax
+        val template = "\${incoming[\"AI\"].valueOfTag(131)}"
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = incomingMap,
+            )
+
+        // The template should successfully evaluate and return the escaped value
+        // (not fail with script errors)
+        assertEquals("\${incoming[\"S\"].valueOfTag(131)}", result)
+
+        // Test with another field containing backslashes
+        val template2 = "\${incoming[\"AI\"].valueOfTag(58)}"
+        val result2 =
+            FixMessageTemplate.evaluate(
+                template2,
+                incomingMessages = incomingMap,
+            )
+        assertEquals("Error: Missing tag\\nPlease fix", result2)
+
+        // Test that UUID generation still works even with corrupted message data
+        val template3 = "\${UUID.randomUUID()}"
+        val result3 =
+            FixMessageTemplate.evaluate(
+                template3,
+                incomingMessages = incomingMap,
+            )
+        assertTrue(result3.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+
+        // Test that message references still work
+        val template4 = "\${incoming[\"AI\"].valueOfTag(372)}"
+        val result4 =
+            FixMessageTemplate.evaluate(
+                template4,
+                incomingMessages = incomingMap,
+            )
+        assertEquals("AJ", result4)
+    }
+
+    @Test
+    fun testTemplateEvaluationWithUserVariablesContainingSpecialChars() {
+        // Test that user-defined variables containing special characters are properly escaped
+
+        val variables = mutableMapOf<String, String>()
+
+        // First, assign a variable with a normal value
+        val fields1 =
+            listOf(
+                FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+            )
+
+        val resolved1 = fields1.resolveTemplates()
+        val quoteReqId = resolved1[0].value
+        assertTrue(quoteReqId.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+
+        // Now simulate that this variable's value got corrupted with special characters
+        // (e.g., from a failed template that returned literal syntax)
+        variables["corruptedVar"] = "\${incoming[\"S\"].valueOfTag(131)}" // Contains $, {, }, ", [, ]
+
+        // Try to use this corrupted variable in a new template evaluation
+        // Before the fix, this would break the script engine
+        val template = "\${corruptedVar}"
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                variables = variables,
+            )
+
+        // Should successfully return the escaped value
+        assertEquals("\${incoming[\"S\"].valueOfTag(131)}", result)
+
+        // And other templates should still work
+        val template2 = "\${UUID.randomUUID()}"
+        val result2 =
+            FixMessageTemplate.evaluate(
+                template2,
+                variables = variables,
+            )
+        assertTrue(result2.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
 }

@@ -210,6 +210,7 @@ class FixConnectionManager(
 
     /**
      * Stops the connection
+     * @throws Exception if stopping the connection fails
      */
     fun stop() {
         try {
@@ -222,6 +223,7 @@ class FixConnectionManager(
             logger.info("QuickFIX connection stopped")
         } catch (e: Exception) {
             logger.error("Error stopping QuickFIX connection: {}", e.message, e)
+            throw e
         }
     }
 

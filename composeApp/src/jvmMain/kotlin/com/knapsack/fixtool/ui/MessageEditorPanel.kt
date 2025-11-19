@@ -80,6 +80,115 @@ data class FixField(
                 }
             }
         }
+
+        /**
+         * Converts SCREAMING_SNAKE_CASE to camelCase.
+         * Example: LIST_ID -> listId, CL_ORD_ID -> clOrdId
+         */
+        private fun toVariableName(snakeCase: String): String {
+            val words = snakeCase.lowercase().split('_')
+            if (words.isEmpty()) return snakeCase.lowercase()
+
+            return words.first() + words.drop(1).joinToString("") { word ->
+                word.replaceFirstChar { it.uppercase() }
+            }
+        }
+
+        /**
+         * Transforms Cucumber test template special values to our template expression format.
+         */
+        private fun transformCucumberValue(value: String): String {
+            val trimmed = value.trim()
+
+            // Handle CREATE_AND_CAPTURE_AS: VARNAME -> ${varName = UUID.randomUUID()}
+            if (trimmed.startsWith("CREATE_AND_CAPTURE_AS:")) {
+                val varName = trimmed.substringAfter("CREATE_AND_CAPTURE_AS:").trim()
+                val camelCase = toVariableName(varName)
+                return "\${$camelCase = UUID.randomUUID()}"
+            }
+
+            // Handle CAPTURED_VALUE: VARNAME -> ${varName}
+            if (trimmed.startsWith("CAPTURED_VALUE:")) {
+                val varName = trimmed.substringAfter("CAPTURED_VALUE:").trim()
+                val camelCase = toVariableName(varName)
+                return "\${$camelCase}"
+            }
+
+            // Handle template variables <varName> -> empty string
+            if (trimmed.startsWith("<") && trimmed.endsWith(">")) {
+                return ""
+            }
+
+            // Handle MATCHES_REGEX: pattern -> empty string
+            if (trimmed.startsWith("MATCHES_REGEX:")) {
+                return ""
+            }
+
+            // Strip trailing comments in square brackets: "2 [Disclosed style]" -> "2"
+            val withoutComment = trimmed.replace(Regex("""\s*\[.*?\]\s*$"""), "")
+
+            return withoutComment
+        }
+
+        /**
+         * Parses Cucumber test template format into FixField list.
+         *
+         * Format example:
+         * ```
+         * [ListID]    66 = CREATE_AND_CAPTURE_AS: LIST_ID
+         * [BidType]   394 = 2 [Disclosed style]
+         * ######### COMMENT #########
+         * @@includeIf:<condition>
+         * ... content ...
+         * @@/includeIf
+         * ```
+         */
+        fun parseCucumberTemplateFormat(text: String): List<FixField> {
+            val fields = mutableListOf<FixField>()
+            val lines = text.lines()
+            var conditionalDepth = 0
+
+            for (line in lines) {
+                val trimmed = line.trim()
+
+                // Skip empty lines
+                if (trimmed.isEmpty()) continue
+
+                // Handle conditional block start
+                if (trimmed.startsWith("@@includeIf:")) {
+                    conditionalDepth++
+                    continue
+                }
+
+                // Handle conditional block end
+                if (trimmed.startsWith("@@/includeIf")) {
+                    if (conditionalDepth > 0) {
+                        conditionalDepth--
+                    }
+                    continue
+                }
+
+                // Skip lines in conditional blocks
+                if (conditionalDepth > 0) continue
+
+                // Skip comment lines
+                if (trimmed.startsWith("#")) continue
+
+                // Parse field line: [FieldName]   tag = value [optional comment]
+                val fieldPattern = Regex("""^\[.*?\]\s*(\d+)\s*=\s*(.+)$""")
+                val match = fieldPattern.find(trimmed)
+
+                if (match != null) {
+                    val tag = match.groupValues[1]
+                    val rawValue = match.groupValues[2]
+                    val transformedValue = transformCucumberValue(rawValue)
+
+                    fields.add(FixField(tag = tag, value = transformedValue))
+                }
+            }
+
+            return if (fields.isEmpty()) listOf(FixField()) else fields
+        }
     }
 }
 
@@ -2073,6 +2182,16 @@ private fun buildPreviewMessage(
 
 private fun parseRawMessageToFields(rawMessage: String): List<FixField>? {
     if (rawMessage.isBlank()) return listOf(FixField())
+
+    // Detect Cucumber test template format (contains [FieldName] pattern)
+    val isCucumberFormat = rawMessage.contains(Regex("""\[.*?\]\s*\d+\s*="""))
+    if (isCucumberFormat) {
+        return try {
+            FixField.parseCucumberTemplateFormat(rawMessage)
+        } catch (e: Exception) {
+            null // Return null if parsing fails
+        }
+    }
 
     // Managed tags that QuickFIX/J handles automatically
     // 8=BeginString, 9=BodyLength, 10=CheckSum, 34=MsgSeqNum, 49=SenderCompID, 50=SenderSubID,

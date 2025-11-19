@@ -123,7 +123,11 @@ class FixMessageViewModel(
     val viewMode: StateFlow<FixMessageSession.ViewMode> = _viewMode.asStateFlow()
 
     // App settings (loaded first before other services)
-    private val settingsService = AppSettingsService(customSettingsDir = testSettingsDir)
+    private val settingsService =
+        AppSettingsService(
+            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            customSettingsDir = testSettingsDir,
+        )
     private val _appSettings = mutableStateOf(AppSettings.default())
     val appSettings: AppSettings
         get() = _appSettings.value

@@ -1,21 +1,21 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import org.slf4j.LoggerFactory
 import java.io.File
 
 /**
  * Service for persisting and loading application settings
+ * @param onError Optional callback for error notifications
  * @param customSettingsDir Optional custom directory path for settings file (for testing)
  */
 class AppSettingsService(
+    private val onError: ((String) -> Unit)? = null,
     customSettingsDir: String? = null,
 ) {
-    companion object {
-        private val logger = LoggerFactory.getLogger(AppSettingsService::class.java)
-    }
+    private val logger = NotifyingLogger(AppSettingsService::class.java, onError)
 
     private val json =
         Json {
@@ -53,7 +53,7 @@ class AppSettingsService(
                 settings
             }
         } catch (e: Exception) {
-            logger.error("Failed to load settings from {}: {}", settingsFile.absolutePath, e.message, e)
+            logger.error("Failed to load settings from ${settingsFile.absolutePath}: ${e.message}", e, notifyUser = true)
             logger.warn("Returning default settings due to load failure")
             AppSettings.default()
         }
@@ -69,7 +69,7 @@ class AppSettingsService(
             logger.info("Settings saved to: {}. Dictionary path: '{}'", settingsFile.absolutePath, settings.defaultDataDictionary)
             true
         } catch (e: Exception) {
-            logger.error("Failed to save settings: {}", e.message, e)
+            logger.error("Failed to save settings: ${e.message}", e, notifyUser = true)
             false
         }
 }

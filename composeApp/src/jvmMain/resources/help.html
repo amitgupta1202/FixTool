@@ -483,6 +483,54 @@
         <strong>Tip:</strong> Variables are evaluated left-to-right. Make sure to assign a variable before you try to use it. If you reference an undefined variable, it will appear as <code>${varName}</code> in the message.
     </div>
 
+    <div class="example">
+        <h4>Real-World Example: Quote Request Message</h4>
+        <p>When building a QuoteRequest message where you need the same QuoteReqID in multiple fields:</p>
+
+        <p><strong>In the Message Editor, add these fields:</strong></p>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">Tag</td>
+                <td class="sep"></td>
+                <td class="value">Value</td>
+                <td class="desc">Description</td>
+            </tr>
+            <tr>
+                <td class="tag">35</td>
+                <td class="sep">:</td>
+                <td class="value">R</td>
+                <td class="desc">(MsgType = QuoteRequest)</td>
+            </tr>
+            <tr>
+                <td class="tag">131</td>
+                <td class="sep">:</td>
+                <td class="value">${quoteReqId = UUID.randomUUID()}</td>
+                <td class="desc">(QuoteReqID - assign to variable)</td>
+            </tr>
+            <tr>
+                <td class="tag">132</td>
+                <td class="sep">:</td>
+                <td class="value">${quoteReqId}</td>
+                <td class="desc">(BidRequestTransType - reuse same ID)</td>
+            </tr>
+            <tr>
+                <td class="tag">133</td>
+                <td class="sep">:</td>
+                <td class="value">${quoteReqId}</td>
+                <td class="desc">(OfferRequestTransType - reuse same ID)</td>
+            </tr>
+            <tr>
+                <td class="tag">55</td>
+                <td class="sep">:</td>
+                <td class="value">EUR/USD</td>
+                <td class="desc">(Symbol)</td>
+            </tr>
+        </table>
+
+        <p><strong>When you click Send:</strong></p>
+        <p>The same UUID (e.g., <code>a1b2c3d4-e5f6-7890-abcd-ef1234567890</code>) will be used for tags 131, 132, and 133.</p>
+    </div>
+
     <h3>Message References (Advanced)</h3>
     <p>Reference field values from previously sent or received messages:</p>
 

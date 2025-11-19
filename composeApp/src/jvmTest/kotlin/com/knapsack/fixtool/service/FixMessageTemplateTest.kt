@@ -1,12 +1,15 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.ui.FixField
+import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import org.junit.Test
 import quickfix.Message
 import quickfix.field.MsgType
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -562,5 +565,193 @@ class FixMessageTemplateTest {
 
         // Should be: "uuid1|uuid2"
         assertEquals("$result1|$result2", result3)
+    }
+
+    // ============ MessageEditorPanel Integration Tests ============
+
+    @Test
+    fun testResolveTemplatesWithVariablesAcrossFields() {
+        // Simulate message editor with multiple fields using the same variable
+        val fields = listOf(
+            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+            FixField(tag = "132", value = "\${quoteReqId}"),
+            FixField(tag = "133", value = "\${quoteReqId}"),
+        )
+
+        val resolved = fields.resolveTemplates()
+
+        // All three fields should have the same UUID value
+        assertEquals(resolved[0].value, resolved[1].value)
+        assertEquals(resolved[1].value, resolved[2].value)
+
+        // Should be a valid UUID
+        assertTrue(resolved[0].value.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
+
+    @Test
+    fun testResolveTemplatesWithMultipleVariables() {
+        val fields = listOf(
+            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+            FixField(tag = "52", value = "\${timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}"),
+            FixField(tag = "132", value = "\${quoteReqId}"),
+            FixField(tag = "60", value = "\${timestamp}"),
+            FixField(tag = "133", value = "\${quoteReqId}"),
+        )
+
+        val resolved = fields.resolveTemplates()
+
+        // QuoteReqIds should match (tags 131, 132, 133)
+        assertEquals(resolved[0].value, resolved[2].value)
+        assertEquals(resolved[2].value, resolved[4].value)
+
+        // Timestamps should match (tags 52, 60)
+        assertEquals(resolved[1].value, resolved[3].value)
+
+        // QuoteReqId and timestamp should be different
+        assertNotEquals(resolved[0].value, resolved[1].value)
+
+        // Validate formats
+        assertTrue(resolved[0].value.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+        assertTrue(resolved[1].value.matches(Regex("\\d{8}")))
+    }
+
+    @Test
+    fun testResolveTemplatesWithMixedFieldsAndVariables() {
+        val fields = listOf(
+            FixField(tag = "35", value = "R"), // Plain value
+            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"), // Assign variable
+            FixField(tag = "55", value = "EUR/USD"), // Plain value
+            FixField(tag = "132", value = "\${quoteReqId}"), // Reuse variable
+            FixField(tag = "54", value = "1"), // Plain value
+            FixField(tag = "133", value = "\${quoteReqId}"), // Reuse variable again
+        )
+
+        val resolved = fields.resolveTemplates()
+
+        // Plain values should remain unchanged
+        assertEquals("R", resolved[0].value)
+        assertEquals("EUR/USD", resolved[2].value)
+        assertEquals("1", resolved[4].value)
+
+        // Variable values should match
+        assertEquals(resolved[1].value, resolved[3].value)
+        assertEquals(resolved[3].value, resolved[5].value)
+
+        assertTrue(resolved[1].value.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
+
+    @Test
+    fun testResolveTemplatesWithVariableAndNewExpression() {
+        // Test that regular expressions still generate new values each time
+        val fields = listOf(
+            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+            FixField(tag = "132", value = "\${quoteReqId}"),
+            FixField(tag = "133", value = "\${UUID.randomUUID()}"), // New UUID without variable
+            FixField(tag = "134", value = "\${quoteReqId}"),
+        )
+
+        val resolved = fields.resolveTemplates()
+
+        // Tags 131, 132, 134 should have same value (variable)
+        assertEquals(resolved[0].value, resolved[1].value)
+        assertEquals(resolved[1].value, resolved[3].value)
+
+        // Tag 133 should have different value (new expression)
+        assertNotEquals(resolved[0].value, resolved[2].value)
+
+        // All should be valid UUIDs
+        assertTrue(resolved[0].value.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+        assertTrue(resolved[2].value.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
+
+    @Test
+    fun testResolveTemplatesWithUndefinedVariable() {
+        val fields = listOf(
+            FixField(tag = "131", value = "\${undefinedVar}"), // Reference before assignment
+            FixField(tag = "132", value = "\${quoteReqId = UUID.randomUUID()}"),
+            FixField(tag = "133", value = "\${quoteReqId}"),
+        )
+
+        val resolved = fields.resolveTemplates()
+
+        // Undefined variable should remain as template
+        assertEquals("\${undefinedVar}", resolved[0].value)
+
+        // Defined variables should work
+        assertEquals(resolved[1].value, resolved[2].value)
+        assertTrue(resolved[1].value.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+    }
+
+    @Test
+    fun testResolveTemplatesWithComplexExpressions() {
+        val fields = listOf(
+            FixField(tag = "131", value = "\${baseId = UUID.randomUUID()}"),
+            FixField(tag = "132", value = "\${prefixedId = \"ORDER-\" + baseId}"),
+            FixField(tag = "133", value = "\${baseId}"),
+            FixField(tag = "134", value = "\${prefixedId}"),
+        )
+
+        val resolved = fields.resolveTemplates()
+
+        // baseId should match
+        assertEquals(resolved[0].value, resolved[2].value)
+
+        // prefixedId should match and start with ORDER-
+        assertEquals(resolved[1].value, resolved[3].value)
+        assertTrue(resolved[1].value.startsWith("ORDER-"))
+
+        // prefixedId should contain baseId
+        assertTrue(resolved[1].value.contains(resolved[0].value))
+    }
+
+    @Test
+    fun testResolveTemplatesWithIncomingMessageReference() {
+        val incomingMessage = createMockFixMessage("D", 11 to "ORDER123", 55 to "EUR/USD")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        val fields = listOf(
+            FixField(tag = "131", value = "\${orderId = incoming[\"D\"].valueOfTag(11)}"),
+            FixField(tag = "132", value = "\${orderId}"),
+            FixField(tag = "133", value = "\${orderId}"),
+        )
+
+        val resolved = fields.resolveTemplates(incomingMessages = incomingMap)
+
+        // All should have the same value from the incoming message
+        assertEquals("ORDER123", resolved[0].value)
+        assertEquals("ORDER123", resolved[1].value)
+        assertEquals("ORDER123", resolved[2].value)
+    }
+
+    @Test
+    fun testResolveTemplatesRealWorldQuoteRequest() {
+        // Simulates the exact use case: building a QuoteRequest with same ID in multiple tags
+        val fields = listOf(
+            FixField(tag = "35", value = "R"),
+            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+            FixField(tag = "132", value = "\${quoteReqId}"),
+            FixField(tag = "133", value = "\${quoteReqId}"),
+            FixField(tag = "55", value = "EUR/USD"),
+            FixField(tag = "52", value = "\${sendingTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"),
+            FixField(tag = "60", value = "\${sendingTime}"),
+        )
+
+        val resolved = fields.resolveTemplates()
+
+        // MsgType and Symbol should be unchanged
+        assertEquals("R", resolved[0].value)
+        assertEquals("EUR/USD", resolved[4].value)
+
+        // QuoteReqID should be the same in tags 131, 132, 133
+        assertEquals(resolved[1].value, resolved[2].value)
+        assertEquals(resolved[2].value, resolved[3].value)
+        assertTrue(resolved[1].value.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+
+        // SendingTime and TransactTime should be the same (tags 52, 60)
+        assertEquals(resolved[5].value, resolved[6].value)
+        assertTrue(resolved[5].value.matches(Regex("\\d{8}-\\d{2}:\\d{2}:\\d{2}\\.\\d{3}")))
+
+        // QuoteReqID and timestamp should be different
+        assertNotEquals(resolved[1].value, resolved[5].value)
     }
 }

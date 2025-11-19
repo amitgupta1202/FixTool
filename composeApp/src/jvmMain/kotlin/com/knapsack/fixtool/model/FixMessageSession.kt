@@ -192,7 +192,9 @@ class FixMessageSession(
                 QuickFixService(
                     config = config,
                     onMessageReceived = { message -> addMessage(message) },
-                ) { state -> _connectionState.value = state }
+                    onStateChanged = { state -> _connectionState.value = state },
+                    onError = onError,
+                )
 
             // Create connection manager
             connectionManager = FixConnectionManager(config, quickFixService!!, appSettings, effectiveDictionary)

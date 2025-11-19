@@ -7,7 +7,7 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.FixMessageHelper.toRawFixMessage
-import org.slf4j.LoggerFactory
+import com.knapsack.fixtool.util.NotifyingLogger
 import quickfix.Application
 import quickfix.Message
 import quickfix.Session
@@ -18,7 +18,9 @@ class QuickFixService(
     private val config: FixConnectionConfig,
     private val onMessageReceived: (FixMessage) -> Unit,
     private val onStateChanged: (FixConnectionState) -> Unit,
+    private val onError: ((String) -> Unit)? = null,
 ) : Application {
+    private val logger = NotifyingLogger(QuickFixService::class.java, onError)
     private var currentSessionID: SessionID? = null
 
     override fun onCreate(sessionId: SessionID) {
@@ -58,15 +60,15 @@ class QuickFixService(
                             message.setString(tag.toInt(), value)
                             logger.info("Added custom logon field: tag={}, value={}", tag, value)
                         } catch (_: NumberFormatException) {
-                            logger.error("Invalid tag number: {}", tag)
+                            logger.error("Invalid tag number: $tag")
                         } catch (e: Exception) {
-                            logger.error("Error adding logon field tag={}: {}", tag, e.message)
+                            logger.error("Error adding logon field tag=$tag: ${e.message}", e)
                         }
                     }
                 }
             }
         } catch (e: Exception) {
-            logger.error("Error in toAdmin: {}", e.message, e)
+            logger.error("Error in toAdmin: ${e.message}", e)
         }
 
         val rawMessage = message.toRawFixMessage()
@@ -82,7 +84,7 @@ class QuickFixService(
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
-            logger.error("Error displaying outgoing admin message: {}", e.message, e)
+            logger.error("Error displaying outgoing admin message: ${e.message}", e)
         }
     }
 
@@ -104,7 +106,7 @@ class QuickFixService(
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
-            logger.error("Error processing admin message: {}", e.message, e)
+            logger.error("Error processing admin message: ${e.message}", e)
         }
     }
 
@@ -126,7 +128,7 @@ class QuickFixService(
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
-            logger.error("Error displaying outgoing app message: {}", e.message, e)
+            logger.error("Error displaying outgoing app message: ${e.message}", e)
         }
     }
 
@@ -150,7 +152,7 @@ class QuickFixService(
             // Route to the message handler
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
-            logger.error("Error processing application message: {}", e.message, e)
+            logger.error("Error processing application message: ${e.message}", e)
         }
     }
 
@@ -160,7 +162,7 @@ class QuickFixService(
     fun sendMessage(rawMessage: String, dictionary: com.knapsack.fixtool.model.FixDictionary): Boolean {
         val sessionID = currentSessionID
         if (sessionID == null) {
-            logger.error("QuickFIX Session does not exist: sessionID={}", rawMessage)
+            logger.error("Cannot send message: No active FIX session", notifyUser = true)
             return false
         }
 
@@ -176,7 +178,7 @@ class QuickFixService(
 
             return Session.sendToTarget(message, sessionID)
         } catch (e: Exception) {
-            logger.error("Error sending message: {}", e.message, e)
+            logger.error("Error sending message: ${e.message}", e, notifyUser = true)
             return false
         }
     }
@@ -197,11 +199,7 @@ class QuickFixService(
             val session = Session.lookupSession(sessionID)
             session?.logout()
         } catch (e: Exception) {
-            logger.error("Error sending logout: {}", e.message, e)
+            logger.error("Error sending logout: ${e.message}", e)
         }
-    }
-
-    companion object {
-        private val logger = LoggerFactory.getLogger(QuickFixService::class.java)
     }
 }

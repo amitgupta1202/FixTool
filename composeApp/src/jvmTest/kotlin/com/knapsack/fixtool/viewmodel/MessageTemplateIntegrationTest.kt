@@ -25,10 +25,11 @@ class MessageTemplateIntegrationTest {
     @Before
     fun setup() {
         // Create a temporary directory for test files (isolated from production)
-        testDir = File.createTempFile("fixtool-test", "").apply {
-            delete() // Delete the file
-            mkdirs() // Create as directory
-        }
+        testDir =
+            File.createTempFile("fixtool-test", "").apply {
+                delete() // Delete the file
+                mkdirs() // Create as directory
+            }
 
         // Backup and clear saved messages file to ensure test isolation
         originalFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
@@ -80,19 +81,21 @@ class MessageTemplateIntegrationTest {
     private fun addMessageToActiveSession(
         messageType: String,
         direction: FixMessage.Direction,
-        vararg tagValues: Pair<Int, String>
+        vararg tagValues: Pair<Int, String>,
     ) {
         val quickfixMessage = createQuickFixMessage(messageType, *tagValues)
-        val rawMessage = "8=FIX.4.2|9=100|35=$messageType|" +
-            tagValues.joinToString("|") { "${it.first}=${it.second}" } + "|10=123|"
+        val rawMessage =
+            "8=FIX.4.2|9=100|35=$messageType|" +
+                tagValues.joinToString("|") { "${it.first}=${it.second}" } + "|10=123|"
 
-        val fixMessage = FixMessage(
-            timestamp = LocalDateTime.now(),
-            direction = direction,
-            rawMessage = rawMessage,
-            messageType = messageType,
-            quickfixMessage = quickfixMessage,
-        )
+        val fixMessage =
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = direction,
+                rawMessage = rawMessage,
+                messageType = messageType,
+                quickfixMessage = quickfixMessage,
+            )
 
         val session = viewModel.activeSession
         session?.addMessage(fixMessage)
@@ -105,7 +108,7 @@ class MessageTemplateIntegrationTest {
             messageType = "D",
             direction = FixMessage.Direction.INCOMING,
             11 to "ORDER123",
-            55 to "EUR/USD"
+            55 to "EUR/USD",
         )
 
         // Add outgoing QuoteRequest (35=R)
@@ -113,7 +116,7 @@ class MessageTemplateIntegrationTest {
             messageType = "R",
             direction = FixMessage.Direction.OUTGOING,
             131 to "QUOTE456",
-            55 to "GBP/USD"
+            55 to "GBP/USD",
         )
 
         // Update the message maps
@@ -133,7 +136,7 @@ class MessageTemplateIntegrationTest {
             messageType = "D",
             direction = FixMessage.Direction.INCOMING,
             11 to "ORDER123",
-            55 to "EUR/USD"
+            55 to "EUR/USD",
         )
 
         // Update maps
@@ -141,11 +144,12 @@ class MessageTemplateIntegrationTest {
 
         // Create a template that references the incoming message
         val template = "\${incoming[\"D\"].valueOfTag(11)}"
-        val result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = viewModel.incomingMessagesByType,
-            outgoingMessages = viewModel.outgoingMessagesByType
-        )
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
 
         assertEquals("ORDER123", result)
     }
@@ -157,7 +161,7 @@ class MessageTemplateIntegrationTest {
             messageType = "R",
             direction = FixMessage.Direction.OUTGOING,
             131 to "QUOTE456",
-            55 to "GBP/USD"
+            55 to "GBP/USD",
         )
 
         // Update maps
@@ -165,11 +169,12 @@ class MessageTemplateIntegrationTest {
 
         // Create a template that references the outgoing message
         val template = "\${outgoing[\"R\"].valueOfTag(131)}"
-        val result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = viewModel.incomingMessagesByType,
-            outgoingMessages = viewModel.outgoingMessagesByType
-        )
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
 
         assertEquals("QUOTE456", result)
     }
@@ -181,7 +186,7 @@ class MessageTemplateIntegrationTest {
             messageType = "D",
             direction = FixMessage.Direction.INCOMING,
             11 to "ORDER123",
-            55 to "EUR/USD"
+            55 to "EUR/USD",
         )
 
         // Add outgoing QuoteRequest
@@ -189,7 +194,7 @@ class MessageTemplateIntegrationTest {
             messageType = "R",
             direction = FixMessage.Direction.OUTGOING,
             131 to "QUOTE456",
-            55 to "GBP/USD"
+            55 to "GBP/USD",
         )
 
         // Update maps
@@ -197,11 +202,12 @@ class MessageTemplateIntegrationTest {
 
         // Template that references both incoming and outgoing
         val template = "Response to \${incoming[\"D\"].valueOfTag(11)} for quote \${outgoing[\"R\"].valueOfTag(131)}"
-        val result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = viewModel.incomingMessagesByType,
-            outgoingMessages = viewModel.outgoingMessagesByType
-        )
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
 
         assertEquals("Response to ORDER123 for quote QUOTE456", result)
     }
@@ -213,16 +219,17 @@ class MessageTemplateIntegrationTest {
             messageType = "D",
             direction = FixMessage.Direction.INCOMING,
             11 to "ORDER123",
-            55 to "EUR/USD"
+            55 to "EUR/USD",
         )
 
         viewModel.updateMessageMaps()
         var template = "\${incoming[\"D\"].valueOfTag(11)}"
-        var result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = viewModel.incomingMessagesByType,
-            outgoingMessages = viewModel.outgoingMessagesByType
-        )
+        var result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
         assertEquals("ORDER123", result)
 
         // Add second NewOrderSingle (should replace the first)
@@ -230,15 +237,16 @@ class MessageTemplateIntegrationTest {
             messageType = "D",
             direction = FixMessage.Direction.INCOMING,
             11 to "ORDER999",
-            55 to "USD/JPY"
+            55 to "USD/JPY",
         )
 
         viewModel.updateMessageMaps()
-        result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = viewModel.incomingMessagesByType,
-            outgoingMessages = viewModel.outgoingMessagesByType
-        )
+        result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
         assertEquals("ORDER999", result) // Should get the latest message
     }
 
@@ -248,11 +256,12 @@ class MessageTemplateIntegrationTest {
         viewModel.updateMessageMaps()
 
         val template = "\${incoming[\"X\"].valueOfTag(11)}"
-        val result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = viewModel.incomingMessagesByType,
-            outgoingMessages = viewModel.outgoingMessagesByType
-        )
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
 
         assertEquals("null", result)
     }
@@ -263,17 +272,18 @@ class MessageTemplateIntegrationTest {
         addMessageToActiveSession(
             messageType = "D",
             direction = FixMessage.Direction.INCOMING,
-            11 to "ORDER123"
+            11 to "ORDER123",
         )
 
         viewModel.updateMessageMaps()
 
         val template = "\${incoming[\"D\"].valueOfTag(999)}"
-        val result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = viewModel.incomingMessagesByType,
-            outgoingMessages = viewModel.outgoingMessagesByType
-        )
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
 
         assertEquals("null", result)
     }
@@ -284,17 +294,18 @@ class MessageTemplateIntegrationTest {
         addMessageToActiveSession(
             messageType = "D",
             direction = FixMessage.Direction.OUTGOING,
-            11 to "ORDER123"
+            11 to "ORDER123",
         )
 
         viewModel.updateMessageMaps()
 
         val template = "\${outgoing[\"D\"].valueOfTag(11)}-\${UUID.randomUUID()}"
-        val result = FixMessageTemplate.evaluate(
-            template,
-            incomingMessages = viewModel.incomingMessagesByType,
-            outgoingMessages = viewModel.outgoingMessagesByType
-        )
+        val result =
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = viewModel.incomingMessagesByType,
+                outgoingMessages = viewModel.outgoingMessagesByType,
+            )
 
         // Verify it starts with the order ID
         assertTrue(result.startsWith("ORDER123-"))
@@ -309,33 +320,36 @@ class MessageTemplateIntegrationTest {
             messageType = "R",
             direction = FixMessage.Direction.INCOMING,
             131 to "QUOTEREQ-2025-001",
-            55 to "EUR/USD"
+            55 to "EUR/USD",
         )
 
         viewModel.updateMessageMaps()
 
         // Create field list with templates (using String for tag as required by FixField)
-        val fields = listOf(
-            FixField(tag = "35", value = "AJ"), // QuoteResponse
-            FixField(tag = "131", value = "\${incoming[\"R\"].valueOfTag(131)}"), // Reference incoming QuoteReqID
-            FixField(tag = "55", value = "\${incoming[\"R\"].valueOfTag(55)}"),   // Reference incoming Symbol
-            FixField(tag = "117", value = "\${UUID.randomUUID()}")                // Generate new QuoteID
-        )
+        val fields =
+            listOf(
+                FixField(tag = "35", value = "AJ"), // QuoteResponse
+                FixField(tag = "131", value = "\${incoming[\"R\"].valueOfTag(131)}"), // Reference incoming QuoteReqID
+                FixField(tag = "55", value = "\${incoming[\"R\"].valueOfTag(55)}"), // Reference incoming Symbol
+                FixField(tag = "117", value = "\${UUID.randomUUID()}"), // Generate new QuoteID
+            )
 
         // Resolve templates (this is what happens in App.kt onSend)
-        val resolvedFields = fields.map { field ->
-            if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
-                field.copy(
-                    value = FixMessageTemplate.evaluate(
-                        field.value,
-                        incomingMessages = viewModel.incomingMessagesByType,
-                        outgoingMessages = viewModel.outgoingMessagesByType
+        val resolvedFields =
+            fields.map { field ->
+                if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
+                    field.copy(
+                        value =
+                            FixMessageTemplate.evaluate(
+                                field.value,
+                                incomingMessages = viewModel.incomingMessagesByType,
+                                outgoingMessages = viewModel.outgoingMessagesByType,
+                            ),
                     )
-                )
-            } else {
-                field
+                } else {
+                    field
+                }
             }
-        }
 
         // Verify fields were resolved
         assertEquals("AJ", resolvedFields[0].value)
@@ -353,40 +367,43 @@ class MessageTemplateIntegrationTest {
             direction = FixMessage.Direction.INCOMING,
             131 to "QUOTEREQ-2025-12345",
             55 to "EUR/USD",
-            38 to "1000000"
+            38 to "1000000",
         )
 
         viewModel.updateMessageMaps()
 
         // 2. Send QuoteResponse referencing the incoming QuoteReqID
-        val quoteResponseTemplate = listOf(
-            FixField(tag = "35", value = "AJ"),
-            FixField(tag = "131", value = "\${incoming[\"R\"].valueOfTag(131)}"), // Same QuoteReqID
-            FixField(tag = "55", value = "\${incoming[\"R\"].valueOfTag(55)}"),   // Same Symbol
-            FixField(tag = "117", value = "QUOTE-\${UUID.randomUUID()}"),         // New QuoteID
-            FixField(tag = "132", value = "100.50"),                              // Bid price
-            FixField(tag = "133", value = "100.52")                               // Offer price
-        )
+        val quoteResponseTemplate =
+            listOf(
+                FixField(tag = "35", value = "AJ"),
+                FixField(tag = "131", value = "\${incoming[\"R\"].valueOfTag(131)}"), // Same QuoteReqID
+                FixField(tag = "55", value = "\${incoming[\"R\"].valueOfTag(55)}"), // Same Symbol
+                FixField(tag = "117", value = "QUOTE-\${UUID.randomUUID()}"), // New QuoteID
+                FixField(tag = "132", value = "100.50"), // Bid price
+                FixField(tag = "133", value = "100.52"), // Offer price
+            )
 
-        val resolvedQuoteResponse = quoteResponseTemplate.map { field ->
-            if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
-                field.copy(
-                    value = FixMessageTemplate.evaluate(
-                        field.value,
-                        incomingMessages = viewModel.incomingMessagesByType,
-                        outgoingMessages = viewModel.outgoingMessagesByType
+        val resolvedQuoteResponse =
+            quoteResponseTemplate.map { field ->
+                if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
+                    field.copy(
+                        value =
+                            FixMessageTemplate.evaluate(
+                                field.value,
+                                incomingMessages = viewModel.incomingMessagesByType,
+                                outgoingMessages = viewModel.outgoingMessagesByType,
+                            ),
                     )
-                )
-            } else {
-                field
+                } else {
+                    field
+                }
             }
-        }
 
         // Verify the quote response has correct values
         assertEquals("AJ", resolvedQuoteResponse[0].value)
         assertEquals("QUOTEREQ-2025-12345", resolvedQuoteResponse[1].value) // Referenced from incoming
-        assertEquals("EUR/USD", resolvedQuoteResponse[2].value)             // Referenced from incoming
-        assertTrue(resolvedQuoteResponse[3].value.startsWith("QUOTE-"))     // Generated QuoteID
+        assertEquals("EUR/USD", resolvedQuoteResponse[2].value) // Referenced from incoming
+        assertTrue(resolvedQuoteResponse[3].value.startsWith("QUOTE-")) // Generated QuoteID
         assertEquals("100.50", resolvedQuoteResponse[4].value)
         assertEquals("100.52", resolvedQuoteResponse[5].value)
     }

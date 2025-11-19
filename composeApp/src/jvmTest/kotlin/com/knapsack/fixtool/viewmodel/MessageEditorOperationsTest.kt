@@ -20,10 +20,11 @@ class MessageEditorOperationsTest {
     @Before
     fun setup() {
         // Create a temporary directory for test files (isolated from production)
-        testDir = File.createTempFile("fixtool-test", "").apply {
-            delete() // Delete the file
-            mkdirs() // Create as directory
-        }
+        testDir =
+            File.createTempFile("fixtool-test", "").apply {
+                delete() // Delete the file
+                mkdirs() // Create as directory
+            }
 
         // Backup and clear saved messages file to ensure test isolation
         originalFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
@@ -42,8 +43,8 @@ class MessageEditorOperationsTest {
         // Clean up test data and restore original file
         if (originalFile.exists()) {
             originalFile.delete()
-        // Clean up test directory
-        testDir.deleteRecursively()
+            // Clean up test directory
+            testDir.deleteRecursively()
         }
 
         // Restore backup if it exists

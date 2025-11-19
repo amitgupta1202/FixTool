@@ -26,10 +26,11 @@ class ErrorHandlingTest {
     @Before
     fun setup() {
         // Create a temporary directory for test files (isolated from production)
-        testDir = File.createTempFile("fixtool-test", "").apply {
-            delete() // Delete the file
-            mkdirs() // Create as directory
-        }
+        testDir =
+            File.createTempFile("fixtool-test", "").apply {
+                delete() // Delete the file
+                mkdirs() // Create as directory
+            }
 
         // Backup and prepare test environment
         settingsFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json")
@@ -67,8 +68,8 @@ class ErrorHandlingTest {
             if (it.exists()) {
                 it.copyTo(settingsFile, overwrite = true)
                 it.delete()
-        // Clean up test directory
-        testDir.deleteRecursively()
+                // Clean up test directory
+                testDir.deleteRecursively()
             }
         }
         profilesBackup?.let {

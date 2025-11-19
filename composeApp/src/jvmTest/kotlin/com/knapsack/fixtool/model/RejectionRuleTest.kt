@@ -8,7 +8,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RejectionRuleTest {
-
     private fun createQuickFixMessage(messageType: String): Message {
         val message = Message()
         message.header.setString(MsgType.FIELD, messageType)
@@ -39,11 +38,12 @@ class RejectionRuleTest {
 
     @Test
     fun testRuleWithAdditionalTagMatches() {
-        val rule = RejectionRule(
-            messageType = "AZ",
-            additionalTag = 905,
-            additionalValue = "3"
-        )
+        val rule =
+            RejectionRule(
+                messageType = "AZ",
+                additionalTag = 905,
+                additionalValue = "3",
+            )
         val message = createQuickFixMessageWithField("AZ", 905, "3")
 
         assertTrue(rule.matches(message, "AZ"))
@@ -51,11 +51,12 @@ class RejectionRuleTest {
 
     @Test
     fun testRuleWithAdditionalTagDoesNotMatchWrongValue() {
-        val rule = RejectionRule(
-            messageType = "AZ",
-            additionalTag = 905,
-            additionalValue = "3"
-        )
+        val rule =
+            RejectionRule(
+                messageType = "AZ",
+                additionalTag = 905,
+                additionalValue = "3",
+            )
         val message = createQuickFixMessageWithField("AZ", 905, "0")
 
         assertFalse(rule.matches(message, "AZ"))
@@ -63,11 +64,12 @@ class RejectionRuleTest {
 
     @Test
     fun testRuleWithAdditionalTagDoesNotMatchMissingTag() {
-        val rule = RejectionRule(
-            messageType = "AZ",
-            additionalTag = 905,
-            additionalValue = "3"
-        )
+        val rule =
+            RejectionRule(
+                messageType = "AZ",
+                additionalTag = 905,
+                additionalValue = "3",
+            )
         val message = createQuickFixMessage("AZ")
 
         assertFalse(rule.matches(message, "AZ"))
@@ -75,11 +77,12 @@ class RejectionRuleTest {
 
     @Test
     fun testRuleWithAdditionalTagRequiresMessageTypeMatch() {
-        val rule = RejectionRule(
-            messageType = "AZ",
-            additionalTag = 905,
-            additionalValue = "3"
-        )
+        val rule =
+            RejectionRule(
+                messageType = "AZ",
+                additionalTag = 905,
+                additionalValue = "3",
+            )
         val message = createQuickFixMessageWithField("BH", 905, "3")
 
         assertFalse(rule.matches(message, "BH"))
@@ -132,128 +135,139 @@ class RejectionRuleTest {
 
     @Test
     fun testDescriptionForComplexRule() {
-        val rule = RejectionRule(
-            messageType = "AZ",
-            additionalTag = 905,
-            additionalValue = "3"
-        )
+        val rule =
+            RejectionRule(
+                messageType = "AZ",
+                additionalTag = 905,
+                additionalValue = "3",
+            )
         assertEquals("35=AZ and 905=3", rule.description())
     }
 
     @Test
     fun testFixMessageUsesDefaultRulesWhenNotProvided() {
-        val message = FixMessage(
-            timestamp = java.time.LocalDateTime.now(),
-            direction = FixMessage.Direction.INCOMING,
-            rawMessage = "8=FIX.4.2|9=100|35=3|10=123|",
-            messageType = "3",
-            quickfixMessage = createQuickFixMessage("3")
-        )
+        val message =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.2|9=100|35=3|10=123|",
+                messageType = "3",
+                quickfixMessage = createQuickFixMessage("3"),
+            )
 
         assertTrue(message.isRejectionOrLogout())
     }
 
     @Test
     fun testFixMessageRecognizesSessionReject() {
-        val message = FixMessage(
-            timestamp = java.time.LocalDateTime.now(),
-            direction = FixMessage.Direction.INCOMING,
-            rawMessage = "8=FIX.4.2|9=100|35=3|10=123|",
-            messageType = "3",
-            quickfixMessage = createQuickFixMessage("3")
-        )
+        val message =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.2|9=100|35=3|10=123|",
+                messageType = "3",
+                quickfixMessage = createQuickFixMessage("3"),
+            )
 
         assertTrue(message.isRejectionOrLogout())
     }
 
     @Test
     fun testFixMessageRecognizesBusinessReject() {
-        val message = FixMessage(
-            timestamp = java.time.LocalDateTime.now(),
-            direction = FixMessage.Direction.INCOMING,
-            rawMessage = "8=FIX.4.2|9=100|35=j|10=123|",
-            messageType = "j",
-            quickfixMessage = createQuickFixMessage("j")
-        )
+        val message =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.2|9=100|35=j|10=123|",
+                messageType = "j",
+                quickfixMessage = createQuickFixMessage("j"),
+            )
 
         assertTrue(message.isRejectionOrLogout())
     }
 
     @Test
     fun testFixMessageRecognizesOrderCancelReject() {
-        val message = FixMessage(
-            timestamp = java.time.LocalDateTime.now(),
-            direction = FixMessage.Direction.INCOMING,
-            rawMessage = "8=FIX.4.2|9=100|35=9|10=123|",
-            messageType = "9",
-            quickfixMessage = createQuickFixMessage("9")
-        )
+        val message =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.2|9=100|35=9|10=123|",
+                messageType = "9",
+                quickfixMessage = createQuickFixMessage("9"),
+            )
 
         assertTrue(message.isRejectionOrLogout())
     }
 
     @Test
     fun testFixMessageRecognizesCustomRejection() {
-        val message = FixMessage(
-            timestamp = java.time.LocalDateTime.now(),
-            direction = FixMessage.Direction.INCOMING,
-            rawMessage = "8=FIX.4.2|9=100|35=AZ|905=3|10=123|",
-            messageType = "AZ",
-            quickfixMessage = createQuickFixMessageWithField("AZ", 905, "3")
-        )
+        val message =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.2|9=100|35=AZ|905=3|10=123|",
+                messageType = "AZ",
+                quickfixMessage = createQuickFixMessageWithField("AZ", 905, "3"),
+            )
 
         assertTrue(message.isRejectionOrLogout())
     }
 
     @Test
     fun testFixMessageDoesNotMatchNormalMessage() {
-        val message = FixMessage(
-            timestamp = java.time.LocalDateTime.now(),
-            direction = FixMessage.Direction.INCOMING,
-            rawMessage = "8=FIX.4.2|9=100|35=D|10=123|",
-            messageType = "D",
-            quickfixMessage = createQuickFixMessage("D")
-        )
+        val message =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.2|9=100|35=D|10=123|",
+                messageType = "D",
+                quickfixMessage = createQuickFixMessage("D"),
+            )
 
         assertFalse(message.isRejectionOrLogout())
     }
 
     @Test
     fun testFixMessageWithCustomRulesOnly() {
-        val customRules = listOf(
-            RejectionRule(messageType = "X"),
-            RejectionRule(messageType = "Y", additionalTag = 100, additionalValue = "1")
-        )
+        val customRules =
+            listOf(
+                RejectionRule(messageType = "X"),
+                RejectionRule(messageType = "Y", additionalTag = 100, additionalValue = "1"),
+            )
 
-        val message = FixMessage(
-            timestamp = java.time.LocalDateTime.now(),
-            direction = FixMessage.Direction.INCOMING,
-            rawMessage = "8=FIX.4.2|9=100|35=X|10=123|",
-            messageType = "X",
-            quickfixMessage = createQuickFixMessage("X")
-        )
+        val message =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.2|9=100|35=X|10=123|",
+                messageType = "X",
+                quickfixMessage = createQuickFixMessage("X"),
+            )
 
         assertTrue(message.isRejectionOrLogout(customRules))
 
         // Should not match default rules when custom rules provided
-        val sessionReject = FixMessage(
-            timestamp = java.time.LocalDateTime.now(),
-            direction = FixMessage.Direction.INCOMING,
-            rawMessage = "8=FIX.4.2|9=100|35=3|10=123|",
-            messageType = "3",
-            quickfixMessage = createQuickFixMessage("3")
-        )
+        val sessionReject =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.2|9=100|35=3|10=123|",
+                messageType = "3",
+                quickfixMessage = createQuickFixMessage("3"),
+            )
 
         assertFalse(sessionReject.isRejectionOrLogout(customRules))
     }
 
     @Test
     fun testRuleWithAdditionalTagSearchesHeader() {
-        val rule = RejectionRule(
-            messageType = "A",
-            additionalTag = 49, // SenderCompID is in header
-            additionalValue = "SENDER"
-        )
+        val rule =
+            RejectionRule(
+                messageType = "A",
+                additionalTag = 49, // SenderCompID is in header
+                additionalValue = "SENDER",
+            )
         val message = Message()
         message.header.setString(MsgType.FIELD, "A")
         message.header.setString(49, "SENDER")
@@ -263,11 +277,12 @@ class RejectionRuleTest {
 
     @Test
     fun testRuleWithAdditionalTagSearchesBody() {
-        val rule = RejectionRule(
-            messageType = "D",
-            additionalTag = 11, // ClOrdID is in body
-            additionalValue = "ORDER123"
-        )
+        val rule =
+            RejectionRule(
+                messageType = "D",
+                additionalTag = 11, // ClOrdID is in body
+                additionalValue = "ORDER123",
+            )
         val message = Message()
         message.header.setString(MsgType.FIELD, "D")
         message.setString(11, "ORDER123")

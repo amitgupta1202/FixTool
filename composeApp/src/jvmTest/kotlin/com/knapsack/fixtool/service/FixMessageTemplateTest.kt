@@ -572,11 +572,12 @@ class FixMessageTemplateTest {
     @Test
     fun testResolveTemplatesWithVariablesAcrossFields() {
         // Simulate message editor with multiple fields using the same variable
-        val fields = listOf(
-            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
-            FixField(tag = "132", value = "\${quoteReqId}"),
-            FixField(tag = "133", value = "\${quoteReqId}"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+                FixField(tag = "132", value = "\${quoteReqId}"),
+                FixField(tag = "133", value = "\${quoteReqId}"),
+            )
 
         val resolved = fields.resolveTemplates()
 
@@ -590,13 +591,14 @@ class FixMessageTemplateTest {
 
     @Test
     fun testResolveTemplatesWithMultipleVariables() {
-        val fields = listOf(
-            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
-            FixField(tag = "52", value = "\${timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}"),
-            FixField(tag = "132", value = "\${quoteReqId}"),
-            FixField(tag = "60", value = "\${timestamp}"),
-            FixField(tag = "133", value = "\${quoteReqId}"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+                FixField(tag = "52", value = "\${timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}"),
+                FixField(tag = "132", value = "\${quoteReqId}"),
+                FixField(tag = "60", value = "\${timestamp}"),
+                FixField(tag = "133", value = "\${quoteReqId}"),
+            )
 
         val resolved = fields.resolveTemplates()
 
@@ -617,14 +619,15 @@ class FixMessageTemplateTest {
 
     @Test
     fun testResolveTemplatesWithMixedFieldsAndVariables() {
-        val fields = listOf(
-            FixField(tag = "35", value = "R"), // Plain value
-            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"), // Assign variable
-            FixField(tag = "55", value = "EUR/USD"), // Plain value
-            FixField(tag = "132", value = "\${quoteReqId}"), // Reuse variable
-            FixField(tag = "54", value = "1"), // Plain value
-            FixField(tag = "133", value = "\${quoteReqId}"), // Reuse variable again
-        )
+        val fields =
+            listOf(
+                FixField(tag = "35", value = "R"), // Plain value
+                FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"), // Assign variable
+                FixField(tag = "55", value = "EUR/USD"), // Plain value
+                FixField(tag = "132", value = "\${quoteReqId}"), // Reuse variable
+                FixField(tag = "54", value = "1"), // Plain value
+                FixField(tag = "133", value = "\${quoteReqId}"), // Reuse variable again
+            )
 
         val resolved = fields.resolveTemplates()
 
@@ -643,12 +646,13 @@ class FixMessageTemplateTest {
     @Test
     fun testResolveTemplatesWithVariableAndNewExpression() {
         // Test that regular expressions still generate new values each time
-        val fields = listOf(
-            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
-            FixField(tag = "132", value = "\${quoteReqId}"),
-            FixField(tag = "133", value = "\${UUID.randomUUID()}"), // New UUID without variable
-            FixField(tag = "134", value = "\${quoteReqId}"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+                FixField(tag = "132", value = "\${quoteReqId}"),
+                FixField(tag = "133", value = "\${UUID.randomUUID()}"), // New UUID without variable
+                FixField(tag = "134", value = "\${quoteReqId}"),
+            )
 
         val resolved = fields.resolveTemplates()
 
@@ -666,11 +670,12 @@ class FixMessageTemplateTest {
 
     @Test
     fun testResolveTemplatesWithUndefinedVariable() {
-        val fields = listOf(
-            FixField(tag = "131", value = "\${undefinedVar}"), // Reference before assignment
-            FixField(tag = "132", value = "\${quoteReqId = UUID.randomUUID()}"),
-            FixField(tag = "133", value = "\${quoteReqId}"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "131", value = "\${undefinedVar}"), // Reference before assignment
+                FixField(tag = "132", value = "\${quoteReqId = UUID.randomUUID()}"),
+                FixField(tag = "133", value = "\${quoteReqId}"),
+            )
 
         val resolved = fields.resolveTemplates()
 
@@ -684,12 +689,13 @@ class FixMessageTemplateTest {
 
     @Test
     fun testResolveTemplatesWithComplexExpressions() {
-        val fields = listOf(
-            FixField(tag = "131", value = "\${baseId = UUID.randomUUID()}"),
-            FixField(tag = "132", value = "\${prefixedId = \"ORDER-\" + baseId}"),
-            FixField(tag = "133", value = "\${baseId}"),
-            FixField(tag = "134", value = "\${prefixedId}"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "131", value = "\${baseId = UUID.randomUUID()}"),
+                FixField(tag = "132", value = "\${prefixedId = \"ORDER-\" + baseId}"),
+                FixField(tag = "133", value = "\${baseId}"),
+                FixField(tag = "134", value = "\${prefixedId}"),
+            )
 
         val resolved = fields.resolveTemplates()
 
@@ -709,11 +715,12 @@ class FixMessageTemplateTest {
         val incomingMessage = createMockFixMessage("D", 11 to "ORDER123", 55 to "EUR/USD")
         val incomingMap = mapOf("D" to incomingMessage)
 
-        val fields = listOf(
-            FixField(tag = "131", value = "\${orderId = incoming[\"D\"].valueOfTag(11)}"),
-            FixField(tag = "132", value = "\${orderId}"),
-            FixField(tag = "133", value = "\${orderId}"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "131", value = "\${orderId = incoming[\"D\"].valueOfTag(11)}"),
+                FixField(tag = "132", value = "\${orderId}"),
+                FixField(tag = "133", value = "\${orderId}"),
+            )
 
         val resolved = fields.resolveTemplates(incomingMessages = incomingMap)
 
@@ -726,15 +733,16 @@ class FixMessageTemplateTest {
     @Test
     fun testResolveTemplatesRealWorldQuoteRequest() {
         // Simulates the exact use case: building a QuoteRequest with same ID in multiple tags
-        val fields = listOf(
-            FixField(tag = "35", value = "R"),
-            FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
-            FixField(tag = "132", value = "\${quoteReqId}"),
-            FixField(tag = "133", value = "\${quoteReqId}"),
-            FixField(tag = "55", value = "EUR/USD"),
-            FixField(tag = "52", value = "\${sendingTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"),
-            FixField(tag = "60", value = "\${sendingTime}"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "35", value = "R"),
+                FixField(tag = "131", value = "\${quoteReqId = UUID.randomUUID()}"),
+                FixField(tag = "132", value = "\${quoteReqId}"),
+                FixField(tag = "133", value = "\${quoteReqId}"),
+                FixField(tag = "55", value = "EUR/USD"),
+                FixField(tag = "52", value = "\${sendingTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"),
+                FixField(tag = "60", value = "\${sendingTime}"),
+            )
 
         val resolved = fields.resolveTemplates()
 

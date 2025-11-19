@@ -162,7 +162,8 @@ private fun loadHelpHtml(): String =
     try {
         val inputStream = object {}.javaClass.getResourceAsStream("/help.html")
         inputStream?.bufferedReader()?.readText()
-            ?: """
+            ?:
+                """
                 <!DOCTYPE html>
                 <html>
                 <head><title>Help Not Found</title></head>

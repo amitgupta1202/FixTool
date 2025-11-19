@@ -6,7 +6,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 
 class MessageColorSchemeTest {
-
     @Test
     fun testDefaultScheme() {
         val scheme = MessageColorScheme.default()
@@ -77,11 +76,12 @@ class MessageColorSchemeTest {
     fun testGetMessageColorOutgoing() {
         val scheme = MessageColorScheme.default()
 
-        val color = scheme.getMessageColor(
-            direction = FixMessage.Direction.OUTGOING,
-            isRejection = false,
-            isBright = true
-        )
+        val color =
+            scheme.getMessageColor(
+                direction = FixMessage.Direction.OUTGOING,
+                isRejection = false,
+                isBright = true,
+            )
 
         // Should return outgoing color (blue)
         assertEquals(Color(0xFF569CD6), color)
@@ -91,11 +91,12 @@ class MessageColorSchemeTest {
     fun testGetMessageColorIncoming() {
         val scheme = MessageColorScheme.default()
 
-        val color = scheme.getMessageColor(
-            direction = FixMessage.Direction.INCOMING,
-            isRejection = false,
-            isBright = true
-        )
+        val color =
+            scheme.getMessageColor(
+                direction = FixMessage.Direction.INCOMING,
+                isRejection = false,
+                isBright = true,
+            )
 
         // Should return incoming color (teal)
         assertEquals(Color(0xFF4EC9B0), color)
@@ -106,17 +107,19 @@ class MessageColorSchemeTest {
         val scheme = MessageColorScheme.default()
 
         // Rejection should override direction
-        val colorOutgoing = scheme.getMessageColor(
-            direction = FixMessage.Direction.OUTGOING,
-            isRejection = true,
-            isBright = true
-        )
+        val colorOutgoing =
+            scheme.getMessageColor(
+                direction = FixMessage.Direction.OUTGOING,
+                isRejection = true,
+                isBright = true,
+            )
 
-        val colorIncoming = scheme.getMessageColor(
-            direction = FixMessage.Direction.INCOMING,
-            isRejection = true,
-            isBright = true
-        )
+        val colorIncoming =
+            scheme.getMessageColor(
+                direction = FixMessage.Direction.INCOMING,
+                isRejection = true,
+                isBright = true,
+            )
 
         // Both should return rejection color (red)
         assertEquals(Color(0xFFE06C75), colorOutgoing)
@@ -130,17 +133,17 @@ class MessageColorSchemeTest {
         // Bright and dull variants should be different
         assertNotEquals(
             scheme.getOutgoingColor(true),
-            scheme.getOutgoingColor(false)
+            scheme.getOutgoingColor(false),
         )
 
         assertNotEquals(
             scheme.getIncomingColor(true),
-            scheme.getIncomingColor(false)
+            scheme.getIncomingColor(false),
         )
 
         assertNotEquals(
             scheme.getRejectionColor(true),
-            scheme.getRejectionColor(false)
+            scheme.getRejectionColor(false),
         )
     }
 
@@ -149,27 +152,30 @@ class MessageColorSchemeTest {
         val scheme = MessageColorScheme.monochrome()
 
         // Outgoing normal message - should be white
-        val outgoingNormal = scheme.getMessageColor(
-            direction = FixMessage.Direction.OUTGOING,
-            isRejection = false,
-            isBright = true
-        )
+        val outgoingNormal =
+            scheme.getMessageColor(
+                direction = FixMessage.Direction.OUTGOING,
+                isRejection = false,
+                isBright = true,
+            )
         assertEquals(Color(0xFFFFFFFF), outgoingNormal)
 
         // Incoming normal message - should be white
-        val incomingNormal = scheme.getMessageColor(
-            direction = FixMessage.Direction.INCOMING,
-            isRejection = false,
-            isBright = true
-        )
+        val incomingNormal =
+            scheme.getMessageColor(
+                direction = FixMessage.Direction.INCOMING,
+                isRejection = false,
+                isBright = true,
+            )
         assertEquals(Color(0xFFFFFFFF), incomingNormal)
 
         // Rejection message - should be red
-        val rejection = scheme.getMessageColor(
-            direction = FixMessage.Direction.INCOMING,
-            isRejection = true,
-            isBright = true
-        )
+        val rejection =
+            scheme.getMessageColor(
+                direction = FixMessage.Direction.INCOMING,
+                isRejection = true,
+                isBright = true,
+            )
         assertEquals(Color(0xFFE06C75), rejection)
     }
 

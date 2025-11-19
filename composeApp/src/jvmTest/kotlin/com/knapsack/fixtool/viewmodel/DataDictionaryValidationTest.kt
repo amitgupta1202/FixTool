@@ -20,10 +20,11 @@ class DataDictionaryValidationTest {
     @Before
     fun setup() {
         // Create a temporary directory for test files (isolated from production)
-        testDir = File.createTempFile("fixtool-test", "").apply {
-            delete() // Delete the file
-            mkdirs() // Create as directory
-        }
+        testDir =
+            File.createTempFile("fixtool-test", "").apply {
+                delete() // Delete the file
+                mkdirs() // Create as directory
+            }
     }
 
     @After
@@ -75,7 +76,9 @@ class DataDictionaryValidationTest {
         val settings = AppSettings(defaultDataDictionary = invalidPath)
 
         // When: Settings are saved and ViewModel is initialized
-        val settingsService = com.knapsack.fixtool.service.AppSettingsService(customSettingsDir = testDir.absolutePath)
+        val settingsService =
+            com.knapsack.fixtool.service
+                .AppSettingsService(customSettingsDir = testDir.absolutePath)
         settingsService.saveSettings(settings)
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
@@ -132,7 +135,9 @@ class DataDictionaryValidationTest {
         try {
             // When: Settings are saved with valid path and ViewModel is initialized
             val validPath = tempDictionary.absolutePath
-            val settingsService = com.knapsack.fixtool.service.AppSettingsService(customSettingsDir = testDir.absolutePath)
+            val settingsService =
+                com.knapsack.fixtool.service
+                    .AppSettingsService(customSettingsDir = testDir.absolutePath)
             val settings = AppSettings(defaultDataDictionary = validPath)
             settingsService.saveSettings(settings)
             viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
@@ -186,7 +191,9 @@ class DataDictionaryValidationTest {
     fun testSaveSettings_WithValidPath_ClearsValidationError() {
         // Given: ViewModel is initialized with invalid dictionary
         val invalidPath = "/non/existent/path/dictionary.xml"
-        val settingsService = com.knapsack.fixtool.service.AppSettingsService(customSettingsDir = testDir.absolutePath)
+        val settingsService =
+            com.knapsack.fixtool.service
+                .AppSettingsService(customSettingsDir = testDir.absolutePath)
         val initialSettings = AppSettings(defaultDataDictionary = invalidPath)
         settingsService.saveSettings(initialSettings)
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)

@@ -11,7 +11,6 @@ import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 
 class ConnectionProfileServiceTest {
     private lateinit var testProfilesFile: File
@@ -28,10 +27,11 @@ class ConnectionProfileServiceTest {
 
         testProfilesFile = File(testDir, "connection_profiles.json")
 
-        json = Json {
-            prettyPrint = true
-            ignoreUnknownKeys = true
-        }
+        json =
+            Json {
+                prettyPrint = true
+                ignoreUnknownKeys = true
+            }
     }
 
     @After
@@ -42,11 +42,12 @@ class ConnectionProfileServiceTest {
 
     @Test
     fun testSerializeProfileWithEmptySessionQualifier() {
-        val profile = createTestProfile(
-            id = "test-1",
-            name = "Test Profile",
-            sessionQualifier = ""
-        )
+        val profile =
+            createTestProfile(
+                id = "test-1",
+                name = "Test Profile",
+                sessionQualifier = "",
+            )
 
         val container = ProfilesContainer(listOf(profile))
         val jsonString = json.encodeToString(container)
@@ -62,11 +63,12 @@ class ConnectionProfileServiceTest {
 
     @Test
     fun testSerializeProfileWithSessionQualifier() {
-        val profile = createTestProfile(
-            id = "dev1",
-            name = "DEV1-BuySide",
-            sessionQualifier = "DEV1"
-        )
+        val profile =
+            createTestProfile(
+                id = "dev1",
+                name = "DEV1-BuySide",
+                sessionQualifier = "DEV1",
+            )
 
         val container = ProfilesContainer(listOf(profile))
         val jsonString = json.encodeToString(container)
@@ -82,29 +84,32 @@ class ConnectionProfileServiceTest {
 
     @Test
     fun testSerializeMultipleProfilesWithDifferentQualifiers() {
-        val dev1Profile = createTestProfile(
-            id = "dev1",
-            name = "DEV1-BuySide",
-            senderCompID = "SENDER_CLIENT",
-            targetCompID = "TARGET_SERVER",
-            sessionQualifier = "DEV1"
-        )
+        val dev1Profile =
+            createTestProfile(
+                id = "dev1",
+                name = "DEV1-BuySide",
+                senderCompID = "SENDER_CLIENT",
+                targetCompID = "TARGET_SERVER",
+                sessionQualifier = "DEV1",
+            )
 
-        val localProfile = createTestProfile(
-            id = "local",
-            name = "Local-BuySide",
-            senderCompID = "SENDER_CLIENT",
-            targetCompID = "TARGET_SERVER",
-            sessionQualifier = "LOCAL"
-        )
+        val localProfile =
+            createTestProfile(
+                id = "local",
+                name = "Local-BuySide",
+                senderCompID = "SENDER_CLIENT",
+                targetCompID = "TARGET_SERVER",
+                sessionQualifier = "LOCAL",
+            )
 
-        val qa1Profile = createTestProfile(
-            id = "qa1",
-            name = "QA1-BuySide",
-            senderCompID = "SENDER_CLIENT",
-            targetCompID = "TARGET_SERVER",
-            sessionQualifier = "QA1"
-        )
+        val qa1Profile =
+            createTestProfile(
+                id = "qa1",
+                name = "QA1-BuySide",
+                senderCompID = "SENDER_CLIENT",
+                targetCompID = "TARGET_SERVER",
+                sessionQualifier = "QA1",
+            )
 
         val container = ProfilesContainer(listOf(dev1Profile, localProfile, qa1Profile))
         val jsonString = json.encodeToString(container)
@@ -131,7 +136,8 @@ class ConnectionProfileServiceTest {
     @Test
     fun testDeserializeLegacyProfileWithoutSessionQualifier() {
         // Simulate an old profile JSON without sessionQualifier field
-        val legacyJson = """
+        val legacyJson =
+            """
             {
                 "profiles": [
                     {
@@ -158,7 +164,7 @@ class ConnectionProfileServiceTest {
                     }
                 ]
             }
-        """.trimIndent()
+            """.trimIndent()
 
         testProfilesFile.writeText(legacyJson)
 
@@ -175,21 +181,23 @@ class ConnectionProfileServiceTest {
         val senderCompID = "common.sender@example.com"
         val targetCompID = "COMMON_TARGET"
 
-        val profile1 = createTestProfile(
-            id = "env1",
-            name = "Environment 1",
-            senderCompID = senderCompID,
-            targetCompID = targetCompID,
-            sessionQualifier = "ENV1"
-        )
+        val profile1 =
+            createTestProfile(
+                id = "env1",
+                name = "Environment 1",
+                senderCompID = senderCompID,
+                targetCompID = targetCompID,
+                sessionQualifier = "ENV1",
+            )
 
-        val profile2 = createTestProfile(
-            id = "env2",
-            name = "Environment 2",
-            senderCompID = senderCompID,
-            targetCompID = targetCompID,
-            sessionQualifier = "ENV2"
-        )
+        val profile2 =
+            createTestProfile(
+                id = "env2",
+                name = "Environment 2",
+                senderCompID = senderCompID,
+                targetCompID = targetCompID,
+                sessionQualifier = "ENV2",
+            )
 
         val container = ProfilesContainer(listOf(profile1, profile2))
         val jsonString = json.encodeToString(container)
@@ -219,24 +227,24 @@ class ConnectionProfileServiceTest {
         name: String,
         senderCompID: String = "SENDER",
         targetCompID: String = "TARGET",
-        sessionQualifier: String = ""
-    ): FixConnectionProfile {
-        return FixConnectionProfile(
+        sessionQualifier: String = "",
+    ): FixConnectionProfile =
+        FixConnectionProfile(
             id = id,
             name = name,
-            config = FixConnectionConfig(
-                senderCompID = senderCompID,
-                targetCompID = targetCompID,
-                sessionQualifier = sessionQualifier,
-                username = "testuser",
-                password = "testpass",
-                host = "localhost",
-                port = "9876",
-                beginString = "FIX.4.4",
-                heartBtInt = "30"
-            )
+            config =
+                FixConnectionConfig(
+                    senderCompID = senderCompID,
+                    targetCompID = targetCompID,
+                    sessionQualifier = sessionQualifier,
+                    username = "testuser",
+                    password = "testpass",
+                    host = "localhost",
+                    port = "9876",
+                    beginString = "FIX.4.4",
+                    heartBtInt = "30",
+                ),
         )
-    }
 
     @Serializable
     private data class ProfilesContainer(

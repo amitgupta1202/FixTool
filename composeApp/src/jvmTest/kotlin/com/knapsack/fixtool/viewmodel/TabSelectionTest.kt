@@ -24,10 +24,11 @@ class TabSelectionTest {
     @Before
     fun setup() {
         // Create a temporary directory for test files (isolated from production)
-        testDir = File.createTempFile("fixtool-test", "").apply {
-            delete() // Delete the file
-            mkdirs() // Create as directory
-        }
+        testDir =
+            File.createTempFile("fixtool-test", "").apply {
+                delete() // Delete the file
+                mkdirs() // Create as directory
+            }
 
         // Create a minimal test dictionary
         testDictionaryFile = File.createTempFile("test_dict", ".xml")
@@ -74,8 +75,8 @@ class TabSelectionTest {
     fun cleanup() {
         if (testDictionaryFile.exists()) {
             testDictionaryFile.delete()
-        // Clean up test directory
-        testDir.deleteRecursively()
+            // Clean up test directory
+            testDir.deleteRecursively()
         }
     }
 

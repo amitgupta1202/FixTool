@@ -871,13 +871,14 @@ class ConnectionPanelTest {
 
     @Test
     fun testLoadProfileWithSessionQualifier() {
-        val profileWithQualifier = createTestProfile(
-            id = "dev1",
-            name = "DEV1 Profile",
-            senderCompID = "SENDER_CLIENT",
-            targetCompID = "TARGET_SERVER",
-            sessionQualifier = "DEV1"
-        )
+        val profileWithQualifier =
+            createTestProfile(
+                id = "dev1",
+                name = "DEV1 Profile",
+                senderCompID = "SENDER_CLIENT",
+                targetCompID = "TARGET_SERVER",
+                sessionQualifier = "DEV1",
+            )
         val profiles = listOf(profileWithQualifier)
 
         var savedProfile: FixConnectionProfile? = null
@@ -917,13 +918,14 @@ class ConnectionPanelTest {
     @Test
     fun testCloneProfilePreservesSessionQualifier() {
         var clonedProfile: FixConnectionProfile? = null
-        val originalProfile = createTestProfile(
-            id = "original-qual",
-            name = "Original Qualified",
-            senderCompID = "SENDER_QUAL",
-            targetCompID = "TARGET_QUAL",
-            sessionQualifier = "ORIGINAL_QUAL"
-        )
+        val originalProfile =
+            createTestProfile(
+                id = "original-qual",
+                name = "Original Qualified",
+                senderCompID = "SENDER_QUAL",
+                targetCompID = "TARGET_QUAL",
+                sessionQualifier = "ORIGINAL_QUAL",
+            )
         val profiles = listOf(originalProfile)
 
         composeTestRule.setContent {
@@ -935,10 +937,11 @@ class ConnectionPanelTest {
                 onSaveProfile = { },
                 onDeleteProfile = { },
                 onCloneProfile = { profile ->
-                    val cloned = profile.copy(
-                        id = "cloned-${profile.id}",
-                        name = "${profile.name} (Copy)"
-                    )
+                    val cloned =
+                        profile.copy(
+                            id = "cloned-${profile.id}",
+                            name = "${profile.name} (Copy)",
+                        )
                     clonedProfile = cloned
                     cloned
                 },

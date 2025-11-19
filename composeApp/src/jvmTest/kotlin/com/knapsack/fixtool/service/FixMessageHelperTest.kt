@@ -23,11 +23,12 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormat() {
-        val input = """
+        val input =
+            """
             35 D
             49 SENDER
             56 TARGET
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -36,11 +37,12 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithInlineComments() {
-        val input = """
+        val input =
+            """
             35 D
             49 SENDER #this is a comment
             56 TARGET
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -49,13 +51,14 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithFullLineComments() {
-        val input = """
+        val input =
+            """
             35 D
             # This is a full line comment
             49 SENDER
             #Another comment
             56 TARGET
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -64,13 +67,14 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithMixedComments() {
-        val input = """
+        val input =
+            """
             35 R
             131 ORD1 #this is comment
             #49 WRONG_COMMENTED
             45 ABC XYY
             60 123
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -79,11 +83,12 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithExtraWhitespace() {
-        val input = """
+        val input =
+            """
             35   D
                49    SENDER
             56 TARGET
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -92,14 +97,15 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithBlankLines() {
-        val input = """
+        val input =
+            """
             35 D
 
             49 SENDER
 
 
             56 TARGET
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -126,11 +132,12 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithMultiWordValue() {
-        val input = """
+        val input =
+            """
             35 D
             58 This is a multi word value
             56 TARGET
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -139,12 +146,13 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithNumericValues() {
-        val input = """
+        val input =
+            """
             35 D
             38 1000
             44 99.50
             54 1
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -169,11 +177,12 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithOnlyComments() {
-        val input = """
+        val input =
+            """
             # Comment 1
             # Comment 2
             # Comment 3
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -182,10 +191,11 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithTagsOnly() {
-        val input = """
+        val input =
+            """
             35
             49
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -194,11 +204,12 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatWithNonNumericTags() {
-        val input = """
+        val input =
+            """
             35 D
             ABC INVALID
             49 SENDER
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -207,11 +218,12 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeMixedFormatDefaultsToTraditional() {
-        val input = """
+        val input =
+            """
             35=D
             49 SENDER
             56=TARGET
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
@@ -223,7 +235,8 @@ class FixMessageHelperTest {
 
     @Test
     fun testNormalizeLineBasedFormatComplexExample() {
-        val input = """
+        val input =
+            """
             # Order message
             35 D
             49 SENDER_COMP
@@ -237,32 +250,33 @@ class FixMessageHelperTest {
             40 2
             44 1.0950
             # End of order
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
         assertEquals(
             "35=D|49=SENDER_COMP|56=TARGET_COMP|11=ORDER-123|21=1|55=EUR/USD|54=1|38=1000000|40=2|44=1.0950|",
             result,
-            "Complex message with comments should parse correctly"
+            "Complex message with comments should parse correctly",
         )
     }
 
     @Test
     fun testNormalizeLineBasedFormatWithSpecialCharacters() {
-        val input = """
+        val input =
+            """
             35 D
             58 Value with = sign
             55 EUR/USD
             100 EX-CHANGE
-        """.trimIndent()
+            """.trimIndent()
 
         val result = input.normalizeFixMessage()
 
         assertEquals(
             "35=D|58=Value with = sign|55=EUR/USD|100=EX-CHANGE|",
             result,
-            "Special characters in values should be preserved"
+            "Special characters in values should be preserved",
         )
     }
 

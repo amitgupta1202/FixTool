@@ -20,6 +20,17 @@ import javax.script.ScriptException
 object FixMessageTemplate {
     private val EXPRESSION_REGEX = """\$\{([^}]+)}""".toRegex()
 
+    // Cache the script engine to avoid expensive re-initialization
+    // Script engine initialization can take 100-1000ms, so reusing it dramatically improves performance
+    private val scriptEngine by lazy {
+        ScriptEngineManager().getEngineByExtension("kts")
+            ?: error("Kotlin script engine not found.")
+    }
+
+    // Cache extracted message data to avoid re-processing the same messages
+    // Key: message object identity, Value: extracted field data
+    private val extractedDataCache = java.util.concurrent.ConcurrentHashMap<quickfix.Message, Map<Int, List<String>>>()
+
     /**
      * Evaluates all Kotlin expressions in the given string value.
      * Expressions are in the format: ${kotlinExpression}
@@ -103,14 +114,17 @@ object FixMessageTemplate {
         variables: MutableMap<String, String>,
     ): String =
         try {
+            val evaluationStart = System.currentTimeMillis()
             logger.debug("Evaluating expression: {}", expression)
             logger.debug("Available incoming message types: {}", incomingMessages.keys.joinToString(","))
             logger.debug("Available outgoing message types: {}", outgoingMessages.keys.joinToString(","))
 
-            // Create a new script engine for this evaluation
-            val engine =
-                ScriptEngineManager().getEngineByExtension("kts")
-                    ?: error("Kotlin script engine not found.")
+            // Performance optimization: Check if expression references messages
+            // If not, we can skip expensive field extraction
+            val needsIncoming = expression.contains("incoming[")
+            val needsOutgoing = expression.contains("outgoing[")
+
+            logger.debug("Expression needs incoming: $needsIncoming, outgoing: $needsOutgoing")
 
             // Build helper objects that can be serialized into the script
             // Extract message data into simple maps
@@ -180,16 +194,34 @@ object FixMessageTemplate {
                 return tags.mapValues { it.value.toList() }.toMap()
             }
 
-            // Extract message data - support multiple values per tag (repeating groups)
-            val incomingData =
+            // Performance optimization: Only extract message data if the expression needs it
+            // This avoids expensive field extraction + hasGroup() checks for simple expressions
+            val extractionStart = System.currentTimeMillis()
+            val incomingData = if (needsIncoming && incomingMessages.isNotEmpty()) {
                 incomingMessages.mapValues { (_, msg) ->
-                    extractAllFields(msg.quickfixMessage)
+                    // Use cache to avoid re-extracting the same message
+                    extractedDataCache.getOrPut(msg.quickfixMessage) {
+                        extractAllFields(msg.quickfixMessage)
+                    }
                 }
+            } else {
+                emptyMap()
+            }
 
-            val outgoingData =
+            val outgoingData = if (needsOutgoing && outgoingMessages.isNotEmpty()) {
                 outgoingMessages.mapValues { (_, msg) ->
-                    extractAllFields(msg.quickfixMessage)
+                    // Use cache to avoid re-extracting the same message
+                    extractedDataCache.getOrPut(msg.quickfixMessage) {
+                        extractAllFields(msg.quickfixMessage)
+                    }
                 }
+            } else {
+                emptyMap()
+            }
+            val extractionDuration = System.currentTimeMillis() - extractionStart
+            if (extractionDuration > 50) {
+                logger.warn("Message extraction took ${extractionDuration}ms")
+            }
 
             // Build helper class definition and data as part of the script
             val helperCode =
@@ -270,10 +302,18 @@ object FixMessageTemplate {
                     appendLine(expression)
                 }
 
-            // Evaluate the complete script
-            val result = engine.eval(helperCode)
+            // Evaluate the complete script using cached script engine
+            val scriptStart = System.currentTimeMillis()
+            val result = scriptEngine.eval(helperCode)
+            val scriptDuration = System.currentTimeMillis() - scriptStart
+
             val resultStr = result?.toString() ?: "null"
-            logger.debug("Expression '{}' evaluated to: {}", expression, resultStr)
+
+            val totalDuration = System.currentTimeMillis() - evaluationStart
+            if (totalDuration > 100) {
+                logger.warn("SLOW EVALUATION: Total ${totalDuration}ms (extraction: ${extractionDuration}ms, script: ${scriptDuration}ms) for expression: $expression")
+            }
+            logger.debug("Expression '{}' evaluated to: {} in {}ms", expression, resultStr, totalDuration)
             resultStr
         } catch (e: ScriptException) {
             // If evaluation fails, return the original expression

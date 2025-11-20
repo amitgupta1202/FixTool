@@ -125,28 +125,24 @@ object FixMessageTemplate {
                 val startTime = System.currentTimeMillis()
                 val tags = mutableMapOf<Int, MutableList<String>>()
 
-                // Extract regular fields
-                val regularFieldsStart = System.currentTimeMillis()
-                fieldMap.iterator().forEach { field ->
-                    tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
-                }
-                val regularFieldsDuration = System.currentTimeMillis() - regularFieldsStart
-                if (regularFieldsDuration > 100) {
-                    logger.warn("extractAllFields: Regular fields extraction took ${regularFieldsDuration}ms")
-                }
-
-                // Extract fields from repeating groups
-                // Check each field to see if it's a group count field
-                val groupExtractionStart = System.currentTimeMillis()
+                // Optimize: Single iteration through all fields
+                // Extract regular fields AND check for groups in one pass
+                var fieldCount = 0
                 var groupCheckCount = 0
                 var actualGroupsFound = 0
+
                 fieldMap.iterator().forEach { field ->
-                    groupCheckCount++
+                    fieldCount++
+
+                    // Always add the field value first
+                    tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
+
+                    // Then check if this field also defines a group
                     try {
-                        // Check if this tag actually defines a group in the message
                         val hasGroupCheck = System.currentTimeMillis()
                         val hasGroup = fieldMap.hasGroup(field.tag)
                         val hasGroupDuration = System.currentTimeMillis() - hasGroupCheck
+                        groupCheckCount++
 
                         if (hasGroupDuration > 10) {
                             logger.warn("extractAllFields: hasGroup check for tag ${field.tag} took ${hasGroupDuration}ms")
@@ -175,11 +171,10 @@ object FixMessageTemplate {
                         // Not a group count field, skip
                     }
                 }
-                val groupExtractionDuration = System.currentTimeMillis() - groupExtractionStart
 
                 val totalDuration = System.currentTimeMillis() - startTime
                 if (totalDuration > 100) {
-                    logger.warn("extractAllFields: SLOW EXTRACTION - Total: ${totalDuration}ms, Regular: ${regularFieldsDuration}ms, Groups: ${groupExtractionDuration}ms, Checked ${groupCheckCount} fields, Found ${actualGroupsFound} groups")
+                    logger.warn("extractAllFields: SLOW EXTRACTION - Total: ${totalDuration}ms for ${fieldCount} fields, ${groupCheckCount} hasGroup checks, ${actualGroupsFound} groups found")
                 }
 
                 return tags.mapValues { it.value.toList() }.toMap()

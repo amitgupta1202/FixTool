@@ -726,15 +726,36 @@ private fun AppMessageEditorPanel(
         },
         onClearFields = { viewModel.clearEditorFields() },
         onClose = { viewModel.toggleMessageEditor() },
-        onSend = { fields ->
+        onSend = onSend@{ fields ->
             // Update message maps before resolving templates
             viewModel.updateMessageMaps()
 
             // Debug logging
-            logger.debug("Message maps - Incoming: {}, Outgoing: {}",
+            logger.debug(
+                "Message maps - Incoming: {}, Outgoing: {}",
                 viewModel.incomingMessagesByType.keys.joinToString(","),
-                viewModel.outgoingMessagesByType.keys.joinToString(",")
+                viewModel.outgoingMessagesByType.keys.joinToString(","),
             )
+
+            // FIRST: Validate template expressions before sending
+            val templateErrors =
+                viewModel.validateTemplateExpressions(
+                    fields,
+                    viewModel.incomingMessagesByType,
+                    viewModel.outgoingMessagesByType,
+                )
+
+            if (templateErrors.isNotEmpty()) {
+                // Block send if template validation fails
+                viewModel.setEditorValidationErrors(
+                    listOf("❌ Cannot send message - Fix template expression errors:") + templateErrors,
+                )
+                logger.warn("Send blocked due to template expression errors: {}", templateErrors.joinToString(", "))
+                return@onSend
+            }
+
+            // Clear any previous validation errors
+            viewModel.clearEditorValidationErrors()
 
             // Resolve template expressions with access to previous messages
             val resolvedFields =

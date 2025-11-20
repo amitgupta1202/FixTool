@@ -55,16 +55,18 @@ class SavedMessagesService(
 
                 // Migrate legacy data: if we have messagesByProfile but no messages, migrate them
                 if (container.messages.isEmpty() && container.messagesByProfile.isNotEmpty()) {
-                    val migratedMessages = container.messagesByProfile.flatMap { (profileId, messages) ->
-                        messages.map { message ->
-                            // Ensure old messages have the profileId in their userTags
-                            if (message.userTags.isEmpty()) {
-                                message.copy(userTags = setOf(profileId))
-                            } else {
-                                message
-                            }
-                        }
-                    }.distinctBy { it.id } // Remove duplicates by ID
+                    val migratedMessages =
+                        container.messagesByProfile
+                            .flatMap { (profileId, messages) ->
+                                messages.map { message ->
+                                    // Ensure old messages have the profileId in their userTags
+                                    if (message.userTags.isEmpty()) {
+                                        message.copy(userTags = setOf(profileId))
+                                    } else {
+                                        message
+                                    }
+                                }
+                            }.distinctBy { it.id } // Remove duplicates by ID
 
                     SavedMessagesContainer(
                         messagesByProfile = emptyMap(), // Clear legacy data after migration
@@ -114,12 +116,20 @@ class SavedMessagesService(
         val container = loadAll()
         val allMessages = container.messages.toMutableList()
 
+        // Ensure the message has the profileId in its userTags if no tags are set
+        val messageToSave =
+            if (message.userTags.isEmpty() && message.profileId.isBlank()) {
+                message.copy(userTags = setOf(profileId))
+            } else {
+                message
+            }
+
         // Check if message with same ID exists, update it, otherwise add new
-        val existingIndex = allMessages.indexOfFirst { it.id == message.id }
+        val existingIndex = allMessages.indexOfFirst { it.id == messageToSave.id }
         if (existingIndex >= 0) {
-            allMessages[existingIndex] = message
+            allMessages[existingIndex] = messageToSave
         } else {
-            allMessages.add(message)
+            allMessages.add(messageToSave)
         }
 
         val updatedContainer =

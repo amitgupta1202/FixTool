@@ -9,6 +9,7 @@ import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
+import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.SavedMessagesService
 import com.knapsack.fixtool.service.demo.DemoServerManager
@@ -162,14 +163,16 @@ class FixMessageViewModel(
     val savedMessages: List<SavedFixMessage> = _savedMessages
 
     // Track message editor state (new, clean, dirty)
-    private val _editorState = MutableStateFlow<com.knapsack.fixtool.model.MessageEditorState>(
-        com.knapsack.fixtool.model.MessageEditorState.New,
-    )
+    private val _editorState =
+        MutableStateFlow<com.knapsack.fixtool.model.MessageEditorState>(
+            com.knapsack.fixtool.model.MessageEditorState.New,
+        )
     val editorState: StateFlow<com.knapsack.fixtool.model.MessageEditorState> = _editorState
 
     // Backwards compatibility: expose message name from editor state
     val currentLoadedMessageName: StateFlow<String?> =
-        _editorState.map { it.messageNameOrNull() }
+        _editorState
+            .map { it.messageNameOrNull() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     // Track which session belongs to which profile
@@ -972,11 +975,12 @@ class FixMessageViewModel(
     fun markEditorDirty() {
         val currentState = _editorState.value
         if (currentState is com.knapsack.fixtool.model.MessageEditorState.Clean) {
-            _editorState.value = com.knapsack.fixtool.model.MessageEditorState.Dirty(
-                messageId = currentState.messageId,
-                messageName = currentState.messageName,
-                userTags = currentState.userTags,
-            )
+            _editorState.value =
+                com.knapsack.fixtool.model.MessageEditorState.Dirty(
+                    messageId = currentState.messageId,
+                    messageName = currentState.messageName,
+                    userTags = currentState.userTags,
+                )
         }
         // If already Dirty or New, no change needed
     }
@@ -993,6 +997,34 @@ class FixMessageViewModel(
         _editorState.value = com.knapsack.fixtool.model.MessageEditorState.New
     }
 
+    /**
+     * Validates template expressions in fields with incoming/outgoing message context
+     * Used before sending to ensure all expressions can be resolved
+     */
+    fun validateTemplateExpressions(
+        fields: List<FixField>,
+        incomingMessages: Map<String, FixMessage>,
+        outgoingMessages: Map<String, FixMessage>,
+    ): List<String> {
+        val errors = mutableListOf<String>()
+
+        fields.forEach { field ->
+            if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
+                val templateErrors =
+                    FixMessageTemplate.validateExpressions(
+                        field.value,
+                        incomingMessages = incomingMessages,
+                        outgoingMessages = outgoingMessages,
+                    )
+                templateErrors.forEach { error ->
+                    errors.add("Field ${field.tag}: $error")
+                }
+            }
+        }
+
+        return errors
+    }
+
     fun validateEditorMessage(fields: List<FixField>): List<String> {
         _editorValidationErrors.clear()
 
@@ -1003,6 +1035,23 @@ class FixMessageViewModel(
             return _editorValidationErrors
         }
 
+        // Validate template expressions in field values (without incoming/outgoing context for Validate button)
+        fields.forEach { field ->
+            if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
+                val templateErrors =
+                    FixMessageTemplate.validateExpressions(
+                        field.value,
+                        // No incoming/outgoing context available in editor, but can still validate syntax
+                        incomingMessages = emptyMap(),
+                        outgoingMessages = emptyMap(),
+                    )
+                templateErrors.forEach { error ->
+                    _editorValidationErrors.add("Field ${field.tag}: $error")
+                }
+            }
+        }
+
+        // Also validate FIX message structure
         val result =
             FixMessageValidator.validate(
                 fields.toRawMessage(),
@@ -1143,11 +1192,12 @@ class FixMessageViewModel(
                 _savedMessages.addAll(updatedMessages)
 
                 // Update editor state to Clean after successful save
-                _editorState.value = com.knapsack.fixtool.model.MessageEditorState.Clean(
-                    messageId = savedMessage.id,
-                    messageName = savedMessage.name,
-                    userTags = savedMessage.getAllUserTags(),
-                )
+                _editorState.value =
+                    com.knapsack.fixtool.model.MessageEditorState.Clean(
+                        messageId = savedMessage.id,
+                        messageName = savedMessage.name,
+                        userTags = savedMessage.getAllUserTags(),
+                    )
             }.onFailure { error ->
                 logger.error("Failed to save message: ${error.message}", error)
             }
@@ -1182,11 +1232,12 @@ class FixMessageViewModel(
                 _savedMessages.addAll(updatedMessages)
 
                 // Update editor state to Clean with the new message ID
-                _editorState.value = com.knapsack.fixtool.model.MessageEditorState.Clean(
-                    messageId = savedMessage.id,
-                    messageName = savedMessage.name,
-                    userTags = savedMessage.getAllUserTags(),
-                )
+                _editorState.value =
+                    com.knapsack.fixtool.model.MessageEditorState.Clean(
+                        messageId = savedMessage.id,
+                        messageName = savedMessage.name,
+                        userTags = savedMessage.getAllUserTags(),
+                    )
             }.onFailure { error ->
                 logger.error("Failed to save message: ${error.message}", error)
             }
@@ -1215,11 +1266,12 @@ class FixMessageViewModel(
         _editorSelectedFieldIndex.value = 0
 
         // Set editor state to Clean (message loaded, unmodified)
-        _editorState.value = com.knapsack.fixtool.model.MessageEditorState.Clean(
-            messageId = savedMessage.id,
-            messageName = savedMessage.name,
-            userTags = savedMessage.getAllUserTags(),
-        )
+        _editorState.value =
+            com.knapsack.fixtool.model.MessageEditorState.Clean(
+                messageId = savedMessage.id,
+                messageName = savedMessage.name,
+                userTags = savedMessage.getAllUserTags(),
+            )
 
         // Mark message as used
         activeSession?.let { session ->

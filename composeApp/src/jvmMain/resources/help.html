@@ -936,6 +936,81 @@
         <strong>Backwards Compatibility:</strong> For messages without repeating groups, or when you only need the first value, <code>valueOfTag(tag)</code> still works as before - it returns the first (or only) value.
     </div>
 
+    <h3>Template Expression Validation</h3>
+    <p>FixTool automatically validates all template expressions before sending messages to ensure they evaluate correctly. This prevents sending messages with broken or invalid expressions.</p>
+
+    <h4>What is Validated</h4>
+    <p>When you click <strong>Validate</strong> or <strong>Send</strong>, FixTool checks all template expressions for:</p>
+    <ul>
+        <li><strong>Syntax Errors:</strong> Invalid Kotlin code that won't compile</li>
+        <li><strong>Undefined Variables:</strong> References to variables that haven't been assigned</li>
+        <li><strong>Null Evaluations:</strong> Expressions that evaluate to null (like accessing non-existent message fields)</li>
+    </ul>
+
+    <h4>Validation Errors</h4>
+    <p>If validation fails, you'll see detailed error messages in the validation error section:</p>
+
+    <div class="example">
+        <h4>Example Validation Errors</h4>
+        <pre><code>❌ Cannot send message - Fix template expression errors:
+Field 11: Template error in '${badSyntax!}': Expecting an element
+Field 38: Template error in '${undefinedVar}': Undefined variable: undefinedVar
+Field 44: Template error in '${incoming["D"].valueOfTag(99999)}': Expression evaluates to null</code></pre>
+    </div>
+
+    <h4>Validate Button vs. Send Button</h4>
+    <ul>
+        <li><strong>Validate Button:</strong> Checks expression syntax and variable definitions without message context. Use this to catch basic errors before receiving incoming messages.</li>
+        <li><strong>Send Button:</strong> Performs full validation with access to all incoming and outgoing messages. This catches null evaluations and message-dependent errors. Messages will not be sent if validation fails.</li>
+    </ul>
+
+    <div class="tip">
+        <strong>Best Practice:</strong> Use the Validate button while building your template to catch syntax errors early. When you're ready to send, the Send button will perform a complete validation including message context.
+    </div>
+
+    <div class="warning">
+        <strong>Important:</strong> Messages with template expression errors cannot be sent. Fix all validation errors before attempting to send. Expressions that evaluate to null (like accessing non-existent fields) are blocked to prevent sending incomplete data.
+    </div>
+
+    <h4>Common Validation Issues and Solutions</h4>
+    <table>
+        <tr>
+            <th>Error Type</th>
+            <th>Cause</th>
+            <th>Solution</th>
+        </tr>
+        <tr>
+            <td>Undefined variable</td>
+            <td>Using a variable before assigning it</td>
+            <td>Add <code>${varName = value}</code> in an earlier field</td>
+        </tr>
+        <tr>
+            <td>Expression evaluates to null</td>
+            <td>Accessing a field that doesn't exist in the message</td>
+            <td>Verify the message type and field exist, or use a default value</td>
+        </tr>
+        <tr>
+            <td>Syntax error</td>
+            <td>Invalid Kotlin syntax in the expression</td>
+            <td>Check for typos, missing quotes, or incorrect function calls</td>
+        </tr>
+        <tr>
+            <td>Incomplete code</td>
+            <td>Expression with unbalanced braces or quotes</td>
+            <td>Ensure all opening braces <code>{</code> and quotes have matching closing ones</td>
+        </tr>
+    </table>
+
+    <div class="example">
+        <h4>Example: Handling Potentially Missing Fields</h4>
+        <p>If you're accessing a field that might not exist in all incoming messages, make sure to handle the null case or ensure the message type is correct:</p>
+        <pre><code>// Will fail validation if tag 38 doesn't exist:
+${incoming["D"].valueOfTag(38)}
+
+// Better: Make sure you've received a NewOrderSingle (35=D) with Quantity (38) before referencing it
+// Or use a different approach with proper null handling in your workflow</code></pre>
+    </div>
+
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
     <h2 id="search">6. Searching Messages</h2>

@@ -1142,4 +1142,209 @@ class FixMessageTemplateTest {
         val result5 = FixMessageTemplate.evaluate(template5, incomingMessages = incomingMap)
         assertEquals("2", result5)
     }
+
+    // ========================================
+    // Template Expression Validation Tests
+    // ========================================
+
+    @Test
+    fun testValidateExpressions_ValidExpressions_NoErrors() {
+        // Given: A value with valid template expressions
+        val value = "QuoteReq-\${UUID.randomUUID()}-\${System.currentTimeMillis()}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Valid expressions should not produce errors")
+    }
+
+    @Test
+    fun testValidateExpressions_InvalidSyntax_ReturnsError() {
+        // Given: A value with invalid Kotlin syntax
+        val value = "\${this is not valid kotlin}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return syntax error
+        assertTrue(errors.isNotEmpty(), "Invalid syntax should produce errors")
+        assertTrue(
+            errors.any { it.contains("Template error") },
+            "Error should indicate template error. Got: $errors",
+        )
+    }
+
+    @Test
+    fun testValidateExpressions_UndefinedVariable_ReturnsError() {
+        // Given: A value referencing an undefined variable
+        val value = "\${undefinedVar}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return error about undefined variable
+        assertTrue(errors.isNotEmpty(), "Undefined variable should produce errors")
+        assertTrue(
+            errors.any { it.contains("Undefined variable") },
+            "Error should indicate undefined variable. Got: $errors",
+        )
+    }
+
+    @Test
+    fun testValidateExpressions_NullEvaluation_ReturnsError() {
+        // Given: A value with an expression that evaluates to null
+        val incomingMsg = createMockFixMessage("D")
+        val incomingMap = mapOf("D" to incomingMsg)
+
+        // Expression tries to access non-existent tag, which returns null
+        val value = "\${incoming[\"D\"].valueOfTag(99999)}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value, incomingMessages = incomingMap)
+
+        // Then: Should return error about null evaluation
+        assertTrue(errors.isNotEmpty(), "Null evaluation should produce errors")
+        assertTrue(
+            errors.any { it.contains("null") },
+            "Error should indicate null evaluation. Got: $errors",
+        )
+    }
+
+    @Test
+    fun testValidateExpressions_MultipleErrors_ReturnsAllErrors() {
+        // Given: A value with multiple invalid expressions
+        val value = "Test-\${badSyntax!}-\${undefinedVar}-\${1 + 1}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return multiple errors
+        assertTrue(errors.size >= 2, "Should have at least 2 errors. Got: $errors")
+    }
+
+    @Test
+    fun testValidateExpressions_MixedValidAndInvalid_ReturnsOnlyInvalidErrors() {
+        // Given: A value with both valid and invalid expressions
+        val value = "\${UUID.randomUUID()}-\${badSyntax!}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return only errors for invalid expressions
+        assertTrue(errors.size == 1, "Should have exactly 1 error. Got: $errors")
+        assertTrue(
+            errors[0].contains("badSyntax"),
+            "Error should be about badSyntax. Got: ${errors[0]}",
+        )
+    }
+
+    @Test
+    fun testValidateExpressions_VariableAssignment_Valid() {
+        // Given: A value with variable assignment
+        val value = "\${myVar = UUID.randomUUID()}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Valid variable assignment should not produce errors. Got: $errors")
+    }
+
+    @Test
+    fun testValidateExpressions_VariableAssignmentThenUse_Valid() {
+        // Given: A value that assigns a variable and then uses it
+        val value = "\${myVar = \"test\"} \${myVar}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Variable assignment and use should not produce errors. Got: $errors")
+    }
+
+    @Test
+    fun testValidateExpressions_AssignmentEvaluatesNull_ReturnsError() {
+        // Given: A value where variable assignment evaluates to null
+        val incomingMsg = createMockFixMessage("D")
+        val incomingMap = mapOf("D" to incomingMsg)
+
+        val value = "\${myVar = incoming[\"D\"].valueOfTag(99999)}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value, incomingMessages = incomingMap)
+
+        // Then: Should return error about null evaluation
+        assertTrue(errors.isNotEmpty(), "Null assignment should produce errors")
+        assertTrue(
+            errors.any { it.contains("null") },
+            "Error should indicate null evaluation. Got: $errors",
+        )
+    }
+
+    @Test
+    fun testValidateExpressions_IncomingMessageAccess_Valid() {
+        // Given: A value accessing incoming message fields
+        val incomingMsg = createMockFixMessage("D", 38 to "1000", 44 to "100.50")
+        val incomingMap = mapOf("D" to incomingMsg)
+
+        val value = "Qty: \${incoming[\"D\"].valueOfTag(38)}, Price: \${incoming[\"D\"].valueOfTag(44)}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value, incomingMessages = incomingMap)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Valid incoming message access should not produce errors. Got: $errors")
+    }
+
+    @Test
+    fun testValidateExpressions_NoTemplateExpressions_NoErrors() {
+        // Given: A value with no template expressions
+        val value = "Just plain text with no expressions"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Plain text should not produce errors")
+    }
+
+    @Test
+    fun testValidateExpressions_EmptyString_NoErrors() {
+        // Given: An empty value
+        val value = ""
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Empty string should not produce errors")
+    }
+
+    @Test
+    fun testValidateExpressions_ComplexExpression_Valid() {
+        // Given: A value with complex but valid expression (arithmetic)
+        val value = "\${(100 + 50) * 2 / 5}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Complex valid expression should not produce errors. Got: $errors")
+    }
+
+    @Test
+    fun testValidateExpressions_RepeatingGroupAccess_Valid() {
+        // Given: An incoming message with repeating groups
+        val incomingMsg = createMockFixMessage("R", 131 to "quote1", 20013 to "value1")
+        val incomingMap = mapOf("R" to incomingMsg)
+
+        val value = "\${incoming[\"R\"].valueOfTag(20013, 0)}"
+
+        // When: Validating the expressions
+        val errors = FixMessageTemplate.validateExpressions(value, incomingMessages = incomingMap)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Valid repeating group access should not produce errors. Got: $errors")
+    }
 }

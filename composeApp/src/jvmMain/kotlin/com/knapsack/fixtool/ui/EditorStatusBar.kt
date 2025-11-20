@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -21,17 +20,19 @@ fun EditorStatusBar(
 ) {
     // Use consistent theme colors - subtle footer-like appearance
     Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(AppTheme.Colors.surfaceHeader)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.surfaceHeader)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
         // Simple message state text only
-        val displayText = when (editorState) {
-            is MessageEditorState.New -> "New message"
-            is MessageEditorState.Clean -> editorState.messageName
-            is MessageEditorState.Dirty -> "${editorState.messageName} (modified)"
-        }
+        val displayText =
+            when (editorState) {
+                is MessageEditorState.New -> "New message"
+                is MessageEditorState.Clean -> editorState.messageName
+                is MessageEditorState.Dirty -> "${editorState.messageName} (modified)"
+            }
 
         Text(
             text = displayText,

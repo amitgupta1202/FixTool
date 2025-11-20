@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
@@ -521,15 +520,17 @@ fun MessageEditorPanel(
                             savedMessages.sortedByDescending { it.lastUsedAt }.forEach { savedMsg ->
                                 // Get profile names for all tags
                                 val userTags = savedMsg.getAllUserTags()
-                                val profileNames = userTags.mapNotNull { tagId ->
-                                    connectionProfiles.find { it.id == tagId }?.name
-                                }
-                                val profileNamesText = when {
-                                    profileNames.isEmpty() -> null
-                                    profileNames.size == 1 -> profileNames.first()
-                                    profileNames.size <= 3 -> profileNames.joinToString(", ")
-                                    else -> "${profileNames.take(2).joinToString(", ")} +${profileNames.size - 2}"
-                                }
+                                val profileNames =
+                                    userTags.mapNotNull { tagId ->
+                                        connectionProfiles.find { it.id == tagId }?.name
+                                    }
+                                val profileNamesText =
+                                    when {
+                                        profileNames.isEmpty() -> null
+                                        profileNames.size == 1 -> profileNames.first()
+                                        profileNames.size <= 3 -> profileNames.joinToString(", ")
+                                        else -> "${profileNames.take(2).joinToString(", ")} +${profileNames.size - 2}"
+                                    }
 
                                 DropdownMenuItem(
                                     text = {

@@ -132,8 +132,9 @@ class FixMessageValidatorTest {
         val dataDictionary = dictionary.getDataDictionary() ?: return
 
         // Given: A valid FIX message that should pass validation
-        val validMessage = "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
-            "11=ORD123|55=EUR/USD|54=1|38=1000000|40=2|10=000|"
+        val validMessage =
+            "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
+                "11=ORD123|55=EUR/USD|54=1|38=1000000|40=2|10=000|"
 
         // When: We validate using FixMessageValidator (Validate button behavior)
         val validatorResult = FixMessageValidator.validate(validMessage, dictionary)
@@ -169,8 +170,9 @@ class FixMessageValidatorTest {
         val dataDictionary = dictionary.getDataDictionary() ?: return
 
         // Given: A FIX message missing required field ClOrdID (tag 11)
-        val invalidMessage = "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
-            "55=EUR/USD|54=1|38=1000000|40=2|10=000|"
+        val invalidMessage =
+            "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
+                "55=EUR/USD|54=1|38=1000000|40=2|10=000|"
 
         // When: We validate using FixMessageValidator
         val validatorResult = FixMessageValidator.validate(invalidMessage, dictionary)
@@ -217,8 +219,9 @@ class FixMessageValidatorTest {
         val dataDictionary = dictionary.getDataDictionary() ?: return
 
         // Given: A properly formed message
-        val message = "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
-            "11=ORDER123|55=EUR/USD|54=1|38=1000000|40=2|10=000|"
+        val message =
+            "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
+                "11=ORDER123|55=EUR/USD|54=1|38=1000000|40=2|10=000|"
 
         // When: Validate button is pressed (using FixMessageValidator)
         val validateButtonResult = FixMessageValidator.validate(message, dictionary)
@@ -299,8 +302,9 @@ class FixMessageValidatorTest {
         val dataDictionary = dictionary.getDataDictionary() ?: return
 
         // Given: A message that fails validation (missing required field)
-        val invalidMessage = "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
-            "55=EUR/USD|54=1|38=1000000|40=2|10=000|"
+        val invalidMessage =
+            "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
+                "55=EUR/USD|54=1|38=1000000|40=2|10=000|"
 
         // When: Strict validation fails
         var strictValidationFailed = false

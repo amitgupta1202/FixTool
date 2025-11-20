@@ -120,22 +120,80 @@ object FixMessageTemplate {
                     .replace("\"", "\\\"")   // Escape double quotes
                     .replace("$", "\\$")     // Escape dollar signs (template expressions)
 
+            // Helper function to extract all fields including from repeating groups
+            fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
+                val startTime = System.currentTimeMillis()
+                val tags = mutableMapOf<Int, MutableList<String>>()
+
+                // Extract regular fields
+                val regularFieldsStart = System.currentTimeMillis()
+                fieldMap.iterator().forEach { field ->
+                    tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
+                }
+                val regularFieldsDuration = System.currentTimeMillis() - regularFieldsStart
+                if (regularFieldsDuration > 100) {
+                    logger.warn("extractAllFields: Regular fields extraction took ${regularFieldsDuration}ms")
+                }
+
+                // Extract fields from repeating groups
+                // Check each field to see if it's a group count field
+                val groupExtractionStart = System.currentTimeMillis()
+                var groupCheckCount = 0
+                var actualGroupsFound = 0
+                fieldMap.iterator().forEach { field ->
+                    groupCheckCount++
+                    try {
+                        // Check if this tag actually defines a group in the message
+                        val hasGroupCheck = System.currentTimeMillis()
+                        val hasGroup = fieldMap.hasGroup(field.tag)
+                        val hasGroupDuration = System.currentTimeMillis() - hasGroupCheck
+
+                        if (hasGroupDuration > 10) {
+                            logger.warn("extractAllFields: hasGroup check for tag ${field.tag} took ${hasGroupDuration}ms")
+                        }
+
+                        if (hasGroup) {
+                            actualGroupsFound++
+                            val groupCount = fieldMap.getInt(field.tag)
+                            logger.debug("extractAllFields: Found group at tag ${field.tag} with ${groupCount} instances")
+
+                            // Extract fields from each group instance
+                            for (i in 1..groupCount) {
+                                try {
+                                    val group = fieldMap.getGroup(i, field.tag)
+                                    // Recursively extract from this group (handles nested groups too)
+                                    val groupTags = extractAllFields(group)
+                                    groupTags.forEach { (tag, values) ->
+                                        tags.getOrPut(tag) { mutableListOf() }.addAll(values)
+                                    }
+                                } catch (e: Exception) {
+                                    logger.warn("extractAllFields: Failed to extract group instance $i for tag ${field.tag}: ${e.message}")
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Not a group count field, skip
+                    }
+                }
+                val groupExtractionDuration = System.currentTimeMillis() - groupExtractionStart
+
+                val totalDuration = System.currentTimeMillis() - startTime
+                if (totalDuration > 100) {
+                    logger.warn("extractAllFields: SLOW EXTRACTION - Total: ${totalDuration}ms, Regular: ${regularFieldsDuration}ms, Groups: ${groupExtractionDuration}ms, Checked ${groupCheckCount} fields, Found ${actualGroupsFound} groups")
+                }
+
+                return tags.mapValues { it.value.toList() }.toMap()
+            }
+
+            // Extract message data - support multiple values per tag (repeating groups)
             val incomingData =
                 incomingMessages.mapValues { (_, msg) ->
-                    val tags = mutableMapOf<Int, String?>()
-                    msg.quickfixMessage.iterator().forEach { field ->
-                        tags[field.tag] = field.`object`.toString()
-                    }
-                    tags.toMap()
+                    extractAllFields(msg.quickfixMessage)
                 }
 
             val outgoingData =
                 outgoingMessages.mapValues { (_, msg) ->
-                    val tags = mutableMapOf<Int, String?>()
-                    msg.quickfixMessage.iterator().forEach { field ->
-                        tags[field.tag] = field.`object`.toString()
-                    }
-                    tags.toMap()
+                    extractAllFields(msg.quickfixMessage)
                 }
 
             // Build helper class definition and data as part of the script
@@ -146,10 +204,19 @@ object FixMessageTemplate {
                     appendLine("import java.time.format.DateTimeFormatter")
                     appendLine("import java.time.Instant")
                     appendLine()
-                    appendLine("// Helper class for message tag access")
-                    appendLine("class MessageAccessor(private val tags: Map<Int, String?>) {")
-                    appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]")
-                    appendLine("    operator fun get(tag: Int): String? = tags[tag]")
+                    appendLine("// Helper class for message tag access with repeating group support")
+                    appendLine("class MessageAccessor(private val tags: Map<Int, List<String>>) {")
+                    appendLine("    // Get first value of tag (backwards compatible)")
+                    appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]?.firstOrNull()")
+                    appendLine("    ")
+                    appendLine("    // Get value at specific index (for repeating groups)")
+                    appendLine("    fun valueOfTag(tag: Int, index: Int): String? = tags[tag]?.getOrNull(index)")
+                    appendLine("    ")
+                    appendLine("    // Get all values of a tag (for repeating groups)")
+                    appendLine("    fun allValuesOfTag(tag: Int): List<String> = tags[tag] ?: emptyList()")
+                    appendLine("    ")
+                    appendLine("    // Operator overload for convenience")
+                    appendLine("    operator fun get(tag: Int): String? = valueOfTag(tag)")
                     appendLine("}")
                     appendLine()
                     appendLine("// Wrapper for safe map access - returns empty accessor if message type not found")
@@ -175,8 +242,9 @@ object FixMessageTemplate {
                         appendLine()
                         incomingData.entries.forEachIndexed { index, (msgType, tags) ->
                             val tagsStr =
-                                tags.entries.joinToString(", ") { (tag, value) ->
-                                    "$tag to ${value?.let { "\"${it.escapeForKotlinString()}\"" } ?: "null"}"
+                                tags.entries.joinToString(", ") { (tag, values) ->
+                                    val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
+                                    "$tag to listOf($valuesList)"
                                 }
                             append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
                             if (index < incomingData.size - 1) appendLine(",") else appendLine()
@@ -191,8 +259,9 @@ object FixMessageTemplate {
                         appendLine()
                         outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
                             val tagsStr =
-                                tags.entries.joinToString(", ") { (tag, value) ->
-                                    "$tag to ${value?.let { "\"${it.escapeForKotlinString()}\"" } ?: "null"}"
+                                tags.entries.joinToString(", ") { (tag, values) ->
+                                    val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
+                                    "$tag to listOf($valuesList)"
                                 }
                             append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
                             if (index < outgoingData.size - 1) appendLine(",") else appendLine()

@@ -873,4 +873,273 @@ class FixMessageTemplateTest {
             )
         assertTrue(result2.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
     }
+
+    @Test
+    fun testManyUndefinedVariablesDoesNotHang() {
+        val variables = mutableMapOf<String, String>()
+
+        // Test with many undefined variables (similar to user's QuoteRequest)
+        val template = "35=R|131=\${var1}|11=\${var2}|69=\${var3}|126=\${var4}|423=\${var5}|453=\${var6}|448=\${var7}"
+
+        val startTime = System.currentTimeMillis()
+        val result = FixMessageTemplate.evaluate(template, variables = variables)
+        val duration = System.currentTimeMillis() - startTime
+
+        // Should complete quickly (under 5 seconds)
+        assertTrue(duration < 5000, "Evaluation took too long: ${duration}ms")
+
+        // Should return with unresolved variables
+        assertTrue(result.contains("\${var1}"))
+        assertTrue(result.contains("\${var2}"))
+    }
+
+    // ========== Tests for Repeating Groups Support ==========
+
+    @Test
+    fun testRepeatingTagAccessWithIndex() {
+        // Create a Quote Request message with proper QuickFIX groups (NoLegs = 555)
+        val message = Message()
+        message.header.setString(quickfix.field.MsgType.FIELD, "R")
+        message.setString(131, "quote-req-id")
+
+        // Create first leg group
+        val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg1.setString(20013, "8c2b290c-f292-4ae9-af8f-66340623deec")
+        leg1.setString(687, "1000")
+        message.addGroup(leg1)
+
+        // Create second leg group
+        val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg2.setString(20013, "d119dad0-2dd9-4ef3-af56-de9395d5b57e")
+        leg2.setString(687, "2000")
+        message.addGroup(leg2)
+
+        val fixMessage =
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.4|9=100|35=R|131=quote-req-id|146=2|20013=...|10=123|",
+                messageType = "R",
+                quickfixMessage = message,
+            )
+
+        val incomingMap = mapOf("R" to fixMessage)
+
+        // Test accessing first leg (index 0)
+        val template1 = "\${incoming[\"R\"].valueOfTag(20013, 0)}"
+        val result1 = FixMessageTemplate.evaluate(template1, incomingMessages = incomingMap)
+        assertEquals("8c2b290c-f292-4ae9-af8f-66340623deec", result1)
+
+        // Test accessing second leg (index 1)
+        val template2 = "\${incoming[\"R\"].valueOfTag(20013, 1)}"
+        val result2 = FixMessageTemplate.evaluate(template2, incomingMessages = incomingMap)
+        assertEquals("d119dad0-2dd9-4ef3-af56-de9395d5b57e", result2)
+
+        // Test accessing non-existent index (should return null)
+        val template3 = "\${incoming[\"R\"].valueOfTag(20013, 2)}"
+        val result3 = FixMessageTemplate.evaluate(template3, incomingMessages = incomingMap)
+        assertEquals("null", result3)
+    }
+
+    @Test
+    fun testRepeatingTagAccessBackwardsCompatibility() {
+        // Create a message with groups - valueOfTag() without index should return first occurrence
+        val message = Message()
+        message.header.setString(quickfix.field.MsgType.FIELD, "R")
+        message.setString(131, "quote-req-id")
+
+        val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg1.setString(20013, "first-value")
+        message.addGroup(leg1)
+
+        val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg2.setString(20013, "second-value")
+        message.addGroup(leg2)
+
+        val fixMessage =
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.4|9=100|35=R|131=quote-req-id|146=2|...|10=123|",
+                messageType = "R",
+                quickfixMessage = message,
+            )
+
+        val incomingMap = mapOf("R" to fixMessage)
+
+        // Test backwards compatibility: valueOfTag(tag) without index should return first value
+        val template = "\${incoming[\"R\"].valueOfTag(20013)}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+        assertEquals("first-value", result)
+    }
+
+    @Test
+    fun testAllValuesOfTag() {
+        // Create a message with 3 legs using proper groups
+        val message = Message()
+        message.header.setString(quickfix.field.MsgType.FIELD, "R")
+        message.setString(131, "quote-req-id")
+
+        val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg1.setString(20013, "leg1-id")
+        message.addGroup(leg1)
+
+        val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg2.setString(20013, "leg2-id")
+        message.addGroup(leg2)
+
+        val leg3 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg3.setString(20013, "leg3-id")
+        message.addGroup(leg3)
+
+        val fixMessage =
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.4|9=100|35=R|131=quote-req-id|146=3|...|10=123|",
+                messageType = "R",
+                quickfixMessage = message,
+            )
+
+        val incomingMap = mapOf("R" to fixMessage)
+
+        // Test getting all values as a list
+        val template = "\${incoming[\"R\"].allValuesOfTag(20013)}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+        assertEquals("[leg1-id, leg2-id, leg3-id]", result)
+
+        // Test getting size of the list
+        val template2 = "\${incoming[\"R\"].allValuesOfTag(20013).size}"
+        val result2 = FixMessageTemplate.evaluate(template2, incomingMessages = incomingMap)
+        assertEquals("3", result2)
+
+        // Test accessing by index via allValuesOfTag
+        val template3 = "\${incoming[\"R\"].allValuesOfTag(20013)[1]}"
+        val result3 = FixMessageTemplate.evaluate(template3, incomingMessages = incomingMap)
+        assertEquals("leg2-id", result3)
+    }
+
+    @Test
+    fun testAllValuesOfTagForNonExistentTag() {
+        val message = Message()
+        message.header.setString(MsgType.FIELD, "R")
+        message.setString(131, "single-value")
+
+        val fixMessage =
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.4|9=100|35=R|131=single-value|10=123|",
+                messageType = "R",
+                quickfixMessage = message,
+            )
+
+        val incomingMap = mapOf("R" to fixMessage)
+
+        // Test getting all values for non-existent tag (should return empty list)
+        val template = "\${incoming[\"R\"].allValuesOfTag(99999)}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+        assertEquals("[]", result)
+    }
+
+    @Test
+    fun testRepeatingGroupsInRealWorldQuoteRequest() {
+        // Simulate a real multi-leg Quote Request similar to user's example using proper groups
+        val message = Message()
+        message.header.setString(quickfix.field.MsgType.FIELD, "R")
+        message.setString(131, "quote-req-id")
+
+        // First leg
+        val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg1.setString(20013, "8c2b290c-f292-4ae9-af8f-66340623deec")
+        leg1.setString(687, "1000")
+        leg1.setString(556, "EUR")
+        message.addGroup(leg1)
+
+        // Second leg
+        val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg2.setString(20013, "d119dad0-2dd9-4ef3-af56-de9395d5b57e")
+        leg2.setString(687, "2000")
+        leg2.setString(556, "USD")
+        message.addGroup(leg2)
+
+        val fixMessage =
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.4|9=100|35=R|131=quote-req-id|146=2|...|10=123|",
+                messageType = "R",
+                quickfixMessage = message,
+            )
+
+        val incomingMap = mapOf("R" to fixMessage)
+
+        // Build Quote response referencing both legs
+        val template =
+            "35=S|131=\${incoming[\"R\"].valueOfTag(131)}|" +
+                "555=2|" +
+                "20013=\${incoming[\"R\"].valueOfTag(20013, 0)}|687=\${incoming[\"R\"].valueOfTag(687, 0)}|" +
+                "20013=\${incoming[\"R\"].valueOfTag(20013, 1)}|687=\${incoming[\"R\"].valueOfTag(687, 1)}"
+
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+
+        assertEquals(
+            "35=S|131=quote-req-id|555=2|" +
+                "20013=8c2b290c-f292-4ae9-af8f-66340623deec|687=1000|" +
+                "20013=d119dad0-2dd9-4ef3-af56-de9395d5b57e|687=2000",
+            result,
+        )
+    }
+
+    @Test
+    fun testMixedSingleAndRepeatingTags() {
+        // Message with both single tags (at message level) and repeating tags (in groups)
+        val message = Message()
+        message.header.setString(quickfix.field.MsgType.FIELD, "R")
+        message.setString(131, "single-value") // Single tag at message level
+        message.setString(11, "another-single") // Another single tag
+
+        val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg1.setString(20013, "repeat1")
+        message.addGroup(leg1)
+
+        val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
+        leg2.setString(20013, "repeat2")
+        message.addGroup(leg2)
+
+        val fixMessage =
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.4|9=100|35=R|131=single-value|11=another-single|146=2|...|10=123|",
+                messageType = "R",
+                quickfixMessage = message,
+            )
+
+        val incomingMap = mapOf("R" to fixMessage)
+
+        // Single tags should work as before
+        val template1 = "\${incoming[\"R\"].valueOfTag(131)}"
+        val result1 = FixMessageTemplate.evaluate(template1, incomingMessages = incomingMap)
+        assertEquals("single-value", result1)
+
+        // Repeating tags with index
+        val template2 = "\${incoming[\"R\"].valueOfTag(20013, 0)}"
+        val result2 = FixMessageTemplate.evaluate(template2, incomingMessages = incomingMap)
+        assertEquals("repeat1", result2)
+
+        val template3 = "\${incoming[\"R\"].valueOfTag(20013, 1)}"
+        val result3 = FixMessageTemplate.evaluate(template3, incomingMessages = incomingMap)
+        assertEquals("repeat2", result3)
+
+        // Single tag accessed as list should have size 1
+        val template4 = "\${incoming[\"R\"].allValuesOfTag(131).size}"
+        val result4 = FixMessageTemplate.evaluate(template4, incomingMessages = incomingMap)
+        assertEquals("1", result4)
+
+        // Repeating tag accessed as list should have size 2
+        val template5 = "\${incoming[\"R\"].allValuesOfTag(20013).size}"
+        val result5 = FixMessageTemplate.evaluate(template5, incomingMessages = incomingMap)
+        assertEquals("2", result5)
+    }
 }

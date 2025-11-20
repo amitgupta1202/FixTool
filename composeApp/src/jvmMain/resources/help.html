@@ -698,6 +698,244 @@
         <strong>Note:</strong> If a referenced message type doesn't exist (not received yet), the expression will evaluate to <code>null</code>. Make sure you've received the message before referencing it.
     </div>
 
+    <h3>Accessing Repeating Groups</h3>
+    <p>Many FIX messages contain repeating groups - fields that can appear multiple times. For example, a QuoteRequest with multiple legs, or a message with multiple parties. FixTool provides special syntax to access specific occurrences of fields in repeating groups.</p>
+
+    <div class="example">
+        <h4>Repeating Group Syntax</h4>
+        <pre><code>${incoming["MsgType"].valueOfTag(TagNumber, index)}</code></pre>
+        <pre><code>${incoming["MsgType"].allValuesOfTag(TagNumber)}</code></pre>
+
+        <ul>
+            <li><code>valueOfTag(tag, index)</code> - Get value at specific index (0-based)</li>
+            <li><code>allValuesOfTag(tag)</code> - Get all values as a list</li>
+            <li><code>valueOfTag(tag)</code> - Get first value (backwards compatible)</li>
+        </ul>
+    </div>
+
+    <h3>Real-World Example: Multi-Leg Quote Request</h3>
+    <div class="example">
+        <h4>Scenario:</h4>
+        <p>You receive a QuoteRequest (35=R) with 2 legs, each with a unique Leg Quote Request ID (tag 20013):</p>
+
+        <h4>Incoming QuoteRequest:</h4>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">35</td>
+                <td class="sep">=</td>
+                <td class="value">R</td>
+                <td class="desc">(MsgType = QuoteRequest)</td>
+            </tr>
+            <tr>
+                <td class="tag">131</td>
+                <td class="sep">=</td>
+                <td class="value">QUOTEREQ-001</td>
+                <td class="desc">(QuoteReqID)</td>
+            </tr>
+            <tr>
+                <td class="tag">555</td>
+                <td class="sep">=</td>
+                <td class="value">2</td>
+                <td class="desc">(NoLegs = 2 legs)</td>
+            </tr>
+            <tr>
+                <td class="tag">20013</td>
+                <td class="sep">=</td>
+                <td class="value">8c2b290c-f292-4ae9-af8f-66340623deec</td>
+                <td class="desc">(Leg 1 Quote Request ID)</td>
+            </tr>
+            <tr>
+                <td class="tag">687</td>
+                <td class="sep">=</td>
+                <td class="value">1000</td>
+                <td class="desc">(Leg 1 Quantity)</td>
+            </tr>
+            <tr>
+                <td class="tag">556</td>
+                <td class="sep">=</td>
+                <td class="value">EUR</td>
+                <td class="desc">(Leg 1 Currency)</td>
+            </tr>
+            <tr>
+                <td class="tag">20013</td>
+                <td class="sep">=</td>
+                <td class="value">d119dad0-2dd9-4ef3-af56-de9395d5b57e</td>
+                <td class="desc">(Leg 2 Quote Request ID)</td>
+            </tr>
+            <tr>
+                <td class="tag">687</td>
+                <td class="sep">=</td>
+                <td class="value">2000</td>
+                <td class="desc">(Leg 2 Quantity)</td>
+            </tr>
+            <tr>
+                <td class="tag">556</td>
+                <td class="sep">=</td>
+                <td class="value">USD</td>
+                <td class="desc">(Leg 2 Currency)</td>
+            </tr>
+        </table>
+
+        <h4>Your Quote Response Template:</h4>
+        <p>To respond with specific values from each leg:</p>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">Tag 35</td>
+                <td class="sep">:</td>
+                <td class="value">S</td>
+                <td class="desc">(MsgType = Quote)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 131</td>
+                <td class="sep">:</td>
+                <td class="value">${incoming["R"].valueOfTag(131)}</td>
+                <td class="desc">(Same QuoteReqID from request)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 555</td>
+                <td class="sep">:</td>
+                <td class="value">2</td>
+                <td class="desc">(2 legs in response)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 20013</td>
+                <td class="sep">:</td>
+                <td class="value">${incoming["R"].valueOfTag(20013, 0)}</td>
+                <td class="desc">(Leg 1 ID - index 0)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 687</td>
+                <td class="sep">:</td>
+                <td class="value">${incoming["R"].valueOfTag(687, 0)}</td>
+                <td class="desc">(Leg 1 Qty - index 0)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 132</td>
+                <td class="sep">:</td>
+                <td class="value">1.0850</td>
+                <td class="desc">(Leg 1 BidPx)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 20013</td>
+                <td class="sep">:</td>
+                <td class="value">${incoming["R"].valueOfTag(20013, 1)}</td>
+                <td class="desc">(Leg 2 ID - index 1)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 687</td>
+                <td class="sep">:</td>
+                <td class="value">${incoming["R"].valueOfTag(687, 1)}</td>
+                <td class="desc">(Leg 2 Qty - index 1)</td>
+            </tr>
+            <tr>
+                <td class="tag">Tag 132</td>
+                <td class="sep">:</td>
+                <td class="value">1.1200</td>
+                <td class="desc">(Leg 2 BidPx)</td>
+            </tr>
+        </table>
+
+        <h4>Resolved Message (when sent):</h4>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">35</td>
+                <td class="sep">=</td>
+                <td class="value">S</td>
+                <td class="desc"></td>
+            </tr>
+            <tr>
+                <td class="tag">131</td>
+                <td class="sep">=</td>
+                <td class="value">QUOTEREQ-001</td>
+                <td class="desc"></td>
+            </tr>
+            <tr>
+                <td class="tag">555</td>
+                <td class="sep">=</td>
+                <td class="value">2</td>
+                <td class="desc"></td>
+            </tr>
+            <tr>
+                <td class="tag">20013</td>
+                <td class="sep">=</td>
+                <td class="value">8c2b290c-f292-4ae9-af8f-66340623deec</td>
+                <td class="desc">(Matched from leg 1)</td>
+            </tr>
+            <tr>
+                <td class="tag">687</td>
+                <td class="sep">=</td>
+                <td class="value">1000</td>
+                <td class="desc">(Matched from leg 1)</td>
+            </tr>
+            <tr>
+                <td class="tag">132</td>
+                <td class="sep">=</td>
+                <td class="value">1.0850</td>
+                <td class="desc"></td>
+            </tr>
+            <tr>
+                <td class="tag">20013</td>
+                <td class="sep">=</td>
+                <td class="value">d119dad0-2dd9-4ef3-af56-de9395d5b57e</td>
+                <td class="desc">(Matched from leg 2)</td>
+            </tr>
+            <tr>
+                <td class="tag">687</td>
+                <td class="sep">=</td>
+                <td class="value">2000</td>
+                <td class="desc">(Matched from leg 2)</td>
+            </tr>
+            <tr>
+                <td class="tag">132</td>
+                <td class="sep">=</td>
+                <td class="value">1.1200</td>
+                <td class="desc"></td>
+            </tr>
+        </table>
+    </div>
+
+    <h3>Working with Lists</h3>
+    <p>Use <code>allValuesOfTag()</code> to work with all occurrences at once:</p>
+
+    <div class="example">
+        <h4>List Operations</h4>
+        <table>
+            <tr>
+                <th>Template</th>
+                <th>Result</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td><code>${incoming["R"].allValuesOfTag(20013)}</code></td>
+                <td><code>[leg1-id, leg2-id]</code></td>
+                <td>Get all leg IDs as a list</td>
+            </tr>
+            <tr>
+                <td><code>${incoming["R"].allValuesOfTag(20013).size}</code></td>
+                <td><code>2</code></td>
+                <td>Count number of legs</td>
+            </tr>
+            <tr>
+                <td><code>${incoming["R"].allValuesOfTag(20013)[0]}</code></td>
+                <td><code>leg1-id</code></td>
+                <td>Access first leg via list</td>
+            </tr>
+            <tr>
+                <td><code>${incoming["R"].allValuesOfTag(20013)[1]}</code></td>
+                <td><code>leg2-id</code></td>
+                <td>Access second leg via list</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="tip">
+        <strong>Tip:</strong> Index-based access is 0-based. The first occurrence is at index 0, the second at index 1, etc. If you try to access an index that doesn't exist, the value will be <code>null</code>.
+    </div>
+
+    <div class="tip">
+        <strong>Backwards Compatibility:</strong> For messages without repeating groups, or when you only need the first value, <code>valueOfTag(tag)</code> still works as before - it returns the first (or only) value.
+    </div>
+
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
     <h2 id="search">6. Searching Messages</h2>

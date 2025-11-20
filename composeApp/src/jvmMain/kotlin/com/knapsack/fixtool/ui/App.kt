@@ -87,7 +87,7 @@ fun App(
             val demoServerRunning by viewModel.demoServerRunning.collectAsState()
             val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
             val savedMessages = viewModel.savedMessages
-            val currentLoadedMessageName by viewModel.currentLoadedMessageName.collectAsState()
+            val editorState by viewModel.editorState.collectAsState()
             val currentProfileId = viewModel.getCurrentProfileId()
             val notifications = viewModel.notifications
             val density = LocalDensity.current
@@ -242,7 +242,7 @@ fun App(
                                                 viewModel = viewModel,
                                                 savedMessages = savedMessages,
                                                 currentProfileId = currentProfileId,
-                                                currentLoadedMessageName = currentLoadedMessageName,
+                                                editorState = editorState,
                                                 editorPanelSplitRatio = editorPanelSplitRatio,
                                                 onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
                                                 modifier = Modifier.fillMaxSize(),
@@ -459,7 +459,7 @@ fun App(
                                                     viewModel = viewModel,
                                                     savedMessages = savedMessages,
                                                     currentProfileId = currentProfileId,
-                                                    currentLoadedMessageName = currentLoadedMessageName,
+                                                    editorState = editorState,
                                                     editorPanelSplitRatio = editorPanelSplitRatio,
                                                     onEditorPanelSplitRatioChange = { editorPanelSplitRatio = it },
                                                     modifier = Modifier.fillMaxSize(),
@@ -693,7 +693,7 @@ private fun AppMessageEditorPanel(
     viewModel: FixMessageViewModel,
     savedMessages: List<SavedFixMessage>,
     currentProfileId: String?,
-    currentLoadedMessageName: String?,
+    editorState: com.knapsack.fixtool.model.MessageEditorState,
     editorPanelSplitRatio: Float,
     onEditorPanelSplitRatioChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
@@ -780,11 +780,12 @@ private fun AppMessageEditorPanel(
             // Adjust panel width: 28% when showing description, 20% when hidden
             onEditorPanelSplitRatioChange(if (showingDescription) 0.28f else 0.20f)
         },
-        onSaveMessage = { name, fields, profileId ->
+        onSaveMessage = { name, fields, profileId, userTags ->
             viewModel.saveEditorMessage(
                 name,
                 fields,
                 profileId,
+                userTags,
             )
         },
         savedMessages = savedMessages,
@@ -799,7 +800,7 @@ private fun AppMessageEditorPanel(
         },
         connectionProfiles = viewModel.connectionProfiles,
         currentProfileId = currentProfileId,
-        currentLoadedMessageName = currentLoadedMessageName,
+        editorState = editorState,
         onSessionChange = { session -> viewModel.setActiveSessionByObject(session) },
         onError = { errorMsg ->
             viewModel.showNotification(

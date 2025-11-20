@@ -232,13 +232,13 @@ fun MessageEditorPanel(
     onClearValidationErrors: () -> Unit,
     onSetValidationErrors: (List<String>) -> Unit = {},
     onDescriptionVisibilityChanged: ((Boolean) -> Unit)? = null,
-    onSaveMessage: ((name: String, fields: List<FixField>, profileId: String) -> Unit)? = null,
+    onSaveMessage: ((name: String, fields: List<FixField>, profileId: String, userTags: Set<String>) -> Unit)? = null,
     savedMessages: List<com.knapsack.fixtool.model.SavedFixMessage> = emptyList(),
     onLoadMessage: ((com.knapsack.fixtool.model.SavedFixMessage) -> Unit)? = null,
     onDeleteMessage: ((messageId: String, profileId: String) -> Unit)? = null,
     connectionProfiles: List<com.knapsack.fixtool.model.FixConnectionProfile> = emptyList(),
     currentProfileId: String? = null,
-    currentLoadedMessageName: String? = null,
+    editorState: com.knapsack.fixtool.model.MessageEditorState = com.knapsack.fixtool.model.MessageEditorState.New,
     onSessionChange: ((FixMessageSession?) -> Unit)? = null,
     onError: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -519,7 +519,18 @@ fun MessageEditorPanel(
                             modifier = Modifier.background(Color(0xFF2B2B2B)).widthIn(min = 200.dp),
                         ) {
                             savedMessages.sortedByDescending { it.lastUsedAt }.forEach { savedMsg ->
-                                val profileName = connectionProfiles.find { it.id == savedMsg.profileId }?.name
+                                // Get profile names for all tags
+                                val userTags = savedMsg.getAllUserTags()
+                                val profileNames = userTags.mapNotNull { tagId ->
+                                    connectionProfiles.find { it.id == tagId }?.name
+                                }
+                                val profileNamesText = when {
+                                    profileNames.isEmpty() -> null
+                                    profileNames.size == 1 -> profileNames.first()
+                                    profileNames.size <= 3 -> profileNames.joinToString(", ")
+                                    else -> "${profileNames.take(2).joinToString(", ")} +${profileNames.size - 2}"
+                                }
+
                                 DropdownMenuItem(
                                     text = {
                                         Row(
@@ -534,18 +545,20 @@ fun MessageEditorPanel(
                                                     fontSize = 14.sp,
                                                     fontFamily = FontFamily.Monospace,
                                                 )
-                                                if (profileName != null) {
+                                                if (profileNamesText != null) {
                                                     Text(
-                                                        profileName,
+                                                        profileNamesText,
                                                         color = placeholderColor,
-                                                        fontSize = 11.sp,
+                                                        fontSize = 9.sp,
                                                         fontFamily = FontFamily.Monospace,
                                                     )
                                                 }
                                             }
                                             IconButton(
                                                 onClick = {
-                                                    onDeleteMessage?.invoke(savedMsg.id, savedMsg.profileId)
+                                                    // Use current profile or first tag for deletion
+                                                    val deleteProfileId = currentProfileId ?: userTags.firstOrNull() ?: ""
+                                                    onDeleteMessage?.invoke(savedMsg.id, deleteProfileId)
                                                     showLoadMenu = false
                                                 },
                                                 modifier = iconSize24,
@@ -591,23 +604,25 @@ fun MessageEditorPanel(
                     }
 
                     if (showSaveDialog) {
-                        var messageName by remember { mutableStateOf(currentLoadedMessageName ?: "") }
-                        var selectedProfileId by remember {
+                        var messageName by remember { mutableStateOf(editorState.messageNameOrNull() ?: "") }
+                        // Multi-select user tags: initialize with existing tags or current profile
+                        var selectedUserTags by remember {
                             mutableStateOf(
-                                currentProfileId ?: connectionProfiles.firstOrNull()?.id ?: "",
+                                editorState.allUserTags().ifEmpty {
+                                    currentProfileId?.let { setOf(it) } ?: emptySet()
+                                },
                             )
                         }
                         val isDuplicate =
                             savedMessages.any {
                                 it.name == messageName &&
                                     messageName.isNotBlank() &&
-                                    it.name != currentLoadedMessageName &&
-                                    it.profileId == selectedProfileId
+                                    it.name != editorState.messageNameOrNull() &&
+                                    it.getAllUserTags().any { tag -> tag in selectedUserTags }
                             }
                         val focusRequester = remember { FocusRequester() }
                         val nameFieldInteractionSource = remember { MutableInteractionSource() }
                         val isNameFieldFocused by nameFieldInteractionSource.collectIsFocusedAsState()
-                        var showProfileDropdown by remember { mutableStateOf(false) }
 
                         androidx.compose.ui.window.Dialog(onDismissRequest = { showSaveDialog = false }) {
                             Column(
@@ -624,103 +639,7 @@ fun MessageEditorPanel(
                                     modifier = Modifier.padding(bottom = 12.dp),
                                 )
 
-                                // Profile selector (FIRST)
-                                if (connectionProfiles.isNotEmpty()) {
-                                    Text(
-                                        "Connection Profile",
-                                        color = AppTheme.Colors.textSecondary,
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(bottom = 4.dp),
-                                    )
-                                    Box {
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .background(Color(0xFF2B2B2B), RoundedCornerShape(2.dp))
-                                                    .border(
-                                                        width = 1.dp,
-                                                        color =
-                                                            if (showProfileDropdown) {
-                                                                AppTheme.Colors.primary
-                                                            } else {
-                                                                Color(
-                                                                    0xFF555555,
-                                                                )
-                                                            },
-                                                        shape = RoundedCornerShape(2.dp),
-                                                    ).pointerInput(Unit) {
-                                                        detectTapGestures { showProfileDropdown = true }
-                                                    }.padding(horizontal = 4.dp, vertical = 4.dp),
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Text(
-                                                    connectionProfiles.find { it.id == selectedProfileId }?.name
-                                                        ?: "Select Profile",
-                                                    fontSize = 14.sp,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    color = AppTheme.Colors.text,
-                                                )
-                                                Icon(
-                                                    imageVector = if (showProfileDropdown) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
-                                                    contentDescription = null,
-                                                    modifier = iconSize16,
-                                                    tint =
-                                                        if (showProfileDropdown) {
-                                                            AppTheme.Colors.primary
-                                                        } else {
-                                                            Color(
-                                                                0xFF888888,
-                                                            )
-                                                        },
-                                                )
-                                            }
-                                        }
-
-                                        DropdownMenu(
-                                            expanded = showProfileDropdown,
-                                            onDismissRequest = { showProfileDropdown = false },
-                                            modifier =
-                                                Modifier
-                                                    .background(AppTheme.Colors.surface)
-                                                    .widthIn(min = 280.dp),
-                                        ) {
-                                            connectionProfiles.forEach { profile ->
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        Text(
-                                                            profile.name,
-                                                            color = AppTheme.Colors.text,
-                                                            fontSize = 13.sp,
-                                                            fontFamily = FontFamily.Monospace,
-                                                        )
-                                                    },
-                                                    onClick = {
-                                                        selectedProfileId = profile.id
-                                                        showProfileDropdown = false
-                                                    },
-                                                    modifier =
-                                                        Modifier.background(
-                                                            if (profile.id ==
-                                                                selectedProfileId
-                                                            ) {
-                                                                AppTheme.Colors.border
-                                                            } else {
-                                                                Color.Transparent
-                                                            },
-                                                        ),
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                }
-
-                                // Template Name field (SECOND)
+                                // Template Name field (FIRST)
                                 Text(
                                     "Template Name",
                                     color = AppTheme.Colors.textSecondary,
@@ -760,10 +679,80 @@ fun MessageEditorPanel(
                                             .focusRequester(focusRequester),
                                 )
 
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // User Tags selector (SECOND) - multi-select checkboxes
+                                if (connectionProfiles.isNotEmpty()) {
+                                    Text(
+                                        "Share with Users (select one or more)",
+                                        color = AppTheme.Colors.textSecondary,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(bottom = 6.dp),
+                                    )
+
+                                    Column(
+                                        modifier =
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFF252525), RoundedCornerShape(4.dp))
+                                                .padding(8.dp),
+                                    ) {
+                                        connectionProfiles.forEach { profile ->
+                                            Row(
+                                                modifier =
+                                                    Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable {
+                                                            selectedUserTags =
+                                                                if (profile.id in selectedUserTags) {
+                                                                    selectedUserTags - profile.id
+                                                                } else {
+                                                                    selectedUserTags + profile.id
+                                                                }
+                                                        }.padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Checkbox(
+                                                    checked = profile.id in selectedUserTags,
+                                                    onCheckedChange = { checked ->
+                                                        selectedUserTags =
+                                                            if (checked) {
+                                                                selectedUserTags + profile.id
+                                                            } else {
+                                                                selectedUserTags - profile.id
+                                                            }
+                                                    },
+                                                    colors =
+                                                        CheckboxDefaults.colors(
+                                                            checkedColor = AppTheme.Colors.primary,
+                                                            uncheckedColor = AppTheme.Colors.border,
+                                                            checkmarkColor = AppTheme.Colors.background,
+                                                        ),
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    profile.name,
+                                                    color = AppTheme.Colors.text,
+                                                    fontSize = 13.sp,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+
+                                // Validation message
                                 if (isDuplicate) {
                                     Text(
-                                        "A template with this name already exists for this profile",
+                                        "A template with this name already exists for one of the selected users",
                                         color = deleteColor,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                                    )
+                                } else if (selectedUserTags.isEmpty()) {
+                                    Text(
+                                        "Please select at least one user to share with",
+                                        color = AppTheme.Colors.warning,
                                         fontSize = 11.sp,
                                         modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                                     )
@@ -787,18 +776,21 @@ fun MessageEditorPanel(
                                         onClick = {
                                             if (messageName.isNotBlank() &&
                                                 !isDuplicate &&
-                                                selectedProfileId.isNotBlank()
+                                                selectedUserTags.isNotEmpty()
                                             ) {
+                                                // Use first tag as profileId for backwards compatibility
+                                                val primaryProfileId = currentProfileId ?: selectedUserTags.first()
                                                 onSaveMessage(
                                                     messageName,
                                                     fields.filter { !it.excluded && it.tag.isNotBlank() },
-                                                    selectedProfileId,
+                                                    primaryProfileId,
+                                                    selectedUserTags,
                                                 )
                                                 showSaveDialog = false
                                             }
                                         },
                                         enabled =
-                                            messageName.isNotBlank() && !isDuplicate && selectedProfileId.isNotBlank(),
+                                            messageName.isNotBlank() && !isDuplicate && selectedUserTags.isNotEmpty(),
                                         containerColor = AppTheme.Colors.primary,
                                         contentColor = AppTheme.Colors.background,
                                         modifier = Modifier.width(90.dp),
@@ -1727,6 +1719,12 @@ fun MessageEditorPanel(
                 }
             }
         }
+
+        // Status bar at the bottom showing message state
+        EditorStatusBar(
+            editorState = editorState,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

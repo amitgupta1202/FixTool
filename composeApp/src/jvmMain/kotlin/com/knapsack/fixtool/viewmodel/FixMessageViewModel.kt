@@ -15,9 +15,15 @@ import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.ui.FixField
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.util.NotifyingLogger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import java.io.File
 
 class FixMessageViewModel(
@@ -28,6 +34,9 @@ class FixMessageViewModel(
             FixMessageViewModel::class.java,
             onNotify = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
         )
+
+    // Coroutine scope for this ViewModel
+    private val viewModelScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val _sessions = mutableStateListOf<FixMessageSession>()
     val sessions: List<FixMessageSession> = _sessions
@@ -152,9 +161,16 @@ class FixMessageViewModel(
     private val _savedMessages = mutableStateListOf<SavedFixMessage>()
     val savedMessages: List<SavedFixMessage> = _savedMessages
 
-    // Track currently loaded message for editing
-    private val _currentLoadedMessageName = MutableStateFlow<String?>(null)
-    val currentLoadedMessageName: StateFlow<String?> = _currentLoadedMessageName
+    // Track message editor state (new, clean, dirty)
+    private val _editorState = MutableStateFlow<com.knapsack.fixtool.model.MessageEditorState>(
+        com.knapsack.fixtool.model.MessageEditorState.New,
+    )
+    val editorState: StateFlow<com.knapsack.fixtool.model.MessageEditorState> = _editorState
+
+    // Backwards compatibility: expose message name from editor state
+    val currentLoadedMessageName: StateFlow<String?> =
+        _editorState.map { it.messageNameOrNull() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     // Track which session belongs to which profile
     private val profileToSessionMap = mutableMapOf<String, Int>()
@@ -732,6 +748,7 @@ class FixMessageViewModel(
     fun updateEditorField(index: Int, field: FixField) {
         if (index in _editorFields.indices) {
             _editorFields[index] = field
+            markEditorDirty()
         }
     }
 
@@ -745,6 +762,7 @@ class FixMessageViewModel(
             }
         _editorFields.add(insertIndex, FixField())
         _editorSelectedFieldIndex.value = insertIndex
+        markEditorDirty()
     }
 
     fun deleteEditorField(index: Int) {
@@ -758,6 +776,7 @@ class FixMessageViewModel(
             _editorSelectedIndices.clear()
             _editorSelectedIndices.add(newIndex)
             _editorSelectedFieldIndex.value = newIndex
+            markEditorDirty()
         } else {
             // Single selection mode
             if (_editorFields.size > 1 && index in _editorFields.indices) {
@@ -766,6 +785,7 @@ class FixMessageViewModel(
                 _editorSelectedFieldIndex.value = newIndex
                 _editorSelectedIndices.clear()
                 _editorSelectedIndices.add(newIndex)
+                markEditorDirty()
             }
         }
     }
@@ -812,6 +832,7 @@ class FixMessageViewModel(
                         _editorSelectedFieldIndex.value = _editorSelectedFieldIndex.value - 1
                     }
                 }
+                markEditorDirty()
             }
         } else {
             // Single selection mode
@@ -823,6 +844,7 @@ class FixMessageViewModel(
                     _editorSelectedIndices.remove(index)
                     _editorSelectedIndices.add(index - 1)
                 }
+                markEditorDirty()
             }
         }
     }
@@ -869,6 +891,7 @@ class FixMessageViewModel(
                         _editorSelectedFieldIndex.value = _editorSelectedFieldIndex.value + 1
                     }
                 }
+                markEditorDirty()
             }
         } else {
             // Single selection mode
@@ -880,6 +903,7 @@ class FixMessageViewModel(
                     _editorSelectedIndices.remove(index)
                     _editorSelectedIndices.add(index + 1)
                 }
+                markEditorDirty()
             }
         }
     }
@@ -941,6 +965,22 @@ class FixMessageViewModel(
         return true
     }
 
+    /**
+     * Marks the editor as dirty (modified) if it's currently in Clean state
+     * Call this whenever the editor content is modified by the user
+     */
+    fun markEditorDirty() {
+        val currentState = _editorState.value
+        if (currentState is com.knapsack.fixtool.model.MessageEditorState.Clean) {
+            _editorState.value = com.knapsack.fixtool.model.MessageEditorState.Dirty(
+                messageId = currentState.messageId,
+                messageName = currentState.messageName,
+                userTags = currentState.userTags,
+            )
+        }
+        // If already Dirty or New, no change needed
+    }
+
     fun clearEditorFields(resetSelection: Boolean = true) {
         _editorFields.clear()
         _editorFields.add(FixField())
@@ -949,8 +989,8 @@ class FixMessageViewModel(
             _editorSelectedIndices.clear()
             _editorSelectedIndices.add(0)
         }
-        // Clear loaded message name when fields are cleared
-        _currentLoadedMessageName.value = null
+        // Reset editor state to New when fields are cleared
+        _editorState.value = com.knapsack.fixtool.model.MessageEditorState.New
     }
 
     fun validateEditorMessage(fields: List<FixField>): List<String> {
@@ -1056,15 +1096,97 @@ class FixMessageViewModel(
     }
 
     // Saved Messages Operations
-    fun saveEditorMessage(name: String, fields: List<FixField>, profileId: String) {
+    fun saveEditorMessage(
+        name: String,
+        fields: List<FixField>,
+        profileId: String,
+        userTags: Set<String> = setOf(profileId),
+    ) {
         val savedFields = fields.map { SavedFixField(tag = it.tag, value = it.value, excluded = it.excluded) }
-        val savedMessage = SavedFixMessage(name = name, profileId = profileId, fields = savedFields)
+
+        // Determine if this is an update to existing message or a new save
+        val currentState = _editorState.value
+        val savedMessage =
+            when (currentState) {
+                is com.knapsack.fixtool.model.MessageEditorState.Clean,
+                is com.knapsack.fixtool.model.MessageEditorState.Dirty,
+                -> {
+                    // Update existing message - preserve ID and createdAt
+                    val existingId = currentState.messageIdOrNull()!!
+                    val existing = _savedMessages.find { it.id == existingId }
+                    SavedFixMessage(
+                        id = existingId,
+                        name = name,
+                        profileId = profileId, // Keep for backwards compatibility
+                        userTags = userTags,
+                        fields = savedFields,
+                        createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+                        modifiedAt = System.currentTimeMillis(),
+                        version = (existing?.version ?: 0) + 1,
+                    )
+                }
+                is com.knapsack.fixtool.model.MessageEditorState.New -> {
+                    // Create new message with new ID
+                    SavedFixMessage(
+                        name = name,
+                        profileId = profileId, // Keep for backwards compatibility
+                        userTags = userTags,
+                        fields = savedFields,
+                    )
+                }
+            }
 
         savedMessagesService
             .saveMessage(profileId, savedMessage)
             .onSuccess { updatedMessages ->
                 _savedMessages.clear()
                 _savedMessages.addAll(updatedMessages)
+
+                // Update editor state to Clean after successful save
+                _editorState.value = com.knapsack.fixtool.model.MessageEditorState.Clean(
+                    messageId = savedMessage.id,
+                    messageName = savedMessage.name,
+                    userTags = savedMessage.getAllUserTags(),
+                )
+            }.onFailure { error ->
+                logger.error("Failed to save message: ${error.message}", error)
+            }
+    }
+
+    /**
+     * Save As: Always creates a new message with a new ID
+     * Useful for creating copies or variants of existing messages
+     */
+    fun saveEditorMessageAs(
+        name: String,
+        fields: List<FixField>,
+        profileId: String,
+        userTags: Set<String> = setOf(profileId),
+    ) {
+        val savedFields = fields.map { SavedFixField(tag = it.tag, value = it.value, excluded = it.excluded) }
+
+        // Always create a new message (never update existing)
+        val savedMessage =
+            SavedFixMessage(
+                // id will be generated automatically
+                name = name,
+                profileId = profileId, // Keep for backwards compatibility
+                userTags = userTags,
+                fields = savedFields,
+            )
+
+        savedMessagesService
+            .saveMessage(profileId, savedMessage)
+            .onSuccess { updatedMessages ->
+                _savedMessages.clear()
+                _savedMessages.addAll(updatedMessages)
+
+                // Update editor state to Clean with the new message ID
+                _editorState.value = com.knapsack.fixtool.model.MessageEditorState.Clean(
+                    messageId = savedMessage.id,
+                    messageName = savedMessage.name,
+                    userTags = savedMessage.getAllUserTags(),
+                )
             }.onFailure { error ->
                 logger.error("Failed to save message: ${error.message}", error)
             }
@@ -1092,8 +1214,12 @@ class FixMessageViewModel(
         _editorSelectedIndices.add(0)
         _editorSelectedFieldIndex.value = 0
 
-        // Track the loaded message name for potential editing
-        _currentLoadedMessageName.value = savedMessage.name
+        // Set editor state to Clean (message loaded, unmodified)
+        _editorState.value = com.knapsack.fixtool.model.MessageEditorState.Clean(
+            messageId = savedMessage.id,
+            messageName = savedMessage.name,
+            userTags = savedMessage.getAllUserTags(),
+        )
 
         // Mark message as used
         activeSession?.let { session ->
@@ -1116,8 +1242,9 @@ class FixMessageViewModel(
             connectionProfiles.forEach { profile ->
                 allMessages.addAll(savedMessagesService.loadMessagesForProfile(profile.id))
             }
+            // Deduplicate messages by ID (messages can be shared across multiple profiles)
             _savedMessages.clear()
-            _savedMessages.addAll(allMessages)
+            _savedMessages.addAll(allMessages.distinctBy { it.id })
         } else {
             // There is an active session selected, filter by the active session's profile
             val currentProfileId = profileToSessionMap.entries.find { it.value == _activeSessionIndex.value }?.key
@@ -1131,8 +1258,9 @@ class FixMessageViewModel(
                 connectionProfiles.forEach { profile ->
                     allMessages.addAll(savedMessagesService.loadMessagesForProfile(profile.id))
                 }
+                // Deduplicate messages by ID (messages can be shared across multiple profiles)
                 _savedMessages.clear()
-                _savedMessages.addAll(allMessages)
+                _savedMessages.addAll(allMessages.distinctBy { it.id })
             }
         }
     }
@@ -1145,12 +1273,10 @@ class FixMessageViewModel(
                 // Reload all saved messages to reflect the deletion
                 loadSavedMessagesForActiveSession()
 
-                // Clear loaded message name if we just deleted the currently loaded template
-                if (_currentLoadedMessageName.value != null) {
-                    val deletedMessage = _savedMessages.find { it.id == messageId }
-                    if (deletedMessage?.name == _currentLoadedMessageName.value) {
-                        _currentLoadedMessageName.value = null
-                    }
+                // Clear editor state if we just deleted the currently loaded message
+                val currentMessageId = _editorState.value.messageIdOrNull()
+                if (currentMessageId == messageId) {
+                    _editorState.value = com.knapsack.fixtool.model.MessageEditorState.New
                 }
             }.onFailure { error ->
                 logger.error("Failed to delete message: ${error.message}", error)

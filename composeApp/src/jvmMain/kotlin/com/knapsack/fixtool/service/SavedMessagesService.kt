@@ -36,11 +36,14 @@ class SavedMessagesService(
 
     @Serializable
     private data class SavedMessagesContainer(
+        // Legacy: Map of profileId to messages (for backwards compatibility)
         val messagesByProfile: Map<String, List<SavedFixMessage>> = emptyMap(),
+        // New: Flat list of all messages with multi-tag support
+        val messages: List<SavedFixMessage> = emptyList(),
     )
 
     /**
-     * Loads all saved messages from disk
+     * Loads all saved messages from disk and migrates legacy data if needed
      */
     private fun loadAll(): SavedMessagesContainer =
         try {
@@ -48,7 +51,28 @@ class SavedMessagesService(
                 SavedMessagesContainer()
             } else {
                 val content = savedMessagesFile.readText()
-                json.decodeFromString<SavedMessagesContainer>(content)
+                val container = json.decodeFromString<SavedMessagesContainer>(content)
+
+                // Migrate legacy data: if we have messagesByProfile but no messages, migrate them
+                if (container.messages.isEmpty() && container.messagesByProfile.isNotEmpty()) {
+                    val migratedMessages = container.messagesByProfile.flatMap { (profileId, messages) ->
+                        messages.map { message ->
+                            // Ensure old messages have the profileId in their userTags
+                            if (message.userTags.isEmpty()) {
+                                message.copy(userTags = setOf(profileId))
+                            } else {
+                                message
+                            }
+                        }
+                    }.distinctBy { it.id } // Remove duplicates by ID
+
+                    SavedMessagesContainer(
+                        messagesByProfile = emptyMap(), // Clear legacy data after migration
+                        messages = migratedMessages,
+                    )
+                } else {
+                    container
+                }
             }
         } catch (e: Exception) {
             val errorMsg = "Failed to load saved messages: ${e.message}"
@@ -72,35 +96,41 @@ class SavedMessagesService(
         }
 
     /**
-     * Loads saved messages for a specific profile
+     * Loads saved messages for a specific profile (filters by userTags)
      */
     fun loadMessagesForProfile(profileId: String): List<SavedFixMessage> {
         val container = loadAll()
-        return container.messagesByProfile[profileId] ?: emptyList()
+        // Filter messages that have this profileId in their userTags
+        return container.messages.filter { message ->
+            message.getAllUserTags().contains(profileId)
+        }
     }
 
     /**
-     * Saves a message for a specific profile
-     * @return Result with updated message list on success, or failure with exception
+     * Saves a message (supports multi-user tags)
+     * @return Result with updated message list for the profile on success, or failure with exception
      */
     fun saveMessage(profileId: String, message: SavedFixMessage): Result<List<SavedFixMessage>> {
         val container = loadAll()
-        val profileMessages = container.messagesByProfile[profileId]?.toMutableList() ?: mutableListOf()
+        val allMessages = container.messages.toMutableList()
 
         // Check if message with same ID exists, update it, otherwise add new
-        val existingIndex = profileMessages.indexOfFirst { it.id == message.id }
+        val existingIndex = allMessages.indexOfFirst { it.id == message.id }
         if (existingIndex >= 0) {
-            profileMessages[existingIndex] = message
+            allMessages[existingIndex] = message
         } else {
-            profileMessages.add(message)
+            allMessages.add(message)
         }
 
         val updatedContainer =
             SavedMessagesContainer(
-                messagesByProfile = container.messagesByProfile + (profileId to profileMessages),
+                messagesByProfile = emptyMap(), // Legacy field no longer used
+                messages = allMessages,
             )
 
         return if (saveAll(updatedContainer)) {
+            // Return messages that are relevant to this profile
+            val profileMessages = allMessages.filter { it.getAllUserTags().contains(profileId) }
             Result.success(profileMessages)
         } else {
             Result.failure(java.io.IOException("Failed to save message"))
@@ -108,19 +138,22 @@ class SavedMessagesService(
     }
 
     /**
-     * Deletes a saved message for a specific profile
-     * @return Result with updated message list on success, or failure with exception
+     * Deletes a saved message (removes from all users)
+     * @return Result with updated message list for the profile on success, or failure with exception
      */
     fun deleteMessage(profileId: String, messageId: String): Result<List<SavedFixMessage>> {
         val container = loadAll()
-        val profileMessages = container.messagesByProfile[profileId]?.filterNot { it.id == messageId } ?: emptyList()
+        val allMessages = container.messages.filterNot { it.id == messageId }
 
         val updatedContainer =
             SavedMessagesContainer(
-                messagesByProfile = container.messagesByProfile + (profileId to profileMessages),
+                messagesByProfile = emptyMap(), // Legacy field no longer used
+                messages = allMessages,
             )
 
         return if (saveAll(updatedContainer)) {
+            // Return messages that are relevant to this profile
+            val profileMessages = allMessages.filter { it.getAllUserTags().contains(profileId) }
             Result.success(profileMessages)
         } else {
             Result.failure(java.io.IOException("Failed to delete message"))
@@ -129,31 +162,34 @@ class SavedMessagesService(
 
     /**
      * Updates the lastUsedAt timestamp for a message
-     * @return Result with updated message list on success, or failure with exception
+     * @return Result with updated message list for the profile on success, or failure with exception
      */
     fun markMessageAsUsed(profileId: String, messageId: String): Result<List<SavedFixMessage>> {
         val container = loadAll()
-        val profileMessages =
-            container.messagesByProfile[profileId]?.toMutableList()
-                ?: return Result.success(emptyList())
+        val allMessages = container.messages.toMutableList()
 
-        val messageIndex = profileMessages.indexOfFirst { it.id == messageId }
+        val messageIndex = allMessages.indexOfFirst { it.id == messageId }
         if (messageIndex >= 0) {
-            val message = profileMessages[messageIndex]
-            profileMessages[messageIndex] = message.copy(lastUsedAt = System.currentTimeMillis())
+            val message = allMessages[messageIndex]
+            allMessages[messageIndex] = message.copy(lastUsedAt = System.currentTimeMillis())
 
             val updatedContainer =
                 SavedMessagesContainer(
-                    messagesByProfile = container.messagesByProfile + (profileId to profileMessages),
+                    messagesByProfile = emptyMap(), // Legacy field no longer used
+                    messages = allMessages,
                 )
 
             return if (saveAll(updatedContainer)) {
+                // Return messages that are relevant to this profile
+                val profileMessages = allMessages.filter { it.getAllUserTags().contains(profileId) }
                 Result.success(profileMessages)
             } else {
                 Result.failure(java.io.IOException("Failed to mark message as used"))
             }
         }
 
+        // Message not found, return current profile messages
+        val profileMessages = allMessages.filter { it.getAllUserTags().contains(profileId) }
         return Result.success(profileMessages)
     }
 }

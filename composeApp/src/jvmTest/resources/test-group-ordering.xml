@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fix major="4" minor="4" type="FIX">
+  <!-- Minimal data dictionary for testing group field ordering -->
+
+  <header>
+    <field name="BeginString" required="Y"/>
+    <field name="BodyLength" required="Y"/>
+    <field name="MsgType" required="Y"/>
+    <field name="SenderCompID" required="Y"/>
+    <field name="TargetCompID" required="Y"/>
+    <field name="MsgSeqNum" required="Y"/>
+    <field name="SendingTime" required="Y"/>
+  </header>
+
+  <trailer>
+    <field name="CheckSum" required="Y"/>
+  </trailer>
+
+  <messages>
+    <message name="CollateralAssignment" msgtype="AY" msgcat="app">
+      <field name="CollAsgnID" required="Y"/>
+      <field name="CollAsgnReason" required="Y"/>
+      <field name="CollAsgnTransType" required="Y"/>
+      <field name="CollApplType" required="Y"/>
+      <field name="TransactTime" required="N"/>
+      <field name="Account" required="N"/>
+      <field name="SubscriptionRequestDate" required="N"/>
+      <component name="Parties" required="N"/>
+      <component name="UndInstrmtCollGrp" required="N"/>
+    </message>
+  </messages>
+
+  <components>
+    <component name="UndInstrmtCollGrp">
+      <group name="NoUnderlyings" required="N">
+        <field name="CollAction" required="N"/>
+        <component name="UnderlyingInstrument" required="Y"/>
+        <field name="RelSymTransactTime" required="N"/>
+      </group>
+    </component>
+
+    <component name="UnderlyingInstrument">
+      <field name="UnderlyingSecurityID" required="N"/>
+      <field name="UnderlyingSecurityIDSource" required="N"/>
+      <field name="UnderlyingMismatch" required="N"/>
+    </component>
+
+    <component name="Parties">
+      <group name="NoPartyIDs" required="Y">
+        <field name="PartyID" required="Y"/>
+        <field name="PartyIDSource" required="Y"/>
+        <field name="PartyRole" required="Y"/>
+        <field name="PartyRoleQualifier" required="N"/>
+        <group name="NoPartySubIDs" required="N">
+          <field name="PartySubID" required="Y"/>
+          <field name="PartySubIDType" required="Y"/>
+        </group>
+      </group>
+    </component>
+  </components>
+
+  <fields>
+    <!-- Header/Trailer fields -->
+    <field number="8" name="BeginString" type="STRING"/>
+    <field number="9" name="BodyLength" type="LENGTH"/>
+    <field number="35" name="MsgType" type="STRING"/>
+    <field number="49" name="SenderCompID" type="STRING"/>
+    <field number="56" name="TargetCompID" type="STRING"/>
+    <field number="34" name="MsgSeqNum" type="SEQNUM"/>
+    <field number="52" name="SendingTime" type="UTCTIMESTAMP"/>
+    <field number="10" name="CheckSum" type="STRING"/>
+
+    <!-- Message fields -->
+    <field number="902" name="CollAsgnID" type="STRING"/>
+    <field number="895" name="CollAsgnReason" type="INT"/>
+    <field number="903" name="CollAsgnTransType" type="INT"/>
+    <field number="1043" name="CollApplType" type="INT"/>
+    <field number="1003" name="Account" type="STRING"/>
+    <field number="60" name="TransactTime" type="UTCTIMESTAMP"/>
+    <field number="873" name="SubscriptionRequestDate" type="STRING"/>
+
+    <!-- NoUnderlyings group fields -->
+    <field number="711" name="NoUnderlyings" type="NUMINGROUP"/>
+    <field number="944" name="CollAction" type="INT"/>
+    <field number="309" name="UnderlyingSecurityID" type="STRING"/>
+    <field number="305" name="UnderlyingSecurityIDSource" type="STRING"/>
+    <field number="879" name="UnderlyingMismatch" type="INT"/>
+    <field number="228" name="RelSymTransactTime" type="INT"/>
+
+    <!-- NoPartyIDs group fields -->
+    <field number="453" name="NoPartyIDs" type="NUMINGROUP"/>
+    <field number="448" name="PartyID" type="STRING"/>
+    <field number="447" name="PartyIDSource" type="CHAR"/>
+    <field number="452" name="PartyRole" type="INT"/>
+    <field number="2376" name="PartyRoleQualifier" type="INT"/>
+
+    <!-- NoPartySubIDs group fields -->
+    <field number="802" name="NoPartySubIDs" type="NUMINGROUP"/>
+    <field number="523" name="PartySubID" type="STRING"/>
+    <field number="803" name="PartySubIDType" type="INT"/>
+  </fields>
+</fix>

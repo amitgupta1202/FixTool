@@ -120,6 +120,13 @@ object FixMessageHelper {
                 return index
             }
 
+            // IMPORTANT: If we encounter a non-delimiter field that's already set in the current group,
+            // this means we've moved to the next group instance. This handles cases where the template
+            // doesn't follow FIX protocol order (fields appearing before the delimiter).
+            if (delimiterTag != null && tag != delimiterTag && fieldMap.isSetField(tag)) {
+                return index
+            }
+
             // Mark that we've seen the delimiter
             if (delimiterTag != null && tag == delimiterTag) {
                 seenDelimiter = true

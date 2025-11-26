@@ -53,6 +53,9 @@ data class FixField(
          * Can also reference previous messages: ${incoming["D"].valueOfTag(11)}
          * Variables assigned in one field can be reused in subsequent fields.
          *
+         * PERFORMANCE OPTIMIZED: Uses batch evaluation to extract message data once
+         * and reuse helper code across all expressions.
+         *
          * @param incomingMessages Map of latest incoming messages by type
          * @param outgoingMessages Map of latest outgoing messages by type
          */
@@ -60,20 +63,34 @@ data class FixField(
             incomingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
             outgoingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
         ): List<FixField> {
-            // Shared variables map for all fields in this message
-            val variables = mutableMapOf<String, String>()
-
-            return this.map { field ->
+            // Collect all fields that need template evaluation
+            val fieldsWithExpressions = this.mapIndexedNotNull { index, field ->
                 if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
-                    field.copy(
-                        value =
-                            FixMessageTemplate.evaluate(
-                                field.value,
-                                incomingMessages,
-                                outgoingMessages,
-                                variables, // Pass shared variables map
-                            ),
-                    )
+                    index to field.value
+                } else {
+                    null
+                }
+            }
+
+            // If no expressions, return as-is (fast path)
+            if (fieldsWithExpressions.isEmpty()) {
+                return this
+            }
+
+            // Batch evaluate all expressions at once (extracts message data only once)
+            val variables = mutableMapOf<String, String>()
+            val resolvedValues = FixMessageTemplate.evaluateBatch(
+                fieldsWithExpressions,
+                incomingMessages,
+                outgoingMessages,
+                variables,
+            )
+
+            // Apply resolved values back to fields
+            return this.mapIndexed { index, field ->
+                val resolvedValue = resolvedValues[index]
+                if (resolvedValue != null) {
+                    field.copy(value = resolvedValue)
                 } else {
                     field
                 }

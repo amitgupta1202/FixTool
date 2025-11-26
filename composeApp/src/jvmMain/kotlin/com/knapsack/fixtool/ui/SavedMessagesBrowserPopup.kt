@@ -64,47 +64,39 @@ fun SavedMessagesBrowserPopup(
 
     val focusRequester = remember { FocusRequester() }
 
-    // Filter messages by search query (supports IntelliJ-style abbreviation matching)
-    // Note: We use remember(savedMessages, searchQuery) to recompute when the source list or query changes
-    val filteredMessages = remember(savedMessages, searchQuery) {
-        if (searchQuery.isBlank()) {
-            savedMessages
-        } else {
-            savedMessages.filter { msg ->
-                matchesSearch(msg.name, searchQuery)
-            }
+    // Compute filtered and sorted messages directly without remember
+    // This ensures we always use the latest savedMessages list
+    val filteredMessages = if (searchQuery.isBlank()) {
+        savedMessages
+    } else {
+        savedMessages.filter { msg ->
+            matchesSearch(msg.name, searchQuery)
         }
     }
 
     // Sort by lastUsedAt (most recent first)
-    val sortedMessages = remember(filteredMessages) {
-        filteredMessages.sortedByDescending { it.lastUsedAt }
-    }
+    val sortedMessages = filteredMessages.sortedByDescending { it.lastUsedAt }
 
     // Recent messages (top 9 for keyboard shortcuts)
-    val recentMessages = remember(sortedMessages) {
-        sortedMessages.take(9)
-    }
+    val recentMessages = sortedMessages.take(9)
 
     // Group by message type
-    val groupedByType = remember(sortedMessages, dictionary) {
-        sortedMessages.groupBy { msg ->
-            val msgType = msg.getMessageType()
-            if (msgType != null) {
-                val description = dictionary.getFieldValueDescription(35, msgType)
-                if (description != null && description != msgType) {
-                    "$msgType - $description"
-                } else {
-                    msgType
-                }
+    val groupedByType = sortedMessages.groupBy { msg ->
+        val msgType = msg.getMessageType()
+        if (msgType != null) {
+            val description = dictionary.getFieldValueDescription(35, msgType)
+            if (description != null && description != msgType) {
+                "$msgType - $description"
             } else {
-                "Unknown"
+                msgType
             }
-        }.toSortedMap()
-    }
+        } else {
+            "Unknown"
+        }
+    }.toSortedMap()
 
     // Group by user category
-    val groupedByCategory = remember(sortedMessages, connectionProfiles) {
+    val groupedByCategory = run {
         val result = mutableMapOf<String, MutableList<SavedFixMessage>>()
 
         sortedMessages.forEach { msg ->
@@ -127,8 +119,10 @@ fun SavedMessagesBrowserPopup(
         result.toSortedMap()
     }
 
-    // Request focus when popup opens
+    // Request focus on search box when popup opens
+    // Small delay ensures the popup is fully composed before requesting focus
     LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(50)
         focusRequester.requestFocus()
     }
 
@@ -627,18 +621,20 @@ private fun EmptyState(message: String) {
  * - Partial name match: "quote" matches "QuoteRequestTemplate"
  * - CamelCase initials: "QRT" matches "QuoteRequestTemplate"
  * - Snake_case initials: "QRT" matches "Quote_Request_Template"
+ * - Space-separated initials: "QRT" matches "Quote Request Template"
  * - Partial initials: "QR" matches above
  */
 private fun matchesSearch(name: String, query: String): Boolean {
     if (query.isBlank()) return true
+    val trimmedQuery = query.trim()
 
     // 1. Partial name match (case-insensitive)
-    if (name.lowercase().contains(query.lowercase().trim())) return true
+    if (name.lowercase().contains(trimmedQuery.lowercase())) return true
 
-    // 2. Abbreviation match (for uppercase queries like "QRT" or "QR")
-    if (query.all { it.isUpperCase() || it.isDigit() }) {
+    // 2. Abbreviation match - check if all chars are uppercase/digits
+    if (trimmedQuery.all { it.isUpperCase() || it.isDigit() }) {
         val initials = extractInitials(name)
-        if (initials.startsWith(query, ignoreCase = true)) return true
+        if (initials.startsWith(trimmedQuery, ignoreCase = true)) return true
     }
 
     return false
@@ -649,11 +645,12 @@ private fun matchesSearch(name: String, query: String): Boolean {
  * - CamelCase: "QuoteRequestTemplate" → "QRT"
  * - snake_case: "Quote_Request_Template" → "QRT"
  * - kebab-case: "quote-request-template" → "QRT"
+ * - Space-separated: "Quote Request Template" → "QRT"
  * - Mixed: "Quote_Request-template" → "QRT"
  */
 private fun extractInitials(name: String): String {
     return name
-        .split(Regex("[-_]|(?=[A-Z])"))
+        .split(Regex("[-_\\s]|(?=[A-Z])"))
         .filter { it.isNotEmpty() }
         .map { it.first().uppercaseChar() }
         .joinToString("")

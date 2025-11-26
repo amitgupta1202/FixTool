@@ -31,6 +31,20 @@ object FixMessageTemplate {
     // Key: message object identity, Value: extracted field data
     private val extractedDataCache = java.util.concurrent.ConcurrentHashMap<quickfix.Message, Map<Int, List<String>>>()
 
+    // Known FIX repeating group tags - only these tags can contain groups
+    // This avoids expensive hasGroup() checks on every field
+    // Source: FIX 4.2/4.4/5.0 specifications - common group count tags
+    private val KNOWN_GROUP_TAGS = setOf(
+        // Standard group tags
+        73, 78, 79, 124, 136, 146, 199, 215, 232, 267, 296, 382, 384, 386, 388,
+        420, 421, 453, 454, 457, 461, 478, 518, 539, 552, 555, 576, 602, 604, 627,
+        670, 683, 702, 711, 735, 753, 768, 782, 802, 804, 832, 862, 864, 868, 870, 872,
+        876, 878, 887, 897, 936, 957, 1014, 1016, 1018, 1069, 1070, 1073, 1074, 1078,
+        1109, 1116, 1117, 1130, 1132, 1133, 1134, 1135, 1137, 1140, 1158, 1166,
+        // NoMDEntries, NoQuoteEntries, NoRelatedSym, etc.
+        268, 295, 386, 420, 421, 454, 555, 711, 735, 768, 802
+    )
+
     /**
      * Evaluates all Kotlin expressions in the given string value.
      * Expressions are in the format: ${kotlinExpression}
@@ -136,14 +150,11 @@ object FixMessageTemplate {
                     .replace("$", "\\$") // Escape dollar signs (template expressions)
 
             // Helper function to extract all fields including from repeating groups
+            // OPTIMIZED: Only check hasGroup() for known group tags (O(n) instead of O(n²))
             fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
                 val startTime = System.currentTimeMillis()
                 val tags = mutableMapOf<Int, MutableList<String>>()
-
-                // Optimize: Single iteration through all fields
-                // Extract regular fields AND check for groups in one pass
                 var fieldCount = 0
-                var groupCheckCount = 0
                 var actualGroupsFound = 0
 
                 fieldMap.iterator().forEach { field ->
@@ -152,45 +163,38 @@ object FixMessageTemplate {
                     // Always add the field value first
                     tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
 
-                    // Then check if this field also defines a group
-                    try {
-                        val hasGroupCheck = System.currentTimeMillis()
-                        val hasGroup = fieldMap.hasGroup(field.tag)
-                        val hasGroupDuration = System.currentTimeMillis() - hasGroupCheck
-                        groupCheckCount++
+                    // OPTIMIZATION: Only check for groups if this is a known group count tag
+                    // This avoids expensive hasGroup() calls on every field
+                    if (field.tag in KNOWN_GROUP_TAGS) {
+                        try {
+                            if (fieldMap.hasGroup(field.tag)) {
+                                actualGroupsFound++
+                                val groupCount = fieldMap.getInt(field.tag)
 
-                        if (hasGroupDuration > 10) {
-                            logger.warn("extractAllFields: hasGroup check for tag ${field.tag} took ${hasGroupDuration}ms")
-                        }
-
-                        if (hasGroup) {
-                            actualGroupsFound++
-                            val groupCount = fieldMap.getInt(field.tag)
-                            logger.debug("extractAllFields: Found group at tag ${field.tag} with $groupCount instances")
-
-                            // Extract fields from each group instance
-                            for (i in 1..groupCount) {
-                                try {
-                                    val group = fieldMap.getGroup(i, field.tag)
-                                    // Recursively extract from this group (handles nested groups too)
-                                    val groupTags = extractAllFields(group)
-                                    groupTags.forEach { (tag, values) ->
-                                        tags.getOrPut(tag) { mutableListOf() }.addAll(values)
+                                // Extract fields from each group instance
+                                for (i in 1..groupCount) {
+                                    try {
+                                        val group = fieldMap.getGroup(i, field.tag)
+                                        // Recursively extract from this group (handles nested groups too)
+                                        val groupTags = extractAllFields(group)
+                                        groupTags.forEach { (tag, values) ->
+                                            tags.getOrPut(tag) { mutableListOf() }.addAll(values)
+                                        }
+                                    } catch (e: Exception) {
+                                        // Skip failed group extraction
                                     }
-                                } catch (e: Exception) {
-                                    logger.warn("extractAllFields: Failed to extract group instance $i for tag ${field.tag}: ${e.message}")
                                 }
                             }
+                        } catch (e: Exception) {
+                            // Not a group count field, skip
                         }
-                    } catch (e: Exception) {
-                        // Not a group count field, skip
                     }
                 }
 
                 val totalDuration = System.currentTimeMillis() - startTime
-                if (totalDuration > 100) {
-                    logger.warn(
-                        "extractAllFields: SLOW EXTRACTION - Total: ${totalDuration}ms for $fieldCount fields, $groupCheckCount hasGroup checks, $actualGroupsFound groups found",
+                if (totalDuration > 50) {
+                    logger.debug(
+                        "extractAllFields: ${totalDuration}ms for $fieldCount fields, $actualGroupsFound groups found",
                     )
                 }
 
@@ -338,6 +342,202 @@ object FixMessageTemplate {
     fun hasTemplateExpressions(value: String): Boolean = EXPRESSION_REGEX.containsMatchIn(value)
 
     /**
+     * PERFORMANCE OPTIMIZED: Evaluates multiple field values in a single batch.
+     * This avoids rebuilding the script helper code and message extraction for each field.
+     *
+     * @param fieldsWithExpressions List of pairs (fieldIndex, fieldValue) for fields that have expressions
+     * @param incomingMessages Map of latest incoming messages by type
+     * @param outgoingMessages Map of latest outgoing messages by type
+     * @param variables Shared mutable map for variables across all evaluations
+     * @return Map of fieldIndex to resolved value
+     */
+    fun evaluateBatch(
+        fieldsWithExpressions: List<Pair<Int, String>>,
+        incomingMessages: Map<String, FixMessage> = emptyMap(),
+        outgoingMessages: Map<String, FixMessage> = emptyMap(),
+        variables: MutableMap<String, String> = mutableMapOf(),
+    ): Map<Int, String> {
+        if (fieldsWithExpressions.isEmpty()) return emptyMap()
+
+        val batchStart = System.currentTimeMillis()
+        val results = mutableMapOf<Int, String>()
+
+        // Check if ANY expression needs message data
+        val allValues = fieldsWithExpressions.map { it.second }
+        val needsIncoming = allValues.any { it.contains("incoming[") }
+        val needsOutgoing = allValues.any { it.contains("outgoing[") }
+
+        // Helper to escape strings
+        fun String.escapeForKotlinString(): String =
+            this
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("$", "\\$")
+
+        // Extract message data ONCE for all expressions
+        fun extractAllFieldsOptimized(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
+            val tags = mutableMapOf<Int, MutableList<String>>()
+            fieldMap.iterator().forEach { field ->
+                tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
+                if (field.tag in KNOWN_GROUP_TAGS) {
+                    try {
+                        if (fieldMap.hasGroup(field.tag)) {
+                            val groupCount = fieldMap.getInt(field.tag)
+                            for (i in 1..groupCount) {
+                                try {
+                                    val group = fieldMap.getGroup(i, field.tag)
+                                    val groupTags = extractAllFieldsOptimized(group)
+                                    groupTags.forEach { (tag, values) ->
+                                        tags.getOrPut(tag) { mutableListOf() }.addAll(values)
+                                    }
+                                } catch (e: Exception) { }
+                            }
+                        }
+                    } catch (e: Exception) { }
+                }
+            }
+            return tags.mapValues { it.value.toList() }.toMap()
+        }
+
+        val incomingData = if (needsIncoming && incomingMessages.isNotEmpty()) {
+            incomingMessages.mapValues { (_, msg) ->
+                extractedDataCache.getOrPut(msg.quickfixMessage) {
+                    extractAllFieldsOptimized(msg.quickfixMessage)
+                }
+            }
+        } else emptyMap()
+
+        val outgoingData = if (needsOutgoing && outgoingMessages.isNotEmpty()) {
+            outgoingMessages.mapValues { (_, msg) ->
+                extractedDataCache.getOrPut(msg.quickfixMessage) {
+                    extractAllFieldsOptimized(msg.quickfixMessage)
+                }
+            }
+        } else emptyMap()
+
+        // Build the base helper code ONCE (imports, classes, message data)
+        val baseHelperCode = buildString {
+            appendLine("import java.util.UUID")
+            appendLine("import java.time.LocalDateTime")
+            appendLine("import java.time.format.DateTimeFormatter")
+            appendLine("import java.time.Instant")
+            appendLine()
+            appendLine("class MessageAccessor(private val tags: Map<Int, List<String>>) {")
+            appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]?.firstOrNull()")
+            appendLine("    fun valueOfTag(tag: Int, index: Int): String? = tags[tag]?.getOrNull(index)")
+            appendLine("    fun allValuesOfTag(tag: Int): List<String> = tags[tag] ?: emptyList()")
+            appendLine("    operator fun get(tag: Int): String? = valueOfTag(tag)")
+            appendLine("}")
+            appendLine()
+            appendLine("class MessageMap(private val messages: Map<String, MessageAccessor>) {")
+            appendLine("    operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())")
+            appendLine("}")
+            appendLine()
+
+            // Build incoming data
+            append("val incoming = MessageMap(mapOf<String, MessageAccessor>(")
+            if (incomingData.isNotEmpty()) {
+                appendLine()
+                incomingData.entries.forEachIndexed { index, (msgType, tags) ->
+                    val tagsStr = tags.entries.joinToString(", ") { (tag, values) ->
+                        val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
+                        "$tag to listOf($valuesList)"
+                    }
+                    append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
+                    if (index < incomingData.size - 1) appendLine(",") else appendLine()
+                }
+                appendLine("))")
+            } else {
+                appendLine("))")
+            }
+            appendLine()
+
+            // Build outgoing data
+            append("val outgoing = MessageMap(mapOf<String, MessageAccessor>(")
+            if (outgoingData.isNotEmpty()) {
+                appendLine()
+                outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
+                    val tagsStr = tags.entries.joinToString(", ") { (tag, values) ->
+                        val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
+                        "$tag to listOf($valuesList)"
+                    }
+                    append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
+                    if (index < outgoingData.size - 1) appendLine(",") else appendLine()
+                }
+                appendLine("))")
+            } else {
+                appendLine("))")
+            }
+            appendLine()
+
+            // Mutable map for variables
+            appendLine("val __vars = mutableMapOf<String, String>()")
+            if (variables.isNotEmpty()) {
+                variables.forEach { (varName, value) ->
+                    appendLine("__vars[\"$varName\"] = \"${value.escapeForKotlinString()}\"")
+                }
+            }
+            appendLine()
+        }
+
+        // Now evaluate each field - we can process sequentially to support variable assignments
+        for ((fieldIndex, fieldValue) in fieldsWithExpressions) {
+            try {
+                val resolvedValue = EXPRESSION_REGEX.replace(fieldValue) { matchResult ->
+                    val expression = matchResult.groupValues[1].trim()
+
+                    // Check for variable reference first (fast path)
+                    if (VARIABLE_REGEX.matches(expression) && expression in variables) {
+                        return@replace variables[expression]!!
+                    }
+
+                    // Check for variable assignment
+                    val assignmentMatch = ASSIGNMENT_REGEX.matchEntire(expression)
+                    val (varName, actualExpression) = if (assignmentMatch != null) {
+                        assignmentMatch.groupValues[1] to assignmentMatch.groupValues[2]
+                    } else {
+                        null to expression
+                    }
+
+                    // Build script for this expression
+                    val script = buildString {
+                        append(baseHelperCode)
+                        // Add current variables
+                        variables.forEach { (vName, vValue) ->
+                            appendLine("val $vName = \"${vValue.escapeForKotlinString()}\"")
+                        }
+                        appendLine()
+                        appendLine(actualExpression)
+                    }
+
+                    try {
+                        val result = scriptEngine.eval(script)?.toString() ?: "null"
+                        // Store variable if this was an assignment
+                        if (varName != null) {
+                            variables[varName] = result
+                        }
+                        result
+                    } catch (e: Exception) {
+                        logger.warn("Failed to evaluate expression '$expression': ${e.message}")
+                        "\${$expression}"
+                    }
+                }
+                results[fieldIndex] = resolvedValue
+            } catch (e: Exception) {
+                logger.warn("Failed to resolve field $fieldIndex: ${e.message}")
+                results[fieldIndex] = fieldValue // Return original on error
+            }
+        }
+
+        val batchDuration = System.currentTimeMillis() - batchStart
+        if (batchDuration > 100) {
+            logger.info("Batch evaluation of ${fieldsWithExpressions.size} fields took ${batchDuration}ms")
+        }
+
+        return results
+    }
+
+    /**
      * Validates all template expressions in a value and returns validation errors
      * @return List of error messages, empty if all expressions are valid
      */
@@ -427,28 +627,31 @@ object FixMessageTemplate {
                 .replace("$", "\\$")
 
         // Helper function to extract all fields including from repeating groups
+        // OPTIMIZED: Only check hasGroup() for known group tags
         fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
             val tags = mutableMapOf<Int, MutableList<String>>()
             fieldMap.iterator().forEach { field ->
                 tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
-                try {
-                    val hasGroup = fieldMap.hasGroup(field.tag)
-                    if (hasGroup) {
-                        val groupCount = fieldMap.getInt(field.tag)
-                        for (i in 1..groupCount) {
-                            try {
-                                val group = fieldMap.getGroup(i, field.tag)
-                                val groupTags = extractAllFields(group)
-                                groupTags.forEach { (tag, values) ->
-                                    tags.getOrPut(tag) { mutableListOf() }.addAll(values)
+                // OPTIMIZATION: Only check for groups if this is a known group count tag
+                if (field.tag in KNOWN_GROUP_TAGS) {
+                    try {
+                        if (fieldMap.hasGroup(field.tag)) {
+                            val groupCount = fieldMap.getInt(field.tag)
+                            for (i in 1..groupCount) {
+                                try {
+                                    val group = fieldMap.getGroup(i, field.tag)
+                                    val groupTags = extractAllFields(group)
+                                    groupTags.forEach { (tag, values) ->
+                                        tags.getOrPut(tag) { mutableListOf() }.addAll(values)
+                                    }
+                                } catch (e: Exception) {
+                                    // Skip failed group extraction
                                 }
-                            } catch (e: Exception) {
-                                // Skip failed group extraction
                             }
                         }
+                    } catch (e: Exception) {
+                        // Not a group count field
                     }
-                } catch (e: Exception) {
-                    // Not a group count field
                 }
             }
             return tags.mapValues { it.value.toList() }.toMap()

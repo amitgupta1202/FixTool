@@ -1343,16 +1343,21 @@ class FixMessageViewModel(
         // Get the profileId from the message's user tags
         val profileId = message.getAllUserTags().firstOrNull() ?: return
 
+        // Update local state immediately for responsive UI
+        val index = _savedMessages.indexOfFirst { it.id == messageId }
+        if (index >= 0) {
+            _savedMessages[index] = updatedMessage
+        }
+
+        // Persist to storage
         savedMessagesService
             .saveMessage(profileId, updatedMessage)
-            .onSuccess {
-                // Update local state immediately for responsive UI
-                val index = _savedMessages.indexOfFirst { it.id == messageId }
-                if (index >= 0) {
-                    _savedMessages[index] = updatedMessage
-                }
-            }.onFailure { error ->
+            .onFailure { error ->
                 logger.error("Failed to toggle favorite: ${error.message}", error)
+                // Revert local state on failure
+                if (index >= 0) {
+                    _savedMessages[index] = message
+                }
             }
     }
 

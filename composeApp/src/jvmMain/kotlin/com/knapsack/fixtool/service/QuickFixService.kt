@@ -184,6 +184,7 @@ class QuickFixService(
      * @return SendResult indicating success, success with warning, or failure
      */
     fun sendMessage(rawMessage: String, dictionary: com.knapsack.fixtool.model.FixDictionary): SendResult {
+        val startTime = System.nanoTime()
         val sessionID = currentSessionID
         if (sessionID == null) {
             logger.error("Cannot send message: No active FIX session", notifyUser = true)
@@ -215,7 +216,21 @@ class QuickFixService(
                     rawMessage.toQuickFixMessage()
                 }
 
+            val parseEndTime = System.nanoTime()
+
+            var duration = (parseEndTime - startTime) / 1_000_000 // Convert to milliseconds
+
+            if (duration > 200) {
+                logger.warn("Message parse took ${duration}ms (exceeded 200ms threshold)")
+            }
+
             val sent = Session.sendToTarget(message, sessionID)
+            duration = (System.nanoTime() - parseEndTime) / 1_000_000 // Convert to milliseconds
+
+            if (duration > 200) {
+                logger.warn("Message send took ${duration}ms (exceeded 200ms threshold)")
+            }
+
             return if (sent) {
                 if (validationWarning != null) {
                     SendResult.SuccessWithWarning(validationWarning)

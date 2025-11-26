@@ -1,8 +1,26 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
+import javax.script.ScriptContext
 import javax.script.ScriptEngineManager
 import javax.script.ScriptException
+import javax.script.SimpleScriptContext
+
+/**
+ * Lightweight accessor wrappers exposed to the Kotlin script engine.
+ * Using real classes (instead of regenerating Kotlin source for every expression)
+ * keeps script parsing overhead low while still giving users the same API.
+ */
+class MessageAccessor(private val tags: Map<Int, List<String>>) {
+    fun valueOfTag(tag: Int): String? = tags[tag]?.firstOrNull()
+    fun valueOfTag(tag: Int, index: Int): String? = tags[tag]?.getOrNull(index)
+    fun allValuesOfTag(tag: Int): List<String> = tags[tag] ?: emptyList()
+    operator fun get(tag: Int): String? = valueOfTag(tag)
+}
+
+class MessageMap(private val messages: Map<String, MessageAccessor>) {
+    operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())
+}
 
 /**
  * Evaluates Kotlin expressions in FIX message field values using Kotlin's scripting engine.
@@ -19,6 +37,15 @@ import javax.script.ScriptException
  */
 object FixMessageTemplate {
     private val EXPRESSION_REGEX = """\$\{([^}]+)}""".toRegex()
+    private val SCRIPT_PREAMBLE =
+        """
+        import java.util.UUID
+        import java.time.LocalDateTime
+        import java.time.format.DateTimeFormatter
+        import java.time.Instant
+        import com.knapsack.fixtool.service.MessageAccessor
+        import com.knapsack.fixtool.service.MessageMap
+        """.trimIndent()
 
     // Cache the script engine to avoid expensive re-initialization
     // Script engine initialization can take 100-1000ms, so reusing it dramatically improves performance
@@ -44,6 +71,75 @@ object FixMessageTemplate {
         // NoMDEntries, NoQuoteEntries, NoRelatedSym, etc.
         268, 295, 386, 420, 421, 454, 555, 711, 735, 768, 802
     )
+
+    // Extract all fields including repeating groups, memoized by caller when needed
+    private fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
+        val startTime = System.currentTimeMillis()
+        val tags = mutableMapOf<Int, MutableList<String>>()
+        var fieldCount = 0
+        var actualGroupsFound = 0
+
+        fieldMap.iterator().forEach { field ->
+            fieldCount++
+            tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
+
+            if (field.tag in KNOWN_GROUP_TAGS) {
+                try {
+                    if (fieldMap.hasGroup(field.tag)) {
+                        actualGroupsFound++
+                        val groupCount = fieldMap.getInt(field.tag)
+                        for (i in 1..groupCount) {
+                            try {
+                                val group = fieldMap.getGroup(i, field.tag)
+                                val groupTags = extractAllFields(group)
+                                groupTags.forEach { (tag, values) ->
+                                    tags.getOrPut(tag) { mutableListOf() }.addAll(values)
+                                }
+                            } catch (_: Exception) {
+                                // ignore extraction errors for individual groups
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // not a group count field
+                }
+            }
+        }
+
+        val totalDuration = System.currentTimeMillis() - startTime
+        if (totalDuration > 50) {
+            logger.debug(
+                "extractAllFields: ${totalDuration}ms for $fieldCount fields, $actualGroupsFound groups found",
+            )
+        }
+
+        return tags.mapValues { it.value.toList() }.toMap()
+    }
+
+    private fun createScriptContext(
+        variables: Map<String, String>,
+        incomingData: Map<String, MessageAccessor>,
+        outgoingData: Map<String, MessageAccessor>,
+    ): ScriptContext {
+        val context = SimpleScriptContext()
+        val bindings = scriptEngine.createBindings()
+        bindings["incoming"] = MessageMap(incomingData)
+        bindings["outgoing"] = MessageMap(outgoingData)
+        variables.forEach { (name, value) -> bindings[name] = value }
+        context.setBindings(bindings, ScriptContext.ENGINE_SCOPE)
+        return context
+    }
+
+    private fun evalExpressionWithContext(
+        expression: String,
+        variables: Map<String, String>,
+        incomingData: Map<String, MessageAccessor>,
+        outgoingData: Map<String, MessageAccessor>,
+    ): Any? {
+        val context = createScriptContext(variables, incomingData, outgoingData)
+        val script = "$SCRIPT_PREAMBLE\n$expression"
+        return scriptEngine.eval(script, context)
+    }
 
     /**
      * Evaluates all Kotlin expressions in the given string value.
@@ -140,89 +236,28 @@ object FixMessageTemplate {
 
             logger.debug("Expression needs incoming: $needsIncoming, outgoing: $needsOutgoing")
 
-            // Build helper objects that can be serialized into the script
-            // Extract message data into simple maps
-            // Helper to escape strings for Kotlin script literals
-            fun String.escapeForKotlinString(): String =
-                this
-                    .replace("\\", "\\\\") // Escape backslashes first
-                    .replace("\"", "\\\"") // Escape double quotes
-                    .replace("$", "\\$") // Escape dollar signs (template expressions)
-
-            // Helper function to extract all fields including from repeating groups
-            // OPTIMIZED: Only check hasGroup() for known group tags (O(n) instead of O(n²))
-            fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
-                val startTime = System.currentTimeMillis()
-                val tags = mutableMapOf<Int, MutableList<String>>()
-                var fieldCount = 0
-                var actualGroupsFound = 0
-
-                fieldMap.iterator().forEach { field ->
-                    fieldCount++
-
-                    // Always add the field value first
-                    tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
-
-                    // OPTIMIZATION: Only check for groups if this is a known group count tag
-                    // This avoids expensive hasGroup() calls on every field
-                    if (field.tag in KNOWN_GROUP_TAGS) {
-                        try {
-                            if (fieldMap.hasGroup(field.tag)) {
-                                actualGroupsFound++
-                                val groupCount = fieldMap.getInt(field.tag)
-
-                                // Extract fields from each group instance
-                                for (i in 1..groupCount) {
-                                    try {
-                                        val group = fieldMap.getGroup(i, field.tag)
-                                        // Recursively extract from this group (handles nested groups too)
-                                        val groupTags = extractAllFields(group)
-                                        groupTags.forEach { (tag, values) ->
-                                            tags.getOrPut(tag) { mutableListOf() }.addAll(values)
-                                        }
-                                    } catch (e: Exception) {
-                                        // Skip failed group extraction
-                                    }
-                                }
-                            }
-                        } catch (e: Exception) {
-                            // Not a group count field, skip
-                        }
-                    }
-                }
-
-                val totalDuration = System.currentTimeMillis() - startTime
-                if (totalDuration > 50) {
-                    logger.debug(
-                        "extractAllFields: ${totalDuration}ms for $fieldCount fields, $actualGroupsFound groups found",
-                    )
-                }
-
-                return tags.mapValues { it.value.toList() }.toMap()
-            }
-
             // Performance optimization: Only extract message data if the expression needs it
             // This avoids expensive field extraction + hasGroup() checks for simple expressions
             val extractionStart = System.currentTimeMillis()
-            val incomingData =
+            val incomingData: Map<String, MessageAccessor> =
                 if (needsIncoming && incomingMessages.isNotEmpty()) {
                     incomingMessages.mapValues { (_, msg) ->
                         // Use cache to avoid re-extracting the same message
                         extractedDataCache.getOrPut(msg.quickfixMessage) {
                             extractAllFields(msg.quickfixMessage)
-                        }
+                        }.let { MessageAccessor(it) }
                     }
                 } else {
                     emptyMap()
                 }
 
-            val outgoingData =
+            val outgoingData: Map<String, MessageAccessor> =
                 if (needsOutgoing && outgoingMessages.isNotEmpty()) {
                     outgoingMessages.mapValues { (_, msg) ->
                         // Use cache to avoid re-extracting the same message
                         extractedDataCache.getOrPut(msg.quickfixMessage) {
                             extractAllFields(msg.quickfixMessage)
-                        }
+                        }.let { MessageAccessor(it) }
                     }
                 } else {
                     emptyMap()
@@ -232,88 +267,9 @@ object FixMessageTemplate {
                 logger.warn("Message extraction took ${extractionDuration}ms")
             }
 
-            // Build helper class definition and data as part of the script
-            val helperCode =
-                buildString {
-                    appendLine("import java.util.UUID")
-                    appendLine("import java.time.LocalDateTime")
-                    appendLine("import java.time.format.DateTimeFormatter")
-                    appendLine("import java.time.Instant")
-                    appendLine()
-                    appendLine("// Helper class for message tag access with repeating group support")
-                    appendLine("class MessageAccessor(private val tags: Map<Int, List<String>>) {")
-                    appendLine("    // Get first value of tag (backwards compatible)")
-                    appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]?.firstOrNull()")
-                    appendLine("    ")
-                    appendLine("    // Get value at specific index (for repeating groups)")
-                    appendLine("    fun valueOfTag(tag: Int, index: Int): String? = tags[tag]?.getOrNull(index)")
-                    appendLine("    ")
-                    appendLine("    // Get all values of a tag (for repeating groups)")
-                    appendLine("    fun allValuesOfTag(tag: Int): List<String> = tags[tag] ?: emptyList()")
-                    appendLine("    ")
-                    appendLine("    // Operator overload for convenience")
-                    appendLine("    operator fun get(tag: Int): String? = valueOfTag(tag)")
-                    appendLine("}")
-                    appendLine()
-                    appendLine("// Wrapper for safe map access - returns empty accessor if message type not found")
-                    appendLine("class MessageMap(private val messages: Map<String, MessageAccessor>) {")
-                    appendLine("    operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())")
-                    appendLine("}")
-                    appendLine()
-
-                    // Add user-defined variables to the script
-                    if (variables.isNotEmpty()) {
-                        appendLine("// User-defined variables")
-                        variables.forEach { (varName, value) ->
-                            // Escape the value for use in Kotlin string literal
-                            val escapedValue = value.escapeForKotlinString()
-                            appendLine("val $varName = \"$escapedValue\"")
-                        }
-                        appendLine()
-                    }
-
-                    appendLine("// Build incoming and outgoing message maps")
-                    append("val incoming = MessageMap(mapOf<String, MessageAccessor>(")
-                    if (incomingData.isNotEmpty()) {
-                        appendLine()
-                        incomingData.entries.forEachIndexed { index, (msgType, tags) ->
-                            val tagsStr =
-                                tags.entries.joinToString(", ") { (tag, values) ->
-                                    val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
-                                    "$tag to listOf($valuesList)"
-                                }
-                            append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
-                            if (index < incomingData.size - 1) appendLine(",") else appendLine()
-                        }
-                        appendLine("))")
-                    } else {
-                        appendLine("))")
-                    }
-                    appendLine()
-                    append("val outgoing = MessageMap(mapOf<String, MessageAccessor>(")
-                    if (outgoingData.isNotEmpty()) {
-                        appendLine()
-                        outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
-                            val tagsStr =
-                                tags.entries.joinToString(", ") { (tag, values) ->
-                                    val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
-                                    "$tag to listOf($valuesList)"
-                                }
-                            append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
-                            if (index < outgoingData.size - 1) appendLine(",") else appendLine()
-                        }
-                        appendLine("))")
-                    } else {
-                        appendLine("))")
-                    }
-                    appendLine()
-                    appendLine("// Evaluate the user's expression")
-                    appendLine(expression)
-                }
-
             // Evaluate the complete script using cached script engine
             val scriptStart = System.currentTimeMillis()
-            val result = scriptEngine.eval(helperCode)
+            val result = evalExpressionWithContext(expression, variables, incomingData, outgoingData)
             val scriptDuration = System.currentTimeMillis() - scriptStart
 
             val resultStr = result?.toString() ?: "null"
@@ -367,118 +323,23 @@ object FixMessageTemplate {
         val needsIncoming = allValues.any { it.contains("incoming[") }
         val needsOutgoing = allValues.any { it.contains("outgoing[") }
 
-        // Helper to escape strings
-        fun String.escapeForKotlinString(): String =
-            this
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("$", "\\$")
-
-        // Extract message data ONCE for all expressions
-        fun extractAllFieldsOptimized(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
-            val tags = mutableMapOf<Int, MutableList<String>>()
-            fieldMap.iterator().forEach { field ->
-                tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
-                if (field.tag in KNOWN_GROUP_TAGS) {
-                    try {
-                        if (fieldMap.hasGroup(field.tag)) {
-                            val groupCount = fieldMap.getInt(field.tag)
-                            for (i in 1..groupCount) {
-                                try {
-                                    val group = fieldMap.getGroup(i, field.tag)
-                                    val groupTags = extractAllFieldsOptimized(group)
-                                    groupTags.forEach { (tag, values) ->
-                                        tags.getOrPut(tag) { mutableListOf() }.addAll(values)
-                                    }
-                                } catch (e: Exception) { }
-                            }
-                        }
-                    } catch (e: Exception) { }
+        val incomingData: Map<String, MessageAccessor> =
+            if (needsIncoming && incomingMessages.isNotEmpty()) {
+                incomingMessages.mapValues { (_, msg) ->
+                    extractedDataCache.getOrPut(msg.quickfixMessage) {
+                        extractAllFields(msg.quickfixMessage)
+                    }.let { MessageAccessor(it) }
                 }
-            }
-            return tags.mapValues { it.value.toList() }.toMap()
-        }
+            } else emptyMap()
 
-        val incomingData = if (needsIncoming && incomingMessages.isNotEmpty()) {
-            incomingMessages.mapValues { (_, msg) ->
-                extractedDataCache.getOrPut(msg.quickfixMessage) {
-                    extractAllFieldsOptimized(msg.quickfixMessage)
+        val outgoingData: Map<String, MessageAccessor> =
+            if (needsOutgoing && outgoingMessages.isNotEmpty()) {
+                outgoingMessages.mapValues { (_, msg) ->
+                    extractedDataCache.getOrPut(msg.quickfixMessage) {
+                        extractAllFields(msg.quickfixMessage)
+                    }.let { MessageAccessor(it) }
                 }
-            }
-        } else emptyMap()
-
-        val outgoingData = if (needsOutgoing && outgoingMessages.isNotEmpty()) {
-            outgoingMessages.mapValues { (_, msg) ->
-                extractedDataCache.getOrPut(msg.quickfixMessage) {
-                    extractAllFieldsOptimized(msg.quickfixMessage)
-                }
-            }
-        } else emptyMap()
-
-        // Build the base helper code ONCE (imports, classes, message data)
-        val baseHelperCode = buildString {
-            appendLine("import java.util.UUID")
-            appendLine("import java.time.LocalDateTime")
-            appendLine("import java.time.format.DateTimeFormatter")
-            appendLine("import java.time.Instant")
-            appendLine()
-            appendLine("class MessageAccessor(private val tags: Map<Int, List<String>>) {")
-            appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]?.firstOrNull()")
-            appendLine("    fun valueOfTag(tag: Int, index: Int): String? = tags[tag]?.getOrNull(index)")
-            appendLine("    fun allValuesOfTag(tag: Int): List<String> = tags[tag] ?: emptyList()")
-            appendLine("    operator fun get(tag: Int): String? = valueOfTag(tag)")
-            appendLine("}")
-            appendLine()
-            appendLine("class MessageMap(private val messages: Map<String, MessageAccessor>) {")
-            appendLine("    operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())")
-            appendLine("}")
-            appendLine()
-
-            // Build incoming data
-            append("val incoming = MessageMap(mapOf<String, MessageAccessor>(")
-            if (incomingData.isNotEmpty()) {
-                appendLine()
-                incomingData.entries.forEachIndexed { index, (msgType, tags) ->
-                    val tagsStr = tags.entries.joinToString(", ") { (tag, values) ->
-                        val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
-                        "$tag to listOf($valuesList)"
-                    }
-                    append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
-                    if (index < incomingData.size - 1) appendLine(",") else appendLine()
-                }
-                appendLine("))")
-            } else {
-                appendLine("))")
-            }
-            appendLine()
-
-            // Build outgoing data
-            append("val outgoing = MessageMap(mapOf<String, MessageAccessor>(")
-            if (outgoingData.isNotEmpty()) {
-                appendLine()
-                outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
-                    val tagsStr = tags.entries.joinToString(", ") { (tag, values) ->
-                        val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
-                        "$tag to listOf($valuesList)"
-                    }
-                    append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
-                    if (index < outgoingData.size - 1) appendLine(",") else appendLine()
-                }
-                appendLine("))")
-            } else {
-                appendLine("))")
-            }
-            appendLine()
-
-            // Mutable map for variables
-            appendLine("val __vars = mutableMapOf<String, String>()")
-            if (variables.isNotEmpty()) {
-                variables.forEach { (varName, value) ->
-                    appendLine("__vars[\"$varName\"] = \"${value.escapeForKotlinString()}\"")
-                }
-            }
-            appendLine()
-        }
+            } else emptyMap()
 
         // Now evaluate each field - we can process sequentially to support variable assignments
         for ((fieldIndex, fieldValue) in fieldsWithExpressions) {
@@ -499,19 +360,14 @@ object FixMessageTemplate {
                         null to expression
                     }
 
-                    // Build script for this expression
-                    val script = buildString {
-                        append(baseHelperCode)
-                        // Add current variables
-                        variables.forEach { (vName, vValue) ->
-                            appendLine("val $vName = \"${vValue.escapeForKotlinString()}\"")
-                        }
-                        appendLine()
-                        appendLine(actualExpression)
-                    }
-
                     try {
-                        val result = scriptEngine.eval(script)?.toString() ?: "null"
+                        val result =
+                            evalExpressionWithContext(
+                                actualExpression,
+                                variables,
+                                incomingData,
+                                outgoingData,
+                            )?.toString() ?: "null"
                         // Store variable if this was an assignment
                         if (varName != null) {
                             variables[varName] = result
@@ -615,141 +471,33 @@ object FixMessageTemplate {
         outgoingMessages: Map<String, FixMessage>,
         variables: MutableMap<String, String>,
     ): String {
-        // Performance optimization: Check if expression references messages
         val needsIncoming = expression.contains("incoming[")
         val needsOutgoing = expression.contains("outgoing[")
 
-        // Helper to escape strings for Kotlin script literals
-        fun String.escapeForKotlinString(): String =
-            this
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("$", "\\$")
-
-        // Helper function to extract all fields including from repeating groups
-        // OPTIMIZED: Only check hasGroup() for known group tags
-        fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
-            val tags = mutableMapOf<Int, MutableList<String>>()
-            fieldMap.iterator().forEach { field ->
-                tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
-                // OPTIMIZATION: Only check for groups if this is a known group count tag
-                if (field.tag in KNOWN_GROUP_TAGS) {
-                    try {
-                        if (fieldMap.hasGroup(field.tag)) {
-                            val groupCount = fieldMap.getInt(field.tag)
-                            for (i in 1..groupCount) {
-                                try {
-                                    val group = fieldMap.getGroup(i, field.tag)
-                                    val groupTags = extractAllFields(group)
-                                    groupTags.forEach { (tag, values) ->
-                                        tags.getOrPut(tag) { mutableListOf() }.addAll(values)
-                                    }
-                                } catch (e: Exception) {
-                                    // Skip failed group extraction
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // Not a group count field
-                    }
-                }
-            }
-            return tags.mapValues { it.value.toList() }.toMap()
-        }
-
-        val incomingData =
+        val incomingData: Map<String, MessageAccessor> =
             if (needsIncoming && incomingMessages.isNotEmpty()) {
                 incomingMessages.mapValues { (_, msg) ->
                     extractedDataCache.getOrPut(msg.quickfixMessage) {
                         extractAllFields(msg.quickfixMessage)
-                    }
+                    }.let { MessageAccessor(it) }
                 }
             } else {
                 emptyMap()
             }
 
-        val outgoingData =
+        val outgoingData: Map<String, MessageAccessor> =
             if (needsOutgoing && outgoingMessages.isNotEmpty()) {
                 outgoingMessages.mapValues { (_, msg) ->
                     extractedDataCache.getOrPut(msg.quickfixMessage) {
                         extractAllFields(msg.quickfixMessage)
-                    }
+                    }.let { MessageAccessor(it) }
                 }
             } else {
                 emptyMap()
             }
 
-        // Build helper class definition and data as part of the script
-        val helperCode =
-            buildString {
-                appendLine("import java.util.UUID")
-                appendLine("import java.time.LocalDateTime")
-                appendLine("import java.time.format.DateTimeFormatter")
-                appendLine("import java.time.Instant")
-                appendLine()
-                appendLine("// Helper class for message tag access with repeating group support")
-                appendLine("class MessageAccessor(private val tags: Map<Int, List<String>>) {")
-                appendLine("    fun valueOfTag(tag: Int): String? = tags[tag]?.firstOrNull()")
-                appendLine("    fun valueOfTag(tag: Int, index: Int): String? = tags[tag]?.getOrNull(index)")
-                appendLine("    fun allValuesOfTag(tag: Int): List<String> = tags[tag] ?: emptyList()")
-                appendLine("    operator fun get(tag: Int): String? = valueOfTag(tag)")
-                appendLine("}")
-                appendLine()
-                appendLine("class MessageMap(private val messages: Map<String, MessageAccessor>) {")
-                appendLine("    operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())")
-                appendLine("}")
-                appendLine()
+        val result = evalExpressionWithContext(expression, variables, incomingData, outgoingData)
 
-                if (variables.isNotEmpty()) {
-                    appendLine("// User-defined variables")
-                    variables.forEach { (varName, value) ->
-                        val escapedValue = value.escapeForKotlinString()
-                        appendLine("val $varName = \"$escapedValue\"")
-                    }
-                    appendLine()
-                }
-
-                appendLine("// Build incoming and outgoing message maps")
-                append("val incoming = MessageMap(mapOf<String, MessageAccessor>(")
-                if (incomingData.isNotEmpty()) {
-                    appendLine()
-                    incomingData.entries.forEachIndexed { index, (msgType, tags) ->
-                        val tagsStr =
-                            tags.entries.joinToString(", ") { (tag, values) ->
-                                val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
-                                "$tag to listOf($valuesList)"
-                            }
-                        append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
-                        if (index < incomingData.size - 1) appendLine(",") else appendLine()
-                    }
-                    appendLine("))")
-                } else {
-                    appendLine("))")
-                }
-                appendLine()
-                append("val outgoing = MessageMap(mapOf<String, MessageAccessor>(")
-                if (outgoingData.isNotEmpty()) {
-                    appendLine()
-                    outgoingData.entries.forEachIndexed { index, (msgType, tags) ->
-                        val tagsStr =
-                            tags.entries.joinToString(", ") { (tag, values) ->
-                                val valuesList = values.joinToString(", ") { "\"${it.escapeForKotlinString()}\"" }
-                                "$tag to listOf($valuesList)"
-                            }
-                        append("    \"$msgType\" to MessageAccessor(mapOf($tagsStr))")
-                        if (index < outgoingData.size - 1) appendLine(",") else appendLine()
-                    }
-                    appendLine("))")
-                } else {
-                    appendLine("))")
-                }
-                appendLine()
-                appendLine("// Evaluate the user's expression")
-                appendLine(expression)
-            }
-
-        // Evaluate - let exceptions bubble up for validation
-        val result = scriptEngine.eval(helperCode)
         return result?.toString() ?: "null"
     }
 }

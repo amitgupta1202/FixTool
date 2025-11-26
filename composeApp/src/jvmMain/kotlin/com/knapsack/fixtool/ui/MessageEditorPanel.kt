@@ -259,6 +259,7 @@ fun MessageEditorPanel(
     savedMessages: List<com.knapsack.fixtool.model.SavedFixMessage> = emptyList(),
     onLoadMessage: ((com.knapsack.fixtool.model.SavedFixMessage) -> Unit)? = null,
     onDeleteMessage: ((messageId: String, profileId: String) -> Unit)? = null,
+    onToggleFavorite: ((messageId: String) -> Unit)? = null,
     connectionProfiles: List<com.knapsack.fixtool.model.FixConnectionProfile> = emptyList(),
     currentProfileId: String? = null,
     editorState: com.knapsack.fixtool.model.MessageEditorState = com.knapsack.fixtool.model.MessageEditorState.New,
@@ -547,6 +548,7 @@ fun MessageEditorPanel(
                                     showLoadPopup = false
                                 },
                                 onDeleteMessage = onDeleteMessage,
+                                onToggleFavorite = onToggleFavorite,
                                 onDismiss = { showLoadPopup = false },
                             )
                         }
@@ -1093,6 +1095,7 @@ fun MessageEditorPanel(
                                                         showLoadPopup = false
                                                     },
                                                     onDeleteMessage = onDeleteMessage,
+                                                    onToggleFavorite = onToggleFavorite,
                                                     onDismiss = { showLoadPopup = false },
                                                 )
                                             }

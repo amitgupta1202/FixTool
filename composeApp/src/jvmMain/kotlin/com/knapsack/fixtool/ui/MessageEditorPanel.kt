@@ -520,11 +520,11 @@ fun MessageEditorPanel(
 
                 // Button 2: Load
                 if (visibleButtonsCount > 2 && onLoadMessage != null && savedMessages.isNotEmpty()) {
-                    var showLoadMenu by remember { mutableStateOf(false) }
+                    var showLoadPopup by remember { mutableStateOf(false) }
                     Box {
                         TooltipIconButton(
                             tooltip = "Load Message Template",
-                            onClick = { showLoadMenu = true },
+                            onClick = { showLoadPopup = true },
                             modifier = iconSize28,
                         ) {
                             Icon(
@@ -535,77 +535,19 @@ fun MessageEditorPanel(
                             )
                         }
 
-                        DropdownMenu(
-                            expanded = showLoadMenu,
-                            onDismissRequest = { showLoadMenu = false },
-                            modifier = Modifier.background(Color(0xFF2B2B2B)).widthIn(min = 200.dp),
-                        ) {
-                            savedMessages.sortedByDescending { it.lastUsedAt }.forEach { savedMsg ->
-                                // Get profile names for all tags
-                                val userTags = savedMsg.getAllUserTags()
-                                val profileNames =
-                                    userTags.mapNotNull { tagId ->
-                                        connectionProfiles.find { it.id == tagId }?.name
-                                    }
-                                val profileNamesText =
-                                    when {
-                                        profileNames.isEmpty() -> null
-                                        profileNames.size == 1 -> profileNames.first()
-                                        profileNames.size <= 3 -> profileNames.joinToString(", ")
-                                        else -> "${profileNames.take(2).joinToString(", ")} +${profileNames.size - 2}"
-                                    }
-
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    savedMsg.name,
-                                                    color = AppTheme.Colors.text,
-                                                    fontSize = 14.sp,
-                                                    fontFamily = FontFamily.Monospace,
-                                                )
-                                                if (profileNamesText != null) {
-                                                    Text(
-                                                        profileNamesText,
-                                                        color = placeholderColor,
-                                                        fontSize = 9.sp,
-                                                        fontFamily = FontFamily.Monospace,
-                                                    )
-                                                }
-                                            }
-                                            IconButton(
-                                                onClick = {
-                                                    // Use current profile or first tag for deletion
-                                                    val deleteProfileId = currentProfileId ?: userTags.firstOrNull() ?: ""
-                                                    onDeleteMessage?.invoke(savedMsg.id, deleteProfileId)
-                                                    showLoadMenu = false
-                                                },
-                                                modifier = iconSize24,
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Delete,
-                                                    contentDescription = "Delete Template",
-                                                    modifier = iconSize16,
-                                                    tint = deleteColor,
-                                                )
-                                            }
-                                        }
-                                    },
-                                    onClick = {
-                                        onLoadMessage(savedMsg)
-                                        showLoadMenu = false
-                                    },
-                                    colors =
-                                        MenuDefaults.itemColors(
-                                            textColor = AppTheme.Colors.text,
-                                        ),
-                                )
-                            }
+                        if (showLoadPopup) {
+                            SavedMessagesBrowserPopup(
+                                savedMessages = savedMessages,
+                                connectionProfiles = connectionProfiles,
+                                dictionary = dictionary,
+                                currentProfileId = currentProfileId,
+                                onSelectMessage = { savedMessage ->
+                                    onLoadMessage(savedMessage)
+                                    showLoadPopup = false
+                                },
+                                onDeleteMessage = onDeleteMessage,
+                                onDismiss = { showLoadPopup = false },
+                            )
                         }
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -1098,17 +1040,35 @@ fun MessageEditorPanel(
                                         onLoadMessage != null &&
                                         savedMessages.isNotEmpty()
                                     ) {
-                                        TooltipIconButton(
-                                            tooltip = "Load Message Template",
-                                            onClick = { /* handled by dropdown */ },
-                                            modifier = iconSize28,
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.FolderOpen,
-                                                contentDescription = "Load",
-                                                modifier = iconSize18,
-                                                tint = AppTheme.Colors.textSecondary,
-                                            )
+                                        var showLoadPopup by remember { mutableStateOf(false) }
+                                        Box {
+                                            TooltipIconButton(
+                                                tooltip = "Load Message Template",
+                                                onClick = { showLoadPopup = true },
+                                                modifier = iconSize28,
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.FolderOpen,
+                                                    contentDescription = "Load",
+                                                    modifier = iconSize18,
+                                                    tint = AppTheme.Colors.textSecondary,
+                                                )
+                                            }
+
+                                            if (showLoadPopup) {
+                                                SavedMessagesBrowserPopup(
+                                                    savedMessages = savedMessages,
+                                                    connectionProfiles = connectionProfiles,
+                                                    dictionary = dictionary,
+                                                    currentProfileId = currentProfileId,
+                                                    onSelectMessage = { savedMessage ->
+                                                        onLoadMessage(savedMessage)
+                                                        showLoadPopup = false
+                                                    },
+                                                    onDeleteMessage = onDeleteMessage,
+                                                    onDismiss = { showLoadPopup = false },
+                                                )
+                                            }
                                         }
                                     }
                                     // Button 3: Save

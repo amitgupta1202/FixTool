@@ -809,6 +809,14 @@ private fun AppMessageEditorPanel(
                 userTags,
             )
         },
+        onSaveMessageAs = { name, fields, profileId, userTags ->
+            viewModel.saveEditorMessageAs(
+                name,
+                fields,
+                profileId,
+                userTags,
+            )
+        },
         savedMessages = savedMessages,
         onLoadMessage = { savedMessage ->
             viewModel.loadEditorMessage(savedMessage)

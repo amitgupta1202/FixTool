@@ -59,19 +59,18 @@ fun SavedMessagesBrowserPopup(
     onDismiss: () -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    var viewMode by remember { mutableStateOf(BrowserViewMode.ALL) }
+    var viewMode by remember { mutableStateOf(BrowserViewMode.RECENT) }
     var expandedGroups by remember { mutableStateOf(setOf<String>()) }
 
     val focusRequester = remember { FocusRequester() }
 
-    // Filter messages by search query
+    // Filter messages by search query (supports IntelliJ-style abbreviation matching)
     val filteredMessages = remember(savedMessages, searchQuery) {
         if (searchQuery.isBlank()) {
             savedMessages
         } else {
-            val query = searchQuery.lowercase().trim()
             savedMessages.filter { msg ->
-                msg.name.lowercase().contains(query)
+                matchesSearch(msg.name, searchQuery)
             }
         }
     }
@@ -614,4 +613,42 @@ private fun EmptyState(message: String) {
             color = AppTheme.Colors.textSecondary,
         )
     }
+}
+
+/**
+ * IntelliJ-style search matching.
+ * Supports:
+ * - Partial name match: "quote" matches "QuoteRequestTemplate"
+ * - CamelCase initials: "QRT" matches "QuoteRequestTemplate"
+ * - Snake_case initials: "QRT" matches "Quote_Request_Template"
+ * - Partial initials: "QR" matches above
+ */
+private fun matchesSearch(name: String, query: String): Boolean {
+    if (query.isBlank()) return true
+
+    // 1. Partial name match (case-insensitive)
+    if (name.lowercase().contains(query.lowercase().trim())) return true
+
+    // 2. Abbreviation match (for uppercase queries like "QRT" or "QR")
+    if (query.all { it.isUpperCase() || it.isDigit() }) {
+        val initials = extractInitials(name)
+        if (initials.startsWith(query, ignoreCase = true)) return true
+    }
+
+    return false
+}
+
+/**
+ * Extracts initials from various naming conventions:
+ * - CamelCase: "QuoteRequestTemplate" → "QRT"
+ * - snake_case: "Quote_Request_Template" → "QRT"
+ * - kebab-case: "quote-request-template" → "QRT"
+ * - Mixed: "Quote_Request-template" → "QRT"
+ */
+private fun extractInitials(name: String): String {
+    return name
+        .split(Regex("[-_]|(?=[A-Z])"))
+        .filter { it.isNotEmpty() }
+        .map { it.first().uppercaseChar() }
+        .joinToString("")
 }

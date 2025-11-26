@@ -255,6 +255,7 @@ fun MessageEditorPanel(
     onSetValidationErrors: (List<String>) -> Unit = {},
     onDescriptionVisibilityChanged: ((Boolean) -> Unit)? = null,
     onSaveMessage: ((name: String, fields: List<FixField>, profileId: String, userTags: Set<String>) -> Unit)? = null,
+    onSaveMessageAs: ((name: String, fields: List<FixField>, profileId: String, userTags: Set<String>) -> Unit)? = null,
     savedMessages: List<com.knapsack.fixtool.model.SavedFixMessage> = emptyList(),
     onLoadMessage: ((com.knapsack.fixtool.model.SavedFixMessage) -> Unit)? = null,
     onDeleteMessage: ((messageId: String, profileId: String) -> Unit)? = null,
@@ -737,6 +738,32 @@ fun MessageEditorPanel(
                                         contentColor = AppTheme.Colors.textSecondary,
                                         modifier = Modifier.width(90.dp),
                                     )
+                                    // Show "Save As New" when editing existing template and callback is provided
+                                    if (onSaveMessageAs != null && !editorState.isNew()) {
+                                        SlimButton(
+                                            text = "Save As New",
+                                            onClick = {
+                                                if (messageName.isNotBlank() &&
+                                                    !isDuplicate &&
+                                                    selectedUserTags.isNotEmpty()
+                                                ) {
+                                                    val primaryProfileId = currentProfileId ?: selectedUserTags.first()
+                                                    onSaveMessageAs(
+                                                        messageName,
+                                                        fields.filter { !it.excluded && it.tag.isNotBlank() },
+                                                        primaryProfileId,
+                                                        selectedUserTags,
+                                                    )
+                                                    showSaveDialog = false
+                                                }
+                                            },
+                                            enabled =
+                                                messageName.isNotBlank() && !isDuplicate && selectedUserTags.isNotEmpty(),
+                                            containerColor = AppTheme.Colors.border,
+                                            contentColor = AppTheme.Colors.text,
+                                            modifier = Modifier.width(100.dp),
+                                        )
+                                    }
                                     SlimButton(
                                         text = "Save",
                                         onClick = {

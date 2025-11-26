@@ -298,4 +298,173 @@ class CucumberTemplateParserTest {
         assertEquals("20310108", fields[1].value)
         assertEquals("ADTESTF1", fields[2].value)
     }
+
+    @Test
+    fun testFullCucumberStepWithMessageType() {
+        val template =
+            """
+            When 'atf1.buyfix1@weareadaptive.com' sends the 'R[QUOTE_REQUEST]' FIX message
+            ${"\"\"\""}
+            [QuoteReqID]   131 = CREATE_AND_CAPTURE_AS: QUOTE_REQUEST_ID
+            [ClOrdID]    11 = CREATE_AND_CAPTURE_AS: CL_ORD_ID
+            [ListExecInst]    69 = CONTINGENT
+            ${"\"\"\""}
+            """.trimIndent()
+
+        val fields = parseCucumberTemplateFormat(template)
+
+        // Should extract message type R from 'R[QUOTE_REQUEST]' as tag 35
+        assertEquals(4, fields.size)
+        assertEquals("35", fields[0].tag)
+        assertEquals("R", fields[0].value)
+        assertEquals("131", fields[1].tag)
+        assertEquals("\${quoteRequestId = UUID.randomUUID()}", fields[1].value)
+        assertEquals("11", fields[2].tag)
+        assertEquals("69", fields[3].tag)
+        assertEquals("CONTINGENT", fields[3].value)
+    }
+
+    @Test
+    fun testCucumberStepWithNewOrderSingle() {
+        val template =
+            """
+            When 'user@example.com' sends the 'D[NEW_ORDER_SINGLE]' FIX message
+            ${"\"\"\""}
+            [ClOrdID]    11 = CREATE_AND_CAPTURE_AS: CL_ORD_ID
+            [Side]    54 = 1 [Buy]
+            [OrderQty]    38 = 1000
+            ${"\"\"\""}
+            """.trimIndent()
+
+        val fields = parseCucumberTemplateFormat(template)
+
+        assertEquals(4, fields.size)
+        assertEquals("35", fields[0].tag)
+        assertEquals("D", fields[0].value)
+        assertEquals("11", fields[1].tag)
+        assertEquals("54", fields[2].tag)
+        assertEquals("1", fields[2].value)
+        assertEquals("38", fields[3].tag)
+        assertEquals("1000", fields[3].value)
+    }
+
+    @Test
+    fun testCucumberStepWithoutTripleQuotes() {
+        // Should still work without triple quotes (forgiving)
+        val template =
+            """
+            When 'user@example.com' sends the 'R[QUOTE_REQUEST]' FIX message
+            [QuoteReqID]   131 = CREATE_AND_CAPTURE_AS: QUOTE_REQUEST_ID
+            [ClOrdID]    11 = TEST123
+            """.trimIndent()
+
+        val fields = parseCucumberTemplateFormat(template)
+
+        assertEquals(3, fields.size)
+        assertEquals("35", fields[0].tag)
+        assertEquals("R", fields[0].value)
+        assertEquals("131", fields[1].tag)
+        assertEquals("11", fields[2].tag)
+        assertEquals("TEST123", fields[2].value)
+    }
+
+    @Test
+    fun testCucumberStepWithPartialTripleQuotes() {
+        // Should handle partial/malformed triple quotes
+        val template =
+            """
+            When 'user@example.com' sends the 'AE[TRADE_CAPTURE_REPORT]' FIX message
+            ${"\"\"\""}
+            [TradeReportID]   571 = TRADE123
+            [ExecType]   150 = F [Trade]
+            """.trimIndent()
+
+        val fields = parseCucumberTemplateFormat(template)
+
+        assertEquals(3, fields.size)
+        assertEquals("35", fields[0].tag)
+        assertEquals("AE", fields[0].value)
+        assertEquals("571", fields[1].tag)
+        assertEquals("TRADE123", fields[1].value)
+        assertEquals("150", fields[2].tag)
+        assertEquals("F", fields[2].value)
+    }
+
+    @Test
+    fun testFieldsOnlyWithoutCucumberStep() {
+        // Existing format should still work (no message type extracted)
+        val template =
+            """
+            [QuoteReqID]   131 = CREATE_AND_CAPTURE_AS: QUOTE_REQUEST_ID
+            [ClOrdID]    11 = TEST123
+            """.trimIndent()
+
+        val fields = parseCucumberTemplateFormat(template)
+
+        // No 35 tag should be added when there's no cucumber step header
+        assertEquals(2, fields.size)
+        assertEquals("131", fields[0].tag)
+        assertEquals("11", fields[1].tag)
+    }
+
+    @Test
+    fun testCucumberStepWithThenKeyword() {
+        val template =
+            """
+            Then 'user@example.com' receives the '8[EXECUTION_REPORT]' FIX message
+            ${"\"\"\""}
+            [OrderID]   37 = ORD123
+            [ExecID]   17 = EXEC456
+            ${"\"\"\""}
+            """.trimIndent()
+
+        val fields = parseCucumberTemplateFormat(template)
+
+        assertEquals(3, fields.size)
+        assertEquals("35", fields[0].tag)
+        assertEquals("8", fields[0].value)
+        assertEquals("37", fields[1].tag)
+        assertEquals("17", fields[2].tag)
+    }
+
+    @Test
+    fun testCompleteCucumberScenario() {
+        // Based on the user's actual example
+        val template =
+            """
+            When 'atf1.buyfix1@weareadaptive.com' sends the 'R[QUOTE_REQUEST]' FIX message
+            ${"\"\"\""}
+                   [QuoteReqID]   131 = CREATE_AND_CAPTURE_AS: QUOTE_REQUEST_ID
+                      [ClOrdID]    11 = CREATE_AND_CAPTURE_AS: CL_ORD_ID
+
+                 [ListExecInst]    69 = CONTINGENT
+                   [ExpireTime]   126 = 20991111-07:35:05.559
+                    [PriceType]   423 = 9 [Yield]
+
+                   [NoPartyIDs]   453 = 2
+
+                       [PartyID]   448 = ADTESTF1
+                 [PartyIDSource]   447 = D [Proprietary/Custom]
+                     [PartyRole]   452 = 13 [Order Origination Firm]
+            ${"\"\"\""}
+            """.trimIndent()
+
+        val fields = parseCucumberTemplateFormat(template)
+
+        // Verify message type extracted
+        assertEquals("35", fields[0].tag)
+        assertEquals("R", fields[0].value)
+
+        // Verify some key fields
+        assertEquals("131", fields[1].tag)
+        assertEquals("\${quoteRequestId = UUID.randomUUID()}", fields[1].value)
+        assertEquals("11", fields[2].tag)
+        assertEquals("69", fields[3].tag)
+        assertEquals("CONTINGENT", fields[3].value)
+        assertEquals("126", fields[4].tag)
+        assertEquals("423", fields[5].tag)
+        assertEquals("9", fields[5].value) // Comment stripped
+        assertEquals("453", fields[6].tag)
+        assertEquals("2", fields[6].value)
+    }
 }

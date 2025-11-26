@@ -133,18 +133,35 @@ data class FixField(
         /**
          * Parses Cucumber test template format into FixField list.
          *
-         * Format example:
+         * Supports full cucumber step format:
          * ```
+         * When 'user@example.com' sends the 'R[QUOTE_REQUEST]' FIX message
+         * """
          * [ListID]    66 = CREATE_AND_CAPTURE_AS: LIST_ID
          * [BidType]   394 = 2 [Disclosed style]
          * ######### COMMENT #########
          * @@includeIf:<condition>
          * ... content ...
          * @@/includeIf
+         * """
          * ```
+         *
+         * The message type is extracted from patterns like 'R[QUOTE_REQUEST]' or 'D[NEW_ORDER_SINGLE]'
+         * and added as tag 35 (MsgType) at the beginning of the fields list.
+         * Triple-quote delimiters are optional and gracefully ignored.
          */
         fun parseCucumberTemplateFormat(text: String): List<FixField> {
             val fields = mutableListOf<FixField>()
+
+            // Try to extract message type from cucumber step header
+            // Pattern matches: 'X[MESSAGE_NAME]' where X is the FIX message type code
+            val msgTypePattern = Regex("""'([A-Za-z0-9]+)\[[A-Z_]+\]'""")
+            val msgTypeMatch = msgTypePattern.find(text)
+            if (msgTypeMatch != null) {
+                val msgType = msgTypeMatch.groupValues[1]
+                fields.add(FixField(tag = "35", value = msgType))
+            }
+
             val lines = text.lines()
 
             for (line in lines) {
@@ -152,6 +169,12 @@ data class FixField(
 
                 // Skip empty lines
                 if (trimmed.isEmpty()) continue
+
+                // Skip triple-quote delimiters (""" at start or end, or partial """")
+                if (trimmed.startsWith("\"\"\"") || trimmed == "\"\"") continue
+
+                // Skip cucumber step lines (When/Then/And/Given ... FIX message)
+                if (trimmed.matches(Regex("""^(When|Then|And|Given)\s+.*FIX\s+message.*"""))) continue
 
                 // Skip conditional directives (but not the content inside them)
                 if (trimmed.startsWith("@@includeIf:") || trimmed.startsWith("@@/includeIf")) {

@@ -15,6 +15,7 @@ data class SavedFixMessage(
     val lastUsedAt: Long = System.currentTimeMillis(),
     val modifiedAt: Long = System.currentTimeMillis(),
     val version: Int = 1,
+    val isFavorite: Boolean = false,
 ) {
     /**
      * Returns all user tags (including migrated profileId if needed for backwards compatibility)

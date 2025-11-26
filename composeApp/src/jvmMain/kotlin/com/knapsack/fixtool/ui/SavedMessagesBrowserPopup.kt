@@ -38,6 +38,7 @@ import com.knapsack.fixtool.model.SavedFixMessage
  */
 private enum class BrowserViewMode {
     ALL,        // Flat list sorted by lastUsedAt
+    FAVORITES,  // Only favorite messages
     RECENT,     // Top 9 with numbered shortcuts
     BY_TYPE,    // Grouped by FIX message type (tag 35)
     BY_CATEGORY // Grouped by userTags
@@ -56,6 +57,7 @@ fun SavedMessagesBrowserPopup(
     currentProfileId: String?,
     onSelectMessage: (SavedFixMessage) -> Unit,
     onDeleteMessage: ((messageId: String, profileId: String) -> Unit)?,
+    onToggleFavorite: ((messageId: String) -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -79,6 +81,9 @@ fun SavedMessagesBrowserPopup(
 
     // Recent messages (top 9 for keyboard shortcuts)
     val recentMessages = sortedMessages.take(9)
+
+    // Favorite messages
+    val favoriteMessages = sortedMessages.filter { it.isFavorite }
 
     // Group by message type
     val groupedByType = sortedMessages.groupBy { msg ->
@@ -226,6 +231,7 @@ fun SavedMessagesBrowserPopup(
                         viewMode = it
                         focusRequester.requestFocus()
                     }
+                    ViewModeTab("Favorites", BrowserViewMode.FAVORITES, viewMode) { viewMode = it }
                     ViewModeTab("Recent", BrowserViewMode.RECENT, viewMode) { viewMode = it }
                     ViewModeTab("By Type", BrowserViewMode.BY_TYPE, viewMode) { viewMode = it }
                     ViewModeTab("By User", BrowserViewMode.BY_CATEGORY, viewMode) { viewMode = it }
@@ -256,7 +262,27 @@ fun SavedMessagesBrowserPopup(
                                     currentProfileId = currentProfileId,
                                     onSelect = { onSelectMessage(message) },
                                     onDelete = onDeleteMessage,
+                                    onToggleFavorite = onToggleFavorite,
                                 )
+                            }
+                        }
+
+                        BrowserViewMode.FAVORITES -> {
+                            items(favoriteMessages, key = { it.id }) { message ->
+                                MessageItem(
+                                    message = message,
+                                    connectionProfiles = connectionProfiles,
+                                    currentProfileId = currentProfileId,
+                                    onSelect = { onSelectMessage(message) },
+                                    onDelete = onDeleteMessage,
+                                    onToggleFavorite = onToggleFavorite,
+                                )
+                            }
+
+                            if (favoriteMessages.isEmpty()) {
+                                item {
+                                    EmptyState("No favorites yet. Click the star icon to add favorites.")
+                                }
                             }
                         }
 
@@ -268,6 +294,7 @@ fun SavedMessagesBrowserPopup(
                                     currentProfileId = currentProfileId,
                                     onSelect = { onSelectMessage(message) },
                                     onDelete = onDeleteMessage,
+                                    onToggleFavorite = onToggleFavorite,
                                     shortcutNumber = index + 1,
                                 )
                             }
@@ -304,6 +331,7 @@ fun SavedMessagesBrowserPopup(
                                             currentProfileId = currentProfileId,
                                             onSelect = { onSelectMessage(message) },
                                             onDelete = onDeleteMessage,
+                                            onToggleFavorite = onToggleFavorite,
                                             indented = true,
                                         )
                                     }
@@ -342,6 +370,7 @@ fun SavedMessagesBrowserPopup(
                                             currentProfileId = currentProfileId,
                                             onSelect = { onSelectMessage(message) },
                                             onDelete = onDeleteMessage,
+                                            onToggleFavorite = onToggleFavorite,
                                             indented = true,
                                             showCategory = false,
                                         )
@@ -512,6 +541,7 @@ private fun MessageItem(
     currentProfileId: String?,
     onSelect: () -> Unit,
     onDelete: ((messageId: String, profileId: String) -> Unit)?,
+    onToggleFavorite: ((messageId: String) -> Unit)?,
     shortcutNumber: Int? = null,
     indented: Boolean = false,
     showCategory: Boolean = true,
@@ -575,6 +605,21 @@ private fun MessageItem(
                     fontSize = 10.sp,
                     color = AppTheme.Colors.textSecondary,
                     fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+
+        // Favorite button
+        if (onToggleFavorite != null) {
+            IconButton(
+                onClick = { onToggleFavorite(message.id) },
+                modifier = Modifier.size(24.dp),
+            ) {
+                Icon(
+                    if (message.isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = if (message.isFavorite) "Remove from favorites" else "Add to favorites",
+                    tint = if (message.isFavorite) AppTheme.Colors.warning else AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(14.dp),
                 )
             }
         }

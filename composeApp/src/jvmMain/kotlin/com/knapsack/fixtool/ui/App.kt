@@ -827,6 +827,9 @@ private fun AppMessageEditorPanel(
                 profileId,
             )
         },
+        onToggleFavorite = { messageId ->
+            viewModel.toggleMessageFavorite(messageId)
+        },
         connectionProfiles = viewModel.connectionProfiles,
         currentProfileId = currentProfileId,
         editorState = editorState,

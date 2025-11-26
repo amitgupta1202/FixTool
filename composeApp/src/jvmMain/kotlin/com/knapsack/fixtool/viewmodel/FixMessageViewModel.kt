@@ -1335,6 +1335,27 @@ class FixMessageViewModel(
             }
     }
 
+    fun toggleMessageFavorite(messageId: String) {
+        // Find the message and toggle its favorite status
+        val message = _savedMessages.find { it.id == messageId } ?: return
+        val updatedMessage = message.copy(isFavorite = !message.isFavorite)
+
+        // Get the profileId from the message's user tags
+        val profileId = message.getAllUserTags().firstOrNull() ?: return
+
+        savedMessagesService
+            .saveMessage(profileId, updatedMessage)
+            .onSuccess {
+                // Update local state immediately for responsive UI
+                val index = _savedMessages.indexOfFirst { it.id == messageId }
+                if (index >= 0) {
+                    _savedMessages[index] = updatedMessage
+                }
+            }.onFailure { error ->
+                logger.error("Failed to toggle favorite: ${error.message}", error)
+            }
+    }
+
     // ========================================
     // Notification Management
     // ========================================

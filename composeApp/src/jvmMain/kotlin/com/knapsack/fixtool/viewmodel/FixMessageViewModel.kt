@@ -584,21 +584,10 @@ class FixMessageViewModel(
         _incomingMessagesByType.clear()
         _outgoingMessagesByType.clear()
 
-        // Scan all sessions and collect the latest message of each type
+        // Use per-session caches to avoid rescanning full message histories
         _sessions.forEach { session ->
-            session.messages.value.filterIsInstance<FixMessage>().forEach { message ->
-                when (message.direction) {
-                    FixMessage.Direction.INCOMING -> {
-                        // Keep the latest incoming message of this type
-                        _incomingMessagesByType[message.messageType] = message
-                    }
-
-                    FixMessage.Direction.OUTGOING -> {
-                        // Keep the latest outgoing message of this type
-                        _outgoingMessagesByType[message.messageType] = message
-                    }
-                }
-            }
+            _incomingMessagesByType.putAll(session.snapshotLatestIncomingByType())
+            _outgoingMessagesByType.putAll(session.snapshotLatestOutgoingByType())
         }
     }
 

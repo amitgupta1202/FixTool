@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 
 class FixMessageSession(
@@ -75,6 +76,8 @@ class FixMessageSession(
     private var isActive = true
     private var quickFixService: QuickFixService? = null
     private var connectionManager: FixConnectionManager? = null
+    private val latestIncomingByType = ConcurrentHashMap<String, FixMessage>()
+    private val latestOutgoingByType = ConcurrentHashMap<String, FixMessage>()
 
     enum class ViewMode {
         RAW,
@@ -149,6 +152,11 @@ class FixMessageSession(
             // Skip heartbeat messages when showHeartbeat is disabled
             return
         }
+        // Track the most recent message per type so callers don't have to rescan history
+        when (message.direction) {
+            FixMessage.Direction.INCOMING -> latestIncomingByType[message.messageType] = message
+            FixMessage.Direction.OUTGOING -> latestOutgoingByType[message.messageType] = message
+        }
         // Drop oldest enqueued item if we're at capacity to avoid unbounded growth
         if (!messageQueue.offer(message)) {
             messageQueue.poll()
@@ -182,6 +190,8 @@ class FixMessageSession(
     fun clearMessages() {
         _messages.value = emptyList()
         messageQueue.clear()
+        latestIncomingByType.clear()
+        latestOutgoingByType.clear()
         logger.info("Cleared messages for session: {}", title)
     }
 
@@ -301,6 +311,10 @@ class FixMessageSession(
 
         return result
     }
+
+    fun snapshotLatestIncomingByType(): Map<String, FixMessage> = latestIncomingByType.toMap()
+
+    fun snapshotLatestOutgoingByType(): Map<String, FixMessage> = latestOutgoingByType.toMap()
 
     fun destroy() {
         disconnect()

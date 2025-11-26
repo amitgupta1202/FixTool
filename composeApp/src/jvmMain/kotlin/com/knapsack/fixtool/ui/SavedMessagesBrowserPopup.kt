@@ -59,7 +59,7 @@ fun SavedMessagesBrowserPopup(
     onDismiss: () -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    var viewMode by remember { mutableStateOf(BrowserViewMode.RECENT) }
+    var viewMode by remember { mutableStateOf(BrowserViewMode.ALL) }
     var expandedGroups by remember { mutableStateOf(setOf<String>()) }
 
     val focusRequester = remember { FocusRequester() }

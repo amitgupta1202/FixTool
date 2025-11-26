@@ -65,6 +65,7 @@ fun SavedMessagesBrowserPopup(
     val focusRequester = remember { FocusRequester() }
 
     // Filter messages by search query (supports IntelliJ-style abbreviation matching)
+    // Note: We use remember(savedMessages, searchQuery) to recompute when the source list or query changes
     val filteredMessages = remember(savedMessages, searchQuery) {
         if (searchQuery.isBlank()) {
             savedMessages
@@ -132,31 +133,33 @@ fun SavedMessagesBrowserPopup(
     }
 
     // Keyboard handler for number shortcuts (1-9)
-    val keyboardHandler: (KeyEvent) -> Boolean = { keyEvent ->
-        if (keyEvent.type == KeyEventType.KeyDown && viewMode == BrowserViewMode.RECENT) {
-            val digit = when (keyEvent.key) {
-                Key.One -> 0
-                Key.Two -> 1
-                Key.Three -> 2
-                Key.Four -> 3
-                Key.Five -> 4
-                Key.Six -> 5
-                Key.Seven -> 6
-                Key.Eight -> 7
-                Key.Nine -> 8
-                else -> -1
-            }
-            if (digit in 0 until recentMessages.size) {
-                onSelectMessage(recentMessages[digit])
+    val keyboardHandler: (KeyEvent) -> Boolean = remember(recentMessages, viewMode) {
+        { keyEvent: KeyEvent ->
+            if (keyEvent.type == KeyEventType.KeyDown && viewMode == BrowserViewMode.RECENT) {
+                val digit = when (keyEvent.key) {
+                    Key.One -> 0
+                    Key.Two -> 1
+                    Key.Three -> 2
+                    Key.Four -> 3
+                    Key.Five -> 4
+                    Key.Six -> 5
+                    Key.Seven -> 6
+                    Key.Eight -> 7
+                    Key.Nine -> 8
+                    else -> -1
+                }
+                if (digit in 0 until recentMessages.size) {
+                    onSelectMessage(recentMessages[digit])
+                    true
+                } else {
+                    false
+                }
+            } else if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Escape) {
+                onDismiss()
                 true
             } else {
                 false
             }
-        } else if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Escape) {
-            onDismiss()
-            true
-        } else {
-            false
         }
     }
 

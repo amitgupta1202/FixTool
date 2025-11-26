@@ -225,7 +225,10 @@ fun SavedMessagesBrowserPopup(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    ViewModeTab("All", BrowserViewMode.ALL, viewMode) { viewMode = it }
+                    ViewModeTab("All", BrowserViewMode.ALL, viewMode) {
+                        viewMode = it
+                        focusRequester.requestFocus()
+                    }
                     ViewModeTab("Recent", BrowserViewMode.RECENT, viewMode) { viewMode = it }
                     ViewModeTab("By Type", BrowserViewMode.BY_TYPE, viewMode) { viewMode = it }
                     ViewModeTab("By User", BrowserViewMode.BY_CATEGORY, viewMode) { viewMode = it }

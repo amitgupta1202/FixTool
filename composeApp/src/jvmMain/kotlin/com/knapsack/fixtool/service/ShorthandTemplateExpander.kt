@@ -10,6 +10,9 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
  * - `${in.D.11}` or `${in.D.ClOrdID}` → explicit incoming
  * - `${out.R.131}` or `${out.R.QuoteReqID}` → explicit outgoing
  * - `${D.11.0}` → repeating group access (first occurrence)
+ * - `${uuid}` → UUID.randomUUID().toString()
+ * - `${now}` → current timestamp in FIX format (yyyyMMdd-HH:mm:ss.SSS)
+ * - `${now:pattern}` → current timestamp with custom pattern (e.g., ${now:yyyyMMdd})
  *
  * Non-shorthand expressions pass through unchanged for backwards compatibility.
  */
@@ -28,6 +31,22 @@ object ShorthandTemplateExpander {
     // Pattern: MsgType.TagOrName or MsgType.TagOrName.Index (auto-detect)
     // Note: Must not match expressions that look like method calls or other Kotlin syntax
     private val AUTO_DETECT_PATTERN = """^\s*([A-Za-z0-9]+)\.([A-Za-z0-9]+)(?:\.(\d+))?\s*$""".toRegex()
+
+    // Pattern: uuid (case insensitive)
+    private val UUID_PATTERN = """^\s*uuid\s*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // Pattern: now (case insensitive) - using 'now' instead of 'ts' to avoid conflict with variable names
+    private val TIMESTAMP_PATTERN = """^\s*now\s*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // Pattern: now:pattern (custom format)
+    private val TIMESTAMP_FORMAT_PATTERN = """^\s*now:(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // Pattern to detect variable assignment with shorthand keywords as variable name
+    // e.g., ${uuid = something} or ${now = something}
+    private val SHORTHAND_VAR_ASSIGNMENT_PATTERN = """^\s*(uuid|now)\s*=.*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // Reserved shorthand keywords that cannot be used as variable names
+    private val SHORTHAND_KEYWORDS = setOf("uuid", "now")
 
     // Keywords and patterns that should NOT be treated as shorthand
     // (to avoid false matches with Kotlin expressions)
@@ -63,6 +82,28 @@ object ShorthandTemplateExpander {
      * Returns the original expression if it's not a shorthand pattern.
      */
     private fun expandExpression(expression: String, dictionary: FixDictionaryAdapter?): String {
+        // Skip shorthand expansion if this looks like a variable assignment or reference
+        // containing an equals sign (e.g., ${ts = ...} or ${uuid = ...})
+        if (expression.contains("=")) {
+            return expression
+        }
+
+        // Try UUID shorthand: ${uuid}
+        if (UUID_PATTERN.matches(expression)) {
+            return "UUID.randomUUID().toString()"
+        }
+
+        // Try timestamp shorthand: ${ts} or ${timestamp}
+        if (TIMESTAMP_PATTERN.matches(expression)) {
+            return """LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))"""
+        }
+
+        // Try timestamp with custom format: ${now:pattern}
+        TIMESTAMP_FORMAT_PATTERN.matchEntire(expression)?.let { match ->
+            val pattern = match.groupValues[1].trim()
+            return """LocalDateTime.now().format(DateTimeFormatter.ofPattern("$pattern"))"""
+        }
+
         // Try explicit incoming: ${in.D.11}
         EXPLICIT_IN_PATTERN.matchEntire(expression)?.let { match ->
             val msgType = match.groupValues[1]
@@ -168,7 +209,8 @@ object ShorthandTemplateExpander {
     }
 
     /**
-     * Validates shorthand expressions and returns errors for unknown tag names.
+     * Validates shorthand expressions and returns errors for unknown tag names
+     * and reserved shorthand keywords used as variable names.
      * This is useful for validation before evaluation.
      *
      * @param template The template string to validate
@@ -184,6 +226,12 @@ object ShorthandTemplateExpander {
 
         EXPRESSION_REGEX.findAll(template).forEach { match ->
             val expression = match.groupValues[1].trim()
+
+            // Check for shorthand keywords used as variable names
+            SHORTHAND_VAR_ASSIGNMENT_PATTERN.matchEntire(expression)?.let { m ->
+                val keyword = m.groupValues[1]
+                errors.add("'$keyword' is a reserved shorthand keyword and cannot be used as a variable name. Use \${$keyword} directly for ${if (keyword.equals("uuid", ignoreCase = true)) "UUID generation" else "timestamp"}.")
+            }
 
             // Check each shorthand pattern
             listOf(EXPLICIT_IN_PATTERN, EXPLICIT_OUT_PATTERN).forEach { pattern ->

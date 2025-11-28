@@ -299,6 +299,254 @@ class ShorthandTemplateExpanderTest {
         val errors = ShorthandTemplateExpander.validateShorthand(template, null)
         assertTrue(errors.isEmpty())
     }
+
+    // ===== UUID Shorthand Tests =====
+
+    @Test
+    fun `test uuid shorthand expands correctly`() {
+        val template = "\${uuid}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${UUID.randomUUID().toString()}", expanded)
+    }
+
+    @Test
+    fun `test UUID shorthand case insensitive`() {
+        val template = "\${UUID}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${UUID.randomUUID().toString()}", expanded)
+    }
+
+    @Test
+    fun `test Uuid shorthand mixed case`() {
+        val template = "\${Uuid}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${UUID.randomUUID().toString()}", expanded)
+    }
+
+    @Test
+    fun `test uuid shorthand with whitespace`() {
+        val template = "\${  uuid  }"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${UUID.randomUUID().toString()}", expanded)
+    }
+
+    // ===== Timestamp Shorthand Tests =====
+
+    @Test
+    fun `test now shorthand expands to FIX timestamp format`() {
+        val template = "\${now}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test NOW shorthand case insensitive`() {
+        val template = "\${NOW}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test Now shorthand mixed case`() {
+        val template = "\${Now}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now shorthand with whitespace`() {
+        val template = "\${  now  }"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    // ===== Custom Timestamp Format Tests =====
+
+    @Test
+    fun `test now with custom date only format`() {
+        val template = "\${now:yyyyMMdd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}", expanded)
+    }
+
+    @Test
+    fun `test now with custom ISO format`() {
+        val template = "\${now:yyyy-MM-dd'T'HH:mm:ss}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyy-MM-dd'T'HH:mm:ss\"))}", expanded)
+    }
+
+    @Test
+    fun `test now with time only format`() {
+        val template = "\${now:HH:mm:ss}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"HH:mm:ss\"))}", expanded)
+    }
+
+    @Test
+    fun `test NOW with custom format case insensitive`() {
+        val template = "\${NOW:yyyyMMdd-HH:mm:ss}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss\"))}", expanded)
+    }
+
+    @Test
+    fun `test now with slash date format`() {
+        val template = "\${now:yyyy/MM/dd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyy/MM/dd\"))}", expanded)
+    }
+
+    // ===== Combined Tests =====
+
+    @Test
+    fun `test multiple uuid and now in same template`() {
+        val template = "ID-\${uuid}-\${now:yyyyMMdd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("UUID.randomUUID().toString()"))
+        assertTrue(expanded.contains("DateTimeFormatter.ofPattern(\"yyyyMMdd\")"))
+    }
+
+    @Test
+    fun `test uuid now and message reference combined`() {
+        val template = "\${uuid}-\${D.11}-\${now}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("UUID.randomUUID().toString()"))
+        assertTrue(expanded.contains("valueOfTag(11)"))
+        assertTrue(expanded.contains("DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\")"))
+    }
+
+    // ===== Variable Assignment Tests =====
+
+    @Test
+    fun `test uuid assigned to different variable name works`() {
+        // User assigns uuid to a variable with different name - this should work
+        val template = "\${myId = UUID.randomUUID()}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        // Should pass through unchanged (not shorthand)
+        assertEquals(template, expanded)
+    }
+
+    @Test
+    fun `test now assigned to different variable name works`() {
+        // User assigns timestamp to a variable with different name - this should work
+        val template = "\${myTs = LocalDateTime.now()}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        // Should pass through unchanged (not shorthand)
+        assertEquals(template, expanded)
+    }
+
+    @Test
+    fun `test expression with equals sign passes through unchanged`() {
+        val template = "\${x = 5 + 3}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals(template, expanded)
+    }
+
+    @Test
+    fun `test uuid as variable name does not expand`() {
+        // When uuid is used as a variable NAME (assignment), it should NOT be expanded
+        val template = "\${uuid = something}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        // Expression contains =, so it passes through unchanged
+        assertEquals(template, expanded)
+    }
+
+    @Test
+    fun `test now as variable name does not expand`() {
+        // When now is used as a variable NAME (assignment), it should NOT be expanded
+        val template = "\${now = something}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        // Expression contains =, so it passes through unchanged
+        assertEquals(template, expanded)
+    }
+
+    // ===== Validation Tests for Reserved Keywords =====
+
+    @Test
+    fun `test validation returns error when uuid used as variable name`() {
+        val template = "\${uuid = UUID.randomUUID()}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.isNotEmpty(), "Should return error for uuid as variable name")
+        assertTrue(errors[0].contains("uuid"), "Error should mention uuid")
+        assertTrue(errors[0].contains("reserved"), "Error should mention reserved")
+    }
+
+    @Test
+    fun `test validation returns error when UUID used as variable name case insensitive`() {
+        val template = "\${UUID = something}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.isNotEmpty(), "Should return error for UUID as variable name")
+        assertTrue(errors[0].contains("UUID"), "Error should mention UUID")
+    }
+
+    @Test
+    fun `test validation returns error when now used as variable name`() {
+        val template = "\${now = LocalDateTime.now()}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.isNotEmpty(), "Should return error for now as variable name")
+        assertTrue(errors[0].contains("now"), "Error should mention now")
+        assertTrue(errors[0].contains("reserved"), "Error should mention reserved")
+    }
+
+    @Test
+    fun `test validation returns error when NOW used as variable name case insensitive`() {
+        val template = "\${NOW = something}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.isNotEmpty(), "Should return error for NOW as variable name")
+        assertTrue(errors[0].contains("NOW"), "Error should mention NOW")
+    }
+
+    @Test
+    fun `test validation returns no error for valid uuid shorthand`() {
+        val template = "\${uuid}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.isEmpty(), "Should not return error for valid uuid shorthand")
+    }
+
+    @Test
+    fun `test validation returns no error for valid now shorthand`() {
+        val template = "\${now}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.isEmpty(), "Should not return error for valid now shorthand")
+    }
+
+    @Test
+    fun `test validation returns no error for valid now with format`() {
+        val template = "\${now:yyyyMMdd}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.isEmpty(), "Should not return error for valid now with format")
+    }
+
+    @Test
+    fun `test validation returns no error for regular variable assignment`() {
+        val template = "\${myVar = 123}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.isEmpty(), "Should not return error for regular variable assignment")
+    }
+
+    @Test
+    fun `test validation returns multiple errors for multiple reserved keywords`() {
+        val template = "\${uuid = x}|\${now = y}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertEquals(2, errors.size, "Should return 2 errors for both reserved keywords")
+    }
+
+    @Test
+    fun `test validation error message suggests correct usage for uuid`() {
+        val template = "\${uuid = x}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors[0].contains("UUID generation"), "Error should suggest UUID generation")
+        assertTrue(errors[0].contains("\${uuid}"), "Error should show correct syntax")
+    }
+
+    @Test
+    fun `test validation error message suggests correct usage for now`() {
+        val template = "\${now = x}"
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors[0].contains("timestamp"), "Error should suggest timestamp")
+        assertTrue(errors[0].contains("\${now}"), "Error should show correct syntax")
+    }
 }
 
 /**

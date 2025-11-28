@@ -583,6 +583,21 @@
                 <td><code>${incoming["R"].valueOfTag(20013, 0)}</code></td>
                 <td>Repeating group: first occurrence (index 0)</td>
             </tr>
+            <tr>
+                <td><code>${uuid}</code></td>
+                <td><code>${UUID.randomUUID().toString()}</code></td>
+                <td>Generate a random UUID</td>
+            </tr>
+            <tr>
+                <td><code>${now}</code></td>
+                <td><code>${LocalDateTime.now()...}</code></td>
+                <td>Current timestamp in FIX format (yyyyMMdd-HH:mm:ss.SSS)</td>
+            </tr>
+            <tr>
+                <td><code>${now:yyyyMMdd}</code></td>
+                <td><code>${LocalDateTime.now()...}</code></td>
+                <td>Custom timestamp format (date only)</td>
+            </tr>
         </table>
 
         <h4>Common Tag Names</h4>

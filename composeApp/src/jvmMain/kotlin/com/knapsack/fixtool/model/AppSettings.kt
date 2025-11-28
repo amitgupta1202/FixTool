@@ -27,6 +27,8 @@ data class AppSettings(
     val rejectionRules: List<RejectionRule> = RejectionRule.defaultRules(),
     // Default View Mode
     val defaultViewMode: String = "grid", // Default view mode for new sessions: "grid" or "terminal"
+    // Default Layout
+    val defaultLayout: String = "horizontal", // Default layout: "tabs", "horizontal", or "vertical"
     // Configurable Data Directories
     val connectionProfilesPath: String = "", // Path to connection profiles JSON file (empty = default: ~/.fixtool/connection_profiles.json)
     val savedMessagesPath: String = "", // Path to saved messages JSON file (empty = default: ~/.fixtool/saved_messages.json)

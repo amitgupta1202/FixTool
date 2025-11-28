@@ -70,7 +70,14 @@ fun App(
             LaunchedEffect(viewModel) {
                 onViewModelCreated(viewModel)
             }
-            var viewMode by rememberSaveable { mutableStateOf(ViewMode.SPLIT_HORIZONTAL) }
+
+            // Initialize layout from settings
+            val initialLayout = when (viewModel.appSettings.defaultLayout) {
+                "tabs" -> ViewMode.TABS
+                "vertical" -> ViewMode.SPLIT_VERTICAL
+                else -> ViewMode.SPLIT_HORIZONTAL
+            }
+            var viewMode by rememberSaveable { mutableStateOf(initialLayout) }
 
             // Collect global state
             val selectedMessage by viewModel.selectedMessage.collectAsState()

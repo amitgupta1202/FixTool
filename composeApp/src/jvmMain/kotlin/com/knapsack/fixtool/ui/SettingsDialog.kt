@@ -52,6 +52,7 @@ fun SettingsDialog(
     var messageColorScheme by remember { mutableStateOf(currentSettings.messageColorScheme) }
     var rejectionRules by remember { mutableStateOf(currentSettings.rejectionRules.toMutableList()) }
     var defaultViewMode by remember { mutableStateOf(currentSettings.defaultViewMode) }
+    var defaultLayout by remember { mutableStateOf(currentSettings.defaultLayout) }
     var connectionProfilesPath by remember { mutableStateOf(currentSettings.connectionProfilesPath) }
     var savedMessagesPath by remember { mutableStateOf(currentSettings.savedMessagesPath) }
 
@@ -110,6 +111,7 @@ fun SettingsDialog(
                                 messageColorScheme = defaults.messageColorScheme
                                 rejectionRules = defaults.rejectionRules.toMutableList()
                                 defaultViewMode = defaults.defaultViewMode
+                                defaultLayout = defaults.defaultLayout
                                 connectionProfilesPath = defaults.connectionProfilesPath
                                 savedMessagesPath = defaults.savedMessagesPath
                             },
@@ -1156,6 +1158,102 @@ fun SettingsDialog(
                         modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
                     )
 
+                    // Section: Default Layout
+                    Text(
+                        text = "Default Layout",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Text(
+                        text = "Choose the default layout for the application",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.textDisabled,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+
+                    // Layout selection buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // Horizontal split button
+                        Box(
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color = if (defaultLayout == "horizontal") AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color = if (defaultLayout == "horizontal") AppTheme.Colors.primary else AppTheme.Separators.color,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { defaultLayout = "horizontal" },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Horizontal Split",
+                                fontSize = 11.sp,
+                                color = if (defaultLayout == "horizontal") AppTheme.Colors.background else AppTheme.Colors.text,
+                            )
+                        }
+
+                        // Vertical split button
+                        Box(
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color = if (defaultLayout == "vertical") AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color = if (defaultLayout == "vertical") AppTheme.Colors.primary else AppTheme.Separators.color,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { defaultLayout = "vertical" },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Vertical Split",
+                                fontSize = 11.sp,
+                                color = if (defaultLayout == "vertical") AppTheme.Colors.background else AppTheme.Colors.text,
+                            )
+                        }
+
+                        // Tabs button
+                        Box(
+                            modifier =
+                                Modifier
+                                    .height(32.dp)
+                                    .weight(1f)
+                                    .background(
+                                        color = if (defaultLayout == "tabs") AppTheme.Colors.primary else AppTheme.Colors.surface,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).border(
+                                        width = 1.dp,
+                                        color = if (defaultLayout == "tabs") AppTheme.Colors.primary else AppTheme.Separators.color,
+                                        shape = RoundedCornerShape(4.dp),
+                                    ).clickable { defaultLayout = "tabs" },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Tabs",
+                                fontSize = 11.sp,
+                                color = if (defaultLayout == "tabs") AppTheme.Colors.background else AppTheme.Colors.text,
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
+                    )
+
                     // Section: Rejection Rules
                     Text(
                         text = "Rejection Rules",
@@ -1322,6 +1420,7 @@ fun SettingsDialog(
                                     messageColorScheme = messageColorScheme,
                                     rejectionRules = rejectionRules.toList(),
                                     defaultViewMode = defaultViewMode,
+                                    defaultLayout = defaultLayout,
                                     connectionProfilesPath = connectionProfilesPath.trim(),
                                     savedMessagesPath = savedMessagesPath.trim(),
                                 )

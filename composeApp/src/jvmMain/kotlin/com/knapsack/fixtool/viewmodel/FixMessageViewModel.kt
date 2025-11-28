@@ -1004,6 +1004,7 @@ class FixMessageViewModel(
                         field.value,
                         incomingMessages = incomingMessages,
                         outgoingMessages = outgoingMessages,
+                        dictionary = _dictionary.value,
                     )
                 templateErrors.forEach { error ->
                     errors.add("Field ${field.tag}: $error")
@@ -1013,6 +1014,11 @@ class FixMessageViewModel(
 
         return errors
     }
+
+    /**
+     * Returns the current data dictionary adapter for template expression evaluation.
+     */
+    fun getDictionaryAdapter(): com.knapsack.fixtool.model.FixDictionaryAdapter = _dictionary.value
 
     fun validateEditorMessage(fields: List<FixField>): List<String> {
         _editorValidationErrors.clear()

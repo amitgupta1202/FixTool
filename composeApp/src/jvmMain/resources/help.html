@@ -547,6 +547,67 @@
         </ul>
     </div>
 
+    <h3>Shorthand Syntax (Recommended)</h3>
+    <p>For convenience, you can use shorthand syntax instead of the verbose form above:</p>
+
+    <div class="example">
+        <h4>Shorthand Patterns</h4>
+        <table class="compact-table">
+            <tr>
+                <th>Shorthand</th>
+                <th>Equivalent Full Syntax</th>
+                <th>Description</th>
+            </tr>
+            <tr>
+                <td><code>${D.11}</code></td>
+                <td><code>${incoming["D"]...}</code></td>
+                <td>Auto-detect: tries incoming first, then outgoing</td>
+            </tr>
+            <tr>
+                <td><code>${D.ClOrdID}</code></td>
+                <td><code>${incoming["D"].valueOfTag(11)}</code></td>
+                <td>Use tag <strong>name</strong> instead of number</td>
+            </tr>
+            <tr>
+                <td><code>${in.D.11}</code></td>
+                <td><code>${incoming["D"].valueOfTag(11)}</code></td>
+                <td>Explicit incoming only</td>
+            </tr>
+            <tr>
+                <td><code>${out.R.QuoteReqID}</code></td>
+                <td><code>${outgoing["R"].valueOfTag(131)}</code></td>
+                <td>Explicit outgoing with tag name</td>
+            </tr>
+            <tr>
+                <td><code>${R.20013.0}</code></td>
+                <td><code>${incoming["R"].valueOfTag(20013, 0)}</code></td>
+                <td>Repeating group: first occurrence (index 0)</td>
+            </tr>
+        </table>
+
+        <h4>Common Tag Names</h4>
+        <p>These tag names work without a data dictionary:</p>
+        <ul style="columns: 3; -webkit-columns: 3; -moz-columns: 3;">
+            <li><code>ClOrdID</code> (11)</li>
+            <li><code>OrderID</code> (37)</li>
+            <li><code>OrigClOrdID</code> (41)</li>
+            <li><code>Symbol</code> (55)</li>
+            <li><code>Side</code> (54)</li>
+            <li><code>OrderQty</code> (38)</li>
+            <li><code>Price</code> (44)</li>
+            <li><code>QuoteReqID</code> (131)</li>
+            <li><code>QuoteID</code> (117)</li>
+            <li><code>BidPx</code> (132)</li>
+            <li><code>OfferPx</code> (133)</li>
+            <li><code>ExecID</code> (17)</li>
+        </ul>
+    </div>
+
+    <div class="tip">
+        <strong>Tip:</strong> With a data dictionary loaded, all tag names from the dictionary are available.
+        Without a dictionary, only common FIX tags (shown above) can be referenced by name.
+    </div>
+
     <h3>Real-World Example: Quote Response</h3>
     <div class="example">
         <h4>Scenario:</h4>
@@ -580,7 +641,7 @@
             </tr>
         </table>
 
-        <h4>Your QuoteResponse Template:</h4>
+        <h4>Your QuoteResponse Template (using shorthand):</h4>
         <table class="fix-table">
             <tr>
                 <td class="tag">Tag 35</td>
@@ -591,13 +652,13 @@
             <tr>
                 <td class="tag">Tag 131</td>
                 <td class="sep">:</td>
-                <td class="value">${incoming["R"].valueOfTag(131)}</td>
+                <td class="value">${R.QuoteReqID}</td>
                 <td class="desc">(Same QuoteReqID from request)</td>
             </tr>
             <tr>
                 <td class="tag">Tag 55</td>
                 <td class="sep">:</td>
-                <td class="value">${incoming["R"].valueOfTag(55)}</td>
+                <td class="value">${R.Symbol}</td>
                 <td class="desc">(Same Symbol from request)</td>
             </tr>
             <tr>

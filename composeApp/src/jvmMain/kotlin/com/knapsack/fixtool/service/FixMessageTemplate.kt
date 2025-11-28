@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import javax.script.ScriptContext
 import javax.script.ScriptEngineManager
@@ -32,6 +33,11 @@ class MessageMap(private val messages: Map<String, MessageAccessor>) {
  * - "ORDER-${UUID.randomUUID()}"
  * - incoming["D"].valueOfTag(11) - Reference value from latest incoming NewOrderSingle
  * - outgoing["R"].valueOfTag(131) - Reference value from latest outgoing QuoteRequest
+ *
+ * Shorthand syntax is also supported for message references:
+ * - ${D.11} or ${D.ClOrdID} - Auto-detect (tries incoming first, then outgoing)
+ * - ${in.D.11} - Explicit incoming
+ * - ${out.R.131} - Explicit outgoing
  *
  * The expression is evaluated when the message is sent, ensuring fresh timestamps.
  */
@@ -152,23 +158,30 @@ object FixMessageTemplate {
      * - "${incoming[\"D\"].valueOfTag(11)}" → "ORDER123"
      * - "${orderId = UUID.randomUUID()}" → "a1b2c3d4-..." (and stores in variable 'orderId')
      * - "${orderId}" → "a1b2c3d4-..." (retrieves stored variable)
+     * - "${D.11}" → Shorthand for incoming["D"].valueOfTag(11)
+     * - "${D.ClOrdID}" → Same using tag name
      *
      * @param value The string containing template expressions
      * @param incomingMessages Map of latest incoming messages by type (e.g., "D" -> NewOrderSingle message)
      * @param outgoingMessages Map of latest outgoing messages by type (e.g., "R" -> QuoteRequest message)
      * @param variables Mutable map to store and retrieve variables across multiple evaluate() calls.
      *                  If null, a new map is created for this call only.
+     * @param dictionary Optional FIX data dictionary for tag name resolution in shorthand syntax
      */
     fun evaluate(
         value: String,
         incomingMessages: Map<String, FixMessage> = emptyMap(),
         outgoingMessages: Map<String, FixMessage> = emptyMap(),
         variables: MutableMap<String, String>? = null,
+        dictionary: FixDictionaryAdapter? = null,
     ): String {
         // Use provided variables map or create a new one
         val vars = variables ?: mutableMapOf()
 
-        return EXPRESSION_REGEX.replace(value) { matchResult ->
+        // Expand shorthand syntax before evaluation (fast string processing)
+        val expandedValue = ShorthandTemplateExpander.expand(value, dictionary)
+
+        return EXPRESSION_REGEX.replace(expandedValue) { matchResult ->
             val expression = matchResult.groupValues[1].trim()
             evaluateExpression(expression, incomingMessages, outgoingMessages, vars)
         }
@@ -305,6 +318,7 @@ object FixMessageTemplate {
      * @param incomingMessages Map of latest incoming messages by type
      * @param outgoingMessages Map of latest outgoing messages by type
      * @param variables Shared mutable map for variables across all evaluations
+     * @param dictionary Optional FIX data dictionary for tag name resolution in shorthand syntax
      * @return Map of fieldIndex to resolved value
      */
     fun evaluateBatch(
@@ -312,14 +326,20 @@ object FixMessageTemplate {
         incomingMessages: Map<String, FixMessage> = emptyMap(),
         outgoingMessages: Map<String, FixMessage> = emptyMap(),
         variables: MutableMap<String, String> = mutableMapOf(),
+        dictionary: FixDictionaryAdapter? = null,
     ): Map<Int, String> {
         if (fieldsWithExpressions.isEmpty()) return emptyMap()
 
         val batchStart = System.currentTimeMillis()
         val results = mutableMapOf<Int, String>()
 
-        // Check if ANY expression needs message data
-        val allValues = fieldsWithExpressions.map { it.second }
+        // Expand shorthand syntax in all fields first (fast string processing)
+        val expandedFields = fieldsWithExpressions.map { (index, value) ->
+            index to ShorthandTemplateExpander.expand(value, dictionary)
+        }
+
+        // Check if ANY expression needs message data (after shorthand expansion)
+        val allValues = expandedFields.map { it.second }
         val needsIncoming = allValues.any { it.contains("incoming[") }
         val needsOutgoing = allValues.any { it.contains("outgoing[") }
 
@@ -342,7 +362,7 @@ object FixMessageTemplate {
             } else emptyMap()
 
         // Now evaluate each field - we can process sequentially to support variable assignments
-        for ((fieldIndex, fieldValue) in fieldsWithExpressions) {
+        for ((fieldIndex, fieldValue) in expandedFields) {
             try {
                 val resolvedValue = EXPRESSION_REGEX.replace(fieldValue) { matchResult ->
                     val expression = matchResult.groupValues[1].trim()
@@ -395,17 +415,28 @@ object FixMessageTemplate {
 
     /**
      * Validates all template expressions in a value and returns validation errors
+     * @param value The string containing template expressions to validate
+     * @param incomingMessages Map of latest incoming messages by type
+     * @param outgoingMessages Map of latest outgoing messages by type
+     * @param dictionary Optional FIX data dictionary for tag name resolution in shorthand syntax
      * @return List of error messages, empty if all expressions are valid
      */
     fun validateExpressions(
         value: String,
         incomingMessages: Map<String, FixMessage> = emptyMap(),
         outgoingMessages: Map<String, FixMessage> = emptyMap(),
+        dictionary: FixDictionaryAdapter? = null,
     ): List<String> {
         val errors = mutableListOf<String>()
         val vars = mutableMapOf<String, String>()
 
-        EXPRESSION_REGEX.findAll(value).forEach { matchResult ->
+        // First validate shorthand syntax (fast check for unknown tag names)
+        errors.addAll(ShorthandTemplateExpander.validateShorthand(value, dictionary))
+
+        // Expand shorthand before validating the full expressions
+        val expandedValue = ShorthandTemplateExpander.expand(value, dictionary)
+
+        EXPRESSION_REGEX.findAll(expandedValue).forEach { matchResult ->
             val expression = matchResult.groupValues[1].trim()
             try {
                 // Try to evaluate the expression - will throw if invalid

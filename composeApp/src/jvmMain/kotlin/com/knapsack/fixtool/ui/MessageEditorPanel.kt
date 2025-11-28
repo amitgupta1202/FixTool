@@ -32,6 +32,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
@@ -51,6 +52,7 @@ data class FixField(
          * Evaluates template expressions in field values and returns new fields with resolved values.
          * For example, ${UUID.randomUUID()} will be replaced with an actual UUID.
          * Can also reference previous messages: ${incoming["D"].valueOfTag(11)}
+         * Shorthand syntax is also supported: ${D.11} or ${D.ClOrdID}
          * Variables assigned in one field can be reused in subsequent fields.
          *
          * PERFORMANCE OPTIMIZED: Uses batch evaluation to extract message data once
@@ -58,10 +60,12 @@ data class FixField(
          *
          * @param incomingMessages Map of latest incoming messages by type
          * @param outgoingMessages Map of latest outgoing messages by type
+         * @param dictionary Optional FIX data dictionary for tag name resolution in shorthand syntax
          */
         fun List<FixField>.resolveTemplates(
             incomingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
             outgoingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
+            dictionary: FixDictionaryAdapter? = null,
         ): List<FixField> {
             // Collect all fields that need template evaluation
             val fieldsWithExpressions = this.mapIndexedNotNull { index, field ->
@@ -84,6 +88,7 @@ data class FixField(
                 incomingMessages,
                 outgoingMessages,
                 variables,
+                dictionary,
             )
 
             // Apply resolved values back to fields

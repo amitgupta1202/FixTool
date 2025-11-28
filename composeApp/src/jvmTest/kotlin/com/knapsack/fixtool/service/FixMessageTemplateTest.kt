@@ -1347,4 +1347,242 @@ class FixMessageTemplateTest {
         // Then: Should return no errors
         assertTrue(errors.isEmpty(), "Valid repeating group access should not produce errors. Got: $errors")
     }
+
+    // ========================================
+    // Shorthand Syntax Integration Tests
+    // ========================================
+
+    @Test
+    fun testShorthandAutoDetectWithTagNumber() {
+        // Given: An incoming message with ClOrdID
+        val incomingMessage = createMockFixMessage("D", 11 to "ORDER123", 55 to "EUR/USD")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        // When: Using shorthand syntax ${D.11}
+        val template = "\${D.11}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+
+        // Then: Should resolve to the value from incoming message
+        assertEquals("ORDER123", result)
+    }
+
+    @Test
+    fun testShorthandAutoDetectWithTagName() {
+        // Given: An incoming message with ClOrdID
+        val incomingMessage = createMockFixMessage("D", 11 to "ORDER456", 55 to "GBP/USD")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        // When: Using shorthand syntax ${D.ClOrdID}
+        val template = "\${D.ClOrdID}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+
+        // Then: Should resolve ClOrdID (tag 11) to the value from incoming message
+        assertEquals("ORDER456", result)
+    }
+
+    @Test
+    fun testShorthandExplicitIncoming() {
+        // Given: Both incoming and outgoing messages with same tag
+        val incomingMessage = createMockFixMessage("D", 11 to "INCOMING-ORDER", 55 to "EUR/USD")
+        val outgoingMessage = createMockFixMessage("D", 11 to "OUTGOING-ORDER", 55 to "GBP/USD")
+        val incomingMap = mapOf("D" to incomingMessage)
+        val outgoingMap = mapOf("D" to outgoingMessage)
+
+        // When: Using explicit incoming shorthand ${in.D.11}
+        val template = "\${in.D.11}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap, outgoingMessages = outgoingMap)
+
+        // Then: Should only get from incoming
+        assertEquals("INCOMING-ORDER", result)
+    }
+
+    @Test
+    fun testShorthandExplicitOutgoing() {
+        // Given: Both incoming and outgoing messages with same tag
+        val incomingMessage = createMockFixMessage("R", 131 to "INCOMING-QUOTE", 55 to "EUR/USD")
+        val outgoingMessage = createMockFixMessage("R", 131 to "OUTGOING-QUOTE", 55 to "GBP/USD")
+        val incomingMap = mapOf("R" to incomingMessage)
+        val outgoingMap = mapOf("R" to outgoingMessage)
+
+        // When: Using explicit outgoing shorthand ${out.R.131}
+        val template = "\${out.R.131}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap, outgoingMessages = outgoingMap)
+
+        // Then: Should only get from outgoing
+        assertEquals("OUTGOING-QUOTE", result)
+    }
+
+    @Test
+    fun testShorthandAutoDetectFallsBackToOutgoing() {
+        // Given: Only outgoing message exists
+        val outgoingMessage = createMockFixMessage("D", 11 to "OUTGOING-ONLY", 55 to "USD/JPY")
+        val outgoingMap = mapOf("D" to outgoingMessage)
+
+        // When: Using auto-detect shorthand ${D.11} with no incoming
+        val template = "\${D.11}"
+        val result = FixMessageTemplate.evaluate(template, outgoingMessages = outgoingMap)
+
+        // Then: Should fall back to outgoing message
+        assertEquals("OUTGOING-ONLY", result)
+    }
+
+    @Test
+    fun testShorthandWithTagNameSymbol() {
+        // Given: An incoming message with Symbol
+        val incomingMessage = createMockFixMessage("D", 11 to "ORDER789", 55 to "EUR/USD")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        // When: Using shorthand syntax ${D.Symbol}
+        val template = "\${D.Symbol}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+
+        // Then: Should resolve Symbol (tag 55) to the value
+        assertEquals("EUR/USD", result)
+    }
+
+    @Test
+    fun testShorthandWithTagNameQuoteReqID() {
+        // Given: An incoming QuoteRequest
+        val incomingMessage = createMockFixMessage("R", 131 to "QUOTE-REQ-001", 55 to "GBP/USD")
+        val incomingMap = mapOf("R" to incomingMessage)
+
+        // When: Using shorthand syntax ${R.QuoteReqID}
+        val template = "\${R.QuoteReqID}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+
+        // Then: Should resolve QuoteReqID (tag 131) to the value
+        assertEquals("QUOTE-REQ-001", result)
+    }
+
+    @Test
+    fun testShorthandMixedWithVerboseSyntax() {
+        // Given: An incoming message
+        val incomingMessage = createMockFixMessage("D", 11 to "ORDER-A", 55 to "EUR/USD")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        // When: Using both shorthand and verbose syntax in same template
+        val template = "\${D.ClOrdID}-\${incoming[\"D\"].valueOfTag(55)}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+
+        // Then: Both should resolve correctly
+        assertEquals("ORDER-A-EUR/USD", result)
+    }
+
+    @Test
+    fun testShorthandMixedWithUUID() {
+        // Given: An incoming message
+        val incomingMessage = createMockFixMessage("D", 11 to "BASE-ORDER", 55 to "EUR/USD")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        // When: Mixing shorthand with UUID
+        val template = "\${D.ClOrdID}-\${UUID.randomUUID()}"
+        val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
+
+        // Then: Shorthand resolves and UUID generates
+        assertTrue(result.startsWith("BASE-ORDER-"))
+        assertTrue(result.length > 20) // BASE-ORDER- + UUID
+    }
+
+    @Test
+    fun testShorthandInResolveTemplates() {
+        // Given: Fields with shorthand syntax and an incoming message
+        val incomingMessage = createMockFixMessage("R", 131 to "QUOTE-REQ-XYZ", 55 to "EUR/USD")
+        val incomingMap = mapOf("R" to incomingMessage)
+
+        val fields = listOf(
+            FixField(tag = "35", value = "AJ"),
+            FixField(tag = "131", value = "\${R.QuoteReqID}"),  // Shorthand with tag name
+            FixField(tag = "55", value = "\${R.55}"),           // Shorthand with tag number
+            FixField(tag = "117", value = "QUOTE-\${UUID.randomUUID()}"),
+        )
+
+        // When: Resolving templates
+        val resolved = fields.resolveTemplates(incomingMessages = incomingMap)
+
+        // Then: Shorthand expressions should be resolved
+        assertEquals("AJ", resolved[0].value)
+        assertEquals("QUOTE-REQ-XYZ", resolved[1].value)
+        assertEquals("EUR/USD", resolved[2].value)
+        assertTrue(resolved[3].value.startsWith("QUOTE-"))
+    }
+
+    @Test
+    fun testShorthandRealWorldQuoteResponse() {
+        // Given: An incoming QuoteRequest (simulating real workflow)
+        val quoteRequest = createMockFixMessage(
+            "R",
+            131 to "QUOTEREQ-001",
+            55 to "EUR/USD",
+            38 to "1000000"
+        )
+        val incomingMap = mapOf("R" to quoteRequest)
+
+        // When: Building a QuoteResponse using shorthand syntax
+        val fields = listOf(
+            FixField(tag = "35", value = "AJ"),
+            FixField(tag = "131", value = "\${R.QuoteReqID}"),    // Reference request ID using tag name
+            FixField(tag = "55", value = "\${R.Symbol}"),         // Reference symbol using tag name
+            FixField(tag = "117", value = "\${quoteId = UUID.randomUUID()}"),
+            FixField(tag = "132", value = "1.0850"),
+            FixField(tag = "133", value = "1.0852"),
+        )
+
+        val resolved = fields.resolveTemplates(incomingMessages = incomingMap)
+
+        // Then: All shorthand references should resolve correctly
+        assertEquals("AJ", resolved[0].value)
+        assertEquals("QUOTEREQ-001", resolved[1].value)
+        assertEquals("EUR/USD", resolved[2].value)
+        assertTrue(resolved[3].value.matches(Regex("[0-9a-f-]+")))  // UUID
+        assertEquals("1.0850", resolved[4].value)
+        assertEquals("1.0852", resolved[5].value)
+    }
+
+    @Test
+    fun testShorthandValidation() {
+        // Given: A value with valid shorthand syntax
+        val incomingMessage = createMockFixMessage("D", 11 to "ORDER123")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        val value = "\${D.ClOrdID}"
+
+        // When: Validating the expression
+        val errors = FixMessageTemplate.validateExpressions(value, incomingMessages = incomingMap)
+
+        // Then: Should return no errors
+        assertTrue(errors.isEmpty(), "Valid shorthand should not produce errors. Got: $errors")
+    }
+
+    @Test
+    fun testShorthandValidationWithUnknownTagName() {
+        // Given: A value with unknown tag name in explicit direction shorthand
+        val value = "\${in.D.UnknownTagXYZ123}"
+
+        // When: Validating the expression
+        val errors = FixMessageTemplate.validateExpressions(value)
+
+        // Then: Should return error about unknown tag
+        assertTrue(errors.isNotEmpty(), "Unknown tag name should produce errors")
+        assertTrue(errors.any { it.contains("UnknownTagXYZ123") }, "Error should mention the unknown tag. Got: $errors")
+    }
+
+    @Test
+    fun testShorthandBackwardsCompatibility() {
+        // Given: A message and both shorthand and verbose expressions
+        val incomingMessage = createMockFixMessage("D", 11 to "ORDER999", 55 to "USD/JPY")
+        val incomingMap = mapOf("D" to incomingMessage)
+
+        // When: Using verbose syntax (should still work)
+        val verboseTemplate = "\${incoming[\"D\"].valueOfTag(11)}"
+        val verboseResult = FixMessageTemplate.evaluate(verboseTemplate, incomingMessages = incomingMap)
+
+        // And: Using shorthand syntax
+        val shorthandTemplate = "\${D.11}"
+        val shorthandResult = FixMessageTemplate.evaluate(shorthandTemplate, incomingMessages = incomingMap)
+
+        // Then: Both should produce the same result
+        assertEquals("ORDER999", verboseResult)
+        assertEquals("ORDER999", shorthandResult)
+        assertEquals(verboseResult, shorthandResult)
+    }
 }

@@ -762,6 +762,7 @@ private fun AppMessageEditorPanel(
                 fields.resolveTemplates(
                     incomingMessages = viewModel.incomingMessagesByType,
                     outgoingMessages = viewModel.outgoingMessagesByType,
+                    dictionary = viewModel.getDictionaryAdapter(),
                 )
 
             // Debug logging to see if templates were resolved

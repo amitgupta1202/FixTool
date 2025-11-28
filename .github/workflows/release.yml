@@ -1,0 +1,163 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0, v1.1.0, etc.
+
+jobs:
+  # Run quality checks before building
+  quality-check:
+    name: Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run quality checks
+        run: ./gradlew qualityCheck
+
+  # Build Windows installer
+  build-windows:
+    name: Build Windows Installer
+    needs: quality-check
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Build Windows MSI
+        run: .\gradlew.bat packageMsi
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: composeApp/build/compose/binaries/main/msi/*.msi
+          retention-days: 5
+
+  # Build Linux installer
+  build-linux:
+    name: Build Linux Installer
+    needs: quality-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Linux DEB
+        run: ./gradlew packageDeb
+
+      - name: Upload Linux installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-installer
+          path: composeApp/build/compose/binaries/main/deb/*.deb
+          retention-days: 5
+
+  # Create GitHub Release
+  create-release:
+    name: Create GitHub Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: ./installers
+
+      - name: Download Linux installer
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-installer
+          path: ./installers
+
+      - name: Extract version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release Notes
+        id: release_notes
+        run: |
+          cat << 'EOF' > release_notes.md
+          ## FixTool v${{ steps.get_version.outputs.VERSION }}
+
+          ### Downloads
+
+          Choose the installer for your operating system:
+
+          - **Windows**: `FixTool-${{ steps.get_version.outputs.VERSION }}.msi`
+          - **macOS**: `FixTool-${{ steps.get_version.outputs.VERSION }}.dmg` *(to be added)*
+          - **Linux**: `FixTool-${{ steps.get_version.outputs.VERSION }}.deb`
+
+          ### Installation
+
+          **Windows:**
+          ```
+          Download and run the .msi installer
+          ```
+
+          **macOS:**
+          ```
+          Download and open the .dmg file
+          Drag FixTool to Applications folder
+          ```
+
+          **Linux (Debian/Ubuntu):**
+          ```bash
+          sudo dpkg -i FixTool-${{ steps.get_version.outputs.VERSION }}.deb
+          ```
+
+          ### What's New
+
+          See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
+
+          ---
+
+          **Note:** This is a draft release. The macOS .dmg installer will be added shortly.
+          EOF
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+          body_path: release_notes.md
+          files: |
+            installers/*.msi
+            installers/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

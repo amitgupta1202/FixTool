@@ -12,6 +12,18 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 - **Message Validation**: Validate messages against FIX data dictionaries
 - **Saved Messages**: Save and reuse frequently used message templates
 
+## Download
+
+### Latest Release
+
+Download the latest version from the [Releases page](https://github.com/amitgupta1202/FixTool/releases/latest).
+
+**Installation:**
+
+- **Windows**: Download and run the `.msi` installer
+- **macOS**: Download the `.dmg` file, open it, and drag FixTool to your Applications folder
+- **Linux (Debian/Ubuntu)**: Download the `.deb` package and install with `sudo dpkg -i FixTool-*.deb`
+
 ## Quick Start
 
 ### SSL/TLS Configuration
@@ -137,6 +149,42 @@ To clean all build artifacts and start fresh:
 ```shell
 .\gradlew.bat clean
 ```
+
+### Releasing
+
+This project uses GitHub Actions to automate the release process for Windows and Linux builds.
+
+#### Creating a New Release
+
+**Step 1: Prepare locally**
+```shell
+# Run quality checks
+./gradlew qualityCheck
+
+# Build macOS installer (Mac only)
+./gradlew packageDmg
+# Output: composeApp/build/compose/binaries/main/dmg/FixTool-<version>.dmg
+```
+
+**Step 2: Create and push version tag**
+```shell
+git tag -a v1.0.0 -m "Release 1.0.0"
+git push origin v1.0.0
+```
+
+**Step 3: Wait for GitHub Actions** (~5-10 minutes)
+- GitHub Actions automatically builds Windows (.msi) and Linux (.deb) installers
+- A draft release is created with the installers attached
+- Monitor progress at: https://github.com/amitgupta1202/FixTool/actions
+
+**Step 4: Finalize release**
+1. Go to: https://github.com/amitgupta1202/FixTool/releases
+2. Find the draft release
+3. Upload the macOS `.dmg` file (built in Step 1)
+4. Edit release notes as needed
+5. Publish the release ✅
+
+**Testing:** Create a release candidate tag first (e.g., `v1.0.0-rc1`) to test the workflow before the official release.
 
 ## Tooling & Code Quality
 

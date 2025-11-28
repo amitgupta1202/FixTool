@@ -80,43 +80,38 @@ object FixMessageTemplate {
 
     // Extract all fields including repeating groups, memoized by caller when needed
     private fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
-        val startTime = System.currentTimeMillis()
         val tags = mutableMapOf<Int, MutableList<String>>()
-        var fieldCount = 0
-        var actualGroupsFound = 0
 
+        // First pass: collect all field values and identify potential group tags
+        val potentialGroupTags = mutableSetOf<Int>()
         fieldMap.iterator().forEach { field ->
-            fieldCount++
             tags.getOrPut(field.tag) { mutableListOf() }.add(field.`object`.toString())
-
+            // Only mark as potential group if tag is in KNOWN_GROUP_TAGS
             if (field.tag in KNOWN_GROUP_TAGS) {
-                try {
-                    if (fieldMap.hasGroup(field.tag)) {
-                        actualGroupsFound++
-                        val groupCount = fieldMap.getInt(field.tag)
-                        for (i in 1..groupCount) {
-                            try {
-                                val group = fieldMap.getGroup(i, field.tag)
-                                val groupTags = extractAllFields(group)
-                                groupTags.forEach { (tag, values) ->
-                                    tags.getOrPut(tag) { mutableListOf() }.addAll(values)
-                                }
-                            } catch (_: Exception) {
-                                // ignore extraction errors for individual groups
-                            }
-                        }
-                    }
-                } catch (_: Exception) {
-                    // not a group count field
-                }
+                potentialGroupTags.add(field.tag)
             }
         }
 
-        val totalDuration = System.currentTimeMillis() - startTime
-        if (totalDuration > 50) {
-            logger.debug(
-                "extractAllFields: ${totalDuration}ms for $fieldCount fields, $actualGroupsFound groups found",
-            )
+        // Second pass: only call hasGroup() for identified potential group tags
+        for (groupTag in potentialGroupTags) {
+            try {
+                if (fieldMap.hasGroup(groupTag)) {
+                    val groupCount = fieldMap.getInt(groupTag)
+                    for (i in 1..groupCount) {
+                        try {
+                            val group = fieldMap.getGroup(i, groupTag)
+                            val groupTags = extractAllFields(group)
+                            groupTags.forEach { (tag, values) ->
+                                tags.getOrPut(tag) { mutableListOf() }.addAll(values)
+                            }
+                        } catch (_: Exception) {
+                            // ignore extraction errors for individual groups
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // not a group count field
+            }
         }
 
         return tags.mapValues { it.value.toList() }.toMap()
@@ -145,6 +140,34 @@ object FixMessageTemplate {
         val context = createScriptContext(variables, incomingData, outgoingData)
         val script = "$SCRIPT_PREAMBLE\n$expression"
         return scriptEngine.eval(script, context)
+    }
+
+    // Regex to extract message types from expressions like incoming["D"] or outgoing["R"]
+    private val MSG_TYPE_REGEX = """(incoming|outgoing)\["([A-Za-z0-9]+)"\]""".toRegex()
+
+    /**
+     * Extracts only the message types that are referenced in the expression.
+     * This avoids extracting all messages when only specific types are needed.
+     */
+    private fun extractMessageData(
+        expression: String,
+        messages: Map<String, FixMessage>,
+    ): Map<String, MessageAccessor> {
+        // Find which message types are referenced in the expression
+        val referencedTypes = MSG_TYPE_REGEX.findAll(expression)
+            .map { it.groupValues[2] }
+            .toSet()
+
+        // Only extract the referenced message types
+        return referencedTypes.mapNotNull { msgType ->
+            messages[msgType]?.let { msg ->
+                msgType to MessageAccessor(
+                    extractedDataCache.getOrPut(msg.quickfixMessage) {
+                        extractAllFields(msg.quickfixMessage)
+                    }
+                )
+            }
+        }.toMap()
     }
 
     /**
@@ -237,64 +260,27 @@ object FixMessageTemplate {
         variables: MutableMap<String, String>,
     ): String =
         try {
-            val evaluationStart = System.currentTimeMillis()
-            logger.debug("Evaluating expression: {}", expression)
-            logger.debug("Available incoming message types: {}", incomingMessages.keys.joinToString(","))
-            logger.debug("Available outgoing message types: {}", outgoingMessages.keys.joinToString(","))
-
             // Performance optimization: Check if expression references messages
             // If not, we can skip expensive field extraction
             val needsIncoming = expression.contains("incoming[")
             val needsOutgoing = expression.contains("outgoing[")
 
-            logger.debug("Expression needs incoming: $needsIncoming, outgoing: $needsOutgoing")
-
-            // Performance optimization: Only extract message data if the expression needs it
-            // This avoids expensive field extraction + hasGroup() checks for simple expressions
-            val extractionStart = System.currentTimeMillis()
             val incomingData: Map<String, MessageAccessor> =
                 if (needsIncoming && incomingMessages.isNotEmpty()) {
-                    incomingMessages.mapValues { (_, msg) ->
-                        // Use cache to avoid re-extracting the same message
-                        extractedDataCache.getOrPut(msg.quickfixMessage) {
-                            extractAllFields(msg.quickfixMessage)
-                        }.let { MessageAccessor(it) }
-                    }
+                    extractMessageData(expression, incomingMessages)
                 } else {
                     emptyMap()
                 }
 
             val outgoingData: Map<String, MessageAccessor> =
                 if (needsOutgoing && outgoingMessages.isNotEmpty()) {
-                    outgoingMessages.mapValues { (_, msg) ->
-                        // Use cache to avoid re-extracting the same message
-                        extractedDataCache.getOrPut(msg.quickfixMessage) {
-                            extractAllFields(msg.quickfixMessage)
-                        }.let { MessageAccessor(it) }
-                    }
+                    extractMessageData(expression, outgoingMessages)
                 } else {
                     emptyMap()
                 }
-            val extractionDuration = System.currentTimeMillis() - extractionStart
-            if (extractionDuration > 50) {
-                logger.warn("Message extraction took ${extractionDuration}ms")
-            }
 
-            // Evaluate the complete script using cached script engine
-            val scriptStart = System.currentTimeMillis()
             val result = evalExpressionWithContext(expression, variables, incomingData, outgoingData)
-            val scriptDuration = System.currentTimeMillis() - scriptStart
-
-            val resultStr = result?.toString() ?: "null"
-
-            val totalDuration = System.currentTimeMillis() - evaluationStart
-            if (totalDuration > 100) {
-                logger.warn(
-                    "SLOW EVALUATION: Total ${totalDuration}ms (extraction: ${extractionDuration}ms, script: ${scriptDuration}ms) for expression: $expression",
-                )
-            }
-            logger.debug("Expression '{}' evaluated to: {} in {}ms", expression, resultStr, totalDuration)
-            resultStr
+            result?.toString() ?: "null"
         } catch (e: ScriptException) {
             // If evaluation fails, return the original expression
             logger.warn("ScriptException evaluating '{}': {}", expression, e.message)

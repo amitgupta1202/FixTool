@@ -82,9 +82,27 @@ object ShorthandTemplateExpander {
      * Returns the original expression if it's not a shorthand pattern.
      */
     private fun expandExpression(expression: String, dictionary: FixDictionaryAdapter?): String {
-        // Skip shorthand expansion if this looks like a variable assignment or reference
-        // containing an equals sign (e.g., ${ts = ...} or ${uuid = ...})
+        // Check for variable assignment pattern: ${varName = value}
+        // If value is a shorthand keyword, expand it
         if (expression.contains("=")) {
+            val parts = expression.split("=", limit = 2)
+            if (parts.size == 2) {
+                val varName = parts[0].trim()
+                val value = parts[1].trim()
+
+                // Check if the value is a shorthand keyword
+                if (UUID_PATTERN.matches(value)) {
+                    return "$varName = UUID.randomUUID().toString()"
+                }
+                if (TIMESTAMP_PATTERN.matches(value)) {
+                    return """$varName = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))"""
+                }
+                TIMESTAMP_FORMAT_PATTERN.matchEntire(value)?.let { match ->
+                    val pattern = match.groupValues[1].trim()
+                    return """$varName = LocalDateTime.now().format(DateTimeFormatter.ofPattern("$pattern"))"""
+                }
+            }
+            // Not a shorthand assignment, return unchanged
             return expression
         }
 
@@ -93,7 +111,7 @@ object ShorthandTemplateExpander {
             return "UUID.randomUUID().toString()"
         }
 
-        // Try timestamp shorthand: ${ts} or ${timestamp}
+        // Try timestamp shorthand: ${now}
         if (TIMESTAMP_PATTERN.matches(expression)) {
             return """LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))"""
         }

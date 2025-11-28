@@ -45,6 +45,7 @@ fun SettingsDialog(
     var validateFieldsHaveValues by remember { mutableStateOf(currentSettings.validateFieldsHaveValues) }
     var validateUserDefinedFields by remember { mutableStateOf(currentSettings.validateUserDefinedFields) }
     var validateIncomingMessage by remember { mutableStateOf(currentSettings.validateIncomingMessage) }
+    var sessionBufferSize by remember { mutableStateOf(currentSettings.sessionBufferSize.toString()) }
     var gridViewColumns by remember { mutableStateOf(currentSettings.gridViewColumns.toMutableList()) }
     var hideProtocolTags by remember { mutableStateOf(currentSettings.hideProtocolTags) }
     var protocolTags by remember { mutableStateOf(currentSettings.protocolTags.toMutableSet()) }
@@ -102,6 +103,7 @@ fun SettingsDialog(
                                 validateFieldsHaveValues = defaults.validateFieldsHaveValues
                                 validateUserDefinedFields = defaults.validateUserDefinedFields
                                 validateIncomingMessage = defaults.validateIncomingMessage
+                                sessionBufferSize = defaults.sessionBufferSize.toString()
                                 gridViewColumns = defaults.gridViewColumns.toMutableList()
                                 hideProtocolTags = defaults.hideProtocolTags
                                 protocolTags = defaults.protocolTags.toMutableSet()
@@ -423,6 +425,64 @@ fun SettingsDialog(
                         rightChecked = validateIncomingMessage,
                         onRightCheckedChange = { validateIncomingMessage = it },
                     )
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
+                    )
+
+                    // Section: Session Settings
+                    Text(
+                        text = "Session Settings",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.medium),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Message Buffer Size",
+                            fontSize = 12.sp,
+                            color = AppTheme.Colors.text,
+                        )
+                        SlimTextField(
+                            value = sessionBufferSize,
+                            onValueChange = { newValue ->
+                                // Only allow digits
+                                if (newValue.all { it.isDigit() }) {
+                                    sessionBufferSize = newValue
+                                }
+                            },
+                            placeholder = "1000",
+                            modifier = Modifier.width(100.dp),
+                        )
+                        Text(
+                            text = "messages per session (applies to new sessions)",
+                            fontSize = 11.sp,
+                            color = AppTheme.Colors.textDisabled,
+                        )
+                    }
+
+                    // Validation message for buffer size
+                    val bufferSizeInt = sessionBufferSize.toIntOrNull()
+                    if (bufferSizeInt == null || bufferSizeInt < 100) {
+                        Text(
+                            text = "⚠ Buffer size must be at least 100",
+                            fontSize = 11.sp,
+                            color = AppTheme.Colors.warning,
+                        )
+                    } else if (bufferSizeInt > 100000) {
+                        Text(
+                            text = "⚠ Large buffer sizes may impact memory usage",
+                            fontSize = 11.sp,
+                            color = AppTheme.Colors.warning,
+                        )
+                    }
 
                     HorizontalDivider(
                         color = AppTheme.Separators.color,
@@ -1255,6 +1315,7 @@ fun SettingsDialog(
                                     validateFieldsHaveValues = validateFieldsHaveValues,
                                     validateUserDefinedFields = validateUserDefinedFields,
                                     validateIncomingMessage = validateIncomingMessage,
+                                    sessionBufferSize = sessionBufferSize.toIntOrNull()?.coerceIn(100, 1000000) ?: 1000,
                                     gridViewColumns = gridViewColumns.toList(),
                                     hideProtocolTags = hideProtocolTags,
                                     protocolTags = protocolTags.toSet(),

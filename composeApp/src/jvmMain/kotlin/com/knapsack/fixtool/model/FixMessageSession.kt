@@ -18,10 +18,11 @@ import java.util.concurrent.LinkedBlockingQueue
 class FixMessageSession(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
+    private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
     private val onError: ((String) -> Unit)? = null,
 ) {
     companion object {
-        private val BUFFER_MSG_SIZE = System.getProperty("noOfMsgToBuffer", "1000").toInt()
+        const val DEFAULT_BUFFER_SIZE = 1000
         private val POLL_PERIOD_MS = System.getProperty("pollInMs", "100").toLong()
         private const val DRAIN_BATCH_SIZE = 100
         private const val QUEUE_MULTIPLIER = 2
@@ -70,7 +71,7 @@ class FixMessageSession(
     private var _appSettings: AppSettings? = null
     private var _dictionary: FixDictionary? = null
 
-    private val messageQueue = LinkedBlockingQueue<AppMessage>(BUFFER_MSG_SIZE * QUEUE_MULTIPLIER)
+    private val messageQueue = LinkedBlockingQueue<AppMessage>(bufferSize * QUEUE_MULTIPLIER)
     private val scope = CoroutineScope(Dispatchers.Default)
 
     private var isActive = true
@@ -133,7 +134,7 @@ class FixMessageSession(
                     // Use mutable list for efficient batch processing, then convert once
                     val current = _messages.value.toMutableList()
                     batch.forEach { message ->
-                        if (current.size >= BUFFER_MSG_SIZE) {
+                        if (current.size >= bufferSize) {
                             current.removeFirst()
                         }
                         current.add(message)
@@ -178,7 +179,7 @@ class FixMessageSession(
         if (batch.isNotEmpty()) {
             val current = _messages.value.toMutableList()
             batch.forEach { message ->
-                if (current.size >= BUFFER_MSG_SIZE) {
+                if (current.size >= bufferSize) {
                     current.removeFirst()
                 }
                 current.add(message)

@@ -287,6 +287,7 @@ class FixMessageViewModel(
         val session =
             FixMessageSession(
                 title = title,
+                bufferSize = _appSettings.value.sessionBufferSize,
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
             )
         _sessions.add(session)

@@ -14,6 +14,8 @@ data class AppSettings(
     val validateFieldsHaveValues: Boolean = false,
     val validateUserDefinedFields: Boolean = false,
     val validateIncomingMessage: Boolean = false,
+    // Session Settings
+    val sessionBufferSize: Int = 1000, // Maximum number of messages to retain per session
     // Grid View Settings
     val gridViewColumns: List<Int> = listOf(11, 131, 693), // List of FIX tags to display as columns (ClOrdID, QuoteReqID, QuoteRequestRejectReason)
     // Protocol Tags Settings

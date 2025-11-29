@@ -44,6 +44,8 @@ class MessageTemplateIntegrationTest {
 
         // Create a test session - ViewModel doesn't create one automatically
         viewModel.createSessionForTest("Test Session")
+        // Manually select the session (no longer auto-selected)
+        viewModel.setActiveSession(0)
     }
 
     @After

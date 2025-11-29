@@ -842,6 +842,7 @@ private fun AppMessageEditorPanel(
         currentProfileId = currentProfileId,
         editorState = editorState,
         onSessionChange = { session -> viewModel.setActiveSessionByObject(session) },
+        onGetProfileConnectionState = { profileId -> viewModel.getProfileConnectionState(profileId) },
         onError = { errorMsg ->
             viewModel.showNotification(
                 errorMsg,

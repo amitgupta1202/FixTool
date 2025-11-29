@@ -286,6 +286,7 @@ fun MessageEditorPanel(
     currentProfileId: String? = null,
     editorState: com.knapsack.fixtool.model.MessageEditorState = com.knapsack.fixtool.model.MessageEditorState.New,
     onSessionChange: ((FixMessageSession?) -> Unit)? = null,
+    onGetProfileConnectionState: ((String) -> com.knapsack.fixtool.model.FixConnectionState)? = null,
     onError: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -415,18 +416,78 @@ fun MessageEditorPanel(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Session dropdown - first in toolbar
-                SlimDropdown(
-                    value = selectedSession,
-                    options = sessions,
-                    onValueChange = { session ->
-                        logger.info("MessageEditorPanel dropdown changed to: ${session?.title} (ID: ${session?.id})")
+                // Profile dropdown - shows ALL profiles with connection status indicators
+                // Sorted by connection state (CONNECTED/LOGGED_ON, CONNECTING, DISCONNECTED/ERROR) then alphabetically
+
+                // Helper to get connection state priority for sorting
+                fun getConnectionPriority(state: com.knapsack.fixtool.model.FixConnectionState): Int =
+                    when (state) {
+                        com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
+                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON -> 0 // Highest priority
+                        com.knapsack.fixtool.model.FixConnectionState.CONNECTING -> 1 // Medium priority
+                        else -> 2 // Lowest priority (DISCONNECTED, ERROR)
+                    }
+
+                // Helper to get status indicator text
+                fun getStatusIndicator(state: com.knapsack.fixtool.model.FixConnectionState): String =
+                    when (state) {
+                        com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
+                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON -> "\u25CF" // ●
+                        com.knapsack.fixtool.model.FixConnectionState.CONNECTING -> "\u25CF" // ●
+                        else -> "\u25CB" // ○
+                    }
+
+                // Helper to get status color
+                fun getStatusColor(state: com.knapsack.fixtool.model.FixConnectionState): androidx.compose.ui.graphics.Color =
+                    when (state) {
+                        com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
+                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON -> androidx.compose.ui.graphics.Color(0xFF4CAF50) // Green
+                        com.knapsack.fixtool.model.FixConnectionState.CONNECTING -> androidx.compose.ui.graphics.Color(0xFFFFA726) // Orange
+                        else -> androidx.compose.ui.graphics.Color(0xFF9E9E9E) // Gray
+                    }
+
+                // Sort profiles by connection state then alphabetically
+                val sortedProfiles = remember(connectionProfiles, sessions) {
+                    connectionProfiles.sortedWith(
+                        compareBy<com.knapsack.fixtool.model.FixConnectionProfile> {
+                            val state = onGetProfileConnectionState?.invoke(it.id)
+                                ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
+                            getConnectionPriority(state)
+                        }.thenBy { it.name.lowercase() }
+                    )
+                }
+
+                // Find the session for the selected profile
+                val selectedProfileId = selectedSession?.let { session ->
+                    // Find profile ID from session title (session title = profile name)
+                    connectionProfiles.find { it.name == session.title }?.id
+                }
+                val selectedProfile = selectedProfileId?.let { id ->
+                    connectionProfiles.find { it.id == id }
+                }
+
+                SlimDropdownWithColor(
+                    value = selectedProfile,
+                    options = sortedProfiles,
+                    onValueChange = { profile: com.knapsack.fixtool.model.FixConnectionProfile? ->
+                        logger.info("MessageEditorPanel profile dropdown changed to: ${profile?.name} (ID: ${profile?.id})")
+                        // Find the session for this profile
+                        val session = sessions.find { it.title == profile?.name }
                         onSessionChange?.invoke(session)
                     },
-                    displayText = { it.title },
-                    placeholder = "Session",
+                    displayText = { profile: com.knapsack.fixtool.model.FixConnectionProfile ->
+                        val state = onGetProfileConnectionState?.invoke(profile.id)
+                            ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
+                        "${getStatusIndicator(state)} ${profile.name}"
+                    },
+                    textColor = { profile: com.knapsack.fixtool.model.FixConnectionProfile ->
+                        val state = onGetProfileConnectionState?.invoke(profile.id)
+                            ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
+                        getStatusColor(state)
+                    },
+                    placeholder = "Profile",
                     allowUnselect = true,
-                    modifier = Modifier.widthIn(max = 108.dp),
+                    modifier = Modifier.widthIn(max = 140.dp),
                 )
 
                 // Progressive overflow: show as many buttons as fit, overflow the rest

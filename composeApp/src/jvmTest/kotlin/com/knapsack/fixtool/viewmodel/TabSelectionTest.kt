@@ -97,7 +97,7 @@ class TabSelectionTest {
     }
 
     @Test
-    fun testFirstSessionIsAutoSelected() {
+    fun testFirstSessionIsNotAutoSelectedOnConnect() {
         // Given: No sessions exist
         assertEquals(-1, viewModel.activeSessionIndex, "Initially no session should be selected")
 
@@ -106,8 +106,8 @@ class TabSelectionTest {
         if (profile != null) {
             viewModel.connectProfile(profile.id, profile)
 
-            // Then: First session should be auto-selected
-            assertEquals(0, viewModel.activeSessionIndex, "First session should be auto-selected")
+            // Then: Session should NOT be auto-selected (user or template loading will do it)
+            assertEquals(-1, viewModel.activeSessionIndex, "Session should not be auto-selected on connect")
         } else {
             // If no profiles exist, just verify initial state
             assertEquals(-1, viewModel.activeSessionIndex)

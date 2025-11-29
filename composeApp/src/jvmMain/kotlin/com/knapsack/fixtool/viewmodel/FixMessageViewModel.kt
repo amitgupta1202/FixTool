@@ -291,11 +291,7 @@ class FixMessageViewModel(
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
             )
         _sessions.add(session)
-        // Auto-select first session if none is selected
-        if (_activeSessionIndex.value == -1) {
-            _activeSessionIndex.value = 0
-            _activeSessionState.value = session
-        }
+        // Do NOT auto-select session on connect - let user or template loading do it
         return session
     }
 
@@ -674,6 +670,17 @@ class FixMessageViewModel(
             FixConnectionState.DISCONNECTED
         }
     }
+
+    /**
+     * Returns priority for connection state sorting.
+     * Lower value = higher priority.
+     */
+    private fun getConnectionPriority(state: FixConnectionState): Int =
+        when (state) {
+            FixConnectionState.CONNECTED, FixConnectionState.LOGGED_ON -> 0 // Highest priority
+            FixConnectionState.CONNECTING -> 1 // Medium priority
+            else -> 2 // Lowest priority (DISCONNECTED, ERROR)
+        }
 
     fun getProfileSession(profileId: String): FixMessageSession? {
         val sessionIndex = profileToSessionMap[profileId]
@@ -1269,6 +1276,9 @@ class FixMessageViewModel(
                 userTags = savedMessage.getAllUserTags(),
             )
 
+        // Auto-select appropriate profile/session based on template's associated profiles
+        autoSelectProfileForMessage(savedMessage)
+
         // Mark message as used
         activeSession?.let { session ->
             val currentProfileId = profileToSessionMap.entries.find { it.value == _activeSessionIndex.value }?.key
@@ -1280,6 +1290,50 @@ class FixMessageViewModel(
                     }
             }
         }
+    }
+
+    /**
+     * Auto-selects the appropriate profile/session when a template is loaded.
+     * Algorithm:
+     * 1. Get associated profile IDs from template's userTags
+     * 2. Filter to only associated profiles
+     * 3. Sort by connection status (CONNECTED/LOGGED_ON first, CONNECTING second, DISCONNECTED/ERROR third), then alphabetically
+     * 4. Select the first profile's session from the sorted list (if any)
+     */
+    private fun autoSelectProfileForMessage(savedMessage: SavedFixMessage) {
+        val associatedProfileIds = savedMessage.getAllUserTags()
+
+        if (associatedProfileIds.isEmpty()) {
+            // No associated profiles - keep current session selection
+            logger.info("loadEditorMessage: No associated profiles for message '${savedMessage.name}', keeping current session")
+            return
+        }
+
+        // Filter connection profiles to only those associated with the message
+        val associatedProfiles = connectionProfiles.filter { it.id in associatedProfileIds }
+
+        if (associatedProfiles.isEmpty()) {
+            // Associated profiles not found - keep current session selection
+            logger.info("loadEditorMessage: Associated profiles not found for message '${savedMessage.name}', keeping current session")
+            return
+        }
+
+        // Sort profiles by connection state priority (connected first) then alphabetically
+        val sortedProfiles = associatedProfiles.sortedWith(
+            compareBy(
+                { profile -> getConnectionPriority(getProfileConnectionState(profile.id)) },
+                { profile -> profile.name.lowercase() }
+            )
+        )
+
+        // Select the first profile's session
+        val selectedProfile = sortedProfiles.first()
+        val session = getProfileSession(selectedProfile.id)
+
+        logger.info("loadEditorMessage: Auto-selecting profile '${selectedProfile.name}' for message '${savedMessage.name}' (${associatedProfiles.size} associated profiles)")
+
+        // Set the active session
+        setActiveSessionByObject(session)
     }
 
     fun loadSavedMessagesForActiveSession() {

@@ -423,7 +423,11 @@ class MessageEditorIntegrationTest {
         val session1 = viewModel.createSessionForTest("Session 1")
         val session2 = viewModel.createSessionForTest("Session 2")
 
-        // Initially on session 0 (first session)
+        // No session is auto-selected
+        assertEquals(-1, viewModel.activeSessionIndex)
+
+        // Manually select session 0 (first session)
+        viewModel.setActiveSession(0)
         assertEquals(0, viewModel.activeSessionIndex)
 
         // Build a message
@@ -431,7 +435,7 @@ class MessageEditorIntegrationTest {
         viewModel.addEditorField()
         viewModel.updateEditorField(1, FixField(tag = "11", value = "ORDER_SESSION_1"))
 
-        // Session 1 should be active by default (first session created)
+        // Session 1 should be active (manually selected)
         assertEquals(0, viewModel.activeSessionIndex)
         assertEquals(session1, viewModel.activeSession)
 
@@ -465,7 +469,11 @@ class MessageEditorIntegrationTest {
         viewModel.createSessionForTest("Session 2")
         viewModel.createSessionForTest("Session 3")
 
-        // Verify initial session is 0
+        // Verify no session is auto-selected (user or template will select)
+        assertEquals(-1, viewModel.activeSessionIndex)
+
+        // Manually select session 0
+        viewModel.setActiveSession(0)
         assertEquals(0, viewModel.activeSessionIndex)
 
         // Switch to session 1

@@ -62,7 +62,7 @@ fun SavedMessagesBrowserPopup(
     onDismiss: () -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    var viewMode by remember { mutableStateOf(BrowserViewMode.ALL) }
+    var viewMode by remember { mutableStateOf(BrowserViewMode.BY_CATEGORY) }
     var expandedGroups by remember { mutableStateOf(setOf<String>()) }
 
     // Selected profile for filtering in BY_CATEGORY mode (defaults to selected editor profile)
@@ -243,14 +243,14 @@ fun SavedMessagesBrowserPopup(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    ViewModeTab("All", BrowserViewMode.ALL, viewMode) {
+                    ViewModeTab("By User", BrowserViewMode.BY_CATEGORY, viewMode) {
                         viewMode = it
                         focusRequester.requestFocus()
                     }
                     ViewModeTab("Favorites", BrowserViewMode.FAVORITES, viewMode) { viewMode = it }
                     ViewModeTab("Recent", BrowserViewMode.RECENT, viewMode) { viewMode = it }
                     ViewModeTab("By Type", BrowserViewMode.BY_TYPE, viewMode) { viewMode = it }
-                    ViewModeTab("By User", BrowserViewMode.BY_CATEGORY, viewMode) { viewMode = it }
+                    ViewModeTab("All", BrowserViewMode.ALL, viewMode) { viewMode = it }
                 }
 
                 HorizontalDivider(color = AppTheme.Colors.border)

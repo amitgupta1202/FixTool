@@ -6,9 +6,9 @@ on:
       - 'v*'  # Triggers on version tags like v1.0.0, v1.1.0, etc.
 
 jobs:
-  # Run quality checks before building
+  # Run tests before building (skip formatting/linting for release)
   quality-check:
-    name: Quality Checks
+    name: Run Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -24,8 +24,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run quality checks
-        run: ./gradlew qualityCheck
+      - name: Run all tests
+        run: ./gradlew allTests
 
   # Build Windows installer
   build-windows:

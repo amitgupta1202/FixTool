@@ -653,6 +653,13 @@ class FixMessageViewModel(
             // If disconnected or error, reconnect without switching session
             logger.info("Reconnecting session: {}", profile.name)
             existingSession.connect(profile.config, _appSettings.value, _dictionary.value)
+
+            // Auto-select profile in message editor if none is currently selected
+            // (but don't change active session/tab - that's controlled separately)
+            if (_selectedEditorProfile.value == null) {
+                logger.info("Auto-selecting profile '{}' in message editor", profile.name)
+                _selectedEditorProfile.value = profile
+            }
         } else {
             // Create new session for this profile
             logger.info("Creating new session for profile: {}", profile.name)
@@ -660,6 +667,13 @@ class FixMessageViewModel(
             val newSessionIndex = _sessions.size - 1
             profileToSessionMap[profileId] = newSessionIndex
             session.connect(profile.config, _appSettings.value, _dictionary.value)
+
+            // Auto-select profile in message editor if none is currently selected
+            // (but don't change active session/tab - that's controlled separately)
+            if (_selectedEditorProfile.value == null) {
+                logger.info("Auto-selecting profile '{}' in message editor", profile.name)
+                _selectedEditorProfile.value = profile
+            }
         }
     }
 

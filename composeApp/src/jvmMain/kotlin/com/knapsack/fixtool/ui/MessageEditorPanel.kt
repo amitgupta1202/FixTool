@@ -663,13 +663,23 @@ fun MessageEditorPanel(
                                 },
                             )
                         }
-                        val isDuplicate =
+                        // Duplicate check for "Save as New" - checks ALL templates (don't exclude current)
+                        val isDuplicateForSaveAsNew =
                             savedMessages.any {
-                                it.name == messageName &&
-                                    messageName.isNotBlank() &&
-                                    it.name != editorState.messageNameOrNull() &&
-                                    it.getAllUserTags().any { tag -> tag in selectedUserTags }
+                                it.name.trim().equals(messageName.trim(), ignoreCase = true) &&
+                                    messageName.isNotBlank()
                             }
+
+                        // Duplicate check for "Update" - checks OTHER templates (exclude current by ID)
+                        val isDuplicateForUpdate =
+                            savedMessages.any {
+                                it.name.trim().equals(messageName.trim(), ignoreCase = true) &&
+                                    messageName.isNotBlank() &&
+                                    it.id != editorState.messageIdOrNull()
+                            }
+
+                        val originalName = editorState.messageNameOrNull() ?: ""
+                        val nameWasModified = messageName.trim() != originalName.trim() && originalName.isNotEmpty()
                         val focusRequester = remember { FocusRequester() }
                         val nameFieldInteractionSource = remember { MutableInteractionSource() }
                         val isNameFieldFocused by nameFieldInteractionSource.collectIsFocusedAsState()
@@ -715,7 +725,7 @@ fun MessageEditorPanel(
                                             .border(
                                                 width = 1.dp,
                                                 color =
-                                                    if (isDuplicate) {
+                                                    if (isDuplicateForUpdate) {
                                                         deleteColor
                                                     } else if (isNameFieldFocused) {
                                                         Color(
@@ -792,9 +802,9 @@ fun MessageEditorPanel(
                                 }
 
                                 // Validation message
-                                if (isDuplicate) {
+                                if (isDuplicateForUpdate) {
                                     Text(
-                                        "A template with this name already exists for one of the selected users",
+                                        "A template with this name already exists",
                                         color = deleteColor,
                                         fontSize = 11.sp,
                                         modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
@@ -814,6 +824,7 @@ fun MessageEditorPanel(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.align(Alignment.End),
                                 ) {
+                                    // Cancel button (always shown)
                                     SlimButton(
                                         text = "Cancel",
                                         onClick = { showSaveDialog = false },
@@ -821,55 +832,98 @@ fun MessageEditorPanel(
                                         contentColor = AppTheme.Colors.textSecondary,
                                         modifier = Modifier.width(90.dp),
                                     )
-                                    // Show "Save As New" when editing existing template and callback is provided
-                                    if (onSaveMessageAs != null && !editorState.isNew()) {
+
+                                    // Secondary button (only shown when editing existing template)
+                                    if (!editorState.isNew() && onSaveMessageAs != null) {
                                         SlimButton(
-                                            text = "Save As New",
+                                            text = if (nameWasModified) "Rename & Update" else "Save as New",
                                             onClick = {
+                                                val isDuplicateCheck = if (nameWasModified) isDuplicateForUpdate else isDuplicateForSaveAsNew
                                                 if (messageName.isNotBlank() &&
-                                                    !isDuplicate &&
+                                                    !isDuplicateCheck &&
                                                     selectedUserTags.isNotEmpty()
                                                 ) {
                                                     val primaryProfileId = currentProfileId ?: selectedUserTags.first()
-                                                    onSaveMessageAs(
+                                                    if (nameWasModified) {
+                                                        // Rename & Update: update existing template with new name
+                                                        onSaveMessage(
+                                                            messageName,
+                                                            fields.filter { !it.excluded && it.tag.isNotBlank() },
+                                                            primaryProfileId,
+                                                            selectedUserTags,
+                                                        )
+                                                    } else {
+                                                        // Save as New: create copy with same name
+                                                        onSaveMessageAs(
+                                                            messageName,
+                                                            fields.filter { !it.excluded && it.tag.isNotBlank() },
+                                                            primaryProfileId,
+                                                            selectedUserTags,
+                                                        )
+                                                    }
+                                                    showSaveDialog = false
+                                                }
+                                            },
+                                            enabled =
+                                                messageName.isNotBlank() &&
+                                                    !(if (nameWasModified) isDuplicateForUpdate else isDuplicateForSaveAsNew) &&
+                                                    selectedUserTags.isNotEmpty(),
+                                            containerColor = AppTheme.Colors.border,
+                                            contentColor = AppTheme.Colors.text,
+                                            modifier = Modifier.width(130.dp),
+                                        )
+                                    }
+
+                                    // Primary button (always shown, changes based on scenario)
+                                    SlimButton(
+                                        text = when {
+                                            editorState.isNew() -> "Save as New"
+                                            nameWasModified -> "Save as New"
+                                            else -> "Update Existing"
+                                        },
+                                        onClick = {
+                                            val isDuplicateCheck = if (editorState.isNew() || nameWasModified) isDuplicateForSaveAsNew else isDuplicateForUpdate
+                                            if (messageName.isNotBlank() &&
+                                                !isDuplicateCheck &&
+                                                selectedUserTags.isNotEmpty()
+                                            ) {
+                                                val primaryProfileId = currentProfileId ?: selectedUserTags.first()
+                                                if (editorState.isNew() || nameWasModified) {
+                                                    // New file OR renamed: Save as New
+                                                    if (onSaveMessageAs != null && nameWasModified) {
+                                                        onSaveMessageAs(
+                                                            messageName,
+                                                            fields.filter { !it.excluded && it.tag.isNotBlank() },
+                                                            primaryProfileId,
+                                                            selectedUserTags,
+                                                        )
+                                                    } else {
+                                                        onSaveMessage(
+                                                            messageName,
+                                                            fields.filter { !it.excluded && it.tag.isNotBlank() },
+                                                            primaryProfileId,
+                                                            selectedUserTags,
+                                                        )
+                                                    }
+                                                } else {
+                                                    // Existing file, name unchanged: Update Existing
+                                                    onSaveMessage(
                                                         messageName,
                                                         fields.filter { !it.excluded && it.tag.isNotBlank() },
                                                         primaryProfileId,
                                                         selectedUserTags,
                                                     )
-                                                    showSaveDialog = false
                                                 }
-                                            },
-                                            enabled =
-                                                messageName.isNotBlank() && !isDuplicate && selectedUserTags.isNotEmpty(),
-                                            containerColor = AppTheme.Colors.border,
-                                            contentColor = AppTheme.Colors.text,
-                                            modifier = Modifier.width(100.dp),
-                                        )
-                                    }
-                                    SlimButton(
-                                        text = "Save",
-                                        onClick = {
-                                            if (messageName.isNotBlank() &&
-                                                !isDuplicate &&
-                                                selectedUserTags.isNotEmpty()
-                                            ) {
-                                                // Use first tag as profileId for backwards compatibility
-                                                val primaryProfileId = currentProfileId ?: selectedUserTags.first()
-                                                onSaveMessage(
-                                                    messageName,
-                                                    fields.filter { !it.excluded && it.tag.isNotBlank() },
-                                                    primaryProfileId,
-                                                    selectedUserTags,
-                                                )
                                                 showSaveDialog = false
                                             }
                                         },
                                         enabled =
-                                            messageName.isNotBlank() && !isDuplicate && selectedUserTags.isNotEmpty(),
+                                            messageName.isNotBlank() &&
+                                                !(if (editorState.isNew() || nameWasModified) isDuplicateForSaveAsNew else isDuplicateForUpdate) &&
+                                                selectedUserTags.isNotEmpty(),
                                         containerColor = AppTheme.Colors.primary,
                                         contentColor = AppTheme.Colors.background,
-                                        modifier = Modifier.width(90.dp),
+                                        modifier = Modifier.width(130.dp),
                                     )
                                 }
                             }

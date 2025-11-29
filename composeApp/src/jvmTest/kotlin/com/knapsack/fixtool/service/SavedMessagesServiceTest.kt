@@ -10,40 +10,35 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
+/**
+ * Unit tests for SavedMessagesService
+ * Uses isolated test directory - NEVER touches real .fixtool directory
+ */
 class SavedMessagesServiceTest {
     private lateinit var service: SavedMessagesService
-    private lateinit var originalFile: File
+    private lateinit var testDir: File
     private lateinit var testFile: File
 
     @Before
     fun setup() {
-        // Save reference to the real file and temporarily move it
-        originalFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
-        val backupFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json.backup")
+        // Create a completely isolated temporary directory for test files
+        testDir =
+            File.createTempFile("fixtool-test", "").apply {
+                delete() // Delete the file
+                mkdirs() // Create as directory
+            }
 
-        // Backup existing file if it exists
-        if (originalFile.exists()) {
-            originalFile.copyTo(backupFile, overwrite = true)
-            originalFile.delete()
-        }
+        // Create test file path in isolated directory
+        testFile = File(testDir, "saved_messages.json")
 
-        service = SavedMessagesService()
-        testFile = originalFile
+        // Create service with custom path pointing to isolated test directory
+        service = SavedMessagesService(customPath = testFile.absolutePath)
     }
 
     @After
     fun cleanup() {
-        // Clean up test data and restore original file
-        if (testFile.exists()) {
-            testFile.delete()
-        }
-
-        // Restore backup if it exists
-        val backupFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json.backup")
-        if (backupFile.exists()) {
-            backupFile.copyTo(originalFile, overwrite = true)
-            backupFile.delete()
-        }
+        // Clean up isolated test directory - never touches real .fixtool
+        testDir.deleteRecursively()
     }
 
     @Test

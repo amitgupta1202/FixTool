@@ -68,12 +68,23 @@ class SavedMessagesService(
                                 }
                             }.distinctBy { it.id } // Remove duplicates by ID
 
+                    val deduplicatedMessages = deduplicateByName(migratedMessages)
                     SavedMessagesContainer(
                         messagesByProfile = emptyMap(), // Clear legacy data after migration
-                        messages = migratedMessages,
+                        messages = deduplicatedMessages,
                     )
                 } else {
-                    container
+                    // Deduplicate existing messages by name
+                    val deduplicatedMessages = deduplicateByName(container.messages)
+                    if (deduplicatedMessages.size < container.messages.size) {
+                        // Save the deduplicated list back to disk
+                        val deduplicatedContainer = SavedMessagesContainer(
+                            messagesByProfile = emptyMap(),
+                            messages = deduplicatedMessages,
+                        )
+                        saveAll(deduplicatedContainer)
+                    }
+                    container.copy(messages = deduplicatedMessages)
                 }
             }
         } catch (e: Exception) {
@@ -81,6 +92,32 @@ class SavedMessagesService(
             logger.error(errorMsg, e, notifyUser = true)
             SavedMessagesContainer()
         }
+
+    /**
+     * Deduplicates messages by name (case-insensitive, trimmed)
+     * Keeps first occurrence, removes subsequent duplicates
+     * Global uniqueness - template names must be unique across all users
+     */
+    private fun deduplicateByName(messages: List<SavedFixMessage>): List<SavedFixMessage> {
+        val seen = mutableSetOf<String>() // normalizedName
+        val deduplicated = mutableListOf<SavedFixMessage>()
+
+        messages.forEach { message ->
+            val normalizedName = message.name.trim().lowercase()
+
+            // Check if we've seen this name before (globally)
+            if (seen.add(normalizedName)) {
+                // First occurrence - keep it
+                deduplicated.add(message)
+            } else {
+                // Duplicate - log and discard
+                val userTagsKey = message.getAllUserTags().sorted().joinToString(",")
+                logger.info("Removing duplicate template: '${message.name}' (ID: ${message.id}, Users: $userTagsKey)")
+            }
+        }
+
+        return deduplicated
+    }
 
     /**
      * Saves all messages to disk

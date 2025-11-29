@@ -843,6 +843,8 @@ private fun AppMessageEditorPanel(
         editorState = editorState,
         onSessionChange = { session -> viewModel.setActiveSessionByObject(session) },
         onGetProfileConnectionState = { profileId -> viewModel.getProfileConnectionState(profileId) },
+        selectedEditorProfile = viewModel.selectedEditorProfile.value,
+        onEditorProfileChange = { profile -> viewModel.setSelectedEditorProfile(profile) },
         onError = { errorMsg ->
             viewModel.showNotification(
                 errorMsg,

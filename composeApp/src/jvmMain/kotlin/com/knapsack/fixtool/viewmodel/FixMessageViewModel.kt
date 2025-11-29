@@ -53,6 +53,10 @@ class FixMessageViewModel(
     private val _activeSessionState = mutableStateOf<FixMessageSession?>(null)
     val activeSessionState: State<FixMessageSession?> = _activeSessionState
 
+    // Selected profile for message editor (can be set even if profile is disconnected)
+    private val _selectedEditorProfile = mutableStateOf<FixConnectionProfile?>(null)
+    val selectedEditorProfile: State<FixConnectionProfile?> = _selectedEditorProfile
+
     private val _dictionary = mutableStateOf(FixDictionaryAdapter.createDefault())
     val dictionary: FixDictionary
         get() = _dictionary.value
@@ -356,6 +360,25 @@ class FixMessageViewModel(
             }
         }
         loadSavedMessagesForActiveSession()
+    }
+
+    /**
+     * Sets the selected profile for the message editor.
+     * This can be a connected or disconnected profile.
+     * If the profile has a session, that session will also be made active.
+     */
+    fun setSelectedEditorProfile(profile: FixConnectionProfile?) {
+        logger.info("setSelectedEditorProfile: ${profile?.name} (ID: ${profile?.id})")
+        _selectedEditorProfile.value = profile
+
+        // If profile has a session, make it active
+        if (profile != null) {
+            val session = getProfileSession(profile.id)
+            setActiveSessionByObject(session)
+        } else {
+            // No profile selected, clear active session
+            setActiveSessionByObject(null)
+        }
     }
 
     fun selectMessage(message: FixMessage?) {
@@ -1326,14 +1349,13 @@ class FixMessageViewModel(
             )
         )
 
-        // Select the first profile's session
+        // Select the first profile
         val selectedProfile = sortedProfiles.first()
-        val session = getProfileSession(selectedProfile.id)
 
         logger.info("loadEditorMessage: Auto-selecting profile '${selectedProfile.name}' for message '${savedMessage.name}' (${associatedProfiles.size} associated profiles)")
 
-        // Set the active session
-        setActiveSessionByObject(session)
+        // Set the selected editor profile (this will also set active session if connected)
+        setSelectedEditorProfile(selectedProfile)
     }
 
     fun loadSavedMessagesForActiveSession() {

@@ -287,6 +287,8 @@ fun MessageEditorPanel(
     editorState: com.knapsack.fixtool.model.MessageEditorState = com.knapsack.fixtool.model.MessageEditorState.New,
     onSessionChange: ((FixMessageSession?) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> com.knapsack.fixtool.model.FixConnectionState)? = null,
+    selectedEditorProfile: com.knapsack.fixtool.model.FixConnectionProfile? = null,
+    onEditorProfileChange: ((com.knapsack.fixtool.model.FixConnectionProfile?) -> Unit)? = null,
     onError: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -447,7 +449,12 @@ fun MessageEditorPanel(
                     }
 
                 // Sort profiles by connection state then alphabetically
-                val sortedProfiles = remember(connectionProfiles, sessions) {
+                // Read all session connection states to trigger recomposition when they change
+                val sessionStates = sessions.map { session ->
+                    session.connectionState.collectAsState().value
+                }
+
+                val sortedProfiles = remember(connectionProfiles, sessionStates) {
                     connectionProfiles.sortedWith(
                         compareBy<com.knapsack.fixtool.model.FixConnectionProfile> {
                             val state = onGetProfileConnectionState?.invoke(it.id)
@@ -457,23 +464,13 @@ fun MessageEditorPanel(
                     )
                 }
 
-                // Find the session for the selected profile
-                val selectedProfileId = selectedSession?.let { session ->
-                    // Find profile ID from session title (session title = profile name)
-                    connectionProfiles.find { it.name == session.title }?.id
-                }
-                val selectedProfile = selectedProfileId?.let { id ->
-                    connectionProfiles.find { it.id == id }
-                }
-
                 SlimDropdownWithColor(
-                    value = selectedProfile,
+                    value = selectedEditorProfile,
                     options = sortedProfiles,
                     onValueChange = { profile: com.knapsack.fixtool.model.FixConnectionProfile? ->
                         logger.info("MessageEditorPanel profile dropdown changed to: ${profile?.name} (ID: ${profile?.id})")
-                        // Find the session for this profile
-                        val session = sessions.find { it.title == profile?.name }
-                        onSessionChange?.invoke(session)
+                        // Notify that editor profile selection has changed
+                        onEditorProfileChange?.invoke(profile)
                     },
                     displayText = { profile: com.knapsack.fixtool.model.FixConnectionProfile ->
                         val state = onGetProfileConnectionState?.invoke(profile.id)

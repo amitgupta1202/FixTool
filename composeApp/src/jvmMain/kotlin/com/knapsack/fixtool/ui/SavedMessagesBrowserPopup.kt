@@ -393,41 +393,71 @@ fun SavedMessagesBrowserPopup(
                         }
 
                         BrowserViewMode.BY_CATEGORY -> {
-                            groupedByCategory.forEach { (groupName, messages) ->
-                                item(key = "header-cat-$groupName") {
-                                    GroupHeader(
-                                        title = groupName,
-                                        count = messages.size,
-                                        isExpanded = groupName in expandedGroups,
-                                        onToggle = {
-                                            expandedGroups = if (groupName in expandedGroups) {
-                                                expandedGroups - groupName
-                                            } else {
-                                                expandedGroups + groupName
-                                            }
-                                        },
+                            // If a profile is selected, show flat list (no grouping)
+                            // If no profile selected (All Profiles), show grouped by profile
+                            val filterProfile = selectedFilterProfile
+                            if (filterProfile != null) {
+                                // Flat list of templates for selected profile
+                                val filteredMessages = sortedMessages.filter { msg ->
+                                    msg.getAllUserTags().contains(filterProfile.id)
+                                }
+
+                                items(filteredMessages, key = { it.id }) { message ->
+                                    MessageItem(
+                                        message = message,
+                                        connectionProfiles = connectionProfiles,
+                                        currentProfileId = currentProfileId,
+                                        onSelect = { onSelectMessage(message) },
+                                        onDelete = onDeleteMessage,
+                                        onToggleFavorite = onToggleFavorite,
+                                        indented = false,
+                                        showCategory = false,
                                     )
                                 }
 
-                                if (groupName in expandedGroups) {
-                                    items(messages, key = { "cat-$groupName-${it.id}" }) { message ->
-                                        MessageItem(
-                                            message = message,
-                                            connectionProfiles = connectionProfiles,
-                                            currentProfileId = currentProfileId,
-                                            onSelect = { onSelectMessage(message) },
-                                            onDelete = onDeleteMessage,
-                                            onToggleFavorite = onToggleFavorite,
-                                            indented = true,
-                                            showCategory = false,
-                                        )
+                                if (filteredMessages.isEmpty()) {
+                                    item {
+                                        EmptyState("No templates for this profile")
                                     }
                                 }
-                            }
+                            } else {
+                                // Grouped by profile when showing all profiles
+                                groupedByCategory.forEach { (groupName, messages) ->
+                                    item(key = "header-cat-$groupName") {
+                                        GroupHeader(
+                                            title = groupName,
+                                            count = messages.size,
+                                            isExpanded = groupName in expandedGroups,
+                                            onToggle = {
+                                                expandedGroups = if (groupName in expandedGroups) {
+                                                    expandedGroups - groupName
+                                                } else {
+                                                    expandedGroups + groupName
+                                                }
+                                            },
+                                        )
+                                    }
 
-                            if (groupedByCategory.isEmpty()) {
-                                item {
-                                    EmptyState("No saved messages")
+                                    if (groupName in expandedGroups) {
+                                        items(messages, key = { "cat-$groupName-${it.id}" }) { message ->
+                                            MessageItem(
+                                                message = message,
+                                                connectionProfiles = connectionProfiles,
+                                                currentProfileId = currentProfileId,
+                                                onSelect = { onSelectMessage(message) },
+                                                onDelete = onDeleteMessage,
+                                                onToggleFavorite = onToggleFavorite,
+                                                indented = true,
+                                                showCategory = false,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (groupedByCategory.isEmpty()) {
+                                    item {
+                                        EmptyState("No saved messages")
+                                    }
                                 }
                             }
                         }

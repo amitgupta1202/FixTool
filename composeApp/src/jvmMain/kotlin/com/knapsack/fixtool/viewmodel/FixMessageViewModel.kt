@@ -1359,34 +1359,15 @@ class FixMessageViewModel(
     }
 
     fun loadSavedMessagesForActiveSession() {
-        // Check if there is no active session selected (index is -1) or no sessions exist
-        if (_activeSessionIndex.value == -1 || _sessions.isEmpty()) {
-            // No session selected or no sessions created yet, show all messages from all profiles
-            val allMessages = mutableListOf<SavedFixMessage>()
-            connectionProfiles.forEach { profile ->
-                allMessages.addAll(savedMessagesService.loadMessagesForProfile(profile.id))
-            }
-            // Deduplicate messages by ID (messages can be shared across multiple profiles)
-            _savedMessages.clear()
-            _savedMessages.addAll(allMessages.distinctBy { it.id })
-        } else {
-            // There is an active session selected, filter by the active session's profile
-            val currentProfileId = profileToSessionMap.entries.find { it.value == _activeSessionIndex.value }?.key
-            if (currentProfileId != null) {
-                val messages = savedMessagesService.loadMessagesForProfile(currentProfileId)
-                _savedMessages.clear()
-                _savedMessages.addAll(messages)
-            } else {
-                // Fallback: show all messages if we can't find the profile
-                val allMessages = mutableListOf<SavedFixMessage>()
-                connectionProfiles.forEach { profile ->
-                    allMessages.addAll(savedMessagesService.loadMessagesForProfile(profile.id))
-                }
-                // Deduplicate messages by ID (messages can be shared across multiple profiles)
-                _savedMessages.clear()
-                _savedMessages.addAll(allMessages.distinctBy { it.id })
-            }
+        // Always show all messages from all profiles (no filtering by active session)
+        // The user can filter in the popup UI if needed
+        val allMessages = mutableListOf<SavedFixMessage>()
+        connectionProfiles.forEach { profile ->
+            allMessages.addAll(savedMessagesService.loadMessagesForProfile(profile.id))
         }
+        // Deduplicate messages by ID (messages can be shared across multiple profiles)
+        _savedMessages.clear()
+        _savedMessages.addAll(allMessages.distinctBy { it.id })
     }
 
     fun deleteSavedMessage(messageId: String, profileId: String) {

@@ -55,6 +55,7 @@ fun SavedMessagesBrowserPopup(
     connectionProfiles: List<FixConnectionProfile>,
     dictionary: FixDictionary,
     currentProfileId: String?,
+    selectedEditorProfile: FixConnectionProfile?,
     onSelectMessage: (SavedFixMessage) -> Unit,
     onDeleteMessage: ((messageId: String, profileId: String) -> Unit)?,
     onToggleFavorite: ((messageId: String) -> Unit)?,
@@ -63,6 +64,11 @@ fun SavedMessagesBrowserPopup(
     var searchQuery by remember { mutableStateOf("") }
     var viewMode by remember { mutableStateOf(BrowserViewMode.ALL) }
     var expandedGroups by remember { mutableStateOf(setOf<String>()) }
+
+    // Selected profile for filtering in BY_CATEGORY mode (defaults to selected editor profile)
+    var selectedFilterProfile by remember(selectedEditorProfile) {
+        mutableStateOf(selectedEditorProfile)
+    }
 
     val focusRequester = remember { FocusRequester() }
 
@@ -100,11 +106,21 @@ fun SavedMessagesBrowserPopup(
         }
     }.toSortedMap()
 
-    // Group by user category
+    // Group by user category - filter by selected profile if one is selected
     val groupedByCategory = run {
         val result = mutableMapOf<String, MutableList<SavedFixMessage>>()
 
-        sortedMessages.forEach { msg ->
+        val filterProfile = selectedFilterProfile
+        val messagesToGroup = if (filterProfile != null) {
+            // Filter to only messages associated with the selected profile
+            sortedMessages.filter { msg ->
+                msg.getAllUserTags().contains(filterProfile.id)
+            }
+        } else {
+            sortedMessages
+        }
+
+        messagesToGroup.forEach { msg ->
             val tags = msg.getAllUserTags()
             when {
                 tags.isEmpty() -> {
@@ -239,9 +255,40 @@ fun SavedMessagesBrowserPopup(
 
                 HorizontalDivider(color = AppTheme.Colors.border)
 
+                // Profile dropdown for BY_CATEGORY mode
+                if (viewMode == BrowserViewMode.BY_CATEGORY) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Profile:",
+                            fontSize = 11.sp,
+                            color = AppTheme.Colors.textSecondary,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                        SlimDropdown(
+                            value = selectedFilterProfile,
+                            options = connectionProfiles,
+                            onValueChange = { profile -> selectedFilterProfile = profile },
+                            displayText = { it.name },
+                            placeholder = "All Profiles",
+                            allowUnselect = true,
+                            modifier = Modifier.width(200.dp),
+                        )
+                    }
+                    HorizontalDivider(color = AppTheme.Colors.border)
+                }
+
                 // Results Count
+                val displayCount = when (viewMode) {
+                    BrowserViewMode.BY_CATEGORY -> groupedByCategory.values.sumOf { it.size }
+                    else -> sortedMessages.size
+                }
                 Text(
-                    text = "${sortedMessages.size} template${if (sortedMessages.size != 1) "s" else ""}",
+                    text = "$displayCount template${if (displayCount != 1) "s" else ""}",
                     fontSize = 11.sp,
                     color = AppTheme.Colors.textSecondary,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),

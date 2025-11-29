@@ -623,6 +623,7 @@ fun MessageEditorPanel(
                                 connectionProfiles = connectionProfiles,
                                 dictionary = dictionary,
                                 currentProfileId = currentProfileId,
+                                selectedEditorProfile = selectedEditorProfile,
                                 onSelectMessage = { savedMessage ->
                                     onLoadMessage(savedMessage)
                                     showLoadPopup = false
@@ -1170,6 +1171,7 @@ fun MessageEditorPanel(
                                                     connectionProfiles = connectionProfiles,
                                                     dictionary = dictionary,
                                                     currentProfileId = currentProfileId,
+                                                    selectedEditorProfile = selectedEditorProfile,
                                                     onSelectMessage = { savedMessage ->
                                                         onLoadMessage(savedMessage)
                                                         showLoadPopup = false

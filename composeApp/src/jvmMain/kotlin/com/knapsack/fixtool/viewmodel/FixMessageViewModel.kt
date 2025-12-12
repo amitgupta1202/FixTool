@@ -1206,7 +1206,6 @@ class FixMessageViewModel(
                     SavedFixMessage(
                         id = existingId,
                         name = name,
-                        profileId = profileId, // Keep for backwards compatibility
                         userTags = userTags,
                         fields = savedFields,
                         createdAt = existing?.createdAt ?: System.currentTimeMillis(),
@@ -1218,7 +1217,6 @@ class FixMessageViewModel(
                     // Create new message with new ID
                     SavedFixMessage(
                         name = name,
-                        profileId = profileId, // Keep for backwards compatibility
                         userTags = userTags,
                         fields = savedFields,
                     )
@@ -1260,7 +1258,6 @@ class FixMessageViewModel(
             SavedFixMessage(
                 // id will be generated automatically
                 name = name,
-                profileId = profileId, // Keep for backwards compatibility
                 userTags = userTags,
                 fields = savedFields,
             )

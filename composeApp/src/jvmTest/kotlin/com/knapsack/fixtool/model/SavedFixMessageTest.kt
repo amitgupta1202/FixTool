@@ -134,20 +134,6 @@ class SavedFixMessageTest {
         assertEquals(setOf("profile1", "profile2"), message.getAllUserTags())
     }
 
-    @Test
-    @Suppress("DEPRECATION")
-    fun `getAllUserTags includes deprecated profileId for backwards compatibility`() {
-        val message = SavedFixMessage(
-            name = "TestMessage",
-            fields = emptyList(),
-            profileId = "legacyProfile",
-            userTags = setOf("newProfile")
-        )
-        val tags = message.getAllUserTags()
-        assertTrue(tags.contains("legacyProfile"))
-        assertTrue(tags.contains("newProfile"))
-    }
-
     // ========================================
     // SavedFixField excluded tests
     // ========================================

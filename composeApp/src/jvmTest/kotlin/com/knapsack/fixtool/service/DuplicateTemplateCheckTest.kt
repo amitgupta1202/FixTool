@@ -49,7 +49,7 @@ class DuplicateTemplateCheckTest {
         val template1 =
             SavedFixMessage(
                 name = "OrderTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         service.saveMessage(profileId, template1).getOrThrow()
@@ -76,7 +76,7 @@ class DuplicateTemplateCheckTest {
             SavedFixMessage(
                 id = templateId,
                 name = "OrderTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         service.saveMessage(profileId, template).getOrThrow()
@@ -98,7 +98,7 @@ class DuplicateTemplateCheckTest {
             SavedFixMessage(
                 id = templateId,
                 name = "OrderTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields =
                     listOf(
                         SavedFixField(tag = "35", value = "D"),
@@ -122,7 +122,7 @@ class DuplicateTemplateCheckTest {
             SavedFixMessage(
                 id = templateId,
                 name = "OrderTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         service.saveMessage(profileId, template).getOrThrow()
@@ -147,7 +147,7 @@ class DuplicateTemplateCheckTest {
         val template1 =
             SavedFixMessage(
                 name = "ordertemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         service.saveMessage(profileId, template1).getOrThrow()
@@ -177,7 +177,7 @@ class DuplicateTemplateCheckTest {
         val template1 =
             SavedFixMessage(
                 name = "OrderTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         service.saveMessage(profileId, template1).getOrThrow()
@@ -204,7 +204,7 @@ class DuplicateTemplateCheckTest {
             SavedFixMessage(
                 id = templateId,
                 name = "OrderTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         service.saveMessage(profileId, template).getOrThrow()
@@ -226,7 +226,7 @@ class DuplicateTemplateCheckTest {
             SavedFixMessage(
                 id = templateId,
                 name = "RenamedTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         val result = service.saveMessage(profileId, renamedTemplate).getOrThrow()
@@ -244,14 +244,14 @@ class DuplicateTemplateCheckTest {
             SavedFixMessage(
                 id = "template-1",
                 name = "OrderTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         val template2 =
             SavedFixMessage(
                 id = "template-2",
                 name = "QuoteTemplate",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "R")),
             )
         service.saveMessage(profileId, template1).getOrThrow()
@@ -278,8 +278,7 @@ class DuplicateTemplateCheckTest {
         val template1 =
             SavedFixMessage(
                 name = "OrderTemplate",
-                profileId = profileId,
-                userTags = setOf("user1"),
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
         service.saveMessage(profileId, template1).getOrThrow()
@@ -297,48 +296,6 @@ class DuplicateTemplateCheckTest {
     }
 
     @Test
-    fun testMigrationRemovesDuplicates() {
-        val profileId = "test-profile"
-
-        // Manually create file with duplicates (simulating legacy data)
-        val duplicates =
-            listOf(
-                SavedFixMessage(
-                    id = "dup-1",
-                    name = "OrderTemplate",
-                    profileId = profileId,
-                    fields = listOf(SavedFixField(tag = "35", value = "D")),
-                ),
-                SavedFixMessage(
-                    id = "dup-2",
-                    name = "ordertemplate", // Same name, different case
-                    profileId = profileId,
-                    fields = listOf(SavedFixField(tag = "35", value = "D")),
-                ),
-                SavedFixMessage(
-                    id = "unique-3",
-                    name = "QuoteTemplate",
-                    profileId = profileId,
-                    fields = listOf(SavedFixField(tag = "35", value = "R")),
-                ),
-            )
-
-        // Save all duplicates
-        duplicates.forEach { service.saveMessage(profileId, it).getOrThrow() }
-
-        // Create new service instance to trigger migration (using same test file)
-        val newService = SavedMessagesService(customPath = testFile.absolutePath)
-        val loadedMessages = newService.loadMessagesForProfile(profileId)
-
-        // Should only have 2 templates (duplicates removed)
-        assertEquals(2, loadedMessages.size, "Migration should remove duplicate templates")
-
-        // First occurrence should be kept
-        assertTrue(loadedMessages.any { it.name == "OrderTemplate" }, "First occurrence should be kept")
-        assertTrue(loadedMessages.any { it.name == "QuoteTemplate" }, "Unique template should be kept")
-    }
-
-    @Test
     fun testMultipleTemplatesWithDifferentNames() {
         val profileId = "test-profile"
 
@@ -346,17 +303,17 @@ class DuplicateTemplateCheckTest {
             listOf(
                 SavedFixMessage(
                     name = "OrderTemplate",
-                    profileId = profileId,
+                    userTags = setOf(profileId),
                     fields = listOf(SavedFixField(tag = "35", value = "D")),
                 ),
                 SavedFixMessage(
                     name = "QuoteTemplate",
-                    profileId = profileId,
+                    userTags = setOf(profileId),
                     fields = listOf(SavedFixField(tag = "35", value = "R")),
                 ),
                 SavedFixMessage(
                     name = "ExecutionTemplate",
-                    profileId = profileId,
+                    userTags = setOf(profileId),
                     fields = listOf(SavedFixField(tag = "35", value = "8")),
                 ),
             )

@@ -263,7 +263,7 @@ class MessageEditorOperationsTest {
         val initialCount = viewModel.savedMessages.size
 
         // Delete the message
-        viewModel.deleteSavedMessage(savedMessage.id, savedMessage.profileId)
+        viewModel.deleteSavedMessage(savedMessage.id, savedMessage.getAllUserTags().first())
 
         // Verify it was deleted
         val afterDelete = viewModel.savedMessages.find { it.name == "Delete Test" }
@@ -286,7 +286,7 @@ class MessageEditorOperationsTest {
         // Note: Check if currentLoadedMessageName is properly exposed
 
         // Delete the message
-        viewModel.deleteSavedMessage(savedMessage.id, savedMessage.profileId)
+        viewModel.deleteSavedMessage(savedMessage.id, savedMessage.getAllUserTags().first())
 
         // Current loaded message name should be cleared if it was the deleted one
         // This tests the implementation detail in deleteSavedMessage
@@ -339,11 +339,11 @@ class MessageEditorOperationsTest {
         viewModel.saveEditorMessage("Msg A3", viewModel.editorFields, "profile-A")
 
         // All messages should be for profile-A
-        val profileAMessages = viewModel.savedMessages.filter { it.profileId == "profile-A" }
+        val profileAMessages = viewModel.savedMessages.filter { it.getAllUserTags().contains("profile-A") }
 
         assertEquals(3, profileAMessages.size, "Profile A should have 3 messages")
         assertEquals(3, viewModel.savedMessages.size, "All saved messages should be for profile-A")
-        assertTrue(viewModel.savedMessages.all { it.profileId == "profile-A" })
+        assertTrue(viewModel.savedMessages.all { it.getAllUserTags().contains("profile-A") })
     }
 
     // ========================================

@@ -6,6 +6,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.RandomAccessFile
+import java.nio.channels.FileLock
 
 /**
  * Service for persisting and loading saved FIX messages organized by profile
@@ -15,6 +17,20 @@ class SavedMessagesService(
     customPath: String = "",
 ) {
     private val logger = NotifyingLogger(SavedMessagesService::class.java, onError)
+
+    companion object {
+        /**
+         * Current schema version for saved messages
+         * Increment this when making breaking changes to the data format
+         */
+        private const val CURRENT_VERSION = 1
+
+        /**
+         * In-memory lock for thread-safe access within the same JVM
+         * File locks only work across processes, not across threads
+         */
+        private val fileLock = Any()
+    }
 
     private val json =
         Json {
@@ -36,102 +52,82 @@ class SavedMessagesService(
 
     @Serializable
     private data class SavedMessagesContainer(
-        // Legacy: Map of profileId to messages (for backwards compatibility)
-        val messagesByProfile: Map<String, List<SavedFixMessage>> = emptyMap(),
-        // New: Flat list of all messages with multi-tag support
         val messages: List<SavedFixMessage> = emptyList(),
+        val version: Int = CURRENT_VERSION,
     )
 
     /**
-     * Loads all saved messages from disk and migrates legacy data if needed
+     * Loads all saved messages from disk with thread-safe locking
      */
     private fun loadAll(): SavedMessagesContainer =
-        try {
+        synchronized(fileLock) {
             if (!savedMessagesFile.exists()) {
-                SavedMessagesContainer()
-            } else {
+                return SavedMessagesContainer()
+            }
+
+            try {
+                // Read file content
                 val content = savedMessagesFile.readText()
                 val container = json.decodeFromString<SavedMessagesContainer>(content)
 
-                // Migrate legacy data: if we have messagesByProfile but no messages, migrate them
-                if (container.messages.isEmpty() && container.messagesByProfile.isNotEmpty()) {
-                    val migratedMessages =
-                        container.messagesByProfile
-                            .flatMap { (profileId, messages) ->
-                                messages.map { message ->
-                                    // Ensure old messages have the profileId in their userTags
-                                    if (message.userTags.isEmpty()) {
-                                        message.copy(userTags = setOf(profileId))
-                                    } else {
-                                        message
-                                    }
-                                }
-                            }.distinctBy { it.id } // Remove duplicates by ID
-
-                    val deduplicatedMessages = deduplicateByName(migratedMessages)
-                    SavedMessagesContainer(
-                        messagesByProfile = emptyMap(), // Clear legacy data after migration
-                        messages = deduplicatedMessages,
-                    )
-                } else {
-                    // Deduplicate existing messages by name
-                    val deduplicatedMessages = deduplicateByName(container.messages)
-                    if (deduplicatedMessages.size < container.messages.size) {
-                        // Save the deduplicated list back to disk
-                        val deduplicatedContainer = SavedMessagesContainer(
-                            messagesByProfile = emptyMap(),
-                            messages = deduplicatedMessages,
-                        )
-                        saveAll(deduplicatedContainer)
-                    }
-                    container.copy(messages = deduplicatedMessages)
+                // Check if migration is needed
+                if (container.version < CURRENT_VERSION) {
+                    logger.info("Migrating saved messages from version ${container.version} to $CURRENT_VERSION")
+                    val migratedContainer = migrate(container)
+                    // Save migrated data (saveAll is also synchronized)
+                    saveAll(migratedContainer)
+                    return migratedContainer
                 }
+
+                return container
+            } catch (e: Exception) {
+                val errorMsg = "Failed to load saved messages: ${e.message}"
+                logger.error(errorMsg, e, notifyUser = true)
+                return SavedMessagesContainer()
             }
-        } catch (e: Exception) {
-            val errorMsg = "Failed to load saved messages: ${e.message}"
-            logger.error(errorMsg, e, notifyUser = true)
-            SavedMessagesContainer()
         }
 
     /**
-     * Deduplicates messages by name (case-insensitive, trimmed)
-     * Keeps first occurrence, removes subsequent duplicates
-     * Global uniqueness - template names must be unique across all users
+     * Migrates saved messages from an older version to the current version
+     * Add migration logic here when schema changes are needed
      */
-    private fun deduplicateByName(messages: List<SavedFixMessage>): List<SavedFixMessage> {
-        val seen = mutableSetOf<String>() // normalizedName
-        val deduplicated = mutableListOf<SavedFixMessage>()
+    private fun migrate(container: SavedMessagesContainer): SavedMessagesContainer {
+        var migrated = container
 
-        messages.forEach { message ->
-            val normalizedName = message.name.trim().lowercase()
+        // Example migration pattern for future use:
+        // if (migrated.version < 2) {
+        //     migrated = migrateV1ToV2(migrated)
+        // }
+        // if (migrated.version < 3) {
+        //     migrated = migrateV2ToV3(migrated)
+        // }
 
-            // Check if we've seen this name before (globally)
-            if (seen.add(normalizedName)) {
-                // First occurrence - keep it
-                deduplicated.add(message)
-            } else {
-                // Duplicate - log and discard
-                val userTagsKey = message.getAllUserTags().sorted().joinToString(",")
-                logger.info("Removing duplicate template: '${message.name}' (ID: ${message.id}, Users: $userTagsKey)")
-            }
-        }
-
-        return deduplicated
+        // Return with updated version
+        return migrated.copy(version = CURRENT_VERSION)
     }
 
     /**
-     * Saves all messages to disk
+     * Saves all messages to disk with thread-safe locking
      * @return true if save succeeded, false if failed
      */
     private fun saveAll(container: SavedMessagesContainer): Boolean =
-        try {
-            val content = json.encodeToString(container)
-            savedMessagesFile.writeText(content)
-            true
-        } catch (e: Exception) {
-            val errorMsg = "Failed to save messages: ${e.message}"
-            logger.error(errorMsg, e, notifyUser = true)
-            false
+        synchronized(fileLock) {
+            try {
+                // Ensure parent directory exists
+                savedMessagesFile.parentFile?.mkdirs()
+
+                // Serialize to JSON
+                val content = json.encodeToString(container)
+
+                // Write to file atomically
+                savedMessagesFile.writeText(content)
+
+                return true
+            } catch (e: Exception) {
+                val errorMsg = "Failed to save messages: ${e.message}"
+                logger.error(errorMsg, e, notifyUser = true)
+                return false
+            }
         }
 
     /**
@@ -155,7 +151,7 @@ class SavedMessagesService(
 
         // Ensure the message has the profileId in its userTags if no tags are set
         val messageToSave =
-            if (message.userTags.isEmpty() && message.profileId.isBlank()) {
+            if (message.userTags.isEmpty()) {
                 message.copy(userTags = setOf(profileId))
             } else {
                 message
@@ -169,11 +165,7 @@ class SavedMessagesService(
             allMessages.add(messageToSave)
         }
 
-        val updatedContainer =
-            SavedMessagesContainer(
-                messagesByProfile = emptyMap(), // Legacy field no longer used
-                messages = allMessages,
-            )
+        val updatedContainer = SavedMessagesContainer(messages = allMessages)
 
         return if (saveAll(updatedContainer)) {
             // Return messages that are relevant to this profile
@@ -192,11 +184,7 @@ class SavedMessagesService(
         val container = loadAll()
         val allMessages = container.messages.filterNot { it.id == messageId }
 
-        val updatedContainer =
-            SavedMessagesContainer(
-                messagesByProfile = emptyMap(), // Legacy field no longer used
-                messages = allMessages,
-            )
+        val updatedContainer = SavedMessagesContainer(messages = allMessages)
 
         return if (saveAll(updatedContainer)) {
             // Return messages that are relevant to this profile
@@ -220,11 +208,7 @@ class SavedMessagesService(
             val message = allMessages[messageIndex]
             allMessages[messageIndex] = message.copy(lastUsedAt = System.currentTimeMillis())
 
-            val updatedContainer =
-                SavedMessagesContainer(
-                    messagesByProfile = emptyMap(), // Legacy field no longer used
-                    messages = allMessages,
-                )
+            val updatedContainer = SavedMessagesContainer(messages = allMessages)
 
             return if (saveAll(updatedContainer)) {
                 // Return messages that are relevant to this profile

@@ -53,7 +53,7 @@ class SavedMessagesServiceTest {
         val message =
             SavedFixMessage(
                 name = "Test Message",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = fields,
             )
 
@@ -72,14 +72,14 @@ class SavedMessagesServiceTest {
         val message1 =
             SavedFixMessage(
                 name = "Message 1",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
         val message2 =
             SavedFixMessage(
                 name = "Message 2",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "8")),
             )
 
@@ -100,7 +100,7 @@ class SavedMessagesServiceTest {
             SavedFixMessage(
                 id = messageId,
                 name = "Original Message",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
@@ -110,7 +110,7 @@ class SavedMessagesServiceTest {
             SavedFixMessage(
                 id = messageId,
                 name = "Updated Message",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields =
                     listOf(
                         SavedFixField(tag = "35", value = "D"),
@@ -131,7 +131,7 @@ class SavedMessagesServiceTest {
         val message =
             SavedFixMessage(
                 name = "Load Test Message",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
@@ -158,7 +158,7 @@ class SavedMessagesServiceTest {
             SavedFixMessage(
                 id = "delete-me",
                 name = "Delete Test Message",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
@@ -180,7 +180,7 @@ class SavedMessagesServiceTest {
         val message =
             SavedFixMessage(
                 name = "Keep Message",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
@@ -199,7 +199,7 @@ class SavedMessagesServiceTest {
             SavedFixMessage(
                 id = messageId,
                 name = "Mark Used Test",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
                 lastUsedAt = 1000L,
             )
@@ -229,14 +229,14 @@ class SavedMessagesServiceTest {
         val message1 =
             SavedFixMessage(
                 name = "Profile 1 Message",
-                profileId = profile1,
+                userTags = setOf(profile1),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
         val message2 =
             SavedFixMessage(
                 name = "Profile 2 Message",
-                profileId = profile2,
+                userTags = setOf(profile2),
                 fields = listOf(SavedFixField(tag = "35", value = "8")),
             )
 
@@ -264,7 +264,7 @@ class SavedMessagesServiceTest {
         val message =
             SavedFixMessage(
                 name = "Excluded Fields Test",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = fields,
             )
 
@@ -288,7 +288,7 @@ class SavedMessagesServiceTest {
         val message =
             SavedFixMessage(
                 name = "Timestamp Test",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
                 createdAt = createdAt,
                 lastUsedAt = lastUsedAt,
@@ -309,7 +309,7 @@ class SavedMessagesServiceTest {
             SavedFixMessage(
                 id = "keep-1",
                 name = "Keep Message 1",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "D")),
             )
 
@@ -317,7 +317,7 @@ class SavedMessagesServiceTest {
             SavedFixMessage(
                 id = "delete-2",
                 name = "Delete Message 2",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "8")),
             )
 
@@ -325,7 +325,7 @@ class SavedMessagesServiceTest {
             SavedFixMessage(
                 id = "keep-3",
                 name = "Keep Message 3",
-                profileId = profileId,
+                userTags = setOf(profileId),
                 fields = listOf(SavedFixField(tag = "35", value = "G")),
             )
 
@@ -340,4 +340,5 @@ class SavedMessagesServiceTest {
         assertTrue(result.any { it.name == "Keep Message 1" })
         assertTrue(result.any { it.name == "Keep Message 3" })
     }
+
 }

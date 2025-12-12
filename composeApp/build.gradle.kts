@@ -64,7 +64,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Exe)
             packageName = "FixTool"
-            packageVersion = "1.0.0"
+            packageVersion = "1.0.2"
 
             // Include required Java modules for logback, QuickFIX/J, and Kotlin scripting
             modules("java.naming", "java.sql", "java.instrument", "jdk.unsupported", "java.compiler", "java.scripting")
@@ -76,6 +76,21 @@ compose.desktop {
             if (macIconFile.exists()) {
                 macOS {
                     iconFile.set(macIconFile)
+                    bundleID = "com.knapsack.fixtool"
+
+                    // Code Signing (Optional - requires Apple Developer account $99/year)
+                    // Uncomment if you have a Developer ID certificate:
+                    //
+                    // signing {
+                    //     sign.set(true)
+                    //     identity.set(System.getenv("MACOS_SIGNING_IDENTITY"))
+                    // }
+                    //
+                    // notarization {
+                    //     appleID.set(System.getenv("NOTARIZATION_APPLE_ID"))
+                    //     password.set(System.getenv("NOTARIZATION_PASSWORD"))
+                    //     teamID.set(System.getenv("NOTARIZATION_TEAM_ID"))
+                    // }
                 }
             }
             if (winIconFile.exists()) {

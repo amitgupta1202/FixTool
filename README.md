@@ -21,8 +21,33 @@ Download the latest version from the [Releases page](https://github.com/amitgupt
 **Installation:**
 
 - **Windows**: Download and run the `.msi` installer
-- **macOS**: Download the `.dmg` file, open it, and drag FixTool to your Applications folder
+- **macOS**: Download the `.dmg` file - see [macOS note](#macos-installation-note) below
 - **Linux (Debian/Ubuntu)**: Download the `.deb` package and install with `sudo dpkg -i FixTool-*.deb`
+
+📖 **Full Guide:** [INSTALLATION.md](INSTALLATION.md) | **Quick Start:** [QUICK_INSTALL_GUIDE.md](QUICK_INSTALL_GUIDE.md)
+
+### macOS Installation Note
+
+**You'll see a security warning - this is normal for open source apps!**
+
+macOS will show: *"FixTool cannot be opened because it is from an unidentified developer"*
+
+**Why?** Apple charges $99/year to notarize apps. As a free, open source project, we don't pay this fee. Many major open source apps (Audacity, OBS Studio, GIMP) show the same warning.
+
+**How to Install (choose one):**
+
+**Option 1 - Right-Click:**
+```
+Download DMG → Right-click → Open → Open → Install
+```
+
+**Option 2 - Terminal:**
+```bash
+xattr -d com.apple.quarantine ~/Downloads/FixTool-1.0.0.dmg
+open ~/Downloads/FixTool-1.0.0.dmg
+```
+
+✅ **The app is safe!** All code is public on GitHub - you can review it yourself.
 
 ## Quick Start
 

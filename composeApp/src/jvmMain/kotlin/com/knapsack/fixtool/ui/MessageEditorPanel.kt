@@ -68,13 +68,14 @@ data class FixField(
             dictionary: FixDictionaryAdapter? = null,
         ): List<FixField> {
             // Collect all fields that need template evaluation
-            val fieldsWithExpressions = this.mapIndexedNotNull { index, field ->
-                if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
-                    index to field.value
-                } else {
-                    null
+            val fieldsWithExpressions =
+                this.mapIndexedNotNull { index, field ->
+                    if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
+                        index to field.value
+                    } else {
+                        null
+                    }
                 }
-            }
 
             // If no expressions, return as-is (fast path)
             if (fieldsWithExpressions.isEmpty()) {
@@ -83,13 +84,14 @@ data class FixField(
 
             // Batch evaluate all expressions at once (extracts message data only once)
             val variables = mutableMapOf<String, String>()
-            val resolvedValues = FixMessageTemplate.evaluateBatch(
-                fieldsWithExpressions,
-                incomingMessages,
-                outgoingMessages,
-                variables,
-                dictionary,
-            )
+            val resolvedValues =
+                FixMessageTemplate.evaluateBatch(
+                    fieldsWithExpressions,
+                    incomingMessages,
+                    outgoingMessages,
+                    variables,
+                    dictionary,
+                )
 
             // Apply resolved values back to fields
             return this.mapIndexed { index, field ->
@@ -425,7 +427,8 @@ fun MessageEditorPanel(
                 fun getConnectionPriority(state: com.knapsack.fixtool.model.FixConnectionState): Int =
                     when (state) {
                         com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
-                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON -> 0 // Highest priority
+                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON,
+                        -> 0 // Highest priority
                         com.knapsack.fixtool.model.FixConnectionState.CONNECTING -> 1 // Medium priority
                         else -> 2 // Lowest priority (DISCONNECTED, ERROR)
                     }
@@ -434,7 +437,8 @@ fun MessageEditorPanel(
                 fun getStatusIndicator(state: com.knapsack.fixtool.model.FixConnectionState): String =
                     when (state) {
                         com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
-                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON -> "\u25CF" // ●
+                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON,
+                        -> "\u25CF" // ●
                         com.knapsack.fixtool.model.FixConnectionState.CONNECTING -> "\u25CF" // ●
                         else -> "\u25CB" // ○
                     }
@@ -443,26 +447,36 @@ fun MessageEditorPanel(
                 fun getStatusColor(state: com.knapsack.fixtool.model.FixConnectionState): androidx.compose.ui.graphics.Color =
                     when (state) {
                         com.knapsack.fixtool.model.FixConnectionState.CONNECTED,
-                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON -> androidx.compose.ui.graphics.Color(0xFF4CAF50) // Green
-                        com.knapsack.fixtool.model.FixConnectionState.CONNECTING -> androidx.compose.ui.graphics.Color(0xFFFFA726) // Orange
-                        else -> androidx.compose.ui.graphics.Color(0xFF9E9E9E) // Gray
+                        com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON,
+                        ->
+                            androidx.compose.ui.graphics
+                                .Color(0xFF4CAF50) // Green
+                        com.knapsack.fixtool.model.FixConnectionState.CONNECTING ->
+                            androidx.compose.ui.graphics
+                                .Color(0xFFFFA726) // Orange
+                        else ->
+                            androidx.compose.ui.graphics
+                                .Color(0xFF9E9E9E) // Gray
                     }
 
                 // Sort profiles by connection state then alphabetically
                 // Read all session connection states to trigger recomposition when they change
-                val sessionStates = sessions.map { session ->
-                    session.connectionState.collectAsState().value
-                }
+                val sessionStates =
+                    sessions.map { session ->
+                        session.connectionState.collectAsState().value
+                    }
 
-                val sortedProfiles = remember(connectionProfiles, sessionStates) {
-                    connectionProfiles.sortedWith(
-                        compareBy<com.knapsack.fixtool.model.FixConnectionProfile> {
-                            val state = onGetProfileConnectionState?.invoke(it.id)
-                                ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
-                            getConnectionPriority(state)
-                        }.thenBy { it.name.lowercase() }
-                    )
-                }
+                val sortedProfiles =
+                    remember(connectionProfiles, sessionStates) {
+                        connectionProfiles.sortedWith(
+                            compareBy<com.knapsack.fixtool.model.FixConnectionProfile> {
+                                val state =
+                                    onGetProfileConnectionState?.invoke(it.id)
+                                        ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
+                                getConnectionPriority(state)
+                            }.thenBy { it.name.lowercase() },
+                        )
+                    }
 
                 SlimDropdownWithColor(
                     value = selectedEditorProfile,
@@ -473,13 +487,15 @@ fun MessageEditorPanel(
                         onEditorProfileChange?.invoke(profile)
                     },
                     displayText = { profile: com.knapsack.fixtool.model.FixConnectionProfile ->
-                        val state = onGetProfileConnectionState?.invoke(profile.id)
-                            ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
+                        val state =
+                            onGetProfileConnectionState?.invoke(profile.id)
+                                ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
                         "${getStatusIndicator(state)} ${profile.name}"
                     },
                     textColor = { profile: com.knapsack.fixtool.model.FixConnectionProfile ->
-                        val state = onGetProfileConnectionState?.invoke(profile.id)
-                            ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
+                        val state =
+                            onGetProfileConnectionState?.invoke(profile.id)
+                                ?: com.knapsack.fixtool.model.FixConnectionState.DISCONNECTED
                         getStatusColor(state)
                     },
                     placeholder = "Profile",
@@ -876,13 +892,21 @@ fun MessageEditorPanel(
 
                                     // Primary button (always shown, changes based on scenario)
                                     SlimButton(
-                                        text = when {
-                                            editorState.isNew() -> "Save as New"
-                                            nameWasModified -> "Save as New"
-                                            else -> "Update Existing"
-                                        },
+                                        text =
+                                            when {
+                                                editorState.isNew() -> "Save as New"
+                                                nameWasModified -> "Save as New"
+                                                else -> "Update Existing"
+                                            },
                                         onClick = {
-                                            val isDuplicateCheck = if (editorState.isNew() || nameWasModified) isDuplicateForSaveAsNew else isDuplicateForUpdate
+                                            val isDuplicateCheck =
+                                                if (editorState.isNew() ||
+                                                    nameWasModified
+                                                ) {
+                                                    isDuplicateForSaveAsNew
+                                                } else {
+                                                    isDuplicateForUpdate
+                                                }
                                             if (messageName.isNotBlank() &&
                                                 !isDuplicateCheck &&
                                                 selectedUserTags.isNotEmpty()

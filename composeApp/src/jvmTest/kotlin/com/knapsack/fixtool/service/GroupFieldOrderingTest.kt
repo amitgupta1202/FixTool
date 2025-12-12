@@ -20,8 +20,9 @@ import kotlin.test.assertTrue
 class GroupFieldOrderingTest {
     private fun getTestDictionary(): FixDictionaryAdapter {
         // Load the minimal test data dictionary
-        val resourcePath = this::class.java.classLoader.getResource("test-group-ordering.xml")
-            ?: throw IllegalStateException("Test data dictionary not found")
+        val resourcePath =
+            this::class.java.classLoader.getResource("test-group-ordering.xml")
+                ?: throw IllegalStateException("Test data dictionary not found")
 
         val file = File(resourcePath.toURI())
         return FixDictionaryAdapter.fromFile(file)
@@ -30,8 +31,9 @@ class GroupFieldOrderingTest {
     @Test
     fun testGroupFieldsBeforeDelimiter() {
         val dictionary = getTestDictionary()
-        val dataDictionary = dictionary.getDataDictionary()
-            ?: throw IllegalStateException("Failed to load data dictionary")
+        val dataDictionary =
+            dictionary.getDataDictionary()
+                ?: throw IllegalStateException("Failed to load data dictionary")
 
         // Verify the delimiter field for NoUnderlyings group
         val groupInfo = dataDictionary.getGroup("AY", 711)
@@ -84,8 +86,9 @@ class GroupFieldOrderingTest {
     @Test
     fun testNestedGroupsWithFieldsBeforeDelimiter() {
         val dictionary = getTestDictionary()
-        val dataDictionary = dictionary.getDataDictionary()
-            ?: throw IllegalStateException("Failed to load data dictionary")
+        val dataDictionary =
+            dictionary.getDataDictionary()
+                ?: throw IllegalStateException("Failed to load data dictionary")
 
         // Verify the delimiter field for NoPartyIDs group
         val partyGroupInfo = dataDictionary.getGroup("AY", 453)
@@ -144,8 +147,9 @@ class GroupFieldOrderingTest {
     @Test
     fun testMultipleGroupsInSameMessage() {
         val dictionary = getTestDictionary()
-        val dataDictionary = dictionary.getDataDictionary()
-            ?: throw IllegalStateException("Failed to load data dictionary")
+        val dataDictionary =
+            dictionary.getDataDictionary()
+                ?: throw IllegalStateException("Failed to load data dictionary")
 
         // Message with both NoUnderlyings and NoPartyIDs groups
         val rawMessage =
@@ -183,8 +187,9 @@ class GroupFieldOrderingTest {
     @Test
     fun testGroupRoundTrip() {
         val dictionary = getTestDictionary()
-        val dataDictionary = dictionary.getDataDictionary()
-            ?: throw IllegalStateException("Failed to load data dictionary")
+        val dataDictionary =
+            dictionary.getDataDictionary()
+                ?: throw IllegalStateException("Failed to load data dictionary")
 
         // Parse a message with groups
         val inputMessage =
@@ -217,8 +222,9 @@ class GroupFieldOrderingTest {
     @Test
     fun testEmptyGroup() {
         val dictionary = getTestDictionary()
-        val dataDictionary = dictionary.getDataDictionary()
-            ?: throw IllegalStateException("Failed to load data dictionary")
+        val dataDictionary =
+            dictionary.getDataDictionary()
+                ?: throw IllegalStateException("Failed to load data dictionary")
 
         // Message with zero-count group should not set the group field
         // (QuickFIX doesn't include group count fields with 0 values)
@@ -244,8 +250,9 @@ class GroupFieldOrderingTest {
     @Test
     fun testSingleInstanceGroup() {
         val dictionary = getTestDictionary()
-        val dataDictionary = dictionary.getDataDictionary()
-            ?: throw IllegalStateException("Failed to load data dictionary")
+        val dataDictionary =
+            dictionary.getDataDictionary()
+                ?: throw IllegalStateException("Failed to load data dictionary")
 
         // Message with single group instance
         val rawMessage =

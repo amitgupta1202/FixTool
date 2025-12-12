@@ -37,11 +37,11 @@ import com.knapsack.fixtool.model.SavedFixMessage
  * View mode for browsing saved messages
  */
 private enum class BrowserViewMode {
-    ALL,        // Flat list sorted by lastUsedAt
-    FAVORITES,  // Only favorite messages
-    RECENT,     // Top 9 with numbered shortcuts
-    BY_TYPE,    // Grouped by FIX message type (tag 35)
-    BY_CATEGORY // Grouped by userTags
+    ALL, // Flat list sorted by lastUsedAt
+    FAVORITES, // Only favorite messages
+    RECENT, // Top 9 with numbered shortcuts
+    BY_TYPE, // Grouped by FIX message type (tag 35)
+    BY_CATEGORY, // Grouped by userTags
 }
 
 /**
@@ -74,13 +74,14 @@ fun SavedMessagesBrowserPopup(
 
     // Compute filtered and sorted messages directly without remember
     // This ensures we always use the latest savedMessages list
-    val filteredMessages = if (searchQuery.isBlank()) {
-        savedMessages
-    } else {
-        savedMessages.filter { msg ->
-            matchesSearch(msg.name, searchQuery)
+    val filteredMessages =
+        if (searchQuery.isBlank()) {
+            savedMessages
+        } else {
+            savedMessages.filter { msg ->
+                matchesSearch(msg.name, searchQuery)
+            }
         }
-    }
 
     // Sort by lastUsedAt (most recent first)
     val sortedMessages = filteredMessages.sortedByDescending { it.lastUsedAt }
@@ -92,53 +93,57 @@ fun SavedMessagesBrowserPopup(
     val favoriteMessages = sortedMessages.filter { it.isFavorite }
 
     // Group by message type
-    val groupedByType = sortedMessages.groupBy { msg ->
-        val msgType = msg.getMessageType()
-        if (msgType != null) {
-            val description = dictionary.getFieldValueDescription(35, msgType)
-            if (description != null && description != msgType) {
-                "$msgType - $description"
-            } else {
-                msgType
-            }
-        } else {
-            "Unknown"
-        }
-    }.toSortedMap()
+    val groupedByType =
+        sortedMessages
+            .groupBy { msg ->
+                val msgType = msg.getMessageType()
+                if (msgType != null) {
+                    val description = dictionary.getFieldValueDescription(35, msgType)
+                    if (description != null && description != msgType) {
+                        "$msgType - $description"
+                    } else {
+                        msgType
+                    }
+                } else {
+                    "Unknown"
+                }
+            }.toSortedMap()
 
     // Group by user category - filter by selected profile if one is selected
-    val groupedByCategory = run {
-        val result = mutableMapOf<String, MutableList<SavedFixMessage>>()
+    val groupedByCategory =
+        run {
+            val result = mutableMapOf<String, MutableList<SavedFixMessage>>()
 
-        val filterProfile = selectedFilterProfile
-        val messagesToGroup = if (filterProfile != null) {
-            // Filter to only messages associated with the selected profile
-            sortedMessages.filter { msg ->
-                msg.getAllUserTags().contains(filterProfile.id)
+            val filterProfile = selectedFilterProfile
+            val messagesToGroup =
+                if (filterProfile != null) {
+                    // Filter to only messages associated with the selected profile
+                    sortedMessages.filter { msg ->
+                        msg.getAllUserTags().contains(filterProfile.id)
+                    }
+                } else {
+                    sortedMessages
+                }
+
+            messagesToGroup.forEach { msg ->
+                val tags = msg.getAllUserTags()
+                when {
+                    tags.isEmpty() -> {
+                        result.getOrPut("Uncategorized") { mutableListOf() }.add(msg)
+                    }
+                    tags.size > 1 -> {
+                        result.getOrPut("Shared") { mutableListOf() }.add(msg)
+                    }
+                    else -> {
+                        val tagId = tags.first()
+                        val profileName = connectionProfiles.find { it.id == tagId }?.name ?: tagId
+                        result.getOrPut(profileName) { mutableListOf() }.add(msg)
+                    }
+                }
             }
-        } else {
-            sortedMessages
-        }
 
-        messagesToGroup.forEach { msg ->
-            val tags = msg.getAllUserTags()
-            when {
-                tags.isEmpty() -> {
-                    result.getOrPut("Uncategorized") { mutableListOf() }.add(msg)
-                }
-                tags.size > 1 -> {
-                    result.getOrPut("Shared") { mutableListOf() }.add(msg)
-                }
-                else -> {
-                    val tagId = tags.first()
-                    val profileName = connectionProfiles.find { it.id == tagId }?.name ?: tagId
-                    result.getOrPut(profileName) { mutableListOf() }.add(msg)
-                }
-            }
+            result.toSortedMap()
         }
-
-        result.toSortedMap()
-    }
 
     // Request focus on search box when popup opens
     // Small delay ensures the popup is fully composed before requesting focus
@@ -148,45 +153,48 @@ fun SavedMessagesBrowserPopup(
     }
 
     // Keyboard handler for number shortcuts (1-9)
-    val keyboardHandler: (KeyEvent) -> Boolean = remember(recentMessages, viewMode) {
-        { keyEvent: KeyEvent ->
-            if (keyEvent.type == KeyEventType.KeyDown && viewMode == BrowserViewMode.RECENT) {
-                val digit = when (keyEvent.key) {
-                    Key.One -> 0
-                    Key.Two -> 1
-                    Key.Three -> 2
-                    Key.Four -> 3
-                    Key.Five -> 4
-                    Key.Six -> 5
-                    Key.Seven -> 6
-                    Key.Eight -> 7
-                    Key.Nine -> 8
-                    else -> -1
-                }
-                if (digit in 0 until recentMessages.size) {
-                    onSelectMessage(recentMessages[digit])
+    val keyboardHandler: (KeyEvent) -> Boolean =
+        remember(recentMessages, viewMode) {
+            { keyEvent: KeyEvent ->
+                if (keyEvent.type == KeyEventType.KeyDown && viewMode == BrowserViewMode.RECENT) {
+                    val digit =
+                        when (keyEvent.key) {
+                            Key.One -> 0
+                            Key.Two -> 1
+                            Key.Three -> 2
+                            Key.Four -> 3
+                            Key.Five -> 4
+                            Key.Six -> 5
+                            Key.Seven -> 6
+                            Key.Eight -> 7
+                            Key.Nine -> 8
+                            else -> -1
+                        }
+                    if (digit in 0 until recentMessages.size) {
+                        onSelectMessage(recentMessages[digit])
+                        true
+                    } else {
+                        false
+                    }
+                } else if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Escape) {
+                    onDismiss()
                     true
                 } else {
                     false
                 }
-            } else if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Escape) {
-                onDismiss()
-                true
-            } else {
-                false
             }
         }
-    }
 
     Popup(
         onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true),
     ) {
         Surface(
-            modifier = Modifier
-                .width(450.dp)
-                .heightIn(max = 500.dp)
-                .onKeyEvent(keyboardHandler),
+            modifier =
+                Modifier
+                    .width(450.dp)
+                    .heightIn(max = 500.dp)
+                    .onKeyEvent(keyboardHandler),
             shape = RoundedCornerShape(8.dp),
             color = AppTheme.Colors.surface,
             shadowElevation = 8.dp,
@@ -196,10 +204,11 @@ fun SavedMessagesBrowserPopup(
             ) {
                 // Header
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(AppTheme.Colors.background)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(AppTheme.Colors.background)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -231,16 +240,18 @@ fun SavedMessagesBrowserPopup(
                     query = searchQuery,
                     onQueryChange = { searchQuery = it },
                     focusRequester = focusRequester,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
                 )
 
                 // View Mode Tabs
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     ViewModeTab("By User", BrowserViewMode.BY_CATEGORY, viewMode) {
@@ -258,9 +269,10 @@ fun SavedMessagesBrowserPopup(
                 // Profile dropdown for BY_CATEGORY mode
                 if (viewMode == BrowserViewMode.BY_CATEGORY) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -283,10 +295,11 @@ fun SavedMessagesBrowserPopup(
                 }
 
                 // Results Count
-                val displayCount = when (viewMode) {
-                    BrowserViewMode.BY_CATEGORY -> groupedByCategory.values.sumOf { it.size }
-                    else -> sortedMessages.size
-                }
+                val displayCount =
+                    when (viewMode) {
+                        BrowserViewMode.BY_CATEGORY -> groupedByCategory.values.sumOf { it.size }
+                        else -> sortedMessages.size
+                    }
                 Text(
                     text = "$displayCount template${if (displayCount != 1) "s" else ""}",
                     fontSize = 11.sp,
@@ -296,9 +309,10 @@ fun SavedMessagesBrowserPopup(
 
                 // Content based on view mode
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                 ) {
                     when (viewMode) {
                         BrowserViewMode.ALL -> {
@@ -361,11 +375,12 @@ fun SavedMessagesBrowserPopup(
                                         count = messages.size,
                                         isExpanded = groupName in expandedGroups,
                                         onToggle = {
-                                            expandedGroups = if (groupName in expandedGroups) {
-                                                expandedGroups - groupName
-                                            } else {
-                                                expandedGroups + groupName
-                                            }
+                                            expandedGroups =
+                                                if (groupName in expandedGroups) {
+                                                    expandedGroups - groupName
+                                                } else {
+                                                    expandedGroups + groupName
+                                                }
                                         },
                                     )
                                 }
@@ -398,9 +413,10 @@ fun SavedMessagesBrowserPopup(
                             val filterProfile = selectedFilterProfile
                             if (filterProfile != null) {
                                 // Flat list of templates for selected profile
-                                val filteredMessages = sortedMessages.filter { msg ->
-                                    msg.getAllUserTags().contains(filterProfile.id)
-                                }
+                                val filteredMessages =
+                                    sortedMessages.filter { msg ->
+                                        msg.getAllUserTags().contains(filterProfile.id)
+                                    }
 
                                 items(filteredMessages, key = { it.id }) { message ->
                                     MessageItem(
@@ -429,11 +445,12 @@ fun SavedMessagesBrowserPopup(
                                             count = messages.size,
                                             isExpanded = groupName in expandedGroups,
                                             onToggle = {
-                                                expandedGroups = if (groupName in expandedGroups) {
-                                                    expandedGroups - groupName
-                                                } else {
-                                                    expandedGroups + groupName
-                                                }
+                                                expandedGroups =
+                                                    if (groupName in expandedGroups) {
+                                                        expandedGroups - groupName
+                                                    } else {
+                                                        expandedGroups + groupName
+                                                    }
                                             },
                                         )
                                     }
@@ -478,14 +495,14 @@ private fun ViewModeTab(
     val isSelected = mode == currentMode
 
     Box(
-        modifier = Modifier
-            .height(28.dp)
-            .background(
-                color = if (isSelected) AppTheme.Colors.primary else Color.Transparent,
-                shape = RoundedCornerShape(4.dp),
-            )
-            .clickable { onSelect(mode) }
-            .padding(horizontal = 10.dp),
+        modifier =
+            Modifier
+                .height(28.dp)
+                .background(
+                    color = if (isSelected) AppTheme.Colors.primary else Color.Transparent,
+                    shape = RoundedCornerShape(4.dp),
+                ).clickable { onSelect(mode) }
+                .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -508,18 +525,17 @@ private fun BrowserSearchInput(
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     Row(
-        modifier = modifier
-            .height(32.dp)
-            .background(
-                color = if (isFocused) AppTheme.Colors.surface else AppTheme.Colors.surfaceVariant,
-                shape = RoundedCornerShape(4.dp),
-            )
-            .border(
-                width = 1.dp,
-                color = if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border,
-                shape = RoundedCornerShape(4.dp),
-            )
-            .padding(horizontal = 8.dp),
+        modifier =
+            modifier
+                .height(32.dp)
+                .background(
+                    color = if (isFocused) AppTheme.Colors.surface else AppTheme.Colors.surfaceVariant,
+                    shape = RoundedCornerShape(4.dp),
+                ).border(
+                    width = 1.dp,
+                    color = if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border,
+                    shape = RoundedCornerShape(4.dp),
+                ).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -533,14 +549,16 @@ private fun BrowserSearchInput(
         BasicTextField(
             value = query,
             onValueChange = onQueryChange,
-            modifier = Modifier
-                .weight(1f)
-                .focusRequester(focusRequester),
-            textStyle = TextStyle(
-                fontSize = 12.sp,
-                color = AppTheme.Colors.text,
-                fontFamily = FontFamily.Monospace,
-            ),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+            textStyle =
+                TextStyle(
+                    fontSize = 12.sp,
+                    color = AppTheme.Colors.text,
+                    fontFamily = FontFamily.Monospace,
+                ),
             cursorBrush = SolidColor(AppTheme.Colors.primary),
             interactionSource = interactionSource,
             singleLine = true,
@@ -564,9 +582,10 @@ private fun BrowserSearchInput(
                 Icons.Default.Close,
                 contentDescription = "Clear",
                 tint = AppTheme.Colors.textSecondary,
-                modifier = Modifier
-                    .size(14.dp)
-                    .clickable { onQueryChange("") },
+                modifier =
+                    Modifier
+                        .size(14.dp)
+                        .clickable { onQueryChange("") },
             )
         }
     }
@@ -580,11 +599,12 @@ private fun GroupHeader(
     onToggle: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onToggle() }
-            .background(AppTheme.Colors.surfaceVariant)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .background(AppTheme.Colors.surfaceVariant)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -624,39 +644,43 @@ private fun MessageItem(
     showCategory: Boolean = true,
 ) {
     val userTags = message.getAllUserTags()
-    val profileNames = userTags.mapNotNull { tagId ->
-        connectionProfiles.find { it.id == tagId }?.name
-    }
-    val profileNamesText = when {
-        !showCategory -> null
-        profileNames.isEmpty() -> null
-        profileNames.size == 1 -> profileNames.first()
-        profileNames.size <= 2 -> profileNames.joinToString(", ")
-        else -> "${profileNames.take(2).joinToString(", ")} +${profileNames.size - 2}"
-    }
+    val profileNames =
+        userTags.mapNotNull { tagId ->
+            connectionProfiles.find { it.id == tagId }?.name
+        }
+    val profileNamesText =
+        when {
+            !showCategory -> null
+            profileNames.isEmpty() -> null
+            profileNames.size == 1 -> profileNames.first()
+            profileNames.size <= 2 -> profileNames.joinToString(", ")
+            else -> "${profileNames.take(2).joinToString(", ")} +${profileNames.size - 2}"
+        }
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onSelect() }
-            .padding(
-                start = if (indented) 28.dp else 12.dp,
-                end = 8.dp,
-                top = 6.dp,
-                bottom = 6.dp,
-            ),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { onSelect() }
+                .padding(
+                    start = if (indented) 28.dp else 12.dp,
+                    end = 8.dp,
+                    top = 6.dp,
+                    bottom = 6.dp,
+                ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // Shortcut number badge
         if (shortcutNumber != null) {
             Box(
-                modifier = Modifier
-                    .size(18.dp)
-                    .background(
-                        color = AppTheme.Colors.primary.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(4.dp),
-                    ),
+                modifier =
+                    Modifier
+                        .size(18.dp)
+                        .background(
+                            color = AppTheme.Colors.primary.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(4.dp),
+                        ),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -724,9 +748,10 @@ private fun MessageItem(
 @Composable
 private fun EmptyState(message: String) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(32.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -770,10 +795,9 @@ private fun matchesSearch(name: String, query: String): Boolean {
  * - Space-separated: "Quote Request Template" → "QRT"
  * - Mixed: "Quote_Request-template" → "QRT"
  */
-private fun extractInitials(name: String): String {
-    return name
+private fun extractInitials(name: String): String =
+    name
         .split(Regex("[-_\\s]|(?=[A-Z])"))
         .filter { it.isNotEmpty() }
         .map { it.first().uppercaseChar() }
         .joinToString("")
-}

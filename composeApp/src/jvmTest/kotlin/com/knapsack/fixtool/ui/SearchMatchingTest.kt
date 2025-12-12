@@ -10,15 +10,13 @@ import kotlin.test.assertTrue
  * Tests both extractInitials and matchesSearch functions.
  */
 class SearchMatchingTest {
-
     // Copy of the functions from SavedMessagesBrowserPopup for testing
-    private fun extractInitials(name: String): String {
-        return name
+    private fun extractInitials(name: String): String =
+        name
             .split(Regex("[-_\\s]|(?=[A-Z])"))
             .filter { it.isNotEmpty() }
             .map { it.first().uppercaseChar() }
             .joinToString("")
-    }
 
     private fun matchesSearch(name: String, query: String): Boolean {
         if (query.isBlank()) return true
@@ -107,14 +105,15 @@ class SearchMatchingTest {
 
     @Test
     fun `extractInitials all naming conventions produce same result`() {
-        val testCases = listOf(
-            "QuoteRequestTemplate",
-            "Quote_Request_Template",
-            "Quote Request Template",
-            "quote-request-template",
-            "QuoteRequest Template",
-            "QuoteRequest_Template"
-        )
+        val testCases =
+            listOf(
+                "QuoteRequestTemplate",
+                "Quote_Request_Template",
+                "Quote Request Template",
+                "quote-request-template",
+                "QuoteRequest Template",
+                "QuoteRequest_Template",
+            )
         testCases.forEach { name ->
             assertEquals("QRT", extractInitials(name), "Failed for: $name")
         }

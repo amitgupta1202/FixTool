@@ -1,6 +1,5 @@
 package com.knapsack.fixtool.service
 
-import com.knapsack.fixtool.model.FixDictionaryAdapter
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -10,7 +9,6 @@ import kotlin.test.assertTrue
  * like ${D.11} to full verbose syntax like ${incoming["D"].valueOfTag(11)}.
  */
 class ShorthandTemplateExpanderTest {
-
     // ===== Basic Expansion Tests =====
 
     @Test
@@ -609,7 +607,6 @@ class ShorthandTemplateExpanderTest {
  * Tests for FixTagDictionary tag name resolution.
  */
 class FixTagDictionaryTest {
-
     @Test
     fun `test resolveTagName returns correct tag for ClOrdID`() {
         val tag = FixTagDictionary.resolveTagName("ClOrdID", null)

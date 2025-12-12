@@ -12,14 +12,21 @@ import javax.script.SimpleScriptContext
  * Using real classes (instead of regenerating Kotlin source for every expression)
  * keeps script parsing overhead low while still giving users the same API.
  */
-class MessageAccessor(private val tags: Map<Int, List<String>>) {
+class MessageAccessor(
+    private val tags: Map<Int, List<String>>,
+) {
     fun valueOfTag(tag: Int): String? = tags[tag]?.firstOrNull()
+
     fun valueOfTag(tag: Int, index: Int): String? = tags[tag]?.getOrNull(index)
+
     fun allValuesOfTag(tag: Int): List<String> = tags[tag] ?: emptyList()
+
     operator fun get(tag: Int): String? = valueOfTag(tag)
 }
 
-class MessageMap(private val messages: Map<String, MessageAccessor>) {
+class MessageMap(
+    private val messages: Map<String, MessageAccessor>,
+) {
     operator fun get(msgType: String): MessageAccessor = messages[msgType] ?: MessageAccessor(emptyMap())
 }
 
@@ -67,16 +74,94 @@ object FixMessageTemplate {
     // Known FIX repeating group tags - only these tags can contain groups
     // This avoids expensive hasGroup() checks on every field
     // Source: FIX 4.2/4.4/5.0 specifications - common group count tags
-    private val KNOWN_GROUP_TAGS = setOf(
-        // Standard group tags
-        73, 78, 79, 124, 136, 146, 199, 215, 232, 267, 296, 382, 384, 386, 388,
-        420, 421, 453, 454, 457, 461, 478, 518, 539, 552, 555, 576, 602, 604, 627,
-        670, 683, 702, 711, 735, 753, 768, 782, 802, 804, 832, 862, 864, 868, 870, 872,
-        876, 878, 887, 897, 936, 957, 1014, 1016, 1018, 1069, 1070, 1073, 1074, 1078,
-        1109, 1116, 1117, 1130, 1132, 1133, 1134, 1135, 1137, 1140, 1158, 1166,
-        // NoMDEntries, NoQuoteEntries, NoRelatedSym, etc.
-        268, 295, 386, 420, 421, 454, 555, 711, 735, 768, 802
-    )
+    private val KNOWN_GROUP_TAGS =
+        setOf(
+            // Standard group tags
+            73,
+            78,
+            79,
+            124,
+            136,
+            146,
+            199,
+            215,
+            232,
+            267,
+            296,
+            382,
+            384,
+            386,
+            388,
+            420,
+            421,
+            453,
+            454,
+            457,
+            461,
+            478,
+            518,
+            539,
+            552,
+            555,
+            576,
+            602,
+            604,
+            627,
+            670,
+            683,
+            702,
+            711,
+            735,
+            753,
+            768,
+            782,
+            802,
+            804,
+            832,
+            862,
+            864,
+            868,
+            870,
+            872,
+            876,
+            878,
+            887,
+            897,
+            936,
+            957,
+            1014,
+            1016,
+            1018,
+            1069,
+            1070,
+            1073,
+            1074,
+            1078,
+            1109,
+            1116,
+            1117,
+            1130,
+            1132,
+            1133,
+            1134,
+            1135,
+            1137,
+            1140,
+            1158,
+            1166,
+            // NoMDEntries, NoQuoteEntries, NoRelatedSym, etc.
+            268,
+            295,
+            386,
+            420,
+            421,
+            454,
+            555,
+            711,
+            735,
+            768,
+            802,
+        )
 
     // Extract all fields including repeating groups, memoized by caller when needed
     private fun extractAllFields(fieldMap: quickfix.FieldMap): Map<Int, List<String>> {
@@ -154,20 +239,24 @@ object FixMessageTemplate {
         messages: Map<String, FixMessage>,
     ): Map<String, MessageAccessor> {
         // Find which message types are referenced in the expression
-        val referencedTypes = MSG_TYPE_REGEX.findAll(expression)
-            .map { it.groupValues[2] }
-            .toSet()
+        val referencedTypes =
+            MSG_TYPE_REGEX
+                .findAll(expression)
+                .map { it.groupValues[2] }
+                .toSet()
 
         // Only extract the referenced message types
-        return referencedTypes.mapNotNull { msgType ->
-            messages[msgType]?.let { msg ->
-                msgType to MessageAccessor(
-                    extractedDataCache.getOrPut(msg.quickfixMessage) {
-                        extractAllFields(msg.quickfixMessage)
-                    }
-                )
-            }
-        }.toMap()
+        return referencedTypes
+            .mapNotNull { msgType ->
+                messages[msgType]?.let { msg ->
+                    msgType to
+                        MessageAccessor(
+                            extractedDataCache.getOrPut(msg.quickfixMessage) {
+                                extractAllFields(msg.quickfixMessage)
+                            },
+                        )
+                }
+            }.toMap()
     }
 
     /**
@@ -320,9 +409,10 @@ object FixMessageTemplate {
         val results = mutableMapOf<Int, String>()
 
         // Expand shorthand syntax in all fields first (fast string processing)
-        val expandedFields = fieldsWithExpressions.map { (index, value) ->
-            index to ShorthandTemplateExpander.expand(value, dictionary)
-        }
+        val expandedFields =
+            fieldsWithExpressions.map { (index, value) ->
+                index to ShorthandTemplateExpander.expand(value, dictionary)
+            }
 
         // Check if ANY expression needs message data (after shorthand expansion)
         val allValues = expandedFields.map { it.second }
@@ -332,58 +422,66 @@ object FixMessageTemplate {
         val incomingData: Map<String, MessageAccessor> =
             if (needsIncoming && incomingMessages.isNotEmpty()) {
                 incomingMessages.mapValues { (_, msg) ->
-                    extractedDataCache.getOrPut(msg.quickfixMessage) {
-                        extractAllFields(msg.quickfixMessage)
-                    }.let { MessageAccessor(it) }
+                    extractedDataCache
+                        .getOrPut(msg.quickfixMessage) {
+                            extractAllFields(msg.quickfixMessage)
+                        }.let { MessageAccessor(it) }
                 }
-            } else emptyMap()
+            } else {
+                emptyMap()
+            }
 
         val outgoingData: Map<String, MessageAccessor> =
             if (needsOutgoing && outgoingMessages.isNotEmpty()) {
                 outgoingMessages.mapValues { (_, msg) ->
-                    extractedDataCache.getOrPut(msg.quickfixMessage) {
-                        extractAllFields(msg.quickfixMessage)
-                    }.let { MessageAccessor(it) }
+                    extractedDataCache
+                        .getOrPut(msg.quickfixMessage) {
+                            extractAllFields(msg.quickfixMessage)
+                        }.let { MessageAccessor(it) }
                 }
-            } else emptyMap()
+            } else {
+                emptyMap()
+            }
 
         // Now evaluate each field - we can process sequentially to support variable assignments
         for ((fieldIndex, fieldValue) in expandedFields) {
             try {
-                val resolvedValue = EXPRESSION_REGEX.replace(fieldValue) { matchResult ->
-                    val expression = matchResult.groupValues[1].trim()
+                val resolvedValue =
+                    EXPRESSION_REGEX.replace(fieldValue) { matchResult ->
+                        val expression = matchResult.groupValues[1].trim()
 
-                    // Check for variable reference first (fast path)
-                    if (VARIABLE_REGEX.matches(expression) && expression in variables) {
-                        return@replace variables[expression]!!
-                    }
-
-                    // Check for variable assignment
-                    val assignmentMatch = ASSIGNMENT_REGEX.matchEntire(expression)
-                    val (varName, actualExpression) = if (assignmentMatch != null) {
-                        assignmentMatch.groupValues[1] to assignmentMatch.groupValues[2]
-                    } else {
-                        null to expression
-                    }
-
-                    try {
-                        val result =
-                            evalExpressionWithContext(
-                                actualExpression,
-                                variables,
-                                incomingData,
-                                outgoingData,
-                            )?.toString() ?: "null"
-                        // Store variable if this was an assignment
-                        if (varName != null) {
-                            variables[varName] = result
+                        // Check for variable reference first (fast path)
+                        if (VARIABLE_REGEX.matches(expression) && expression in variables) {
+                            return@replace variables[expression]!!
                         }
-                        result
-                    } catch (e: Exception) {
-                        logger.warn("Failed to evaluate expression '$expression': ${e.message}")
-                        "\${$expression}"
+
+                        // Check for variable assignment
+                        val assignmentMatch = ASSIGNMENT_REGEX.matchEntire(expression)
+                        val (varName, actualExpression) =
+                            if (assignmentMatch != null) {
+                                assignmentMatch.groupValues[1] to assignmentMatch.groupValues[2]
+                            } else {
+                                null to expression
+                            }
+
+                        try {
+                            val result =
+                                evalExpressionWithContext(
+                                    actualExpression,
+                                    variables,
+                                    incomingData,
+                                    outgoingData,
+                                )?.toString() ?: "null"
+                            // Store variable if this was an assignment
+                            if (varName != null) {
+                                variables[varName] = result
+                            }
+                            result
+                        } catch (e: Exception) {
+                            logger.warn("Failed to evaluate expression '$expression': ${e.message}")
+                            "\${$expression}"
+                        }
                     }
-                }
                 results[fieldIndex] = resolvedValue
             } catch (e: Exception) {
                 logger.warn("Failed to resolve field $fieldIndex: ${e.message}")
@@ -494,9 +592,10 @@ object FixMessageTemplate {
         val incomingData: Map<String, MessageAccessor> =
             if (needsIncoming && incomingMessages.isNotEmpty()) {
                 incomingMessages.mapValues { (_, msg) ->
-                    extractedDataCache.getOrPut(msg.quickfixMessage) {
-                        extractAllFields(msg.quickfixMessage)
-                    }.let { MessageAccessor(it) }
+                    extractedDataCache
+                        .getOrPut(msg.quickfixMessage) {
+                            extractAllFields(msg.quickfixMessage)
+                        }.let { MessageAccessor(it) }
                 }
             } else {
                 emptyMap()
@@ -505,9 +604,10 @@ object FixMessageTemplate {
         val outgoingData: Map<String, MessageAccessor> =
             if (needsOutgoing && outgoingMessages.isNotEmpty()) {
                 outgoingMessages.mapValues { (_, msg) ->
-                    extractedDataCache.getOrPut(msg.quickfixMessage) {
-                        extractAllFields(msg.quickfixMessage)
-                    }.let { MessageAccessor(it) }
+                    extractedDataCache
+                        .getOrPut(msg.quickfixMessage) {
+                            extractAllFields(msg.quickfixMessage)
+                        }.let { MessageAccessor(it) }
                 }
             } else {
                 emptyMap()

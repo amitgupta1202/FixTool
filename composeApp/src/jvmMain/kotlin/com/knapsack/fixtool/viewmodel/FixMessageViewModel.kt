@@ -1353,17 +1353,20 @@ class FixMessageViewModel(
         }
 
         // Sort profiles by connection state priority (connected first) then alphabetically
-        val sortedProfiles = associatedProfiles.sortedWith(
-            compareBy(
-                { profile -> getConnectionPriority(getProfileConnectionState(profile.id)) },
-                { profile -> profile.name.lowercase() }
+        val sortedProfiles =
+            associatedProfiles.sortedWith(
+                compareBy(
+                    { profile -> getConnectionPriority(getProfileConnectionState(profile.id)) },
+                    { profile -> profile.name.lowercase() },
+                ),
             )
-        )
 
         // Select the first profile
         val selectedProfile = sortedProfiles.first()
 
-        logger.info("loadEditorMessage: Auto-selecting profile '${selectedProfile.name}' for message '${savedMessage.name}' (${associatedProfiles.size} associated profiles)")
+        logger.info(
+            "loadEditorMessage: Auto-selecting profile '${selectedProfile.name}' for message '${savedMessage.name}' (${associatedProfiles.size} associated profiles)",
+        )
 
         // Set the selected editor profile (this will also set active session if connected)
         setSelectedEditorProfile(selectedProfile)

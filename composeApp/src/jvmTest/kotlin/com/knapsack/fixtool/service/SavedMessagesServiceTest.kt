@@ -340,5 +340,4 @@ class SavedMessagesServiceTest {
         assertTrue(result.any { it.name == "Keep Message 1" })
         assertTrue(result.any { it.name == "Keep Message 3" })
     }
-
 }

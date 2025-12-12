@@ -57,10 +57,11 @@ class MessageFavoriteTest {
     }
 
     private fun createAndSaveTestMessage(name: String, profileId: String = "test-profile"): String {
-        val fields = listOf(
-            FixField(tag = "35", value = "D"),
-            FixField(tag = "49", value = "SENDER"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "35", value = "D"),
+                FixField(tag = "49", value = "SENDER"),
+            )
 
         // Initialize fields in editor
         viewModel.clearEditorFields()

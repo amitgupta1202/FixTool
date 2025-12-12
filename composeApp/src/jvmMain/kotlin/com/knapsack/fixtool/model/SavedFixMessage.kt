@@ -24,9 +24,7 @@ data class SavedFixMessage(
      * Extracts the FIX message type (tag 35) from saved fields.
      * Returns null if no message type field is present.
      */
-    fun getMessageType(): String? {
-        return fields.find { it.tag == "35" }?.value
-    }
+    fun getMessageType(): String? = fields.find { it.tag == "35" }?.value
 }
 
 @Serializable

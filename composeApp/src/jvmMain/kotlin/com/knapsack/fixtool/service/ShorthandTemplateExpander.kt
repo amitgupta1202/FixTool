@@ -17,7 +17,6 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
  * Non-shorthand expressions pass through unchanged for backwards compatibility.
  */
 object ShorthandTemplateExpander {
-
     // Pattern to match ${...} expressions
     private val EXPRESSION_REGEX = """\$\{([^}]+)}""".toRegex()
 
@@ -50,11 +49,24 @@ object ShorthandTemplateExpander {
 
     // Keywords and patterns that should NOT be treated as shorthand
     // (to avoid false matches with Kotlin expressions)
-    private val EXCLUDED_FIRST_PARTS = setOf(
-        "UUID", "System", "LocalDateTime", "LocalDate", "LocalTime",
-        "Instant", "DateTimeFormatter", "Math", "String", "Int", "Long",
-        "incoming", "outgoing", "in", "out"  // Already explicit or reserved
-    )
+    private val EXCLUDED_FIRST_PARTS =
+        setOf(
+            "UUID",
+            "System",
+            "LocalDateTime",
+            "LocalDate",
+            "LocalTime",
+            "Instant",
+            "DateTimeFormatter",
+            "Math",
+            "String",
+            "Int",
+            "Long",
+            "incoming",
+            "outgoing",
+            "in",
+            "out", // Already explicit or reserved
+        )
 
     /**
      * Expands shorthand syntax in a template string.
@@ -146,7 +158,7 @@ object ShorthandTemplateExpander {
 
             // Check if this looks like a Kotlin expression (e.g., UUID.randomUUID)
             if (firstPart in EXCLUDED_FIRST_PARTS) {
-                return expression  // Not shorthand, return unchanged
+                return expression // Not shorthand, return unchanged
             }
 
             // Check if the second part is a valid tag reference
@@ -176,10 +188,11 @@ object ShorthandTemplateExpander {
         msgType: String,
         tagOrName: String,
         index: String?,
-        dictionary: FixDictionaryAdapter?
+        dictionary: FixDictionaryAdapter?,
     ): String {
-        val tag = FixTagDictionary.resolveTagOrName(tagOrName, dictionary)
-            ?: return """null /* unknown tag: $tagOrName */"""
+        val tag =
+            FixTagDictionary.resolveTagOrName(tagOrName, dictionary)
+                ?: return """null /* unknown tag: $tagOrName */"""
 
         return if (index != null) {
             """incoming["$msgType"].valueOfTag($tag, $index)"""
@@ -195,10 +208,11 @@ object ShorthandTemplateExpander {
         msgType: String,
         tagOrName: String,
         index: String?,
-        dictionary: FixDictionaryAdapter?
+        dictionary: FixDictionaryAdapter?,
     ): String {
-        val tag = FixTagDictionary.resolveTagOrName(tagOrName, dictionary)
-            ?: return """null /* unknown tag: $tagOrName */"""
+        val tag =
+            FixTagDictionary.resolveTagOrName(tagOrName, dictionary)
+                ?: return """null /* unknown tag: $tagOrName */"""
 
         return if (index != null) {
             """outgoing["$msgType"].valueOfTag($tag, $index)"""
@@ -214,10 +228,11 @@ object ShorthandTemplateExpander {
         msgType: String,
         tagOrName: String,
         index: String?,
-        dictionary: FixDictionaryAdapter?
+        dictionary: FixDictionaryAdapter?,
     ): String {
-        val tag = FixTagDictionary.resolveTagOrName(tagOrName, dictionary)
-            ?: return """null /* unknown tag: $tagOrName */"""
+        val tag =
+            FixTagDictionary.resolveTagOrName(tagOrName, dictionary)
+                ?: return """null /* unknown tag: $tagOrName */"""
 
         return if (index != null) {
             """(incoming["$msgType"].valueOfTag($tag, $index) ?: outgoing["$msgType"].valueOfTag($tag, $index))"""
@@ -248,7 +263,18 @@ object ShorthandTemplateExpander {
             // Check for shorthand keywords used as variable names
             SHORTHAND_VAR_ASSIGNMENT_PATTERN.matchEntire(expression)?.let { m ->
                 val keyword = m.groupValues[1]
-                errors.add("'$keyword' is a reserved shorthand keyword and cannot be used as a variable name. Use \${$keyword} directly for ${if (keyword.equals("uuid", ignoreCase = true)) "UUID generation" else "timestamp"}.")
+                errors.add(
+                    "'$keyword' is a reserved shorthand keyword and cannot be used as a variable name. Use \${$keyword} directly for ${if (keyword
+                            .equals(
+                                "uuid",
+                                ignoreCase = true,
+                            )
+                    ) {
+                        "UUID generation"
+                    } else {
+                        "timestamp"
+                    }}.",
+                )
             }
 
             // Check each shorthand pattern

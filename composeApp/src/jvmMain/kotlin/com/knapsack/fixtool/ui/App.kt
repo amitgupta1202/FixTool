@@ -72,11 +72,12 @@ fun App(
             }
 
             // Initialize layout from settings
-            val initialLayout = when (viewModel.appSettings.defaultLayout) {
-                "tabs" -> ViewMode.TABS
-                "vertical" -> ViewMode.SPLIT_VERTICAL
-                else -> ViewMode.SPLIT_HORIZONTAL
-            }
+            val initialLayout =
+                when (viewModel.appSettings.defaultLayout) {
+                    "tabs" -> ViewMode.TABS
+                    "vertical" -> ViewMode.SPLIT_VERTICAL
+                    else -> ViewMode.SPLIT_HORIZONTAL
+                }
             var viewMode by rememberSaveable { mutableStateOf(initialLayout) }
 
             // Collect global state

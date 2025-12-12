@@ -1489,12 +1489,13 @@ class FixMessageTemplateTest {
         val incomingMessage = createMockFixMessage("R", 131 to "QUOTE-REQ-XYZ", 55 to "EUR/USD")
         val incomingMap = mapOf("R" to incomingMessage)
 
-        val fields = listOf(
-            FixField(tag = "35", value = "AJ"),
-            FixField(tag = "131", value = "\${R.QuoteReqID}"),  // Shorthand with tag name
-            FixField(tag = "55", value = "\${R.55}"),           // Shorthand with tag number
-            FixField(tag = "117", value = "QUOTE-\${UUID.randomUUID()}"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "35", value = "AJ"),
+                FixField(tag = "131", value = "\${R.QuoteReqID}"), // Shorthand with tag name
+                FixField(tag = "55", value = "\${R.55}"), // Shorthand with tag number
+                FixField(tag = "117", value = "QUOTE-\${UUID.randomUUID()}"),
+            )
 
         // When: Resolving templates
         val resolved = fields.resolveTemplates(incomingMessages = incomingMap)
@@ -1509,23 +1510,25 @@ class FixMessageTemplateTest {
     @Test
     fun testShorthandRealWorldQuoteResponse() {
         // Given: An incoming QuoteRequest (simulating real workflow)
-        val quoteRequest = createMockFixMessage(
-            "R",
-            131 to "QUOTEREQ-001",
-            55 to "EUR/USD",
-            38 to "1000000"
-        )
+        val quoteRequest =
+            createMockFixMessage(
+                "R",
+                131 to "QUOTEREQ-001",
+                55 to "EUR/USD",
+                38 to "1000000",
+            )
         val incomingMap = mapOf("R" to quoteRequest)
 
         // When: Building a QuoteResponse using shorthand syntax
-        val fields = listOf(
-            FixField(tag = "35", value = "AJ"),
-            FixField(tag = "131", value = "\${R.QuoteReqID}"),    // Reference request ID using tag name
-            FixField(tag = "55", value = "\${R.Symbol}"),         // Reference symbol using tag name
-            FixField(tag = "117", value = "\${quoteId = UUID.randomUUID()}"),
-            FixField(tag = "132", value = "1.0850"),
-            FixField(tag = "133", value = "1.0852"),
-        )
+        val fields =
+            listOf(
+                FixField(tag = "35", value = "AJ"),
+                FixField(tag = "131", value = "\${R.QuoteReqID}"), // Reference request ID using tag name
+                FixField(tag = "55", value = "\${R.Symbol}"), // Reference symbol using tag name
+                FixField(tag = "117", value = "\${quoteId = UUID.randomUUID()}"),
+                FixField(tag = "132", value = "1.0850"),
+                FixField(tag = "133", value = "1.0852"),
+            )
 
         val resolved = fields.resolveTemplates(incomingMessages = incomingMap)
 
@@ -1533,7 +1536,7 @@ class FixMessageTemplateTest {
         assertEquals("AJ", resolved[0].value)
         assertEquals("QUOTEREQ-001", resolved[1].value)
         assertEquals("EUR/USD", resolved[2].value)
-        assertTrue(resolved[3].value.matches(Regex("[0-9a-f-]+")))  // UUID
+        assertTrue(resolved[3].value.matches(Regex("[0-9a-f-]+"))) // UUID
         assertEquals("1.0850", resolved[4].value)
         assertEquals("1.0852", resolved[5].value)
     }

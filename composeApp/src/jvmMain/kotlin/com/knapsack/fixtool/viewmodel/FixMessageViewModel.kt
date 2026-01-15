@@ -339,6 +339,13 @@ class FixMessageViewModel(
             logger.info("setActiveSession(index=$index): Switching to session: ${session?.title} (ID: ${session?.id})")
             _activeSessionIndex.value = index
             _activeSessionState.value = session
+
+            // Sync selectedEditorProfile to match the selected session
+            val profileId = profileToSessionMap.entries.find { it.value == index }?.key
+            val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
+            _selectedEditorProfile.value = profile
+            logger.info("setActiveSession: Updated selectedEditorProfile to: ${profile?.name} (ID: ${profile?.id})")
+
             // Reload messages when session selection changes
             loadSavedMessagesForActiveSession()
         }
@@ -349,12 +356,20 @@ class FixMessageViewModel(
         if (session == null) {
             _activeSessionIndex.value = -1
             _activeSessionState.value = null
+            _selectedEditorProfile.value = null
+            logger.info("setActiveSessionByObject: Cleared selectedEditorProfile")
         } else {
             val index = _sessions.indexOf(session)
             if (index >= 0) {
                 logger.info("setActiveSessionByObject: Found session at index $index")
                 _activeSessionIndex.value = index
                 _activeSessionState.value = session
+
+                // Sync selectedEditorProfile to match the selected session
+                val profileId = profileToSessionMap.entries.find { it.value == index }?.key
+                val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
+                _selectedEditorProfile.value = profile
+                logger.info("setActiveSessionByObject: Updated selectedEditorProfile to: ${profile?.name} (ID: ${profile?.id})")
             } else {
                 logger.warn("setActiveSessionByObject: Session not found in sessions list!")
             }
@@ -396,6 +411,11 @@ class FixMessageViewModel(
             if (sessionIndex >= 0 && sessionIndex != _activeSessionIndex.value) {
                 _activeSessionIndex.value = sessionIndex
                 _activeSessionState.value = _sessions.getOrNull(sessionIndex)
+
+                // Sync selectedEditorProfile to match the selected session
+                val profileId = profileToSessionMap.entries.find { it.value == sessionIndex }?.key
+                val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
+                _selectedEditorProfile.value = profile
             }
         }
     }
@@ -1471,6 +1491,34 @@ class FixMessageViewModel(
      * This is a public wrapper around createNewSession for use in tests.
      */
     fun createSessionForTest(title: String = "Test Session"): FixMessageSession = createNewSession(title)
+
+    /**
+     * Creates a session with an associated profile for testing purposes.
+     * This properly sets up the profile-to-session mapping that's needed for
+     * testing the selectedEditorProfile sync behavior.
+     *
+     * @param profileName Name for the profile
+     * @return Pair of the created profile and session
+     */
+    fun createSessionWithProfileForTest(profileName: String): Pair<FixConnectionProfile, FixMessageSession> {
+        val profile = FixConnectionProfile(
+            name = profileName,
+            config = FixConnectionConfig(
+                host = "localhost",
+                port = "9876",
+                senderCompID = "TEST_SENDER",
+                targetCompID = "TEST_TARGET",
+                beginString = "FIX.4.4",
+            ),
+        )
+        _connectionProfiles.add(profile)
+
+        val session = createNewSession(profileName)
+        val sessionIndex = _sessions.size - 1
+        profileToSessionMap[profile.id] = sessionIndex
+
+        return Pair(profile, session)
+    }
 
     override fun onCleared() {
         super.onCleared()

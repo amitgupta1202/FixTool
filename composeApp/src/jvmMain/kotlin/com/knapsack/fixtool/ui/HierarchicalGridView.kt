@@ -10,15 +10,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.IndeterminateCheckBox
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -37,8 +46,13 @@ import kotlinx.coroutines.launch
 import quickfix.Field
 import quickfix.FieldMap
 import java.awt.Cursor
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
+import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 /**
  * Resize handle for adjusting column widths
@@ -231,12 +245,98 @@ fun HierarchicalGridView(
 ) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
 
     // Track which messages are expanded (key: message timestamp-index for uniqueness)
     val expandedMessages = remember { mutableStateMapOf<String, Boolean>() }
 
     // Track which groups are expanded (key: "messageId_groupKey")
     val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
+
+    // Multi-selection state
+    val selectedMessageIds = remember { mutableStateSetOf<String>() }
+    var lastClickedIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Helper function to get message ID
+    fun getMessageId(message: AppMessage, index: Int): String = "${message.timestamp}-$index"
+
+    // Helper to get selected FixMessages in order
+    fun getSelectedFixMessages(): List<FixMessage> {
+        return messages.mapIndexedNotNull { index, msg ->
+            if (msg is FixMessage && selectedMessageIds.contains(getMessageId(msg, index))) msg else null
+        }
+    }
+
+    // Clear multi-selection
+    fun clearSelection() {
+        selectedMessageIds.clear()
+        lastClickedIndex = null
+    }
+
+    // Toggle single message selection (Ctrl/Cmd+Click)
+    fun toggleMessageSelection(messageId: String, messageIndex: Int) {
+        if (selectedMessageIds.contains(messageId)) {
+            selectedMessageIds.remove(messageId)
+        } else {
+            selectedMessageIds.add(messageId)
+        }
+        lastClickedIndex = messageIndex
+    }
+
+    // Range selection (Shift+Click)
+    fun selectRange(toIndex: Int) {
+        val fromIndex = lastClickedIndex ?: toIndex
+        val range = if (fromIndex <= toIndex) fromIndex..toIndex else toIndex..fromIndex
+
+        messages.forEachIndexed { index, message ->
+            if (message is FixMessage && index in range) {
+                val messageId = getMessageId(message, index)
+                selectedMessageIds.add(messageId)
+            }
+        }
+        lastClickedIndex = toIndex
+    }
+
+    // Copy selected messages to clipboard
+    fun copySelectedToClipboard() {
+        val selected = getSelectedFixMessages()
+        if (selected.isNotEmpty()) {
+            val rawMessages = selected.joinToString("\n") { it.rawMessage }
+            val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+            clipboard.setContents(StringSelection(rawMessages), null)
+        }
+    }
+
+    // Save selected messages to file
+    fun saveSelectedToFile() {
+        val selected = getSelectedFixMessages()
+        if (selected.isNotEmpty()) {
+            val fileChooser = JFileChooser().apply {
+                dialogTitle = "Save Messages to File"
+                fileSelectionMode = JFileChooser.FILES_ONLY
+                fileFilter = FileNameExtensionFilter("FIX Message Files (*.fix, *.txt)", "fix", "txt")
+                selectedFile = File("messages_${System.currentTimeMillis()}.fix")
+            }
+
+            if (fileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+                var file = fileChooser.selectedFile
+                // Ensure file has extension
+                if (!file.name.endsWith(".fix") && !file.name.endsWith(".txt")) {
+                    file = File(file.absolutePath + ".fix")
+                }
+                file.writeText(selected.joinToString("\n") { it.rawMessage })
+            }
+        }
+    }
+
+    // Select all messages
+    fun selectAll() {
+        messages.forEachIndexed { index, message ->
+            if (message is FixMessage) {
+                selectedMessageIds.add(getMessageId(message, index))
+            }
+        }
+    }
 
     // Column width state management
     val originalWidths =
@@ -496,23 +596,161 @@ fun HierarchicalGridView(
     // Horizontal scroll state for columns that don't fit
     val horizontalScrollState = rememberScrollState()
 
-    Box(modifier = modifier.fillMaxSize().background(mainBackgroundColor)) {
-        // Main content with horizontal scroll support
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
+    // Platform-specific shortcut display
+    val isMac = System.getProperty("os.name").lowercase().contains("mac")
+    val copyShortcut = if (isMac) "Cmd+C" else "Ctrl+C"
+    val selectAllShortcut = if (isMac) "Cmd+A" else "Ctrl+A"
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(mainBackgroundColor)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    val isCtrlOrCmd = event.isCtrlPressed || event.isMetaPressed
+                    when {
+                        // Cmd/Ctrl+C - Copy selected messages
+                        isCtrlOrCmd && event.key == Key.C -> {
+                            if (selectedMessageIds.isNotEmpty()) {
+                                copySelectedToClipboard()
+                                true
+                            } else false
+                        }
+                        // Cmd/Ctrl+A - Select all
+                        isCtrlOrCmd && event.key == Key.A -> {
+                            selectAll()
+                            true
+                        }
+                        // Escape - Clear selection
+                        event.key == Key.Escape -> {
+                            clearSelection()
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            },
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Selection action bar (appears when messages are selected)
+            if (selectedMessageIds.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(AppTheme.Colors.surfaceHeader)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    // Selection count
+                    Text(
+                        text = "${selectedMessageIds.size} message${if (selectedMessageIds.size > 1) "s" else ""} selected",
+                        color = AppTheme.Colors.text,
+                        fontSize = 11.sp,
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        // Copy button
+                        TooltipIconButton(
+                            tooltip = "Copy Selected Messages ($copyShortcut)",
+                            onClick = { copySelectedToClipboard() },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy",
+                                tint = AppTheme.Colors.textSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+
+                        // Save to file button
+                        TooltipIconButton(
+                            tooltip = "Save Selected Messages to File",
+                            onClick = { saveSelectedToFile() },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Save,
+                                contentDescription = "Save",
+                                tint = AppTheme.Colors.textSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+
+                        // Clear selection button
+                        TooltipIconButton(
+                            tooltip = "Clear Selection (Esc)",
+                            onClick = { clearSelection() },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear Selection",
+                                tint = AppTheme.Colors.textSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Main content with horizontal scroll support
+            Box(
+                modifier = Modifier
+                    .weight(1f)
                     .horizontalScroll(horizontalScrollState),
-        ) {
-            Column(modifier = Modifier.fillMaxHeight()) {
-                // Header row
+            ) {
+                Column(modifier = Modifier.fillMaxHeight()) {
+                    // Header row
                 Row(
                     modifier =
                         Modifier
                             .background(headerBackgroundColor)
                             .height(24.dp),
                 ) {
-                    // Icon column
+                    // Checkbox column for Select All
+                    val allFixMessages = messages.filterIsInstance<FixMessage>()
+                    val allSelected = allFixMessages.isNotEmpty() && allFixMessages.all { msg ->
+                        val idx = messages.indexOf(msg)
+                        selectedMessageIds.contains(getMessageId(msg, idx))
+                    }
+                    val someSelected = selectedMessageIds.isNotEmpty() && !allSelected
+
+                    Box(
+                        modifier =
+                            Modifier
+                                .width(24.dp)
+                                .fillMaxHeight()
+                                .border(0.5.dp, headerBorderColor)
+                                .clickable {
+                                    if (allSelected) {
+                                        // Deselect all
+                                        clearSelection()
+                                    } else {
+                                        // Select all
+                                        selectAll()
+                                    }
+                                },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = when {
+                                allSelected -> Icons.Default.CheckBox
+                                someSelected -> Icons.Default.IndeterminateCheckBox
+                                else -> Icons.Default.CheckBoxOutlineBlank
+                            },
+                            contentDescription = if (allSelected) "Deselect All" else "Select All",
+                            tint = if (allSelected || someSelected) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+
+                    // Icon column (expand/collapse)
                     Box(
                         modifier =
                             Modifier
@@ -734,6 +972,8 @@ fun HierarchicalGridView(
                                         columnWidths = columnWidths,
                                         isExpanded = isExpanded,
                                         isSelected = message == selectedMessage,
+                                        isMultiSelected = selectedMessageIds.contains(messageId),
+                                        messageIndex = index,
                                         recentlySentMessageTimestamp = recentlySentMessageTimestamp,
                                         onToggleExpand = {
                                             val wasExpanded = isExpanded
@@ -746,6 +986,13 @@ fun HierarchicalGridView(
                                             }
                                         },
                                         onSelectMessage = onSelectMessage,
+                                        onMultiSelectClick = { isCtrlOrCmd, isShift ->
+                                            if (isShift) {
+                                                selectRange(index)
+                                            } else if (isCtrlOrCmd) {
+                                                toggleMessageSelection(messageId, index)
+                                            }
+                                        },
                                         appSettings = appSettings,
                                     )
                                 }
@@ -767,6 +1014,7 @@ fun HierarchicalGridView(
                     }
                 }
             }
+        }
         }
 
         // Vertical scrollbar
@@ -830,9 +1078,12 @@ fun MessageSummaryRow(
     columnWidths: Map<String, androidx.compose.ui.unit.Dp> = emptyMap(),
     isExpanded: Boolean,
     isSelected: Boolean = false,
+    isMultiSelected: Boolean = false,
+    messageIndex: Int = 0,
     recentlySentMessageTimestamp: LocalDateTime? = null,
     onToggleExpand: () -> Unit,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
+    onMultiSelectClick: ((isCtrlOrCmd: Boolean, isShift: Boolean) -> Unit)? = null,
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
@@ -863,7 +1114,7 @@ fun MessageSummaryRow(
             false
         }
 
-    // Background color: highlight if recently sent, selected, or default
+    // Background color: highlight if recently sent, selected, multi-selected, or default
     val backgroundColor =
         when {
             isRecentlySent -> {
@@ -871,12 +1122,14 @@ fun MessageSummaryRow(
             }
 
             isSelected -> selectedRowBackgroundColor
+            isMultiSelected -> multiSelectedRowBackgroundColor
             else -> mainBackgroundColor
         }
 
     // Calculate minimum width needed for all columns
     val minWidth =
-        (columnWidths["Icon"] ?: 40.dp) +
+        24.dp + // Checkbox column
+            (columnWidths["Icon"] ?: 40.dp) +
             (columnWidths["Time"] ?: 120.dp) +
             (columnWidths["Dir"] ?: 50.dp) +
             (columnWidths["SeqNum"] ?: 70.dp) +
@@ -891,12 +1144,50 @@ fun MessageSummaryRow(
                 .height(24.dp)
                 .widthIn(min = minWidth),
     ) {
+        // Track mouse event for Shift detection
+        var lastCheckboxMouseEvent by remember { mutableStateOf<java.awt.event.MouseEvent?>(null) }
+
+        // Checkbox column for multi-selection
+        Box(
+            modifier =
+                Modifier
+                    .width(24.dp)
+                    .fillMaxHeight()
+                    .background(backgroundColor)
+                    .border(0.5.dp, cellBorderColor)
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val awtEvent = event.nativeEvent as? java.awt.event.MouseEvent
+                                if (awtEvent != null) {
+                                    lastCheckboxMouseEvent = awtEvent
+                                }
+                            }
+                        }
+                    }
+                    .clickable {
+                        // Check if Shift is held for range selection
+                        val isShift = lastCheckboxMouseEvent?.isShiftDown == true
+                        onMultiSelectClick?.invoke(!isShift, isShift)
+                    },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (isMultiSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                contentDescription = if (isMultiSelected) "Selected" else "Not Selected",
+                tint = if (isMultiSelected) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                modifier = Modifier.size(14.dp),
+            )
+        }
+
         // Expand/collapse icon - click only expands/collapses
         Box(
             modifier =
                 Modifier
                     .width(columnWidths["Icon"] ?: 40.dp)
                     .fillMaxHeight()
+                    .background(backgroundColor)
                     .border(0.5.dp, cellBorderColor)
                     .clickable {
                         onToggleExpand()
@@ -911,17 +1202,48 @@ fun MessageSummaryRow(
             )
         }
 
-        // Rest of the row - single click selects, double click expands
+        // Track mouse event for modifier detection on row
+        var lastRowMouseEvent by remember { mutableStateOf<java.awt.event.MouseEvent?>(null) }
+
+        // Rest of the row - single click selects for detail panel, double click expands
+        // Ctrl/Cmd+Click toggles selection, Shift+Click for range selection
         Row(
             modifier =
                 Modifier
                     .fillMaxHeight()
                     .background(backgroundColor)
                     .testTag("message-row-${message.timestamp}")
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val awtEvent = event.nativeEvent as? java.awt.event.MouseEvent
+                                if (awtEvent != null) {
+                                    lastRowMouseEvent = awtEvent
+                                }
+                            }
+                        }
+                    }
                     .combinedClickable(
                         onClick = {
-                            // Single click: select message and show detail panel
-                            onSelectMessage?.invoke(message)
+                            val awtEvent = lastRowMouseEvent
+                            val isCtrlOrCmd = awtEvent?.isControlDown == true || awtEvent?.isMetaDown == true
+                            val isShift = awtEvent?.isShiftDown == true
+
+                            when {
+                                isShift -> {
+                                    // Shift+Click: range selection
+                                    onMultiSelectClick?.invoke(false, true)
+                                }
+                                isCtrlOrCmd -> {
+                                    // Ctrl/Cmd+Click: toggle selection
+                                    onMultiSelectClick?.invoke(true, false)
+                                }
+                                else -> {
+                                    // Normal click: select message and show detail panel
+                                    onSelectMessage?.invoke(message)
+                                }
+                            }
                         },
                         onDoubleClick = {
                             // Double click: expand/collapse (don't show detail panel)
@@ -1709,6 +2031,7 @@ private val outgoingColor = AppTheme.Colors.messageOutgoing
 private val incomingColor = AppTheme.Colors.messageIncoming
 private val rejectionColor = AppTheme.Colors.messageRejection
 private val selectedRowBackgroundColor = AppTheme.Colors.selectionPrimary
+private val multiSelectedRowBackgroundColor = AppTheme.Colors.selectionSecondary
 private val tagNumberColor = AppTheme.Colors.tagNumber
 private val valueColor = AppTheme.Colors.fieldValue
 private val fieldRowBackgroundColor = AppTheme.Colors.surfaceVariant

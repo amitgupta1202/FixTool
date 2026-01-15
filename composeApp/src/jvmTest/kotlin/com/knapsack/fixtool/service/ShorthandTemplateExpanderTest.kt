@@ -395,6 +395,327 @@ class ShorthandTemplateExpanderTest {
         assertEquals("\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyy/MM/dd\"))}", expanded)
     }
 
+    // ===== Timestamp Offset Tests =====
+
+    @Test
+    fun `test now plus hours offset`() {
+        val template = "\${now+1h}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusHours(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now minus hours offset`() {
+        val template = "\${now-2h}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusHours(2).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now plus days offset`() {
+        val template = "\${now+1d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusDays(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now minus days offset`() {
+        val template = "\${now-3d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusDays(3).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now plus weeks offset`() {
+        val template = "\${now+1w}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusWeeks(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now minus weeks offset`() {
+        val template = "\${now-2w}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusWeeks(2).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now plus months offset`() {
+        val template = "\${now+1m}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusMonths(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now minus months offset`() {
+        val template = "\${now-6m}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusMonths(6).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now plus years offset`() {
+        val template = "\${now+1y}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusYears(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now minus years offset`() {
+        val template = "\${now-5y}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusYears(5).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset case insensitive`() {
+        val template = "\${NOW+1D}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusDays(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with whitespace`() {
+        val template = "\${  now + 1 d  }"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusDays(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with large number`() {
+        val template = "\${now+100d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusDays(100).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with zero`() {
+        val template = "\${now+0d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusDays(0).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset mixed case unit H`() {
+        val template = "\${now+3H}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusHours(3).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset mixed case unit W`() {
+        val template = "\${Now-2W}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusWeeks(2).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset mixed case unit M`() {
+        val template = "\${NOW+6M}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusMonths(6).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset mixed case unit Y`() {
+        val template = "\${now-10Y}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusYears(10).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with text prefix`() {
+        val template = "EXPIRY-\${now+30d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("EXPIRY-\${LocalDateTime.now().plusDays(30).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with text suffix`() {
+        val template = "\${now+1y}-ANNUAL"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusYears(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}-ANNUAL", expanded)
+    }
+
+    @Test
+    fun `test now offset with text prefix and suffix`() {
+        val template = "START-\${now-7d}-END"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("START-\${LocalDateTime.now().minusDays(7).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}-END", expanded)
+    }
+
+    @Test
+    fun `test now offset 24 hours`() {
+        val template = "\${now+24h}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusHours(24).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset 365 days`() {
+        val template = "\${now+365d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusDays(365).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset 52 weeks`() {
+        val template = "\${now+52w}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusWeeks(52).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset 12 months`() {
+        val template = "\${now+12m}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusMonths(12).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    // ===== Timestamp Offset with Custom Format Tests =====
+
+    @Test
+    fun `test now offset with custom date format`() {
+        val template = "\${now+1d:yyyyMMdd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusDays(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with custom ISO format`() {
+        val template = "\${now-1w:yyyy-MM-dd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusWeeks(1).format(DateTimeFormatter.ofPattern(\"yyyy-MM-dd\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with custom datetime format`() {
+        val template = "\${now+2h:HH:mm:ss}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusHours(2).format(DateTimeFormatter.ofPattern(\"HH:mm:ss\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset format case insensitive`() {
+        val template = "\${NOW+1M:yyyyMMdd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusMonths(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with FIX timestamp format`() {
+        val template = "\${now+1d:yyyyMMdd-HH:mm:ss}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusDays(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with slash date format`() {
+        val template = "\${now-1m:yyyy/MM/dd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusMonths(1).format(DateTimeFormatter.ofPattern(\"yyyy/MM/dd\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with ISO datetime format`() {
+        val template = "\${now+2w:yyyy-MM-dd'T'HH:mm:ss}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusWeeks(2).format(DateTimeFormatter.ofPattern(\"yyyy-MM-dd'T'HH:mm:ss\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with year month format`() {
+        val template = "\${now+3m:yyyyMM}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusMonths(3).format(DateTimeFormatter.ofPattern(\"yyyyMM\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with year only format`() {
+        val template = "\${now+5y:yyyy}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().plusYears(5).format(DateTimeFormatter.ofPattern(\"yyyy\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset minus with custom format`() {
+        val template = "\${now-90d:yyyyMMdd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${LocalDateTime.now().minusDays(90).format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset format with text around it`() {
+        val template = "Valid until: \${now+1y:yyyy-MM-dd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("Valid until: \${LocalDateTime.now().plusYears(1).format(DateTimeFormatter.ofPattern(\"yyyy-MM-dd\"))}", expanded)
+    }
+
+    // ===== Timestamp Offset in Variable Assignment Tests =====
+
+    @Test
+    fun `test now offset in variable assignment`() {
+        val template = "\${tomorrow = now+1d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${tomorrow = LocalDateTime.now().plusDays(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset with format in variable assignment`() {
+        val template = "\${lastWeek = now-1w:yyyyMMdd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${lastWeek = LocalDateTime.now().minusWeeks(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset hours in variable assignment`() {
+        val template = "\${twoHoursAgo = now-2h}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${twoHoursAgo = LocalDateTime.now().minusHours(2).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset weeks in variable assignment`() {
+        val template = "\${nextWeek = now+1w}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${nextWeek = LocalDateTime.now().plusWeeks(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset months in variable assignment`() {
+        val template = "\${nextQuarter = now+3m}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${nextQuarter = LocalDateTime.now().plusMonths(3).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset years in variable assignment`() {
+        val template = "\${nextYear = now+1y}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${nextYear = LocalDateTime.now().plusYears(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset minus in variable assignment with format`() {
+        val template = "\${lastMonth = now-1m:yyyyMM}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${lastMonth = LocalDateTime.now().minusMonths(1).format(DateTimeFormatter.ofPattern(\"yyyyMM\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset variable assignment with whitespace`() {
+        val template = "\${  expiry  =  now + 30 d  }"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${expiry = LocalDateTime.now().plusDays(30).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test now offset variable assignment case insensitive`() {
+        val template = "\${deadline = NOW+2W}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${deadline = LocalDateTime.now().plusWeeks(2).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
     // ===== Combined Tests =====
 
     @Test
@@ -412,6 +733,69 @@ class ShorthandTemplateExpanderTest {
         assertTrue(expanded.contains("UUID.randomUUID().toString()"))
         assertTrue(expanded.contains("valueOfTag(11)"))
         assertTrue(expanded.contains("DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\")"))
+    }
+
+    @Test
+    fun `test uuid now offset and message reference combined`() {
+        val template = "\${uuid}-\${D.11}-\${now+1d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("UUID.randomUUID().toString()"))
+        assertTrue(expanded.contains("valueOfTag(11)"))
+        assertTrue(expanded.contains("plusDays(1)"))
+    }
+
+    @Test
+    fun `test multiple offset expressions in same template`() {
+        val template = "Start: \${now-1d:yyyyMMdd}, End: \${now+1d:yyyyMMdd}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("minusDays(1)"))
+        assertTrue(expanded.contains("plusDays(1)"))
+    }
+
+    @Test
+    fun `test now and now offset in same template`() {
+        val template = "Created: \${now}, Expires: \${now+30d}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("LocalDateTime.now().format"))
+        assertTrue(expanded.contains("plusDays(30)"))
+    }
+
+    @Test
+    fun `test all offset units in same template`() {
+        val template = "\${now+1h}|\${now+1d}|\${now+1w}|\${now+1m}|\${now+1y}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("plusHours(1)"))
+        assertTrue(expanded.contains("plusDays(1)"))
+        assertTrue(expanded.contains("plusWeeks(1)"))
+        assertTrue(expanded.contains("plusMonths(1)"))
+        assertTrue(expanded.contains("plusYears(1)"))
+    }
+
+    @Test
+    fun `test offset with uuid and message reference`() {
+        val template = "\${uuid}-\${now+1d:yyyyMMdd}-\${D.11}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("UUID.randomUUID().toString()"))
+        assertTrue(expanded.contains("plusDays(1)"))
+        assertTrue(expanded.contains("valueOfTag(11)"))
+    }
+
+    @Test
+    fun `test realistic FIX message with offset timestamps`() {
+        val template = "EffectiveTime=\${now+1h:yyyyMMdd-HH:mm:ss}|ExpireTime=\${now+24h:yyyyMMdd-HH:mm:ss}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("plusHours(1)"))
+        assertTrue(expanded.contains("plusHours(24)"))
+        assertTrue(expanded.contains("yyyyMMdd-HH:mm:ss"))
+    }
+
+    @Test
+    fun `test offset variable followed by reference`() {
+        val template = "\${expiry = now+7d}\${D.11}-\${expiry}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertTrue(expanded.contains("expiry = LocalDateTime.now().plusDays(7)"))
+        assertTrue(expanded.contains("valueOfTag(11)"))
+        assertTrue(expanded.contains("\${expiry}"))
     }
 
     // ===== Variable Assignment Tests =====

@@ -13,6 +13,9 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
  * - `${uuid}` → UUID.randomUUID().toString()
  * - `${now}` → current timestamp in FIX format (yyyyMMdd-HH:mm:ss.SSS)
  * - `${now:pattern}` → current timestamp with custom pattern (e.g., ${now:yyyyMMdd})
+ * - `${now+1h}` → timestamp 1 hour from now (supports: h=hours, d=days, w=weeks, m=months, y=years)
+ * - `${now-2d}` → timestamp 2 days ago
+ * - `${now+1d:yyyyMMdd}` → timestamp with offset and custom format
  *
  * Non-shorthand expressions pass through unchanged for backwards compatibility.
  */
@@ -39,6 +42,12 @@ object ShorthandTemplateExpander {
 
     // Pattern: now:pattern (custom format)
     private val TIMESTAMP_FORMAT_PATTERN = """^\s*now:(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // Pattern: now+1h, now-2d, NOW+3w, etc. (offset without format)
+    private val TIMESTAMP_OFFSET_PATTERN = """^\s*now\s*([+-])\s*(\d+)\s*([hdwmy])\s*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // Pattern: now+1d:yyyyMMdd, now-1w:yyyy-MM-dd (offset with custom format)
+    private val TIMESTAMP_OFFSET_FORMAT_PATTERN = """^\s*now\s*([+-])\s*(\d+)\s*([hdwmy]):(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
 
     // Pattern to detect variable assignment with shorthand keywords as variable name
     // e.g., ${uuid = something} or ${now = something}
@@ -113,6 +122,21 @@ object ShorthandTemplateExpander {
                     val pattern = match.groupValues[1].trim()
                     return """$varName = LocalDateTime.now().format(DateTimeFormatter.ofPattern("$pattern"))"""
                 }
+                // Check for timestamp offset: now+1d, now-2h, etc.
+                TIMESTAMP_OFFSET_PATTERN.matchEntire(value)?.let { match ->
+                    val sign = match.groupValues[1]
+                    val amount = match.groupValues[2].toLong()
+                    val unit = match.groupValues[3]
+                    return "$varName = ${expandTimestampWithOffset(sign, amount, unit, null)}"
+                }
+                // Check for timestamp offset with format: now+1d:yyyyMMdd
+                TIMESTAMP_OFFSET_FORMAT_PATTERN.matchEntire(value)?.let { match ->
+                    val sign = match.groupValues[1]
+                    val amount = match.groupValues[2].toLong()
+                    val unit = match.groupValues[3]
+                    val pattern = match.groupValues[4].trim()
+                    return "$varName = ${expandTimestampWithOffset(sign, amount, unit, pattern)}"
+                }
             }
             // Not a shorthand assignment, return unchanged
             return expression
@@ -132,6 +156,23 @@ object ShorthandTemplateExpander {
         TIMESTAMP_FORMAT_PATTERN.matchEntire(expression)?.let { match ->
             val pattern = match.groupValues[1].trim()
             return """LocalDateTime.now().format(DateTimeFormatter.ofPattern("$pattern"))"""
+        }
+
+        // Try timestamp offset: ${now+1h}, ${now-2d}, etc.
+        TIMESTAMP_OFFSET_PATTERN.matchEntire(expression)?.let { match ->
+            val sign = match.groupValues[1]
+            val amount = match.groupValues[2].toLong()
+            val unit = match.groupValues[3]
+            return expandTimestampWithOffset(sign, amount, unit, null)
+        }
+
+        // Try timestamp offset with format: ${now+1d:yyyyMMdd}
+        TIMESTAMP_OFFSET_FORMAT_PATTERN.matchEntire(expression)?.let { match ->
+            val sign = match.groupValues[1]
+            val amount = match.groupValues[2].toLong()
+            val unit = match.groupValues[3]
+            val pattern = match.groupValues[4].trim()
+            return expandTimestampWithOffset(sign, amount, unit, pattern)
         }
 
         // Try explicit incoming: ${in.D.11}
@@ -239,6 +280,23 @@ object ShorthandTemplateExpander {
         } else {
             """(incoming["$msgType"].valueOfTag($tag) ?: outgoing["$msgType"].valueOfTag($tag))"""
         }
+    }
+
+    /**
+     * Expands timestamp with offset to Kotlin expression.
+     * Handles units: h (hours), d (days), w (weeks), m (months), y (years)
+     */
+    private fun expandTimestampWithOffset(sign: String, amount: Long, unit: String, pattern: String?): String {
+        val method = when (unit.lowercase()) {
+            "h" -> if (sign == "+") "plusHours" else "minusHours"
+            "d" -> if (sign == "+") "plusDays" else "minusDays"
+            "w" -> if (sign == "+") "plusWeeks" else "minusWeeks"
+            "m" -> if (sign == "+") "plusMonths" else "minusMonths"
+            "y" -> if (sign == "+") "plusYears" else "minusYears"
+            else -> error("Unknown time unit: $unit")
+        }
+        val formatPattern = pattern ?: "yyyyMMdd-HH:mm:ss.SSS"
+        return """LocalDateTime.now().$method($amount).format(DateTimeFormatter.ofPattern("$formatPattern"))"""
     }
 
     /**

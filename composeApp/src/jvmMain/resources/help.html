@@ -598,7 +598,39 @@
                 <td><code>${LocalDateTime.now()...}</code></td>
                 <td>Custom timestamp format (date only)</td>
             </tr>
+            <tr>
+                <td><code>${now+1h}</code></td>
+                <td><code>${LocalDateTime.now().plusHours(1)...}</code></td>
+                <td>Timestamp offset: 1 hour from now</td>
+            </tr>
+            <tr>
+                <td><code>${now-2d}</code></td>
+                <td><code>${LocalDateTime.now().minusDays(2)...}</code></td>
+                <td>Timestamp offset: 2 days ago</td>
+            </tr>
+            <tr>
+                <td><code>${now+1w}</code></td>
+                <td><code>${LocalDateTime.now().plusWeeks(1)...}</code></td>
+                <td>Timestamp offset: 1 week from now</td>
+            </tr>
+            <tr>
+                <td><code>${now+1m}</code></td>
+                <td><code>${LocalDateTime.now().plusMonths(1)...}</code></td>
+                <td>Timestamp offset: 1 month from now</td>
+            </tr>
+            <tr>
+                <td><code>${now-1y}</code></td>
+                <td><code>${LocalDateTime.now().minusYears(1)...}</code></td>
+                <td>Timestamp offset: 1 year ago</td>
+            </tr>
+            <tr>
+                <td><code>${now+1d:yyyyMMdd}</code></td>
+                <td><code>${LocalDateTime.now().plusDays(1)...}</code></td>
+                <td>Offset with custom format: tomorrow (date only)</td>
+            </tr>
         </table>
+
+        <p><strong>Offset units:</strong> <code>h</code> (hours), <code>d</code> (days), <code>w</code> (weeks), <code>m</code> (months), <code>y</code> (years)</p>
 
         <h4>Common Tag Names</h4>
         <p>These tag names work without a data dictionary:</p>

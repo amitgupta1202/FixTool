@@ -14,6 +14,8 @@ import org.junit.Rule
 import org.junit.Test
 import quickfix.Message
 import quickfix.field.*
+import org.junit.Assume.assumeFalse
+import java.awt.GraphicsEnvironment
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.time.LocalDateTime
@@ -320,6 +322,9 @@ class GridViewMultiSelectionTest {
 
     @Test
     fun testClipboardCanReceiveText() {
+        // Skip in headless environments (CI)
+        assumeFalse(GraphicsEnvironment.isHeadless())
+
         // Given: A test string
         val testContent = "8=FIX.4.2|9=100|35=D|10=123|"
 
@@ -338,6 +343,9 @@ class GridViewMultiSelectionTest {
 
     @Test
     fun testMultiLineClipboardContent() {
+        // Skip in headless environments (CI)
+        assumeFalse(GraphicsEnvironment.isHeadless())
+
         // Given: Multiple FIX messages
         val line1 = "8=FIX.4.2|35=D|11=ORD001|10=123|"
         val line2 = "8=FIX.4.2|35=8|11=ORD002|10=456|"

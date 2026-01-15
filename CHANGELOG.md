@@ -5,6 +5,34 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-01-15
+
+### ✨ Added
+
+#### Timestamp Offset Shorthand
+- **New date/time offset syntax** for flexible timestamp manipulation in templates
+- Supported units: `h` (hours), `d` (days), `w` (weeks), `m` (months), `y` (years)
+- Examples:
+  - `${now+1h}` → 1 hour from now
+  - `${now-2d}` → 2 days ago
+  - `${now+1w}` → 1 week from now
+  - `${now+1m}` → 1 month from now
+  - `${now-1y}` → 1 year ago
+- **Custom format support**: `${now+1d:yyyyMMdd}` → tomorrow in date-only format
+- **Variable assignment support**: `${expiry = now+30d}`
+- Case-insensitive units (h/H, d/D, w/W, m/M, y/Y)
+
+#### Multi-Select Message Operations
+- **Multi-select FIX messages** in the message list with Shift+Click and Ctrl/Cmd+Click
+- **Bulk copy**: Copy multiple selected messages to clipboard
+- **Bulk save to file**: Save selected messages to a file
+
+### 🔧 Fixed
+
+- **Profile dropdown sync**: Message editor profile dropdown now correctly syncs with active session tab
+
+---
+
 ## [1.0.2] - 2025-01-30
 
 ### 🔧 Fixed

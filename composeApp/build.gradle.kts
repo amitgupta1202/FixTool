@@ -64,7 +64,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Exe)
             packageName = "FixTool"
-            packageVersion = "1.0.2"
+            packageVersion = "1.0.3"
 
             // Include required Java modules for logback, QuickFIX/J, and Kotlin scripting
             modules("java.naming", "java.sql", "java.instrument", "jdk.unsupported", "java.compiler", "java.scripting")

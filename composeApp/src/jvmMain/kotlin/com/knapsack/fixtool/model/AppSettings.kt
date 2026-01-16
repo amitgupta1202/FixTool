@@ -32,10 +32,14 @@ data class AppSettings(
     // Configurable Data Directories
     val connectionProfilesPath: String = "", // Path to connection profiles JSON file (empty = default: ~/.fixtool/connection_profiles.json)
     val savedMessagesPath: String = "", // Path to saved messages JSON file (empty = default: ~/.fixtool/saved_messages.json)
-    // Future settings can be added here
-    // val theme: String = "dark",
-    // val fontSize: Int = 12,
-    // etc.
+    // Latency Tracking Settings
+    val enableLatencyTracking: Boolean = false, // Enable latency tracking feature
+    val captureNetworkInterface: String = "", // Network interface for packet capture (empty = auto-detect)
+    val latencyCorrelationTags: List<Int> = listOf(11, 131, 117, 262, 37, 17), // Tags to use for correlation (ClOrdID, QuoteReqID, QuoteID, MDReqID, OrderID, ExecID)
+    val latencyHistorySize: Int = 10000, // Maximum number of latency samples to retain
+    val latencyWarningThresholdMicros: Long = 100_000L, // 100ms - threshold for warning color
+    val latencyCriticalThresholdMicros: Long = 500_000L, // 500ms - threshold for critical/red color
+    val showLatencyColumn: Boolean = true, // Show latency column in grid view when tracking is enabled
 ) {
     companion object {
         /**

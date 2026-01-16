@@ -55,6 +55,13 @@ fun SettingsDialog(
     var defaultLayout by remember { mutableStateOf(currentSettings.defaultLayout) }
     var connectionProfilesPath by remember { mutableStateOf(currentSettings.connectionProfilesPath) }
     var savedMessagesPath by remember { mutableStateOf(currentSettings.savedMessagesPath) }
+    // Latency tracking settings
+    var enableLatencyTracking by remember { mutableStateOf(currentSettings.enableLatencyTracking) }
+    var captureNetworkInterface by remember { mutableStateOf(currentSettings.captureNetworkInterface) }
+    var latencyHistorySize by remember { mutableStateOf(currentSettings.latencyHistorySize.toString()) }
+    var latencyWarningThreshold by remember { mutableStateOf((currentSettings.latencyWarningThresholdMicros / 1000).toString()) } // Display in ms
+    var latencyCriticalThreshold by remember { mutableStateOf((currentSettings.latencyCriticalThresholdMicros / 1000).toString()) } // Display in ms
+    var showLatencyColumn by remember { mutableStateOf(currentSettings.showLatencyColumn) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -114,6 +121,12 @@ fun SettingsDialog(
                                 defaultLayout = defaults.defaultLayout
                                 connectionProfilesPath = defaults.connectionProfilesPath
                                 savedMessagesPath = defaults.savedMessagesPath
+                                enableLatencyTracking = defaults.enableLatencyTracking
+                                captureNetworkInterface = defaults.captureNetworkInterface
+                                latencyHistorySize = defaults.latencyHistorySize.toString()
+                                latencyWarningThreshold = (defaults.latencyWarningThresholdMicros / 1000).toString()
+                                latencyCriticalThreshold = (defaults.latencyCriticalThresholdMicros / 1000).toString()
+                                showLatencyColumn = defaults.showLatencyColumn
                             },
                             containerColor = restoreDefaultsButtonColor,
                             contentColor = AppTheme.Colors.textSecondary,
@@ -1381,6 +1394,134 @@ fun SettingsDialog(
                         thickness = AppTheme.Separators.dividerThickness,
                         modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
                     )
+
+                    // Section: Latency Tracking Settings
+                    Text(
+                        text = "Latency Tracking",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Text(
+                        text = "Measure round-trip time for correlated FIX messages (requires elevated privileges for packet-level capture)",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.textDisabled,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+
+                    CheckboxSetting(
+                        label = "Enable Latency Tracking",
+                        description = "Track message round-trip times using correlation IDs (ClOrdID, QuoteReqID, etc.)",
+                        checked = enableLatencyTracking,
+                        onCheckedChange = { enableLatencyTracking = it },
+                    )
+
+                    if (enableLatencyTracking) {
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        CheckboxSetting(
+                            label = "Show Latency Column in Grid View",
+                            description = "Display latency values in the message grid",
+                            checked = showLatencyColumn,
+                            onCheckedChange = { showLatencyColumn = it },
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Network Interface
+                        Text(
+                            text = "Network Interface (leave empty for auto-detect)",
+                            fontSize = 12.sp,
+                            color = AppTheme.Colors.text,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                        SlimTextField(
+                            value = captureNetworkInterface,
+                            onValueChange = { captureNetworkInterface = it },
+                            placeholder = "Auto-detect",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Threshold settings
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Warning Threshold (ms)",
+                                    fontSize = 12.sp,
+                                    color = AppTheme.Colors.text,
+                                )
+                                SlimTextField(
+                                    value = latencyWarningThreshold,
+                                    onValueChange = { newValue ->
+                                        if (newValue.all { it.isDigit() }) {
+                                            latencyWarningThreshold = newValue
+                                        }
+                                    },
+                                    placeholder = "100",
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Critical Threshold (ms)",
+                                    fontSize = 12.sp,
+                                    color = AppTheme.Colors.text,
+                                )
+                                SlimTextField(
+                                    value = latencyCriticalThreshold,
+                                    onValueChange = { newValue ->
+                                        if (newValue.all { it.isDigit() }) {
+                                            latencyCriticalThreshold = newValue
+                                        }
+                                    },
+                                    placeholder = "500",
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // History size
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.medium),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "History Size",
+                                fontSize = 12.sp,
+                                color = AppTheme.Colors.text,
+                            )
+                            SlimTextField(
+                                value = latencyHistorySize,
+                                onValueChange = { newValue ->
+                                    if (newValue.all { it.isDigit() }) {
+                                        latencyHistorySize = newValue
+                                    }
+                                },
+                                placeholder = "10000",
+                                modifier = Modifier.width(100.dp),
+                            )
+                            Text(
+                                text = "samples",
+                                fontSize = 11.sp,
+                                color = AppTheme.Colors.textDisabled,
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
+                    )
                 }
 
                 HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -1423,6 +1564,12 @@ fun SettingsDialog(
                                     defaultLayout = defaultLayout,
                                     connectionProfilesPath = connectionProfilesPath.trim(),
                                     savedMessagesPath = savedMessagesPath.trim(),
+                                    enableLatencyTracking = enableLatencyTracking,
+                                    captureNetworkInterface = captureNetworkInterface.trim(),
+                                    latencyHistorySize = latencyHistorySize.toIntOrNull()?.coerceIn(100, 100000) ?: 10000,
+                                    latencyWarningThresholdMicros = (latencyWarningThreshold.toLongOrNull() ?: 100L) * 1000L,
+                                    latencyCriticalThresholdMicros = (latencyCriticalThreshold.toLongOrNull() ?: 500L) * 1000L,
+                                    showLatencyColumn = showLatencyColumn,
                                 )
                             onSave(newSettings)
                             onDismiss()

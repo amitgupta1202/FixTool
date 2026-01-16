@@ -35,6 +35,7 @@ fun Toolbar(
     showMessageEditor: Boolean = false,
     showDetailPanel: Boolean = false,
     showConnectionPanel: Boolean = false,
+    showLatencyPanel: Boolean = false,
     demoServerRunning: Boolean = false,
     connectionProfiles: List<FixConnectionProfile> = emptyList(),
     isDictionaryValid: Boolean = true,
@@ -46,6 +47,7 @@ fun Toolbar(
     onOpenMessageEditor: (() -> Unit)? = null,
     onToggleDetailPanel: (() -> Unit)? = null,
     onToggleConnectionPanel: (() -> Unit)? = null,
+    onToggleLatencyPanel: (() -> Unit)? = null,
     onToggleDemoServer: (() -> Unit)? = null,
     onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
@@ -491,7 +493,7 @@ fun Toolbar(
             }
         }
 
-        // Message detail panel toggle (rightmost)
+        // Message detail panel toggle
         if (onToggleDetailPanel != null) {
             TooltipIconButton(
                 tooltip = if (showDetailPanel) "Message Detail: On (click to hide)" else "Message Detail: Off (click to show)",
@@ -502,6 +504,22 @@ fun Toolbar(
                     imageVector = Icons.Default.Article,
                     contentDescription = "Toggle Message Detail Panel",
                     tint = toggleActiveColor(showDetailPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
+                    modifier = tooltipIconModifier,
+                )
+            }
+        }
+
+        // Latency panel toggle (rightmost)
+        if (onToggleLatencyPanel != null) {
+            TooltipIconButton(
+                tooltip = if (showLatencyPanel) "Latency Stats: On (click to hide)" else "Latency Stats: Off (click to show)",
+                onClick = onToggleLatencyPanel,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Timer,
+                    contentDescription = "Toggle Latency Panel",
+                    tint = toggleActiveColor(showLatencyPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
                     modifier = tooltipIconModifier,
                 )
             }

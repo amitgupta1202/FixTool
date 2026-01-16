@@ -60,6 +60,11 @@ fun FixMessageDisplay(
         com.knapsack.fixtool.model.AppSettings
             .default(),
     onToggleSearch: () -> Unit = {},
+    // Latency tracking parameters
+    showLatencyColumn: Boolean = false,
+    getLatencyForMessage: ((String) -> Long?)? = null,
+    latencyWarningThresholdMicros: Long = 100_000L,
+    latencyCriticalThresholdMicros: Long = 500_000L,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -241,6 +246,10 @@ fun FixMessageDisplay(
                         onPreviousMatch = ::previousMatch,
                         onNavigatePrevious = ::navigateToPreviousMessage,
                         onNavigateNext = ::navigateToNextMessage,
+                        showLatencyColumn = showLatencyColumn,
+                        getLatencyForMessage = getLatencyForMessage,
+                        latencyWarningThresholdMicros = latencyWarningThresholdMicros,
+                        latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
                     )
                 }
 
@@ -306,6 +315,10 @@ fun FixMessageDisplay(
             onPreviousMatch = ::previousMatch,
             onNavigatePrevious = ::navigateToPreviousMessage,
             onNavigateNext = ::navigateToNextMessage,
+            showLatencyColumn = showLatencyColumn,
+            getLatencyForMessage = getLatencyForMessage,
+            latencyWarningThresholdMicros = latencyWarningThresholdMicros,
+            latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
             modifier = modifier,
         )
     }
@@ -340,6 +353,11 @@ private fun MessageDisplayContent(
     onPreviousMatch: () -> Unit = {},
     onNavigatePrevious: () -> Unit = {},
     onNavigateNext: () -> Unit = {},
+    // Latency tracking parameters
+    showLatencyColumn: Boolean = false,
+    getLatencyForMessage: ((String) -> Long?)? = null,
+    latencyWarningThresholdMicros: Long = 100_000L,
+    latencyCriticalThresholdMicros: Long = 500_000L,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -387,6 +405,10 @@ private fun MessageDisplayContent(
                     onSelectMessage = onSelectMessage,
                     recentlySentMessageTimestamp = recentlySentMessageTimestamp,
                     appSettings = appSettings,
+                    showLatencyColumn = showLatencyColumn,
+                    getLatencyForMessage = getLatencyForMessage,
+                    latencyWarningThresholdMicros = latencyWarningThresholdMicros,
+                    latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
                     modifier =
                         Modifier
                             .fillMaxSize()

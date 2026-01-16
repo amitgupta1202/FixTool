@@ -275,6 +275,7 @@ private fun SessionPanel(
     val filterMessageTypes by session.filterMessageTypes.collectAsState()
     val connectionState by session.connectionState.collectAsState()
     val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
+    val latencyTrackingEnabled by session.latencyTrackingEnabled.collectAsState()
 
     Column(
         modifier =
@@ -791,6 +792,10 @@ private fun SessionPanel(
             gridViewColumns = gridViewColumns,
             appSettings = appSettings,
             onToggleSearch = { session.toggleSearch() },
+            showLatencyColumn = latencyTrackingEnabled && appSettings.showLatencyColumn,
+            getLatencyForMessage = if (latencyTrackingEnabled) { rawMessage -> session.getLatencyForMessage(rawMessage) } else null,
+            latencyWarningThresholdMicros = appSettings.latencyWarningThresholdMicros,
+            latencyCriticalThresholdMicros = appSettings.latencyCriticalThresholdMicros,
             modifier = Modifier.weight(1f),
         )
     }

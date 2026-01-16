@@ -1,8 +1,10 @@
 package com.knapsack.fixtool.model
 
 import com.knapsack.fixtool.service.FixConnectionManager
+import com.knapsack.fixtool.service.LatencyTrackingManager
 import com.knapsack.fixtool.service.QuickFixService
 import com.knapsack.fixtool.util.NotifyingLogger
+// Latency tracking model imports are in this package (CaptureStatus, PacketDirection, TimestampSource)
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -80,6 +82,14 @@ class FixMessageSession(
     private val latestIncomingByType = ConcurrentHashMap<String, FixMessage>()
     private val latestOutgoingByType = ConcurrentHashMap<String, FixMessage>()
 
+    // Latency tracking
+    private var latencyTrackingManager: LatencyTrackingManager? = null
+    private val _latencyTrackingEnabled = MutableStateFlow(false)
+    val latencyTrackingEnabled: StateFlow<Boolean> = _latencyTrackingEnabled.asStateFlow()
+
+    private val _captureStatus = MutableStateFlow<CaptureStatus>(CaptureStatus.Stopped)
+    val captureStatus: StateFlow<CaptureStatus> = _captureStatus.asStateFlow()
+
     enum class ViewMode {
         RAW,
         PARSED,
@@ -155,8 +165,16 @@ class FixMessageSession(
         }
         // Track the most recent message per type so callers don't have to rescan history
         when (message.direction) {
-            FixMessage.Direction.INCOMING -> latestIncomingByType[message.messageType] = message
-            FixMessage.Direction.OUTGOING -> latestOutgoingByType[message.messageType] = message
+            FixMessage.Direction.INCOMING -> {
+                latestIncomingByType[message.messageType] = message
+                // Record for latency tracking (app-level fallback)
+                recordIncomingForLatency(message)
+            }
+            FixMessage.Direction.OUTGOING -> {
+                latestOutgoingByType[message.messageType] = message
+                // Record for latency tracking (app-level fallback)
+                recordOutgoingForLatency(message)
+            }
         }
         // Drop oldest enqueued item if we're at capacity to avoid unbounded growth
         if (!messageQueue.offer(message)) {
@@ -222,7 +240,13 @@ class FixMessageSession(
                 QuickFixService(
                     config = config,
                     onMessageReceived = { message -> addMessage(message) },
-                    onStateChanged = { state -> _connectionState.value = state },
+                    onStateChanged = { state ->
+                        _connectionState.value = state
+                        // Start latency tracking when logged on
+                        if (state == FixConnectionState.LOGGED_ON && latencyTrackingManager != null) {
+                            startLatencyTracking(config, appSettings.captureNetworkInterface.ifBlank { null })
+                        }
+                    },
                     onError = onError,
                 )
 
@@ -243,6 +267,9 @@ class FixMessageSession(
     fun disconnect() {
         scope.launch {
             try {
+                // Stop latency tracking
+                stopLatencyTracking()
+
                 // Send logout message if currently logged on
                 if (_connectionState.value == FixConnectionState.LOGGED_ON) {
                     logger.info("Sending logout before disconnect for session: {}", title)
@@ -317,8 +344,147 @@ class FixMessageSession(
 
     fun snapshotLatestOutgoingByType(): Map<String, FixMessage> = latestOutgoingByType.toMap()
 
+    // ========================================
+    // Latency Tracking Methods
+    // ========================================
+
+    /**
+     * Enable latency tracking for this session.
+     * Should be called before or after connect() based on settings.
+     */
+    fun enableLatencyTracking(
+        correlationTags: List<Int> = listOf(11, 131, 117, 262, 37, 17),
+        historySize: Int = 10000,
+        warningThresholdMicros: Long = 100_000L,
+        criticalThresholdMicros: Long = 500_000L,
+        networkInterface: String? = null,
+        onFallbackNotification: ((String) -> Unit)? = null,
+    ) {
+        if (latencyTrackingManager != null) {
+            logger.info("Latency tracking already enabled for session: {}", title)
+            return
+        }
+
+        latencyTrackingManager =
+            LatencyTrackingManager(
+                correlationTags = correlationTags,
+                historySize = historySize,
+                warningThresholdMicros = warningThresholdMicros,
+                criticalThresholdMicros = criticalThresholdMicros,
+                onError = onError,
+                onFallbackNotification = onFallbackNotification,
+            )
+
+        _latencyTrackingEnabled.value = true
+
+        // If already connected, start tracking
+        val config = _connectionConfig.value
+        if (config != null && _connectionState.value == FixConnectionState.LOGGED_ON) {
+            startLatencyTracking(config, networkInterface)
+        }
+
+        logger.info("Latency tracking enabled for session: {}", title)
+    }
+
+    /**
+     * Disable latency tracking for this session
+     */
+    fun disableLatencyTracking() {
+        latencyTrackingManager?.stopTracking()
+        latencyTrackingManager = null
+        _latencyTrackingEnabled.value = false
+        _captureStatus.value = CaptureStatus.Stopped
+        logger.info("Latency tracking disabled for session: {}", title)
+    }
+
+    /**
+     * Start latency tracking (called when session connects)
+     */
+    private fun startLatencyTracking(
+        config: FixConnectionConfig,
+        networkInterface: String? = null,
+    ) {
+        val manager = latencyTrackingManager ?: return
+
+        val port =
+            config.port.toIntOrNull()
+                ?: config.socketConnectPort.toIntOrNull()
+                ?: config.socketAcceptPort.toIntOrNull()
+
+        if (port == null) {
+            logger.warn("Cannot start latency tracking: no valid port configured")
+            return
+        }
+
+        val success = manager.startTracking(networkInterface, port)
+        _captureStatus.value = manager.captureStatus.value
+
+        logger.info(
+            "Latency tracking started for session {} on port {}: {}",
+            title,
+            port,
+            if (success) "packet capture" else "app-level fallback",
+        )
+    }
+
+    /**
+     * Stop latency tracking (called when session disconnects)
+     */
+    private fun stopLatencyTracking() {
+        latencyTrackingManager?.stopTracking()
+        _captureStatus.value = CaptureStatus.Stopped
+    }
+
+    /**
+     * Get the latency tracking service (for UI access)
+     */
+    fun getLatencyTrackingService() = latencyTrackingManager?.trackingService
+
+    /**
+     * Get latency for a specific message (for grid display)
+     */
+    fun getLatencyForMessage(rawMessage: String): Long? {
+        return latencyTrackingManager?.trackingService?.getLatencyForMessage(rawMessage)
+    }
+
+    /**
+     * Record an outgoing message for latency tracking
+     */
+    private fun recordOutgoingForLatency(message: FixMessage) {
+        latencyTrackingManager?.recordApplicationTimestamp(
+            direction = PacketDirection.SEND,
+            rawMessage = message.rawMessage,
+        )
+    }
+
+    /**
+     * Record an incoming message for latency tracking
+     */
+    private fun recordIncomingForLatency(message: FixMessage) {
+        latencyTrackingManager?.recordApplicationTimestamp(
+            direction = PacketDirection.RECEIVE,
+            rawMessage = message.rawMessage,
+        )
+    }
+
+    /**
+     * Clear latency statistics
+     */
+    fun clearLatencyStatistics() {
+        latencyTrackingManager?.trackingService?.clearStatistics()
+        logger.info("Cleared latency statistics for session: {}", title)
+    }
+
+    /**
+     * Get current timestamp source being used
+     */
+    fun getLatencyTimestampSource(): TimestampSource {
+        return latencyTrackingManager?.getCurrentTimestampSource() ?: TimestampSource.APPLICATION
+    }
+
     fun destroy() {
         disconnect()
+        disableLatencyTracking()
         isActive = false
         messageQueue.clear()
     }

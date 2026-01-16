@@ -103,6 +103,7 @@ fun App(
             val globalFilterRegex by viewModel.globalFilterRegex.collectAsState()
             val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
             val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
+            val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
 
             // Load saved messages when active session changes
             LaunchedEffect(viewModel.activeSessionIndex) {
@@ -136,6 +137,7 @@ fun App(
             } // Message editor panel width (28% when description shown, 20% when hidden) - starts at 28% since description is visible by default
             var connectionPanelSplitRatio by remember { mutableStateOf(0.2f) }
             var searchResultsPanelHeight by remember { mutableStateOf(200.dp) } // Height of search results pane at bottom
+            var latencyPanelSplitRatio by remember { mutableStateOf(0.25f) } // Latency panel width (25%)
 
             Box(
                 modifier =
@@ -166,6 +168,7 @@ fun App(
                         showMessageEditor = showMessageEditor,
                         showDetailPanel = showDetailPanel,
                         showConnectionPanel = showConnectionPanel,
+                        showLatencyPanel = showLatencyPanel,
                         demoServerRunning = demoServerRunning,
                         connectionProfiles = viewModel.connectionProfiles,
                         isDictionaryValid = isDictionaryValid,
@@ -177,6 +180,7 @@ fun App(
                         onOpenMessageEditor = { viewModel.toggleMessageEditor() },
                         onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                         onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
+                        onToggleLatencyPanel = { viewModel.toggleLatencyPanel() },
                         onToggleDemoServer = {
                             if (demoServerRunning) {
                                 viewModel.stopDemoServer()
@@ -299,6 +303,7 @@ fun App(
                                             val messages by session.messages.collectAsState()
                                             val wrapText by session.wrapText.collectAsState()
                                             val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
+                                            val latencyTrackingEnabled by session.latencyTrackingEnabled.collectAsState()
 
                                             FixMessageDisplay(
                                                 messages = messages,
@@ -312,6 +317,10 @@ fun App(
                                                 hideProtocolTags = viewModel.appSettings.hideProtocolTags,
                                                 gridViewColumns = viewModel.appSettings.gridViewColumns,
                                                 appSettings = viewModel.appSettings,
+                                                showLatencyColumn = latencyTrackingEnabled && viewModel.appSettings.showLatencyColumn,
+                                                getLatencyForMessage = if (latencyTrackingEnabled) { rawMessage -> session.getLatencyForMessage(rawMessage) } else null,
+                                                latencyWarningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
+                                                latencyCriticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
                                                 modifier = Modifier.weight(1f),
                                             )
                                         } ?: Box(
@@ -437,6 +446,80 @@ fun App(
                                             )
                                         }
                                     }
+
+                                    // Latency panel (if shown)
+                                    if (showLatencyPanel) {
+                                        // Resizable divider for latency panel
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .width(AppTheme.Separators.panelSeparatorWidth)
+                                                    .fillMaxHeight()
+                                                    .background(AppTheme.Separators.color)
+                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                    .pointerInput(maxWidthPx) {
+                                                        detectDragGestures { change, dragAmount ->
+                                                            change.consume()
+                                                            val newOffset =
+                                                                latencyPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                                            latencyPanelSplitRatio = newOffset.coerceIn(0.1f, 0.5f)
+                                                        }
+                                                    },
+                                        )
+
+                                        Box(
+                                            modifier =
+                                                Modifier.width(
+                                                    with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
+                                                ),
+                                        ) {
+                                            viewModel.activeSession?.let { session ->
+                                                val latencyTrackingService = session.getLatencyTrackingService()
+                                                val captureStatus by session.captureStatus.collectAsState()
+
+                                                if (latencyTrackingService != null) {
+                                                    val statistics by latencyTrackingService.statistics.collectAsState()
+                                                    val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
+                                                    val recentPairs by latencyTrackingService.recentPairs.collectAsState()
+                                                    val timestampSource by latencyTrackingService.timestampSource.collectAsState()
+
+                                                    LatencyPanel(
+                                                        statistics = statistics,
+                                                        aggregateStatistics = aggregateStatistics,
+                                                        recentPairs = recentPairs,
+                                                        captureStatus = captureStatus,
+                                                        timestampSource = timestampSource,
+                                                        warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
+                                                        criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
+                                                        onClear = { session.clearLatencyStatistics() },
+                                                        onClose = { viewModel.toggleLatencyPanel() },
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                } else {
+                                                    // Latency tracking not enabled for this session
+                                                    Box(
+                                                        modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) {
+                                                        Text(
+                                                            text = "Latency tracking not enabled.\nEnable it in Settings and reconnect.",
+                                                            color = AppTheme.Colors.textDisabled,
+                                                            fontSize = 12.sp,
+                                                        )
+                                                    }
+                                                }
+                                            } ?: Box(
+                                                modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    text = "No active session",
+                                                    color = AppTheme.Colors.textDisabled,
+                                                    fontSize = 12.sp,
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -449,8 +532,8 @@ fun App(
                                     SplitOrientation.VERTICAL
                                 }
 
-                            // Wrap content in split pane if detail panel, message editor, or connection panel is shown
-                            if (showDetailPanel || showMessageEditor || showConnectionPanel) {
+                            // Wrap content in split pane if detail panel, message editor, connection panel, or latency panel is shown
+                            if (showDetailPanel || showMessageEditor || showConnectionPanel || showLatencyPanel) {
                                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                                     val maxWidthPx = with(density) { maxWidth.toPx() }
 
@@ -628,6 +711,80 @@ fun App(
                                                     onClose = { viewModel.toggleConnectionPanel() },
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
+                                            }
+                                        }
+
+                                        // Latency panel (if shown)
+                                        if (showLatencyPanel) {
+                                            // Resizable divider for latency panel
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .width(AppTheme.Separators.panelSeparatorWidth)
+                                                        .fillMaxHeight()
+                                                        .background(AppTheme.Separators.color)
+                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                                                        .pointerInput(maxWidthPx) {
+                                                            detectDragGestures { change, dragAmount ->
+                                                                change.consume()
+                                                                val newOffset =
+                                                                    latencyPanelSplitRatio - (dragAmount.x / maxWidthPx)
+                                                                latencyPanelSplitRatio = newOffset.coerceIn(0.1f, 0.5f)
+                                                            }
+                                                        },
+                                            )
+
+                                            Box(
+                                                modifier =
+                                                    Modifier.width(
+                                                        with(density) { (maxWidthPx * latencyPanelSplitRatio).toDp() },
+                                                    ),
+                                            ) {
+                                                viewModel.activeSession?.let { session ->
+                                                    val latencyTrackingService = session.getLatencyTrackingService()
+                                                    val captureStatus by session.captureStatus.collectAsState()
+
+                                                    if (latencyTrackingService != null) {
+                                                        val statistics by latencyTrackingService.statistics.collectAsState()
+                                                        val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
+                                                        val recentPairs by latencyTrackingService.recentPairs.collectAsState()
+                                                        val timestampSource by latencyTrackingService.timestampSource.collectAsState()
+
+                                                        LatencyPanel(
+                                                            statistics = statistics,
+                                                            aggregateStatistics = aggregateStatistics,
+                                                            recentPairs = recentPairs,
+                                                            captureStatus = captureStatus,
+                                                            timestampSource = timestampSource,
+                                                            warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
+                                                            criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
+                                                            onClear = { session.clearLatencyStatistics() },
+                                                            onClose = { viewModel.toggleLatencyPanel() },
+                                                            modifier = Modifier.fillMaxSize(),
+                                                        )
+                                                    } else {
+                                                        // Latency tracking not enabled for this session
+                                                        Box(
+                                                            modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
+                                                            contentAlignment = Alignment.Center,
+                                                        ) {
+                                                            Text(
+                                                                text = "Latency tracking not enabled.\nEnable it in Settings and reconnect.",
+                                                                color = AppTheme.Colors.textDisabled,
+                                                                fontSize = 12.sp,
+                                                            )
+                                                        }
+                                                    }
+                                                } ?: Box(
+                                                    modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface),
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    Text(
+                                                        text = "No active session",
+                                                        color = AppTheme.Colors.textDisabled,
+                                                        fontSize = 12.sp,
+                                                    )
+                                                }
                                             }
                                         }
                                     }

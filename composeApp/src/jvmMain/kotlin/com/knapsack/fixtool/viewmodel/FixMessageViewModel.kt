@@ -85,6 +85,10 @@ class FixMessageViewModel(
     private val _showHelpDialog = MutableStateFlow(false)
     val showHelpDialog: StateFlow<Boolean> = _showHelpDialog.asStateFlow()
 
+    // Latency panel visibility
+    private val _showLatencyPanel = MutableStateFlow(false)
+    val showLatencyPanel: StateFlow<Boolean> = _showLatencyPanel.asStateFlow()
+
     // Global search across all sessions
     private val _showGlobalSearchDialog = MutableStateFlow(false)
     val showGlobalSearchDialog: StateFlow<Boolean> = _showGlobalSearchDialog.asStateFlow()
@@ -478,6 +482,10 @@ class FixMessageViewModel(
         _showHelpDialog.value = !_showHelpDialog.value
     }
 
+    fun toggleLatencyPanel() {
+        _showLatencyPanel.value = !_showLatencyPanel.value
+    }
+
     fun toggleGlobalSearchDialog() {
         _showGlobalSearchDialog.value = !_showGlobalSearchDialog.value
         // Clear results when closing
@@ -672,6 +680,18 @@ class FixMessageViewModel(
 
             // If disconnected or error, reconnect without switching session
             logger.info("Reconnecting session: {}", profile.name)
+
+            // Enable latency tracking if configured
+            if (_appSettings.value.enableLatencyTracking) {
+                existingSession.enableLatencyTracking(
+                    correlationTags = _appSettings.value.latencyCorrelationTags,
+                    historySize = _appSettings.value.latencyHistorySize,
+                    warningThresholdMicros = _appSettings.value.latencyWarningThresholdMicros,
+                    criticalThresholdMicros = _appSettings.value.latencyCriticalThresholdMicros,
+                    networkInterface = _appSettings.value.captureNetworkInterface.ifBlank { null },
+                )
+            }
+
             existingSession.connect(profile.config, _appSettings.value, _dictionary.value)
 
             // Auto-select profile in message editor if none is currently selected
@@ -686,6 +706,18 @@ class FixMessageViewModel(
             val session = createNewSession(profile.name)
             val newSessionIndex = _sessions.size - 1
             profileToSessionMap[profileId] = newSessionIndex
+
+            // Enable latency tracking if configured
+            if (_appSettings.value.enableLatencyTracking) {
+                session.enableLatencyTracking(
+                    correlationTags = _appSettings.value.latencyCorrelationTags,
+                    historySize = _appSettings.value.latencyHistorySize,
+                    warningThresholdMicros = _appSettings.value.latencyWarningThresholdMicros,
+                    criticalThresholdMicros = _appSettings.value.latencyCriticalThresholdMicros,
+                    networkInterface = _appSettings.value.captureNetworkInterface.ifBlank { null },
+                )
+            }
+
             session.connect(profile.config, _appSettings.value, _dictionary.value)
 
             // Auto-select profile in message editor if none is currently selected

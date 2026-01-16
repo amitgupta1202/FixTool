@@ -241,6 +241,11 @@ fun HierarchicalGridView(
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
+    // Latency tracking parameters
+    showLatencyColumn: Boolean = false,
+    getLatencyForMessage: ((String) -> Long?)? = null,
+    latencyWarningThresholdMicros: Long = 100_000L,
+    latencyCriticalThresholdMicros: Long = 500_000L,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -340,15 +345,18 @@ fun HierarchicalGridView(
 
     // Column width state management
     val originalWidths =
-        remember {
-            mapOf(
-                "Icon" to 40.dp,
-                "Time" to 120.dp,
-                "Dir" to 50.dp,
-                "SeqNum" to 70.dp,
-                "MsgType" to 100.dp,
-                "Summary" to 200.dp,
-            ) + gridViewColumns.associate { tag -> "Tag_$tag" to 120.dp }
+        remember(showLatencyColumn) {
+            val base =
+                mapOf(
+                    "Icon" to 40.dp,
+                    "Time" to 120.dp,
+                    "Dir" to 50.dp,
+                    "SeqNum" to 70.dp,
+                    "MsgType" to 100.dp,
+                    "Summary" to 200.dp,
+                )
+            val latencyWidth = if (showLatencyColumn) mapOf("Latency" to 90.dp) else emptyMap()
+            base + latencyWidth + gridViewColumns.associate { tag -> "Tag_$tag" to 120.dp }
         }
 
     val columnWidths =
@@ -895,6 +903,36 @@ fun HierarchicalGridView(
                     // Resize handle (always add after Summary for resizing functionality)
                     ResizeHandle("Summary", columnWidths)
 
+                    // Latency column (optional, shown when latency tracking is enabled)
+                    if (showLatencyColumn) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width(
+                                        if (gridViewColumns.isEmpty()) {
+                                            columnWidths["Latency"] ?: 90.dp
+                                        } else {
+                                            (columnWidths["Latency"] ?: 90.dp) - 1.dp
+                                        },
+                                    ).fillMaxHeight()
+                                    .border(0.5.dp, headerBorderColor)
+                                    .combinedClickable(
+                                        onDoubleClick = { toggleColumnWidth("Latency") },
+                                        onClick = {},
+                                    ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Latency",
+                                color = headerTextColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+
+                        ResizeHandle("Latency", columnWidths)
+                    }
+
                     // Dynamic columns for configured tags (moved after Summary)
                     gridViewColumns.forEachIndexed { index, tag ->
                         val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
@@ -994,6 +1032,10 @@ fun HierarchicalGridView(
                                             }
                                         },
                                         appSettings = appSettings,
+                                        showLatencyColumn = showLatencyColumn,
+                                        latencyMicros = getLatencyForMessage?.invoke(message.rawMessage),
+                                        latencyWarningThresholdMicros = latencyWarningThresholdMicros,
+                                        latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
                                     )
                                 }
 
@@ -1087,6 +1129,11 @@ fun MessageSummaryRow(
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
+    // Latency tracking parameters
+    showLatencyColumn: Boolean = false,
+    latencyMicros: Long? = null,
+    latencyWarningThresholdMicros: Long = 100_000L,
+    latencyCriticalThresholdMicros: Long = 500_000L,
 ) {
     // Extract top-level field values (excluding repeating groups)
     val columnValues =
@@ -1127,6 +1174,7 @@ fun MessageSummaryRow(
         }
 
     // Calculate minimum width needed for all columns
+    val latencyColumnWidth = if (showLatencyColumn) (columnWidths["Latency"] ?: 90.dp) else 0.dp
     val minWidth =
         24.dp + // Checkbox column
             (columnWidths["Icon"] ?: 40.dp) +
@@ -1135,6 +1183,7 @@ fun MessageSummaryRow(
             (columnWidths["SeqNum"] ?: 70.dp) +
             (columnWidths["MsgType"] ?: 100.dp) +
             (columnWidths["Summary"] ?: 200.dp) +
+            latencyColumnWidth +
             gridViewColumns.sumOf { tag -> (columnWidths["Tag_$tag"] ?: 120.dp).value.toInt() }.dp +
             200.dp // Extra space for spacer
 
@@ -1359,6 +1408,47 @@ fun MessageSummaryRow(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+            }
+
+            // Latency column (optional)
+            if (showLatencyColumn) {
+                Box(
+                    modifier =
+                        Modifier
+                            .width(columnWidths["Latency"] ?: 90.dp)
+                            .fillMaxHeight()
+                            .border(0.5.dp, cellBorderColor),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (latencyMicros != null) {
+                        val latencyColor =
+                            when {
+                                latencyMicros >= latencyCriticalThresholdMicros -> AppTheme.Colors.error
+                                latencyMicros >= latencyWarningThresholdMicros -> AppTheme.Colors.warning
+                                else -> AppTheme.Colors.primary
+                            }
+                        val latencyText =
+                            when {
+                                latencyMicros < 1000 -> "${latencyMicros}us"
+                                latencyMicros < 1_000_000 -> String.format("%.2fms", latencyMicros / 1000.0)
+                                else -> String.format("%.2fs", latencyMicros / 1_000_000.0)
+                            }
+                        Text(
+                            text = latencyText,
+                            color = latencyColor,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    } else {
+                        Text(
+                            text = "-",
+                            color = textSecondaryColor,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
                         )
                     }
                 }
@@ -2027,6 +2117,7 @@ private val separatorBackgroundColor = Color(0xFF2A2A2A) // Keep unique separato
 private val cellBorderColor = AppTheme.Colors.border
 private val tooltipBackgroundColor = AppTheme.Colors.border
 private val textPrimaryColor = AppTheme.Colors.text
+private val textSecondaryColor = AppTheme.Colors.textSecondary
 private val outgoingColor = AppTheme.Colors.messageOutgoing
 private val incomingColor = AppTheme.Colors.messageIncoming
 private val rejectionColor = AppTheme.Colors.messageRejection

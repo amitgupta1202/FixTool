@@ -181,6 +181,7 @@
             <li><a href="#search">6. Searching Messages</a></li>
             <li><a href="#filtering">7. Filtering Messages</a></li>
             <li><a href="#settings">8. Settings</a></li>
+            <li><a href="#latency">9. Latency Measurement</a></li>
         </ul>
     </div>
 
@@ -1207,6 +1208,211 @@ ${incoming["D"].valueOfTag(38)}
         <li>Add rules with message type and optional additional tag matching</li>
         <li>Default rules: 35=3 (Reject), 35=j (Business Reject), 35=9 (Order Cancel Reject)</li>
         <li>Add custom rules for your specific workflow</li>
+    </ul>
+
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+
+    <h2 id="latency">9. Latency Measurement</h2>
+
+    <h3>Overview</h3>
+    <p>FixTool can measure round-trip time (RTT) for FIX messages by correlating outbound requests with their corresponding inbound responses. This helps you analyze trading system performance and identify latency issues.</p>
+
+    <h3>How It Works</h3>
+    <p>Latency tracking correlates message pairs using standard FIX correlation IDs:</p>
+    <ul>
+        <li>When you <strong>send</strong> a message, FixTool records the timestamp and correlation ID</li>
+        <li>When a <strong>response</strong> arrives with a matching correlation ID, the round-trip time is calculated</li>
+        <li>Latency is displayed on the <strong>outbound message</strong> in the grid view</li>
+        <li>Each session tracks its own latency statistics independently</li>
+    </ul>
+
+    <h3>Supported Correlation IDs</h3>
+    <table>
+        <tr>
+            <th>Tag</th>
+            <th>Name</th>
+            <th>Typical Usage</th>
+        </tr>
+        <tr>
+            <td>11</td>
+            <td>ClOrdID</td>
+            <td>Order requests → Execution Reports</td>
+        </tr>
+        <tr>
+            <td>131</td>
+            <td>QuoteReqID</td>
+            <td>Quote Requests → Quotes</td>
+        </tr>
+        <tr>
+            <td>117</td>
+            <td>QuoteID</td>
+            <td>Quote responses</td>
+        </tr>
+        <tr>
+            <td>262</td>
+            <td>MDReqID</td>
+            <td>Market Data Requests → Market Data responses</td>
+        </tr>
+        <tr>
+            <td>37</td>
+            <td>OrderID</td>
+            <td>Order-related messages</td>
+        </tr>
+        <tr>
+            <td>17</td>
+            <td>ExecID</td>
+            <td>Execution Reports</td>
+        </tr>
+    </table>
+
+    <h3>Enabling Latency Tracking</h3>
+    <ol>
+        <li>Open <strong>Settings</strong> from the toolbar</li>
+        <li>In the <strong>Latency Tracking</strong> section, check <strong>Enable Latency Tracking</strong></li>
+        <li>Optionally check <strong>Show Latency Column</strong> to display RTT in the message grid</li>
+        <li>Click <strong>Save</strong></li>
+        <li><strong>Reconnect</strong> your session (latency tracking starts on connect)</li>
+    </ol>
+
+    <h3>Viewing Latency Data</h3>
+
+    <h4>Message Grid</h4>
+    <p>When enabled, a <strong>Latency</strong> column appears in the grid view showing round-trip time in microseconds (μs) for correlated outbound messages. The column uses color coding:</p>
+    <ul>
+        <li><span style="color: #4ec9b0;">Green</span> - Normal latency (below warning threshold)</li>
+        <li><span style="color: #dcdcaa;">Yellow</span> - Warning (above warning threshold, below critical)</li>
+        <li><span style="color: #f48771;">Red</span> - Critical (above critical threshold)</li>
+    </ul>
+
+    <h4>Latency Panel</h4>
+    <p>Click the <strong>Timer icon</strong> in the toolbar to open the Latency Panel, which shows:</p>
+    <ul>
+        <li><strong>Capture Status</strong> - Shows timestamp source (Packet or App-level)</li>
+        <li><strong>Aggregate Statistics</strong> - Combined stats across all correlation types</li>
+        <li><strong>Per-Type Statistics</strong> - Breakdown by correlation ID type (ClOrdID, QuoteReqID, etc.)</li>
+        <li><strong>Recent Correlations</strong> - Table of recent request/response pairs with RTT</li>
+    </ul>
+
+    <h3>Statistics Explained</h3>
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>Count</td>
+            <td>Number of correlated message pairs</td>
+        </tr>
+        <tr>
+            <td>Min</td>
+            <td>Fastest round-trip time observed</td>
+        </tr>
+        <tr>
+            <td>Max</td>
+            <td>Slowest round-trip time observed</td>
+        </tr>
+        <tr>
+            <td>Mean</td>
+            <td>Average round-trip time</td>
+        </tr>
+        <tr>
+            <td>Median (p50)</td>
+            <td>Middle value - 50% of requests are faster</td>
+        </tr>
+        <tr>
+            <td>p90</td>
+            <td>90th percentile - 90% of requests are faster</td>
+        </tr>
+        <tr>
+            <td>p95</td>
+            <td>95th percentile - 95% of requests are faster</td>
+        </tr>
+        <tr>
+            <td>p99</td>
+            <td>99th percentile - 99% of requests are faster</td>
+        </tr>
+        <tr>
+            <td>Std Dev</td>
+            <td>Standard deviation - measure of latency consistency</td>
+        </tr>
+    </table>
+
+    <div class="tip">
+        <strong>Tip:</strong> Percentiles are more useful than averages for understanding latency. A low p50 with a high p99 indicates occasional slow responses that averages would hide.
+    </div>
+
+    <h3>Timestamp Accuracy</h3>
+    <p>FixTool supports two timestamp sources with different accuracy levels:</p>
+
+    <h4>Packet-Level Timestamps (~10μs accuracy)</h4>
+    <p>Uses kernel-level packet capture via pcap4j library for the most accurate timing. This measures the actual network wire time, eliminating application processing overhead.</p>
+
+    <p><strong>Requirements:</strong></p>
+    <ul>
+        <li><strong>macOS:</strong> Add user to <code>access_bpf</code> group or run with <code>sudo</code></li>
+        <li><strong>Linux:</strong> Grant <code>CAP_NET_RAW</code> capability or run as root</li>
+        <li><strong>Windows:</strong> Run as Administrator with Npcap installed</li>
+    </ul>
+
+    <div class="example">
+        <h4>macOS Setup (Recommended)</h4>
+        <pre><code># Add current user to access_bpf group (one-time setup)
+sudo dseditgroup -o edit -a $(whoami) -t user access_bpf
+
+# Log out and log back in for changes to take effect</code></pre>
+    </div>
+
+    <h4>Application-Level Timestamps (~100μs accuracy)</h4>
+    <p>Fallback mode using Java <code>System.currentTimeMillis()</code>. This is automatically used when packet capture is unavailable. While less precise, it still provides useful latency measurements for most purposes.</p>
+
+    <p>The Latency Panel shows a badge indicating which timestamp source is active:</p>
+    <ul>
+        <li><span style="color: #4ec9b0; font-weight: bold;">Packet</span> - Using packet-level timestamps</li>
+        <li><span style="color: #dcdcaa; font-weight: bold;">App-level</span> - Using application timestamps (fallback)</li>
+    </ul>
+
+    <h3>Configurable Thresholds</h3>
+    <p>In Settings, you can configure latency thresholds:</p>
+    <ul>
+        <li><strong>Warning Threshold:</strong> Default 100,000μs (100ms) - latencies above this show in yellow</li>
+        <li><strong>Critical Threshold:</strong> Default 500,000μs (500ms) - latencies above this show in red</li>
+        <li><strong>History Size:</strong> Number of samples retained for statistics (default 10,000)</li>
+    </ul>
+
+    <h3>Clearing Statistics</h3>
+    <p>To reset latency statistics:</p>
+    <ul>
+        <li>Open the Latency Panel (Timer icon in toolbar)</li>
+        <li>Click the <strong>Clear/Trash</strong> icon button</li>
+        <li>This resets all statistics, pending correlations, and history for the current session</li>
+    </ul>
+
+    <div class="warning">
+        <strong>Note:</strong> Clearing messages from the session (via "Clear All") does <strong>not</strong> clear latency statistics. They are tracked independently.
+    </div>
+
+    <h3>Troubleshooting</h3>
+
+    <h4>Latency column shows empty</h4>
+    <ul>
+        <li>Ensure latency tracking is enabled in Settings</li>
+        <li>Reconnect the session after enabling</li>
+        <li>Latency only appears on <strong>outbound</strong> messages after a matching response arrives</li>
+        <li>Check that your messages contain supported correlation IDs</li>
+    </ul>
+
+    <h4>"App-level" badge shown instead of "Packet"</h4>
+    <ul>
+        <li>Packet capture requires elevated privileges (see requirements above)</li>
+        <li>On macOS, ensure you're in the <code>access_bpf</code> group and have logged out/in</li>
+        <li>App-level timestamps still provide useful measurements, just with lower precision</li>
+    </ul>
+
+    <h4>Statistics not updating</h4>
+    <ul>
+        <li>Ensure you're sending messages with correlation IDs (ClOrdID, QuoteReqID, etc.)</li>
+        <li>Verify responses contain matching correlation IDs</li>
+        <li>Check that both request and response occur within the same session</li>
     </ul>
 
     <hr style="margin: 40px 0; border: none; border-top: 2px solid #3c3c3c;">

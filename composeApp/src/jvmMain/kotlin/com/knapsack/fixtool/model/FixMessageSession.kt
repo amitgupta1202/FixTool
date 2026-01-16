@@ -416,15 +416,47 @@ class FixMessageSession(
             return
         }
 
-        val success = manager.startTracking(networkInterface, port)
+        // For TLS connections, skip packet capture entirely - encrypted payloads can't be parsed
+        // Use application-level timestamps instead
+        if (config.useSSL) {
+            _captureStatus.value = CaptureStatus.Fallback("TLS connection - using app-level timestamps")
+            logger.info(
+                "Latency tracking started for session {} on port {}: app-level (TLS encrypted)",
+                title,
+                port,
+            )
+            return
+        }
+
+        // Determine the effective network interface
+        // Use loopback (lo0) for localhost connections, otherwise use provided or auto-detect
+        val host = config.socketConnectHost.lowercase()
+        val effectiveInterface = networkInterface ?: if (isLocalhostAddress(host)) {
+            "lo0" // Use loopback for localhost connections
+        } else {
+            null // Let PacketCaptureService auto-detect
+        }
+
+        val success = manager.startTracking(effectiveInterface, port)
         _captureStatus.value = manager.captureStatus.value
 
         logger.info(
-            "Latency tracking started for session {} on port {}: {}",
+            "Latency tracking started for session {} on port {} (interface: {}): {}",
             title,
             port,
+            effectiveInterface ?: "auto",
             if (success) "packet capture" else "app-level fallback",
         )
+    }
+
+    /**
+     * Check if the host is a localhost address
+     */
+    private fun isLocalhostAddress(host: String): Boolean {
+        return host == "localhost" ||
+            host == "127.0.0.1" ||
+            host == "::1" ||
+            host.startsWith("127.")
     }
 
     /**

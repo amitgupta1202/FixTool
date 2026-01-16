@@ -57,6 +57,9 @@ kotlin {
             // Packet capture for latency measurement
             implementation("org.pcap4j:pcap4j-core:1.8.2")
             implementation("org.pcap4j:pcap4j-packetfactory-static:1.8.2")
+
+            // JNA with ARM64 support for Apple Silicon Macs
+            implementation("net.java.dev.jna:jna:5.14.0")
         }
     }
 }

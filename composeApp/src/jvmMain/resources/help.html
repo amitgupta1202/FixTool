@@ -1371,6 +1371,50 @@ sudo dseditgroup -o edit -a $(whoami) -t user access_bpf
         <li><span style="color: #dcdcaa; font-weight: bold;">App-level</span> - Using application timestamps (fallback)</li>
     </ul>
 
+    <h3>TLS/SSL Encrypted Connections</h3>
+
+    <div class="warning">
+        <strong>Limitation:</strong> Packet-level timestamps <strong>cannot</strong> work with TLS/SSL encrypted connections. When you enable SSL in the connection profile, FixTool automatically uses application-level timestamps.
+    </div>
+
+    <p><strong>Why?</strong> Packet capture sees the encrypted TCP packets, but the FIX message content inside is encrypted and unreadable. Without being able to parse the messages, correlation IDs cannot be extracted.</p>
+
+    <h4>Workaround: Using stunnel for Packet-Level Timestamps</h4>
+    <p>If you need packet-level accuracy (~10μs) for a TLS server, you can use <strong>stunnel</strong> as a local TLS proxy:</p>
+
+    <div class="example">
+        <h4>Architecture</h4>
+        <pre><code>FixTool → localhost:9876 (unencrypted) → stunnel → remote-server:443 (TLS)</code></pre>
+        <p>Packet capture on the loopback interface sees the <strong>unencrypted</strong> traffic between FixTool and stunnel.</p>
+    </div>
+
+    <div class="example">
+        <h4>stunnel Setup (macOS/Linux)</h4>
+        <pre><code># Install stunnel
+brew install stunnel   # macOS
+apt install stunnel    # Linux
+
+# Create config file: stunnel.conf
+[fix-proxy]
+client = yes
+accept = 127.0.0.1:9876
+connect = your-remote-server:443
+
+# Run stunnel
+stunnel stunnel.conf</code></pre>
+
+        <p>Then in FixTool:</p>
+        <ul>
+            <li>Set Host to <code>localhost</code> and Port to <code>9876</code></li>
+            <li>Disable SSL in the connection profile (stunnel handles encryption)</li>
+            <li>Packet capture will work on the unencrypted local traffic</li>
+        </ul>
+    </div>
+
+    <div class="tip">
+        <strong>Note:</strong> When using stunnel, the measured RTT includes stunnel's encryption/decryption overhead (typically &lt;1ms). For most use cases, this is negligible compared to network latency.
+    </div>
+
     <h3>Configurable Thresholds</h3>
     <p>In Settings, you can configure latency thresholds:</p>
     <ul>

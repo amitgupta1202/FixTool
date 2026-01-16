@@ -395,19 +395,19 @@ class LatencyTrackingManager(
     }
 
     /**
-     * Record a message using application-level timestamps (fallback mode).
-     * Called when packet capture is unavailable.
+     * Record a message using application-level timestamps.
+     * Always records as a fallback - useful when:
+     * - Packet capture is unavailable (permission issues)
+     * - Connection is TLS encrypted (packet payloads unreadable)
+     * - Packet capture misses messages for any reason
+     *
+     * When packet capture is working, it provides more accurate timestamps,
+     * but app-level timestamps ensure we always have latency data.
      */
     fun recordApplicationTimestamp(
         direction: PacketDirection,
         rawMessage: String,
     ) {
-        // Only record if we're in fallback mode
-        val status = _captureStatus.value
-        if (status !is CaptureStatus.Fallback && status !is CaptureStatus.Stopped) {
-            return
-        }
-
         // Parse message to extract correlation ID
         val messageType = extractTagValue(rawMessage, 35) ?: return
 

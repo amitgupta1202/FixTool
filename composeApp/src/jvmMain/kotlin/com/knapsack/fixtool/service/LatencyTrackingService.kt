@@ -413,20 +413,36 @@ class LatencyTrackingManager(
         rawMessage: String,
         captureTimeMicros: Long = 0L,
     ) {
-        // Parse message to extract correlation ID
+        // Parse message to extract message type
         val messageType = extractTagValue(rawMessage, 35) ?: return
 
+        // Use pre-captured timestamp if provided, otherwise capture now
+        val effectiveTimeMicros = if (captureTimeMicros > 0) {
+            captureTimeMicros
+        } else {
+            System.currentTimeMillis() * 1000 + (System.nanoTime() % 1_000_000) / 1000
+        }
+
+        // Handle Logon (35=A) specially - correlate outgoing with incoming
+        if (CorrelationIdType.isLogonMessage(messageType)) {
+            val timestamp = PacketTimestamp(
+                timestampMicros = effectiveTimeMicros,
+                direction = direction,
+                correlationId = LOGON_CORRELATION_ID,
+                correlationType = CorrelationIdType.LOGON,
+                messageType = messageType,
+                rawFixMessage = rawMessage,
+                source = TimestampSource.APPLICATION,
+            )
+            trackingService.recordPacket(timestamp)
+            return
+        }
+
+        // For other messages, use tag-based correlation
         for (tag in correlationTags) {
             val correlationId = extractTagValue(rawMessage, tag)
             if (!correlationId.isNullOrBlank()) {
                 val correlationType = CorrelationIdType.fromTag(tag) ?: continue
-
-                // Use pre-captured timestamp if provided, otherwise capture now
-                val effectiveTimeMicros = if (captureTimeMicros > 0) {
-                    captureTimeMicros
-                } else {
-                    System.currentTimeMillis() * 1000 + (System.nanoTime() % 1_000_000) / 1000
-                }
 
                 val timestamp = PacketTimestamp(
                     timestampMicros = effectiveTimeMicros,
@@ -442,6 +458,14 @@ class LatencyTrackingManager(
                 return
             }
         }
+    }
+
+    companion object {
+        /**
+         * Synthetic correlation ID for logon messages.
+         * Since logon doesn't have an explicit correlation tag, we use a fixed ID.
+         */
+        private const val LOGON_CORRELATION_ID = "SESSION_LOGON"
     }
 
     /**

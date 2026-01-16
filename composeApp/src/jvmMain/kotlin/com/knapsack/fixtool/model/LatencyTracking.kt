@@ -6,6 +6,13 @@ import kotlinx.serialization.Serializable
  * Correlation ID types for matching request/response FIX messages
  */
 enum class CorrelationIdType(val tag: Int, val displayName: String) {
+    /**
+     * Session-level logon correlation (35=A → 35=A).
+     * Uses synthetic correlation ID since logon has no explicit correlation tag.
+     * Tag -35 is a special marker (not a real FIX tag).
+     */
+    LOGON(-35, "Logon"),
+
     CL_ORD_ID(11, "ClOrdID"),
     QUOTE_REQ_ID(131, "QuoteReqID"),
     QUOTE_ID(117, "QuoteID"),
@@ -21,9 +28,14 @@ enum class CorrelationIdType(val tag: Int, val displayName: String) {
         fun fromTag(tag: Int): CorrelationIdType? = entries.find { it.tag == tag }
 
         /**
-         * Get all available tag numbers
+         * Get all available tag numbers (excludes special types like LOGON)
          */
-        fun allTags(): List<Int> = entries.map { it.tag }
+        fun allTags(): List<Int> = entries.filter { it.tag > 0 }.map { it.tag }
+
+        /**
+         * Check if a message type is a logon (35=A)
+         */
+        fun isLogonMessage(msgType: String): Boolean = msgType == "A"
     }
 }
 

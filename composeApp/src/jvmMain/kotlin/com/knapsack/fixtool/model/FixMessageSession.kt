@@ -486,6 +486,7 @@ class FixMessageSession(
         latencyTrackingManager?.recordApplicationTimestamp(
             direction = PacketDirection.SEND,
             rawMessage = message.rawMessage,
+            captureTimeMicros = message.captureTimeMicros,
         )
     }
 
@@ -496,6 +497,7 @@ class FixMessageSession(
         latencyTrackingManager?.recordApplicationTimestamp(
             direction = PacketDirection.RECEIVE,
             rawMessage = message.rawMessage,
+            captureTimeMicros = message.captureTimeMicros,
         )
     }
 

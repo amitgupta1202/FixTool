@@ -22,6 +22,12 @@ data class FixMessage(
     val rawMessage: String,
     val messageType: String = parseMessageType(rawMessage),
     val quickfixMessage: Message,
+    /**
+     * High-precision capture timestamp in microseconds since epoch.
+     * Captured at the QuickFIX/J callback layer for accurate latency measurement.
+     * Default of 0 indicates timestamp was not captured (backward compatibility).
+     */
+    val captureTimeMicros: Long = 0L,
 ) : AppMessage(timestamp) {
     enum class Direction {
         INCOMING,

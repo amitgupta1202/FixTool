@@ -403,10 +403,15 @@ class LatencyTrackingManager(
      *
      * When packet capture is working, it provides more accurate timestamps,
      * but app-level timestamps ensure we always have latency data.
+     *
+     * @param direction SEND or RECEIVE
+     * @param rawMessage The raw FIX message string
+     * @param captureTimeMicros Pre-captured timestamp from QuickFIX/J layer (0 = capture now)
      */
     fun recordApplicationTimestamp(
         direction: PacketDirection,
         rawMessage: String,
+        captureTimeMicros: Long = 0L,
     ) {
         // Parse message to extract correlation ID
         val messageType = extractTagValue(rawMessage, 35) ?: return
@@ -416,14 +421,22 @@ class LatencyTrackingManager(
             if (!correlationId.isNullOrBlank()) {
                 val correlationType = CorrelationIdType.fromTag(tag) ?: continue
 
-                val timestamp =
-                    createApplicationTimestamp(
-                        direction = direction,
-                        correlationId = correlationId,
-                        correlationType = correlationType,
-                        messageType = messageType,
-                        rawFixMessage = rawMessage,
-                    )
+                // Use pre-captured timestamp if provided, otherwise capture now
+                val effectiveTimeMicros = if (captureTimeMicros > 0) {
+                    captureTimeMicros
+                } else {
+                    System.currentTimeMillis() * 1000 + (System.nanoTime() % 1_000_000) / 1000
+                }
+
+                val timestamp = PacketTimestamp(
+                    timestampMicros = effectiveTimeMicros,
+                    direction = direction,
+                    correlationId = correlationId,
+                    correlationType = correlationType,
+                    messageType = messageType,
+                    rawFixMessage = rawMessage,
+                    source = TimestampSource.APPLICATION,
+                )
 
                 trackingService.recordPacket(timestamp)
                 return

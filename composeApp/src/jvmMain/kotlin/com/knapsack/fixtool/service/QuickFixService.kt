@@ -41,6 +41,13 @@ class QuickFixService(
     private val logger = NotifyingLogger(QuickFixService::class.java, onError)
     private var currentSessionID: SessionID? = null
 
+    /**
+     * Capture current time in microseconds for latency tracking.
+     * Called at the very start of QuickFIX/J callbacks for accurate timing.
+     */
+    private fun captureTimeMicros(): Long =
+        System.currentTimeMillis() * 1000 + (System.nanoTime() % 1_000_000) / 1000
+
     override fun onCreate(sessionId: SessionID) {
         logger.info("QuickFIX Session created: {}", sessionId)
         currentSessionID = sessionId
@@ -63,6 +70,9 @@ class QuickFixService(
      * Called for administrative messages (to admin) before they are sent
      */
     override fun toAdmin(message: Message, sessionId: SessionID) {
+        // Capture timestamp immediately for accurate latency tracking
+        val captureMicros = captureTimeMicros()
+
         // For Logon messages, add password if required
         try {
             val msgType = message.header.getString(35) // MsgType field
@@ -99,6 +109,7 @@ class QuickFixService(
                     direction = FixMessage.Direction.OUTGOING,
                     rawMessage = rawMessage,
                     quickfixMessage = message,
+                    captureTimeMicros = captureMicros,
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -110,6 +121,9 @@ class QuickFixService(
      * Called for administrative messages (from admin) received
      */
     override fun fromAdmin(message: Message, sessionId: SessionID) {
+        // Capture timestamp immediately for accurate latency tracking
+        val captureMicros = captureTimeMicros()
+
         // Route admin messages to the UI if needed
         try {
             val rawMessage = message.toRawFixMessage()
@@ -121,6 +135,7 @@ class QuickFixService(
                     rawMessage = rawMessage,
                     messageType = message.header.getString(35),
                     quickfixMessage = message,
+                    captureTimeMicros = captureMicros,
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -132,6 +147,9 @@ class QuickFixService(
      * Called for application messages before they are sent
      */
     override fun toApp(message: Message, sessionId: SessionID) {
+        // Capture timestamp immediately for accurate latency tracking
+        val captureMicros = captureTimeMicros()
+
         val rawMessage = message.toRawFixMessage()
         logger.info("QuickFIX toApp: {}", rawMessage)
 
@@ -143,6 +161,7 @@ class QuickFixService(
                     direction = FixMessage.Direction.OUTGOING,
                     rawMessage = rawMessage,
                     quickfixMessage = message,
+                    captureTimeMicros = captureMicros,
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -154,6 +173,9 @@ class QuickFixService(
      * Called for application messages received
      */
     override fun fromApp(message: Message, sessionId: SessionID) {
+        // Capture timestamp immediately for accurate latency tracking
+        val captureMicros = captureTimeMicros()
+
         val rawMessage = message.toString().toRawFixMessage()
         logger.info("QuickFIX fromApp: {}", rawMessage)
 
@@ -165,6 +187,7 @@ class QuickFixService(
                     direction = FixMessage.Direction.INCOMING,
                     rawMessage = rawMessage,
                     quickfixMessage = message,
+                    captureTimeMicros = captureMicros,
                 )
 
             // Route to the message handler

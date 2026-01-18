@@ -5,6 +5,29 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-01-18
+
+### ✨ Added
+
+#### FIX Message Latency Tracking
+- **Packet-level timestamp capture** for accurate latency measurement
+- **Latency displayed in message list** showing round-trip time for request/response pairs
+- **Logon latency tracking** (35=A → 35=A) to measure session establishment time
+- **Timestamps captured at QuickFIX/J callback layer** for minimal overhead
+- **Support for TLS and localhost connections** with improved accuracy
+
+#### Expandable Long Field Values
+- **Click-to-expand** for long tag values in the Message Detail Panel
+- Values longer than 50 characters show a `▼` indicator and are truncated with "..."
+- **Click to toggle** between collapsed (single line) and expanded (full content) views
+- Visual feedback with `▲`/`▼` indicators for expand/collapse state
+
+### 📝 Documentation
+
+- Added **Latency Measurement** section to help documentation explaining how latency tracking works
+
+---
+
 ## [1.0.3] - 2026-01-15
 
 ### ✨ Added

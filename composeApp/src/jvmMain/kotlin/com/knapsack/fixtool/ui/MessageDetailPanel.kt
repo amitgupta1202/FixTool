@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
@@ -64,6 +65,8 @@ fun MessageDetailPanel(
         run {
             // State for expanded groups (moved up to be accessible by toolbar buttons)
             var expandedGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+            // State for expanded field values (track by unique key: parentKey_tag)
+            var expandedFields by remember { mutableStateOf<Set<String>>(emptySet()) }
 
             Column(modifier = Modifier.fillMaxSize()) {
                 // Top border
@@ -245,6 +248,15 @@ fun MessageDetailPanel(
                                                         expandedGroups + key
                                                     }
                                             },
+                                            expandedFields = expandedFields,
+                                            onToggleField = { key ->
+                                                expandedFields =
+                                                    if (key in expandedFields) {
+                                                        expandedFields - key
+                                                    } else {
+                                                        expandedFields + key
+                                                    }
+                                            },
                                         )
                                     }
                                 }
@@ -421,12 +433,17 @@ fun MessageDetailPanel(
     }
 }
 
+// Threshold for considering a value "long" and expandable
+private const val LONG_VALUE_THRESHOLD = 50
+
 @Composable
 private fun FieldRow(
     tag: Int,
     value: String,
     dictionary: FixDictionary,
     indentLevel: Int = 0,
+    isExpanded: Boolean = false,
+    onToggleExpand: () -> Unit = {},
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
     val translation = dictionary.getFieldValueDescription(tag, value)
@@ -438,12 +455,22 @@ private fun FieldRow(
             value
         }
 
+    val isLongValue = displayValue.length > LONG_VALUE_THRESHOLD
+
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .background(fieldRowBackgroundColor)
+                .let { mod ->
+                    if (isLongValue) {
+                        mod.clickable { onToggleExpand() }
+                    } else {
+                        mod
+                    }
+                }
                 .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = if (isExpanded) Alignment.Top else Alignment.CenterVertically,
     ) {
         // Tag number
         Text(
@@ -467,16 +494,28 @@ private fun FieldRow(
 
         Spacer(modifier = Modifier.width(4.dp))
 
-        // Value
+        // Value with expand/collapse support
         Text(
             text = displayValue,
             color = fieldValueColor,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
-            softWrap = false,
-            maxLines = 1,
+            softWrap = isExpanded,
+            maxLines = if (isExpanded) Int.MAX_VALUE else 1,
+            overflow = if (isExpanded) TextOverflow.Visible else TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+
+        // Expand/collapse indicator for long values
+        if (isLongValue) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = if (isExpanded) "▲" else "▼",
+                color = expandIndicatorColor,
+                fontSize = 8.sp,
+                modifier = Modifier.padding(end = 4.dp),
+            )
+        }
     }
 }
 
@@ -553,6 +592,8 @@ private fun LazyListScope.renderQuickFixMessage(
     protocolTags: Set<Int>,
     expandedGroups: Set<String>,
     onToggleGroup: (String) -> Unit,
+    expandedFields: Set<String>,
+    onToggleField: (String) -> Unit,
     indentLevel: Int = 0,
     parentKey: String = "",
 ) {
@@ -565,6 +606,8 @@ private fun LazyListScope.renderQuickFixMessage(
         protocolTags = protocolTags,
         expandedGroups = expandedGroups,
         onToggleGroup = onToggleGroup,
+        expandedFields = expandedFields,
+        onToggleField = onToggleField,
         indentLevel = indentLevel,
         parentKey = parentKey,
     )
@@ -578,6 +621,8 @@ private fun LazyListScope.renderQuickFixMessage(
         protocolTags = protocolTags,
         expandedGroups = expandedGroups,
         onToggleGroup = onToggleGroup,
+        expandedFields = expandedFields,
+        onToggleField = onToggleField,
         indentLevel = indentLevel,
         parentKey = parentKey,
     )
@@ -591,6 +636,8 @@ private fun LazyListScope.renderQuickFixMessage(
         protocolTags = protocolTags,
         expandedGroups = expandedGroups,
         onToggleGroup = onToggleGroup,
+        expandedFields = expandedFields,
+        onToggleField = onToggleField,
         indentLevel = indentLevel,
         parentKey = parentKey,
     )
@@ -607,6 +654,8 @@ private fun LazyListScope.renderFieldMap(
     protocolTags: Set<Int>,
     expandedGroups: Set<String>,
     onToggleGroup: (String) -> Unit,
+    expandedFields: Set<String>,
+    onToggleField: (String) -> Unit,
     indentLevel: Int = 0,
     parentKey: String = "",
 ) {
@@ -623,6 +672,9 @@ private fun LazyListScope.renderFieldMap(
         }
 
         val value = field.getObject().toString()
+
+        // Create a unique key for this field (parentKey_tag)
+        val fieldKey = if (parentKey.isEmpty()) tag.toString() else "${parentKey}_$tag"
 
         // Check if this is a repeating group
         try {
@@ -692,8 +744,10 @@ private fun LazyListScope.renderFieldMap(
                                 protocolTags = protocolTags,
                                 expandedGroups = expandedGroups,
                                 onToggleGroup = onToggleGroup,
+                                expandedFields = expandedFields,
+                                onToggleField = onToggleField,
                                 indentLevel = indentLevel + 1,
-                                parentKey = groupKey,
+                                parentKey = "${groupKey}_$i",
                             )
                         } catch (e: Exception) {
                             // Skip invalid groups
@@ -715,6 +769,8 @@ private fun LazyListScope.renderFieldMap(
                         value = value,
                         dictionary = dictionary,
                         indentLevel = indentLevel,
+                        isExpanded = expandedFields.contains(fieldKey),
+                        onToggleExpand = { onToggleField(fieldKey) },
                     )
                 }
             }
@@ -733,6 +789,8 @@ private fun LazyListScope.renderFieldMap(
                     value = value,
                     dictionary = dictionary,
                     indentLevel = indentLevel,
+                    isExpanded = expandedFields.contains(fieldKey),
+                    onToggleExpand = { onToggleField(fieldKey) },
                 )
             }
         }
@@ -922,6 +980,7 @@ private val fieldNameColor = AppTheme.Colors.primary
 private val fieldValueColor = AppTheme.Colors.text
 private val groupHeaderTextColor = Color(0xFFD4A574) // Keep unique group header color
 private val groupInstanceTextColor = AppTheme.Colors.fieldValue
+private val expandIndicatorColor = AppTheme.Colors.textSecondary
 
 private val focusedBorderColor = AppTheme.Colors.primary
 private val unfocusedBorderColor = AppTheme.Colors.border

@@ -1128,6 +1128,8 @@ class FixMessageViewModel(
         }
 
         // Validate template expressions in field values (without incoming/outgoing context for Validate button)
+        // Use shared variables map so variables defined in earlier fields are available to later fields
+        val sharedVariables = mutableMapOf<String, String>()
         fields.forEach { field ->
             if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
                 val templateErrors =
@@ -1136,6 +1138,7 @@ class FixMessageViewModel(
                         // No incoming/outgoing context available in editor, but can still validate syntax
                         incomingMessages = emptyMap(),
                         outgoingMessages = emptyMap(),
+                        variables = sharedVariables,
                     )
                 templateErrors.forEach { error ->
                     _editorValidationErrors.add("Field ${field.tag}: $error")

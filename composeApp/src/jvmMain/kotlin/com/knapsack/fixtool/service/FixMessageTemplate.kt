@@ -502,6 +502,8 @@ object FixMessageTemplate {
      * @param value The string containing template expressions to validate
      * @param incomingMessages Map of latest incoming messages by type
      * @param outgoingMessages Map of latest outgoing messages by type
+     * @param variables Mutable map to store and retrieve variables across multiple validateExpressions() calls.
+     *                  If null, a new map is created for this call only.
      * @param dictionary Optional FIX data dictionary for tag name resolution in shorthand syntax
      * @return List of error messages, empty if all expressions are valid
      */
@@ -509,10 +511,11 @@ object FixMessageTemplate {
         value: String,
         incomingMessages: Map<String, FixMessage> = emptyMap(),
         outgoingMessages: Map<String, FixMessage> = emptyMap(),
+        variables: MutableMap<String, String>? = null,
         dictionary: FixDictionaryAdapter? = null,
     ): List<String> {
         val errors = mutableListOf<String>()
-        val vars = mutableMapOf<String, String>()
+        val vars = variables ?: mutableMapOf()
 
         // First validate shorthand syntax (fast check for unknown tag names)
         errors.addAll(ShorthandTemplateExpander.validateShorthand(value, dictionary))

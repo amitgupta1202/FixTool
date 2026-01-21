@@ -1348,6 +1348,75 @@ class FixMessageTemplateTest {
         assertTrue(errors.isEmpty(), "Valid repeating group access should not produce errors. Got: $errors")
     }
 
+    @Test
+    fun testValidateExpressions_SharedVariablesAcrossMultipleCalls() {
+        // Given: Multiple field values where first field defines a variable and second uses it
+        // This simulates how message editor validates fields sequentially
+        val field1Value = "\${ordId = UUID.randomUUID().toString()}"
+        val field2Value = "\${ordId}"
+
+        // When: Validating with a shared variables map (like validateEditorMessage does)
+        val sharedVariables = mutableMapOf<String, String>()
+        val errors1 = FixMessageTemplate.validateExpressions(field1Value, variables = sharedVariables)
+        val errors2 = FixMessageTemplate.validateExpressions(field2Value, variables = sharedVariables)
+
+        // Then: Both should validate without errors
+        assertTrue(errors1.isEmpty(), "Variable assignment should not produce errors. Got: $errors1")
+        assertTrue(errors2.isEmpty(), "Variable reference should not produce errors when shared map is used. Got: $errors2")
+        assertTrue(sharedVariables.containsKey("ordId"), "Variable should be stored in shared map")
+    }
+
+    @Test
+    fun testValidateExpressions_SharedVariablesWithShorthandUuid() {
+        // Given: Field with uuid shorthand assignment followed by field using that variable
+        val field1Value = "\${ordId = uuid}"
+        val field2Value = "\${ordId}"
+
+        // When: Validating with a shared variables map
+        val sharedVariables = mutableMapOf<String, String>()
+        val errors1 = FixMessageTemplate.validateExpressions(field1Value, variables = sharedVariables)
+        val errors2 = FixMessageTemplate.validateExpressions(field2Value, variables = sharedVariables)
+
+        // Then: Both should validate without errors
+        assertTrue(errors1.isEmpty(), "UUID shorthand assignment should not produce errors. Got: $errors1")
+        assertTrue(errors2.isEmpty(), "Variable reference should not produce errors. Got: $errors2")
+    }
+
+    @Test
+    fun testValidateExpressions_SharedVariablesWithTimestampOffset() {
+        // Given: Field with timestamp offset assignment followed by field using that variable
+        val field1Value = "\${expiry = now+1d}"
+        val field2Value = "\${expiry}"
+
+        // When: Validating with a shared variables map
+        val sharedVariables = mutableMapOf<String, String>()
+        val errors1 = FixMessageTemplate.validateExpressions(field1Value, variables = sharedVariables)
+        val errors2 = FixMessageTemplate.validateExpressions(field2Value, variables = sharedVariables)
+
+        // Then: Both should validate without errors
+        assertTrue(errors1.isEmpty(), "Timestamp offset assignment should not produce errors. Got: $errors1")
+        assertTrue(errors2.isEmpty(), "Variable reference should not produce errors. Got: $errors2")
+    }
+
+    @Test
+    fun testValidateExpressions_WithoutSharedVariables_FailsOnUndefined() {
+        // Given: Two separate validation calls WITHOUT shared variables
+        val field1Value = "\${ordId = UUID.randomUUID().toString()}"
+        val field2Value = "\${ordId}"
+
+        // When: Validating WITHOUT a shared variables map (old buggy behavior)
+        val errors1 = FixMessageTemplate.validateExpressions(field1Value)
+        val errors2 = FixMessageTemplate.validateExpressions(field2Value)
+
+        // Then: First field should pass, second should fail with undefined variable
+        assertTrue(errors1.isEmpty(), "Variable assignment should not produce errors")
+        assertTrue(errors2.isNotEmpty(), "Without shared variables, variable reference should fail")
+        assertTrue(
+            errors2.any { it.contains("Undefined variable") },
+            "Error should indicate undefined variable. Got: $errors2",
+        )
+    }
+
     // ========================================
     // Shorthand Syntax Integration Tests
     // ========================================

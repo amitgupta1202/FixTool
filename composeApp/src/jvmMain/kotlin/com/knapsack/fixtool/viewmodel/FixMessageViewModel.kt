@@ -1177,6 +1177,18 @@ class FixMessageViewModel(
                 fromIndex < _activeSessionIndex.value && toIndex >= _activeSessionIndex.value -> _activeSessionIndex.value--
                 fromIndex > _activeSessionIndex.value && toIndex <= _activeSessionIndex.value -> _activeSessionIndex.value++
             }
+
+            // Adjust profileToSessionMap indices to reflect the move
+            val updatedMap = profileToSessionMap.mapValues { (_, sessionIndex) ->
+                when {
+                    sessionIndex == fromIndex -> toIndex
+                    fromIndex < toIndex && sessionIndex > fromIndex && sessionIndex <= toIndex -> sessionIndex - 1
+                    fromIndex > toIndex && sessionIndex >= toIndex && sessionIndex < fromIndex -> sessionIndex + 1
+                    else -> sessionIndex
+                }
+            }
+            profileToSessionMap.clear()
+            profileToSessionMap.putAll(updatedMap)
         }
     }
 

@@ -362,4 +362,92 @@ class SessionEditorProfileSyncTest {
             )
         }
     }
+
+    // ========================================
+    // moveSession() Profile Mapping Tests
+    // ========================================
+
+    @Test
+    fun testMoveSessionLeftUpdatesProfileMapping() {
+        // Given: Three sessions with profiles at indices 0, 1, 2
+        val (profile1, _) = viewModel.createSessionWithProfileForTest("Profile 1")
+        val (profile2, _) = viewModel.createSessionWithProfileForTest("Profile 2")
+        val (profile3, _) = viewModel.createSessionWithProfileForTest("Profile 3")
+
+        // When: Move session from index 2 to index 0 (move left)
+        viewModel.moveSession(2, 0)
+
+        // Then: Selecting each index should show the correct profile
+        viewModel.setActiveSession(0)
+        assertEquals(profile3, viewModel.selectedEditorProfile.value) // Was at 2, now at 0
+
+        viewModel.setActiveSession(1)
+        assertEquals(profile1, viewModel.selectedEditorProfile.value) // Was at 0, now at 1
+
+        viewModel.setActiveSession(2)
+        assertEquals(profile2, viewModel.selectedEditorProfile.value) // Was at 1, now at 2
+    }
+
+    @Test
+    fun testMoveSessionRightUpdatesProfileMapping() {
+        // Given: Three sessions with profiles
+        val (profile1, _) = viewModel.createSessionWithProfileForTest("Profile 1")
+        val (profile2, _) = viewModel.createSessionWithProfileForTest("Profile 2")
+        val (profile3, _) = viewModel.createSessionWithProfileForTest("Profile 3")
+
+        // When: Move session from index 0 to index 2 (move right)
+        viewModel.moveSession(0, 2)
+
+        // Then: Profile mapping should be updated
+        viewModel.setActiveSession(0)
+        assertEquals(profile2, viewModel.selectedEditorProfile.value) // Was at 1, now at 0
+
+        viewModel.setActiveSession(1)
+        assertEquals(profile3, viewModel.selectedEditorProfile.value) // Was at 2, now at 1
+
+        viewModel.setActiveSession(2)
+        assertEquals(profile1, viewModel.selectedEditorProfile.value) // Was at 0, now at 2
+    }
+
+    @Test
+    fun testMultipleMovesMaintainProfileSync() {
+        // Given: Three sessions
+        val (profile1, _) = viewModel.createSessionWithProfileForTest("Profile 1")
+        val (profile2, _) = viewModel.createSessionWithProfileForTest("Profile 2")
+        val (profile3, _) = viewModel.createSessionWithProfileForTest("Profile 3")
+
+        // When: Multiple moves
+        viewModel.moveSession(0, 2) // [2,3,1] -> [3,1,2] in original profile order
+        viewModel.moveSession(2, 0) // Move back: [1,2,3] -> back to original
+
+        // Then: Should be back to original order
+        viewModel.setActiveSession(0)
+        assertEquals(profile1, viewModel.selectedEditorProfile.value)
+
+        viewModel.setActiveSession(1)
+        assertEquals(profile2, viewModel.selectedEditorProfile.value)
+
+        viewModel.setActiveSession(2)
+        assertEquals(profile3, viewModel.selectedEditorProfile.value)
+    }
+
+    @Test
+    fun testMoveSessionAdjacentSwap() {
+        // Given: Two sessions
+        val (profile1, _) = viewModel.createSessionWithProfileForTest("Profile 1")
+        val (profile2, _) = viewModel.createSessionWithProfileForTest("Profile 2")
+
+        viewModel.setActiveSession(0)
+        assertEquals(profile1, viewModel.selectedEditorProfile.value)
+
+        // When: Swap adjacent (move 0 to 1)
+        viewModel.moveSession(0, 1)
+
+        // Then: Profiles should swap
+        viewModel.setActiveSession(0)
+        assertEquals(profile2, viewModel.selectedEditorProfile.value)
+
+        viewModel.setActiveSession(1)
+        assertEquals(profile1, viewModel.selectedEditorProfile.value)
+    }
 }

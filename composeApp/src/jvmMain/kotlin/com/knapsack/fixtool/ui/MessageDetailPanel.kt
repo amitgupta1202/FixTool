@@ -468,8 +468,7 @@ private fun FieldRow(
                     } else {
                         mod
                     }
-                }
-                .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                }.padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = if (isExpanded) Alignment.Top else Alignment.CenterVertically,
     ) {
         // Tag number

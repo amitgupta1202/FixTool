@@ -4,7 +4,20 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
-import com.knapsack.fixtool.model.*
+import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.MessageEditorState
+import com.knapsack.fixtool.model.Notification
+import com.knapsack.fixtool.model.NotificationType
+import com.knapsack.fixtool.model.SavedFixField
+import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
@@ -60,6 +73,10 @@ class FixMessageViewModel(
     private val _dictionary = mutableStateOf(FixDictionaryAdapter.createDefault())
     val dictionary: FixDictionary
         get() = _dictionary.value
+
+    // Current FIX version based on loaded dictionary
+    val currentFixVersion: FixVersion
+        get() = (_dictionary.value as? FixDictionaryAdapter)?.fixVersion ?: FixVersion.DEFAULT
 
     // Global message selection state (shared across all panes/sessions)
     private val _selectedMessage = MutableStateFlow<FixMessage?>(null)
@@ -172,10 +189,10 @@ class FixMessageViewModel(
 
     // Track message editor state (new, clean, dirty)
     private val _editorState =
-        MutableStateFlow<com.knapsack.fixtool.model.MessageEditorState>(
-            com.knapsack.fixtool.model.MessageEditorState.New,
+        MutableStateFlow<MessageEditorState>(
+            MessageEditorState.New,
         )
-    val editorState: StateFlow<com.knapsack.fixtool.model.MessageEditorState> = _editorState
+    val editorState: StateFlow<MessageEditorState> = _editorState
 
     // Backwards compatibility: expose message name from editor state
     val currentLoadedMessageName: StateFlow<String?> =
@@ -206,8 +223,8 @@ class FixMessageViewModel(
     val editorValidationErrors: List<String> = _editorValidationErrors
 
     // Notification state
-    private val _notifications = mutableStateListOf<com.knapsack.fixtool.model.Notification>()
-    val notifications: List<com.knapsack.fixtool.model.Notification> = _notifications
+    private val _notifications = mutableStateListOf<Notification>()
+    val notifications: List<Notification> = _notifications
 
     // Data dictionary validation state
     private val _isDictionaryValid = MutableStateFlow(true)
@@ -260,52 +277,77 @@ class FixMessageViewModel(
 
     private fun loadDictionaryFromSettings() {
         try {
-            val dictionaryPath = _appSettings.value.defaultDataDictionary
-            if (dictionaryPath.isNotBlank()) {
-                val dictionaryFile = File(dictionaryPath)
-                if (dictionaryFile.exists()) {
-                    _dictionary.value = FixDictionaryAdapter.fromFile(dictionaryFile)
-                    logger.info("Loaded data dictionary for UI from: {}", dictionaryPath)
-                    _isDictionaryValid.value = true
-                    _dictionaryErrorMessage.value = null
-                } else {
-                    logger.warn("Data dictionary file not found: {}, falling back to bundled FIX 4.4", dictionaryPath)
-                    loadBundledDictionary()
-                }
+            val settings = _appSettings.value
+            if (settings.useBundledDictionary) {
+                // Use bundled dictionary for the configured FIX version
+                loadBundledDictionaryForVersion(settings.defaultFixVersion)
             } else {
-                // No custom dictionary configured - use bundled FIX 4.4 dictionary
-                logger.info("No custom data dictionary configured, using bundled FIX 4.4")
-                loadBundledDictionary()
+                // Use custom dictionary path
+                val dictionaryPath = settings.defaultDataDictionary
+                if (dictionaryPath.isNotBlank()) {
+                    val dictionaryFile = File(dictionaryPath)
+                    if (dictionaryFile.exists()) {
+                        _dictionary.value = FixDictionaryAdapter.fromFile(dictionaryFile)
+                        logger.info(
+                            "Loaded data dictionary for UI from: {} (detected version: {})",
+                            dictionaryPath,
+                            (_dictionary.value as? FixDictionaryAdapter)?.fixVersion?.displayName,
+                        )
+                        _isDictionaryValid.value = true
+                        _dictionaryErrorMessage.value = null
+                    } else {
+                        logger.warn(
+                            "Data dictionary file not found: {}, falling back to bundled {}",
+                            dictionaryPath,
+                            settings.defaultFixVersion.displayName,
+                        )
+                        loadBundledDictionaryForVersion(settings.defaultFixVersion)
+                    }
+                } else {
+                    // No custom dictionary configured - use bundled dictionary for default version
+                    logger.info("No custom data dictionary configured, using bundled {}", settings.defaultFixVersion.displayName)
+                    loadBundledDictionaryForVersion(settings.defaultFixVersion)
+                }
             }
         } catch (e: Exception) {
             _isDictionaryValid.value = false
             _dictionaryErrorMessage.value = "Failed to load data dictionary: ${e.message}"
             logger.error("Failed to load data dictionary: ${e.message}", e, notifyUser = true)
             // Try bundled dictionary as last resort
-            loadBundledDictionary()
+            loadBundledDictionaryForVersion(FixVersion.DEFAULT)
         }
     }
 
     /**
-     * Loads the bundled FIX 4.4 dictionary from classpath resources.
+     * Loads the bundled FIX dictionary for the default version.
      * This is used as the default when no custom dictionary is configured.
      */
     private fun loadBundledDictionary() {
+        loadBundledDictionaryForVersion(FixVersion.DEFAULT)
+    }
+
+    /**
+     * Loads the bundled FIX dictionary for a specific version.
+     * For FIX 5.0+, this also loads the FIXT.1.1 transport dictionary.
+     *
+     * @param version The FIX version to load
+     */
+    fun loadBundledDictionaryForVersion(version: FixVersion) {
         try {
-            _dictionary.value = FixDictionaryAdapter.fromResource()
+            _dictionary.value = FixDictionaryAdapter.forVersion(version)
             if (_dictionary.value.isLoaded()) {
-                logger.info("Loaded bundled FIX 4.4 dictionary")
+                logger.info("Loaded bundled ${version.displayName} dictionary")
                 _isDictionaryValid.value = true
                 _dictionaryErrorMessage.value = null
             } else {
-                logger.error("Failed to load bundled dictionary")
+                logger.error("Failed to load bundled ${version.displayName} dictionary")
                 _isDictionaryValid.value = false
-                _dictionaryErrorMessage.value = "Failed to load bundled FIX 4.4 dictionary"
+                _dictionaryErrorMessage.value = "Failed to load bundled ${version.displayName} dictionary"
             }
         } catch (e: Exception) {
-            logger.error("Failed to load bundled dictionary: ${e.message}", e)
+            logger.error("Failed to load bundled dictionary for ${version.displayName}: ${e.message}", e)
             _isDictionaryValid.value = false
-            _dictionaryErrorMessage.value = "Failed to load bundled dictionary: ${e.message}"
+            _dictionaryErrorMessage.value = "Failed to load bundled ${version.displayName} dictionary: ${e.message}"
         }
     }
 
@@ -315,7 +357,7 @@ class FixMessageViewModel(
     private fun validateDataDictionary() {
         if (!_isDictionaryValid.value) {
             val errorMsg = _dictionaryErrorMessage.value ?: "Data dictionary is not configured"
-            showNotification(errorMsg, com.knapsack.fixtool.model.NotificationType.ERROR)
+            showNotification(errorMsg, NotificationType.ERROR)
         }
     }
 
@@ -1088,9 +1130,9 @@ class FixMessageViewModel(
      */
     fun markEditorDirty() {
         val currentState = _editorState.value
-        if (currentState is com.knapsack.fixtool.model.MessageEditorState.Clean) {
+        if (currentState is MessageEditorState.Clean) {
             _editorState.value =
-                com.knapsack.fixtool.model.MessageEditorState.Dirty(
+                MessageEditorState.Dirty(
                     messageId = currentState.messageId,
                     messageName = currentState.messageName,
                     userTags = currentState.userTags,
@@ -1108,7 +1150,7 @@ class FixMessageViewModel(
             _editorSelectedIndices.add(0)
         }
         // Reset editor state to New when fields are cleared
-        _editorState.value = com.knapsack.fixtool.model.MessageEditorState.New
+        _editorState.value = MessageEditorState.New
     }
 
     /**
@@ -1143,7 +1185,7 @@ class FixMessageViewModel(
     /**
      * Returns the current data dictionary adapter for template expression evaluation.
      */
-    fun getDictionaryAdapter(): com.knapsack.fixtool.model.FixDictionaryAdapter = _dictionary.value
+    fun getDictionaryAdapter(): FixDictionaryAdapter = _dictionary.value
 
     fun validateEditorMessage(fields: List<FixField>): List<String> {
         _editorValidationErrors.clear()
@@ -1207,14 +1249,15 @@ class FixMessageViewModel(
             }
 
             // Adjust profileToSessionMap indices to reflect the move
-            val updatedMap = profileToSessionMap.mapValues { (_, sessionIndex) ->
-                when {
-                    sessionIndex == fromIndex -> toIndex
-                    fromIndex < toIndex && sessionIndex > fromIndex && sessionIndex <= toIndex -> sessionIndex - 1
-                    fromIndex > toIndex && sessionIndex >= toIndex && sessionIndex < fromIndex -> sessionIndex + 1
-                    else -> sessionIndex
+            val updatedMap =
+                profileToSessionMap.mapValues { (_, sessionIndex) ->
+                    when {
+                        sessionIndex == fromIndex -> toIndex
+                        fromIndex < toIndex && sessionIndex > fromIndex && sessionIndex <= toIndex -> sessionIndex - 1
+                        fromIndex > toIndex && sessionIndex >= toIndex && sessionIndex < fromIndex -> sessionIndex + 1
+                        else -> sessionIndex
+                    }
                 }
-            }
             profileToSessionMap.clear()
             profileToSessionMap.putAll(updatedMap)
         }
@@ -1292,8 +1335,8 @@ class FixMessageViewModel(
         val currentState = _editorState.value
         val savedMessage =
             when (currentState) {
-                is com.knapsack.fixtool.model.MessageEditorState.Clean,
-                is com.knapsack.fixtool.model.MessageEditorState.Dirty,
+                is MessageEditorState.Clean,
+                is MessageEditorState.Dirty,
                 -> {
                     // Update existing message - preserve ID and createdAt
                     val existingId = currentState.messageIdOrNull()!!
@@ -1308,7 +1351,7 @@ class FixMessageViewModel(
                         version = (existing?.version ?: 0) + 1,
                     )
                 }
-                is com.knapsack.fixtool.model.MessageEditorState.New -> {
+                is MessageEditorState.New -> {
                     // Create new message with new ID
                     SavedFixMessage(
                         name = name,
@@ -1326,7 +1369,7 @@ class FixMessageViewModel(
 
                 // Update editor state to Clean after successful save
                 _editorState.value =
-                    com.knapsack.fixtool.model.MessageEditorState.Clean(
+                    MessageEditorState.Clean(
                         messageId = savedMessage.id,
                         messageName = savedMessage.name,
                         userTags = savedMessage.getAllUserTags(),
@@ -1365,7 +1408,7 @@ class FixMessageViewModel(
 
                 // Update editor state to Clean with the new message ID
                 _editorState.value =
-                    com.knapsack.fixtool.model.MessageEditorState.Clean(
+                    MessageEditorState.Clean(
                         messageId = savedMessage.id,
                         messageName = savedMessage.name,
                         userTags = savedMessage.getAllUserTags(),
@@ -1399,7 +1442,7 @@ class FixMessageViewModel(
 
         // Set editor state to Clean (message loaded, unmodified)
         _editorState.value =
-            com.knapsack.fixtool.model.MessageEditorState.Clean(
+            MessageEditorState.Clean(
                 messageId = savedMessage.id,
                 messageName = savedMessage.name,
                 userTags = savedMessage.getAllUserTags(),
@@ -1490,7 +1533,7 @@ class FixMessageViewModel(
                 // Clear editor state if we just deleted the currently loaded message
                 val currentMessageId = _editorState.value.messageIdOrNull()
                 if (currentMessageId == messageId) {
-                    _editorState.value = com.knapsack.fixtool.model.MessageEditorState.New
+                    _editorState.value = MessageEditorState.New
                 }
             }.onFailure { error ->
                 logger.error("Failed to delete message: ${error.message}", error)
@@ -1532,11 +1575,11 @@ class FixMessageViewModel(
      */
     fun showNotification(
         message: String,
-        type: com.knapsack.fixtool.model.NotificationType = com.knapsack.fixtool.model.NotificationType.ERROR,
+        type: NotificationType = NotificationType.ERROR,
     ) {
         logger.info("Showing notification: [$type] $message")
         val notification =
-            com.knapsack.fixtool.model.Notification(
+            Notification(
                 message = message,
                 type = type,
             )
@@ -1576,16 +1619,18 @@ class FixMessageViewModel(
      * @return Pair of the created profile and session
      */
     fun createSessionWithProfileForTest(profileName: String): Pair<FixConnectionProfile, FixMessageSession> {
-        val profile = FixConnectionProfile(
-            name = profileName,
-            config = FixConnectionConfig(
-                host = "localhost",
-                port = "9876",
-                senderCompID = "TEST_SENDER",
-                targetCompID = "TEST_TARGET",
-                beginString = "FIX.4.4",
-            ),
-        )
+        val profile =
+            FixConnectionProfile(
+                name = profileName,
+                config =
+                    FixConnectionConfig(
+                        host = "localhost",
+                        port = "9876",
+                        senderCompID = "TEST_SENDER",
+                        targetCompID = "TEST_TARGET",
+                        beginString = "FIX.4.4",
+                    ),
+            )
         _connectionProfiles.add(profile)
 
         val session = createNewSession(profileName)

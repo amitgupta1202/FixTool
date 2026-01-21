@@ -1,5 +1,7 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixVersion
 import quickfix.DataDictionary
 import quickfix.FieldMap
 import quickfix.Group
@@ -25,8 +27,14 @@ object FixMessageHelper {
      *
      * The implementation uses delimiter tracking and ancestor delimiter awareness to correctly
      * handle groups within groups (e.g., NoPartySubIDs within NoPartyIDs within NoOrders).
+     *
+     * @param dataDictionary The FIX data dictionary for parsing
+     * @param fixVersion The FIX version to use for header/trailer tag detection (defaults to FIX 4.4)
      */
-    fun String.toQuickFixMessageManual(dataDictionary: DataDictionary): Message {
+    fun String.toQuickFixMessageManual(
+        dataDictionary: DataDictionary,
+        fixVersion: FixVersion = FixVersion.DEFAULT,
+    ): Message {
         // Parse message into tag-value pairs
         val fields = parseFixMessage(this)
 
@@ -39,14 +47,16 @@ object FixMessageHelper {
         val message = Message()
         message.header.setString(MsgType.FIELD, msgTypeValue)
 
-        // Process header fields (tags 8, 9, 35, 49, 56, etc.)
-        val headerTags = setOf(8, 9, 35, 49, 56, 34, 43, 52, 122, 212, 213, 347, 369, 627, 628, 629, 630)
+        // Use version-aware header/trailer tags
+        val headerTags = FixVersion.getHeaderTags(fixVersion)
+        val trailerTags = FixVersion.getTrailerTags(fixVersion)
+
+        // Process header fields
         fields.filter { it.first in headerTags }.forEach { (tag, value) ->
             message.header.setString(tag, value)
         }
 
-        // Process trailer fields (tag 10)
-        val trailerTags = setOf(10, 93, 89)
+        // Process trailer fields
         fields.filter { it.first in trailerTags }.forEach { (tag, value) ->
             message.trailer.setString(tag, value)
         }
@@ -56,6 +66,17 @@ object FixMessageHelper {
         processFields(bodyFields, 0, message, dataDictionary, msgTypeValue)
 
         return message
+    }
+
+    /**
+     * Manually constructs a QuickFIX Message from a raw FIX string using a FixDictionaryAdapter.
+     * This is a convenience method that extracts version information from the adapter.
+     */
+    fun String.toQuickFixMessageManual(dictionaryAdapter: FixDictionaryAdapter): Message {
+        val dataDictionary =
+            dictionaryAdapter.getDataDictionary()
+                ?: throw IllegalStateException("No data dictionary loaded in adapter")
+        return this.toQuickFixMessageManual(dataDictionary, dictionaryAdapter.fixVersion)
     }
 
     /**

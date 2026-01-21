@@ -27,7 +27,7 @@ object DemoServerManager {
     // Service for managing saved messages (templates)
     private val savedMessagesService by lazy {
         SavedMessagesService(
-            onError = { errorMsg -> logger.error("SavedMessagesService error: {}", errorMsg) }
+            onError = { errorMsg -> logger.error("SavedMessagesService error: {}", errorMsg) },
         )
     }
 
@@ -88,18 +88,19 @@ object DemoServerManager {
             FixConnectionProfile(
                 id = "$DEMO_PROFILE_PREFIX$clientId",
                 name = "Demo User ${index + 1}",
-                config = FixConnectionConfig(
-                    senderCompID = clientId,
-                    targetCompID = "DEMO_SERVER",
-                    host = "localhost",
-                    port = "19876",
-                    beginString = "FIX.4.4",
-                    heartBtInt = "30",
-                    resetOnLogon = true,
-                    resetOnLogout = false,
-                    resetOnDisconnect = false,
-                    connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
-                ),
+                config =
+                    FixConnectionConfig(
+                        senderCompID = clientId,
+                        targetCompID = "DEMO_SERVER",
+                        host = "localhost",
+                        port = "19876",
+                        beginString = "FIX.4.4",
+                        heartBtInt = "30",
+                        resetOnLogon = true,
+                        resetOnLogout = false,
+                        resetOnDisconnect = false,
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                    ),
             )
         }
 
@@ -112,11 +113,11 @@ object DemoServerManager {
         templates.forEach { template ->
             // Use the first profile ID for saving (templates are associated with all profiles via userTags)
             val firstProfileId = profileIds.firstOrNull() ?: return@forEach
-            savedMessagesService.saveMessage(firstProfileId, template)
+            savedMessagesService
+                .saveMessage(firstProfileId, template)
                 .onSuccess {
                     logger.debug("Created demo template: {}", template.name)
-                }
-                .onFailure { error ->
+                }.onFailure { error ->
                     logger.error("Failed to create demo template {}: {}", template.name, error.message)
                 }
         }
@@ -138,12 +139,12 @@ object DemoServerManager {
         templateIds.forEach { templateId ->
             // Need a profile ID for the delete operation
             val profileId = "$DEMO_PROFILE_PREFIX${DemoFixServer.DEMO_CLIENTS.first()}"
-            savedMessagesService.deleteMessage(profileId, templateId)
+            savedMessagesService
+                .deleteMessage(profileId, templateId)
                 .onSuccess {
                     deletedCount++
                     logger.debug("Deleted demo template: {}", templateId)
-                }
-                .onFailure { error ->
+                }.onFailure { error ->
                     // Template might not exist, which is fine
                     logger.debug("Could not delete demo template {}: {}", templateId, error.message)
                 }

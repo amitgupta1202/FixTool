@@ -287,14 +287,15 @@ object ShorthandTemplateExpander {
      * Handles units: h (hours), d (days), w (weeks), m (months), y (years)
      */
     private fun expandTimestampWithOffset(sign: String, amount: Long, unit: String, pattern: String?): String {
-        val method = when (unit.lowercase()) {
-            "h" -> if (sign == "+") "plusHours" else "minusHours"
-            "d" -> if (sign == "+") "plusDays" else "minusDays"
-            "w" -> if (sign == "+") "plusWeeks" else "minusWeeks"
-            "m" -> if (sign == "+") "plusMonths" else "minusMonths"
-            "y" -> if (sign == "+") "plusYears" else "minusYears"
-            else -> error("Unknown time unit: $unit")
-        }
+        val method =
+            when (unit.lowercase()) {
+                "h" -> if (sign == "+") "plusHours" else "minusHours"
+                "d" -> if (sign == "+") "plusDays" else "minusDays"
+                "w" -> if (sign == "+") "plusWeeks" else "minusWeeks"
+                "m" -> if (sign == "+") "plusMonths" else "minusMonths"
+                "y" -> if (sign == "+") "plusYears" else "minusYears"
+                else -> error("Unknown time unit: $unit")
+            }
         val formatPattern = pattern ?: "yyyyMMdd-HH:mm:ss.SSS"
         return """LocalDateTime.now().$method($amount).format(DateTimeFormatter.ofPattern("$formatPattern"))"""
     }

@@ -28,8 +28,6 @@ import org.pcap4j.packet.IpV6Packet
 import org.pcap4j.packet.Packet
 import org.pcap4j.packet.TcpPacket
 import org.slf4j.LoggerFactory
-import java.net.Inet4Address
-import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.concurrent.ConcurrentHashMap
 
@@ -78,8 +76,8 @@ class PacketCaptureService(
          * Check if packet capture is available on this system.
          * Returns a pair of (available, reason) where reason is null if available.
          */
-        fun checkAvailability(): Pair<Boolean, String?> {
-            return try {
+        fun checkAvailability(): Pair<Boolean, String?> =
+            try {
                 val interfaces = Pcaps.findAllDevs()
                 if (interfaces.isEmpty()) {
                     Pair(false, "No network interfaces found")
@@ -103,14 +101,13 @@ class PacketCaptureService(
             } catch (e: Exception) {
                 Pair(false, "Packet capture unavailable: ${e.message}")
             }
-        }
     }
 
     /**
      * Get list of available network interfaces for capture
      */
-    fun getAvailableInterfaces(): List<NetworkInterfaceInfo> {
-        return try {
+    fun getAvailableInterfaces(): List<NetworkInterfaceInfo> =
+        try {
             Pcaps.findAllDevs().map { nif ->
                 NetworkInterfaceInfo(
                     name = nif.name,
@@ -127,7 +124,6 @@ class PacketCaptureService(
             logger.warn("Failed to enumerate network interfaces: ${e.message}")
             emptyList()
         }
-    }
 
     /**
      * Auto-detect the best network interface for FIX traffic capture.
@@ -139,7 +135,8 @@ class PacketCaptureService(
         // Prefer non-loopback interfaces with IPv4 addresses
         return interfaces
             .filter { !it.isLoopback && it.addresses.any { addr -> !addr.contains(":") } }
-            .maxByOrNull { it.addresses.size }?.name
+            .maxByOrNull { it.addresses.size }
+            ?.name
             ?: interfaces.firstOrNull()?.name
     }
 
@@ -478,13 +475,12 @@ class PacketCaptureService(
     /**
      * Get the current timestamp source being used
      */
-    fun getCurrentTimestampSource(): TimestampSource {
-        return when (val s = _status.value) {
+    fun getCurrentTimestampSource(): TimestampSource =
+        when (val s = _status.value) {
             is CaptureStatus.Running -> s.source
             is CaptureStatus.Fallback -> TimestampSource.APPLICATION
             else -> TimestampSource.APPLICATION
         }
-    }
 
     /**
      * Check if capture is currently running
@@ -502,8 +498,8 @@ fun createApplicationTimestamp(
     correlationType: CorrelationIdType,
     messageType: String,
     rawFixMessage: String,
-): PacketTimestamp {
-    return PacketTimestamp(
+): PacketTimestamp =
+    PacketTimestamp(
         timestampMicros = System.currentTimeMillis() * 1000 + (System.nanoTime() % 1_000_000) / 1000,
         direction = direction,
         correlationId = correlationId,
@@ -512,4 +508,3 @@ fun createApplicationTimestamp(
         rawFixMessage = rawFixMessage,
         source = TimestampSource.APPLICATION,
     )
-}

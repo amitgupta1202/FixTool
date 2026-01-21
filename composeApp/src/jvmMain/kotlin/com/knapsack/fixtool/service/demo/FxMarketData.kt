@@ -9,11 +9,11 @@ import kotlin.random.Random
  */
 data class FxQuote(
     val symbol: String,
-    val bidPx: Double,      // Best bid price
-    val askPx: Double,      // Best ask (offer) price
-    val bidSize: Double,    // Size at bid
-    val askSize: Double,    // Size at ask
-    val timestamp: Long = System.currentTimeMillis()
+    val bidPx: Double, // Best bid price
+    val askPx: Double, // Best ask (offer) price
+    val bidSize: Double, // Size at bid
+    val askSize: Double, // Size at ask
+    val timestamp: Long = System.currentTimeMillis(),
 ) {
     val midPx: Double get() = (bidPx + askPx) / 2
     val spread: Double get() = askPx - bidPx
@@ -131,7 +131,7 @@ class FxMarketData {
             bidPx = roundPrice(midPrice - halfSpread, pair),
             askPx = roundPrice(midPrice + halfSpread, pair),
             bidSize = Random.nextDouble(100000.0, 1000000.0),
-            askSize = Random.nextDouble(100000.0, 1000000.0)
+            askSize = Random.nextDouble(100000.0, 1000000.0),
         )
     }
 
@@ -156,7 +156,7 @@ class FxMarketData {
             bidPx = roundPrice(newMid - halfSpread, pair),
             askPx = roundPrice(newMid + halfSpread, pair),
             bidSize = bidSize.coerceIn(50000.0, 2000000.0),
-            askSize = askSize.coerceIn(50000.0, 2000000.0)
+            askSize = askSize.coerceIn(50000.0, 2000000.0),
         )
     }
 

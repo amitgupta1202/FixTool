@@ -2,7 +2,6 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -301,7 +300,11 @@ private fun StatisticsCard(
         ) {
             StatValue("Min", stats.formatMicros(stats.minMicros), AppTheme.Colors.text)
             StatValue("Max", stats.formatMicros(stats.maxMicros), getLatencyColor(stats.maxMicros, warningThresholdMicros, criticalThresholdMicros))
-            StatValue("Mean", stats.formatMicros(stats.meanMicros), getLatencyColor(stats.meanMicros.toLong(), warningThresholdMicros, criticalThresholdMicros))
+            StatValue(
+                "Mean",
+                stats.formatMicros(stats.meanMicros),
+                getLatencyColor(stats.meanMicros.toLong(), warningThresholdMicros, criticalThresholdMicros),
+            )
             StatValue("Median", stats.formatMicros(stats.medianMicros), AppTheme.Colors.text)
         }
 
@@ -432,7 +435,13 @@ private fun RecentCorrelationsTable(
                     .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
             Text("Type", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(0.8f))
-            Text("Correlation ID", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1.2f))
+            Text(
+                "Correlation ID",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = AppTheme.Colors.textSecondary,
+                modifier = Modifier.weight(1.2f),
+            )
             Text("Send Time", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
             Text("Recv Time", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
             Text("RTT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(0.8f))
@@ -561,21 +570,19 @@ private fun getLatencyColor(
     micros: Long,
     warningThreshold: Long,
     criticalThreshold: Long,
-): Color {
-    return when {
+): Color =
+    when {
         micros >= criticalThreshold -> AppTheme.Colors.error
         micros >= warningThreshold -> AppTheme.Colors.warning
         else -> AppTheme.Colors.primary
     }
-}
 
 /**
  * Get color from severity enum
  */
-private fun getLatencyColorFromSeverity(severity: LatencySeverity): Color {
-    return when (severity) {
+private fun getLatencyColorFromSeverity(severity: LatencySeverity): Color =
+    when (severity) {
         LatencySeverity.CRITICAL -> AppTheme.Colors.error
         LatencySeverity.WARNING -> AppTheme.Colors.warning
         LatencySeverity.NORMAL -> AppTheme.Colors.primary
     }
-}

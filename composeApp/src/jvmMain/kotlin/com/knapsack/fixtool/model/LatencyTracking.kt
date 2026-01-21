@@ -5,7 +5,10 @@ import kotlinx.serialization.Serializable
 /**
  * Correlation ID types for matching request/response FIX messages
  */
-enum class CorrelationIdType(val tag: Int, val displayName: String) {
+enum class CorrelationIdType(
+    val tag: Int,
+    val displayName: String,
+) {
     /**
      * Session-level logon correlation (35=A → 35=A).
      * Uses synthetic correlation ID since logon has no explicit correlation tag.
@@ -50,7 +53,10 @@ enum class PacketDirection {
 /**
  * Timestamp source indicating the accuracy level
  */
-enum class TimestampSource(val displayName: String, val accuracyDescription: String) {
+enum class TimestampSource(
+    val displayName: String,
+    val accuracyDescription: String,
+) {
     PACKET("Packet", "~10μs"),
     APPLICATION("App-level", "~100μs"),
 }
@@ -229,7 +235,17 @@ data class NetworkInterfaceInfo(
  */
 sealed class CaptureStatus {
     data object Stopped : CaptureStatus()
-    data class Running(val source: TimestampSource, val interfaceName: String) : CaptureStatus()
-    data class Error(val message: String) : CaptureStatus()
-    data class Fallback(val reason: String) : CaptureStatus()
+
+    data class Running(
+        val source: TimestampSource,
+        val interfaceName: String,
+    ) : CaptureStatus()
+
+    data class Error(
+        val message: String,
+    ) : CaptureStatus()
+
+    data class Fallback(
+        val reason: String,
+    ) : CaptureStatus()
 }

@@ -1,10 +1,10 @@
 package com.knapsack.fixtool.model
 
+// Latency tracking model imports are in this package (CaptureStatus, PacketDirection, TimestampSource)
 import com.knapsack.fixtool.service.FixConnectionManager
 import com.knapsack.fixtool.service.LatencyTrackingManager
 import com.knapsack.fixtool.service.QuickFixService
 import com.knapsack.fixtool.util.NotifyingLogger
-// Latency tracking model imports are in this package (CaptureStatus, PacketDirection, TimestampSource)
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -431,11 +431,12 @@ class FixMessageSession(
         // Determine the effective network interface
         // Use loopback (lo0) for localhost connections, otherwise use provided or auto-detect
         val host = config.socketConnectHost.lowercase()
-        val effectiveInterface = networkInterface ?: if (isLocalhostAddress(host)) {
-            "lo0" // Use loopback for localhost connections
-        } else {
-            null // Let PacketCaptureService auto-detect
-        }
+        val effectiveInterface =
+            networkInterface ?: if (isLocalhostAddress(host)) {
+                "lo0" // Use loopback for localhost connections
+            } else {
+                null // Let PacketCaptureService auto-detect
+            }
 
         val success = manager.startTracking(effectiveInterface, port)
         _captureStatus.value = manager.captureStatus.value
@@ -452,12 +453,11 @@ class FixMessageSession(
     /**
      * Check if the host is a localhost address
      */
-    private fun isLocalhostAddress(host: String): Boolean {
-        return host == "localhost" ||
+    private fun isLocalhostAddress(host: String): Boolean =
+        host == "localhost" ||
             host == "127.0.0.1" ||
             host == "::1" ||
             host.startsWith("127.")
-    }
 
     /**
      * Stop latency tracking (called when session disconnects)
@@ -475,9 +475,7 @@ class FixMessageSession(
     /**
      * Get latency for a specific message (for grid display)
      */
-    fun getLatencyForMessage(rawMessage: String): Long? {
-        return latencyTrackingManager?.trackingService?.getLatencyForMessage(rawMessage)
-    }
+    fun getLatencyForMessage(rawMessage: String): Long? = latencyTrackingManager?.trackingService?.getLatencyForMessage(rawMessage)
 
     /**
      * Record an outgoing message for latency tracking
@@ -512,9 +510,7 @@ class FixMessageSession(
     /**
      * Get current timestamp source being used
      */
-    fun getLatencyTimestampSource(): TimestampSource {
-        return latencyTrackingManager?.getCurrentTimestampSource() ?: TimestampSource.APPLICATION
-    }
+    fun getLatencyTimestampSource(): TimestampSource = latencyTrackingManager?.getCurrentTimestampSource() ?: TimestampSource.APPLICATION
 
     fun destroy() {
         disconnect()

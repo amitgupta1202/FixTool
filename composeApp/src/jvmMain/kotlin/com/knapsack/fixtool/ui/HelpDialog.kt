@@ -159,21 +159,22 @@ private fun HtmlViewer() {
 /**
  * Loads the HTML help content from resources.
  */
-private fun loadHelpHtml(): String =
-    try {
+private fun loadHelpHtml(): String {
+    val notFoundHtml =
+        """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Help Not Found</title></head>
+        <body>
+            <h1>Help documentation not found</h1>
+            <p>The help file could not be loaded.</p>
+        </body>
+        </html>
+        """.trimIndent()
+
+    return try {
         val inputStream = object {}.javaClass.getResourceAsStream("/help.html")
-        inputStream?.bufferedReader()?.readText()
-            ?:
-                """
-                <!DOCTYPE html>
-                <html>
-                <head><title>Help Not Found</title></head>
-                <body>
-                    <h1>Help documentation not found</h1>
-                    <p>The help file could not be loaded.</p>
-                </body>
-                </html>
-                """.trimIndent()
+        inputStream?.bufferedReader()?.readText() ?: notFoundHtml
     } catch (e: Exception) {
         """
         <!DOCTYPE html>
@@ -186,6 +187,7 @@ private fun loadHelpHtml(): String =
         </html>
         """.trimIndent()
     }
+}
 
 /**
  * Scrolls the JEditorPane to the element with the given id attribute.

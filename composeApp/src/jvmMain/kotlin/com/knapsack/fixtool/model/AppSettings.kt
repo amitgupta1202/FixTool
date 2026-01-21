@@ -7,8 +7,12 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class AppSettings(
-    // Default data dictionary path
+    // Default data dictionary path (when useBundledDictionary is false)
     val defaultDataDictionary: String = "",
+    // Default FIX version (when useBundledDictionary is true)
+    val defaultFixVersion: FixVersion = FixVersion.FIX_4_4,
+    // Whether to use bundled dictionary based on defaultFixVersion
+    val useBundledDictionary: Boolean = true,
     // QuickFIX/J Validation Settings
     val validateFieldsOutOfOrder: Boolean = false,
     val validateFieldsHaveValues: Boolean = false,
@@ -35,7 +39,8 @@ data class AppSettings(
     // Latency Tracking Settings
     val enableLatencyTracking: Boolean = false, // Enable latency tracking feature
     val captureNetworkInterface: String = "", // Network interface for packet capture (empty = auto-detect)
-    val latencyCorrelationTags: List<Int> = listOf(11, 131, 117, 262, 37, 17), // Tags to use for correlation (ClOrdID, QuoteReqID, QuoteID, MDReqID, OrderID, ExecID)
+    // Tags to use for correlation (ClOrdID, QuoteReqID, QuoteID, MDReqID, OrderID, ExecID)
+    val latencyCorrelationTags: List<Int> = listOf(11, 131, 117, 262, 37, 17),
     val latencyHistorySize: Int = 10000, // Maximum number of latency samples to retain
     val latencyWarningThresholdMicros: Long = 100_000L, // 100ms - threshold for warning color
     val latencyCriticalThresholdMicros: Long = 500_000L, // 500ms - threshold for critical/red color

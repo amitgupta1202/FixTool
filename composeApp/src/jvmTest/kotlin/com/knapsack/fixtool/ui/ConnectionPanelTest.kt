@@ -748,12 +748,9 @@ class ConnectionPanelTest {
         // Host should be "localhost" (default)
         composeTestRule.onNodeWithText("localhost").assertExists()
 
-        // FIX version is now auto-detected, verify the info message is shown
-        composeTestRule
-            .onNodeWithText(
-                "ℹ FIX Version is automatically detected from the Data Dictionary (configured in Settings)",
-                substring = true,
-            ).assertExists()
+        // FIX version dropdown should be reset to default (FIX 4.4)
+        // The dropdown shows the display name of the selected version
+        composeTestRule.onNodeWithText("FIX 4.4").assertExists()
     }
 
     @Test

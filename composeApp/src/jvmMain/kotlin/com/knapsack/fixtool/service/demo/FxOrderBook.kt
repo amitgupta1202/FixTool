@@ -93,20 +93,17 @@ class FxOrderBook {
     /**
      * Gets all working orders across all symbols
      */
-    fun getAllWorkingOrders(): List<FxOrder> {
-        return workingOrdersBySymbol.values.flatMap { orders ->
+    fun getAllWorkingOrders(): List<FxOrder> =
+        workingOrdersBySymbol.values.flatMap { orders ->
             synchronized(orders) {
                 orders.filter { it.isActive() }
             }
         }
-    }
 
     /**
      * Gets all orders (including filled/canceled) for a session
      */
-    fun getOrdersForSession(sessionId: String): List<FxOrder> {
-        return ordersByClOrdId.values.filter { it.sessionId == sessionId }
-    }
+    fun getOrdersForSession(sessionId: String): List<FxOrder> = ordersByClOrdId.values.filter { it.sessionId == sessionId }
 
     /**
      * Clears all orders from the book
@@ -131,9 +128,10 @@ class FxOrderBook {
             filledOrders = allOrders.count { it.ordStatus == OrdStatus.FILLED },
             canceledOrders = allOrders.count { it.ordStatus == OrdStatus.CANCELED },
             rejectedOrders = allOrders.count { it.ordStatus == OrdStatus.REJECTED },
-            ordersBySymbol = workingOrdersBySymbol.mapValues { (_, orders) ->
-                synchronized(orders) { orders.count { it.isActive() } }
-            }
+            ordersBySymbol =
+                workingOrdersBySymbol.mapValues { (_, orders) ->
+                    synchronized(orders) { orders.count { it.isActive() } }
+                },
         )
     }
 
@@ -146,6 +144,6 @@ class FxOrderBook {
         val filledOrders: Int,
         val canceledOrders: Int,
         val rejectedOrders: Int,
-        val ordersBySymbol: Map<String, Int>
+        val ordersBySymbol: Map<String, Int>,
     )
 }

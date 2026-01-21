@@ -27,6 +27,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.MessageColorScheme
 import com.knapsack.fixtool.model.RejectionRule
 import java.io.File
@@ -41,6 +43,8 @@ fun SettingsDialog(
     onDismiss: () -> Unit,
 ) {
     var dataDictionaryPath by remember { mutableStateOf(currentSettings.defaultDataDictionary) }
+    var defaultFixVersion by remember { mutableStateOf(currentSettings.defaultFixVersion) }
+    var useBundledDictionary by remember { mutableStateOf(currentSettings.useBundledDictionary) }
     var validateFieldsOutOfOrder by remember { mutableStateOf(currentSettings.validateFieldsOutOfOrder) }
     var validateFieldsHaveValues by remember { mutableStateOf(currentSettings.validateFieldsHaveValues) }
     var validateUserDefinedFields by remember { mutableStateOf(currentSettings.validateUserDefinedFields) }
@@ -167,68 +171,117 @@ fun SettingsDialog(
                         modifier = Modifier.padding(bottom = 4.dp),
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.small),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SlimTextField(
-                            value = dataDictionaryPath,
-                            onValueChange = { dataDictionaryPath = it },
-                            placeholder = "Leave empty for bundled FIX 4.4",
-                            modifier = Modifier.weight(1f),
-                        )
+                    // Use bundled dictionary checkbox
+                    CheckboxSetting(
+                        label = "Use bundled dictionary",
+                        description = "Use the bundled FIX dictionary for the selected version",
+                        checked = useBundledDictionary,
+                        onCheckedChange = { useBundledDictionary = it },
+                    )
 
-                        TooltipIconButton(
-                            tooltip = "Browse for Data Dictionary File",
-                            onClick = {
-                                val fileChooser =
-                                    JFileChooser().apply {
-                                        dialogTitle = "Select Data Dictionary File"
-                                        fileSelectionMode = JFileChooser.FILES_ONLY
-                                        fileFilter = FileNameExtensionFilter("XML Files (*.xml)", "xml")
-
-                                        // Set initial directory if path exists
-                                        if (dataDictionaryPath.isNotBlank()) {
-                                            val file = File(dataDictionaryPath)
-                                            if (file.exists()) {
-                                                currentDirectory = file.parentFile
-                                                selectedFile = file
-                                            }
-                                        }
-                                    }
-
-                                val result = fileChooser.showOpenDialog(null)
-                                if (result == JFileChooser.APPROVE_OPTION) {
-                                    dataDictionaryPath = fileChooser.selectedFile.absolutePath
-                                }
-                            },
-                            modifier = Modifier.size(24.dp),
+                    // FIX Version dropdown (shown when using bundled dictionary)
+                    if (useBundledDictionary) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.small),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Folder,
-                                contentDescription = "Browse",
-                                tint = AppTheme.Colors.primary,
-                                modifier = Modifier.size(16.dp),
+                            Text(
+                                text = "FIX Version:",
+                                fontSize = 12.sp,
+                                color = AppTheme.Colors.textSecondary,
+                                modifier = Modifier.width(100.dp),
+                            )
+                            SlimDropdown(
+                                value = defaultFixVersion,
+                                options = FixVersion.entries.toList(),
+                                onValueChange = { it?.let { version -> defaultFixVersion = version } },
+                                displayText = { it.displayName },
+                                placeholder = "Select FIX Version",
+                                modifier = Modifier.weight(1f),
                             )
                         }
-                    }
+                        // Info text for FIX 5.0+
+                        if (defaultFixVersion.isFix50Plus) {
+                            Text(
+                                text = "FIX 5.0+ uses FIXT.1.1 transport layer with ApplVerID=${defaultFixVersion.applVerID}",
+                                fontSize = 10.sp,
+                                color = AppTheme.Colors.info,
+                                modifier = Modifier.padding(start = 108.dp),
+                            )
+                        }
+                    } else {
+                        // Custom dictionary path (shown when not using bundled)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.small),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            SlimTextField(
+                                value = dataDictionaryPath,
+                                onValueChange = { dataDictionaryPath = it },
+                                placeholder = "Path to custom data dictionary XML",
+                                modifier = Modifier.weight(1f),
+                            )
 
-                    // Show file validation status
-                    if (dataDictionaryPath.isNotBlank()) {
-                        val file = File(dataDictionaryPath)
-                        if (file.exists() && file.isFile) {
-                            Text(
-                                text = "✓ File exists",
-                                fontSize = 11.sp,
-                                color = AppTheme.Colors.primary,
-                            )
-                        } else {
-                            Text(
-                                text = "⚠ File not found",
-                                fontSize = 11.sp,
-                                color = warningColor,
-                            )
+                            TooltipIconButton(
+                                tooltip = "Browse for Data Dictionary File",
+                                onClick = {
+                                    val fileChooser =
+                                        JFileChooser().apply {
+                                            dialogTitle = "Select Data Dictionary File"
+                                            fileSelectionMode = JFileChooser.FILES_ONLY
+                                            fileFilter = FileNameExtensionFilter("XML Files (*.xml)", "xml")
+
+                                            // Set initial directory if path exists
+                                            if (dataDictionaryPath.isNotBlank()) {
+                                                val file = File(dataDictionaryPath)
+                                                if (file.exists()) {
+                                                    currentDirectory = file.parentFile
+                                                    selectedFile = file
+                                                }
+                                            }
+                                        }
+
+                                    val result = fileChooser.showOpenDialog(null)
+                                    if (result == JFileChooser.APPROVE_OPTION) {
+                                        dataDictionaryPath = fileChooser.selectedFile.absolutePath
+                                    }
+                                },
+                                modifier = Modifier.size(24.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = "Browse",
+                                    tint = AppTheme.Colors.primary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+
+                        // Show file validation status
+                        if (dataDictionaryPath.isNotBlank()) {
+                            val file = File(dataDictionaryPath)
+                            if (file.exists() && file.isFile) {
+                                // Try to detect version from the file
+                                val detectedVersion =
+                                    try {
+                                        FixDictionaryAdapter.detectVersionFromFile(file)
+                                    } catch (e: Exception) {
+                                        null
+                                    }
+                                Text(
+                                    text = if (detectedVersion != null) "✓ File exists (${detectedVersion.displayName})" else "✓ File exists",
+                                    fontSize = 11.sp,
+                                    color = AppTheme.Colors.primary,
+                                )
+                            } else {
+                                Text(
+                                    text = "⚠ File not found",
+                                    fontSize = 11.sp,
+                                    color = warningColor,
+                                )
+                            }
                         }
                     }
 
@@ -1549,7 +1602,9 @@ fun SettingsDialog(
                         onClick = {
                             val newSettings =
                                 currentSettings.copy(
-                                    defaultDataDictionary = dataDictionaryPath.trim(),
+                                    defaultDataDictionary = if (useBundledDictionary) "" else dataDictionaryPath.trim(),
+                                    defaultFixVersion = defaultFixVersion,
+                                    useBundledDictionary = useBundledDictionary,
                                     validateFieldsOutOfOrder = validateFieldsOutOfOrder,
                                     validateFieldsHaveValues = validateFieldsHaveValues,
                                     validateUserDefinedFields = validateUserDefinedFields,

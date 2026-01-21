@@ -1,7 +1,7 @@
 package com.knapsack.fixtool.viewmodel
 
 import com.knapsack.fixtool.model.AppSettings
-import com.knapsack.fixtool.model.NotificationType
+import com.knapsack.fixtool.model.FixVersion
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -38,42 +38,69 @@ class DataDictionaryValidationTest {
     // ========================================
 
     @Test
-    fun testNoDictionaryConfigured_ShowsError() {
-        // Given: No data dictionary configured (empty path)
+    fun testNoDictionaryConfigured_WithBundledDisabled_FallsBackToBundled() {
+        // Given: No data dictionary configured (empty path) AND bundled dictionary disabled
+        val settings =
+            AppSettings(
+                defaultDataDictionary = "",
+                useBundledDictionary = false,
+            )
+        val settingsService =
+            com.knapsack.fixtool.service
+                .AppSettingsService(customSettingsDir = testDir.absolutePath)
+        settingsService.saveSettings(settings)
+
         // When: ViewModel is initialized
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
-        // Then: Dictionary should be invalid
-        assertFalse(viewModel.isDictionaryValid.value, "Dictionary should be invalid when not configured")
+        // Then: Dictionary should still be valid (falls back to bundled for better UX)
+        assertTrue(viewModel.isDictionaryValid.value, "Dictionary should be valid (falls back to bundled)")
 
-        // And: Error message should indicate dictionary is not configured
+        // And: No error message should be set (fallback is silent)
         val errorMessage = viewModel.dictionaryErrorMessage.value
-        assertNotNull(errorMessage, "Error message should not be null")
         assertTrue(
-            errorMessage.contains("configure", ignoreCase = true) ||
-                errorMessage.contains(
-                    "not configured",
-                    ignoreCase = true,
-                ),
-            "Error message should mention dictionary configuration. Got: $errorMessage",
-        )
-
-        // And: An error notification should be created
-        val notifications = viewModel.notifications
-        assertTrue(notifications.isNotEmpty(), "Should have at least one notification")
-        val errorNotification = notifications.firstOrNull { it.type == NotificationType.ERROR }
-        assertNotNull(errorNotification, "Should have an error notification")
-        assertTrue(
-            errorNotification.message.contains("data dictionary", ignoreCase = true),
-            "Error notification should mention data dictionary. Got: ${errorNotification.message}",
+            errorMessage == null || errorMessage.isEmpty(),
+            "Error message should be null or empty when falling back to bundled. Got: $errorMessage",
         )
     }
 
     @Test
-    fun testInvalidDictionaryPath_ShowsError() {
-        // Given: An invalid data dictionary path
+    fun testNoDictionaryConfigured_WithBundledEnabled_UsesDefault() {
+        // Given: No data dictionary configured (empty path) but bundled dictionary enabled (default)
+        val settings =
+            AppSettings(
+                defaultDataDictionary = "",
+                useBundledDictionary = true,
+                defaultFixVersion = FixVersion.FIX_4_4,
+            )
+        val settingsService =
+            com.knapsack.fixtool.service
+                .AppSettingsService(customSettingsDir = testDir.absolutePath)
+        settingsService.saveSettings(settings)
+
+        // When: ViewModel is initialized
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+
+        // Then: Dictionary should be valid (using bundled dictionary)
+        assertTrue(viewModel.isDictionaryValid.value, "Dictionary should be valid when using bundled dictionary")
+
+        // And: No error message should be set
+        val errorMessage = viewModel.dictionaryErrorMessage.value
+        assertTrue(
+            errorMessage == null || errorMessage.isEmpty(),
+            "Error message should be null or empty when using bundled dictionary. Got: $errorMessage",
+        )
+    }
+
+    @Test
+    fun testInvalidDictionaryPath_FallsBackToBundled() {
+        // Given: An invalid data dictionary path with bundled disabled
         val invalidPath = "/non/existent/path/dictionary.xml"
-        val settings = AppSettings(defaultDataDictionary = invalidPath)
+        val settings =
+            AppSettings(
+                defaultDataDictionary = invalidPath,
+                useBundledDictionary = false,
+            )
 
         // When: Settings are saved and ViewModel is initialized
         val settingsService =
@@ -82,29 +109,14 @@ class DataDictionaryValidationTest {
         settingsService.saveSettings(settings)
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
-        // Then: Dictionary should be invalid
-        assertFalse(viewModel.isDictionaryValid.value, "Dictionary should be invalid for non-existent file")
+        // Then: Dictionary should still be valid (falls back to bundled for better UX)
+        assertTrue(viewModel.isDictionaryValid.value, "Dictionary should be valid (falls back to bundled)")
 
-        // And: Error message should indicate file not found
+        // And: No error message should be set (fallback is silent, only a warning is logged)
         val errorMessage = viewModel.dictionaryErrorMessage.value
-        assertNotNull(errorMessage, "Error message should not be null")
         assertTrue(
-            errorMessage.contains("not found", ignoreCase = true),
-            "Error message should mention file not found. Got: $errorMessage",
-        )
-        assertTrue(
-            errorMessage.contains(invalidPath),
-            "Error message should contain the invalid path. Got: $errorMessage",
-        )
-
-        // And: An error notification should be created
-        val notifications = viewModel.notifications
-        assertTrue(notifications.isNotEmpty(), "Should have at least one notification")
-        val errorNotification = notifications.firstOrNull { it.type == NotificationType.ERROR }
-        assertNotNull(errorNotification, "Should have an error notification")
-        assertTrue(
-            errorNotification.message.contains("not found", ignoreCase = true),
-            "Error notification should mention file not found. Got: ${errorNotification.message}",
+            errorMessage == null || errorMessage.isEmpty(),
+            "Error message should be null or empty when falling back to bundled. Got: $errorMessage",
         )
     }
 
@@ -138,7 +150,11 @@ class DataDictionaryValidationTest {
             val settingsService =
                 com.knapsack.fixtool.service
                     .AppSettingsService(customSettingsDir = testDir.absolutePath)
-            val settings = AppSettings(defaultDataDictionary = validPath)
+            val settings =
+                AppSettings(
+                    defaultDataDictionary = validPath,
+                    useBundledDictionary = false,
+                )
             settingsService.saveSettings(settings)
             viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
@@ -158,48 +174,50 @@ class DataDictionaryValidationTest {
     }
 
     @Test
-    fun testSaveSettings_WithInvalidPath_UpdatesValidationState() {
-        // Given: ViewModel is initialized with no dictionary
+    fun testSaveSettings_WithInvalidPath_FallsBackToBundled() {
+        // Given: ViewModel is initialized with bundled dictionary
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Clear any initial notifications
         viewModel.notifications.forEach { viewModel.dismissNotification(it.id) }
 
-        // When: Settings are saved with an invalid path
+        // When: Settings are saved with an invalid path and bundled disabled
         val invalidPath = "/non/existent/path/dictionary.xml"
-        val newSettings = AppSettings(defaultDataDictionary = invalidPath)
+        val newSettings =
+            AppSettings(
+                defaultDataDictionary = invalidPath,
+                useBundledDictionary = false,
+            )
         viewModel.saveAppSettings(newSettings)
 
-        // Then: Dictionary should be invalid
-        assertFalse(viewModel.isDictionaryValid.value, "Dictionary should be invalid after saving invalid path")
+        // Then: Dictionary should still be valid (falls back to bundled for better UX)
+        assertTrue(viewModel.isDictionaryValid.value, "Dictionary should be valid (falls back to bundled)")
 
-        // And: Error message should be updated
+        // And: No error message should be set (fallback is silent)
         val errorMessage = viewModel.dictionaryErrorMessage.value
-        assertNotNull(errorMessage, "Error message should be set")
         assertTrue(
-            errorMessage.contains(invalidPath),
-            "Error message should contain the invalid path. Got: $errorMessage",
+            errorMessage == null || errorMessage.isEmpty(),
+            "Error message should be null or empty when falling back to bundled. Got: $errorMessage",
         )
-
-        // And: A new error notification should be created
-        val notifications = viewModel.notifications
-        val errorNotification = notifications.lastOrNull { it.type == NotificationType.ERROR }
-        assertNotNull(errorNotification, "Should have a new error notification after saving invalid settings")
     }
 
     @Test
-    fun testSaveSettings_WithValidPath_ClearsValidationError() {
-        // Given: ViewModel is initialized with invalid dictionary
+    fun testSaveSettings_WithValidPath_LoadsCustomDictionary() {
+        // Given: ViewModel is initialized (uses bundled dictionary by default due to fallback)
         val invalidPath = "/non/existent/path/dictionary.xml"
         val settingsService =
             com.knapsack.fixtool.service
                 .AppSettingsService(customSettingsDir = testDir.absolutePath)
-        val initialSettings = AppSettings(defaultDataDictionary = invalidPath)
+        val initialSettings =
+            AppSettings(
+                defaultDataDictionary = invalidPath,
+                useBundledDictionary = false,
+            )
         settingsService.saveSettings(initialSettings)
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
-        // Verify initial state is invalid
-        assertFalse(viewModel.isDictionaryValid.value, "Should start with invalid dictionary")
+        // Verify initial state is valid (due to fallback to bundled)
+        assertTrue(viewModel.isDictionaryValid.value, "Should start with valid dictionary (bundled fallback)")
 
         // Create a valid temporary dictionary file
         val tempDictionary = File.createTempFile("test-dictionary", ".xml")
@@ -220,7 +238,11 @@ class DataDictionaryValidationTest {
         try {
             // When: Settings are saved with a valid path
             val validPath = tempDictionary.absolutePath
-            val newSettings = AppSettings(defaultDataDictionary = validPath)
+            val newSettings =
+                AppSettings(
+                    defaultDataDictionary = validPath,
+                    useBundledDictionary = false,
+                )
             viewModel.saveAppSettings(newSettings)
 
             // Then: Dictionary should now be valid
@@ -239,38 +261,96 @@ class DataDictionaryValidationTest {
     }
 
     @Test
-    fun testSaveSettings_WithEmptyPath_ShowsConfigurationError() {
+    fun testSaveSettings_WithEmptyPath_AndBundledDisabled_FallsBackToBundled() {
         // Given: ViewModel is initialized
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
 
         // Clear any initial notifications
         viewModel.notifications.forEach { viewModel.dismissNotification(it.id) }
 
-        // When: Settings are saved with an empty path
-        val newSettings = AppSettings(defaultDataDictionary = "")
+        // When: Settings are saved with an empty path and bundled disabled
+        val newSettings =
+            AppSettings(
+                defaultDataDictionary = "",
+                useBundledDictionary = false,
+            )
         viewModel.saveAppSettings(newSettings)
 
-        // Then: Dictionary should be invalid
-        assertFalse(viewModel.isDictionaryValid.value, "Dictionary should be invalid with empty path")
+        // Then: Dictionary should still be valid (falls back to bundled for better UX)
+        assertTrue(viewModel.isDictionaryValid.value, "Dictionary should be valid (falls back to bundled)")
 
-        // And: Error message should indicate not configured
+        // And: No error message should be set (fallback is silent)
         val errorMessage = viewModel.dictionaryErrorMessage.value
-        assertNotNull(errorMessage, "Error message should be set")
         assertTrue(
-            errorMessage.contains("configure", ignoreCase = true) ||
-                errorMessage.contains(
-                    "not configured",
-                    ignoreCase = true,
-                ),
-            "Error message should mention configuration. Got: $errorMessage",
+            errorMessage == null || errorMessage.isEmpty(),
+            "Error message should be null or empty when falling back to bundled. Got: $errorMessage",
         )
+    }
 
-        // And: An error notification should be created
-        val errorNotification = viewModel.notifications.lastOrNull { it.type == NotificationType.ERROR }
-        assertNotNull(errorNotification, "Should have an error notification")
+    @Test
+    fun testSaveSettings_SwitchToBundled_KeepsDictionaryValid() {
+        // Given: ViewModel is initialized with invalid dictionary path (falls back to bundled)
+        val invalidPath = "/non/existent/path/dictionary.xml"
+        val settingsService =
+            com.knapsack.fixtool.service
+                .AppSettingsService(customSettingsDir = testDir.absolutePath)
+        val initialSettings =
+            AppSettings(
+                defaultDataDictionary = invalidPath,
+                useBundledDictionary = false,
+            )
+        settingsService.saveSettings(initialSettings)
+        viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+
+        // Verify initial state is valid (due to fallback to bundled)
+        assertTrue(viewModel.isDictionaryValid.value, "Should start with valid dictionary (bundled fallback)")
+
+        // When: Settings are saved to use bundled dictionary
+        val newSettings =
+            AppSettings(
+                defaultDataDictionary = "",
+                useBundledDictionary = true,
+                defaultFixVersion = FixVersion.FIX_4_4,
+            )
+        viewModel.saveAppSettings(newSettings)
+
+        // Then: Dictionary should now be valid
+        assertTrue(viewModel.isDictionaryValid.value, "Dictionary should be valid after switching to bundled")
+
+        // And: Error message should be cleared
+        val errorMessage = viewModel.dictionaryErrorMessage.value
         assertTrue(
-            errorNotification.message.contains("configure", ignoreCase = true),
-            "Error notification should mention configuration. Got: ${errorNotification.message}",
+            errorMessage == null || errorMessage.isEmpty(),
+            "Error message should be cleared. Got: $errorMessage",
         )
+    }
+
+    @Test
+    fun testBundledDictionary_DifferentVersions() {
+        // Test that all bundled FIX versions can be loaded
+        FixVersion.entries.forEach { version ->
+            val settings =
+                AppSettings(
+                    useBundledDictionary = true,
+                    defaultFixVersion = version,
+                )
+            val settingsService =
+                com.knapsack.fixtool.service
+                    .AppSettingsService(customSettingsDir = testDir.absolutePath)
+            settingsService.saveSettings(settings)
+
+            viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
+
+            assertTrue(
+                viewModel.isDictionaryValid.value,
+                "Bundled dictionary for ${version.displayName} should be valid",
+            )
+
+            val errorMessage = viewModel.dictionaryErrorMessage.value
+            assertTrue(
+                errorMessage == null || errorMessage.isEmpty(),
+                "No error for ${version.displayName}. Got: $errorMessage",
+            )
+        }
     }
 }

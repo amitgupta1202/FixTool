@@ -13,7 +13,8 @@ data class FixConnectionConfig(
     val host: String = "localhost",
     val port: String = "",
     // FIX protocol settings
-    val beginString: String = "FIX.4.4", // FIX version
+    val beginString: String = "FIX.4.4", // FIX version (or FIXT.1.1 for FIX 5.0+)
+    val applVerID: String? = null, // ApplVerID for FIX 5.0+ sessions ("7" = FIX 5.0, "8" = SP1, "9" = SP2)
     val heartBtInt: String = "30", // Heartbeat interval in seconds
     val resetOnLogon: Boolean = false,
     val resetOnLogout: Boolean = false,

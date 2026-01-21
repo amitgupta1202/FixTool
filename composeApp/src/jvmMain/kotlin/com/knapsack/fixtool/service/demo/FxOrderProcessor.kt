@@ -5,17 +5,35 @@ import quickfix.Message
 import quickfix.SessionID
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import java.util.UUID
 
 /**
  * Result of order processing
  */
 sealed class OrderResult {
-    data class Accepted(val order: FxOrder) : OrderResult()
-    data class Filled(val order: FxOrder, val execType: ExecType) : OrderResult()
-    data class Rejected(val clOrdId: String, val reason: String, val reasonCode: Int) : OrderResult()
-    data class Canceled(val order: FxOrder) : OrderResult()
-    data class CancelRejected(val clOrdId: String, val origClOrdId: String, val reason: String) : OrderResult()
+    data class Accepted(
+        val order: FxOrder,
+    ) : OrderResult()
+
+    data class Filled(
+        val order: FxOrder,
+        val execType: ExecType,
+    ) : OrderResult()
+
+    data class Rejected(
+        val clOrdId: String,
+        val reason: String,
+        val reasonCode: Int,
+    ) : OrderResult()
+
+    data class Canceled(
+        val order: FxOrder,
+    ) : OrderResult()
+
+    data class CancelRejected(
+        val clOrdId: String,
+        val origClOrdId: String,
+        val reason: String,
+    ) : OrderResult()
 }
 
 /**
@@ -24,7 +42,7 @@ sealed class OrderResult {
  */
 class FxOrderProcessor(
     private val marketData: FxMarketData,
-    private val orderBook: FxOrderBook
+    private val orderBook: FxOrderBook,
 ) {
     private val logger = LoggerFactory.getLogger(FxOrderProcessor::class.java)
 
@@ -49,12 +67,12 @@ class FxOrderProcessor(
      */
     fun processNewOrder(request: Message, sessionId: SessionID): OrderResult {
         // Extract order fields
-        val clOrdId = request.getString(11)  // ClOrdID
+        val clOrdId = request.getString(11) // ClOrdID
         val symbol = extractSymbol(request)
-        val sideStr = request.getString(54)  // Side
-        val ordTypeStr = request.getString(40)  // OrdType
-        val orderQty = request.getDouble(38)  // OrderQty
-        val price = if (request.isSetField(44)) request.getDouble(44) else null  // Price
+        val sideStr = request.getString(54) // Side
+        val ordTypeStr = request.getString(40) // OrdType
+        val orderQty = request.getDouble(38) // OrderQty
+        val price = if (request.isSetField(44)) request.getDouble(44) else null // Price
         val account = if (request.isSetField(1)) request.getString(1) else null
         val currency = if (request.isSetField(15)) request.getString(15) else "USD"
         val tifStr = if (request.isSetField(59)) request.getString(59) else "0"
@@ -72,19 +90,20 @@ class FxOrderProcessor(
         }
 
         // Create order
-        val order = FxOrder(
-            clOrdId = clOrdId,
-            orderId = generateOrderId(),
-            symbol = FxCurrencyPair.normalizeSymbol(symbol),
-            side = side!!,
-            ordType = ordType!!,
-            orderQty = orderQty,
-            price = price,
-            timeInForce = timeInForce,
-            currency = currency,
-            account = account,
-            sessionId = sessionId.toString()
-        )
+        val order =
+            FxOrder(
+                clOrdId = clOrdId,
+                orderId = generateOrderId(),
+                symbol = FxCurrencyPair.normalizeSymbol(symbol),
+                side = side!!,
+                ordType = ordType!!,
+                orderQty = orderQty,
+                price = price,
+                timeInForce = timeInForce,
+                currency = currency,
+                account = account,
+                sessionId = sessionId.toString(),
+            )
 
         // Get current market prices
         val quote = marketData.getQuote(order.symbol)
@@ -111,8 +130,8 @@ class FxOrderProcessor(
      * @return OrderResult indicating the outcome
      */
     fun processCancelRequest(request: Message, sessionId: SessionID): OrderResult {
-        val clOrdId = request.getString(11)  // ClOrdID (of the cancel request)
-        val origClOrdId = request.getString(41)  // OrigClOrdID (order to cancel)
+        val clOrdId = request.getString(11) // ClOrdID (of the cancel request)
+        val origClOrdId = request.getString(41) // OrigClOrdID (order to cancel)
 
         // Find the original order
         val order = orderBook.getOrderByClOrdId(origClOrdId)
@@ -164,17 +183,17 @@ class FxOrderProcessor(
         side: Side?,
         ordType: OrdType?,
         orderQty: Double,
-        price: Double?
+        price: Double?,
     ): Pair<Int, String>? {
         // Check symbol
         val normalizedSymbol = FxCurrencyPair.normalizeSymbol(symbol)
         if (!FxCurrencyPair.isSupported(normalizedSymbol)) {
-            return Pair(1, "Unknown symbol: $symbol")  // OrdRejReason=1 (Unknown symbol)
+            return Pair(1, "Unknown symbol: $symbol") // OrdRejReason=1 (Unknown symbol)
         }
 
         // Check side
         if (side == null) {
-            return Pair(11, "Invalid side")  // OrdRejReason=11 (Unsupported)
+            return Pair(11, "Invalid side") // OrdRejReason=11 (Unsupported)
         }
 
         // Check order type
@@ -184,15 +203,15 @@ class FxOrderProcessor(
 
         // Check quantity
         if (orderQty <= 0) {
-            return Pair(13, "Invalid quantity: $orderQty")  // OrdRejReason=13 (Incorrect quantity)
+            return Pair(13, "Invalid quantity: $orderQty") // OrdRejReason=13 (Incorrect quantity)
         }
 
         // Check price for limit orders
         if (ordType == OrdType.LIMIT && (price == null || price <= 0)) {
-            return Pair(5, "Limit order requires valid price")  // OrdRejReason=5 (Unknown order)
+            return Pair(5, "Limit order requires valid price") // OrdRejReason=5 (Unknown order)
         }
 
-        return null  // Valid
+        return null // Valid
     }
 
     /**
@@ -277,9 +296,7 @@ class FxOrderProcessor(
     /**
      * Generates a unique order ID
      */
-    private fun generateOrderId(): String {
-        return "FX${++orderIdCounter}"
-    }
+    private fun generateOrderId(): String = "FX${++orderIdCounter}"
 
     /**
      * Clears all orders and resets state
@@ -294,8 +311,6 @@ class FxOrderProcessor(
         /**
          * Formats a timestamp for FIX messages
          */
-        fun formatTimestamp(dateTime: LocalDateTime = LocalDateTime.now()): String {
-            return dateTime.format(timestampFormatter)
-        }
+        fun formatTimestamp(dateTime: LocalDateTime = LocalDateTime.now()): String = dateTime.format(timestampFormatter)
     }
 }

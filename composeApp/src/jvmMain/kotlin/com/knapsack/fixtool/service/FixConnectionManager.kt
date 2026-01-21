@@ -68,6 +68,10 @@ class FixConnectionManager(
         val configFile = File.createTempFile("quickfix", ".cfg")
         configFile.deleteOnExit()
 
+        // Detect FIX version to determine configuration approach
+        val fixVersion = dictionary.fixVersion
+        val isFix50Plus = fixVersion.isFix50Plus
+
         val configContent =
             buildString {
                 // Default section
@@ -78,11 +82,30 @@ class FixConnectionManager(
                 appendLine("StartTime=${config.startTime.ifBlank { "00:00:00" }}")
                 appendLine("EndTime=${config.endTime.ifBlank { "00:00:00" }}")
 
-                // Add data dictionary if configured (must be in DEFAULT section)
+                // Add data dictionary configuration based on FIX version
                 val dataDictionaryPath = dictionary.getFilePath()
                 if (dataDictionaryPath != null) {
-                    appendLine("DataDictionary=$dataDictionaryPath")
-                    logger.info("Using data dictionary: {}", dataDictionaryPath)
+                    if (isFix50Plus) {
+                        // FIX 5.0+ uses separate transport and application dictionaries
+                        val transportPath = dictionary.getTransportFilePath()
+                        if (transportPath != null) {
+                            appendLine("TransportDataDictionary=$transportPath")
+                            logger.info("Using transport data dictionary (FIXT.1.1): {}", transportPath)
+                        }
+                        appendLine("AppDataDictionary=$dataDictionaryPath")
+                        logger.info("Using application data dictionary: {}", dataDictionaryPath)
+
+                        // Add DefaultApplVerID for FIX 5.0+ sessions
+                        val applVerID = config.applVerID ?: fixVersion.applVerID
+                        if (applVerID != null) {
+                            appendLine("DefaultApplVerID=$applVerID")
+                            logger.info("Using DefaultApplVerID: {} ({})", applVerID, fixVersion.displayName)
+                        }
+                    } else {
+                        // FIX 4.x uses a single DataDictionary
+                        appendLine("DataDictionary=$dataDictionaryPath")
+                        logger.info("Using data dictionary: {}", dataDictionaryPath)
+                    }
                 }
 
                 // Apply validation settings from AppSettings

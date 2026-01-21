@@ -26,6 +26,7 @@ import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.FixVersion
 import kotlinx.coroutines.flow.MutableStateFlow
 
 @Composable
@@ -51,7 +52,7 @@ fun ConnectionPanel(
     var password by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("localhost") }
     var port by remember { mutableStateOf("") }
-    var fixVersion by remember { mutableStateOf("FIX.4.4") }
+    var selectedFixVersion by remember { mutableStateOf(FixVersion.DEFAULT) }
     var heartBtInt by remember { mutableStateOf("30") }
     var resetOnLogon by remember { mutableStateOf(true) }
     var resetOnLogout by remember { mutableStateOf(false) }
@@ -179,7 +180,7 @@ fun ConnectionPanel(
                     password = profile.config.password
                     host = profile.config.host
                     port = profile.config.port
-                    fixVersion = profile.config.beginString
+                    selectedFixVersion = FixVersion.fromBeginString(profile.config.beginString, profile.config.applVerID)
                     heartBtInt = profile.config.heartBtInt
                     resetOnLogon = profile.config.resetOnLogon
                     resetOnLogout = profile.config.resetOnLogout
@@ -209,7 +210,8 @@ fun ConnectionPanel(
                             host = host,
                             port = port,
                             socketConnectHost = host, // Use the same host for connection
-                            beginString = fixVersion,
+                            beginString = selectedFixVersion.beginString,
+                            applVerID = selectedFixVersion.applVerID,
                             heartBtInt = heartBtInt,
                             resetOnLogon = resetOnLogon,
                             resetOnLogout = resetOnLogout,
@@ -254,7 +256,7 @@ fun ConnectionPanel(
                         password = ""
                         host = "localhost"
                         port = ""
-                        fixVersion = "FIX.4.4"
+                        selectedFixVersion = FixVersion.DEFAULT
                         heartBtInt = "30"
                         resetOnLogon = true
                         resetOnLogout = false
@@ -286,7 +288,7 @@ fun ConnectionPanel(
                     password = clonedProfile.config.password
                     host = clonedProfile.config.host
                     port = clonedProfile.config.port
-                    fixVersion = clonedProfile.config.beginString
+                    selectedFixVersion = FixVersion.fromBeginString(clonedProfile.config.beginString, clonedProfile.config.applVerID)
                     heartBtInt = clonedProfile.config.heartBtInt
                     resetOnLogon = clonedProfile.config.resetOnLogon
                     resetOnLogout = clonedProfile.config.resetOnLogout
@@ -444,14 +446,34 @@ fun ConnectionPanel(
                 )
             }
 
-            // Info text about auto-detection
-            Text(
-                text = "ℹ FIX Version is automatically detected from the Data Dictionary (configured in Settings)",
-                color = AppTheme.Colors.textDisabled,
-                fontSize = 9.sp,
-                modifier = Modifier.padding(vertical = 4.dp),
-                lineHeight = 12.sp,
-            )
+            // FIX Version selection
+            Column {
+                Text(
+                    text = "FIX Version",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 9.sp,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+
+                SlimDropdown(
+                    value = selectedFixVersion,
+                    options = FixVersion.entries.toList(),
+                    onValueChange = { it?.let { version -> selectedFixVersion = version } },
+                    displayText = { it.displayName },
+                    placeholder = "Select FIX Version",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                // Info text for FIX 5.0+
+                if (selectedFixVersion.isFix50Plus) {
+                    Text(
+                        text = "FIX 5.0+ uses FIXT.1.1 transport with ApplVerID=${selectedFixVersion.applVerID}",
+                        color = AppTheme.Colors.info,
+                        fontSize = 8.sp,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
 
             // Advanced settings toggle
             Row(
@@ -1155,7 +1177,8 @@ fun ConnectionPanel(
                             host = host,
                             port = port,
                             socketConnectHost = host, // Use the same host for connection
-                            beginString = fixVersion,
+                            beginString = selectedFixVersion.beginString,
+                            applVerID = selectedFixVersion.applVerID,
                             heartBtInt = heartBtInt,
                             resetOnLogon = resetOnLogon,
                             resetOnLogout = resetOnLogout,

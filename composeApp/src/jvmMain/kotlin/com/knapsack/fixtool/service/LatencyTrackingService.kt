@@ -208,27 +208,22 @@ class LatencyTrackingService(
     /**
      * Get latency for a specific raw message (for grid display)
      */
-    fun getLatencyForMessage(rawMessage: String): Long? {
-        return latencyByMessage[rawMessage]
-    }
+    fun getLatencyForMessage(rawMessage: String): Long? = latencyByMessage[rawMessage]
 
     /**
      * Get latency severity for display coloring
      */
-    fun getLatencySeverity(latencyMicros: Long): LatencySeverity {
-        return when {
+    fun getLatencySeverity(latencyMicros: Long): LatencySeverity =
+        when {
             latencyMicros >= criticalThresholdMicros -> LatencySeverity.CRITICAL
             latencyMicros >= warningThresholdMicros -> LatencySeverity.WARNING
             else -> LatencySeverity.NORMAL
         }
-    }
 
     /**
      * Get statistics for a specific correlation type
      */
-    fun getStatistics(type: CorrelationIdType): LatencyStatistics {
-        return statisticsAccumulators[type]?.getStatistics() ?: LatencyStatistics.empty()
-    }
+    fun getStatistics(type: CorrelationIdType): LatencyStatistics = statisticsAccumulators[type]?.getStatistics() ?: LatencyStatistics.empty()
 
     /**
      * Get recent correlated pairs with optional limit
@@ -279,9 +274,7 @@ class LatencyTrackingService(
     /**
      * Get total number of correlated samples
      */
-    fun getTotalSampleCount(): Long {
-        return _aggregateStatistics.value.sampleCount
-    }
+    fun getTotalSampleCount(): Long = _aggregateStatistics.value.sampleCount
 
     /**
      * Get warning threshold in microseconds
@@ -417,23 +410,25 @@ class LatencyTrackingManager(
         val messageType = extractTagValue(rawMessage, 35) ?: return
 
         // Use pre-captured timestamp if provided, otherwise capture now
-        val effectiveTimeMicros = if (captureTimeMicros > 0) {
-            captureTimeMicros
-        } else {
-            System.currentTimeMillis() * 1000 + (System.nanoTime() % 1_000_000) / 1000
-        }
+        val effectiveTimeMicros =
+            if (captureTimeMicros > 0) {
+                captureTimeMicros
+            } else {
+                System.currentTimeMillis() * 1000 + (System.nanoTime() % 1_000_000) / 1000
+            }
 
         // Handle Logon (35=A) specially - correlate outgoing with incoming
         if (CorrelationIdType.isLogonMessage(messageType)) {
-            val timestamp = PacketTimestamp(
-                timestampMicros = effectiveTimeMicros,
-                direction = direction,
-                correlationId = LOGON_CORRELATION_ID,
-                correlationType = CorrelationIdType.LOGON,
-                messageType = messageType,
-                rawFixMessage = rawMessage,
-                source = TimestampSource.APPLICATION,
-            )
+            val timestamp =
+                PacketTimestamp(
+                    timestampMicros = effectiveTimeMicros,
+                    direction = direction,
+                    correlationId = LOGON_CORRELATION_ID,
+                    correlationType = CorrelationIdType.LOGON,
+                    messageType = messageType,
+                    rawFixMessage = rawMessage,
+                    source = TimestampSource.APPLICATION,
+                )
             trackingService.recordPacket(timestamp)
             return
         }
@@ -444,15 +439,16 @@ class LatencyTrackingManager(
             if (!correlationId.isNullOrBlank()) {
                 val correlationType = CorrelationIdType.fromTag(tag) ?: continue
 
-                val timestamp = PacketTimestamp(
-                    timestampMicros = effectiveTimeMicros,
-                    direction = direction,
-                    correlationId = correlationId,
-                    correlationType = correlationType,
-                    messageType = messageType,
-                    rawFixMessage = rawMessage,
-                    source = TimestampSource.APPLICATION,
-                )
+                val timestamp =
+                    PacketTimestamp(
+                        timestampMicros = effectiveTimeMicros,
+                        direction = direction,
+                        correlationId = correlationId,
+                        correlationType = correlationType,
+                        messageType = messageType,
+                        rawFixMessage = rawMessage,
+                        source = TimestampSource.APPLICATION,
+                    )
 
                 trackingService.recordPacket(timestamp)
                 return
@@ -509,12 +505,11 @@ class LatencyTrackingManager(
     /**
      * Get current timestamp source
      */
-    fun getCurrentTimestampSource(): TimestampSource {
-        return when (_captureStatus.value) {
+    fun getCurrentTimestampSource(): TimestampSource =
+        when (_captureStatus.value) {
             is CaptureStatus.Running -> TimestampSource.PACKET
             else -> TimestampSource.APPLICATION
         }
-    }
 
     /**
      * Reset fallback notification flag (for new session)

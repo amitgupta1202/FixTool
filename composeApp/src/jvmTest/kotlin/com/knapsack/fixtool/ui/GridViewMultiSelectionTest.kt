@@ -9,12 +9,12 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import com.knapsack.fixtool.model.AppMessage
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import org.junit.Assume.assumeFalse
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import quickfix.Message
 import quickfix.field.*
-import org.junit.Assume.assumeFalse
 import java.awt.GraphicsEnvironment
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
@@ -81,13 +81,14 @@ class GridViewMultiSelectionTest {
     private fun addTestMessages(count: Int): List<FixMessage> {
         val createdMessages = mutableListOf<FixMessage>()
         for (i in 1..count) {
-            val msg = createFixMessage(
-                messageType = if (i % 2 == 0) "8" else "D",
-                direction = if (i % 2 == 0) FixMessage.Direction.INCOMING else FixMessage.Direction.OUTGOING,
-                timestamp = LocalDateTime.now().plusSeconds(i.toLong()),
-                seqNum = i,
-                clOrdId = "ORD00$i",
-            )
+            val msg =
+                createFixMessage(
+                    messageType = if (i % 2 == 0) "8" else "D",
+                    direction = if (i % 2 == 0) FixMessage.Direction.INCOMING else FixMessage.Direction.OUTGOING,
+                    timestamp = LocalDateTime.now().plusSeconds(i.toLong()),
+                    seqNum = i,
+                    clOrdId = "ORD00$i",
+                )
             messages.add(msg)
             createdMessages.add(msg)
         }
@@ -284,12 +285,13 @@ class GridViewMultiSelectionTest {
     @Test
     fun testRawMessageContainsFIXFormat() {
         // Given: A message with known content
-        val message = createFixMessage(
-            messageType = "D",
-            direction = FixMessage.Direction.OUTGOING,
-            seqNum = 42,
-            clOrdId = "TESTORDER",
-        )
+        val message =
+            createFixMessage(
+                messageType = "D",
+                direction = FixMessage.Direction.OUTGOING,
+                seqNum = 42,
+                clOrdId = "TESTORDER",
+            )
 
         // Then: Raw message should contain expected FIX format
         assertTrue(message.rawMessage.contains("8=FIX.4.2"))

@@ -318,7 +318,14 @@ fun App(
                                                 gridViewColumns = viewModel.appSettings.gridViewColumns,
                                                 appSettings = viewModel.appSettings,
                                                 showLatencyColumn = latencyTrackingEnabled && viewModel.appSettings.showLatencyColumn,
-                                                getLatencyForMessage = if (latencyTrackingEnabled) { rawMessage -> session.getLatencyForMessage(rawMessage) } else null,
+                                                getLatencyForMessage =
+                                                    if (latencyTrackingEnabled) {
+                                                        { rawMessage ->
+                                                            session.getLatencyForMessage(rawMessage)
+                                                        }
+                                                    } else {
+                                                        null
+                                                    },
                                                 latencyWarningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
                                                 latencyCriticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
                                                 modifier = Modifier.weight(1f),

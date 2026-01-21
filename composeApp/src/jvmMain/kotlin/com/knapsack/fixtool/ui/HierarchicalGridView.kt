@@ -266,11 +266,10 @@ fun HierarchicalGridView(
     fun getMessageId(message: AppMessage, index: Int): String = "${message.timestamp}-$index"
 
     // Helper to get selected FixMessages in order
-    fun getSelectedFixMessages(): List<FixMessage> {
-        return messages.mapIndexedNotNull { index, msg ->
+    fun getSelectedFixMessages(): List<FixMessage> =
+        messages.mapIndexedNotNull { index, msg ->
             if (msg is FixMessage && selectedMessageIds.contains(getMessageId(msg, index))) msg else null
         }
-    }
 
     // Clear multi-selection
     fun clearSelection() {
@@ -316,12 +315,13 @@ fun HierarchicalGridView(
     fun saveSelectedToFile() {
         val selected = getSelectedFixMessages()
         if (selected.isNotEmpty()) {
-            val fileChooser = JFileChooser().apply {
-                dialogTitle = "Save Messages to File"
-                fileSelectionMode = JFileChooser.FILES_ONLY
-                fileFilter = FileNameExtensionFilter("FIX Message Files (*.fix, *.txt)", "fix", "txt")
-                selectedFile = File("messages_${System.currentTimeMillis()}.fix")
-            }
+            val fileChooser =
+                JFileChooser().apply {
+                    dialogTitle = "Save Messages to File"
+                    fileSelectionMode = JFileChooser.FILES_ONLY
+                    fileFilter = FileNameExtensionFilter("FIX Message Files (*.fix, *.txt)", "fix", "txt")
+                    selectedFile = File("messages_${System.currentTimeMillis()}.fix")
+                }
 
             if (fileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
                 var file = fileChooser.selectedFile
@@ -610,45 +610,51 @@ fun HierarchicalGridView(
     val selectAllShortcut = if (isMac) "Cmd+A" else "Ctrl+A"
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(mainBackgroundColor)
-            .focusRequester(focusRequester)
-            .focusable()
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    val isCtrlOrCmd = event.isCtrlPressed || event.isMetaPressed
-                    when {
-                        // Cmd/Ctrl+C - Copy selected messages
-                        isCtrlOrCmd && event.key == Key.C -> {
-                            if (selectedMessageIds.isNotEmpty()) {
-                                copySelectedToClipboard()
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(mainBackgroundColor)
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        val isCtrlOrCmd = event.isCtrlPressed || event.isMetaPressed
+                        when {
+                            // Cmd/Ctrl+C - Copy selected messages
+                            isCtrlOrCmd && event.key == Key.C -> {
+                                if (selectedMessageIds.isNotEmpty()) {
+                                    copySelectedToClipboard()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            // Cmd/Ctrl+A - Select all
+                            isCtrlOrCmd && event.key == Key.A -> {
+                                selectAll()
                                 true
-                            } else false
+                            }
+                            // Escape - Clear selection
+                            event.key == Key.Escape -> {
+                                clearSelection()
+                                true
+                            }
+                            else -> false
                         }
-                        // Cmd/Ctrl+A - Select all
-                        isCtrlOrCmd && event.key == Key.A -> {
-                            selectAll()
-                            true
-                        }
-                        // Escape - Clear selection
-                        event.key == Key.Escape -> {
-                            clearSelection()
-                            true
-                        }
-                        else -> false
+                    } else {
+                        false
                     }
-                } else false
-            },
+                },
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Selection action bar (appears when messages are selected)
             if (selectedMessageIds.isNotEmpty()) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(AppTheme.Colors.surfaceHeader)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(AppTheme.Colors.surfaceHeader)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
@@ -709,354 +715,358 @@ fun HierarchicalGridView(
 
             // Main content with horizontal scroll support
             Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(horizontalScrollState),
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .horizontalScroll(horizontalScrollState),
             ) {
                 Column(modifier = Modifier.fillMaxHeight()) {
                     // Header row
-                Row(
-                    modifier =
-                        Modifier
-                            .background(headerBackgroundColor)
-                            .height(24.dp),
-                ) {
-                    // Checkbox column for Select All
-                    val allFixMessages = messages.filterIsInstance<FixMessage>()
-                    val allSelected = allFixMessages.isNotEmpty() && allFixMessages.all { msg ->
-                        val idx = messages.indexOf(msg)
-                        selectedMessageIds.contains(getMessageId(msg, idx))
-                    }
-                    val someSelected = selectedMessageIds.isNotEmpty() && !allSelected
-
-                    Box(
+                    Row(
                         modifier =
                             Modifier
-                                .width(24.dp)
-                                .fillMaxHeight()
-                                .border(0.5.dp, headerBorderColor)
-                                .clickable {
-                                    if (allSelected) {
-                                        // Deselect all
-                                        clearSelection()
-                                    } else {
-                                        // Select all
-                                        selectAll()
-                                    }
-                                },
-                        contentAlignment = Alignment.Center,
+                                .background(headerBackgroundColor)
+                                .height(24.dp),
                     ) {
-                        Icon(
-                            imageVector = when {
-                                allSelected -> Icons.Default.CheckBox
-                                someSelected -> Icons.Default.IndeterminateCheckBox
-                                else -> Icons.Default.CheckBoxOutlineBlank
-                            },
-                            contentDescription = if (allSelected) "Deselect All" else "Select All",
-                            tint = if (allSelected || someSelected) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
+                        // Checkbox column for Select All
+                        val allFixMessages = messages.filterIsInstance<FixMessage>()
+                        val allSelected =
+                            allFixMessages.isNotEmpty() &&
+                                allFixMessages.all { msg ->
+                                    val idx = messages.indexOf(msg)
+                                    selectedMessageIds.contains(getMessageId(msg, idx))
+                                }
+                        val someSelected = selectedMessageIds.isNotEmpty() && !allSelected
 
-                    // Icon column (expand/collapse)
-                    Box(
-                        modifier =
-                            Modifier
-                                .width(columnWidths["Icon"] ?: 40.dp)
-                                .fillMaxHeight()
-                                .border(0.5.dp, headerBorderColor),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "",
-                            color = headerTextColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    // Time column
-                    Box(
-                        modifier =
-                            Modifier
-                                .width((columnWidths["Time"] ?: 120.dp) - 1.dp)
-                                .fillMaxHeight()
-                                .border(0.5.dp, headerBorderColor)
-                                .combinedClickable(
-                                    onDoubleClick = { toggleColumnWidth("Time") },
-                                    onClick = {},
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "Time",
-                            color = headerTextColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    // Resize handle
-                    ResizeHandle("Time", columnWidths)
-
-                    // Dir column
-                    Box(
-                        modifier =
-                            Modifier
-                                .width((columnWidths["Dir"] ?: 50.dp) - 1.dp)
-                                .fillMaxHeight()
-                                .border(0.5.dp, headerBorderColor)
-                                .combinedClickable(
-                                    onDoubleClick = { toggleColumnWidth("Dir") },
-                                    onClick = {},
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "Dir",
-                            color = headerTextColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    // Resize handle
-                    ResizeHandle("Dir", columnWidths)
-
-                    // SeqNum column
-                    Box(
-                        modifier =
-                            Modifier
-                                .width((columnWidths["SeqNum"] ?: 70.dp) - 1.dp)
-                                .fillMaxHeight()
-                                .border(0.5.dp, headerBorderColor)
-                                .combinedClickable(
-                                    onDoubleClick = { toggleColumnWidth("SeqNum") },
-                                    onClick = {},
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "SeqNum",
-                            color = headerTextColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    // Resize handle
-                    ResizeHandle("SeqNum", columnWidths)
-
-                    // MsgType column
-                    Box(
-                        modifier =
-                            Modifier
-                                .width((columnWidths["MsgType"] ?: 100.dp) - 1.dp)
-                                .fillMaxHeight()
-                                .border(0.5.dp, headerBorderColor)
-                                .combinedClickable(
-                                    onDoubleClick = { toggleColumnWidth("MsgType") },
-                                    onClick = {},
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "MsgType",
-                            color = headerTextColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    // Resize handle
-                    ResizeHandle("MsgType", columnWidths)
-
-                    // Summary column (moved before custom columns)
-                    Box(
-                        modifier =
-                            Modifier
-                                .width(
-                                    if (gridViewColumns.isEmpty()) {
-                                        // Summary is last column - don't subtract
-                                        columnWidths["Summary"] ?: 200.dp
-                                    } else {
-                                        // Summary is not last - subtract for resize handle
-                                        (columnWidths["Summary"] ?: 200.dp) - 1.dp
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width(24.dp)
+                                    .fillMaxHeight()
+                                    .border(0.5.dp, headerBorderColor)
+                                    .clickable {
+                                        if (allSelected) {
+                                            // Deselect all
+                                            clearSelection()
+                                        } else {
+                                            // Select all
+                                            selectAll()
+                                        }
                                     },
-                                ).fillMaxHeight()
-                                .border(0.5.dp, headerBorderColor)
-                                .combinedClickable(
-                                    onDoubleClick = { toggleColumnWidth("Summary") },
-                                    onClick = {},
-                                ),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        Text(
-                            text = "Summary",
-                            color = headerTextColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                        )
-                    }
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector =
+                                    when {
+                                        allSelected -> Icons.Default.CheckBox
+                                        someSelected -> Icons.Default.IndeterminateCheckBox
+                                        else -> Icons.Default.CheckBoxOutlineBlank
+                                    },
+                                contentDescription = if (allSelected) "Deselect All" else "Select All",
+                                tint = if (allSelected || someSelected) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
 
-                    // Resize handle (always add after Summary for resizing functionality)
-                    ResizeHandle("Summary", columnWidths)
+                        // Icon column (expand/collapse)
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width(columnWidths["Icon"] ?: 40.dp)
+                                    .fillMaxHeight()
+                                    .border(0.5.dp, headerBorderColor),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "",
+                                color = headerTextColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
 
-                    // Latency column (optional, shown when latency tracking is enabled)
-                    if (showLatencyColumn) {
+                        // Time column
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width((columnWidths["Time"] ?: 120.dp) - 1.dp)
+                                    .fillMaxHeight()
+                                    .border(0.5.dp, headerBorderColor)
+                                    .combinedClickable(
+                                        onDoubleClick = { toggleColumnWidth("Time") },
+                                        onClick = {},
+                                    ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Time",
+                                color = headerTextColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+
+                        // Resize handle
+                        ResizeHandle("Time", columnWidths)
+
+                        // Dir column
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width((columnWidths["Dir"] ?: 50.dp) - 1.dp)
+                                    .fillMaxHeight()
+                                    .border(0.5.dp, headerBorderColor)
+                                    .combinedClickable(
+                                        onDoubleClick = { toggleColumnWidth("Dir") },
+                                        onClick = {},
+                                    ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Dir",
+                                color = headerTextColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+
+                        // Resize handle
+                        ResizeHandle("Dir", columnWidths)
+
+                        // SeqNum column
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width((columnWidths["SeqNum"] ?: 70.dp) - 1.dp)
+                                    .fillMaxHeight()
+                                    .border(0.5.dp, headerBorderColor)
+                                    .combinedClickable(
+                                        onDoubleClick = { toggleColumnWidth("SeqNum") },
+                                        onClick = {},
+                                    ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "SeqNum",
+                                color = headerTextColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+
+                        // Resize handle
+                        ResizeHandle("SeqNum", columnWidths)
+
+                        // MsgType column
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width((columnWidths["MsgType"] ?: 100.dp) - 1.dp)
+                                    .fillMaxHeight()
+                                    .border(0.5.dp, headerBorderColor)
+                                    .combinedClickable(
+                                        onDoubleClick = { toggleColumnWidth("MsgType") },
+                                        onClick = {},
+                                    ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "MsgType",
+                                color = headerTextColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+
+                        // Resize handle
+                        ResizeHandle("MsgType", columnWidths)
+
+                        // Summary column (moved before custom columns)
                         Box(
                             modifier =
                                 Modifier
                                     .width(
                                         if (gridViewColumns.isEmpty()) {
-                                            columnWidths["Latency"] ?: 90.dp
+                                            // Summary is last column - don't subtract
+                                            columnWidths["Summary"] ?: 200.dp
                                         } else {
-                                            (columnWidths["Latency"] ?: 90.dp) - 1.dp
+                                            // Summary is not last - subtract for resize handle
+                                            (columnWidths["Summary"] ?: 200.dp) - 1.dp
                                         },
                                     ).fillMaxHeight()
                                     .border(0.5.dp, headerBorderColor)
                                     .combinedClickable(
-                                        onDoubleClick = { toggleColumnWidth("Latency") },
+                                        onDoubleClick = { toggleColumnWidth("Summary") },
                                         onClick = {},
                                     ),
-                            contentAlignment = Alignment.Center,
+                            contentAlignment = Alignment.CenterStart,
                         ) {
                             Text(
-                                text = "Latency",
+                                text = "Summary",
                                 color = headerTextColor,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                            )
-                        }
-
-                        ResizeHandle("Latency", columnWidths)
-                    }
-
-                    // Dynamic columns for configured tags (moved after Summary)
-                    gridViewColumns.forEachIndexed { index, tag ->
-                        val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
-                        val columnKey = "Tag_$tag"
-                        val isLastColumn = index == gridViewColumns.size - 1
-
-                        Box(
-                            modifier =
-                                Modifier
-                                    .width(
-                                        if (isLastColumn) {
-                                            // Last column - don't subtract for alignment
-                                            columnWidths[columnKey] ?: 120.dp
-                                        } else {
-                                            // Not last column - subtract for resize handle
-                                            (columnWidths[columnKey] ?: 120.dp) - 1.dp
-                                        },
-                                    ).fillMaxHeight()
-                                    .border(0.5.dp, headerBorderColor)
-                                    .combinedClickable(
-                                        onDoubleClick = { toggleColumnWidth(columnKey) },
-                                        onClick = {},
-                                    ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = fieldName,
-                                color = headerTextColor,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 4.dp),
                             )
                         }
 
-                        // Resize handle (always add for resizing functionality)
-                        ResizeHandle(columnKey, columnWidths)
-                    }
+                        // Resize handle (always add after Summary for resizing functionality)
+                        ResizeHandle("Summary", columnWidths)
 
-                    // Spacer to fill remaining width
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-
-                // Message rows
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    messages.forEachIndexed { index, message ->
-                        val messageId = "${message.timestamp}-$index"
-                        val isExpanded = expandedMessages[messageId] ?: false
-
-                        when (message) {
-                            is Separator -> {
-                                // Separator row
-                                item(key = messageId) {
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .width(5000.dp) // Fixed width for horizontal scroll
-                                                .height(20.dp)
-                                                .background(separatorBackgroundColor),
-                                    )
-                                }
+                        // Latency column (optional, shown when latency tracking is enabled)
+                        if (showLatencyColumn) {
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .width(
+                                            if (gridViewColumns.isEmpty()) {
+                                                columnWidths["Latency"] ?: 90.dp
+                                            } else {
+                                                (columnWidths["Latency"] ?: 90.dp) - 1.dp
+                                            },
+                                        ).fillMaxHeight()
+                                        .border(0.5.dp, headerBorderColor)
+                                        .combinedClickable(
+                                            onDoubleClick = { toggleColumnWidth("Latency") },
+                                            onClick = {},
+                                        ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = "Latency",
+                                    color = headerTextColor,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
                             }
 
-                            is FixMessage -> {
-                                // Message summary row
-                                item(key = messageId) {
-                                    MessageSummaryRow(
-                                        message = message,
-                                        dictionary = dictionary,
-                                        gridViewColumns = gridViewColumns,
-                                        columnWidths = columnWidths,
-                                        isExpanded = isExpanded,
-                                        isSelected = message == selectedMessage,
-                                        isMultiSelected = selectedMessageIds.contains(messageId),
-                                        messageIndex = index,
-                                        recentlySentMessageTimestamp = recentlySentMessageTimestamp,
-                                        onToggleExpand = {
-                                            val wasExpanded = isExpanded
-                                            expandedMessages[messageId] = !isExpanded
+                            ResizeHandle("Latency", columnWidths)
+                        }
 
-                                            // Auto-fit columns when expanding for the first time
-                                            if (!wasExpanded) {
-                                                val optimalWidths = calculateExpandedGridWidths(message.quickfixMessage)
-                                                expandedGridColumnWidths.putAll(optimalWidths)
-                                            }
-                                        },
-                                        onSelectMessage = onSelectMessage,
-                                        onMultiSelectClick = { isCtrlOrCmd, isShift ->
-                                            if (isShift) {
-                                                selectRange(index)
-                                            } else if (isCtrlOrCmd) {
-                                                toggleMessageSelection(messageId, index)
-                                            }
-                                        },
-                                        appSettings = appSettings,
-                                        showLatencyColumn = showLatencyColumn,
-                                        latencyMicros = getLatencyForMessage?.invoke(message.rawMessage),
-                                        latencyWarningThresholdMicros = latencyWarningThresholdMicros,
-                                        latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
-                                    )
+                        // Dynamic columns for configured tags (moved after Summary)
+                        gridViewColumns.forEachIndexed { index, tag ->
+                            val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
+                            val columnKey = "Tag_$tag"
+                            val isLastColumn = index == gridViewColumns.size - 1
+
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .width(
+                                            if (isLastColumn) {
+                                                // Last column - don't subtract for alignment
+                                                columnWidths[columnKey] ?: 120.dp
+                                            } else {
+                                                // Not last column - subtract for resize handle
+                                                (columnWidths[columnKey] ?: 120.dp) - 1.dp
+                                            },
+                                        ).fillMaxHeight()
+                                        .border(0.5.dp, headerBorderColor)
+                                        .combinedClickable(
+                                            onDoubleClick = { toggleColumnWidth(columnKey) },
+                                            onClick = {},
+                                        ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = fieldName,
+                                    color = headerTextColor,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 4.dp),
+                                )
+                            }
+
+                            // Resize handle (always add for resizing functionality)
+                            ResizeHandle(columnKey, columnWidths)
+                        }
+
+                        // Spacer to fill remaining width
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+
+                    // Message rows
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        messages.forEachIndexed { index, message ->
+                            val messageId = "${message.timestamp}-$index"
+                            val isExpanded = expandedMessages[messageId] ?: false
+
+                            when (message) {
+                                is Separator -> {
+                                    // Separator row
+                                    item(key = messageId) {
+                                        Box(
+                                            modifier =
+                                                Modifier
+                                                    .width(5000.dp) // Fixed width for horizontal scroll
+                                                    .height(20.dp)
+                                                    .background(separatorBackgroundColor),
+                                        )
+                                    }
                                 }
 
-                                // Expanded field details
-                                if (isExpanded) {
-                                    renderQuickFixMessage(
-                                        message = message.quickfixMessage,
-                                        dictionary = dictionary,
-                                        hideProtocolTags = hideProtocolTags,
-                                        protocolTags = appSettings.protocolTags,
-                                        expandedGroups = expandedGroups,
-                                        messageId = messageId,
-                                        expandedGridColumnWidths = expandedGridColumnWidths,
-                                    )
+                                is FixMessage -> {
+                                    // Message summary row
+                                    item(key = messageId) {
+                                        MessageSummaryRow(
+                                            message = message,
+                                            dictionary = dictionary,
+                                            gridViewColumns = gridViewColumns,
+                                            columnWidths = columnWidths,
+                                            isExpanded = isExpanded,
+                                            isSelected = message == selectedMessage,
+                                            isMultiSelected = selectedMessageIds.contains(messageId),
+                                            messageIndex = index,
+                                            recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                                            onToggleExpand = {
+                                                val wasExpanded = isExpanded
+                                                expandedMessages[messageId] = !isExpanded
+
+                                                // Auto-fit columns when expanding for the first time
+                                                if (!wasExpanded) {
+                                                    val optimalWidths = calculateExpandedGridWidths(message.quickfixMessage)
+                                                    expandedGridColumnWidths.putAll(optimalWidths)
+                                                }
+                                            },
+                                            onSelectMessage = onSelectMessage,
+                                            onMultiSelectClick = { isCtrlOrCmd, isShift ->
+                                                if (isShift) {
+                                                    selectRange(index)
+                                                } else if (isCtrlOrCmd) {
+                                                    toggleMessageSelection(messageId, index)
+                                                }
+                                            },
+                                            appSettings = appSettings,
+                                            showLatencyColumn = showLatencyColumn,
+                                            latencyMicros = getLatencyForMessage?.invoke(message.rawMessage),
+                                            latencyWarningThresholdMicros = latencyWarningThresholdMicros,
+                                            latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
+                                        )
+                                    }
+
+                                    // Expanded field details
+                                    if (isExpanded) {
+                                        renderQuickFixMessage(
+                                            message = message.quickfixMessage,
+                                            dictionary = dictionary,
+                                            hideProtocolTags = hideProtocolTags,
+                                            protocolTags = appSettings.protocolTags,
+                                            expandedGroups = expandedGroups,
+                                            messageId = messageId,
+                                            expandedGridColumnWidths = expandedGridColumnWidths,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
         }
 
         // Vertical scrollbar
@@ -1214,8 +1224,7 @@ fun MessageSummaryRow(
                                 }
                             }
                         }
-                    }
-                    .clickable {
+                    }.clickable {
                         // Check if Shift is held for range selection
                         val isShift = lastCheckboxMouseEvent?.isShiftDown == true
                         onMultiSelectClick?.invoke(!isShift, isShift)
@@ -1272,8 +1281,7 @@ fun MessageSummaryRow(
                                 }
                             }
                         }
-                    }
-                    .combinedClickable(
+                    }.combinedClickable(
                         onClick = {
                             val awtEvent = lastRowMouseEvent
                             val isCtrlOrCmd = awtEvent?.isControlDown == true || awtEvent?.isMetaDown == true

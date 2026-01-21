@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixConnectionState.*
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.FixMessageHelper.toRawFixMessage
@@ -80,6 +81,19 @@ class QuickFixService(
                 // Password handling if needed
                 if (config.username.isNotBlank()) message.setString(553, config.username) // Tag 553 = username
                 if (config.password.isNotBlank()) message.setString(554, config.password) // Tag 554 = Password
+
+                // For FIX 5.0+ sessions (FIXT.1.1), add DefaultApplVerID (tag 1137) to logon
+                if (config.beginString == "FIXT.1.1") {
+                    val applVerID =
+                        config.applVerID ?: run {
+                            // Try to determine from config, default to FIX 5.0 SP2
+                            FixVersion.FIX_5_0_SP2.applVerID
+                        }
+                    if (applVerID != null && !message.isSetField(1137)) {
+                        message.setString(1137, applVerID) // Tag 1137 = DefaultApplVerID
+                        logger.info("Added DefaultApplVerID to logon: {}", applVerID)
+                    }
+                }
 
                 // Add custom logon fields
                 config.logonFields.forEach { (tag, value) ->

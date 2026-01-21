@@ -5,6 +5,27 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-01-21
+
+### ✨ Added
+
+#### Multi-FIX Version Support
+- **FIX 4.0 through 4.4** protocol version support
+- **FIX 5.0, 5.0 SP1, and 5.0 SP2** protocol version support
+- Seamless switching between FIX versions in session configuration
+
+#### Enhanced FX Demo Server
+- **Bundled FIX dictionary** for FX-specific message types
+- **Pre-built templates** for common FX trading workflows
+- Improved demo experience with realistic FX trading scenarios
+
+### 🔧 Fixed
+
+- **Profile session map sync**: Fixed issue where profileToSessionMap wasn't updated when tabs are reordered
+- **Template variable sharing**: Variables are now correctly shared across fields during template validation
+
+---
+
 ## [1.1.0] - 2026-01-18
 
 ### ✨ Added

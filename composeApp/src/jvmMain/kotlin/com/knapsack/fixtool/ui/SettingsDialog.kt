@@ -175,7 +175,7 @@ fun SettingsDialog(
                         SlimTextField(
                             value = dataDictionaryPath,
                             onValueChange = { dataDictionaryPath = it },
-                            placeholder = "e.g., /path/to/FIX44.xml",
+                            placeholder = "Leave empty for bundled FIX 4.4",
                             modifier = Modifier.weight(1f),
                         )
 

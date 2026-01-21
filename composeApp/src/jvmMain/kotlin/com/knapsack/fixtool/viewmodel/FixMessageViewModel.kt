@@ -244,6 +244,12 @@ class FixMessageViewModel(
         DemoServerManager.onDemoProfilesChanged = { demoProfiles ->
             handleDemoProfilesChanged(demoProfiles)
         }
+
+        // Set up demo template management
+        DemoServerManager.onDemoTemplatesChanged = { _ ->
+            // Reload saved messages to reflect template changes
+            loadSavedMessagesForActiveSession()
+        }
     }
 
     private fun loadAppSettings() {
@@ -263,21 +269,43 @@ class FixMessageViewModel(
                     _isDictionaryValid.value = true
                     _dictionaryErrorMessage.value = null
                 } else {
-                    logger.warn("Data dictionary file not found: {}", dictionaryPath)
-                    _isDictionaryValid.value = false
-                    _dictionaryErrorMessage.value = "Data dictionary file not found: $dictionaryPath"
+                    logger.warn("Data dictionary file not found: {}, falling back to bundled FIX 4.4", dictionaryPath)
+                    loadBundledDictionary()
                 }
             } else {
-                logger.info("No data dictionary configured, using default")
-                _isDictionaryValid.value = false
-                _dictionaryErrorMessage.value =
-                    "No data dictionary configured. Please configure a data dictionary in Settings."
+                // No custom dictionary configured - use bundled FIX 4.4 dictionary
+                logger.info("No custom data dictionary configured, using bundled FIX 4.4")
+                loadBundledDictionary()
             }
         } catch (e: Exception) {
             _isDictionaryValid.value = false
             _dictionaryErrorMessage.value = "Failed to load data dictionary: ${e.message}"
             logger.error("Failed to load data dictionary: ${e.message}", e, notifyUser = true)
-            // Keep using default dictionary
+            // Try bundled dictionary as last resort
+            loadBundledDictionary()
+        }
+    }
+
+    /**
+     * Loads the bundled FIX 4.4 dictionary from classpath resources.
+     * This is used as the default when no custom dictionary is configured.
+     */
+    private fun loadBundledDictionary() {
+        try {
+            _dictionary.value = FixDictionaryAdapter.fromResource()
+            if (_dictionary.value.isLoaded()) {
+                logger.info("Loaded bundled FIX 4.4 dictionary")
+                _isDictionaryValid.value = true
+                _dictionaryErrorMessage.value = null
+            } else {
+                logger.error("Failed to load bundled dictionary")
+                _isDictionaryValid.value = false
+                _dictionaryErrorMessage.value = "Failed to load bundled FIX 4.4 dictionary"
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to load bundled dictionary: ${e.message}", e)
+            _isDictionaryValid.value = false
+            _dictionaryErrorMessage.value = "Failed to load bundled dictionary: ${e.message}"
         }
     }
 

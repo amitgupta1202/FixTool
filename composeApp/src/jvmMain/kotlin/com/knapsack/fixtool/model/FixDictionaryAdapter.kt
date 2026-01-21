@@ -3,6 +3,7 @@ package com.knapsack.fixtool.model
 import org.w3c.dom.Element
 import quickfix.DataDictionary
 import java.io.File
+import java.io.InputStream
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
@@ -45,9 +46,81 @@ class FixDictionaryAdapter private constructor(
     companion object {
         private val logger = org.slf4j.LoggerFactory.getLogger(FixDictionaryAdapter::class.java)
 
+        /** Default bundled dictionary resource path */
+        const val BUNDLED_FIX44_RESOURCE = "/dictionaries/FIX44.xml"
+
         /**
-         * Parses the XML data dictionary file to extract enum values for fields
+         * Parses all fields from an InputStream
          */
+        private fun parseAllFields(inputStream: InputStream): List<Pair<Int, String>> =
+            try {
+                val dbFactory = DocumentBuilderFactory.newInstance()
+                val dBuilder = dbFactory.newDocumentBuilder()
+                val doc = dBuilder.parse(inputStream)
+                doc.documentElement.normalize()
+
+                val fieldsList = mutableListOf<Pair<Int, String>>()
+
+                val fieldNodes = doc.getElementsByTagName("field")
+                for (i in 0 until fieldNodes.length) {
+                    val fieldElement = fieldNodes.item(i) as? Element ?: continue
+                    val fieldNumberStr = fieldElement.getAttribute("number")
+                    val fieldName = fieldElement.getAttribute("name")
+                    if (fieldNumberStr.isBlank() || fieldName.isBlank()) continue
+                    val fieldNumber = fieldNumberStr.toIntOrNull() ?: continue
+                    fieldsList.add(fieldNumber to fieldName)
+                }
+
+                fieldsList.sortBy { it.first }
+                logger.info("Parsed {} fields from XML dictionary stream", fieldsList.size)
+                fieldsList
+            } catch (e: Exception) {
+                logger.error("Failed to parse fields from XML stream: {}", e.message, e)
+                emptyList()
+            }
+
+        /**
+         * Parses enum values from an InputStream
+         */
+        private fun parseEnumValues(inputStream: InputStream): Map<Int, List<Pair<String, String>>> =
+            try {
+                val dbFactory = DocumentBuilderFactory.newInstance()
+                val dBuilder = dbFactory.newDocumentBuilder()
+                val doc = dBuilder.parse(inputStream)
+                doc.documentElement.normalize()
+
+                val enumValuesMap = mutableMapOf<Int, MutableList<Pair<String, String>>>()
+
+                val fieldNodes = doc.getElementsByTagName("field")
+                for (i in 0 until fieldNodes.length) {
+                    val fieldElement = fieldNodes.item(i) as? Element ?: continue
+                    val fieldNumberStr = fieldElement.getAttribute("number")
+                    if (fieldNumberStr.isBlank()) continue
+                    val fieldNumber = fieldNumberStr.toIntOrNull() ?: continue
+
+                    val valueNodes = fieldElement.getElementsByTagName("value")
+                    if (valueNodes.length > 0) {
+                        val values = mutableListOf<Pair<String, String>>()
+                        for (j in 0 until valueNodes.length) {
+                            val valueElement = valueNodes.item(j) as? Element ?: continue
+                            val enumValue = valueElement.getAttribute("enum")
+                            val description = valueElement.getAttribute("description")
+                            if (enumValue.isNotBlank()) {
+                                values.add(enumValue to (description.ifBlank { enumValue }))
+                            }
+                        }
+                        if (values.isNotEmpty()) {
+                            enumValuesMap[fieldNumber] = values
+                        }
+                    }
+                }
+
+                logger.info("Parsed enum values for {} fields from XML dictionary stream", enumValuesMap.size)
+                enumValuesMap
+            } catch (e: Exception) {
+                logger.error("Failed to parse enum values from XML stream: {}", e.message, e)
+                emptyMap()
+            }
 
         /**
          * Parses all fields from the XML data dictionary file
@@ -150,6 +223,44 @@ class FixDictionaryAdapter private constructor(
          * Creates an adapter from a data dictionary file path string
          */
         fun fromPath(path: String): FixDictionaryAdapter = fromFile(File(path))
+
+        /**
+         * Creates an adapter from a classpath resource.
+         * The resource is copied to a temp file since QuickFIX requires a file path.
+         * @param resourcePath The resource path (e.g., "/dictionaries/FIX44.xml")
+         */
+        fun fromResource(resourcePath: String = BUNDLED_FIX44_RESOURCE): FixDictionaryAdapter =
+            try {
+                val inputStream = FixDictionaryAdapter::class.java.getResourceAsStream(resourcePath)
+                    ?: throw IllegalArgumentException("Resource not found: $resourcePath")
+
+                // Copy resource to temp file for QuickFIX DataDictionary
+                val tempFile = File.createTempFile("fix_dictionary_", ".xml")
+                tempFile.deleteOnExit()
+                inputStream.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                // Parse enum values and all fields from resource (need fresh streams)
+                val enumStream = FixDictionaryAdapter::class.java.getResourceAsStream(resourcePath)!!
+                val enumValues = parseEnumValues(enumStream)
+                enumStream.close()
+
+                val fieldsStream = FixDictionaryAdapter::class.java.getResourceAsStream(resourcePath)!!
+                val allFields = parseAllFields(fieldsStream)
+                fieldsStream.close()
+
+                // Create DataDictionary from temp file
+                val dataDictionary = DataDictionary(tempFile.absolutePath)
+                logger.info("Loaded QuickFIX DataDictionary from resource: {}", resourcePath)
+
+                FixDictionaryAdapter(dataDictionary, tempFile.absolutePath, enumValues, allFields)
+            } catch (e: Exception) {
+                logger.error("Failed to load DataDictionary from resource {}: {}", resourcePath, e.message, e)
+                FixDictionaryAdapter(null, null, emptyMap(), emptyList())
+            }
 
         /**
          * Creates a default adapter with no dictionary (will use tag numbers only)

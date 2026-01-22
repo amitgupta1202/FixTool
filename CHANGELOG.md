@@ -5,6 +5,14 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-01-22
+
+### 🔧 Fixed
+
+- **Template variable sharing on send**: Variables defined in earlier fields (e.g., `${abc = uuid}`) are now available to later fields (e.g., `${abc}`) when validating before sending messages
+
+---
+
 ## [1.2.0] - 2026-01-21
 
 ### ✨ Added

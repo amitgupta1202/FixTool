@@ -1163,6 +1163,8 @@ class FixMessageViewModel(
         outgoingMessages: Map<String, FixMessage>,
     ): List<String> {
         val errors = mutableListOf<String>()
+        // Use shared variables map so variables defined in earlier fields are available to later fields
+        val sharedVariables = mutableMapOf<String, String>()
 
         fields.forEach { field ->
             if (FixMessageTemplate.hasTemplateExpressions(field.value)) {
@@ -1171,6 +1173,7 @@ class FixMessageViewModel(
                         field.value,
                         incomingMessages = incomingMessages,
                         outgoingMessages = outgoingMessages,
+                        variables = sharedVariables,
                         dictionary = _dictionary.value,
                     )
                 templateErrors.forEach { error ->

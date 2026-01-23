@@ -5,6 +5,14 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-01-23
+
+### 🔧 Fixed
+
+- **FIX 5.0+ session headers**: Use FIXT.1.1 as BeginString and set default ApplVerID (FIX.5.0SP2) when transport dictionary is configured, ensuring proper FIX 5.0+ protocol compliance
+
+---
+
 ## [1.3.0] - 2026-01-23
 
 ### ✨ Added

@@ -5,6 +5,15 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-01-23
+
+### 🔧 Fixed
+
+- **Backward compatible dictionary default**: Changed `useBundledDictionary` default from `true` to `false` to prevent custom dictionaries from being silently ignored during settings migration. Users upgrading from v1.1.0 now have their custom dictionaries respected.
+- **FIX version preservation in QuickFIX messages**: Fixed header/trailer tag detection to properly preserve the FIX version when constructing QuickFIX messages
+
+---
+
 ## [1.2.1] - 2026-01-22
 
 ### 🔧 Fixed

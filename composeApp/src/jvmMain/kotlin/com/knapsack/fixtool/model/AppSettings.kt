@@ -12,7 +12,9 @@ data class AppSettings(
     // Default FIX version (when useBundledDictionary is true)
     val defaultFixVersion: FixVersion = FixVersion.FIX_4_4,
     // Whether to use bundled dictionary based on defaultFixVersion
-    val useBundledDictionary: Boolean = true,
+    // Default is false to preserve backward compatibility for users upgrading from v1.1.0
+    // who have custom dictionaries configured (settings migration doesn't include this field)
+    val useBundledDictionary: Boolean = false,
     // QuickFIX/J Validation Settings
     val validateFieldsOutOfOrder: Boolean = false,
     val validateFieldsHaveValues: Boolean = false,

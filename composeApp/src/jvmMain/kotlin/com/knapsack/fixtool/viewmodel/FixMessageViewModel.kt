@@ -301,6 +301,10 @@ class FixMessageViewModel(
                             dictionaryPath,
                             settings.defaultFixVersion.displayName,
                         )
+                        showNotification(
+                            "Custom dictionary not found at $dictionaryPath, using bundled ${settings.defaultFixVersion.displayName}",
+                            NotificationType.WARNING,
+                        )
                         loadBundledDictionaryForVersion(settings.defaultFixVersion)
                     }
                 } else {
@@ -314,6 +318,10 @@ class FixMessageViewModel(
             _dictionaryErrorMessage.value = "Failed to load data dictionary: ${e.message}"
             logger.error("Failed to load data dictionary: ${e.message}", e, notifyUser = true)
             // Try bundled dictionary as last resort
+            showNotification(
+                "Failed to load custom dictionary, using bundled ${FixVersion.DEFAULT.displayName}",
+                NotificationType.WARNING,
+            )
             loadBundledDictionaryForVersion(FixVersion.DEFAULT)
         }
     }

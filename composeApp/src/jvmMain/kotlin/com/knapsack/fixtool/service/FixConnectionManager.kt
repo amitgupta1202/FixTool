@@ -100,10 +100,13 @@ class FixConnectionManager(
                         logger.info("Using application data dictionary: {}", dataDictionaryPath)
 
                         // Add DefaultApplVerID for FIX 5.0+ sessions
-                        val applVerID = config.applVerID ?: fixVersion.applVerID
+                        // Priority: config.applVerID > fixVersion.applVerID > default "9" (FIX 5.0 SP2) when transport dict is used
+                        val applVerID = config.applVerID
+                            ?: fixVersion.applVerID
+                            ?: if (transportPath != null) "9" else null  // Default to FIX 5.0 SP2 when transport dict configured
                         if (applVerID != null) {
                             appendLine("DefaultApplVerID=$applVerID")
-                            logger.info("Using DefaultApplVerID: {} ({})", applVerID, fixVersion.displayName)
+                            logger.info("Using DefaultApplVerID: {}", applVerID)
                         }
                     } else {
                         // FIX 4.x uses a single DataDictionary
@@ -155,8 +158,15 @@ class FixConnectionManager(
                 // Session section
                 appendLine("[SESSION]")
 
-                // Determine BeginString from data dictionary or use configured value as fallback
-                val beginString = determineBeginString(config.beginString)
+                // Determine BeginString:
+                // - If transport dictionary is configured, use FIXT.1.1 (required for FIX 5.0+)
+                // - Otherwise, use data dictionary version or configured value as fallback
+                val beginString = if (transportPath != null) {
+                    logger.info("Transport dictionary configured, using BeginString: FIXT.1.1")
+                    "FIXT.1.1"
+                } else {
+                    determineBeginString(config.beginString)
+                }
                 appendLine("BeginString=$beginString")
                 appendLine("SenderCompID=${config.senderCompID}")
                 appendLine("TargetCompID=${config.targetCompID}")

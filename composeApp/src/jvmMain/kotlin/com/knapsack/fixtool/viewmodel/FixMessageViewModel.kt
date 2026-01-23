@@ -284,15 +284,32 @@ class FixMessageViewModel(
             } else {
                 // Use custom dictionary path
                 val dictionaryPath = settings.defaultDataDictionary
+                val transportDictionaryPath = settings.defaultTransportDictionary
                 if (dictionaryPath.isNotBlank()) {
                     val dictionaryFile = File(dictionaryPath)
                     if (dictionaryFile.exists()) {
-                        _dictionary.value = FixDictionaryAdapter.fromFile(dictionaryFile)
+                        // Check if transport dictionary is configured for FIX 5.0+
+                        val transportFile = if (transportDictionaryPath.isNotBlank()) {
+                            File(transportDictionaryPath).takeIf { it.exists() }
+                        } else null
+
+                        _dictionary.value = FixDictionaryAdapter.fromFiles(dictionaryFile, transportFile)
+                        val loadedVersion = (_dictionary.value as? FixDictionaryAdapter)?.fixVersion
                         logger.info(
-                            "Loaded data dictionary for UI from: {} (detected version: {})",
+                            "Loaded data dictionary for UI from: {} (detected version: {}, transport: {})",
                             dictionaryPath,
-                            (_dictionary.value as? FixDictionaryAdapter)?.fixVersion?.displayName,
+                            loadedVersion?.displayName,
+                            transportFile?.absolutePath ?: "none",
                         )
+
+                        // Warn if FIX 5.0+ but no transport dictionary
+                        if (loadedVersion?.isFix50Plus == true && transportFile == null) {
+                            showNotification(
+                                "FIX 5.0+ requires a transport dictionary (FIXT11.xml). Please configure it in Settings.",
+                                NotificationType.WARNING,
+                            )
+                        }
+
                         _isDictionaryValid.value = true
                         _dictionaryErrorMessage.value = null
                     } else {
@@ -1275,9 +1292,11 @@ class FixMessageViewModel(
     }
 
     // Demo Server Management
-    fun startDemoServer() {
+    val demoServerFixVersion: StateFlow<FixVersion?> = DemoServerManager.currentFixVersion
+
+    fun startDemoServer(fixVersion: FixVersion = FixVersion.FIX_4_4) {
         try {
-            DemoServerManager.start()
+            DemoServerManager.start(fixVersion)
         } catch (e: Exception) {
             // Error already logged by manager
         }

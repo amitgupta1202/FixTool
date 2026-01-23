@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service.demo
 
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.SavedMessagesService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,9 @@ object DemoServerManager {
     private var demoServer: DemoFixServer? = null
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
+
+    private val _currentFixVersion = MutableStateFlow<FixVersion?>(null)
+    val currentFixVersion: StateFlow<FixVersion?> = _currentFixVersion.asStateFlow()
 
     // Callback to notify when demo profiles should be created/deleted
     var onDemoProfilesChanged: ((List<FixConnectionProfile>) -> Unit)? = null
@@ -34,18 +38,21 @@ object DemoServerManager {
     /**
      * Starts the demo server if not already running
      * Also creates demo profiles and templates
+     *
+     * @param fixVersion The FIX version to use for the demo server (default: FIX 4.4)
      */
-    fun start() {
+    fun start(fixVersion: FixVersion = FixVersion.FIX_4_4) {
         if (demoServer != null) {
             logger.warn("Demo server already running")
             return
         }
 
         try {
-            demoServer = DemoFixServer()
+            _currentFixVersion.value = fixVersion
+            demoServer = DemoFixServer(fixVersion)
             demoServer?.start()
             _isRunning.value = true
-            logger.info("Demo server manager started")
+            logger.info("Demo server manager started with FIX version: {}", fixVersion.displayName)
 
             // Create demo profiles
             val demoProfiles = createDemoProfiles()
@@ -71,6 +78,7 @@ object DemoServerManager {
             demoServer?.stop()
             demoServer = null
             _isRunning.value = false
+            _currentFixVersion.value = null
             logger.info("Demo server manager stopped")
 
             // Delete demo templates first (before profiles are removed)
@@ -83,8 +91,9 @@ object DemoServerManager {
         }
     }
 
-    private fun createDemoProfiles(): List<FixConnectionProfile> =
-        DemoFixServer.DEMO_CLIENTS.mapIndexed { index, clientId ->
+    private fun createDemoProfiles(): List<FixConnectionProfile> {
+        val fixVersion = _currentFixVersion.value ?: FixVersion.FIX_4_4
+        return DemoFixServer.DEMO_CLIENTS.mapIndexed { index, clientId ->
             FixConnectionProfile(
                 id = "$DEMO_PROFILE_PREFIX$clientId",
                 name = "Demo User ${index + 1}",
@@ -94,7 +103,8 @@ object DemoServerManager {
                         targetCompID = "DEMO_SERVER",
                         host = "localhost",
                         port = "19876",
-                        beginString = "FIX.4.4",
+                        beginString = fixVersion.beginString,
+                        applVerID = fixVersion.applVerID,
                         heartBtInt = "30",
                         resetOnLogon = true,
                         resetOnLogout = false,
@@ -103,6 +113,7 @@ object DemoServerManager {
                     ),
             )
         }
+    }
 
     /**
      * Creates demo templates and saves them to storage

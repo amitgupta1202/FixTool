@@ -9,6 +9,8 @@ import kotlinx.serialization.Serializable
 data class AppSettings(
     // Default data dictionary path (when useBundledDictionary is false)
     val defaultDataDictionary: String = "",
+    // Transport dictionary path for FIX 5.0+ (FIXT11.xml) - only used when useBundledDictionary is false
+    val defaultTransportDictionary: String = "",
     // Default FIX version (when useBundledDictionary is true)
     val defaultFixVersion: FixVersion = FixVersion.FIX_4_4,
     // Whether to use bundled dictionary based on defaultFixVersion

@@ -82,12 +82,16 @@ class FixConnectionManager(
                 appendLine("StartTime=${config.startTime.ifBlank { "00:00:00" }}")
                 appendLine("EndTime=${config.endTime.ifBlank { "00:00:00" }}")
 
-                // Add data dictionary configuration based on FIX version
+                // Add data dictionary configuration based on FIX version or transport dictionary availability
                 val dataDictionaryPath = dictionary.getFilePath()
+                val transportPath = dictionary.getTransportFilePath()
+
                 if (dataDictionaryPath != null) {
-                    if (isFix50Plus) {
-                        // FIX 5.0+ uses separate transport and application dictionaries
-                        val transportPath = dictionary.getTransportFilePath()
+                    // Use separate dictionaries if:
+                    // 1. FIX 5.0+ version detected, OR
+                    // 2. A transport dictionary is explicitly configured (for custom setups with incorrect version headers)
+                    if (isFix50Plus || transportPath != null) {
+                        // FIX 5.0+ style: separate transport and application dictionaries
                         if (transportPath != null) {
                             appendLine("TransportDataDictionary=$transportPath")
                             logger.info("Using transport data dictionary (FIXT.1.1): {}", transportPath)

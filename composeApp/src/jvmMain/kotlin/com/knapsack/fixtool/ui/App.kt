@@ -93,6 +93,7 @@ fun App(
             val showSearchResultsPane by viewModel.showSearchResultsPane.collectAsState()
             val pinnedSearchResults by viewModel.pinnedSearchResults.collectAsState()
             val demoServerRunning by viewModel.demoServerRunning.collectAsState()
+            val demoServerFixVersion by viewModel.demoServerFixVersion.collectAsState()
             val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
             val savedMessages = viewModel.savedMessages
             val editorState by viewModel.editorState.collectAsState()
@@ -170,6 +171,7 @@ fun App(
                         showConnectionPanel = showConnectionPanel,
                         showLatencyPanel = showLatencyPanel,
                         demoServerRunning = demoServerRunning,
+                        demoServerFixVersion = demoServerFixVersion,
                         connectionProfiles = viewModel.connectionProfiles,
                         isDictionaryValid = isDictionaryValid,
                         globalSessionViewMode = globalViewMode,
@@ -181,12 +183,11 @@ fun App(
                         onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                         onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
                         onToggleLatencyPanel = { viewModel.toggleLatencyPanel() },
-                        onToggleDemoServer = {
-                            if (demoServerRunning) {
-                                viewModel.stopDemoServer()
-                            } else {
-                                viewModel.startDemoServer()
-                            }
+                        onStartDemoServer = { fixVersion ->
+                            viewModel.startDemoServer(fixVersion)
+                        },
+                        onStopDemoServer = {
+                            viewModel.stopDemoServer()
                         },
                         onToggleGridView = { viewModel.toggleViewMode() },
                         onQuickConnect = { profileId, profile ->

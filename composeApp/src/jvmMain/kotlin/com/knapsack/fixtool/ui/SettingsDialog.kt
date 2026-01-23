@@ -43,6 +43,7 @@ fun SettingsDialog(
     onDismiss: () -> Unit,
 ) {
     var dataDictionaryPath by remember { mutableStateOf(currentSettings.defaultDataDictionary) }
+    var transportDictionaryPath by remember { mutableStateOf(currentSettings.defaultTransportDictionary) }
     var defaultFixVersion by remember { mutableStateOf(currentSettings.defaultFixVersion) }
     var useBundledDictionary by remember { mutableStateOf(currentSettings.useBundledDictionary) }
     var validateFieldsOutOfOrder by remember { mutableStateOf(currentSettings.validateFieldsOutOfOrder) }
@@ -111,6 +112,7 @@ fun SettingsDialog(
                             onClick = {
                                 val defaults = AppSettings.default()
                                 dataDictionaryPath = defaults.defaultDataDictionary
+                                transportDictionaryPath = defaults.defaultTransportDictionary
                                 validateFieldsOutOfOrder = defaults.validateFieldsOutOfOrder
                                 validateFieldsHaveValues = defaults.validateFieldsHaveValues
                                 validateUserDefinedFields = defaults.validateUserDefinedFields
@@ -275,9 +277,92 @@ fun SettingsDialog(
                                     fontSize = 11.sp,
                                     color = AppTheme.Colors.primary,
                                 )
+
                             } else {
                                 Text(
                                     text = "⚠ File not found",
+                                    fontSize = 11.sp,
+                                    color = warningColor,
+                                )
+                            }
+                        }
+
+                        // Transport Dictionary section (for FIX 5.0+ or custom setups)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Transport Dictionary (Optional - for FIX 5.0+)",
+                            fontSize = 12.sp,
+                            color = AppTheme.Colors.textSecondary,
+                        )
+                        Text(
+                            text = "FIX 5.0+ requires a separate transport dictionary (e.g., FIXT11.xml) for session messages like Logon",
+                            fontSize = 10.sp,
+                            color = AppTheme.Colors.textSecondary,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.small),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            SlimTextField(
+                                value = transportDictionaryPath,
+                                onValueChange = { transportDictionaryPath = it },
+                                placeholder = "Path to FIXT11.xml transport dictionary",
+                                modifier = Modifier.weight(1f),
+                            )
+
+                            TooltipIconButton(
+                                tooltip = "Browse for Transport Dictionary File",
+                                onClick = {
+                                    val fileChooser =
+                                        JFileChooser().apply {
+                                            dialogTitle = "Select Transport Dictionary File (FIXT11.xml)"
+                                            fileSelectionMode = JFileChooser.FILES_ONLY
+                                            fileFilter = FileNameExtensionFilter("XML Files (*.xml)", "xml")
+
+                                            // Set initial directory from app dictionary path
+                                            if (transportDictionaryPath.isNotBlank()) {
+                                                val tFile = File(transportDictionaryPath)
+                                                if (tFile.exists()) {
+                                                    currentDirectory = tFile.parentFile
+                                                    selectedFile = tFile
+                                                }
+                                            } else if (dataDictionaryPath.isNotBlank()) {
+                                                val dFile = File(dataDictionaryPath)
+                                                if (dFile.exists()) {
+                                                    currentDirectory = dFile.parentFile
+                                                }
+                                            }
+                                        }
+
+                                    val result = fileChooser.showOpenDialog(null)
+                                    if (result == JFileChooser.APPROVE_OPTION) {
+                                        transportDictionaryPath = fileChooser.selectedFile.absolutePath
+                                    }
+                                },
+                                modifier = Modifier.size(24.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = "Browse",
+                                    tint = AppTheme.Colors.primary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                        // Validate transport dictionary file
+                        if (transportDictionaryPath.isNotBlank()) {
+                            val tFile = File(transportDictionaryPath)
+                            if (tFile.exists() && tFile.isFile) {
+                                Text(
+                                    text = "✓ Transport dictionary file exists",
+                                    fontSize = 11.sp,
+                                    color = AppTheme.Colors.primary,
+                                )
+                            } else {
+                                Text(
+                                    text = "⚠ Transport dictionary file not found",
                                     fontSize = 11.sp,
                                     color = warningColor,
                                 )
@@ -1603,6 +1688,7 @@ fun SettingsDialog(
                             val newSettings =
                                 currentSettings.copy(
                                     defaultDataDictionary = if (useBundledDictionary) "" else dataDictionaryPath.trim(),
+                                    defaultTransportDictionary = if (useBundledDictionary) "" else transportDictionaryPath.trim(),
                                     defaultFixVersion = defaultFixVersion,
                                     useBundledDictionary = useBundledDictionary,
                                     validateFieldsOutOfOrder = validateFieldsOutOfOrder,

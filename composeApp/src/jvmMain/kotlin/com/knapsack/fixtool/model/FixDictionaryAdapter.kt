@@ -321,6 +321,47 @@ class FixDictionaryAdapter private constructor(
         fun fromPath(path: String): FixDictionaryAdapter = fromFile(File(path))
 
         /**
+         * Creates an adapter from app and transport dictionary files (for FIX 5.0+)
+         * @param appDictionaryFile The application data dictionary file
+         * @param transportDictionaryFile The transport dictionary file (FIXT11.xml)
+         * @return A FixDictionaryAdapter with both dictionaries loaded
+         */
+        fun fromFiles(appDictionaryFile: File, transportDictionaryFile: File?): FixDictionaryAdapter {
+            val cacheKey = "${appDictionaryFile.absolutePath}|${transportDictionaryFile?.absolutePath ?: "none"}"
+            return dictionaryCache.getOrPut(cacheKey) {
+                try {
+                    val appPath = appDictionaryFile.absolutePath
+                    val appDictionary = DataDictionary(appPath)
+                    val enumValues = parseEnumValues(appDictionaryFile)
+                    val allFields = parseAllFields(appDictionaryFile)
+                    val version = detectVersionFromFile(appDictionaryFile)
+
+                    // Load transport dictionary if provided (useful for FIX 5.0+ or custom setups)
+                    // Note: We load it regardless of detected version since some dictionaries may have incorrect version headers
+                    val (transportDict, transportPath) = if (transportDictionaryFile != null &&
+                        transportDictionaryFile.exists()) {
+                        val tDict = DataDictionary(transportDictionaryFile.absolutePath)
+                        logger.info("Loaded transport dictionary from: {}", transportDictionaryFile.absolutePath)
+                        tDict to transportDictionaryFile.absolutePath
+                    } else {
+                        null to null
+                    }
+
+                    logger.info(
+                        "Loaded QuickFIX DataDictionary from: {} (version: {}, transport: {})",
+                        appPath,
+                        version.displayName,
+                        transportPath ?: "none"
+                    )
+                    FixDictionaryAdapter(appDictionary, appPath, enumValues, allFields, version, transportDict, transportPath)
+                } catch (e: Exception) {
+                    logger.error("Failed to load DataDictionary from {}: {}", appDictionaryFile.absolutePath, e.message, e)
+                    FixDictionaryAdapter(null, null, emptyMap(), emptyList())
+                }
+            }
+        }
+
+        /**
          * Creates an adapter for a specific FIX version using bundled dictionaries.
          * For FIX 5.0+, this also loads the FIXT.1.1 transport dictionary.
          *

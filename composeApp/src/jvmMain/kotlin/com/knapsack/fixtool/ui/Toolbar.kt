@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.FixVersion
 
 enum class ViewMode {
     TABS,
@@ -37,6 +38,7 @@ fun Toolbar(
     showConnectionPanel: Boolean = false,
     showLatencyPanel: Boolean = false,
     demoServerRunning: Boolean = false,
+    demoServerFixVersion: FixVersion? = null,
     connectionProfiles: List<FixConnectionProfile> = emptyList(),
     isDictionaryValid: Boolean = true,
     globalSessionViewMode: FixMessageSession.ViewMode,
@@ -48,7 +50,8 @@ fun Toolbar(
     onToggleDetailPanel: (() -> Unit)? = null,
     onToggleConnectionPanel: (() -> Unit)? = null,
     onToggleLatencyPanel: (() -> Unit)? = null,
-    onToggleDemoServer: (() -> Unit)? = null,
+    onStartDemoServer: ((FixVersion) -> Unit)? = null,
+    onStopDemoServer: (() -> Unit)? = null,
     onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
@@ -424,25 +427,116 @@ fun Toolbar(
         // Visual separator after view mode controls
         Spacer(modifier = Modifier.width(8.dp))
 
-        // Demo Server Toggle
-        if (onToggleDemoServer != null) {
-            TooltipIconButton(
-                tooltip =
+        // Demo Server Dropdown
+        if (onStartDemoServer != null && onStopDemoServer != null) {
+            var expanded by remember { mutableStateOf(false) }
+
+            Box {
+                Row(
+                    modifier =
+                        Modifier
+                            .height(28.dp)
+                            .background(
+                                if (demoServerRunning) AppTheme.Colors.primary.copy(alpha = 0.2f) else AppTheme.Colors.border,
+                                RoundedCornerShape(4.dp),
+                            )
+                            .clickable { expanded = true }
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Computer,
+                        contentDescription = "Demo Server",
+                        tint = if (demoServerRunning) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = if (demoServerRunning) "Demo: ${demoServerFixVersion?.displayName ?: "Running"}" else "Demo Server",
+                        color = if (demoServerRunning) AppTheme.Colors.primary else AppTheme.Colors.text,
+                        fontSize = 11.sp,
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Dropdown",
+                        tint = if (demoServerRunning) AppTheme.Colors.primary else AppTheme.Colors.text,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier =
+                        Modifier
+                            .background(AppTheme.Colors.surface)
+                            .widthIn(min = 180.dp),
+                ) {
                     if (demoServerRunning) {
-                        "Demo Server: Running (click to stop)\n4 demo profiles available in connection panel"
+                        // Show stop option when running
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Stop,
+                                        contentDescription = "Stop",
+                                        tint = AppTheme.Colors.error,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Text(
+                                        text = "Stop Demo Server",
+                                        color = AppTheme.Colors.error,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            },
+                            onClick = {
+                                expanded = false
+                                onStopDemoServer()
+                            },
+                        )
                     } else {
-                        "Demo Server: Stopped (click to start)\nWill create 4 demo user profiles"
-                    },
-                onClick = onToggleDemoServer,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Computer,
-                    contentDescription = "Toggle Demo Server",
-                    tint = toggleActiveColor(demoServerRunning, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
-                    modifier = tooltipIconModifier,
-                )
+                        // Show FIX version options when not running
+                        Text(
+                            text = "Start Demo Server",
+                            color = AppTheme.Colors.textSecondary,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                        FixVersion.entries.forEach { version ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = "Start",
+                                            tint = AppTheme.Colors.primary,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Text(
+                                            text = version.displayName,
+                                            color = AppTheme.Colors.text,
+                                            fontSize = 11.sp,
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    expanded = false
+                                    onStartDemoServer(version)
+                                },
+                            )
+                        }
+                    }
+                }
             }
+
+            Spacer(modifier = Modifier.width(8.dp))
         }
 
         // Connection panel toggle

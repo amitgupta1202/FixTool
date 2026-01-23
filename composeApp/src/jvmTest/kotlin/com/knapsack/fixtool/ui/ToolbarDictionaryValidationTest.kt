@@ -139,7 +139,8 @@ class ToolbarDictionaryValidationTest {
                 onOpenMessageEditor = { },
                 onToggleDetailPanel = { },
                 onToggleConnectionPanel = { },
-                onToggleDemoServer = { },
+                onStartDemoServer = { },
+                onStopDemoServer = { },
                 onOpenSettings = { settingsClickCount++ },
             )
         }

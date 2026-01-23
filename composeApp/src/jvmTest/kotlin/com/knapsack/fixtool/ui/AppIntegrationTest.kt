@@ -165,12 +165,13 @@ class AppIntegrationTest {
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 demoServerRunning = demoServerRunning,
-                onToggleDemoServer = { demoServerRunning = !demoServerRunning },
+                onStartDemoServer = { demoServerRunning = true },
+                onStopDemoServer = { demoServerRunning = false },
             )
         }
 
         // Then: Demo server button should be displayed
-        composeTestRule.onNodeWithContentDescription("Toggle Demo Server").assertExists()
+        composeTestRule.onNodeWithContentDescription("Demo Server").assertExists()
     }
 
     // ========================================
@@ -285,7 +286,7 @@ class AppIntegrationTest {
     }
 
     @Test
-    fun testDemoServerButtonTogglesState() {
+    fun testDemoServerDropdownStartsServer() {
         // Given: Toolbar with demo server initially off
         composeTestRule.setContent {
             Toolbar(
@@ -293,19 +294,22 @@ class AppIntegrationTest {
                 viewMode = viewMode,
                 onViewModeChange = { viewMode = it },
                 demoServerRunning = demoServerRunning,
-                onToggleDemoServer = { demoServerRunning = !demoServerRunning },
+                onStartDemoServer = { demoServerRunning = true },
+                onStopDemoServer = { demoServerRunning = false },
             )
         }
 
         // Verify initial state
         assertFalse(demoServerRunning, "Demo server should be initially off")
 
-        // When: Demo server button is clicked
-        composeTestRule.onNodeWithContentDescription("Toggle Demo Server").performClick()
+        // When: Demo server dropdown is clicked and FIX 4.4 is selected
+        composeTestRule.onNodeWithContentDescription("Demo Server").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("FIX 4.4").performClick()
         composeTestRule.waitForIdle()
 
-        // Then: State should toggle
-        assertTrue(demoServerRunning, "Demo server should be running after click")
+        // Then: Demo server should be started
+        assertTrue(demoServerRunning, "Demo server should be running after selecting version")
     }
 
     // ========================================

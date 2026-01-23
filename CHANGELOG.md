@@ -5,6 +5,28 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-01-23
+
+### ✨ Added
+
+#### Transport Dictionary Support
+- **Separate transport dictionary configuration** for FIX 5.0+ sessions
+- New `defaultTransportDictionary` field in Settings for custom transport dictionaries
+- Transport dictionary field visible in Settings when using custom dictionaries
+- Supports custom setups where app dictionary has incorrect version headers
+
+#### Demo Server FIX Version Selection
+- **FIX version dropdown** replaces toggle button in toolbar
+- Select any FIX version (4.0, 4.1, 4.2, 4.3, 4.4, 5.0, 5.0 SP1, 5.0 SP2)
+- Demo profiles automatically configured for selected version
+- Current running version displayed in toolbar
+
+### 🔧 Fixed
+
+- **Dictionary loading for FIX 5.0+**: Transport dictionary now used regardless of detected version, allowing proper FIX 5.0+ connections even with mislabeled dictionaries
+
+---
+
 ## [1.2.2] - 2026-01-23
 
 ### 🔧 Fixed

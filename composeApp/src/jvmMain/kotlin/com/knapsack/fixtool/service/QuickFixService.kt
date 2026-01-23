@@ -246,7 +246,8 @@ class QuickFixService(
                         validationWarning = validationException.message ?: "QuickFIX validation failed"
 
                         // Use manual construction as fallback (must be last expression to return Message)
-                        rawMessage.toQuickFixMessageManual(dataDictionary)
+                        // Pass the full dictionary adapter to preserve FIX version for header/trailer tag detection
+                        rawMessage.toQuickFixMessageManual(dictionary)
                     }
                 } else {
                     logger.info("Sending message without data dictionary validation")

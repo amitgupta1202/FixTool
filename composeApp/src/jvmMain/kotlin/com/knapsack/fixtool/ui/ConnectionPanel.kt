@@ -54,6 +54,8 @@ fun ConnectionPanel(
     var port by remember { mutableStateOf("") }
     var selectedFixVersion by remember { mutableStateOf(FixVersion.DEFAULT) }
     var heartBtInt by remember { mutableStateOf("30") }
+    var socketConnectTimeout by remember { mutableStateOf("10") }
+    var reconnectInterval by remember { mutableStateOf("30") }
     var resetOnLogon by remember { mutableStateOf(true) }
     var resetOnLogout by remember { mutableStateOf(false) }
     var resetOnDisconnect by remember { mutableStateOf(false) }
@@ -182,6 +184,8 @@ fun ConnectionPanel(
                     port = profile.config.port
                     selectedFixVersion = FixVersion.fromBeginString(profile.config.beginString, profile.config.applVerID)
                     heartBtInt = profile.config.heartBtInt
+                    socketConnectTimeout = profile.config.socketConnectTimeout
+                    reconnectInterval = profile.config.reconnectInterval
                     resetOnLogon = profile.config.resetOnLogon
                     resetOnLogout = profile.config.resetOnLogout
                     resetOnDisconnect = profile.config.resetOnDisconnect
@@ -213,6 +217,8 @@ fun ConnectionPanel(
                             beginString = selectedFixVersion.beginString,
                             applVerID = selectedFixVersion.applVerID,
                             heartBtInt = heartBtInt,
+                            socketConnectTimeout = socketConnectTimeout,
+                            reconnectInterval = reconnectInterval,
                             resetOnLogon = resetOnLogon,
                             resetOnLogout = resetOnLogout,
                             resetOnDisconnect = resetOnDisconnect,
@@ -258,6 +264,8 @@ fun ConnectionPanel(
                         port = ""
                         selectedFixVersion = FixVersion.DEFAULT
                         heartBtInt = "30"
+                        socketConnectTimeout = "10"
+                        reconnectInterval = "30"
                         resetOnLogon = true
                         resetOnLogout = false
                         resetOnDisconnect = false
@@ -290,6 +298,8 @@ fun ConnectionPanel(
                     port = clonedProfile.config.port
                     selectedFixVersion = FixVersion.fromBeginString(clonedProfile.config.beginString, clonedProfile.config.applVerID)
                     heartBtInt = clonedProfile.config.heartBtInt
+                    socketConnectTimeout = clonedProfile.config.socketConnectTimeout
+                    reconnectInterval = clonedProfile.config.reconnectInterval
                     resetOnLogon = clonedProfile.config.resetOnLogon
                     resetOnLogout = clonedProfile.config.resetOnLogout
                     resetOnDisconnect = clonedProfile.config.resetOnDisconnect
@@ -558,6 +568,27 @@ fun ConnectionPanel(
                             fontSize = 9.sp,
                         )
                     }
+                }
+
+                // Connection timeout settings
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ConnectionField(
+                        label = "Connect Timeout (seconds)",
+                        value = socketConnectTimeout,
+                        onValueChange = { socketConnectTimeout = it },
+                        placeholder = "10",
+                        modifier = Modifier.weight(1f),
+                    )
+                    ConnectionField(
+                        label = "Reconnect Interval (seconds)",
+                        value = reconnectInterval,
+                        onValueChange = { reconnectInterval = it },
+                        placeholder = "30",
+                        modifier = Modifier.weight(1f),
+                    )
                 }
 
                 // Reset Options - all in one row
@@ -1180,6 +1211,8 @@ fun ConnectionPanel(
                             beginString = selectedFixVersion.beginString,
                             applVerID = selectedFixVersion.applVerID,
                             heartBtInt = heartBtInt,
+                            socketConnectTimeout = socketConnectTimeout,
+                            reconnectInterval = reconnectInterval,
                             resetOnLogon = resetOnLogon,
                             resetOnLogout = resetOnLogout,
                             resetOnDisconnect = resetOnDisconnect,

@@ -81,6 +81,8 @@ class FixConnectionManager(
                 appendLine("FileLogPath=${config.fileLogPath}")
                 appendLine("StartTime=${config.startTime.ifBlank { "00:00:00" }}")
                 appendLine("EndTime=${config.endTime.ifBlank { "00:00:00" }}")
+                appendLine("SocketConnectTimeout=${config.socketConnectTimeout.ifBlank { "10" }}")
+                appendLine("ReconnectInterval=${config.reconnectInterval.ifBlank { "30" }}")
 
                 // Add data dictionary configuration based on FIX version or transport dictionary availability
                 val dataDictionaryPath = dictionary.getFilePath()

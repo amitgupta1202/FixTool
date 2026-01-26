@@ -16,6 +16,8 @@ data class FixConnectionConfig(
     val beginString: String = "FIX.4.4", // FIX version (or FIXT.1.1 for FIX 5.0+)
     val applVerID: String? = null, // ApplVerID for FIX 5.0+ sessions ("7" = FIX 5.0, "8" = SP1, "9" = SP2)
     val heartBtInt: String = "30", // Heartbeat interval in seconds
+    val socketConnectTimeout: String = "10", // TCP connection timeout in seconds
+    val reconnectInterval: String = "30", // Seconds between reconnection attempts
     val resetOnLogon: Boolean = false,
     val resetOnLogout: Boolean = false,
     val resetOnDisconnect: Boolean = false,

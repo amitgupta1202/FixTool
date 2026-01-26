@@ -18,6 +18,7 @@ data class FixConnectionConfig(
     val heartBtInt: String = "30", // Heartbeat interval in seconds
     val socketConnectTimeout: String = "10", // TCP connection timeout in seconds
     val reconnectInterval: String = "30", // Seconds between reconnection attempts
+    val autoReconnect: Boolean = true, // Automatically retry connection on failure
     val resetOnLogon: Boolean = false,
     val resetOnLogout: Boolean = false,
     val resetOnDisconnect: Boolean = false,

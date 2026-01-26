@@ -38,9 +38,11 @@ class QuickFixService(
     private val onMessageReceived: (FixMessage) -> Unit,
     private val onStateChanged: (FixConnectionState) -> Unit,
     private val onError: ((String) -> Unit)? = null,
+    private val onConnectionFailed: (() -> Unit)? = null,
 ) : Application {
     private val logger = NotifyingLogger(QuickFixService::class.java, onError)
     private var currentSessionID: SessionID? = null
+    private var hasEverLoggedOn: Boolean = false
 
     /**
      * Capture current time in microseconds for latency tracking.
@@ -58,6 +60,7 @@ class QuickFixService(
     override fun onLogon(sessionId: SessionID) {
         logger.info("QuickFIX Session logged on: {}", sessionId)
         currentSessionID = sessionId
+        hasEverLoggedOn = true
         onStateChanged(LOGGED_ON)
     }
 
@@ -65,6 +68,12 @@ class QuickFixService(
         logger.info("QuickFIX Session logged out: {}", sessionId)
         currentSessionID = null
         onStateChanged(DISCONNECTED)
+
+        // If we never successfully logged on and auto-reconnect is disabled, stop trying
+        if (!hasEverLoggedOn && !config.autoReconnect) {
+            logger.info("Auto-reconnect disabled and initial connection failed - stopping connection attempts")
+            onConnectionFailed?.invoke()
+        }
     }
 
     /**

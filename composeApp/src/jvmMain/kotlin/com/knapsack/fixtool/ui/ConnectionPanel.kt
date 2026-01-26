@@ -56,6 +56,7 @@ fun ConnectionPanel(
     var heartBtInt by remember { mutableStateOf("30") }
     var socketConnectTimeout by remember { mutableStateOf("10") }
     var reconnectInterval by remember { mutableStateOf("30") }
+    var autoReconnect by remember { mutableStateOf(true) }
     var resetOnLogon by remember { mutableStateOf(true) }
     var resetOnLogout by remember { mutableStateOf(false) }
     var resetOnDisconnect by remember { mutableStateOf(false) }
@@ -186,6 +187,7 @@ fun ConnectionPanel(
                     heartBtInt = profile.config.heartBtInt
                     socketConnectTimeout = profile.config.socketConnectTimeout
                     reconnectInterval = profile.config.reconnectInterval
+                    autoReconnect = profile.config.autoReconnect
                     resetOnLogon = profile.config.resetOnLogon
                     resetOnLogout = profile.config.resetOnLogout
                     resetOnDisconnect = profile.config.resetOnDisconnect
@@ -219,6 +221,7 @@ fun ConnectionPanel(
                             heartBtInt = heartBtInt,
                             socketConnectTimeout = socketConnectTimeout,
                             reconnectInterval = reconnectInterval,
+                            autoReconnect = autoReconnect,
                             resetOnLogon = resetOnLogon,
                             resetOnLogout = resetOnLogout,
                             resetOnDisconnect = resetOnDisconnect,
@@ -266,6 +269,7 @@ fun ConnectionPanel(
                         heartBtInt = "30"
                         socketConnectTimeout = "10"
                         reconnectInterval = "30"
+                        autoReconnect = true
                         resetOnLogon = true
                         resetOnLogout = false
                         resetOnDisconnect = false
@@ -300,6 +304,7 @@ fun ConnectionPanel(
                     heartBtInt = clonedProfile.config.heartBtInt
                     socketConnectTimeout = clonedProfile.config.socketConnectTimeout
                     reconnectInterval = clonedProfile.config.reconnectInterval
+                    autoReconnect = clonedProfile.config.autoReconnect
                     resetOnLogon = clonedProfile.config.resetOnLogon
                     resetOnLogout = clonedProfile.config.resetOnLogout
                     resetOnDisconnect = clonedProfile.config.resetOnDisconnect
@@ -588,6 +593,41 @@ fun ConnectionPanel(
                         onValueChange = { reconnectInterval = it },
                         placeholder = "30",
                         modifier = Modifier.weight(1f),
+                    )
+                }
+
+                // Auto-reconnect checkbox
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.clickable { autoReconnect = !autoReconnect },
+                ) {
+                    Box(
+                        modifier =
+                            checkboxSize16
+                                .background(
+                                    color = checkboxBackgroundColor(autoReconnect),
+                                    shape = checkboxShape,
+                                ).border(
+                                    width = 1.dp,
+                                    color = checkboxBorderColor(autoReconnect),
+                                    shape = checkboxShape,
+                                ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (autoReconnect) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = AppTheme.Colors.background,
+                                modifier = iconSize12,
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Auto-reconnect on failure",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 9.sp,
                     )
                 }
 
@@ -1213,6 +1253,7 @@ fun ConnectionPanel(
                             heartBtInt = heartBtInt,
                             socketConnectTimeout = socketConnectTimeout,
                             reconnectInterval = reconnectInterval,
+                            autoReconnect = autoReconnect,
                             resetOnLogon = resetOnLogon,
                             resetOnLogout = resetOnLogout,
                             resetOnDisconnect = resetOnDisconnect,

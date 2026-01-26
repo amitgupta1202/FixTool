@@ -547,6 +547,7 @@ Contributions are welcome! Please follow these guidelines:
 4. **Write clear commit messages**
    - Describe WHAT changed and WHY
    - Don't mention test status or tools used
+   - Don't include Co-Authored-By lines
    - Follow conventional commit format (feat:, fix:, docs:, etc.)
 
 5. **Update documentation**

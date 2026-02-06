@@ -1012,14 +1012,27 @@ fun HierarchicalGridView(
 
                             when (message) {
                                 is Separator -> {
-                                    // Separator row
+                                    // Separator row - match MessageSummaryRow dimensions exactly
                                     item(key = messageId) {
+                                        val latencyColumnWidth = if (showLatencyColumn) (columnWidths["Latency"] ?: 90.dp) else 0.dp
+                                        val minWidth =
+                                            24.dp + // Checkbox column
+                                                (columnWidths["Icon"] ?: 40.dp) +
+                                                (columnWidths["Time"] ?: 120.dp) +
+                                                (columnWidths["Dir"] ?: 50.dp) +
+                                                (columnWidths["SeqNum"] ?: 70.dp) +
+                                                (columnWidths["MsgType"] ?: 100.dp) +
+                                                (columnWidths["Summary"] ?: 200.dp) +
+                                                latencyColumnWidth +
+                                                gridViewColumns.sumOf { tag -> (columnWidths["Tag_$tag"] ?: 120.dp).value.toInt() }.dp +
+                                                200.dp // Extra space for spacer
                                         Box(
                                             modifier =
                                                 Modifier
-                                                    .width(5000.dp) // Fixed width for horizontal scroll
-                                                    .height(20.dp)
-                                                    .background(separatorBackgroundColor),
+                                                    .widthIn(min = minWidth)
+                                                    .height(24.dp)
+                                                    .background(separatorBackgroundColor)
+                                                    .border(0.5.dp, cellBorderColor),
                                         )
                                     }
                                 }

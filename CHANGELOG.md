@@ -5,6 +5,31 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-02-06
+
+### ✨ Added
+
+#### Connection Settings
+- **Socket connection timeout** setting for configurable connection timeouts
+- **Reconnect interval** setting for controlling delay between reconnection attempts
+- **Auto-reconnect toggle** to enable/disable automatic reconnection per session
+
+#### Improved Message Parsing
+- **Re-parse incoming messages using wire bytes** for complete repeating group fields, ensuring all group entries are correctly captured
+
+#### UI Improvements
+- **Demo Server moved from toolbar to Connection Panel** for a cleaner toolbar and more logical grouping
+- **Scroll-to-bottom button** in session header bar and Tab View for quick navigation to latest messages
+- **Improved scrollbar visibility** with grey scrollbar color for better contrast
+
+### 🔧 Fixed
+
+- **Auto-reconnect behavior**: Stop reconnection after any disconnect when auto-reconnect is disabled
+- **Send button activation**: Enable send button by activating session when auto-selecting profile on connect
+- **Fix Logs grid layout**: Sync separator row dimensions with message summary rows for consistent alignment
+
+---
+
 ## [1.3.1] - 2026-01-23
 
 ### 🔧 Fixed

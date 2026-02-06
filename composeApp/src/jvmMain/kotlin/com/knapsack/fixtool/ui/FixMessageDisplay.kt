@@ -65,6 +65,8 @@ fun FixMessageDisplay(
     getLatencyForMessage: ((String) -> Long?)? = null,
     latencyWarningThresholdMicros: Long = 100_000L,
     latencyCriticalThresholdMicros: Long = 500_000L,
+    onAtBottomChanged: (Boolean) -> Unit = {},
+    scrollToBottomTrigger: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -250,6 +252,8 @@ fun FixMessageDisplay(
                         getLatencyForMessage = getLatencyForMessage,
                         latencyWarningThresholdMicros = latencyWarningThresholdMicros,
                         latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
+                        onAtBottomChanged = onAtBottomChanged,
+                        scrollToBottomTrigger = scrollToBottomTrigger,
                     )
                 }
 
@@ -319,6 +323,8 @@ fun FixMessageDisplay(
             getLatencyForMessage = getLatencyForMessage,
             latencyWarningThresholdMicros = latencyWarningThresholdMicros,
             latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
+            onAtBottomChanged = onAtBottomChanged,
+            scrollToBottomTrigger = scrollToBottomTrigger,
             modifier = modifier,
         )
     }
@@ -358,6 +364,8 @@ private fun MessageDisplayContent(
     getLatencyForMessage: ((String) -> Long?)? = null,
     latencyWarningThresholdMicros: Long = 100_000L,
     latencyCriticalThresholdMicros: Long = 500_000L,
+    onAtBottomChanged: (Boolean) -> Unit = {},
+    scrollToBottomTrigger: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -409,6 +417,8 @@ private fun MessageDisplayContent(
                     getLatencyForMessage = getLatencyForMessage,
                     latencyWarningThresholdMicros = latencyWarningThresholdMicros,
                     latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
+                    onAtBottomChanged = onAtBottomChanged,
+                    scrollToBottomTrigger = scrollToBottomTrigger,
                     modifier =
                         Modifier
                             .fillMaxSize()
@@ -430,6 +440,19 @@ private fun MessageDisplayContent(
                             listState.animateScrollToItem(messageIndex)
                         }
                     }
+                }
+            }
+
+            // Report isAtBottom changes to parent
+            LaunchedEffect(isAtBottom) {
+                onAtBottomChanged(isAtBottom)
+            }
+
+            // React to scroll-to-bottom trigger from parent
+            LaunchedEffect(scrollToBottomTrigger) {
+                if (scrollToBottomTrigger > 0 && messages.isNotEmpty()) {
+                    listState.animateScrollToItem(messages.size - 1)
+                    onEnableAutoScroll()
                 }
             }
 
@@ -553,31 +576,6 @@ private fun MessageDisplayContent(
                     )
                 }
 
-                // Scroll to bottom button (shown when not at bottom and there are messages)
-                if (!isAtBottom && messages.isNotEmpty()) {
-                    TooltipFloatingActionButton(
-                        tooltip = "Scroll to Bottom (Resume Auto-Scroll)",
-                        onClick = {
-                            coroutineScope.launch {
-                                listState.animateScrollToItem(messages.size - 1)
-                                onEnableAutoScroll() // Re-enable auto-scroll mode
-                            }
-                        },
-                        containerColor = fabBackgroundColor,
-                        contentColor = Color.White,
-                        modifier =
-                            Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(16.dp)
-                                .size(40.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDownward,
-                            contentDescription = "Scroll to bottom",
-                            modifier = Modifier.size(iconSize),
-                        )
-                    }
-                }
             }
         }
     }
@@ -890,7 +888,6 @@ private val separatorLineColor = Color(0xFF4A4A4A) // Keep unique separator line
 private val currentMatchHighlightColor = AppTheme.Colors.highlightCurrent
 private val otherMatchHighlightColor = Color(0xFFFFEB3B) // Keep unique yellow for other matches
 private val activeColor = AppTheme.Colors.primary
-private val fabBackgroundColor = AppTheme.Colors.primary
 
 private val textFieldBorderRadius = RoundedCornerShape(2.dp)
 private val iconSize = 20.dp

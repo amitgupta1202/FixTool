@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
@@ -246,6 +245,8 @@ fun HierarchicalGridView(
     getLatencyForMessage: ((String) -> Long?)? = null,
     latencyWarningThresholdMicros: Long = 100_000L,
     latencyCriticalThresholdMicros: Long = 500_000L,
+    onAtBottomChanged: (Boolean) -> Unit = {},
+    scrollToBottomTrigger: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -420,6 +421,19 @@ fun HierarchicalGridView(
                     autoScroll = true
                 }
             }
+        }
+    }
+
+    // Report isAtBottom changes to parent
+    LaunchedEffect(isAtBottom) {
+        onAtBottomChanged(isAtBottom)
+    }
+
+    // React to scroll-to-bottom trigger from parent
+    LaunchedEffect(scrollToBottomTrigger) {
+        if (scrollToBottomTrigger > 0 && messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+            autoScroll = true
         }
     }
 
@@ -1090,31 +1104,6 @@ fun HierarchicalGridView(
                     .height(8.dp),
         )
 
-        // Scroll to bottom button (shown when not at bottom and there are messages)
-        if (!isAtBottom && messages.isNotEmpty()) {
-            TooltipFloatingActionButton(
-                tooltip = "Scroll to Bottom (Resume Auto-Scroll)",
-                onClick = {
-                    coroutineScope.launch {
-                        listState.animateScrollToItem(messages.size - 1)
-                        autoScroll = true // Re-enable auto-scroll mode
-                    }
-                },
-                containerColor = fabBackgroundColor,
-                contentColor = Color.White,
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 24.dp, bottom = 16.dp)
-                        .size(40.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowDownward,
-                    contentDescription = "Scroll to bottom",
-                    modifier = Modifier.size(iconSize),
-                )
-            }
-        }
     }
 }
 
@@ -2138,7 +2127,6 @@ private val groupInstanceBackgroundColor = AppTheme.Colors.surfaceHeader
 
 private val tooltipCornerRadius = RoundedCornerShape(4.dp)
 private val iconSize = 14.dp
-private val fabBackgroundColor = AppTheme.Colors.primary
 
 // Helper function for direction color
 private fun getDirectionColor(message: FixMessage, appSettings: com.knapsack.fixtool.model.AppSettings): Color =

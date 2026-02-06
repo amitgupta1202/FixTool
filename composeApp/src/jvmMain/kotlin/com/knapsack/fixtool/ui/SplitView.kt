@@ -264,6 +264,9 @@ private fun SessionPanel(
             .default(),
     modifier: Modifier = Modifier,
 ) {
+    var isAtBottom by remember { mutableStateOf(true) }
+    var scrollToBottomTrigger by remember { mutableStateOf(0) }
+
     val messages by session.messages.collectAsState()
     val wrapText by session.wrapText.collectAsState()
     val searchVisible by session.searchVisible.collectAsState()
@@ -411,6 +414,23 @@ private fun SessionPanel(
                     contentDescription = "Clear All Messages",
                     tint = AppTheme.Colors.textSecondary,
                     modifier = Modifier.size(16.dp),
+                )
+            }
+
+            // Scroll to bottom button
+            Spacer(modifier = Modifier.width(2.dp))
+
+            TooltipIconButton(
+                tooltip = "Scroll to Bottom",
+                onClick = { scrollToBottomTrigger++ },
+                enabled = !isAtBottom,
+                modifier = Modifier.size(buttonSize),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowDownward,
+                    contentDescription = "Scroll to bottom",
+                    tint = if (!isAtBottom) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(iconSize),
                 )
             }
 
@@ -796,6 +816,8 @@ private fun SessionPanel(
             getLatencyForMessage = if (latencyTrackingEnabled) { rawMessage -> session.getLatencyForMessage(rawMessage) } else null,
             latencyWarningThresholdMicros = appSettings.latencyWarningThresholdMicros,
             latencyCriticalThresholdMicros = appSettings.latencyCriticalThresholdMicros,
+            onAtBottomChanged = { isAtBottom = it },
+            scrollToBottomTrigger = scrollToBottomTrigger,
             modifier = Modifier.weight(1f),
         )
     }

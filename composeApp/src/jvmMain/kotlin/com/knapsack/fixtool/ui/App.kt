@@ -292,6 +292,9 @@ fun App(
 
                                     // Center panel - Tabs and Message display
                                     Column(modifier = Modifier.weight(1f)) {
+                                        var isAtBottom by remember { mutableStateOf(true) }
+                                        var scrollToBottomTrigger by remember { mutableStateOf(0) }
+
                                         TabBar(
                                             sessions = viewModel.sessions,
                                             activeIndex = viewModel.activeSessionIndex,
@@ -307,6 +310,8 @@ fun App(
                                             onDisconnect = { index ->
                                                 viewModel.sessions.getOrNull(index)?.disconnect()
                                             },
+                                            isAtBottom = isAtBottom,
+                                            onScrollToBottom = { scrollToBottomTrigger++ },
                                         )
 
                                         viewModel.activeSession?.let { session ->
@@ -338,6 +343,8 @@ fun App(
                                                     },
                                                 latencyWarningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
                                                 latencyCriticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
+                                                onAtBottomChanged = { isAtBottom = it },
+                                                scrollToBottomTrigger = scrollToBottomTrigger,
                                                 modifier = Modifier.weight(1f),
                                             )
                                         } ?: Box(

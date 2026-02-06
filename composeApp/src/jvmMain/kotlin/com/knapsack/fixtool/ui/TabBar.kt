@@ -28,6 +28,8 @@ fun TabBar(
     onToggleWrapText: (Int) -> Unit,
     onConnect: (Int) -> Unit,
     onDisconnect: (Int) -> Unit,
+    isAtBottom: Boolean = true,
+    onScrollToBottom: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -135,6 +137,21 @@ fun TabBar(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Clear All Messages",
                         tint = AppTheme.Colors.textSecondary,
+                        modifier = toolbarIconSize,
+                    )
+                }
+
+                // Scroll to bottom button
+                TooltipIconButton(
+                    tooltip = "Scroll to Bottom",
+                    onClick = onScrollToBottom,
+                    enabled = !isAtBottom,
+                    modifier = toolbarButtonSize,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowDownward,
+                        contentDescription = "Scroll to bottom",
+                        tint = if (!isAtBottom) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )
                 }

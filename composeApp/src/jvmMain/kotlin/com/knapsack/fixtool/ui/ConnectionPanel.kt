@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -596,6 +597,7 @@ fun ConnectionPanel(
                         value = reconnectInterval,
                         onValueChange = { reconnectInterval = it },
                         placeholder = "30",
+                        enabled = autoReconnect,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -1441,9 +1443,10 @@ private fun ConnectionField(
     isPassword: Boolean = false,
     isError: Boolean = false,
     errorMessage: String = "",
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier) {
+    Column(modifier = modifier.then(if (enabled) Modifier else Modifier.alpha(0.4f))) {
         Text(
             text = label,
             color = if (isError) AppTheme.Colors.error else AppTheme.Colors.textSecondary,
@@ -1458,6 +1461,7 @@ private fun ConnectionField(
             textStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text),
             visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
             isError = isError,
+            enabled = enabled,
         )
 
         if (isError && errorMessage.isNotEmpty()) {
@@ -1480,6 +1484,7 @@ private fun SlimTextField(
     textStyle: TextStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text),
     visualTransformation: VisualTransformation = VisualTransformation.None,
     isError: Boolean = false,
+    enabled: Boolean = true,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -1507,6 +1512,7 @@ private fun SlimTextField(
         cursorBrush = SolidColor(AppTheme.Colors.primary),
         interactionSource = interactionSource,
         visualTransformation = visualTransformation,
+        enabled = enabled,
     )
 }
 

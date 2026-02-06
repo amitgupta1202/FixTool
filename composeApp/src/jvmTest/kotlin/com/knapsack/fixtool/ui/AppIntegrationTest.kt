@@ -156,24 +156,6 @@ class AppIntegrationTest {
         composeTestRule.onNodeWithContentDescription("Settings").assertExists()
     }
 
-    @Test
-    fun testToolbarDisplaysDemoServerButton() {
-        // When: Toolbar is rendered with demo server callback
-        composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
-                demoServerRunning = demoServerRunning,
-                onStartDemoServer = { demoServerRunning = true },
-                onStopDemoServer = { demoServerRunning = false },
-            )
-        }
-
-        // Then: Demo server button should be displayed
-        composeTestRule.onNodeWithContentDescription("Demo Server").assertExists()
-    }
-
     // ========================================
     // Toolbar Button Toggle Tests
     // ========================================
@@ -283,33 +265,6 @@ class AppIntegrationTest {
 
         // Then: Should cycle back to SPLIT_HORIZONTAL
         assertTrue(viewMode == ViewMode.SPLIT_HORIZONTAL, "View mode should cycle back to SPLIT_HORIZONTAL")
-    }
-
-    @Test
-    fun testDemoServerDropdownStartsServer() {
-        // Given: Toolbar with demo server initially off
-        composeTestRule.setContent {
-            Toolbar(
-                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
-                viewMode = viewMode,
-                onViewModeChange = { viewMode = it },
-                demoServerRunning = demoServerRunning,
-                onStartDemoServer = { demoServerRunning = true },
-                onStopDemoServer = { demoServerRunning = false },
-            )
-        }
-
-        // Verify initial state
-        assertFalse(demoServerRunning, "Demo server should be initially off")
-
-        // When: Demo server dropdown is clicked and FIX 4.4 is selected
-        composeTestRule.onNodeWithContentDescription("Demo Server").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithText("FIX 4.4").performClick()
-        composeTestRule.waitForIdle()
-
-        // Then: Demo server should be started
-        assertTrue(demoServerRunning, "Demo server should be running after selecting version")
     }
 
     // ========================================

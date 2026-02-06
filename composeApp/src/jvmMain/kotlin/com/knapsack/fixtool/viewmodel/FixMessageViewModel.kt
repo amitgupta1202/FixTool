@@ -792,11 +792,10 @@ class FixMessageViewModel(
 
             existingSession.connect(profile.config, _appSettings.value, _dictionary.value)
 
-            // Auto-select profile in message editor if none is currently selected
-            // (but don't change active session/tab - that's controlled separately)
+            // Auto-select profile and activate session if none is currently selected
             if (_selectedEditorProfile.value == null) {
                 logger.info("Auto-selecting profile '{}' in message editor", profile.name)
-                _selectedEditorProfile.value = profile
+                setSelectedEditorProfile(profile)
             }
         } else {
             // Create new session for this profile
@@ -818,11 +817,10 @@ class FixMessageViewModel(
 
             session.connect(profile.config, _appSettings.value, _dictionary.value)
 
-            // Auto-select profile in message editor if none is currently selected
-            // (but don't change active session/tab - that's controlled separately)
+            // Auto-select profile and activate session if none is currently selected
             if (_selectedEditorProfile.value == null) {
                 logger.info("Auto-selecting profile '{}' in message editor", profile.name)
-                _selectedEditorProfile.value = profile
+                setSelectedEditorProfile(profile)
             }
         }
     }

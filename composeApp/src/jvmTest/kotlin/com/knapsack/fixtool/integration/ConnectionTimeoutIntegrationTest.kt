@@ -185,7 +185,7 @@ class ConnectionTimeoutIntegrationTest {
     }
 
     @Test
-    fun `QuickFixService does not call onConnectionFailed after successful logon`() {
+    fun `QuickFixService calls onConnectionFailed after disconnect when autoReconnect is disabled`() {
         var currentState: FixConnectionState = FixConnectionState.DISCONNECTED
         var connectionFailedCalled = false
 
@@ -217,8 +217,8 @@ class ConnectionTimeoutIntegrationTest {
         service.onLogout(mockSessionId)
         assertEquals(FixConnectionState.DISCONNECTED, currentState)
 
-        // onConnectionFailed should NOT be called since we successfully logged on before
-        assertFalse(connectionFailedCalled, "onConnectionFailed should not be called after successful logon")
+        // onConnectionFailed should be called since autoReconnect is disabled
+        assertTrue(connectionFailedCalled, "onConnectionFailed should be called when autoReconnect is disabled, even after successful logon")
     }
 
     @Test

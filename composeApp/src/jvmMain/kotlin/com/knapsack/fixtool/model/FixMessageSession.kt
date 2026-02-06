@@ -250,9 +250,9 @@ class FixMessageSession(
                     },
                     onError = onError,
                     onConnectionFailed = {
-                        // Stop the connection manager when auto-reconnect is disabled and connection failed
+                        // Stop the connection manager when auto-reconnect is disabled
                         scope.launch {
-                            logger.info("Stopping connection due to failed initial connection (auto-reconnect disabled)")
+                            logger.info("Stopping connection (auto-reconnect disabled)")
                             connectionManager?.stop()
                             connectionManager = null
                             quickFixService = null

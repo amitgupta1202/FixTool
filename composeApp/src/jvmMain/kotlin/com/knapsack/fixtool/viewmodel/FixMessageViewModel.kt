@@ -289,9 +289,12 @@ class FixMessageViewModel(
                     val dictionaryFile = File(dictionaryPath)
                     if (dictionaryFile.exists()) {
                         // Check if transport dictionary is configured for FIX 5.0+
-                        val transportFile = if (transportDictionaryPath.isNotBlank()) {
-                            File(transportDictionaryPath).takeIf { it.exists() }
-                        } else null
+                        val transportFile =
+                            if (transportDictionaryPath.isNotBlank()) {
+                                File(transportDictionaryPath).takeIf { it.exists() }
+                            } else {
+                                null
+                            }
 
                         _dictionary.value = FixDictionaryAdapter.fromFiles(dictionaryFile, transportFile)
                         val loadedVersion = (_dictionary.value as? FixDictionaryAdapter)?.fixVersion

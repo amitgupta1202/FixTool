@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixConnectionState.*
+import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
@@ -35,6 +36,7 @@ sealed class SendResult {
 
 class QuickFixService(
     private val config: FixConnectionConfig,
+    private val dictionary: FixDictionary,
     private val onMessageReceived: (FixMessage) -> Unit,
     private val onStateChanged: (FixConnectionState) -> Unit,
     private val onError: ((String) -> Unit)? = null,
@@ -141,15 +143,34 @@ class QuickFixService(
     }
 
     /**
+     * Retrieves the raw wire message from the capturing log factory using message header fields.
+     */
+    private fun getWireMessage(message: Message): String? =
+        try {
+            val header = message.header
+            val sender = header.getString(49)
+            val target = header.getString(56)
+            val seqNum = header.getInt(34)
+            RawMessageCapturingLogFactory.RawMessageCapturingLog.getAndRemoveRawIncoming(sender, target, seqNum)
+        } catch (e: Exception) {
+            logger.debug("Could not extract wire message key: ${e.message}")
+            null
+        }
+
+    /**
      * Called for administrative messages (from admin) received
      */
     override fun fromAdmin(message: Message, sessionId: SessionID) {
         // Capture timestamp immediately for accurate latency tracking
         val captureMicros = captureTimeMicros()
 
-        // Route admin messages to the UI if needed
         try {
-            val rawMessage = message.toRawFixMessage()
+            val wireMessage = getWireMessage(message)
+
+            val rawMessage =
+                wireMessage?.toRawFixMessage()
+                    ?: message.toRawFixMessage()
+
             logger.info("Received: {}", rawMessage)
             val fixMessage =
                 FixMessage(
@@ -157,7 +178,7 @@ class QuickFixService(
                     direction = FixMessage.Direction.INCOMING,
                     rawMessage = rawMessage,
                     messageType = message.header.getString(35),
-                    quickfixMessage = message,
+                    quickfixMessage = message, // Admin messages don't need re-parse
                     captureTimeMicros = captureMicros,
                 )
             onMessageReceived(fixMessage)
@@ -199,7 +220,32 @@ class QuickFixService(
         // Capture timestamp immediately for accurate latency tracking
         val captureMicros = captureTimeMicros()
 
-        val rawMessage = message.toString().toRawFixMessage()
+        // Get actual wire message from ConcurrentHashMap (keyed by sender/target/seqnum)
+        val wireMessage = getWireMessage(message)
+
+        // Raw message for display: prefer wire bytes, fall back to parsed
+        val rawMessage =
+            wireMessage?.toRawFixMessage()
+                ?: message.toString().toRawFixMessage()
+
+        // Re-parse using manual parser (handles non-standard delimiter ordering)
+        val parsedMessage =
+            if (wireMessage != null) {
+                try {
+                    val dataDictionary = dictionary.getDataDictionary()
+                    if (dataDictionary != null) {
+                        wireMessage.toQuickFixMessageManual(dictionary)
+                    } else {
+                        message
+                    }
+                } catch (e: Exception) {
+                    logger.warn("Manual re-parse failed, using QuickFIX parsed message: ${e.message}")
+                    message
+                }
+            } else {
+                message
+            }
+
         logger.info("QuickFIX fromApp: {}", rawMessage)
 
         try {
@@ -209,7 +255,7 @@ class QuickFixService(
                     timestamp = LocalDateTime.now(),
                     direction = FixMessage.Direction.INCOMING,
                     rawMessage = rawMessage,
-                    quickfixMessage = message,
+                    quickfixMessage = parsedMessage,
                     captureTimeMicros = captureMicros,
                 )
 

@@ -439,8 +439,7 @@ fun Toolbar(
                             .background(
                                 if (demoServerRunning) AppTheme.Colors.primary.copy(alpha = 0.2f) else AppTheme.Colors.border,
                                 RoundedCornerShape(4.dp),
-                            )
-                            .clickable { expanded = true }
+                            ).clickable { expanded = true }
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),

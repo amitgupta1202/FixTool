@@ -239,6 +239,7 @@ class FixMessageSession(
             quickFixService =
                 QuickFixService(
                     config = config,
+                    dictionary = effectiveDictionary,
                     onMessageReceived = { message -> addMessage(message) },
                     onStateChanged = { state ->
                         _connectionState.value = state

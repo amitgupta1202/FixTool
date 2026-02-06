@@ -22,7 +22,6 @@ import kotlin.test.assertTrue
  * - AutoReconnect
  */
 class ConnectionTimeoutIntegrationTest {
-
     private lateinit var tempStoreDir: File
     private lateinit var tempLogDir: File
 
@@ -81,11 +80,12 @@ class ConnectionTimeoutIntegrationTest {
 
     @Test
     fun `config copy preserves timeout settings`() {
-        val original = FixConnectionConfig(
-            socketConnectTimeout = "20",
-            reconnectInterval = "45",
-            autoReconnect = false
-        )
+        val original =
+            FixConnectionConfig(
+                socketConnectTimeout = "20",
+                reconnectInterval = "45",
+                autoReconnect = false,
+            )
 
         val copied = original.copy(senderCompID = "NEW_SENDER")
 
@@ -97,15 +97,16 @@ class ConnectionTimeoutIntegrationTest {
 
     @Test
     fun `config with all timeout settings`() {
-        val config = FixConnectionConfig(
-            senderCompID = "SENDER",
-            targetCompID = "TARGET",
-            host = "localhost",
-            port = "9876",
-            socketConnectTimeout = "5",
-            reconnectInterval = "15",
-            autoReconnect = false
-        )
+        val config =
+            FixConnectionConfig(
+                senderCompID = "SENDER",
+                targetCompID = "TARGET",
+                host = "localhost",
+                port = "9876",
+                socketConnectTimeout = "5",
+                reconnectInterval = "15",
+                autoReconnect = false,
+            )
 
         assertEquals("SENDER", config.senderCompID)
         assertEquals("TARGET", config.targetCompID)
@@ -123,17 +124,20 @@ class ConnectionTimeoutIntegrationTest {
         var currentState: FixConnectionState = FixConnectionState.DISCONNECTED
         var connectionFailedCalled = false
 
-        val config = FixConnectionConfig(
-            autoReconnect = false
-        )
+        val config =
+            FixConnectionConfig(
+                autoReconnect = false,
+            )
 
-        val service = QuickFixService(
-            config = config,
-            onMessageReceived = { },
-            onStateChanged = { state -> currentState = state },
-            onError = null,
-            onConnectionFailed = { connectionFailedCalled = true }
-        )
+        val service =
+            QuickFixService(
+                config = config,
+                dictionary = FixDictionaryAdapter.createDefault(),
+                onMessageReceived = { },
+                onStateChanged = { state -> currentState = state },
+                onError = null,
+                onConnectionFailed = { connectionFailedCalled = true },
+            )
 
         // Simulate session creation
         val mockSessionId = createMockSessionId()
@@ -154,17 +158,20 @@ class ConnectionTimeoutIntegrationTest {
         var currentState: FixConnectionState = FixConnectionState.DISCONNECTED
         var connectionFailedCalled = false
 
-        val config = FixConnectionConfig(
-            autoReconnect = true // default
-        )
+        val config =
+            FixConnectionConfig(
+                autoReconnect = true, // default
+            )
 
-        val service = QuickFixService(
-            config = config,
-            onMessageReceived = { },
-            onStateChanged = { state -> currentState = state },
-            onError = null,
-            onConnectionFailed = { connectionFailedCalled = true }
-        )
+        val service =
+            QuickFixService(
+                config = config,
+                dictionary = FixDictionaryAdapter.createDefault(),
+                onMessageReceived = { },
+                onStateChanged = { state -> currentState = state },
+                onError = null,
+                onConnectionFailed = { connectionFailedCalled = true },
+            )
 
         // Simulate session creation
         val mockSessionId = createMockSessionId()
@@ -182,17 +189,20 @@ class ConnectionTimeoutIntegrationTest {
         var currentState: FixConnectionState = FixConnectionState.DISCONNECTED
         var connectionFailedCalled = false
 
-        val config = FixConnectionConfig(
-            autoReconnect = false
-        )
+        val config =
+            FixConnectionConfig(
+                autoReconnect = false,
+            )
 
-        val service = QuickFixService(
-            config = config,
-            onMessageReceived = { },
-            onStateChanged = { state -> currentState = state },
-            onError = null,
-            onConnectionFailed = { connectionFailedCalled = true }
-        )
+        val service =
+            QuickFixService(
+                config = config,
+                dictionary = FixDictionaryAdapter.createDefault(),
+                onMessageReceived = { },
+                onStateChanged = { state -> currentState = state },
+                onError = null,
+                onConnectionFailed = { connectionFailedCalled = true },
+            )
 
         // Simulate session creation
         val mockSessionId = createMockSessionId()
@@ -217,12 +227,14 @@ class ConnectionTimeoutIntegrationTest {
 
         val config = FixConnectionConfig()
 
-        val service = QuickFixService(
-            config = config,
-            onMessageReceived = { },
-            onStateChanged = { state -> stateHistory.add(state) },
-            onError = null
-        )
+        val service =
+            QuickFixService(
+                config = config,
+                dictionary = FixDictionaryAdapter.createDefault(),
+                onMessageReceived = { },
+                onStateChanged = { state -> stateHistory.add(state) },
+                onError = null,
+            )
 
         val mockSessionId = createMockSessionId()
 
@@ -240,11 +252,14 @@ class ConnectionTimeoutIntegrationTest {
 
         // Verify state history
         assertEquals(3, stateHistory.size)
-        assertEquals(listOf(
-            FixConnectionState.CONNECTING,
-            FixConnectionState.LOGGED_ON,
-            FixConnectionState.DISCONNECTED
-        ), stateHistory)
+        assertEquals(
+            listOf(
+                FixConnectionState.CONNECTING,
+                FixConnectionState.LOGGED_ON,
+                FixConnectionState.DISCONNECTED,
+            ),
+            stateHistory,
+        )
     }
 
     // ========================================
@@ -253,26 +268,29 @@ class ConnectionTimeoutIntegrationTest {
 
     @Test
     fun `FixConnectionManager uses config timeout values`() {
-        val config = FixConnectionConfig(
-            senderCompID = "SENDER",
-            targetCompID = "TARGET",
-            host = "localhost",
-            port = "9999",
-            socketConnectTimeout = "15",
-            reconnectInterval = "45",
-            fileStorePath = tempStoreDir.absolutePath,
-            fileLogPath = tempLogDir.absolutePath
-        )
+        val config =
+            FixConnectionConfig(
+                senderCompID = "SENDER",
+                targetCompID = "TARGET",
+                host = "localhost",
+                port = "9999",
+                socketConnectTimeout = "15",
+                reconnectInterval = "45",
+                fileStorePath = tempStoreDir.absolutePath,
+                fileLogPath = tempLogDir.absolutePath,
+            )
 
         val appSettings = AppSettings()
         val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
 
-        val service = QuickFixService(
-            config = config,
-            onMessageReceived = { },
-            onStateChanged = { },
-            onError = null
-        )
+        val service =
+            QuickFixService(
+                config = config,
+                dictionary = FixDictionaryAdapter.createDefault(),
+                onMessageReceived = { },
+                onStateChanged = { },
+                onError = null,
+            )
 
         // Create the connection manager - this will create session settings
         val manager = FixConnectionManager(config, service, appSettings, dictionary)
@@ -289,26 +307,29 @@ class ConnectionTimeoutIntegrationTest {
 
     @Test
     fun `FixConnectionManager handles empty timeout values with defaults`() {
-        val config = FixConnectionConfig(
-            senderCompID = "SENDER",
-            targetCompID = "TARGET",
-            host = "localhost",
-            port = "9999",
-            socketConnectTimeout = "", // empty - should use default
-            reconnectInterval = "", // empty - should use default
-            fileStorePath = tempStoreDir.absolutePath,
-            fileLogPath = tempLogDir.absolutePath
-        )
+        val config =
+            FixConnectionConfig(
+                senderCompID = "SENDER",
+                targetCompID = "TARGET",
+                host = "localhost",
+                port = "9999",
+                socketConnectTimeout = "", // empty - should use default
+                reconnectInterval = "", // empty - should use default
+                fileStorePath = tempStoreDir.absolutePath,
+                fileLogPath = tempLogDir.absolutePath,
+            )
 
         val appSettings = AppSettings()
         val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
 
-        val service = QuickFixService(
-            config = config,
-            onMessageReceived = { },
-            onStateChanged = { },
-            onError = null
-        )
+        val service =
+            QuickFixService(
+                config = config,
+                dictionary = FixDictionaryAdapter.createDefault(),
+                onMessageReceived = { },
+                onStateChanged = { },
+                onError = null,
+            )
 
         // Should not throw exception - defaults should be used
         val manager = FixConnectionManager(config, service, appSettings, dictionary)
@@ -325,17 +346,20 @@ class ConnectionTimeoutIntegrationTest {
     fun `multiple logout calls without logon triggers onConnectionFailed only once`() {
         var connectionFailedCount = 0
 
-        val config = FixConnectionConfig(
-            autoReconnect = false
-        )
+        val config =
+            FixConnectionConfig(
+                autoReconnect = false,
+            )
 
-        val service = QuickFixService(
-            config = config,
-            onMessageReceived = { },
-            onStateChanged = { },
-            onError = null,
-            onConnectionFailed = { connectionFailedCount++ }
-        )
+        val service =
+            QuickFixService(
+                config = config,
+                dictionary = FixDictionaryAdapter.createDefault(),
+                onMessageReceived = { },
+                onStateChanged = { },
+                onError = null,
+                onConnectionFailed = { connectionFailedCount++ },
+            )
 
         val mockSessionId = createMockSessionId()
         service.onCreate(mockSessionId)
@@ -353,18 +377,21 @@ class ConnectionTimeoutIntegrationTest {
 
     @Test
     fun `onConnectionFailed callback is optional`() {
-        val config = FixConnectionConfig(
-            autoReconnect = false
-        )
+        val config =
+            FixConnectionConfig(
+                autoReconnect = false,
+            )
 
         // Create service without onConnectionFailed callback
-        val service = QuickFixService(
-            config = config,
-            onMessageReceived = { },
-            onStateChanged = { },
-            onError = null,
-            onConnectionFailed = null // explicitly null
-        )
+        val service =
+            QuickFixService(
+                config = config,
+                dictionary = FixDictionaryAdapter.createDefault(),
+                onMessageReceived = { },
+                onStateChanged = { },
+                onError = null,
+                onConnectionFailed = null, // explicitly null
+            )
 
         val mockSessionId = createMockSessionId()
         service.onCreate(mockSessionId)
@@ -379,7 +406,5 @@ class ConnectionTimeoutIntegrationTest {
     // Helper Methods
     // ========================================
 
-    private fun createMockSessionId(): quickfix.SessionID {
-        return quickfix.SessionID("FIX.4.4", "SENDER", "TARGET")
-    }
+    private fun createMockSessionId(): quickfix.SessionID = quickfix.SessionID("FIX.4.4", "SENDER", "TARGET")
 }

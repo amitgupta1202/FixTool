@@ -277,7 +277,6 @@ fun SettingsDialog(
                                     fontSize = 11.sp,
                                     color = AppTheme.Colors.primary,
                                 )
-
                             } else {
                                 Text(
                                     text = "⚠ File not found",

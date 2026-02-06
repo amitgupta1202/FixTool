@@ -338,20 +338,22 @@ class FixDictionaryAdapter private constructor(
 
                     // Load transport dictionary if provided (useful for FIX 5.0+ or custom setups)
                     // Note: We load it regardless of detected version since some dictionaries may have incorrect version headers
-                    val (transportDict, transportPath) = if (transportDictionaryFile != null &&
-                        transportDictionaryFile.exists()) {
-                        val tDict = DataDictionary(transportDictionaryFile.absolutePath)
-                        logger.info("Loaded transport dictionary from: {}", transportDictionaryFile.absolutePath)
-                        tDict to transportDictionaryFile.absolutePath
-                    } else {
-                        null to null
-                    }
+                    val (transportDict, transportPath) =
+                        if (transportDictionaryFile != null &&
+                            transportDictionaryFile.exists()
+                        ) {
+                            val tDict = DataDictionary(transportDictionaryFile.absolutePath)
+                            logger.info("Loaded transport dictionary from: {}", transportDictionaryFile.absolutePath)
+                            tDict to transportDictionaryFile.absolutePath
+                        } else {
+                            null to null
+                        }
 
                     logger.info(
                         "Loaded QuickFIX DataDictionary from: {} (version: {}, transport: {})",
                         appPath,
                         version.displayName,
-                        transportPath ?: "none"
+                        transportPath ?: "none",
                     )
                     FixDictionaryAdapter(appDictionary, appPath, enumValues, allFields, version, transportDict, transportPath)
                 } catch (e: Exception) {

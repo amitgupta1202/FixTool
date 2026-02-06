@@ -187,8 +187,6 @@ fun App(
                         showDetailPanel = showDetailPanel,
                         showConnectionPanel = showConnectionPanel,
                         showLatencyPanel = showLatencyPanel,
-                        demoServerRunning = demoServerRunning,
-                        demoServerFixVersion = demoServerFixVersion,
                         connectionProfiles = viewModel.connectionProfiles,
                         isDictionaryValid = isDictionaryValid,
                         globalSessionViewMode = globalViewMode,
@@ -200,12 +198,6 @@ fun App(
                         onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                         onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
                         onToggleLatencyPanel = { viewModel.toggleLatencyPanel() },
-                        onStartDemoServer = { fixVersion ->
-                            viewModel.startDemoServer(fixVersion)
-                        },
-                        onStopDemoServer = {
-                            viewModel.stopDemoServer()
-                        },
                         onToggleGridView = { viewModel.toggleViewMode() },
                         onQuickConnect = { profileId, profile ->
                             viewModel.connectProfile(profileId, profile)
@@ -467,6 +459,10 @@ fun App(
                                                     viewModel.getProfileSession(profileId)
                                                 },
                                                 onClose = { viewModel.toggleConnectionPanel() },
+                                                demoServerRunning = demoServerRunning,
+                                                demoServerFixVersion = demoServerFixVersion,
+                                                onStartDemoServer = { viewModel.startDemoServer(it) },
+                                                onStopDemoServer = { viewModel.stopDemoServer() },
                                                 modifier = Modifier.fillMaxSize(),
                                             )
                                         }
@@ -734,6 +730,10 @@ fun App(
                                                         )
                                                     },
                                                     onClose = { viewModel.toggleConnectionPanel() },
+                                                    demoServerRunning = demoServerRunning,
+                                                    demoServerFixVersion = demoServerFixVersion,
+                                                    onStartDemoServer = { viewModel.startDemoServer(it) },
+                                                    onStopDemoServer = { viewModel.stopDemoServer() },
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
                                             }

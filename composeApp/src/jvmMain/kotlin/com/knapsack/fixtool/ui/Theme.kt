@@ -192,6 +192,13 @@ object AppTheme {
 
         /** Info notification background */
         val notificationInfoBackground = Color(0xFF1E2A3A)
+
+        // ========== Scrollbar Colors ==========
+        /** Default scrollbar thumb */
+        val scrollbar = Color(0xFF6A6A6A)
+
+        /** Scrollbar thumb on hover */
+        val scrollbarHover = Color(0xFF8A8A8A)
     }
 
     /**

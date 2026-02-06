@@ -1,8 +1,11 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.LocalScrollbarStyle
+import androidx.compose.foundation.ScrollbarStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material3.MaterialTheme
@@ -63,7 +66,21 @@ fun App(
                 backgroundColor = AppTheme.Colors.textSelectionBackground,
             )
 
-        CompositionLocalProvider(LocalTextSelectionColors provides customTextSelectionColors) {
+        // Custom scrollbar style for visibility against dark background
+        val customScrollbarStyle =
+            ScrollbarStyle(
+                minimalHeight = 16.dp,
+                thickness = 8.dp,
+                shape = RoundedCornerShape(4.dp),
+                hoverDurationMillis = 300,
+                unhoverColor = AppTheme.Colors.scrollbar,
+                hoverColor = AppTheme.Colors.scrollbarHover,
+            )
+
+        CompositionLocalProvider(
+            LocalTextSelectionColors provides customTextSelectionColors,
+            LocalScrollbarStyle provides customScrollbarStyle,
+        ) {
             val viewModel: FixMessageViewModel = viewModel { FixMessageViewModel() }
 
             // Expose viewModel reference to parent

@@ -129,13 +129,14 @@ class SavedMessagesService(
         }
 
     /**
-     * Loads saved messages for a specific profile (filters by userTags)
+     * Loads saved messages for a specific profile (filters by userTags).
+     * Messages with no profile associations (empty userTags) are treated as global
+     * and included for all profiles.
      */
     fun loadMessagesForProfile(profileId: String): List<SavedFixMessage> {
         val container = loadAll()
-        // Filter messages that have this profileId in their userTags
         return container.messages.filter { message ->
-            message.getAllUserTags().contains(profileId)
+            message.getAllUserTags().isEmpty() || message.getAllUserTags().contains(profileId)
         }
     }
 

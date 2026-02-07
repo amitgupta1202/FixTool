@@ -302,6 +302,54 @@ class SavedMessagesServiceTest {
     }
 
     @Test
+    fun testUntaggedMessagesAppearForAllProfiles() {
+        val profile1 = "profile-1"
+        val profile2 = "profile-2"
+
+        // Write a file with an untagged message directly (simulates pre-existing data)
+        testFile.writeText(
+            """
+            {
+                "messages": [
+                    {
+                        "id": "global-1",
+                        "name": "Global Message",
+                        "userTags": [],
+                        "fields": [{"tag": "35", "value": "D"}],
+                        "createdAt": 1000,
+                        "lastUsedAt": 1000,
+                        "modifiedAt": 1000,
+                        "version": 1,
+                        "isFavorite": false
+                    },
+                    {
+                        "id": "p1-msg",
+                        "name": "Profile 1 Message",
+                        "userTags": ["$profile1"],
+                        "fields": [{"tag": "35", "value": "8"}],
+                        "createdAt": 1000,
+                        "lastUsedAt": 1000,
+                        "modifiedAt": 1000,
+                        "version": 1,
+                        "isFavorite": false
+                    }
+                ],
+                "version": 1
+            }
+            """.trimIndent(),
+        )
+
+        // Global message should appear for both profiles
+        val profile1Messages = service.loadMessagesForProfile(profile1)
+        val profile2Messages = service.loadMessagesForProfile(profile2)
+
+        assertEquals(2, profile1Messages.size, "Profile 1 should see its own message + global message")
+        assertEquals(1, profile2Messages.size, "Profile 2 should see the global message")
+        assertTrue(profile1Messages.any { it.name == "Global Message" })
+        assertTrue(profile2Messages.any { it.name == "Global Message" })
+    }
+
+    @Test
     fun testDeleteFromProfileWithMultipleMessages() {
         val profileId = "test-profile-delete-multi"
 

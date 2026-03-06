@@ -6,6 +6,7 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 
 - **Message Construction**: Build FIX messages with an intuitive UI, supporting standard fields and repeating groups
 - **FIX Client Connectivity**: Connect to FIX servers as a client with configurable connection profiles
+- **FIX Acceptor Mode**: Run FixTool as a FIX server to accept incoming connections and respond to messages
 - **SSL/TLS Support**: Secure connections with full SSL/TLS support for encrypted FIX sessions
 - **Message Inspection**: View and analyze incoming and outgoing FIX messages in real-time
 - **Session Management**: Manage multiple FIX sessions with connection profiles

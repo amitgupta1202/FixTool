@@ -66,6 +66,8 @@ fun ConnectionPanel(
     var resetOnLogout by remember { mutableStateOf(false) }
     var resetOnDisconnect by remember { mutableStateOf(false) }
     var showHeartbeat by remember { mutableStateOf(true) }
+    var connectionType by remember { mutableStateOf(FixConnectionConfig.ConnectionType.INITIATOR) }
+    var socketAcceptPort by remember { mutableStateOf("") }
     var showAdvanced by remember { mutableStateOf(false) }
     var customParameters by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var logonFields by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
@@ -114,13 +116,18 @@ fun ConnectionPanel(
     fun isFormValid(): Boolean =
         senderCompID.isNotBlank() &&
             targetCompID.isNotBlank() &&
-            host.isNotBlank() &&
-            isPortValid(port)
+            if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+                host.isNotBlank() && isPortValid(port)
+            } else {
+                isPortValid(socketAcceptPort.ifBlank { port })
+            }
 
     val isSenderCompIDError = senderCompID.isEmpty()
     val isTargetCompIDError = targetCompID.isEmpty()
-    val isHostError = host.isEmpty()
-    val isPortError = port.isEmpty() || !isPortValid(port)
+    val isHostError = connectionType == FixConnectionConfig.ConnectionType.INITIATOR && host.isEmpty()
+    val isPortError = connectionType == FixConnectionConfig.ConnectionType.INITIATOR && (port.isEmpty() || !isPortValid(port))
+    val isAcceptPortError = connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
+        (socketAcceptPort.ifBlank { port }.isEmpty() || !isPortValid(socketAcceptPort.ifBlank { port }))
 
     Column(
         modifier =
@@ -197,6 +204,8 @@ fun ConnectionPanel(
                     resetOnLogout = profile.config.resetOnLogout
                     resetOnDisconnect = profile.config.resetOnDisconnect
                     showHeartbeat = profile.config.showHeartbeat
+                    connectionType = profile.config.connectionType
+                    socketAcceptPort = profile.config.socketAcceptPort
                     customParameters = profile.config.customParameters.map { it.key to it.value }
                     logonFields = profile.config.logonFields.map { it.key to it.value }
                     // SSL/TLS
@@ -221,6 +230,8 @@ fun ConnectionPanel(
                             host = host,
                             port = port,
                             socketConnectHost = host, // Use the same host for connection
+                            connectionType = connectionType,
+                            socketAcceptPort = socketAcceptPort,
                             beginString = selectedFixVersion.beginString,
                             applVerID = selectedFixVersion.applVerID,
                             heartBtInt = heartBtInt,
@@ -279,6 +290,8 @@ fun ConnectionPanel(
                         resetOnLogout = false
                         resetOnDisconnect = false
                         showHeartbeat = true
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR
+                        socketAcceptPort = ""
                         useSSL = false
                         keyStorePath = ""
                         keyStorePassword = ""
@@ -314,6 +327,8 @@ fun ConnectionPanel(
                     resetOnLogout = clonedProfile.config.resetOnLogout
                     resetOnDisconnect = clonedProfile.config.resetOnDisconnect
                     showHeartbeat = clonedProfile.config.showHeartbeat
+                    connectionType = clonedProfile.config.connectionType
+                    socketAcceptPort = clonedProfile.config.socketAcceptPort
                     useSSL = clonedProfile.config.useSSL
                     keyStorePath = clonedProfile.config.keyStorePath
                     keyStorePassword = clonedProfile.config.keyStorePassword
@@ -383,6 +398,28 @@ fun ConnectionPanel(
             // Basic connection fields
             SectionLabel("Connection Settings")
 
+            // Connection Type selection
+            Column {
+                Text(
+                    text = "Connection Type",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 9.sp,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+
+                SlimDropdown(
+                    value = connectionType,
+                    options = FixConnectionConfig.ConnectionType.entries.toList(),
+                    onValueChange = { it?.let { type -> connectionType = type } },
+                    displayText = { when (it) {
+                        FixConnectionConfig.ConnectionType.INITIATOR -> "Initiator (Client)"
+                        FixConnectionConfig.ConnectionType.ACCEPTOR -> "Acceptor (Server)"
+                    } },
+                    placeholder = "Select Connection Type",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             // SenderCompID and TargetCompID on same row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -441,28 +478,42 @@ fun ConnectionPanel(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ConnectionField(
-                    label = "Host",
-                    value = host,
-                    onValueChange = { host = it },
-                    placeholder = "localhost",
-                    isError = isHostError,
-                    errorMessage = "Required",
-                    modifier = Modifier.weight(1f),
-                )
+            if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+                // Initiator mode: Host and Port
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ConnectionField(
+                        label = "Host",
+                        value = host,
+                        onValueChange = { host = it },
+                        placeholder = "localhost",
+                        isError = isHostError,
+                        errorMessage = "Required",
+                        modifier = Modifier.weight(1f),
+                    )
 
+                    ConnectionField(
+                        label = "Port",
+                        value = port,
+                        onValueChange = { port = it },
+                        placeholder = "9876",
+                        isError = isPortError,
+                        errorMessage = if (port.isEmpty()) "Required" else "Invalid port (1-65535)",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
+                // Acceptor mode: Accept Port only
                 ConnectionField(
-                    label = "Port",
-                    value = port,
-                    onValueChange = { port = it },
+                    label = "Accept Port (listen for incoming connections)",
+                    value = socketAcceptPort.ifBlank { port },
+                    onValueChange = { socketAcceptPort = it },
                     placeholder = "9876",
-                    isError = isPortError,
-                    errorMessage = if (port.isEmpty()) "Required" else "Invalid port (1-65535)",
-                    modifier = Modifier.weight(1f),
+                    isError = isAcceptPortError,
+                    errorMessage = if (socketAcceptPort.ifBlank { port }.isEmpty()) "Required" else "Invalid port (1-65535)",
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
 
@@ -1353,7 +1404,11 @@ fun ConnectionPanel(
         ) {
             // Connect button
             SlimButton(
-                text = if (connectionState == FixConnectionState.CONNECTING) "Connecting..." else "Connect",
+                text = when {
+                    connectionState == FixConnectionState.CONNECTING -> "Connecting..."
+                    connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR -> "Start Listening"
+                    else -> "Connect"
+                },
                 onClick = {
                     connectionError = null // Clear any previous error
                     val config =
@@ -1366,6 +1421,8 @@ fun ConnectionPanel(
                             host = host,
                             port = port,
                             socketConnectHost = host, // Use the same host for connection
+                            connectionType = connectionType,
+                            socketAcceptPort = socketAcceptPort,
                             beginString = selectedFixVersion.beginString,
                             applVerID = selectedFixVersion.applVerID,
                             heartBtInt = heartBtInt,
@@ -1410,7 +1467,7 @@ fun ConnectionPanel(
 
             // Disconnect button
             SlimButton(
-                text = "Disconnect",
+                text = if (connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) "Stop Listening" else "Disconnect",
                 onClick = {
                     selectedProfile?.let { onDisconnect(it.id) }
                 },

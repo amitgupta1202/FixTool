@@ -537,12 +537,22 @@ private fun GroupHeaderRow(
                 .clickable { onToggle() }
                 .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
     ) {
+        // Tag number (aligned with FieldRow tag column)
+        Text(
+            text = tag.toString(),
+            color = tagNumberColor,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.width(35.dp),
+        )
+
+        Spacer(modifier = Modifier.width(4.dp))
+
         // Group indicator icon (collapsible)
         Text(
             text = if (isExpanded) "▼" else "▶",
             color = groupHeaderTextColor,
             fontSize = 8.sp,
-            modifier = Modifier.width(35.dp),
         )
 
         Spacer(modifier = Modifier.width(4.dp))

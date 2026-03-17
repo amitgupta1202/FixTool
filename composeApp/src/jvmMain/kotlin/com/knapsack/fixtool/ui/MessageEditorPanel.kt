@@ -3,6 +3,7 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -11,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -770,6 +772,8 @@ fun MessageEditorPanel(
                                         modifier =
                                             Modifier
                                                 .fillMaxWidth()
+                                                .heightIn(max = 200.dp)
+                                                .verticalScroll(rememberScrollState())
                                                 .background(Color(0xFF252525), RoundedCornerShape(4.dp))
                                                 .padding(8.dp),
                                     ) {

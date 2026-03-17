@@ -49,6 +49,8 @@ data class AppSettings(
     val latencyWarningThresholdMicros: Long = 100_000L, // 100ms - threshold for warning color
     val latencyCriticalThresholdMicros: Long = 500_000L, // 500ms - threshold for critical/red color
     val showLatencyColumn: Boolean = true, // Show latency column in grid view when tracking is enabled
+    // Session-Editor Sync Settings
+    val autoSyncSessionToEditor: Boolean = true, // Auto-sync selected session tab to message editor connection dropdown
 ) {
     companion object {
         /**

@@ -442,11 +442,15 @@ class FixMessageViewModel(
             _activeSessionIndex.value = index
             _activeSessionState.value = session
 
-            // Sync selectedEditorProfile to match the selected session
-            val profileId = profileToSessionMap.entries.find { it.value == index }?.key
-            val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
-            _selectedEditorProfile.value = profile
-            logger.info("setActiveSession: Updated selectedEditorProfile to: ${profile?.name} (ID: ${profile?.id})")
+            // Sync selectedEditorProfile to match the selected session (if enabled)
+            if (_appSettings.value.autoSyncSessionToEditor) {
+                val profileId = profileToSessionMap.entries.find { it.value == index }?.key
+                val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
+                _selectedEditorProfile.value = profile
+                logger.info("setActiveSession: Updated selectedEditorProfile to: ${profile?.name} (ID: ${profile?.id})")
+            } else {
+                logger.info("setActiveSession: Auto-sync to editor disabled, skipping profile update")
+            }
 
             // Reload messages when session selection changes
             loadSavedMessagesForActiveSession()
@@ -458,8 +462,10 @@ class FixMessageViewModel(
         if (session == null) {
             _activeSessionIndex.value = -1
             _activeSessionState.value = null
-            _selectedEditorProfile.value = null
-            logger.info("setActiveSessionByObject: Cleared selectedEditorProfile")
+            if (_appSettings.value.autoSyncSessionToEditor) {
+                _selectedEditorProfile.value = null
+                logger.info("setActiveSessionByObject: Cleared selectedEditorProfile")
+            }
         } else {
             val index = _sessions.indexOf(session)
             if (index >= 0) {
@@ -467,11 +473,15 @@ class FixMessageViewModel(
                 _activeSessionIndex.value = index
                 _activeSessionState.value = session
 
-                // Sync selectedEditorProfile to match the selected session
-                val profileId = profileToSessionMap.entries.find { it.value == index }?.key
-                val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
-                _selectedEditorProfile.value = profile
-                logger.info("setActiveSessionByObject: Updated selectedEditorProfile to: ${profile?.name} (ID: ${profile?.id})")
+                // Sync selectedEditorProfile to match the selected session (if enabled)
+                if (_appSettings.value.autoSyncSessionToEditor) {
+                    val profileId = profileToSessionMap.entries.find { it.value == index }?.key
+                    val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
+                    _selectedEditorProfile.value = profile
+                    logger.info("setActiveSessionByObject: Updated selectedEditorProfile to: ${profile?.name} (ID: ${profile?.id})")
+                } else {
+                    logger.info("setActiveSessionByObject: Auto-sync to editor disabled, skipping profile update")
+                }
             } else {
                 logger.warn("setActiveSessionByObject: Session not found in sessions list!")
             }
@@ -514,10 +524,12 @@ class FixMessageViewModel(
                 _activeSessionIndex.value = sessionIndex
                 _activeSessionState.value = _sessions.getOrNull(sessionIndex)
 
-                // Sync selectedEditorProfile to match the selected session
-                val profileId = profileToSessionMap.entries.find { it.value == sessionIndex }?.key
-                val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
-                _selectedEditorProfile.value = profile
+                // Sync selectedEditorProfile to match the selected session (if enabled)
+                if (_appSettings.value.autoSyncSessionToEditor) {
+                    val profileId = profileToSessionMap.entries.find { it.value == sessionIndex }?.key
+                    val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
+                    _selectedEditorProfile.value = profile
+                }
             }
         }
     }

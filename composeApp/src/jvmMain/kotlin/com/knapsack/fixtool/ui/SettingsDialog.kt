@@ -67,6 +67,7 @@ fun SettingsDialog(
     var latencyWarningThreshold by remember { mutableStateOf((currentSettings.latencyWarningThresholdMicros / 1000).toString()) } // Display in ms
     var latencyCriticalThreshold by remember { mutableStateOf((currentSettings.latencyCriticalThresholdMicros / 1000).toString()) } // Display in ms
     var showLatencyColumn by remember { mutableStateOf(currentSettings.showLatencyColumn) }
+    var autoSyncSessionToEditor by remember { mutableStateOf(currentSettings.autoSyncSessionToEditor) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -133,6 +134,7 @@ fun SettingsDialog(
                                 latencyWarningThreshold = (defaults.latencyWarningThresholdMicros / 1000).toString()
                                 latencyCriticalThreshold = (defaults.latencyCriticalThresholdMicros / 1000).toString()
                                 showLatencyColumn = defaults.showLatencyColumn
+                                autoSyncSessionToEditor = defaults.autoSyncSessionToEditor
                             },
                             containerColor = restoreDefaultsButtonColor,
                             contentColor = AppTheme.Colors.textSecondary,
@@ -635,6 +637,15 @@ fun SettingsDialog(
                             color = AppTheme.Colors.warning,
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    CheckboxSetting(
+                        label = "Auto-sync Session to Editor",
+                        description = "Automatically select the connection profile in the message editor when switching session tabs",
+                        checked = autoSyncSessionToEditor,
+                        onCheckedChange = { autoSyncSessionToEditor = it },
+                    )
 
                     HorizontalDivider(
                         color = AppTheme.Separators.color,
@@ -1710,6 +1721,7 @@ fun SettingsDialog(
                                     latencyWarningThresholdMicros = (latencyWarningThreshold.toLongOrNull() ?: 100L) * 1000L,
                                     latencyCriticalThresholdMicros = (latencyCriticalThreshold.toLongOrNull() ?: 500L) * 1000L,
                                     showLatencyColumn = showLatencyColumn,
+                                    autoSyncSessionToEditor = autoSyncSessionToEditor,
                                 )
                             onSave(newSettings)
                             onDismiss()

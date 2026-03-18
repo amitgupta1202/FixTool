@@ -1005,6 +1005,7 @@ fun HierarchicalGridView(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(bottom = 16.dp),
                     ) {
                         messages.forEachIndexed { index, message ->
                             val messageId = "${message.timestamp}-$index"

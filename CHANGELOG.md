@@ -5,6 +5,24 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-03-18
+
+### ✨ Added
+
+#### FIX Acceptor Mode
+- **FIX Acceptor mode** with connection type selection (Initiator/Acceptor) and accept port configuration
+
+#### UI Improvements
+- **Tag numbers in expanded groups**: Show tag number in GroupHeaderRow aligned with FieldRow tag column
+- **Session tab sync control**: Setting to disable auto-sync of session tab to editor connection dropdown
+
+### 🔧 Fixed
+
+- **Save Message Template dialog**: Add scroll to Share with Users list
+- **Message list checkboxes**: Fix checkboxes not selectable when messages reach the bottom of the session window
+
+---
+
 ## [1.4.1] - 2026-02-07
 
 ### 🔧 Fixed

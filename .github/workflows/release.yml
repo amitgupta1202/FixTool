@@ -6,9 +6,31 @@ on:
       - 'v*'  # Triggers on version tags like v1.0.0, v1.1.0, etc.
 
 jobs:
+  # Verify tag version matches packageVersion in build.gradle.kts
+  version-check:
+    name: Verify Version Match
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check tag version matches packageVersion
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          PACKAGE_VERSION=$(grep 'packageVersion' composeApp/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          echo "Tag version: $TAG_VERSION"
+          echo "Package version: $PACKAGE_VERSION"
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "::error::Version mismatch! Tag is v$TAG_VERSION but packageVersion is $PACKAGE_VERSION"
+            echo "Update packageVersion in composeApp/build.gradle.kts to match the tag."
+            exit 1
+          fi
+          echo "Versions match."
+
   # Run tests before building (skip formatting/linting for release)
   quality-check:
     name: Run Tests
+    needs: version-check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

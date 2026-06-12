@@ -504,6 +504,65 @@
         <li>Click <strong>Connect</strong> to start the session</li>
     </ol>
 
+    <h3 id="multi-session">Multiple Sessions per Profile (Load Testing)</h3>
+    <p>A profile can open several concurrent FIX sessions in one click - useful for market data
+        load testing. Set the <strong>Sessions</strong> field (initiator connections only, 1-100)
+        and click <strong>Connect</strong>: each session opens as its own tab, named
+        <code>Profile Name [1]</code>, <code>Profile Name [2]</code>, and so on.</p>
+
+    <p>Each session needs its own identity. When Sessions is greater than 1, the identity fields
+        (SenderCompID, TargetCompID, Username, Password) accept three forms:</p>
+
+    <table>
+        <tr>
+            <th>Form</th>
+            <th>Example</th>
+            <th>Result (3 sessions)</th>
+        </tr>
+        <tr>
+            <td><strong>Numbering pattern</strong></td>
+            <td><code>LOADGEN{n}</code></td>
+            <td><code>LOADGEN1</code>, <code>LOADGEN2</code>, <code>LOADGEN3</code>.
+                Use <code>{nn}</code> for zero-padding: <code>LOADGEN01</code>, <code>LOADGEN02</code>, ...</td>
+        </tr>
+        <tr>
+            <td><strong>Comma-separated list</strong></td>
+            <td><code>SESS_A, SESS_B, SESS_C</code></td>
+            <td>Session 1 gets <code>SESS_A</code>, session 2 gets <code>SESS_B</code>, etc.
+                The list must contain exactly 1 or N values - anything else is rejected before connecting.</td>
+        </tr>
+        <tr>
+            <td><strong>Single plain value</strong></td>
+            <td><code>LOADGEN</code></td>
+            <td>Shared by all sessions. A unique SessionQualifier is derived per session
+                automatically so the sessions stay separate on the client side.</td>
+        </tr>
+    </table>
+
+    <p>Each field resolves independently, so for example 10 sessions can share one password while
+        having 10 different usernames. The panel shows a live preview of the resolved identities
+        and the aggregated group status, e.g. <code>Logged On (3/3)</code>.</p>
+
+    <div class="warning">
+        <strong>Shared CompIDs:</strong> a single plain SenderCompID/TargetCompID only works if the
+        server accepts multiple concurrent logons with the same CompIDs - many venues reject the
+        second logon. If your server assigns distinct session IDs, use a numbering pattern or a list.
+    </div>
+
+    <ul>
+        <li><strong>Disconnect</strong> stops every session in the group</li>
+        <li><strong>Connect</strong> reconnects any sessions that are down and re-opens closed
+            session tabs until the configured count is reached</li>
+        <li>Profile edits take effect when a session reconnects</li>
+    </ul>
+
+    <div class="tip">
+        <strong>Load test setup:</strong> configure the profile once (e.g. SenderCompID
+        <code>LOADGEN{nn}</code>, Sessions <code>10</code>), then copy
+        <code>~/.fixtool/connection_profiles.json</code> and
+        <code>~/.fixtool/saved_messages.json</code> to the other machines.
+    </div>
+
     <h3>Demo Server</h3>
     <p>For testing and learning, use the built-in Demo FX Server (see <a href="#demo-server">Section 2</a>). It provides:</p>
     <ul>
@@ -620,6 +679,18 @@
             </tr>
         </table>
     </div>
+
+    <h3 id="bulk-send">Send to All Sessions (Bulk Send)</h3>
+    <p>Next to the <strong>Send</strong> button is a <strong>Send to All Sessions</strong> button
+        (megaphone icon). It sends the current message over <em>every logged-on session</em> -
+        for example, one MarketDataRequest subscribing all load-test sessions in one click.</p>
+    <ul>
+        <li>Template expressions are re-resolved for each session, so
+            <code>${UUID.randomUUID()}</code> in MDReqID produces a <em>different</em> value per
+            session (see <a href="#per-session-variables">Per-Session Variables</a>)</li>
+        <li>Sessions that are not logged on are skipped</li>
+        <li>A notification summarizes the result and names any sessions where the send failed</li>
+    </ul>
 
     <h3>Saving Message Templates</h3>
     <p>Save frequently used messages for reuse:</p>
@@ -803,6 +874,45 @@
 
         <p><strong>When you click Send:</strong></p>
         <p>The same UUID (e.g., <code>a1b2c3d4-e5f6-7890-abcd-ef1234567890</code>) will be used for tags 131, 132, and 133.</p>
+    </div>
+
+    <h3 id="per-session-variables">Per-Session Variables (Multi-Session)</h3>
+    <p>When a message is sent - and especially during <a href="#bulk-send">Send to All Sessions</a> -
+        these variables describe the session the message is going out on:</p>
+
+    <table>
+        <tr>
+            <th>Variable</th>
+            <th>Value</th>
+        </tr>
+        <tr>
+            <td><code>${sessionIndex}</code></td>
+            <td>1-based position among the targeted sessions (1, 2, 3, ...)</td>
+        </tr>
+        <tr>
+            <td><code>${sessionSenderCompID}</code></td>
+            <td>The session's resolved SenderCompID (e.g. <code>LOADGEN02</code>)</td>
+        </tr>
+        <tr>
+            <td><code>${sessionQualifier}</code></td>
+            <td>The session's SessionQualifier (may be empty)</td>
+        </tr>
+        <tr>
+            <td><code>${sessionTitle}</code></td>
+            <td>The session tab title (e.g. <code>MD Load [2]</code>)</td>
+        </tr>
+    </table>
+
+    <div class="example">
+        <h4>Example: Traceable MDReqID per Session</h4>
+        <table class="fix-table">
+            <tr>
+                <td class="tag">Tag 262</td>
+                <td class="sep">:</td>
+                <td class="value">MD-${sessionSenderCompID}</td>
+                <td class="desc">(MDReqID - resolves to MD-LOADGEN01, MD-LOADGEN02, ... per session)</td>
+            </tr>
+        </table>
     </div>
 
     <h3>Message References (Advanced)</h3>

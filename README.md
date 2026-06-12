@@ -10,6 +10,8 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 - **SSL/TLS Support**: Secure connections with full SSL/TLS support for encrypted FIX sessions
 - **Message Inspection**: View and analyze incoming and outgoing FIX messages in real-time
 - **Session Management**: Manage multiple FIX sessions with connection profiles
+- **Multi-Session Load Testing**: Open up to 100 concurrent sessions from one profile, with per-session identities via `{n}` numbering patterns or comma-separated CompID lists
+- **Bulk Send**: Send one message to all logged-on sessions at once, with template expressions re-resolved per session
 - **Message Validation**: Validate messages against FIX data dictionaries
 - **Saved Messages**: Save and reuse frequently used message templates
 

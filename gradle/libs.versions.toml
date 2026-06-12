@@ -1,15 +1,15 @@
 [versions]
 androidx-lifecycle = "2.9.4"
 composeHotReload = "1.0.0-beta07"
-composeMultiplatform = "1.9.0"
-detekt = "1.23.7"
+composeMultiplatform = "1.9.3"
+detekt = "1.23.8"
 junit = "4.13.2"
-kotlin = "2.2.20"
+kotlin = "2.2.21"
 kotlinx-coroutines = "1.10.2"
-kotlinx-serialization = "1.6.0"
+kotlinx-serialization = "1.9.0"
 ktlint = "12.1.2"
-logback = "1.4.11"
-quickfixj = "2.3.1"
+logback = "1.5.34"
+quickfixj = "2.3.2"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }

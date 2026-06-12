@@ -942,12 +942,21 @@ private fun AppMessageEditorPanel(
                 viewModel.outgoingMessagesByType.keys.joinToString(","),
             )
 
+            // Per-session variables (sessionIndex, sessionQualifier, sessionSenderCompID, ...)
+            // are available to template expressions for the active session
+            val sessionVariables =
+                viewModel.activeSession
+                    ?.let { session ->
+                        viewModel.sessionTemplateVariables(session, viewModel.activeSessionIndex + 1)
+                    }.orEmpty()
+
             // FIRST: Validate template expressions before sending
             val templateErrors =
                 viewModel.validateTemplateExpressions(
                     fields,
                     viewModel.incomingMessagesByType,
                     viewModel.outgoingMessagesByType,
+                    seedVariables = sessionVariables,
                 )
 
             if (templateErrors.isNotEmpty()) {
@@ -968,6 +977,7 @@ private fun AppMessageEditorPanel(
                     incomingMessages = viewModel.incomingMessagesByType,
                     outgoingMessages = viewModel.outgoingMessagesByType,
                     dictionary = viewModel.getDictionaryAdapter(),
+                    seedVariables = sessionVariables,
                 )
 
             // Debug logging to see if templates were resolved
@@ -991,6 +1001,43 @@ private fun AppMessageEditorPanel(
                 is com.knapsack.fixtool.service.SendResult.Success, null -> {
                     // Success or no result - no action needed
                 }
+            }
+        },
+        onSendToAll = onSendToAll@{ fields ->
+            // Update message maps before resolving templates
+            viewModel.updateMessageMaps()
+
+            // Validate with the first logged-on session's variables seeded; the actual
+            // per-session values are applied at send time inside the ViewModel
+            val firstTarget =
+                viewModel.sessions.firstOrNull {
+                    it.connectionState.value == com.knapsack.fixtool.model.FixConnectionState.LOGGED_ON
+                }
+            val sessionVariables = firstTarget?.let { viewModel.sessionTemplateVariables(it, 1) }.orEmpty()
+            val templateErrors =
+                viewModel.validateTemplateExpressions(
+                    fields,
+                    viewModel.incomingMessagesByType,
+                    viewModel.outgoingMessagesByType,
+                    seedVariables = sessionVariables,
+                )
+
+            if (templateErrors.isNotEmpty()) {
+                viewModel.setEditorValidationErrors(
+                    listOf("❌ Cannot send message - Fix template expression errors:") + templateErrors,
+                )
+                logger.warn("Send-to-all blocked due to template expression errors: {}", templateErrors.joinToString(", "))
+                return@onSendToAll
+            }
+
+            viewModel.clearEditorValidationErrors()
+
+            val outcomes = viewModel.sendMessageToAllConnectedSessions(fields)
+
+            if (outcomes.any { it.result is com.knapsack.fixtool.service.SendResult.SuccessWithWarning }) {
+                viewModel.setEditorValidationErrors(
+                    listOf("WARNING: Some messages were sent using manual construction (validation bypassed)"),
+                )
             }
         },
         onValidate = { fields ->

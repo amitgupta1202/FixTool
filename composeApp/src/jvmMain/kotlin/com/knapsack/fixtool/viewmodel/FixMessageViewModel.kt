@@ -28,6 +28,7 @@ import com.knapsack.fixtool.service.SavedMessagesService
 import com.knapsack.fixtool.service.SessionIdentityResolver
 import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.ui.FixField
+import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
@@ -758,6 +759,63 @@ class FixMessageViewModel(
         }
     }
 
+    data class SessionSendOutcome(
+        val session: FixMessageSession,
+        val result: com.knapsack.fixtool.service.SendResult,
+    )
+
+    /**
+     * Template variables describing one session, available to message template expressions
+     * at send time - e.g. 262=MD-${sessionIndex} for a unique MDReqID per session.
+     */
+    fun sessionTemplateVariables(session: FixMessageSession, index: Int): Map<String, String> =
+        mapOf(
+            "sessionIndex" to index.toString(),
+            "sessionQualifier" to session.sessionQualifier,
+            "sessionTitle" to session.title,
+            "sessionSenderCompID" to (session.currentConfig?.senderCompID ?: ""),
+        )
+
+    /**
+     * Sends one message to every logged-on session. Template expressions are re-resolved
+     * per session, so dynamic values (UUIDs, timestamps) are unique per session and the
+     * per-session variables from [sessionTemplateVariables] are available.
+     */
+    fun sendMessageToAllConnectedSessions(fields: List<FixField>): List<SessionSendOutcome> {
+        updateMessageMaps()
+        val targets = _sessions.filter { it.connectionState.value == FixConnectionState.LOGGED_ON }
+        if (targets.isEmpty()) {
+            showNotification("No logged-on session to send to", NotificationType.WARNING)
+            return emptyList()
+        }
+
+        val outcomes =
+            targets.mapIndexed { index, session ->
+                val resolvedFields =
+                    fields.resolveTemplates(
+                        incomingMessages = incomingMessagesByType,
+                        outgoingMessages = outgoingMessagesByType,
+                        dictionary = getDictionaryAdapter(),
+                        seedVariables = sessionTemplateVariables(session, index + 1),
+                    )
+                val result = session.sendFixMessage(resolvedFields.toRawMessage(), _dictionary.value)
+                logger.info("sendMessageToAllConnectedSessions: sent to '${session.title}', result: $result")
+                SessionSendOutcome(session, result)
+            }
+
+        val failed = outcomes.filter { it.result is com.knapsack.fixtool.service.SendResult.Failed }
+        if (failed.isEmpty()) {
+            showNotification("Message sent to ${outcomes.size} session(s)", NotificationType.SUCCESS)
+        } else {
+            showNotification(
+                "Sent to ${outcomes.size - failed.size}/${outcomes.size} sessions - " +
+                    "failed: ${failed.joinToString { it.session.title }}",
+                NotificationType.WARNING,
+            )
+        }
+        return outcomes
+    }
+
     fun sendMessage(rawMessage: String): com.knapsack.fixtool.service.SendResult? {
         // Use the currently active session to send message
         logger.info("sendMessage called. Active session index: ${_activeSessionIndex.value}")
@@ -1256,10 +1314,11 @@ class FixMessageViewModel(
         fields: List<FixField>,
         incomingMessages: Map<String, FixMessage>,
         outgoingMessages: Map<String, FixMessage>,
+        seedVariables: Map<String, String> = emptyMap(),
     ): List<String> {
         val errors = mutableListOf<String>()
         // Use shared variables map so variables defined in earlier fields are available to later fields
-        val sharedVariables = mutableMapOf<String, String>()
+        val sharedVariables = seedVariables.toMutableMap()
 
         fields.forEach { field ->
             if (FixMessageTemplate.hasTemplateExpressions(field.value)) {

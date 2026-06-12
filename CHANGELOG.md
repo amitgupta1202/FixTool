@@ -5,6 +5,24 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-06-12
+
+### ✨ Added
+
+#### Multi-Session Load Testing
+- **Session count per profile**: Connect opens up to 100 concurrent sessions from one profile in a single click (initiators only)
+- **Per-session identities**: SenderCompID, TargetCompID, Username, and Password accept `{n}`/`{nn}` numbering patterns (e.g. `LOADGEN{nn}` → LOADGEN01, LOADGEN02, …) or comma-separated lists for arbitrary server-assigned IDs; a single shared value falls back to auto-derived SessionQualifiers for servers that allow duplicate CompIDs
+- **Group-aware connection panel**: aggregated status ("Logged On (3/3)"), live preview of resolved identities, group disconnect, and automatic top-up of closed sessions on reconnect
+
+#### Bulk Send
+- **Send to all sessions**: new message editor button sends the current message to every logged-on session, re-resolving template expressions per session so dynamic values (e.g. `${UUID.randomUUID()}` in MDReqID) are unique per session
+- **Per-session template variables**: `${sessionIndex}`, `${sessionQualifier}`, `${sessionTitle}`, `${sessionSenderCompID}` available in message templates (also for single-session Send)
+
+#### Release
+- **macOS installer**: release builds now include the macOS DMG (Apple Silicon)
+
+---
+
 ## [1.5.0] - 2026-03-18
 
 ### ✨ Added

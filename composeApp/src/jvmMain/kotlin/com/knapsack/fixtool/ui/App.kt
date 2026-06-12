@@ -465,6 +465,9 @@ fun App(
                                                 onGetProfileSession = { profileId ->
                                                     viewModel.getProfileSession(profileId)
                                                 },
+                                                onGetProfileSessions = { profileId ->
+                                                    viewModel.getProfileSessions(profileId)
+                                                },
                                                 onClose = { viewModel.toggleConnectionPanel() },
                                                 demoServerRunning = demoServerRunning,
                                                 demoServerFixVersion = demoServerFixVersion,
@@ -733,6 +736,11 @@ fun App(
                                                     },
                                                     onGetProfileSession = { profileId ->
                                                         viewModel.getProfileSession(
+                                                            profileId,
+                                                        )
+                                                    },
+                                                    onGetProfileSessions = { profileId ->
+                                                        viewModel.getProfileSessions(
                                                             profileId,
                                                         )
                                                     },

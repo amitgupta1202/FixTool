@@ -20,6 +20,10 @@ import java.util.concurrent.LinkedBlockingQueue
 class FixMessageSession(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
+    val sessionQualifier: String = "",
+    // 1-based slot within a multi-session profile group; 0 for standalone sessions.
+    // Reconnects re-resolve the slot's identity from the profile, so profile edits take effect.
+    val profileSlot: Int = 0,
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
     private val onError: ((String) -> Unit)? = null,
 ) {

@@ -28,7 +28,7 @@ import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.knapsack.fixtool.service.SessionIdentityResolver
 
 @Composable
 fun ConnectionPanel(
@@ -40,6 +40,7 @@ fun ConnectionPanel(
     onDeleteProfile: (profileId: String) -> Unit,
     onCloneProfile: (profile: FixConnectionProfile) -> FixConnectionProfile,
     onGetProfileSession: (profileId: String) -> FixMessageSession?,
+    onGetProfileSessions: (profileId: String) -> List<FixMessageSession> = { emptyList() },
     onClose: () -> Unit,
     demoServerRunning: Boolean = false,
     demoServerFixVersion: FixVersion? = null,
@@ -54,6 +55,7 @@ fun ConnectionPanel(
     var senderCompID by remember { mutableStateOf("") }
     var targetCompID by remember { mutableStateOf("") }
     var sessionQualifier by remember { mutableStateOf("") }
+    var sessionCount by remember { mutableStateOf("1") }
     var password by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("localhost") }
     var port by remember { mutableStateOf("") }
@@ -83,24 +85,37 @@ fun ConnectionPanel(
     var cipherSuites by remember { mutableStateOf("") }
     var needClientAuth by remember { mutableStateOf(false) }
 
-    // Get connection state for the selected profile (reactive)
+    // Get connection states for the selected profile's sessions (reactive).
+    // A profile owns multiple sessions when sessionCount > 1, so aggregate across the group.
     // Re-evaluate when sessions list changes (this triggers recomposition)
-    val profileSession =
-        selectedProfile?.let { profile ->
-            sessions // Access sessions to make this reactive to session changes
-            onGetProfileSession(profile.id)
+    val profileSessions =
+        selectedProfile
+            ?.let { profile ->
+                sessions // Access sessions to make this reactive to session changes
+                onGetProfileSessions(profile.id).ifEmpty { listOfNotNull(onGetProfileSession(profile.id)) }
+            }.orEmpty()
+    val sessionStates = profileSessions.map { it.connectionState.collectAsState().value }
+
+    // Representative state: the most-connected session in the group (identical to the
+    // session's own state for single-session profiles)
+    fun stateRank(state: FixConnectionState): Int =
+        when (state) {
+            FixConnectionState.LOGGED_ON -> 0
+            FixConnectionState.CONNECTED -> 1
+            FixConnectionState.CONNECTING -> 2
+            FixConnectionState.ERROR -> 3
+            FixConnectionState.DISCONNECTED -> 4
         }
-    val connectionState by (
-        profileSession?.connectionState
-            ?: MutableStateFlow(FixConnectionState.DISCONNECTED)
-    ).collectAsState()
+    val connectionState = sessionStates.minByOrNull { stateRank(it) } ?: FixConnectionState.DISCONNECTED
+    val anySessionInError = sessionStates.any { it == FixConnectionState.ERROR }
+    val loggedOnSessionCount = sessionStates.count { it == FixConnectionState.LOGGED_ON }
 
     // Track connection error message
     var connectionError by remember { mutableStateOf<String?>(null) }
 
-    // Clear error when connection state changes from ERROR
-    LaunchedEffect(connectionState) {
-        if (connectionState != FixConnectionState.ERROR) {
+    // Clear error when no session is in ERROR state anymore
+    LaunchedEffect(anySessionInError) {
+        if (!anySessionInError) {
             connectionError = null
         } else if (connectionError == null) {
             connectionError = "Connection failed. Please check your settings and try again."
@@ -113,11 +128,32 @@ fun ConnectionPanel(
         return port.toIntOrNull()?.let { it in 1..65535 } ?: false
     }
 
+    fun isSessionCountValid(count: String): Boolean = count.isBlank() || count.toIntOrNull()?.let { it in 1..100 } ?: false
+
+    fun parsedSessionCount(): Int = sessionCount.toIntOrNull()?.coerceIn(1, 100) ?: 1
+
+    // Minimal config carrying just the per-session identity fields, for validation and preview
+    fun identityPreviewConfig(): FixConnectionConfig =
+        FixConnectionConfig(
+            username = username,
+            senderCompID = senderCompID,
+            targetCompID = targetCompID,
+            sessionQualifier = sessionQualifier,
+            password = password,
+        )
+
+    fun identityErrors(): List<String> =
+        if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+            SessionIdentityResolver.validate(identityPreviewConfig(), parsedSessionCount())
+        } else {
+            emptyList()
+        }
+
     fun isFormValid(): Boolean =
         senderCompID.isNotBlank() &&
             targetCompID.isNotBlank() &&
             if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
-                host.isNotBlank() && isPortValid(port)
+                host.isNotBlank() && isPortValid(port) && isSessionCountValid(sessionCount) && identityErrors().isEmpty()
             } else {
                 isPortValid(socketAcceptPort.ifBlank { port })
             }
@@ -126,8 +162,9 @@ fun ConnectionPanel(
     val isTargetCompIDError = targetCompID.isEmpty()
     val isHostError = connectionType == FixConnectionConfig.ConnectionType.INITIATOR && host.isEmpty()
     val isPortError = connectionType == FixConnectionConfig.ConnectionType.INITIATOR && (port.isEmpty() || !isPortValid(port))
-    val isAcceptPortError = connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
-        (socketAcceptPort.ifBlank { port }.isEmpty() || !isPortValid(socketAcceptPort.ifBlank { port }))
+    val isAcceptPortError =
+        connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
+            (socketAcceptPort.ifBlank { port }.isEmpty() || !isPortValid(socketAcceptPort.ifBlank { port }))
 
     Column(
         modifier =
@@ -192,6 +229,7 @@ fun ConnectionPanel(
                     senderCompID = profile.config.senderCompID
                     targetCompID = profile.config.targetCompID
                     sessionQualifier = profile.config.sessionQualifier
+                    sessionCount = profile.config.sessionCount.toString()
                     password = profile.config.password
                     host = profile.config.host
                     port = profile.config.port
@@ -226,6 +264,7 @@ fun ConnectionPanel(
                             senderCompID = senderCompID,
                             targetCompID = targetCompID,
                             sessionQualifier = sessionQualifier,
+                            sessionCount = parsedSessionCount(),
                             password = password,
                             host = host,
                             port = port,
@@ -278,6 +317,7 @@ fun ConnectionPanel(
                         senderCompID = ""
                         targetCompID = ""
                         sessionQualifier = ""
+                        sessionCount = "1"
                         password = ""
                         host = "localhost"
                         port = ""
@@ -315,6 +355,7 @@ fun ConnectionPanel(
                     senderCompID = clonedProfile.config.senderCompID
                     targetCompID = clonedProfile.config.targetCompID
                     sessionQualifier = clonedProfile.config.sessionQualifier
+                    sessionCount = clonedProfile.config.sessionCount.toString()
                     password = clonedProfile.config.password
                     host = clonedProfile.config.host
                     port = clonedProfile.config.port
@@ -386,7 +427,12 @@ fun ConnectionPanel(
                         Spacer(modifier = Modifier.width(4.dp))
 
                         Text(
-                            text = connectionState.getDisplayText(),
+                            text =
+                                if (profileSessions.size > 1) {
+                                    "${connectionState.getDisplayText()} ($loggedOnSessionCount/${profileSessions.size})"
+                                } else {
+                                    connectionState.getDisplayText()
+                                },
                             color = connectionState.getColor(),
                             fontSize = 10.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
@@ -411,10 +457,12 @@ fun ConnectionPanel(
                     value = connectionType,
                     options = FixConnectionConfig.ConnectionType.entries.toList(),
                     onValueChange = { it?.let { type -> connectionType = type } },
-                    displayText = { when (it) {
-                        FixConnectionConfig.ConnectionType.INITIATOR -> "Initiator (Client)"
-                        FixConnectionConfig.ConnectionType.ACCEPTOR -> "Acceptor (Server)"
-                    } },
+                    displayText = {
+                        when (it) {
+                            FixConnectionConfig.ConnectionType.INITIATOR -> "Initiator (Client)"
+                            FixConnectionConfig.ConnectionType.ACCEPTOR -> "Acceptor (Server)"
+                        }
+                    },
                     placeholder = "Select Connection Type",
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -447,13 +495,59 @@ fun ConnectionPanel(
             }
 
             // SessionQualifier (optional field to differentiate sessions with same SenderCompID/TargetCompID)
-            ConnectionField(
-                label = "SessionQualifier (optional)",
-                value = sessionQualifier,
-                onValueChange = { sessionQualifier = it },
-                placeholder = "e.g., DEV, LOCAL, QA - use when multiple sessions share same SenderCompID/TargetCompID",
+            // and session count (initiators only - opens N concurrent sessions per Connect)
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-            )
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ConnectionField(
+                    label = "SessionQualifier (optional)",
+                    value = sessionQualifier,
+                    onValueChange = { sessionQualifier = it },
+                    placeholder = "e.g., DEV, LOCAL, QA - use when multiple sessions share same SenderCompID/TargetCompID",
+                    modifier = Modifier.weight(3f),
+                )
+
+                if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+                    ConnectionField(
+                        label = "Sessions",
+                        value = sessionCount,
+                        onValueChange = { sessionCount = it },
+                        placeholder = "1",
+                        isError = !isSessionCountValid(sessionCount),
+                        errorMessage = "1-100",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR && parsedSessionCount() > 1) {
+                val count = parsedSessionCount()
+                val errors = identityErrors()
+                if (errors.isNotEmpty()) {
+                    errors.forEach { error ->
+                        Text(text = error, color = AppTheme.Colors.error, fontSize = 8.sp)
+                    }
+                } else {
+                    val first = SessionIdentityResolver.resolve(identityPreviewConfig(), 1, count)
+                    val last = SessionIdentityResolver.resolve(identityPreviewConfig(), count, count)
+                    val previewText =
+                        if (first.senderCompID != last.senderCompID || first.targetCompID != last.targetCompID) {
+                            "Connect opens $count sessions: " +
+                                "${first.senderCompID} → ${first.targetCompID} … ${last.senderCompID} → ${last.targetCompID}"
+                        } else {
+                            "Connect opens $count sessions sharing these CompIDs, each with an auto-generated SessionQualifier " +
+                                "(${first.sessionQualifier} … ${last.sessionQualifier}). " +
+                                "For distinct CompIDs per session use {n}/{nn} numbering (e.g. LOADGEN{nn}) " +
+                                "or a comma-separated list in SenderCompID/TargetCompID/Username/Password."
+                        }
+                    Text(
+                        text = previewText,
+                        color = AppTheme.Colors.info,
+                        fontSize = 8.sp,
+                    )
+                }
+            }
 
             // Username and Password on same row
             Row(
@@ -1402,13 +1496,19 @@ fun ConnectionPanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Connect button
+            // Connect button - for multi-session profiles it reconnects any session that is
+            // down and tops the group up to the configured session count
+            val canConnectAnySession =
+                sessionStates.isEmpty() ||
+                    sessionStates.any { it.canConnect() } ||
+                    (connectionType == FixConnectionConfig.ConnectionType.INITIATOR && sessionStates.size < parsedSessionCount())
             SlimButton(
-                text = when {
-                    connectionState == FixConnectionState.CONNECTING -> "Connecting..."
-                    connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR -> "Start Listening"
-                    else -> "Connect"
-                },
+                text =
+                    when {
+                        sessionStates.any { it == FixConnectionState.CONNECTING } -> "Connecting..."
+                        connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR -> "Start Listening"
+                        else -> "Connect"
+                    },
                 onClick = {
                     connectionError = null // Clear any previous error
                     val config =
@@ -1417,6 +1517,7 @@ fun ConnectionPanel(
                             senderCompID = senderCompID,
                             targetCompID = targetCompID,
                             sessionQualifier = sessionQualifier,
+                            sessionCount = parsedSessionCount(),
                             password = password,
                             host = host,
                             port = port,
@@ -1459,7 +1560,7 @@ fun ConnectionPanel(
                     selectedProfile = profile
                     onConnect(profile.id, profile)
                 },
-                enabled = connectionState.canConnect() && isFormValid(),
+                enabled = canConnectAnySession && isFormValid(),
                 containerColor = AppTheme.Colors.primary,
                 contentColor = AppTheme.Colors.background,
                 modifier = Modifier.weight(1f),
@@ -1471,7 +1572,7 @@ fun ConnectionPanel(
                 onClick = {
                     selectedProfile?.let { onDisconnect(it.id) }
                 },
-                enabled = connectionState.canDisconnect(),
+                enabled = sessionStates.any { it.canDisconnect() },
                 containerColor = AppTheme.Colors.warning,
                 contentColor = AppTheme.Colors.background,
                 modifier = Modifier.weight(1f),

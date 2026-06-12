@@ -9,6 +9,7 @@ data class FixConnectionConfig(
     val senderCompID: String = "",
     val targetCompID: String = "",
     val sessionQualifier: String = "", // Optional - differentiates sessions with same SenderCompID/TargetCompID
+    val sessionCount: Int = 1, // Initiators only - sessions opened per Connect; >1 derives a unique SessionQualifier per session
     val password: String = "",
     val host: String = "localhost",
     val port: String = "",

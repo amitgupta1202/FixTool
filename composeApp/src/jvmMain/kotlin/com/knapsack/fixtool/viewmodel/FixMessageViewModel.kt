@@ -25,6 +25,7 @@ import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.SavedMessagesService
+import com.knapsack.fixtool.service.SessionIdentityResolver
 import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.ui.FixField
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
@@ -200,8 +201,10 @@ class FixMessageViewModel(
             .map { it.messageNameOrNull() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    // Track which session belongs to which profile
-    private val profileToSessionMap = mutableMapOf<String, Int>()
+    // Track which sessions belong to which profile (a profile owns multiple sessions when sessionCount > 1)
+    private val profileToSessionMap = mutableMapOf<String, MutableList<Int>>()
+
+    private fun profileIdForSessionIndex(index: Int): String? = profileToSessionMap.entries.find { index in it.value }?.key
 
     // Demo server state
     val demoServerRunning: StateFlow<Boolean> = DemoServerManager.isRunning
@@ -389,10 +392,16 @@ class FixMessageViewModel(
         }
     }
 
-    private fun createNewSession(title: String = "Session"): FixMessageSession {
+    private fun createNewSession(
+        title: String = "Session",
+        sessionQualifier: String = "",
+        profileSlot: Int = 0,
+    ): FixMessageSession {
         val session =
             FixMessageSession(
                 title = title,
+                sessionQualifier = sessionQualifier,
+                profileSlot = profileSlot,
                 bufferSize = _appSettings.value.sessionBufferSize,
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
             )
@@ -403,8 +412,9 @@ class FixMessageViewModel(
 
     fun closeSession(index: Int) {
         if (index in _sessions.indices) {
-            // Remove profile mapping for this session
-            profileToSessionMap.entries.removeIf { it.value == index }
+            // Remove this session from its profile's group mapping
+            profileToSessionMap.values.forEach { indices -> indices.removeAll { it == index } }
+            profileToSessionMap.entries.removeIf { it.value.isEmpty() }
 
             _sessions[index].destroy()
             _sessions.removeAt(index)
@@ -426,12 +436,11 @@ class FixMessageViewModel(
             }
 
             // Adjust all session indices in the map that are greater than the closed index
-            val updatedMap =
-                profileToSessionMap.mapValues { (_, sessionIndex) ->
-                    if (sessionIndex > index) sessionIndex - 1 else sessionIndex
+            profileToSessionMap.values.forEach { indices ->
+                for (i in indices.indices) {
+                    if (indices[i] > index) indices[i] = indices[i] - 1
                 }
-            profileToSessionMap.clear()
-            profileToSessionMap.putAll(updatedMap)
+            }
         }
     }
 
@@ -444,7 +453,7 @@ class FixMessageViewModel(
 
             // Sync selectedEditorProfile to match the selected session (if enabled)
             if (_appSettings.value.autoSyncSessionToEditor) {
-                val profileId = profileToSessionMap.entries.find { it.value == index }?.key
+                val profileId = profileIdForSessionIndex(index)
                 val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
                 _selectedEditorProfile.value = profile
                 logger.info("setActiveSession: Updated selectedEditorProfile to: ${profile?.name} (ID: ${profile?.id})")
@@ -475,7 +484,7 @@ class FixMessageViewModel(
 
                 // Sync selectedEditorProfile to match the selected session (if enabled)
                 if (_appSettings.value.autoSyncSessionToEditor) {
-                    val profileId = profileToSessionMap.entries.find { it.value == index }?.key
+                    val profileId = profileIdForSessionIndex(index)
                     val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
                     _selectedEditorProfile.value = profile
                     logger.info("setActiveSessionByObject: Updated selectedEditorProfile to: ${profile?.name} (ID: ${profile?.id})")
@@ -526,7 +535,7 @@ class FixMessageViewModel(
 
                 // Sync selectedEditorProfile to match the selected session (if enabled)
                 if (_appSettings.value.autoSyncSessionToEditor) {
-                    val profileId = profileToSessionMap.entries.find { it.value == sessionIndex }?.key
+                    val profileId = profileIdForSessionIndex(sessionIndex)
                     val profile = if (profileId != null) _connectionProfiles.find { it.id == profileId } else null
                     _selectedEditorProfile.value = profile
                 }
@@ -773,75 +782,114 @@ class FixMessageViewModel(
 
     // Connection management methods
     fun connectProfile(profileId: String, profile: FixConnectionProfile) {
-        // Check if profile already has a session
-        val existingSessionIndex = profileToSessionMap[profileId]
-        if (existingSessionIndex != null && existingSessionIndex in _sessions.indices) {
-            val existingSession = _sessions[existingSessionIndex]
-            val currentState = existingSession.connectionState.value
+        // Acceptors bind a single listen port, so they always run as one session
+        val targetCount =
+            if (profile.config.connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+                profile.config.sessionCount.coerceAtLeast(1)
+            } else {
+                1
+            }
 
-            // If already connecting or connected, don't switch session automatically
+        val identityErrors = SessionIdentityResolver.validate(profile.config, targetCount)
+        if (identityErrors.isNotEmpty()) {
+            identityErrors.forEach { showNotification(it, NotificationType.ERROR) }
+            return
+        }
+
+        val existingIndices = profileToSessionMap[profileId]?.filter { it in _sessions.indices }.orEmpty()
+        val reconnected = reconnectExistingSessions(existingIndices, profile, targetCount)
+        val created = createMissingSessions(profileId, existingIndices, profile, targetCount)
+
+        // Auto-select profile and activate session if none is currently selected
+        if ((reconnected || created) && _selectedEditorProfile.value == null) {
+            logger.info("Auto-selecting profile '{}' in message editor", profile.name)
+            setSelectedEditorProfile(profile)
+        }
+    }
+
+    /**
+     * Reconnects a profile's existing sessions that are down; sessions already connecting or
+     * connected are left alone. Each session re-resolves its slot's identity from the profile
+     * so config edits take effect on reconnect.
+     * @return true if at least one session was reconnected
+     */
+    private fun reconnectExistingSessions(existingIndices: List<Int>, profile: FixConnectionProfile, targetCount: Int): Boolean {
+        var reconnected = false
+        existingIndices.forEach { index ->
+            val session = _sessions[index]
+            val currentState = session.connectionState.value
             if (currentState == FixConnectionState.CONNECTING ||
                 currentState == FixConnectionState.CONNECTED ||
                 currentState == FixConnectionState.LOGGED_ON
             ) {
-                logger.info("Session already connecting/connected: {}", profile.name)
-                return
+                logger.info("Session already connecting/connected: {}", session.title)
+            } else {
+                logger.info("Reconnecting session: {}", session.title)
+                val config =
+                    if (session.profileSlot > 0) {
+                        SessionIdentityResolver.resolve(profile.config, session.profileSlot, targetCount.coerceAtLeast(session.profileSlot))
+                    } else {
+                        profile.config
+                    }
+                enableLatencyTrackingIfConfigured(session)
+                session.connect(config, _appSettings.value, _dictionary.value)
+                reconnected = true
             }
+        }
+        return reconnected
+    }
 
-            // If disconnected or error, reconnect without switching session
-            logger.info("Reconnecting session: {}", profile.name)
+    /**
+     * Creates sessions for any slots of the profile's group not yet occupied, up to [targetCount].
+     * @return true if at least one session was created
+     */
+    private fun createMissingSessions(
+        profileId: String,
+        existingIndices: List<Int>,
+        profile: FixConnectionProfile,
+        targetCount: Int,
+    ): Boolean {
+        if (existingIndices.size >= targetCount) return false
 
-            // Enable latency tracking if configured
-            if (_appSettings.value.enableLatencyTracking) {
-                existingSession.enableLatencyTracking(
-                    correlationTags = _appSettings.value.latencyCorrelationTags,
-                    historySize = _appSettings.value.latencyHistorySize,
-                    warningThresholdMicros = _appSettings.value.latencyWarningThresholdMicros,
-                    criticalThresholdMicros = _appSettings.value.latencyCriticalThresholdMicros,
-                    networkInterface = _appSettings.value.captureNetworkInterface.ifBlank { null },
-                )
-            }
+        val usedSlots = existingIndices.mapTo(mutableSetOf()) { _sessions[it].profileSlot }
+        val freeSlots = (1..targetCount).filter { it !in usedSlots }
 
-            existingSession.connect(profile.config, _appSettings.value, _dictionary.value)
+        freeSlots.take(targetCount - existingIndices.size).forEach { slot ->
+            val isMultiSession = targetCount > 1
+            val config =
+                if (isMultiSession) SessionIdentityResolver.resolve(profile.config, slot, targetCount) else profile.config
+            val title = if (isMultiSession) "${profile.name} [$slot]" else profile.name
 
-            // Auto-select profile and activate session if none is currently selected
-            if (_selectedEditorProfile.value == null) {
-                logger.info("Auto-selecting profile '{}' in message editor", profile.name)
-                setSelectedEditorProfile(profile)
-            }
-        } else {
-            // Create new session for this profile
-            logger.info("Creating new session for profile: {}", profile.name)
-            val session = createNewSession(profile.name)
-            val newSessionIndex = _sessions.size - 1
-            profileToSessionMap[profileId] = newSessionIndex
+            logger.info(
+                "Creating new session '{}' for profile: {} (SenderCompID: {}, qualifier: '{}')",
+                title,
+                profile.name,
+                config.senderCompID,
+                config.sessionQualifier,
+            )
+            val session = createNewSession(title, config.sessionQualifier, profileSlot = if (isMultiSession) slot else 0)
+            profileToSessionMap.getOrPut(profileId) { mutableListOf() }.add(_sessions.size - 1)
 
-            // Enable latency tracking if configured
-            if (_appSettings.value.enableLatencyTracking) {
-                session.enableLatencyTracking(
-                    correlationTags = _appSettings.value.latencyCorrelationTags,
-                    historySize = _appSettings.value.latencyHistorySize,
-                    warningThresholdMicros = _appSettings.value.latencyWarningThresholdMicros,
-                    criticalThresholdMicros = _appSettings.value.latencyCriticalThresholdMicros,
-                    networkInterface = _appSettings.value.captureNetworkInterface.ifBlank { null },
-                )
-            }
+            enableLatencyTrackingIfConfigured(session)
+            session.connect(config, _appSettings.value, _dictionary.value)
+        }
+        return true
+    }
 
-            session.connect(profile.config, _appSettings.value, _dictionary.value)
-
-            // Auto-select profile and activate session if none is currently selected
-            if (_selectedEditorProfile.value == null) {
-                logger.info("Auto-selecting profile '{}' in message editor", profile.name)
-                setSelectedEditorProfile(profile)
-            }
+    private fun enableLatencyTrackingIfConfigured(session: FixMessageSession) {
+        if (_appSettings.value.enableLatencyTracking) {
+            session.enableLatencyTracking(
+                correlationTags = _appSettings.value.latencyCorrelationTags,
+                historySize = _appSettings.value.latencyHistorySize,
+                warningThresholdMicros = _appSettings.value.latencyWarningThresholdMicros,
+                criticalThresholdMicros = _appSettings.value.latencyCriticalThresholdMicros,
+                networkInterface = _appSettings.value.captureNetworkInterface.ifBlank { null },
+            )
         }
     }
 
     fun disconnectProfile(profileId: String) {
-        val sessionIndex = profileToSessionMap[profileId]
-        if (sessionIndex != null) {
-            _sessions.getOrNull(sessionIndex)?.disconnect()
-        }
+        getProfileSessions(profileId).forEach { it.disconnect() }
     }
 
     /**
@@ -860,13 +908,19 @@ class FixMessageViewModel(
     }
 
     fun getProfileConnectionState(profileId: String): FixConnectionState {
-        val sessionIndex = profileToSessionMap[profileId]
-        return if (sessionIndex != null && sessionIndex in _sessions.indices) {
-            _sessions[sessionIndex].connectionState.value
-        } else {
-            FixConnectionState.DISCONNECTED
-        }
+        // For multi-session profiles, report the most-connected state across the group
+        val states = getProfileSessions(profileId).map { it.connectionState.value }
+        return states.minByOrNull { connectionStateRank(it) } ?: FixConnectionState.DISCONNECTED
     }
+
+    private fun connectionStateRank(state: FixConnectionState): Int =
+        when (state) {
+            FixConnectionState.LOGGED_ON -> 0
+            FixConnectionState.CONNECTED -> 1
+            FixConnectionState.CONNECTING -> 2
+            FixConnectionState.ERROR -> 3
+            FixConnectionState.DISCONNECTED -> 4
+        }
 
     /**
      * Returns priority for connection state sorting.
@@ -879,14 +933,17 @@ class FixMessageViewModel(
             else -> 2 // Lowest priority (DISCONNECTED, ERROR)
         }
 
-    fun getProfileSession(profileId: String): FixMessageSession? {
-        val sessionIndex = profileToSessionMap[profileId]
-        return if (sessionIndex != null && sessionIndex in _sessions.indices) {
-            _sessions[sessionIndex]
-        } else {
-            null
-        }
-    }
+    fun getProfileSession(profileId: String): FixMessageSession? = getProfileSessions(profileId).firstOrNull()
+
+    /**
+     * Returns all sessions belonging to a profile, in creation order.
+     * A profile owns multiple sessions when its sessionCount is greater than 1.
+     */
+    fun getProfileSessions(profileId: String): List<FixMessageSession> =
+        profileToSessionMap[profileId]
+            ?.filter { it in _sessions.indices }
+            ?.map { _sessions[it] }
+            .orEmpty()
 
     // Profile management methods
     private fun loadConnectionProfiles() {
@@ -1290,17 +1347,18 @@ class FixMessageViewModel(
             }
 
             // Adjust profileToSessionMap indices to reflect the move
-            val updatedMap =
-                profileToSessionMap.mapValues { (_, sessionIndex) ->
-                    when {
-                        sessionIndex == fromIndex -> toIndex
-                        fromIndex < toIndex && sessionIndex > fromIndex && sessionIndex <= toIndex -> sessionIndex - 1
-                        fromIndex > toIndex && sessionIndex >= toIndex && sessionIndex < fromIndex -> sessionIndex + 1
-                        else -> sessionIndex
-                    }
+            profileToSessionMap.values.forEach { indices ->
+                for (i in indices.indices) {
+                    val sessionIndex = indices[i]
+                    indices[i] =
+                        when {
+                            sessionIndex == fromIndex -> toIndex
+                            fromIndex < toIndex && sessionIndex > fromIndex && sessionIndex <= toIndex -> sessionIndex - 1
+                            fromIndex > toIndex && sessionIndex >= toIndex && sessionIndex < fromIndex -> sessionIndex + 1
+                            else -> sessionIndex
+                        }
                 }
-            profileToSessionMap.clear()
-            profileToSessionMap.putAll(updatedMap)
+            }
         }
     }
 
@@ -1462,8 +1520,8 @@ class FixMessageViewModel(
     }
 
     fun getCurrentProfileId(): String? =
-        activeSession?.let { session ->
-            profileToSessionMap.entries.find { it.value == _activeSessionIndex.value }?.key
+        activeSession?.let {
+            profileIdForSessionIndex(_activeSessionIndex.value)
         }
 
     fun loadEditorMessage(savedMessage: SavedFixMessage) {
@@ -1496,7 +1554,7 @@ class FixMessageViewModel(
 
         // Mark message as used
         activeSession?.let { session ->
-            val currentProfileId = profileToSessionMap.entries.find { it.value == _activeSessionIndex.value }?.key
+            val currentProfileId = profileIdForSessionIndex(_activeSessionIndex.value)
             if (currentProfileId != null) {
                 savedMessagesService
                     .markMessageAsUsed(currentProfileId, savedMessage.id)
@@ -1678,7 +1736,7 @@ class FixMessageViewModel(
 
         val session = createNewSession(profileName)
         val sessionIndex = _sessions.size - 1
-        profileToSessionMap[profile.id] = sessionIndex
+        profileToSessionMap[profile.id] = mutableListOf(sessionIndex)
 
         return Pair(profile, session)
     }

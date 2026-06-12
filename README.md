@@ -25,7 +25,7 @@ Download the latest version from the [Releases page](https://github.com/amitgupt
 
 - **Windows**: Download and run the `.msi` installer
 - **macOS**: Download the `.dmg` file - see [macOS note](#macos-installation-note) below
-- **Linux (Debian/Ubuntu)**: Download the `.deb` package and install with `sudo dpkg -i FixTool-*.deb`
+- **Linux (Debian/Ubuntu)**: Download the `.deb` package and install with `sudo dpkg -i fixtool_*_amd64.deb`
 
 📖 **Full Guide:** [INSTALLATION.md](INSTALLATION.md) | **Quick Start:** [QUICK_INSTALL_GUIDE.md](QUICK_INSTALL_GUIDE.md)
 
@@ -201,7 +201,7 @@ git push origin v1.0.0
 ```
 
 **Step 3: Wait for GitHub Actions** (~5-10 minutes)
-- GitHub Actions automatically builds Windows (.msi) and Linux (.deb) installers
+- GitHub Actions automatically builds Windows (.msi), macOS (.dmg), and Linux (.deb) installers
 - A draft release is created with the installers attached
 - Monitor progress at: https://github.com/amitgupta1202/FixTool/actions
 

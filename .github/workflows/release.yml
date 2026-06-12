@@ -178,7 +178,7 @@ jobs:
 
           - **Windows**: `FixTool-${{ steps.get_version.outputs.VERSION }}.msi`
           - **macOS** (Apple Silicon): `FixTool-${{ steps.get_version.outputs.VERSION }}.dmg`
-          - **Linux**: `FixTool-${{ steps.get_version.outputs.VERSION }}.deb`
+          - **Linux**: `fixtool_${{ steps.get_version.outputs.VERSION }}-1_amd64.deb`
 
           ### Installation
 
@@ -200,7 +200,7 @@ jobs:
 
           **Linux (Debian/Ubuntu):**
           ```bash
-          sudo dpkg -i FixTool-${{ steps.get_version.outputs.VERSION }}.deb
+          sudo dpkg -i fixtool_${{ steps.get_version.outputs.VERSION }}-1_amd64.deb
           ```
 
           ### What's New

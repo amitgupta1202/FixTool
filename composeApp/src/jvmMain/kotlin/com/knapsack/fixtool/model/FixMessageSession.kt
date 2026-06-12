@@ -74,6 +74,10 @@ class FixMessageSession(
     val connectionState: StateFlow<FixConnectionState> = _connectionState.asStateFlow()
 
     private val _connectionConfig = MutableStateFlow<FixConnectionConfig?>(null)
+
+    /** The config this session last connected with (per-session identity already resolved). */
+    val currentConfig: FixConnectionConfig?
+        get() = _connectionConfig.value
     private var _appSettings: AppSettings? = null
     private var _dictionary: FixDictionary? = null
 

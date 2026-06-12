@@ -3,17 +3,17 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -63,11 +63,14 @@ data class FixField(
          * @param incomingMessages Map of latest incoming messages by type
          * @param outgoingMessages Map of latest outgoing messages by type
          * @param dictionary Optional FIX data dictionary for tag name resolution in shorthand syntax
+         * @param seedVariables Pre-defined variables available to expressions (e.g. per-session
+         *                      values like sessionIndex/sessionSenderCompID during bulk send)
          */
         fun List<FixField>.resolveTemplates(
             incomingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
             outgoingMessages: Map<String, com.knapsack.fixtool.model.FixMessage> = emptyMap(),
             dictionary: FixDictionaryAdapter? = null,
+            seedVariables: Map<String, String> = emptyMap(),
         ): List<FixField> {
             // Collect all fields that need template evaluation
             val fieldsWithExpressions =
@@ -85,7 +88,7 @@ data class FixField(
             }
 
             // Batch evaluate all expressions at once (extracts message data only once)
-            val variables = mutableMapOf<String, String>()
+            val variables = seedVariables.toMutableMap()
             val resolvedValues =
                 FixMessageTemplate.evaluateBatch(
                     fieldsWithExpressions,
@@ -275,6 +278,7 @@ fun MessageEditorPanel(
     onClearFields: () -> Unit,
     onClose: () -> Unit,
     onSend: (fields: List<FixField>) -> Unit,
+    onSendToAll: ((fields: List<FixField>) -> Unit)? = null,
     onValidate: (fields: List<FixField>) -> List<String>,
     validationErrors: List<String>,
     onClearValidationErrors: () -> Unit,
@@ -467,6 +471,7 @@ fun MessageEditorPanel(
                     sessions.map { session ->
                         session.connectionState.collectAsState().value
                     }
+                val loggedOnSessionCount = sessionStates.count { it == FixConnectionState.LOGGED_ON }
 
                 val sortedProfiles =
                     remember(connectionProfiles, sessionStates) {
@@ -574,6 +579,62 @@ fun MessageEditorPanel(
                             contentDescription = "Send",
                             modifier = iconSize18,
                             tint = if (canSend) AppTheme.Colors.primary else disabledIconColor,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+
+                // Button 0b: Send to all logged-on sessions (rendered with Send - they are a pair).
+                // Templates are re-resolved per session, so e.g. ${UUID.randomUUID()} in MDReqID
+                // yields a unique value per session.
+                if (visibleButtonsCount > 0 && onSendToAll != null) {
+                    val canSendToAll = loggedOnSessionCount > 0
+                    val sendToAllTooltip =
+                        if (canSendToAll) {
+                            "Send to all logged-on sessions ($loggedOnSessionCount)"
+                        } else {
+                            "Cannot send - no session is logged on"
+                        }
+                    TooltipIconButton(
+                        tooltip = sendToAllTooltip,
+                        onClick = {
+                            onClearValidationErrors()
+                            try {
+                                val fieldsToSend =
+                                    fields.filter {
+                                        !it.excluded &&
+                                            it.tag.isNotBlank() &&
+                                            it.value.isNotBlank() &&
+                                            it.tag !in managedTags
+                                    }
+                                when {
+                                    fieldsToSend.isEmpty() ->
+                                        onSetValidationErrors(
+                                            listOf("No fields to send. Add at least one field with tag and value."),
+                                        )
+                                    fieldsToSend.none { it.tag == "35" } ->
+                                        onSetValidationErrors(
+                                            listOf("Missing required field: Tag 35 (MsgType/Message Type)"),
+                                        )
+                                    else -> {
+                                        logger.info(
+                                            "MessageEditorPanel: Calling onSendToAll for $loggedOnSessionCount logged-on sessions",
+                                        )
+                                        onSendToAll(fieldsToSend)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                onSetValidationErrors(listOf("Send Error: ${e.message ?: e.toString()}"))
+                            }
+                        },
+                        enabled = canSendToAll,
+                        modifier = iconSize28,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Campaign,
+                            contentDescription = "Send to All Sessions",
+                            modifier = iconSize18,
+                            tint = if (canSendToAll) AppTheme.Colors.primary else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))

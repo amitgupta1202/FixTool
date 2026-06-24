@@ -43,7 +43,7 @@ import kotlinx.coroutines.flow.stateIn
 import java.io.File
 
 class FixMessageViewModel(
-    testSettingsDir: String? = null,
+    private val testSettingsDir: String? = null,
 ) : ViewModel() {
     private val logger =
         NotifyingLogger(
@@ -173,7 +173,7 @@ class FixMessageViewModel(
     private val profileService by lazy {
         ConnectionProfileService(
             onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-            customPath = _appSettings.value.connectionProfilesPath,
+            customPath = resolveStoragePath(_appSettings.value.connectionProfilesPath, "connection_profiles.json"),
         )
     }
     private val _connectionProfiles = mutableStateListOf<FixConnectionProfile>()
@@ -183,11 +183,24 @@ class FixMessageViewModel(
     private val savedMessagesService by lazy {
         SavedMessagesService(
             onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-            customPath = _appSettings.value.savedMessagesPath,
+            customPath = resolveStoragePath(_appSettings.value.savedMessagesPath, "saved_messages.json"),
         )
     }
     private val _savedMessages = mutableStateListOf<SavedFixMessage>()
     val savedMessages: List<SavedFixMessage> = _savedMessages
+
+    /**
+     * Resolves where a JSON store (connection profiles, saved messages) is kept. An explicit
+     * setting always wins. Otherwise, when constructed with a [testSettingsDir] the store is kept
+     * beside that dir's app_settings.json, so tests stay isolated and never read or write the real
+     * ~/.fixtool files; in normal use this returns blank and the service applies its own default.
+     */
+    private fun resolveStoragePath(configured: String, fileName: String): String =
+        when {
+            configured.isNotBlank() -> configured
+            testSettingsDir != null -> java.io.File(testSettingsDir, fileName).absolutePath
+            else -> ""
+        }
 
     // Track message editor state (new, clean, dirty)
     private val _editorState =
@@ -1537,6 +1550,40 @@ class FixMessageViewModel(
             }.onFailure { error ->
                 logger.error("Failed to save message: ${error.message}", error)
             }
+    }
+
+    /**
+     * Saves a template directly, independent of the message editor's current state. Creates a new
+     * template, or updates the existing one when [id] matches a saved message. Intended for
+     * automation/control callers; refreshes the in-memory list so the UI reflects the change.
+     * @return the persisted [SavedFixMessage]
+     */
+    @Suppress("LongParameterList") // distinct template attributes; a DTO would only add ceremony for one caller
+    fun saveTemplateDirect(
+        profileId: String,
+        name: String,
+        fields: List<SavedFixField>,
+        userTags: Set<String> = setOf(profileId),
+        isFavorite: Boolean = false,
+        id: String? = null,
+    ): SavedFixMessage {
+        val existing = id?.let { mid -> _savedMessages.find { it.id == mid } }
+        val message =
+            SavedFixMessage(
+                id = id ?: java.util.UUID.randomUUID().toString(),
+                name = name,
+                userTags = userTags,
+                fields = fields,
+                createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+                modifiedAt = System.currentTimeMillis(),
+                version = (existing?.version ?: 0) + 1,
+                isFavorite = isFavorite,
+            )
+        savedMessagesService
+            .saveMessage(profileId, message)
+            .onSuccess { loadSavedMessagesForActiveSession() }
+            .onFailure { error -> logger.error("Failed to save template: ${error.message}", error) }
+        return message
     }
 
     /**

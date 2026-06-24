@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fixtool": {
+      "command": "node",
+      "args": ["tools/fixtool-mcp/index.mjs"],
+      "env": {
+        "FIXTOOL_CONTROL_URL": "http://127.0.0.1:8765"
+      }
+    }
+  }
+}

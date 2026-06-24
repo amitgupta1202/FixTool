@@ -74,7 +74,16 @@ compose.desktop {
             packageVersion = "1.6.0"
 
             // Include required Java modules for logback, QuickFIX/J, and Kotlin scripting
-            modules("java.naming", "java.sql", "java.instrument", "jdk.unsupported", "java.compiler", "java.scripting")
+            modules(
+                "java.naming",
+                "java.sql",
+                "java.instrument",
+                "jdk.unsupported",
+                "java.compiler",
+                "java.scripting",
+                // Embedded automation control server (com.sun.net.httpserver), opt-in via FIXTOOL_CONTROL_PORT
+                "jdk.httpserver",
+            )
 
             val macIconFile = project.file("src/jvmMain/resources/icon.icns")
             val winIconFile = project.file("src/jvmMain/resources/icon.ico")

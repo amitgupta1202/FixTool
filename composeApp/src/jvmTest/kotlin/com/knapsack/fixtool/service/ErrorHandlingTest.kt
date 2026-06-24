@@ -16,74 +16,26 @@ import kotlin.test.assertTrue
 class ErrorHandlingTest {
     private lateinit var viewModel: FixMessageViewModel
     private lateinit var testDir: File
-    private lateinit var settingsFile: File
     private lateinit var profilesFile: File
     private lateinit var messagesFile: File
-    private var settingsBackup: File? = null
-    private var profilesBackup: File? = null
-    private var messagesBackup: File? = null
 
     @Before
     fun setup() {
-        // Create a temporary directory for test files (isolated from production)
+        // All storage is isolated to a temp dir. The ViewModel honours these paths via
+        // testSettingsDir, and the service-level tests point their services at the same files,
+        // so nothing here reads or writes the real ~/.fixtool.
         testDir =
             File.createTempFile("fixtool-test", "").apply {
                 delete() // Delete the file
                 mkdirs() // Create as directory
             }
-
-        // Backup and prepare test environment
-        settingsFile = File(System.getProperty("user.home"), ".fixtool/app_settings.json")
-        profilesFile = File(System.getProperty("user.home"), ".fixtool/connection_profiles.json")
-        messagesFile = File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
-
-        // Backup existing files
-        if (settingsFile.exists()) {
-            settingsBackup = File(System.getProperty("user.home"), ".fixtool/app_settings.json.errortest")
-            settingsFile.copyTo(settingsBackup!!, overwrite = true)
-        }
-        if (profilesFile.exists()) {
-            profilesBackup = File(System.getProperty("user.home"), ".fixtool/connection_profiles.json.errortest")
-            profilesFile.copyTo(profilesBackup!!, overwrite = true)
-        }
-        if (messagesFile.exists()) {
-            messagesBackup = File(System.getProperty("user.home"), ".fixtool/saved_messages.json.errortest")
-            messagesFile.copyTo(messagesBackup!!, overwrite = true)
-        }
-
-        // Start with clean state
-        settingsFile.delete()
-        profilesFile.delete()
-        messagesFile.delete()
+        profilesFile = File(testDir, "connection_profiles.json")
+        messagesFile = File(testDir, "saved_messages.json")
     }
 
     @After
     fun cleanup() {
-        // Restore backups
-        settingsFile.delete()
-        profilesFile.delete()
-        messagesFile.delete()
-
-        settingsBackup?.let {
-            if (it.exists()) {
-                it.copyTo(settingsFile, overwrite = true)
-                it.delete()
-                // Clean up test directory
-                testDir.deleteRecursively()
-            }
-        }
-        profilesBackup?.let {
-            if (it.exists()) {
-                it.copyTo(profilesFile, overwrite = true)
-                it.delete()
-            }
-        }
-        messagesBackup?.let {
-            if (it.exists()) {
-                it.copyTo(messagesFile, overwrite = true)
-                it.delete()
-            }
-        }
+        testDir.deleteRecursively()
     }
 
     // ========================================
@@ -100,6 +52,7 @@ class ErrorHandlingTest {
         val service =
             ConnectionProfileService(
                 onError = { errorMsg -> errorCaptured = errorMsg },
+                customPath = profilesFile.absolutePath,
             )
 
         val profiles = service.loadProfiles()
@@ -135,7 +88,7 @@ class ErrorHandlingTest {
         // When: Service tries to save but directory is read-only (simulated by using invalid path)
         // Note: This is difficult to test without actual file system permissions
         // We'll test through ViewModel integration instead
-        val service = ConnectionProfileService()
+        val service = ConnectionProfileService(customPath = profilesFile.absolutePath)
 
         // This should succeed in normal case
         val result = service.saveProfile(profile).getOrThrow()
@@ -158,6 +111,7 @@ class ErrorHandlingTest {
         val service =
             SavedMessagesService(
                 onError = { errorMsg -> errorCaptured = errorMsg },
+                customPath = messagesFile.absolutePath,
             )
 
         val messages = service.loadMessagesForProfile("test-profile")
@@ -191,6 +145,7 @@ class ErrorHandlingTest {
         val service =
             SavedMessagesService(
                 onError = { errorMsg -> errorCaptured = errorMsg },
+                customPath = messagesFile.absolutePath,
             )
 
         val result = service.saveMessage("profile-1", message).getOrThrow()

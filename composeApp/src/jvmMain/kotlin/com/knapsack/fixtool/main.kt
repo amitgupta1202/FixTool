@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
+import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.ui.App
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -59,6 +60,7 @@ fun main() {
 
                     // Disconnect all sessions synchronously before exit
                     try {
+                        ControlServerLauncher.stop()
                         viewModelRef?.disconnectAllSessions()
                         // Give logout messages time to be sent
                         Thread.sleep(1000)
@@ -100,7 +102,15 @@ fun main() {
 
             App(
                 modifier = Modifier.focusRequester(focusRequester).focusable(),
-                onViewModelCreated = { viewModel -> viewModelRef = viewModel },
+                onViewModelCreated = { viewModel ->
+                    viewModelRef = viewModel
+                    // Optional automation control surface; only starts if FIXTOOL_CONTROL_PORT is set.
+                    ControlServerLauncher.maybeStart(viewModel) {
+                        java.awt.Window
+                            .getWindows()
+                            .firstOrNull()
+                    }
+                },
             )
         }
     }

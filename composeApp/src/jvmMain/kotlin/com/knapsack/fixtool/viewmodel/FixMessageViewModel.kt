@@ -773,6 +773,12 @@ class FixMessageViewModel(
             }
     }
 
+    /**
+     * Set by the app entry point ([main]) to start/stop the automation control server when the
+     * Automation Control setting changes (the ViewModel doesn't own the window the server needs).
+     */
+    var automationControlHook: ((enabled: Boolean, port: Int) -> Unit)? = null
+
     fun saveAppSettings(settings: AppSettings) {
         _appSettings.value = settings
         if (!settingsService.saveSettings(settings)) {
@@ -782,6 +788,8 @@ class FixMessageViewModel(
         loadDictionaryFromSettings()
         // Validate the new dictionary
         validateDataDictionary()
+        // Start/stop the automation control server to match the new setting
+        automationControlHook?.invoke(settings.automationControlEnabled, settings.automationControlPort)
     }
 
     /**

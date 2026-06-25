@@ -68,6 +68,8 @@ fun SettingsDialog(
     var latencyCriticalThreshold by remember { mutableStateOf((currentSettings.latencyCriticalThresholdMicros / 1000).toString()) } // Display in ms
     var showLatencyColumn by remember { mutableStateOf(currentSettings.showLatencyColumn) }
     var autoSyncSessionToEditor by remember { mutableStateOf(currentSettings.autoSyncSessionToEditor) }
+    var automationControlEnabled by remember { mutableStateOf(currentSettings.automationControlEnabled) }
+    var automationControlPort by remember { mutableStateOf(currentSettings.automationControlPort.toString()) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -135,6 +137,8 @@ fun SettingsDialog(
                                 latencyCriticalThreshold = (defaults.latencyCriticalThresholdMicros / 1000).toString()
                                 showLatencyColumn = defaults.showLatencyColumn
                                 autoSyncSessionToEditor = defaults.autoSyncSessionToEditor
+                                automationControlEnabled = defaults.automationControlEnabled
+                                automationControlPort = defaults.automationControlPort.toString()
                             },
                             containerColor = restoreDefaultsButtonColor,
                             contentColor = AppTheme.Colors.textSecondary,
@@ -1670,6 +1674,65 @@ fun SettingsDialog(
                         thickness = AppTheme.Separators.dividerThickness,
                         modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
                     )
+
+                    // Section: Automation Control
+                    Text(
+                        text = "Automation Control",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                    Text(
+                        text = "Run a loopback-only control + MCP server so Claude/MCP/curl can drive FixTool for " +
+                            "automated testing. Off by default; applied when you click Save.",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.textDisabled,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    CheckboxSetting(
+                        label = "Enable automation control",
+                        description = "Starts a local server on 127.0.0.1 at the port below (the FIXTOOL_CONTROL_PORT " +
+                            "env var, if set, overrides this)",
+                        checked = automationControlEnabled,
+                        onCheckedChange = { automationControlEnabled = it },
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.medium),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = "Port", fontSize = 12.sp, color = AppTheme.Colors.text)
+                        SlimTextField(
+                            value = automationControlPort,
+                            onValueChange = { newValue -> if (newValue.all { it.isDigit() }) automationControlPort = newValue },
+                            placeholder = "8765",
+                            modifier = Modifier.width(100.dp),
+                        )
+                        Text(
+                            text = "loopback only (127.0.0.1)",
+                            fontSize = 11.sp,
+                            color = AppTheme.Colors.textDisabled,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Connect Claude Code with this command (uses the embedded MCP server):",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.textDisabled,
+                    )
+                    Text(
+                        text = "claude mcp add --transport http fixtool " +
+                            "http://127.0.0.1:${automationControlPort.ifBlank { "8765" }}/mcp",
+                        fontSize = 11.sp,
+                        color = AppTheme.Colors.text,
+                    )
+
+                    HorizontalDivider(
+                        color = AppTheme.Separators.color,
+                        thickness = AppTheme.Separators.dividerThickness,
+                        modifier = Modifier.padding(vertical = AppTheme.Spacing.small),
+                    )
                 }
 
                 HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -1722,6 +1785,8 @@ fun SettingsDialog(
                                     latencyCriticalThresholdMicros = (latencyCriticalThreshold.toLongOrNull() ?: 500L) * 1000L,
                                     showLatencyColumn = showLatencyColumn,
                                     autoSyncSessionToEditor = autoSyncSessionToEditor,
+                                    automationControlEnabled = automationControlEnabled,
+                                    automationControlPort = automationControlPort.toIntOrNull()?.coerceIn(1024, 65535) ?: 8765,
                                 )
                             onSave(newSettings)
                             onDismiss()

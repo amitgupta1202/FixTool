@@ -104,11 +104,18 @@ fun main() {
                 modifier = Modifier.focusRequester(focusRequester).focusable(),
                 onViewModelCreated = { viewModel ->
                     viewModelRef = viewModel
-                    // Optional automation control surface; only starts if FIXTOOL_CONTROL_PORT is set.
-                    ControlServerLauncher.maybeStart(viewModel) {
-                        java.awt.Window
-                            .getWindows()
-                            .firstOrNull()
+                    // Automation control surface: env var FIXTOOL_CONTROL_PORT overrides, otherwise
+                    // driven by the Settings toggle. Apply the initial state and react to changes.
+                    val windowProvider = { java.awt.Window.getWindows().firstOrNull() }
+                    val settings = viewModel.appSettings
+                    ControlServerLauncher.apply(
+                        viewModel,
+                        windowProvider,
+                        settings.automationControlEnabled,
+                        settings.automationControlPort,
+                    )
+                    viewModel.automationControlHook = { enabled, port ->
+                        ControlServerLauncher.apply(viewModel, windowProvider, enabled, port)
                     }
                 },
             )

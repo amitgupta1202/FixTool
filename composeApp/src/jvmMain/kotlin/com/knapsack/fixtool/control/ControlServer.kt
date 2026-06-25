@@ -1003,21 +1003,35 @@ class ControlServer(
 }
 
 /**
- * Starts a single [ControlServer] when `FIXTOOL_CONTROL_PORT` is set; a no-op otherwise.
- * Safe to call multiple times — only the first call with a valid port starts a server.
+ * Owns the single [ControlServer] instance and starts/stops it to match the desired state.
+ * The `FIXTOOL_CONTROL_PORT` env var, when set, always wins (developer override); otherwise the
+ * app settings ([apply]'s `enabled`/`port`) drive it. Off by default.
  */
 object ControlServerLauncher {
     private val logger = LoggerFactory.getLogger(ControlServerLauncher::class.java)
     private var server: ControlServer? = null
+    private var currentPort: Int? = null
 
+    /**
+     * Reconciles the running server with the desired state; safe to call repeatedly (a no-op when
+     * already running on the right port). Call on app start and whenever the setting changes.
+     */
     @Synchronized
-    fun maybeStart(viewModel: FixMessageViewModel, windowProvider: () -> Window?) {
-        if (server != null) return
-        val port = System.getenv("FIXTOOL_CONTROL_PORT")?.toIntOrNull() ?: return
-        try {
-            server = ControlServer(port, viewModel, windowProvider).also { it.start() }
-        } catch (e: Exception) {
-            logger.error("Failed to start control server on port $port", e)
+    fun apply(viewModel: FixMessageViewModel, windowProvider: () -> Window?, enabled: Boolean, port: Int) {
+        val envPort = System.getenv("FIXTOOL_CONTROL_PORT")?.toIntOrNull()
+        val desiredPort = envPort ?: if (enabled) port else null
+        when {
+            desiredPort == null -> stop()
+            server != null && currentPort == desiredPort -> Unit // already running on the desired port
+            else -> {
+                stop()
+                try {
+                    server = ControlServer(desiredPort, viewModel, windowProvider).also { it.start() }
+                    currentPort = desiredPort
+                } catch (e: Exception) {
+                    logger.error("Failed to start control server on port $desiredPort", e)
+                }
+            }
         }
     }
 
@@ -1025,5 +1039,6 @@ object ControlServerLauncher {
     fun stop() {
         server?.stop()
         server = null
+        currentPort = null
     }
 }

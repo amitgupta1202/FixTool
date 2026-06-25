@@ -5,6 +5,20 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-06-25
+
+### ✨ Added
+
+#### Context-Preserving Tag Search
+- **Match-context modes** in the message detail panel: searching a nested tag (e.g. `PartyRole` inside a `NoPartyIDs` group) no longer collapses to bare matching rows that lose their context. A toggle, shown while searching, chooses how much surrounding context each match reveals:
+  - **Bare** — matched rows only (previous behaviour)
+  - **Identity** (default) — each matching repeating-group entry also shows its identity field (its first simple field, e.g. `PartyID`) so you can tell which entry matched
+  - **Full** — the whole matching entry
+- Only matching group instances are revealed, each under its group ancestor header so the match keeps its path, and the matched text is highlighted.
+
+#### Automation: drive the detail search
+- **`POST /detail`** control-surface endpoint and **`fixtool_detail_search`** MCP tool set the detail panel's search query and match-context mode, so an agent can inspect a nested tag end to end (`select` → `detail_search` → `screenshot`).
+
 ## [1.6.0] - 2026-06-12
 
 ### ✨ Added

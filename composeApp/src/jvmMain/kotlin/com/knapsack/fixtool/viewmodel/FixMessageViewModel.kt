@@ -855,6 +855,34 @@ class FixMessageViewModel(
         }
     }
 
+    /** Parses a raw FIX string into editor fields (so template expressions can be resolved). */
+    private fun rawToFields(raw: String): List<FixField> =
+        com.knapsack.fixtool.service.FixMessageHelper
+            .parseFixMessage(raw)
+            .map { (tag, value) -> FixField(tag = tag.toString(), value = value) }
+
+    /**
+     * Resolves template expressions in [raw] against the session at [sessionIndex] (per-session
+     * variables, latest in/out messages) and sends the resolved message — the same path the editor
+     * "Send" button uses, exposed for automation. Returns null if the session index is invalid.
+     */
+    fun sendResolvedToSession(raw: String, sessionIndex: Int): com.knapsack.fixtool.service.SendResult? {
+        val session = _sessions.getOrNull(sessionIndex) ?: return null
+        updateMessageMaps()
+        val resolved =
+            rawToFields(raw).resolveTemplates(
+                incomingMessages = incomingMessagesByType,
+                outgoingMessages = outgoingMessagesByType,
+                dictionary = getDictionaryAdapter(),
+                seedVariables = sessionTemplateVariables(session, sessionIndex + 1),
+            )
+        return session.sendFixMessage(resolved.toRawMessage(), _dictionary.value)
+    }
+
+    /** Raw-string overload of [sendMessageToAllConnectedSessions]; resolves per session. */
+    fun sendMessageToAllConnectedSessions(raw: String): List<SessionSendOutcome> =
+        sendMessageToAllConnectedSessions(rawToFields(raw))
+
     // Connection management methods
     fun connectProfile(profileId: String, profile: FixConnectionProfile) {
         // Acceptors bind a single listen port, so they always run as one session

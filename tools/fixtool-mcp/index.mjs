@@ -202,12 +202,73 @@ server.tool(
   "fixtool_send",
   "Send a raw FIX message from a logged-on session. Use pipe- or SOH-delimited FIX, e.g. " +
     '"8=FIX.4.4|35=D|11=ORD1|55=EUR/USD|54=1|38=1000000|40=1|60=20260624-21:47:47|". ' +
-    "QuickFIX/J re-stamps header fields (34/49/52/56) on send.",
+    "QuickFIX/J re-stamps header fields (34/49/52/56) on send. With resolve=true, template " +
+    'expressions in raw (${...}, {n}) are resolved against the session before sending.',
   {
     raw: z.string().describe("raw FIX message, pipe- or SOH-delimited"),
     session: z.string().optional().describe("session id, title or index; defaults to active session"),
+    resolve: z.boolean().optional().describe("resolve template expressions before sending"),
   },
-  async ({ raw, session }) => text("POST", "/send", session === undefined ? { raw } : { raw, session }),
+  async (args) => {
+    const body = { raw: args.raw };
+    if (args.session !== undefined) body.session = args.session;
+    if (args.resolve !== undefined) body.resolve = args.resolve;
+    return text("POST", "/send", body);
+  },
+);
+
+server.tool(
+  "fixtool_send_all",
+  "Send one FIX message to every logged-on session at once (bulk send / load testing). Template " +
+    "expressions are re-resolved per session. Returns a per-session result list.",
+  { raw: z.string().describe("raw FIX message, pipe- or SOH-delimited") },
+  async ({ raw }) => text("POST", "/send/all", { raw }),
+);
+
+server.tool(
+  "fixtool_send_template",
+  "Send a saved template (expressions resolved) from a session by id/title/index, or the active one.",
+  {
+    id: z.string().describe("template id"),
+    session: z.string().optional().describe("session id, title or index; defaults to active session"),
+  },
+  async ({ id, session }) =>
+    text("POST", "/templates/send", session === undefined ? { id } : { id, session }),
+);
+
+server.tool(
+  "fixtool_clear_messages",
+  "Clear a session's message log (useful between test phases so assertions see only new messages).",
+  { session: z.string().describe("session id, title or index") },
+  async ({ session }) => text("POST", "/messages/clear", { session }),
+);
+
+server.tool(
+  "fixtool_wait",
+  "Block until a session reaches a state (e.g. LOGGED_ON) or a matching message arrives, or until " +
+    "timeoutMs elapses. The deterministic replacement for client-side polling loops. Provide state " +
+    "or match (messageType / direction / tag+value). Returns the matched message, or status=timeout.",
+  {
+    session: z.string().describe("session id, title or index"),
+    state: z.string().optional().describe('connection state to await, e.g. "LOGGED_ON"'),
+    match: z
+      .object({
+        messageType: z.string().optional(),
+        direction: z.enum(["in", "incoming", "out", "outgoing"]).optional(),
+        tag: z.number().int().optional(),
+        value: z.string().optional(),
+      })
+      .optional()
+      .describe("message predicate to await"),
+    timeoutMs: z.number().int().positive().optional().describe("max wait (default 10000, cap 120000)"),
+  },
+  async (args) => {
+    const body = { session: args.session };
+    if (args.state !== undefined) body.state = args.state;
+    if (args.match !== undefined) body.match = args.match;
+    if (args.timeoutMs !== undefined) body.timeoutMs = args.timeoutMs;
+    return text("POST", "/wait", body);
+  },
 );
 
 server.tool(

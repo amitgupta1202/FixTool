@@ -1,7 +1,7 @@
 // This file is an HTTP request-handling boundary: each endpoint legitimately catches broad
 // exceptions to convert any failure into a 500 response, and the per-endpoint handlers
 // naturally push the class past detekt's function-count threshold.
-@file:Suppress("TooManyFunctions", "TooGenericExceptionCaught", "ReturnCount")
+@file:Suppress("TooManyFunctions", "TooGenericExceptionCaught", "ReturnCount", "LargeClass")
 
 package com.knapsack.fixtool.control
 
@@ -12,6 +12,7 @@ import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -26,6 +27,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 import java.awt.Robot
@@ -73,14 +75,18 @@ class ControlServer(
         httpServer.createContext("/panel") { ex -> handle(ex) { panel(ex) } }
         httpServer.createContext("/templates/load") { ex -> handle(ex) { loadTemplate(ex) } }
         httpServer.createContext("/templates") { ex -> handle(ex) { templatesEndpoint(ex) } }
+        httpServer.createContext("/messages/clear") { ex -> handle(ex) { clearMessages(ex) } }
         httpServer.createContext("/messages") { ex -> handle(ex) { messages(ex) } }
+        httpServer.createContext("/wait") { ex -> handle(ex) { waitFor(ex) } }
         httpServer.createContext("/select") { ex -> handle(ex) { select(ex) } }
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
         httpServer.createContext("/filter") { ex -> handle(ex) { filter(ex) } }
         httpServer.createContext("/demo") { ex -> handle(ex) { demo(ex) } }
         httpServer.createContext("/connect") { ex -> handle(ex) { connect(ex) } }
         httpServer.createContext("/disconnect") { ex -> handle(ex) { disconnect(ex) } }
+        httpServer.createContext("/send/all") { ex -> handle(ex) { sendAll(ex) } }
         httpServer.createContext("/send") { ex -> handle(ex) { send(ex) } }
+        httpServer.createContext("/templates/send") { ex -> handle(ex) { sendTemplate(ex) } }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
         httpServer.start()
         server = httpServer
@@ -320,7 +326,8 @@ class ControlServer(
             }
         }
         body["raw"]?.jsonPrimitive?.content?.let { raw ->
-            return FixMessageHelper.parseFixMessage(raw).map { (tag, value) -> SavedFixField(tag = tag.toString(), value = value) }
+            return FixMessageHelper.parseFixMessage(raw)
+                .map { (tag, value) -> SavedFixField(tag = tag.toString(), value = value) }
         }
         return null
     }
@@ -579,24 +586,157 @@ class ControlServer(
         }
     }
 
+    /**
+     * Sends a raw FIX message from one session (the active one, or `session` by id/title/index).
+     * With `resolve: true` the template expressions in `raw` (`${...}`, `{n}`) are resolved against
+     * the session before sending — the same path the editor's Send button uses.
+     */
     private fun send(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val raw = body["raw"]?.jsonPrimitive?.content ?: return errorObject("missing 'raw' FIX message")
         val sessionKey = body["session"]?.jsonPrimitive?.content
+        val resolve = body["resolve"]?.jsonPrimitive?.booleanOrNull ?: false
 
         return onEdt {
-            if (sessionKey != null) {
-                val index = viewModel.sessions.indexOfFirst { it.id == sessionKey || it.title == sessionKey }
-                if (index < 0) return@onEdt errorObject("session not found: $sessionKey")
-                viewModel.setActiveSession(index)
-            }
-            val result = viewModel.sendMessage(raw)
+            val index =
+                if (sessionKey != null) {
+                    val i = viewModel.sessions.indexOfFirst { it.id == sessionKey || it.title == sessionKey }
+                    if (i < 0) return@onEdt errorObject("session not found: $sessionKey")
+                    viewModel.setActiveSession(i)
+                    i
+                } else {
+                    viewModel.activeSessionIndex
+                }
+            val result =
+                if (resolve) {
+                    if (index < 0) return@onEdt errorObject("no active session")
+                    viewModel.sendResolvedToSession(raw, index)
+                } else {
+                    viewModel.sendMessage(raw)
+                }
             buildJsonObject {
-                put("status", if (result == null) "failed" else "sent")
+                put("status", if (result == null) "failed" else sendResultStatus(result))
                 put("result", result?.toString() ?: "no active session")
             }
         }
     }
+
+    /** Bulk-sends one message to every logged-on session, re-resolving template expressions per session. */
+    private fun sendAll(ex: HttpExchange): JsonElement {
+        val raw = readJson(ex)["raw"]?.jsonPrimitive?.content ?: return errorObject("missing 'raw' FIX message")
+        val outcomes = onEdt { viewModel.sendMessageToAllConnectedSessions(raw) }
+        return buildJsonObject {
+            put("status", "ok")
+            put("count", outcomes.size)
+            put(
+                "results",
+                buildJsonArray {
+                    outcomes.forEach { o ->
+                        add(
+                            buildJsonObject {
+                                put("session", o.session.title)
+                                put("result", sendResultStatus(o.result))
+                                put("detail", o.result.toString())
+                            },
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    /** Sends a saved template (expressions resolved) from a session by id/title/index, or the active one. */
+    private fun sendTemplate(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val id = body["id"]?.jsonPrimitive?.content ?: return errorObject("missing 'id'")
+        val sessionKey = body["session"]?.jsonPrimitive?.content
+        return onEdt {
+            val template = viewModel.savedMessages.firstOrNull { it.id == id }
+                ?: return@onEdt errorObject("template not found: $id")
+            val index =
+                if (sessionKey != null) {
+                    viewModel.sessions.indexOfFirst { it.id == sessionKey || it.title == sessionKey }
+                        .also { if (it < 0) return@onEdt errorObject("session not found: $sessionKey") }
+                } else {
+                    viewModel.activeSessionIndex
+                }
+            if (index < 0) return@onEdt errorObject("no active session")
+            val rawTemplate =
+                template.fields.filterNot { it.excluded }.joinToString("|") { "${it.tag}=${it.value}" } + "|"
+            val result = viewModel.sendResolvedToSession(rawTemplate, index)
+            buildJsonObject {
+                put("status", if (result == null) "failed" else sendResultStatus(result))
+                put("template", template.name)
+                put("result", result?.toString() ?: "send failed")
+            }
+        }
+    }
+
+    private fun clearMessages(ex: HttpExchange): JsonElement {
+        val session =
+            resolveSession(readJson(ex)["session"]?.jsonPrimitive?.content) ?: return errorObject("session not found")
+        onEdt { session.clearMessages() }
+        return buildJsonObject {
+            put("status", "cleared")
+            put("session", session.title)
+        }
+    }
+
+    /**
+     * Blocks (up to `timeoutMs`) until a session reaches `state` (e.g. LOGGED_ON) or a message
+     * matching `match` ({messageType?, direction?, tag?, value?}) arrives. Returns the matched
+     * message, or {status:"timeout"}. Polls StateFlow values off-thread (no EDT blocking) so it is
+     * the deterministic replacement for client-side polling loops.
+     */
+    private fun waitFor(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val session =
+            resolveSession(body["session"]?.jsonPrimitive?.content) ?: return errorObject("session not found")
+        val targetState = body["state"]?.jsonPrimitive?.content?.uppercase()
+        val match = body["match"] as? JsonObject
+        if (targetState == null && match == null) return errorObject("provide 'state' or 'match'")
+        val timeoutMs = (body["timeoutMs"]?.jsonPrimitive?.longOrNull ?: DEFAULT_WAIT_MS).coerceIn(0, MAX_WAIT_MS)
+
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (targetState != null && session.connectionState.value.name == targetState) {
+                return buildJsonObject {
+                    put("status", "matched")
+                    put("state", session.connectionState.value.name)
+                }
+            }
+            if (match != null) {
+                val found =
+                    session.messages.value.filterIsInstance<FixMessage>().firstOrNull { matchesMessage(it, match) }
+                if (found != null) {
+                    return buildJsonObject {
+                        put("status", "matched")
+                        put("message", messageJson(found))
+                    }
+                }
+            }
+            Thread.sleep(WAIT_POLL_MS)
+        }
+        return buildJsonObject { put("status", "timeout") }
+    }
+
+    private fun matchesMessage(msg: FixMessage, match: JsonObject): Boolean {
+        match["messageType"]?.jsonPrimitive?.content?.let { if (msg.messageType != it) return false }
+        match["direction"]?.jsonPrimitive?.content?.lowercase()?.let { if (!directionMatches(msg, it)) return false }
+        val tag = match["tag"]?.jsonPrimitive?.intOrNull
+        if (tag != null) {
+            val actual = msg.valueOfTag(tag) ?: return false
+            match["value"]?.jsonPrimitive?.content?.let { if (actual != it) return false }
+        }
+        return true
+    }
+
+    private fun sendResultStatus(result: SendResult): String =
+        when (result) {
+            is SendResult.Success -> "sent"
+            is SendResult.SuccessWithWarning -> "warning"
+            is SendResult.Failed -> "failed"
+        }
 
     private fun screenshot(ex: HttpExchange) {
         try {
@@ -719,6 +859,9 @@ class ControlServer(
         private const val HTTP_SERVER_ERROR = 500
         private const val DEFAULT_MESSAGE_LIMIT = 50
         private const val HTTP_POOL_SIZE = 4
+        private const val DEFAULT_WAIT_MS = 10_000L
+        private const val MAX_WAIT_MS = 120_000L
+        private const val WAIT_POLL_MS = 100L
     }
 }
 

@@ -84,6 +84,7 @@ claude mcp add fixtool -- node tools/fixtool-mcp/index.mjs
 | `fixtool_acceptor_rules`| Inspect a profile's acceptor auto-response rules (set via save_profile) |
 | `fixtool_get_messages`  | Read parsed messages (ordered `{tag, value}` fields) for verification  |
 | `fixtool_select`        | Select a message in the browser → opens the detail/inspection panel    |
+| `fixtool_detail_search` | Drive the detail panel's tag search: query + mode (bare\|identity\|full) so a nested tag keeps its context |
 | `fixtool_search`        | Cross-session search → chronological timeline; pins to the search pane  |
 | `fixtool_filter`        | Filter the grid (global or per-session) for a focused screenshot        |
 | `fixtool_screenshot`    | Capture a PNG of the window                                            |

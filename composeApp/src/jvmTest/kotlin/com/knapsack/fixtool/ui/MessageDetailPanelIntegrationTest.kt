@@ -455,9 +455,16 @@ class MessageDetailPanelIntegrationTest {
         // Wait for UI to update
         composeTestRule.waitForIdle()
 
-        // Then: Both symbols should be visible since they both use tag 55
-        composeTestRule.onNodeWithText("EUR/USD", substring = true).assertExists()
-        composeTestRule.onNodeWithText("GBP/USD", substring = true).assertExists()
+        // Then: Both symbols should be visible since they both use tag 55.
+        // With the IDENTITY match-context default, matching group instances are revealed inline,
+        // so each symbol can appear in both the fields list and the raw message section. Use
+        // onAllNodesWithText (rather than onNodeWithText, which requires exactly one match).
+        assert(composeTestRule.onAllNodesWithText("EUR/USD", substring = true).fetchSemanticsNodes().isNotEmpty()) {
+            "Expected EUR/USD to be visible after searching tag 55"
+        }
+        assert(composeTestRule.onAllNodesWithText("GBP/USD", substring = true).fetchSemanticsNodes().isNotEmpty()) {
+            "Expected GBP/USD to be visible after searching tag 55"
+        }
     }
 
     @Test

@@ -1110,6 +1110,10 @@ private fun AppMessageDetailPanel(
     selectedMessage: FixMessage?,
     modifier: Modifier = Modifier,
 ) {
+    // Hoist the detail search state into the ViewModel so the in-panel search box and the
+    // automation control surface (/detail, fixtool_detail_search) drive the same state.
+    val detailSearchQuery by viewModel.detailSearchQuery.collectAsState()
+    val detailMatchContextMode by viewModel.detailMatchContextMode.collectAsState()
     MessageDetailPanel(
         message = selectedMessage,
         dictionary = viewModel.dictionary,
@@ -1119,6 +1123,10 @@ private fun AppMessageDetailPanel(
         },
         appSettings = viewModel.appSettings,
         modifier = modifier,
+        externalSearchQuery = detailSearchQuery,
+        onSearchQueryChange = { viewModel.setDetailSearch(query = it) },
+        externalMatchContextMode = detailMatchContextMode,
+        onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
     )
 }
 

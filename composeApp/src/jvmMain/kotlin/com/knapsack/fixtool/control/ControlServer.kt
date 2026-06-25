@@ -10,6 +10,7 @@ import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper
@@ -92,6 +93,7 @@ class ControlServer(
         httpServer.createContext("/messages") { ex -> handle(ex) { messages(ex) } }
         httpServer.createContext("/wait") { ex -> handle(ex) { waitFor(ex) } }
         httpServer.createContext("/select") { ex -> handle(ex) { select(ex) } }
+        httpServer.createContext("/detail") { ex -> handle(ex) { detailSearch(ex) } }
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
         httpServer.createContext("/filter") { ex -> handle(ex) { filter(ex) } }
         httpServer.createContext("/demo") { ex -> handle(ex) { demo(ex) } }
@@ -469,6 +471,38 @@ class ControlServer(
                 put("messageType", target.messageType)
                 put("direction", target.direction.name)
                 put("raw", target.rawMessage)
+            }
+        }
+    }
+
+    /**
+     * Drives the message detail panel's tag search: sets the search `query` and/or the
+     * `mode` (bare|identity|full match-context). With `show=true` the detail panel is revealed.
+     * This lets an agent inspect a nested tag (e.g. PartyRole) with its surrounding party context
+     * instead of bare matched rows — the [search] endpoint above is the separate global timeline.
+     */
+    private fun detailSearch(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val query = body["query"]?.jsonPrimitive?.content
+        val modeRaw = body["mode"]?.jsonPrimitive?.content
+        val mode =
+            if (modeRaw == null) {
+                null
+            } else {
+                MatchContextMode.fromString(modeRaw)
+                    ?: return errorObject("unknown mode '$modeRaw' (bare|identity|full)")
+            }
+        if (query == null && mode == null) return errorObject("provide 'query' and/or 'mode'")
+        val show = body["show"]?.jsonPrimitive?.booleanOrNull
+
+        return onEdt {
+            viewModel.setDetailSearch(query, mode)
+            if (show == true && !viewModel.showDetailPanel.value) viewModel.toggleDetailPanel()
+            buildJsonObject {
+                put("status", "ok")
+                put("query", viewModel.detailSearchQuery.value)
+                put("mode", viewModel.detailMatchContextMode.value.name.lowercase())
+                put("detailPanelShown", viewModel.showDetailPanel.value)
             }
         }
     }
@@ -946,6 +980,7 @@ class ControlServer(
             "fixtool_search" to { a -> search(mcpExchange(a)) },
             "fixtool_filter" to { a -> filter(mcpExchange(a)) },
             "fixtool_select" to { a -> select(mcpExchange(a)) },
+            "fixtool_detail_search" to { a -> detailSearch(mcpExchange(a)) },
             "fixtool_admin" to { a -> admin(mcpExchange(a)) },
             "fixtool_validate" to { a -> validate(mcpExchange(a)) },
             "fixtool_dictionary" to { a -> if (a.isEmpty()) getDictionary() else setDictionary(mcpExchange(a)) },

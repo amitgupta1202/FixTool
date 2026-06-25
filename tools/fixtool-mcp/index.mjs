@@ -90,7 +90,9 @@ server.tool(
     "fixtool_connect. config only needs fields that differ from defaults. Common config fields: " +
     'host, port, senderCompID, targetCompID, beginString (e.g. "FIX.4.4"), connectionType ' +
     '("INITIATOR"|"ACCEPTOR"), heartBtInt, resetOnLogon, useSSL, keyStorePath, socketAcceptPort ' +
-    "(acceptor), applVerID (FIX5+), sessionCount (multi-session), logonFields ({tag: value}).",
+    "(acceptor), applVerID (FIX5+), sessionCount (multi-session), logonFields ({tag: value}), and " +
+    "acceptorResponseRules ([{whenMsgType, whenFields?, responseTemplate}]) for auto-responding as " +
+    "an acceptor.",
   {
     name: z.string().describe("display name for the profile"),
     config: z.record(z.any()).describe("FixConnectionConfig fields (partial; defaults fill the rest)"),
@@ -417,6 +419,15 @@ server.tool(
     for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
     return text("POST", "/dictionary", body);
   },
+);
+
+server.tool(
+  "fixtool_acceptor_rules",
+  "Inspect a profile's acceptor auto-response rules. (Rules are SET via fixtool_save_profile by " +
+    "putting an acceptorResponseRules array in config; each rule is {whenMsgType, whenFields?, " +
+    'responseTemplate} where the template echoes request fields via ${req.<tag>}, ${uuid}, ${now}.)',
+  { profile: z.string().describe("profile id or name") },
+  async ({ profile }) => text("GET", `/acceptor/rules?profile=${encodeURIComponent(profile)}`),
 );
 
 await server.connect(new StdioServerTransport());

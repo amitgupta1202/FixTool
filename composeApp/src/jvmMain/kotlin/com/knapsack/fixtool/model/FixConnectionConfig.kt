@@ -50,6 +50,8 @@ data class FixConnectionConfig(
     val customParameters: Map<String, String> = emptyMap(),
     // Logon message custom fields (tag-value pairs to add to logon message)
     val logonFields: Map<String, String> = emptyMap(),
+    // Acceptor mode only: auto-response rules applied to incoming application messages (first match wins)
+    val acceptorResponseRules: List<AcceptorResponseRule> = emptyList(),
 ) {
     enum class ConnectionType {
         INITIATOR, // Client - initiates connection

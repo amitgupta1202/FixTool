@@ -63,6 +63,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /validate`     | `{"raw"}`                              | `{isValid, errors}` against the loaded dictionary    |
 | `GET /dictionary`    | —                                      | current FIX version + validity                       |
 | `POST /dictionary`   | `{"version"}` or `{"path", "transportPath"?}` | switch the data dictionary                    |
+| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules (set via `/profiles`) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
 `test-request` (`id`), `resend-request` (`begin`/`end`), `sequence-reset` (`newSeq`/`gapFill`),
@@ -99,6 +100,29 @@ curl -s -XPOST $B/panel   -d '{"panel":"connection"}'   # open the panel for a s
 The agent does not keystroke into the on-canvas form (Compose renders to Skia, so there are
 no focusable DOM fields); it writes the profile directly, which is exactly what the panel does
 on Save. The new profile then appears in the panel's profile dropdown.
+
+### Acceptor auto-responses
+
+When FixTool runs as an **acceptor** (`connectionType: ACCEPTOR`), it can auto-respond to incoming
+application messages using rules carried on the profile's config as `acceptorResponseRules`. Each
+rule is `{whenMsgType, whenFields?, responseTemplate}`; the first rule whose `whenMsgType` (and every
+`whenFields` entry, by exact value) matches the incoming message wins. The `responseTemplate` is raw
+FIX (app fields only — QuickFIX stamps the session header) supporting `${req.<tag>}` (echo a request
+field), `${uuid}`, and `${now}`. Rules are set via the normal `/profiles` upsert and inspected via
+`GET /acceptor/rules`.
+
+```bash
+curl -s -XPOST $B/profiles -d '{
+  "name":"My Acceptor",
+  "config":{"connectionType":"ACCEPTOR","senderCompID":"ME","targetCompID":"THEM",
+            "socketAcceptPort":"9100","beginString":"FIX.4.4",
+            "acceptorResponseRules":[
+              {"whenMsgType":"D",
+               "responseTemplate":"35=8|150=0|39=0|37=${uuid}|11=${req.11}|55=${req.55}|38=${req.38}"}
+            ]}
+}'
+curl -s -XPOST $B/connect -d '{"profile":"My Acceptor"}'   # now auto-acks any NewOrderSingle
+```
 
 ### Message templates
 

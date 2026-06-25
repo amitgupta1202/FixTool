@@ -92,6 +92,7 @@ class ControlServer(
         httpServer.createContext("/admin") { ex -> handle(ex) { admin(ex) } }
         httpServer.createContext("/validate") { ex -> handle(ex) { validate(ex) } }
         httpServer.createContext("/dictionary") { ex -> handle(ex) { dictionaryEndpoint(ex) } }
+        httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRules(ex) } }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
         httpServer.start()
         server = httpServer
@@ -790,6 +791,39 @@ class ControlServer(
         return buildJsonObject {
             put("status", if (ok) "ok" else "failed")
             put("action", action)
+        }
+    }
+
+    /**
+     * Inspects the acceptor auto-response rules on a profile. Rules are *set* via the normal
+     * `/profiles` upsert (they live on the profile's config), so this is read-only.
+     */
+    private fun acceptorRules(ex: HttpExchange): JsonElement {
+        val profileKey = queryParams(ex)["profile"] ?: return errorObject("missing 'profile'")
+        return onEdt {
+            val profile = viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }
+                ?: return@onEdt errorObject("unknown profile: $profileKey")
+            buildJsonObject {
+                put("profile", profile.name)
+                put("connectionType", profile.config.connectionType.name)
+                put(
+                    "rules",
+                    buildJsonArray {
+                        profile.config.acceptorResponseRules.forEach { rule ->
+                            add(
+                                buildJsonObject {
+                                    put("whenMsgType", rule.whenMsgType)
+                                    put(
+                                        "whenFields",
+                                        buildJsonObject { rule.whenFields.forEach { (k, v) -> put(k, v) } },
+                                    )
+                                    put("responseTemplate", rule.responseTemplate)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
         }
     }
 

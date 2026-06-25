@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.integration
 
 import com.knapsack.fixtool.control.ControlServer
+import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
@@ -375,6 +376,77 @@ class ControlServerIntegrationTest {
         } finally {
             fixServer.stop()
         }
+    }
+
+    // ----------------------------------------------------------- acceptor rules
+
+    @Test
+    fun `acceptor auto-responds to a matching message per its rules`() {
+        val port = freePort()
+        // FixTool as the acceptor, with a rule: NewOrderSingle (35=D) -> ExecutionReport (35=8)
+        // echoing the request's ClOrdID (11) and Symbol (55).
+        val rule =
+            AcceptorResponseRule(
+                whenMsgType = "D",
+                responseTemplate = "35=8|150=0|39=0|37=\${uuid}|11=\${req.11}|55=\${req.55}|",
+            )
+        val acceptor =
+            FixConnectionProfile(
+                name = "ACC",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "ACC$runId",
+                        targetCompID = "CLI$runId",
+                        port = port.toString(),
+                        socketAcceptPort = port.toString(),
+                        beginString = "FIX.4.4",
+                        fileStorePath = File(testDir, "accstore").absolutePath,
+                        fileLogPath = File(testDir, "acclog").absolutePath,
+                        acceptorResponseRules = listOf(rule),
+                    ),
+            )
+        val client =
+            FixConnectionProfile(
+                name = "CLI",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                        senderCompID = "CLI$runId",
+                        targetCompID = "ACC$runId",
+                        host = "localhost",
+                        port = port.toString(),
+                        socketConnectHost = "localhost",
+                        beginString = "FIX.4.4",
+                        autoReconnect = false,
+                        resetOnLogon = true,
+                        fileStorePath = File(testDir, "clistore").absolutePath,
+                        fileLogPath = File(testDir, "clilog").absolutePath,
+                    ),
+            )
+
+        // Connect both directly (test thread); the acceptor starts listening, the client logs on.
+        listOf(acceptor, client).forEach {
+            viewModel.saveConnectionProfile(it)
+            viewModel.connectProfile(it.id, it)
+        }
+        assertTrue(
+            awaitCondition(15_000) {
+                viewModel.sessions.any { it.title == "CLI" && it.connectionState.value == FixConnectionState.LOGGED_ON }
+            },
+            "client should log on to the FixTool acceptor",
+        )
+
+        // Client sends a NewOrderSingle; the acceptor auto-responds and the client receives the reply.
+        assertTrue(
+            status(post("/send", """{"session":"CLI","raw":"35=D|11=ORD-ACC|55=EUR/USD|54=1|38=100|40=1|"}"""))
+                in listOf("sent", "warning"),
+        )
+        val reply =
+            post("/wait", """{"session":"CLI","match":{"messageType":"8","direction":"in"},"timeoutMs":8000}""")
+        assertEquals("matched", status(reply), "client should receive the acceptor's templated ExecutionReport")
+        val raw = obj(reply)["message"]!!.jsonObject["raw"]!!.jsonPrimitive.content
+        assertTrue(raw.contains("11=ORD-ACC"), "response should echo the request ClOrdID; got $raw")
     }
 
     // ----------------------------------------------------------------- helpers

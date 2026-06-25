@@ -75,6 +75,7 @@ claude mcp add fixtool -- node tools/fixtool-mcp/index.mjs
 | `fixtool_admin`         | Session/admin control: seq nums, test/resend request, sequence reset, logout/disconnect |
 | `fixtool_validate`      | Validate a raw FIX message against the loaded dictionary               |
 | `fixtool_dictionary`    | Read or switch the active FIX data dictionary (version or custom file) |
+| `fixtool_acceptor_rules`| Inspect a profile's acceptor auto-response rules (set via save_profile) |
 | `fixtool_get_messages`  | Read parsed messages (ordered `{tag, value}` fields) for verification  |
 | `fixtool_select`        | Select a message in the browser → opens the detail/inspection panel    |
 | `fixtool_search`        | Cross-session search → chronological timeline; pins to the search pane  |

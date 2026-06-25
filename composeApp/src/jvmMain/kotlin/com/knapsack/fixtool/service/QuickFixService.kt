@@ -259,8 +259,28 @@ class QuickFixService(
 
             // Route to the message handler
             onMessageReceived(fixMessage)
+
+            // Acceptor auto-response: if configured, reply to the incoming message per the rules.
+            maybeAutoRespond(parsedMessage, sessionId)
         } catch (e: Exception) {
             logger.error("Error processing application message: ${e.message}", e)
+        }
+    }
+
+    /**
+     * When running as an acceptor with response rules, replies to [incoming] using the first
+     * matching rule. A no-op for initiators or rule-less acceptors, so existing behaviour is
+     * unchanged.
+     */
+    private fun maybeAutoRespond(incoming: Message, sessionId: SessionID) {
+        if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
+        val rule = AcceptorResponder.firstMatch(config.acceptorResponseRules, incoming) ?: return
+        try {
+            val response = AcceptorResponder.buildMessage(AcceptorResponder.resolve(rule.responseTemplate, incoming))
+            Session.sendToTarget(response, sessionId)
+            logger.info("Acceptor auto-responded to {} with {}", rule.whenMsgType, response.header.getString(35))
+        } catch (e: Exception) {
+            logger.error("Acceptor auto-response failed: ${e.message}", e)
         }
     }
 

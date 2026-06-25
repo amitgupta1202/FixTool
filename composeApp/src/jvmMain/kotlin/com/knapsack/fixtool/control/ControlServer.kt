@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -64,7 +65,8 @@ class ControlServer(
 
     fun start() {
         val httpServer = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0)
-        httpServer.executor = Executors.newFixedThreadPool(2)
+        // Handlers block on invokeAndWait round-trips to the EDT, so give a little headroom.
+        httpServer.executor = Executors.newFixedThreadPool(HTTP_POOL_SIZE)
         httpServer.createContext("/health") { ex -> handle(ex) { health() } }
         httpServer.createContext("/sessions") { ex -> handle(ex) { sessions() } }
         httpServer.createContext("/profiles") { ex -> handle(ex) { profilesEndpoint(ex) } }
@@ -162,22 +164,23 @@ class ControlServer(
             }
 
         val existingId = body["id"]?.jsonPrimitive?.content
-        val profile =
-            onEdt {
-                val existing = existingId?.let { id -> viewModel.connectionProfiles.firstOrNull { it.id == id } }
+        return onEdt {
+            val existing = existingId?.let { id -> viewModel.connectionProfiles.firstOrNull { it.id == id } }
+            val profile =
                 existing?.copy(name = name, config = config)
                     ?: if (existingId != null) {
                         FixConnectionProfile(id = existingId, name = name, config = config)
                     } else {
                         FixConnectionProfile(name = name, config = config)
                     }
+            if (!viewModel.saveConnectionProfile(profile)) {
+                return@onEdt errorObject("failed to persist profile")
             }
-
-        onEdt { viewModel.saveConnectionProfile(profile) }
-        return buildJsonObject {
-            put("status", if (existingId != null) "updated" else "created")
-            put("id", profile.id)
-            put("name", profile.name)
+            buildJsonObject {
+                put("status", if (existing != null) "updated" else "created")
+                put("id", profile.id)
+                put("name", profile.name)
+            }
         }
     }
 
@@ -230,12 +233,19 @@ class ControlServer(
         }
 
     private fun listTemplates(ex: HttpExchange): JsonElement {
-        val profileId = queryParams(ex)["profile"]?.let { resolveProfileId(it) }
+        val profileKey = queryParams(ex)["profile"]
+        // Resolve and read in one EDT hop; reject an unknown profile rather than listing everything.
         val templates =
             onEdt {
-                viewModel.loadSavedMessagesForActiveSession()
-                viewModel.savedMessages.toList()
-            }.filter { profileId == null || profileId in it.userTags }
+                val profileId =
+                    if (profileKey == null) {
+                        null
+                    } else {
+                        viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }?.id
+                            ?: return@onEdt null
+                    }
+                viewModel.savedMessages.filter { profileId == null || profileId in it.userTags }
+            } ?: return errorObject("unknown profile: $profileKey")
         return buildJsonObject {
             put("count", templates.size)
             put("templates", buildJsonArray { templates.forEach { add(templateJson(it)) } })
@@ -273,23 +283,27 @@ class ControlServer(
     private fun upsertTemplate(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val name = body["name"]?.jsonPrimitive?.content ?: return errorObject("missing 'name'")
-        val profileId =
-            resolveProfileId(body["profile"]?.jsonPrimitive?.content)
-                ?: return errorObject("missing or unknown 'profile'")
         val fields = templateFieldsFromBody(body) ?: return errorObject("provide 'fields' [{tag,value}] or 'raw'")
         if (fields.isEmpty()) return errorObject("no fields parsed")
-
         val id = body["id"]?.jsonPrimitive?.content
         val isFavorite = body["isFavorite"]?.jsonPrimitive?.booleanOrNull ?: false
-        val userTags =
-            (body["userTags"] as? JsonArray)?.map { it.jsonPrimitive.content }?.toSet() ?: setOf(profileId)
+        val profileKey = body["profile"]?.jsonPrimitive?.content
+        val userTagsOverride = (body["userTags"] as? JsonArray)?.map { it.jsonPrimitive.content }?.toSet()
 
-        val saved = onEdt { viewModel.saveTemplateDirect(profileId, name, fields, userTags, isFavorite, id) }
-        return buildJsonObject {
-            put("status", if (id != null) "updated" else "created")
-            put("id", saved.id)
-            put("name", saved.name)
-            put("messageType", saved.getMessageType())
+        // Resolve profile, save, and shape the response in a single EDT round-trip.
+        return onEdt {
+            val profileId =
+                viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }?.id
+                    ?: return@onEdt errorObject("missing or unknown 'profile'")
+            val userTags = userTagsOverride ?: setOf(profileId)
+            val result = viewModel.saveTemplateDirect(profileId, name, fields, userTags, isFavorite, id)
+                ?: return@onEdt errorObject("failed to persist template")
+            buildJsonObject {
+                put("status", if (result.created) "created" else "updated")
+                put("id", result.message.id)
+                put("name", result.message.name)
+                put("messageType", result.message.getMessageType())
+            }
         }
     }
 
@@ -306,7 +320,7 @@ class ControlServer(
             }
         }
         body["raw"]?.jsonPrimitive?.content?.let { raw ->
-            return parseFields(raw).map { (tag, value) -> SavedFixField(tag = tag.toString(), value = value) }
+            return FixMessageHelper.parseFixMessage(raw).map { (tag, value) -> SavedFixField(tag = tag.toString(), value = value) }
         }
         return null
     }
@@ -314,69 +328,69 @@ class ControlServer(
     private fun deleteTemplate(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val id = body["id"]?.jsonPrimitive?.content ?: queryParams(ex)["id"] ?: return errorObject("missing 'id'")
-        val profileId =
-            resolveProfileId(body["profile"]?.jsonPrimitive?.content)
-                ?: onEdt { viewModel.savedMessages.firstOrNull { it.id == id }?.userTags?.firstOrNull() }
-                ?: return errorObject("could not determine profile for template; pass 'profile'")
-        onEdt { viewModel.deleteSavedMessage(id, profileId) }
-        return buildJsonObject {
-            put("status", "deleted")
-            put("id", id)
+        val profileKey = body["profile"]?.jsonPrimitive?.content
+        return onEdt {
+            val profileId =
+                profileKey?.let { k -> viewModel.connectionProfiles.firstOrNull { it.id == k || it.name == k }?.id }
+                    ?: viewModel.savedMessages.firstOrNull { it.id == id }?.userTags?.firstOrNull()
+                    ?: return@onEdt errorObject("could not determine profile for template; pass 'profile'")
+            viewModel.deleteSavedMessage(id, profileId)
+            buildJsonObject {
+                put("status", "deleted")
+                put("id", id)
+            }
         }
     }
 
     /** Loads a saved template into the message editor (and opens the editor panel for a screenshot). */
     private fun loadTemplate(ex: HttpExchange): JsonElement {
         val id = readJson(ex)["id"]?.jsonPrimitive?.content ?: return errorObject("missing 'id'")
-        val template =
-            onEdt {
-                viewModel.loadSavedMessagesForActiveSession()
-                viewModel.savedMessages.firstOrNull { it.id == id }
-            } ?: return errorObject("template not found: $id")
-        onEdt {
+        return onEdt {
+            val template = viewModel.savedMessages.firstOrNull { it.id == id }
+                ?: return@onEdt errorObject("template not found: $id")
             viewModel.loadEditorMessage(template)
             if (!viewModel.showMessageEditor.value) viewModel.toggleMessageEditor()
+            buildJsonObject {
+                put("status", "loaded")
+                put("id", template.id)
+                put("name", template.name)
+                put("messageType", template.getMessageType())
+            }
         }
-        return buildJsonObject {
-            put("status", "loaded")
-            put("id", template.id)
-            put("name", template.name)
-            put("messageType", template.getMessageType())
-        }
-    }
-
-    private fun resolveProfileId(key: String?): String? {
-        key ?: return null
-        return onEdt { viewModel.connectionProfiles.firstOrNull { it.id == key || it.name == key }?.id }
     }
 
     private fun messages(ex: HttpExchange): JsonElement {
         val params = queryParams(ex)
-        val limit = params["limit"]?.toIntOrNull() ?: DEFAULT_MESSAGE_LIMIT
+        val limit = (params["limit"]?.toIntOrNull() ?: DEFAULT_MESSAGE_LIMIT).coerceAtLeast(0)
         val directionFilter = params["direction"]?.lowercase()
         val session = resolveSession(params["session"]) ?: return errorObject("session not found")
 
-        val all =
-            onEdt { session.messages.value.toList() }
-                .filterIsInstance<FixMessage>()
-                .filter { msg ->
-                    when (directionFilter) {
-                        "in", "incoming" -> msg.direction == FixMessage.Direction.INCOMING
-                        "out", "outgoing" -> msg.direction == FixMessage.Direction.OUTGOING
-                        else -> true
-                    }
-                }
-        val recent = all.takeLast(limit)
+        // Filter and slice inside the EDT block so only the needed messages cross the thread boundary.
+        val (total, recent) =
+            onEdt {
+                val matching =
+                    session.messages.value
+                        .filterIsInstance<FixMessage>()
+                        .filter { directionMatches(it, directionFilter) }
+                matching.size to matching.takeLast(limit)
+            }
 
         return buildJsonObject {
             put("session", session.title)
-            put("total", all.size)
+            put("total", total)
             put(
                 "messages",
                 buildJsonArray { recent.forEach { add(messageJson(it)) } },
             )
         }
     }
+
+    private fun directionMatches(msg: FixMessage, filter: String?): Boolean =
+        when (filter) {
+            "in", "incoming" -> msg.direction == FixMessage.Direction.INCOMING
+            "out", "outgoing" -> msg.direction == FixMessage.Direction.OUTGOING
+            else -> true
+        }
 
     private fun messageJson(msg: FixMessage): JsonObject =
         buildJsonObject {
@@ -387,7 +401,7 @@ class ControlServer(
             put(
                 "fields",
                 buildJsonArray {
-                    parseFields(msg.rawMessage).forEach { (tag, value) ->
+                    FixMessageHelper.parseFixMessage(msg.rawMessage).forEach { (tag, value) ->
                         add(
                             buildJsonObject {
                                 put("tag", tag)
@@ -412,28 +426,25 @@ class ControlServer(
         val directionFilter = body["direction"]?.jsonPrimitive?.content?.lowercase()
         val index = body["index"]?.jsonPrimitive?.intOrNull
 
-        val candidates =
-            onEdt { session.messages.value.toList() }
-                .filterIsInstance<FixMessage>()
-                .filter { msgType == null || it.messageType == msgType }
-                .filter { msg ->
-                    when (directionFilter) {
-                        "in", "incoming" -> msg.direction == FixMessage.Direction.INCOMING
-                        "out", "outgoing" -> msg.direction == FixMessage.Direction.OUTGOING
-                        else -> true
-                    }
-                }
-        if (candidates.isEmpty()) return errorObject("no matching messages to select")
-        val target = (if (index != null) candidates.getOrNull(index) else candidates.last())
-            ?: return errorObject("index out of range (0..${candidates.size - 1})")
+        // Filter, pick, and select in a single EDT round-trip.
+        return onEdt {
+            val candidates =
+                session.messages.value
+                    .filterIsInstance<FixMessage>()
+                    .filter { msgType == null || it.messageType == msgType }
+                    .filter { directionMatches(it, directionFilter) }
+            if (candidates.isEmpty()) return@onEdt errorObject("no matching messages to select")
+            val target = (if (index != null) candidates.getOrNull(index) else candidates.last())
+                ?: return@onEdt errorObject("index out of range (0..${candidates.size - 1})")
 
-        onEdt { viewModel.selectMessage(target) }
-        return buildJsonObject {
-            put("status", "selected")
-            put("session", session.title)
-            put("messageType", target.messageType)
-            put("direction", target.direction.name)
-            put("raw", target.rawMessage)
+            viewModel.selectMessage(target)
+            buildJsonObject {
+                put("status", "selected")
+                put("session", session.title)
+                put("messageType", target.messageType)
+                put("direction", target.direction.name)
+                put("raw", target.rawMessage)
+            }
         }
     }
 
@@ -489,6 +500,9 @@ class ControlServer(
     private fun filter(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val scope = body["scope"]?.jsonPrimitive?.content?.lowercase() ?: "global"
+        if (scope != "global" && scope != "session") {
+            return errorObject("unknown scope '$scope' (global|session)")
+        }
         val regex = body["regex"]?.jsonPrimitive?.content
         val showIncoming = body["showIncoming"]?.jsonPrimitive?.booleanOrNull
         val showOutgoing = body["showOutgoing"]?.jsonPrimitive?.booleanOrNull
@@ -585,11 +599,11 @@ class ControlServer(
     }
 
     private fun screenshot(ex: HttpExchange) {
-        if (!authorized(ex)) {
-            respondText(ex, HTTP_UNAUTHORIZED, "unauthorized")
-            return
-        }
         try {
+            if (!authorized(ex)) {
+                respondText(ex, HTTP_UNAUTHORIZED, "unauthorized")
+                return
+            }
             val window =
                 windowProvider() ?: run {
                     respondText(ex, HTTP_NOT_FOUND, "no window")
@@ -608,6 +622,8 @@ class ControlServer(
         } catch (e: Exception) {
             logger.error("Screenshot failed", e)
             respondText(ex, HTTP_SERVER_ERROR, "screenshot failed: ${e.message}")
+        } finally {
+            ex.close()
         }
     }
 
@@ -696,23 +712,13 @@ class ControlServer(
             put("error", message)
         }
 
-    /** Splits a raw FIX message (SOH- or pipe-delimited) into ordered tag/value pairs. */
-    private fun parseFields(raw: String): List<Pair<Int, String>> =
-        raw
-            .split('\u0001', '|')
-            .filter { it.contains('=') }
-            .mapNotNull { field ->
-                val idx = field.indexOf('=')
-                val tag = field.substring(0, idx).trim().toIntOrNull()
-                if (tag == null) null else tag to field.substring(idx + 1)
-            }
-
     companion object {
         private const val HTTP_OK = 200
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_SERVER_ERROR = 500
         private const val DEFAULT_MESSAGE_LIMIT = 50
+        private const val HTTP_POOL_SIZE = 4
     }
 }
 

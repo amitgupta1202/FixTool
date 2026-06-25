@@ -183,6 +183,7 @@
             <li><a href="#filtering">8. Filtering Messages</a></li>
             <li><a href="#settings">9. Settings</a></li>
             <li><a href="#latency">10. Latency Measurement</a></li>
+            <li><a href="#automation">11. Automation &amp; AI Control</a></li>
         </ul>
     </div>
 
@@ -1843,6 +1844,53 @@ stunnel stunnel.conf</code></pre>
     </ul>
 
     <hr style="margin: 40px 0; border: none; border-top: 2px solid #3c3c3c;">
+
+    <h2 id="automation">11. Automation &amp; AI Control</h2>
+
+    <p>FixTool can be driven by <strong>Claude</strong> (or any
+    <a href="https://modelcontextprotocol.io" target="_blank">MCP</a> client), <code>curl</code>, or
+    CI scripts for automated FIX testing &mdash; connect to a gateway, send messages, wait for and
+    verify responses, manage templates, configure acceptor auto-responses, and capture screenshots.
+    An MCP server is <strong>built into the app</strong> (loopback-only, off by default), so there is
+    nothing extra to install.</p>
+
+    <h3>Step 1 &mdash; Enable automation control</h3>
+    <ol>
+        <li>Open <strong>Settings</strong> (gear icon).</li>
+        <li>Scroll to <strong>Automation Control</strong> and tick <strong>Enable automation control</strong>.</li>
+        <li>Choose a <strong>port</strong> (default <code>8765</code>) and click <strong>Save</strong>.</li>
+    </ol>
+    <p>The control + MCP server starts immediately, listening on <code>127.0.0.1</code> only.</p>
+
+    <h3>Step 2 &mdash; Connect Claude Code</h3>
+    <p>Register the built-in MCP server once (the Settings screen shows this exact command):</p>
+    <div class="example">
+        <code>claude mcp add --transport http fixtool http://127.0.0.1:8765/mcp</code>
+    </div>
+    <p>This works from any project directory; add <code>--scope user</code> to make it available in
+    every project. No Node, npm, or source checkout is required.</p>
+
+    <h3>Step 3 &mdash; Ask Claude to drive FixTool</h3>
+    <p>Describe the task in plain language and Claude picks the right tools. For example:</p>
+    <div class="example">
+        <em>"Use the fixtool tools to connect to the demo server, send a NewOrderSingle for EUR/USD,
+        then show me the ExecutionReport."</em>
+    </div>
+    <p>Claude can be working in a completely different codebase (your own FIX project) and still
+    drive FixTool to test against your gateway.</p>
+
+    <div class="tip">
+        <strong>Loopback &amp; off by default.</strong> The server only accepts connections from this
+        machine (127.0.0.1) and never starts unless you enable it. An optional shared secret
+        (<code>FIXTOOL_CONTROL_TOKEN</code> environment variable) can be required on every request;
+        developers can also enable the server with the <code>FIXTOOL_CONTROL_PORT</code> environment
+        variable, which overrides this setting.
+    </div>
+
+    <p>The full tool list, the HTTP API, and acceptor auto-response rules are documented in the
+    <a href="https://github.com/amitgupta1202/FixTool/blob/main/docs/AUTOMATION.md" target="_blank">Automation Guide</a>.</p>
+
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
     <div class="tip">
         <strong>Need More Help?</strong><br>

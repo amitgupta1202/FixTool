@@ -400,6 +400,29 @@ class FixMessageViewModel(
         }
     }
 
+    /** Switches the active data dictionary to a bundled FIX version (for automation/control). */
+    fun switchDictionaryToVersion(version: FixVersion) = loadBundledDictionaryForVersion(version)
+
+    /** Switches the active data dictionary to a custom file (plus optional FIXT transport file). */
+    fun switchDictionaryToFile(path: String, transportPath: String? = null) {
+        val file = java.io.File(path)
+        if (!file.exists()) {
+            _isDictionaryValid.value = false
+            _dictionaryErrorMessage.value = "Dictionary file not found: $path"
+            return
+        }
+        try {
+            val transportFile = transportPath?.let { java.io.File(it).takeIf(java.io.File::exists) }
+            _dictionary.value = FixDictionaryAdapter.fromFiles(file, transportFile)
+            _isDictionaryValid.value = _dictionary.value.isLoaded()
+            _dictionaryErrorMessage.value = if (_isDictionaryValid.value) null else "Failed to load dictionary: $path"
+        } catch (e: Exception) {
+            logger.error("Failed to load custom dictionary $path: ${e.message}", e)
+            _isDictionaryValid.value = false
+            _dictionaryErrorMessage.value = "Failed to load dictionary: ${e.message}"
+        }
+    }
+
     /**
      * Validates the data dictionary configuration and shows an error notification if invalid
      */

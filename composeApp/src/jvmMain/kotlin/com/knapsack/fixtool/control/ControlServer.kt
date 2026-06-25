@@ -1,7 +1,7 @@
 // This file is an HTTP request-handling boundary: each endpoint legitimately catches broad
 // exceptions to convert any failure into a 500 response, and the per-endpoint handlers
 // naturally push the class past detekt's function-count threshold.
-@file:Suppress("TooManyFunctions", "TooGenericExceptionCaught", "ReturnCount", "LargeClass")
+@file:Suppress("TooManyFunctions", "TooGenericExceptionCaught", "ReturnCount", "LargeClass", "CyclomaticComplexMethod")
 
 package com.knapsack.fixtool.control
 
@@ -9,9 +9,11 @@ import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.sun.net.httpserver.HttpExchange
@@ -87,6 +89,9 @@ class ControlServer(
         httpServer.createContext("/send/all") { ex -> handle(ex) { sendAll(ex) } }
         httpServer.createContext("/send") { ex -> handle(ex) { send(ex) } }
         httpServer.createContext("/templates/send") { ex -> handle(ex) { sendTemplate(ex) } }
+        httpServer.createContext("/admin") { ex -> handle(ex) { admin(ex) } }
+        httpServer.createContext("/validate") { ex -> handle(ex) { validate(ex) } }
+        httpServer.createContext("/dictionary") { ex -> handle(ex) { dictionaryEndpoint(ex) } }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
         httpServer.start()
         server = httpServer
@@ -737,6 +742,104 @@ class ControlServer(
             is SendResult.SuccessWithWarning -> "warning"
             is SendResult.Failed -> "failed"
         }
+
+    /**
+     * Session/admin control for FIX testing. `action` is one of reset-seqnum, test-request,
+     * resend-request, sequence-reset, logout, disconnect, or seqnum (read current numbers). These
+     * call the QuickFIX Session API directly (thread-safe) — no Compose state is touched.
+     */
+    private fun admin(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val action = body["action"]?.jsonPrimitive?.content?.lowercase() ?: return errorObject("missing 'action'")
+        val session = resolveSession(body["session"]?.jsonPrimitive?.content) ?: return errorObject("session not found")
+
+        if (action == "seqnum") {
+            val seq = session.sequenceNumbers() ?: return errorObject("no active session sequence numbers")
+            return buildJsonObject {
+                put("status", "ok")
+                put("nextSenderSeqNum", seq.first)
+                put("nextTargetSeqNum", seq.second)
+            }
+        }
+
+        val ok =
+            when (action) {
+                "reset-seqnum" ->
+                    session.resetSequenceNumbers(
+                        body["sender"]?.jsonPrimitive?.intOrNull,
+                        body["target"]?.jsonPrimitive?.intOrNull,
+                    )
+                "test-request" -> session.sendTestRequest(body["id"]?.jsonPrimitive?.content ?: "TR")
+                "resend-request" ->
+                    session.sendResendRequest(
+                        body["begin"]?.jsonPrimitive?.intOrNull ?: 1,
+                        body["end"]?.jsonPrimitive?.intOrNull ?: 0,
+                    )
+                "sequence-reset" ->
+                    session.sendSequenceReset(
+                        body["newSeq"]?.jsonPrimitive?.intOrNull ?: return errorObject("missing 'newSeq'"),
+                        body["gapFill"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    )
+                "logout" -> session.forceLogout(body["reason"]?.jsonPrimitive?.content)
+                "disconnect" -> session.forceDisconnect(body["reason"]?.jsonPrimitive?.content ?: "control")
+                else -> return errorObject(
+                    "unknown action '$action' " +
+                        "(reset-seqnum|test-request|resend-request|sequence-reset|logout|disconnect|seqnum)",
+                )
+            }
+        return buildJsonObject {
+            put("status", if (ok) "ok" else "failed")
+            put("action", action)
+        }
+    }
+
+    /** Validates a raw FIX message against the loaded data dictionary. */
+    private fun validate(ex: HttpExchange): JsonElement {
+        val raw = readJson(ex)["raw"]?.jsonPrimitive?.content ?: return errorObject("missing 'raw'")
+        val result = onEdt { FixMessageValidator.validate(raw, viewModel.dictionary) }
+        return buildJsonObject {
+            put("isValid", result.isValid)
+            put("errors", buildJsonArray { result.errors.forEach { add(it) } })
+        }
+    }
+
+    private fun dictionaryEndpoint(ex: HttpExchange): JsonElement =
+        if (ex.requestMethod.uppercase() == "POST") setDictionary(ex) else getDictionary()
+
+    private fun getDictionary(): JsonElement =
+        onEdt {
+            buildJsonObject {
+                put("version", viewModel.currentFixVersion.name)
+                put("displayName", viewModel.currentFixVersion.displayName)
+                put("valid", viewModel.isDictionaryValid.value)
+                viewModel.dictionaryErrorMessage.value?.let { put("error", it) }
+            }
+        }
+
+    private fun setDictionary(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val versionKey = body["version"]?.jsonPrimitive?.content
+        val path = body["path"]?.jsonPrimitive?.content
+        return onEdt {
+            when {
+                versionKey != null -> {
+                    val version =
+                        FixVersion.entries.firstOrNull {
+                            it.name == versionKey || it.beginString == versionKey || it.displayName == versionKey
+                        } ?: return@onEdt errorObject("unknown FIX version '$versionKey'")
+                    viewModel.switchDictionaryToVersion(version)
+                }
+                path != null -> viewModel.switchDictionaryToFile(path, body["transportPath"]?.jsonPrimitive?.content)
+                else -> return@onEdt errorObject("provide 'version' or 'path'")
+            }
+            buildJsonObject {
+                put("status", if (viewModel.isDictionaryValid.value) "ok" else "error")
+                put("version", viewModel.currentFixVersion.name)
+                put("valid", viewModel.isDictionaryValid.value)
+                viewModel.dictionaryErrorMessage.value?.let { put("error", it) }
+            }
+        }
+    }
 
     private fun screenshot(ex: HttpExchange) {
         try {

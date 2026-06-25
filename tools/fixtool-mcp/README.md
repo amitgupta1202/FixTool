@@ -72,6 +72,9 @@ claude mcp add fixtool -- node tools/fixtool-mcp/index.mjs
 | `fixtool_send_template` | Send a saved template (expressions resolved) from a session            |
 | `fixtool_clear_messages`| Clear a session's message log between test phases                      |
 | `fixtool_wait`          | Block until a session state or matching message arrives (vs polling)   |
+| `fixtool_admin`         | Session/admin control: seq nums, test/resend request, sequence reset, logout/disconnect |
+| `fixtool_validate`      | Validate a raw FIX message against the loaded dictionary               |
+| `fixtool_dictionary`    | Read or switch the active FIX data dictionary (version or custom file) |
 | `fixtool_get_messages`  | Read parsed messages (ordered `{tag, value}` fields) for verification  |
 | `fixtool_select`        | Select a message in the browser → opens the detail/inspection panel    |
 | `fixtool_search`        | Cross-session search → chronological timeline; pins to the search pane  |

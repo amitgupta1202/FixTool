@@ -9,15 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Added
 
+#### Automation Control Surface & MCP Server
+- **Agent-driven testing**: an opt-in, loopback-only (127.0.0.1) HTTP control surface lets Claude / an MCP client / curl drive FixTool for automated testing. Enable it from **Settings** (or set `FIXTOOL_CONTROL_PORT`), with an optional `X-Control-Token` for auth.
+- **Embedded MCP server**: the app serves the Model Context Protocol over HTTP at `/mcp` — register it with `claude mcp add --transport http …`. A standalone Node MCP server (`tools/fixtool-mcp`) mirrors the same tools over stdio.
+- **Full workflow exposed** as endpoints / MCP tools:
+  - **Connections & profiles** — connect, disconnect, profiles CRUD
+  - **Sending** — send, send-to-all (bulk / load testing), send-template (expressions resolved per session)
+  - **Reading & inspection** — read parsed messages (`{tag, value}` fields), `wait` (block until a state or matching message), clear, select, **detail** (drive the detail-panel tag search), cross-session `search` timeline, grid `filter`, `screenshot`
+  - **Config & control** — templates CRUD, dictionary read/switch, message `validate`, session/admin control (seqnum, reset-seqnum, test-request, resend-request, sequence-reset, logout, disconnect), and the built-in demo FIX server
+- **Acceptor auto-response rules**: run FixTool as an acceptor that auto-replies to matching messages from a response template (e.g. `35=D` → `35=8` echoing the request's `ClOrdID` / `Symbol`), for self-contained round-trip tests.
+- Documented in `docs/AUTOMATION.md`, `tools/fixtool-mcp/README.md`, and the in-app Help.
+
 #### Context-Preserving Tag Search
 - **Match-context modes** in the message detail panel: searching a nested tag (e.g. `PartyRole` inside a `NoPartyIDs` group) no longer collapses to bare matching rows that lose their context. A toggle, shown while searching, chooses how much surrounding context each match reveals:
   - **Bare** — matched rows only (previous behaviour)
   - **Identity** (default) — each matching repeating-group entry also shows its identity field (its first simple field, e.g. `PartyID`) so you can tell which entry matched
   - **Full** — the whole matching entry
 - Only matching group instances are revealed, each under its group ancestor header so the match keeps its path, and the matched text is highlighted.
+- Drivable via automation: **`POST /detail`** / the **`fixtool_detail_search`** MCP tool set the query and mode, so an agent can inspect a nested tag end to end (`select` → `detail_search` → `screenshot`).
 
-#### Automation: drive the detail search
-- **`POST /detail`** control-surface endpoint and **`fixtool_detail_search`** MCP tool set the detail panel's search query and match-context mode, so an agent can inspect a nested tag end to end (`select` → `detail_search` → `screenshot`).
+### 🔧 Changed
+- Flaky timing/order-sensitive integration and UI tests are now retried on CI (`org.gradle.test-retry`, CI-only) so transient failures don't fail the release build.
+- Dependency and GitHub Actions upgrades; Linux installer naming fix in docs.
 
 ## [1.6.0] - 2026-06-12
 

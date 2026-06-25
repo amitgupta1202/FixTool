@@ -14,6 +14,7 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 - **Bulk Send**: Send one message to all logged-on sessions at once, with template expressions re-resolved per session
 - **Message Validation**: Validate messages against FIX data dictionaries
 - **Saved Messages**: Save and reuse frequently used message templates
+- **AI / MCP Automation**: Let Claude (or any [MCP](https://modelcontextprotocol.io) client) drive FixTool for automated testing — connect sessions, send messages, verify FIX fields, manage templates, and capture screenshots. An MCP server is **embedded in the app** (no extra install). See the [Automation Guide](docs/AUTOMATION.md)
 
 ## Download
 
@@ -65,6 +66,27 @@ For secure FIX connections over SSL/TLS, see the [SSL Setup Guide](SSL_SETUP.md)
 ### Running the Application
 
 See the [Development](#development) section below for build and run instructions.
+
+## Automation & AI Control
+
+FixTool can be driven by **Claude (or any MCP client)**, plain `curl`, or CI scripts for
+automated FIX testing — connect to a gateway, send messages, wait for and verify responses,
+manage templates, configure acceptor auto-responses, and capture screenshots.
+
+An MCP server is **embedded in the app** (loopback-only, off by default), so there's nothing
+extra to install:
+
+1. **Settings → Automation Control → enable** (and pick a port).
+2. Register it with Claude Code once (works from any project directory):
+
+   ```bash
+   claude mcp add --transport http fixtool http://127.0.0.1:8765/mcp
+   ```
+
+3. Ask Claude to drive FixTool — e.g. *"use the fixtool tools to connect to the demo server
+   and send a NewOrderSingle."*
+
+Full details, the HTTP API, and the tool list are in the **[Automation Guide](docs/AUTOMATION.md)**.
 
 ## Technology
 

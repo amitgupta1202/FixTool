@@ -280,6 +280,8 @@ class ControlServerIntegrationTest {
         // A negative limit must not crash the endpoint (coerced to >= 0).
         assertEquals(200, get("/messages?session=0&limit=-1").statusCode())
         assertTrue(obj(get("/messages?session=0&limit=-1")).containsKey("messages"))
+        // The session never logs on (closed port), so /wait for LOGGED_ON times out.
+        assertEquals("timeout", status(post("/wait", """{"session":"0","state":"LOGGED_ON","timeoutMs":400}""")))
     }
 
     @Test
@@ -298,17 +300,41 @@ class ControlServerIntegrationTest {
                 "session should log on to the test server",
             )
 
-            val send = post("/send", """{"session":"LIVE","raw":"8=FIX.4.4|35=D|11=IT-ORDER|55=EUR/USD|54=1|38=1000|40=1|"}""")
-            assertEquals("sent", status(send))
+            // /wait reaches the already-logged-on state immediately (deterministic, no client poll).
+            assertEquals(
+                "matched",
+                status(post("/wait", """{"session":"LIVE","state":"LOGGED_ON","timeoutMs":15000}""")),
+            )
 
+            // Bulk send to every logged-on session.
+            val all = post("/send/all", """{"raw":"8=FIX.4.4|35=D|11=BULK-1|55=EUR/USD|54=1|38=1000|40=1|"}""")
+            assertEquals("ok", status(all))
+            assertEquals(1, obj(all)["count"]!!.jsonPrimitive.int)
             assertTrue(
                 awaitCondition(5_000) { fixServer.applicationMessages.any { it.contains("35=D") } },
-                "test server should receive the NewOrderSingle sent via the control server",
+                "test server should receive the bulk-sent order",
             )
-            // The session drains captured messages into its list on a poll cycle, so await it.
+
+            // /wait blocks until the outgoing order surfaces in the session log, then returns it.
+            val waited =
+                post("/wait", """{"session":"LIVE","match":{"messageType":"D","direction":"out"},"timeoutMs":5000}""")
+            assertEquals("matched", status(waited))
+            assertEquals("D", obj(waited)["message"]!!.jsonObject["messageType"]!!.jsonPrimitive.content)
+
+            // Clear the log between phases.
+            assertEquals("cleared", status(post("/messages/clear", """{"session":"LIVE"}""")))
+            assertEquals(0, obj(get("/messages?session=LIVE"))["total"]!!.jsonPrimitive.int)
+
+            // Save a template under the live profile and send it (resolved) to the session.
+            val pid = viewModel.connectionProfiles.first { it.name == "LIVE" }.id
+            val tpl = post("/templates", """{"profile":"$pid","name":"NOS","raw":"35=D|11=TPL-1|55=GBP/USD|54=1|38=500|40=1"}""")
+            assertEquals("created", status(tpl))
+            val tid = obj(tpl)["id"]!!.jsonPrimitive.content
+            val sent = post("/templates/send", """{"id":"$tid","session":"LIVE"}""")
+            assertTrue(status(sent) in listOf("sent", "warning"), "template send should succeed; got ${status(sent)}")
             assertTrue(
-                awaitCondition(5_000) { sessionMessageTypes("LIVE").contains("D") },
-                "outgoing order should be readable via /messages; got ${sessionMessageTypes("LIVE")}",
+                awaitCondition(5_000) { fixServer.applicationMessages.any { it.contains("11=TPL-1") } },
+                "test server should receive the template-sent order",
             )
         } finally {
             fixServer.stop()
@@ -336,11 +362,6 @@ class ControlServerIntegrationTest {
                 ),
         )
 
-    private fun sessionMessageTypes(session: String): List<String> =
-        obj(get("/messages?session=$session"))["messages"]
-            ?.jsonArray
-            ?.map { it.jsonObject["messageType"]!!.jsonPrimitive.content }
-            .orEmpty()
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 

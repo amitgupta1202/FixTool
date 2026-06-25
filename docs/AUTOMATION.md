@@ -53,8 +53,12 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /demo`         | `{"action":"start"\|"stop"}`           | `{status, action, running}`                          |
 | `POST /connect`      | `{"profile":"<name or id>"}`           | `{status, profile}` (logon is async)                 |
 | `POST /disconnect`   | `{"profile":"<name or id>"}`           | `{status, profile}`                                  |
-| `POST /send`         | `{"raw":"8=FIX.4.4|35=D|…", "session"?}` | `{status, result}` (QuickFIX SendResult)           |
+| `POST /send`         | `{"raw":"8=FIX.4.4|35=D|…", "session"?, "resolve"?}` | `{status, result}`; `resolve` resolves `${…}`/`{n}` first |
+| `POST /send/all`     | `{"raw":"…"}`                          | bulk-send to all logged-on sessions; per-session results |
+| `POST /templates/send` | `{"id", "session"?}`                 | send a saved template (expressions resolved)         |
 | `GET /messages`      | query: `session`, `limit`, `direction` | `{session, total, messages:[…]}` with parsed fields  |
+| `POST /messages/clear` | `{"session"}`                        | clear a session's message log                        |
+| `POST /wait`         | `{"session", "state"?, "match"?, "timeoutMs"?}` | block until state/message-match or timeout; returns the match |
 | `POST /select`       | `{"session"?, "index"?, "messageType"?, "direction"?}` | selects a message in the browser → opens the detail panel |
 | `POST /search`       | `{"query", "pin"?}`                    | cross-session matches sorted chronologically (a timeline); pins to the search pane |
 | `POST /filter`       | `{"scope"?, "session"?, "regex"?, "messageTypes"?, "showIncoming"?, "showOutgoing"?, "showSeparator"?}` | filters the grid for a focused screenshot |

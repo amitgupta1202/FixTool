@@ -67,7 +67,11 @@ claude mcp add fixtool -- node tools/fixtool-mcp/index.mjs
 | `fixtool_demo`          | Start/stop the built-in demo FIX server (registers "Demo User N")      |
 | `fixtool_connect`       | Connect a profile by name or id                                        |
 | `fixtool_disconnect`    | Disconnect a profile                                                   |
-| `fixtool_send`          | Send a raw FIX message from a session                                  |
+| `fixtool_send`          | Send a raw FIX message from a session (optionally resolving templates)  |
+| `fixtool_send_all`      | Bulk-send one message to all logged-on sessions                        |
+| `fixtool_send_template` | Send a saved template (expressions resolved) from a session            |
+| `fixtool_clear_messages`| Clear a session's message log between test phases                      |
+| `fixtool_wait`          | Block until a session state or matching message arrives (vs polling)   |
 | `fixtool_get_messages`  | Read parsed messages (ordered `{tag, value}` fields) for verification  |
 | `fixtool_select`        | Select a message in the browser → opens the detail/inspection panel    |
 | `fixtool_search`        | Cross-session search → chronological timeline; pins to the search pane  |

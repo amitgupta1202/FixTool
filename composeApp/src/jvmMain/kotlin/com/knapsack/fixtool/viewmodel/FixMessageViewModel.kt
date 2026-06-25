@@ -268,6 +268,10 @@ class FixMessageViewModel(
         // Load saved connection profiles
         loadConnectionProfiles()
 
+        // Load saved messages once so the in-memory list is populated from startup (the control
+        // surface reads it without forcing a per-request disk reload; writes refresh it).
+        loadSavedMessagesForActiveSession()
+
         // Initialize editor with one blank field
         if (_editorFields.isEmpty()) {
             _editorFields.add(FixField())
@@ -1022,14 +1026,18 @@ class FixMessageViewModel(
         _connectionProfiles.addAll(profileService.loadProfiles().sortedBy { it.name.lowercase() })
     }
 
-    fun saveConnectionProfile(profile: FixConnectionProfile) {
+    /** @return true if the profile was persisted; false if the underlying save failed. */
+    fun saveConnectionProfile(profile: FixConnectionProfile): Boolean {
+        var persisted = false
         profileService
             .saveProfile(profile)
             .onSuccess {
                 loadConnectionProfiles()
+                persisted = true
             }.onFailure { error ->
                 logger.error("Failed to save connection profile: ${error.message}", error)
             }
+        return persisted
     }
 
     fun deleteConnectionProfile(profileId: String) {
@@ -1552,11 +1560,15 @@ class FixMessageViewModel(
             }
     }
 
+    /** Result of [saveTemplateDirect]: the persisted message plus whether it was newly created. */
+    data class TemplateSaveResult(val message: SavedFixMessage, val created: Boolean)
+
     /**
      * Saves a template directly, independent of the message editor's current state. Creates a new
-     * template, or updates the existing one when [id] matches a saved message. Intended for
-     * automation/control callers; refreshes the in-memory list so the UI reflects the change.
-     * @return the persisted [SavedFixMessage]
+     * template, or updates the existing one when [id] matches a saved message under [profileId].
+     * Intended for automation/control callers; refreshes the in-memory list so the UI reflects the
+     * change.
+     * @return the [TemplateSaveResult], or null if the underlying persistence failed.
      */
     @Suppress("LongParameterList") // distinct template attributes; a DTO would only add ceremony for one caller
     fun saveTemplateDirect(
@@ -1566,8 +1578,10 @@ class FixMessageViewModel(
         userTags: Set<String> = setOf(profileId),
         isFavorite: Boolean = false,
         id: String? = null,
-    ): SavedFixMessage {
-        val existing = id?.let { mid -> _savedMessages.find { it.id == mid } }
+    ): TemplateSaveResult? {
+        // Look the existing record up from the store (not the in-memory list, which a headless
+        // control caller may not have populated) so an update preserves createdAt and version.
+        val existing = id?.let { mid -> savedMessagesService.loadMessagesForProfile(profileId).find { it.id == mid } }
         val message =
             SavedFixMessage(
                 id = id ?: java.util.UUID.randomUUID().toString(),
@@ -1579,11 +1593,12 @@ class FixMessageViewModel(
                 version = (existing?.version ?: 0) + 1,
                 isFavorite = isFavorite,
             )
+        var persisted = false
         savedMessagesService
             .saveMessage(profileId, message)
-            .onSuccess { loadSavedMessagesForActiveSession() }
+            .onSuccess { loadSavedMessagesForActiveSession(); persisted = true }
             .onFailure { error -> logger.error("Failed to save template: ${error.message}", error) }
-        return message
+        return if (persisted) TemplateSaveResult(message, created = existing == null) else null
     }
 
     /**

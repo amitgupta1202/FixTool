@@ -82,7 +82,7 @@ object FixMessageHelper {
     /**
      * Parses a FIX message string into a list of (tag, value) pairs
      */
-    private fun parseFixMessage(raw: String): List<Pair<Int, String>> {
+    internal fun parseFixMessage(raw: String): List<Pair<Int, String>> {
         val delimiter = if (raw.contains('|')) '|' else '\u0001'
         return raw
             .split(delimiter)

@@ -124,6 +124,13 @@ class ControlServerIntegrationTest {
         assertEquals("error", status(post("/profiles", """{"config":{"port":"1"}}""")))
     }
 
+    @Test
+    fun `upsert with an unknown id reports created, not updated`() {
+        val resp = post("/profiles", """{"id":"ghost-id","name":"Ghost","config":{"port":"1"}}""")
+        assertEquals("created", status(resp))
+        assertEquals("ghost-id", obj(resp)["id"]!!.jsonPrimitive.content)
+    }
+
     // -------------------------------------------------------------- templates
 
     @Test
@@ -174,6 +181,11 @@ class ControlServerIntegrationTest {
         assertEquals("error", status(post("/templates", """{"profile":"nope","name":"X","raw":"35=D"}""")))
     }
 
+    @Test
+    fun `listing templates for an unknown profile errors instead of returning all`() {
+        assertEquals("error", status(get("/templates?profile=does-not-exist")))
+    }
+
     // ----------------------------------------------------- read / view / filter
 
     @Test
@@ -184,6 +196,11 @@ class ControlServerIntegrationTest {
     @Test
     fun `search with no messages returns an empty timeline`() {
         assertEquals(0, obj(post("/search", """{"query":"anything"}"""))["count"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `filter with an unknown scope is rejected`() {
+        assertEquals("error", status(post("/filter", """{"scope":"sesion","regex":"x"}""")))
     }
 
     @Test
@@ -260,6 +277,9 @@ class ControlServerIntegrationTest {
         assertEquals("REGSND$runId", session["senderCompID"]!!.jsonPrimitive.content)
         // /messages now resolves the session (returns a result object) instead of erroring.
         assertTrue(obj(get("/messages?session=0")).containsKey("messages"))
+        // A negative limit must not crash the endpoint (coerced to >= 0).
+        assertEquals(200, get("/messages?session=0&limit=-1").statusCode())
+        assertTrue(obj(get("/messages?session=0&limit=-1")).containsKey("messages"))
     }
 
     @Test

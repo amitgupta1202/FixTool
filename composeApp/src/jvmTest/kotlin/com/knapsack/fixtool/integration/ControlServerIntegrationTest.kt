@@ -260,6 +260,49 @@ class ControlServerIntegrationTest {
         assertEquals("error", status(post("/admin", """{"action":"seqnum"}""")))
     }
 
+    // -------------------------------------------------------- embedded MCP server
+
+    @Test
+    fun `mcp initialize and tools list expose all tools`() {
+        val init =
+            obj(post("/mcp", """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"""))
+        val result = init["result"]!!.jsonObject
+        assertEquals("2025-06-18", result["protocolVersion"]!!.jsonPrimitive.content)
+        assertTrue(result["capabilities"]!!.jsonObject.containsKey("tools"))
+
+        val tools =
+            obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
+                .jsonObject["tools"]!!
+                .jsonArray
+        assertEquals(27, tools.size)
+        tools.forEach {
+            val t = it.jsonObject
+            assertTrue(t.containsKey("name") && t.containsKey("inputSchema"), "each tool needs a name and schema")
+        }
+    }
+
+    @Test
+    fun `mcp tools call dispatches to the same control logic`() {
+        // no-arg tool
+        assertTrue(mcpCall("fixtool_health", "{}").contains("\"status\":\"ok\""))
+        // body-arg tool
+        assertTrue(mcpCall("fixtool_validate", """{"raw":"8=FIX.4.4|35=ZZZ|"}""").contains("\"isValid\""))
+        // object-arg tool round-trips through upsertProfile (adapter body)
+        assertTrue(mcpCall("fixtool_save_profile", """{"name":"MCP-P","config":{"port":"1"}}""").contains("\"created\""))
+        // query-arg tool reaches the handler (adapter query) -> session not found
+        assertTrue(mcpCall("fixtool_get_messages", """{"session":"99"}""").contains("session not found"))
+        // unknown tool -> isError
+        val unknown =
+            obj(post("/mcp", """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"nope","arguments":{}}}"""))["result"]!!
+                .jsonObject
+        assertEquals(true, unknown["isError"]!!.jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun `mcp notification gets a 204 with no body`() {
+        assertEquals(204, post("/mcp", """{"jsonrpc":"2.0","method":"notifications/initialized"}""").statusCode())
+    }
+
     // -------------------------------------------------------------- auth gate
 
     @Test
@@ -504,4 +547,15 @@ class ControlServerIntegrationTest {
     private fun arr(resp: HttpResponse<String>) = Json.parseToJsonElement(resp.body()).jsonArray
 
     private fun status(resp: HttpResponse<String>) = obj(resp)["status"]!!.jsonPrimitive.content
+
+    /** Invokes an MCP tool over /mcp and returns the first text content block. */
+    private fun mcpCall(name: String, args: String): String {
+        val body = """{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"$name","arguments":$args}}"""
+        return obj(post("/mcp", body))["result"]!!
+            .jsonObject["content"]!!
+            .jsonArray
+            .first()
+            .jsonObject["text"]!!
+            .jsonPrimitive.content
+    }
 }

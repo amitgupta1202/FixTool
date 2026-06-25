@@ -16,12 +16,30 @@ OCR-ing a screenshot. Screenshots are a visual spot-check, not the primary chann
 
 ## Enabling it
 
-The server is **off by default**. It starts only when `FIXTOOL_CONTROL_PORT` is set, and
-binds to `127.0.0.1` only.
+The server is **off by default** and binds to `127.0.0.1` only. Two ways to turn it on:
+
+- **In the app (recommended for installed/binary users):** Settings → *Automation Control* →
+  enable, set the port. No env var, no terminal.
+- **Env var (developers):** start with `FIXTOOL_CONTROL_PORT` set — this overrides the setting.
 
 ```bash
 FIXTOOL_CONTROL_PORT=8765 ./gradlew :composeApp:run
 ```
+
+## Connecting Claude (embedded MCP server)
+
+The app **embeds an MCP server** at `/mcp` (Streamable HTTP / JSON-RPC 2.0), so Claude Code
+connects directly — **no Node, no npm, no clone**. Enable the control server (above), then once:
+
+```bash
+claude mcp add --transport http fixtool http://127.0.0.1:8765/mcp
+```
+
+This works from **any** project directory (use `--scope user` to make it global), so Claude can
+drive FixTool while you work in a different FIX codebase. The Settings → Automation Control screen
+shows this exact command. All 27 tools (`fixtool_connect`, `fixtool_send`, `fixtool_wait`, …) are
+served by the in-app Kotlin registry (`control/McpTools.kt`); the standalone Node server in
+`tools/fixtool-mcp/` remains as an alternative stdio transport for FixTool developers.
 
 Optional shared-secret auth — when set, every request must carry an `X-Control-Token` header
 with the same value:
@@ -64,6 +82,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /dictionary`    | —                                      | current FIX version + validity                       |
 | `POST /dictionary`   | `{"version"}` or `{"path", "transportPath"?}` | switch the data dictionary                    |
 | `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules (set via `/profiles`) |
+| `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
 `test-request` (`id`), `resend-request` (`begin`/`end`), `sequence-reset` (`newSeq`/`gapFill`),

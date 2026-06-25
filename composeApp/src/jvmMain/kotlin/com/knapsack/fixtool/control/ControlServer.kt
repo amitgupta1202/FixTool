@@ -16,12 +16,17 @@ import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import com.sun.net.httpserver.Headers
+import com.sun.net.httpserver.HttpContext
 import com.sun.net.httpserver.HttpExchange
+import com.sun.net.httpserver.HttpPrincipal
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
@@ -34,9 +39,15 @@ import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 import java.awt.Robot
 import java.awt.Window
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.URI
+import java.net.URLEncoder
+import java.util.Base64
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import javax.imageio.ImageIO
@@ -94,6 +105,7 @@ class ControlServer(
         httpServer.createContext("/dictionary") { ex -> handle(ex) { dictionaryEndpoint(ex) } }
         httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRules(ex) } }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
+        httpServer.createContext("/mcp") { ex -> mcpHandle(ex) }
         httpServer.start()
         server = httpServer
         logger.info("FixTool control server listening on http://127.0.0.1:$port (token={})", token != null)
@@ -881,18 +893,10 @@ class ControlServer(
                 respondText(ex, HTTP_UNAUTHORIZED, "unauthorized")
                 return
             }
-            val window =
-                windowProvider() ?: run {
-                    respondText(ex, HTTP_NOT_FOUND, "no window")
-                    return
-                }
-            val bounds = onEdt { window.bounds }
-            val image = Robot().createScreenCapture(bounds)
-            val bytes =
-                ByteArrayOutputStream().use { out ->
-                    ImageIO.write(image, "png", out)
-                    out.toByteArray()
-                }
+            val bytes = captureWindowPng() ?: run {
+                respondText(ex, HTTP_NOT_FOUND, "no window")
+                return
+            }
             ex.responseHeaders.add("Content-Type", "image/png")
             ex.sendResponseHeaders(HTTP_OK, bytes.size.toLong())
             ex.responseBody.use { it.write(bytes) }
@@ -902,6 +906,185 @@ class ControlServer(
         } finally {
             ex.close()
         }
+    }
+
+    /** Captures the app window as a PNG, or null if there is no window. Shared by HTTP and MCP. */
+    private fun captureWindowPng(): ByteArray? {
+        val window = windowProvider() ?: return null
+        val bounds = onEdt { window.bounds }
+        val image = Robot().createScreenCapture(bounds)
+        return ByteArrayOutputStream().use { out ->
+            ImageIO.write(image, "png", out)
+            out.toByteArray()
+        }
+    }
+
+    // ------------------------------------------------------------ embedded MCP server
+
+    /** Maps each MCP tool to the control logic that runs it (screenshot is handled separately). */
+    private val mcpDispatch: Map<String, (JsonObject) -> JsonElement> =
+        mapOf(
+            "fixtool_health" to { _ -> health() },
+            "fixtool_sessions" to { _ -> sessions() },
+            "fixtool_profiles" to { _ -> profiles() },
+            "fixtool_save_profile" to { a -> upsertProfile(mcpExchange(a)) },
+            "fixtool_delete_profile" to { a -> deleteProfile(mcpExchange(a)) },
+            "fixtool_panel" to { a -> panel(mcpExchange(a)) },
+            "fixtool_list_templates" to { a -> listTemplates(mcpExchange(a)) },
+            "fixtool_save_template" to { a -> upsertTemplate(mcpExchange(a)) },
+            "fixtool_delete_template" to { a -> deleteTemplate(mcpExchange(a)) },
+            "fixtool_load_template" to { a -> loadTemplate(mcpExchange(a)) },
+            "fixtool_demo" to { a -> demo(mcpExchange(a)) },
+            "fixtool_connect" to { a -> connect(mcpExchange(a)) },
+            "fixtool_disconnect" to { a -> disconnect(mcpExchange(a)) },
+            "fixtool_send" to { a -> send(mcpExchange(a)) },
+            "fixtool_send_all" to { a -> sendAll(mcpExchange(a)) },
+            "fixtool_send_template" to { a -> sendTemplate(mcpExchange(a)) },
+            "fixtool_clear_messages" to { a -> clearMessages(mcpExchange(a)) },
+            "fixtool_wait" to { a -> waitFor(mcpExchange(a)) },
+            "fixtool_get_messages" to { a -> messages(mcpExchange(a)) },
+            "fixtool_search" to { a -> search(mcpExchange(a)) },
+            "fixtool_filter" to { a -> filter(mcpExchange(a)) },
+            "fixtool_select" to { a -> select(mcpExchange(a)) },
+            "fixtool_admin" to { a -> admin(mcpExchange(a)) },
+            "fixtool_validate" to { a -> validate(mcpExchange(a)) },
+            "fixtool_dictionary" to { a -> if (a.isEmpty()) getDictionary() else setDictionary(mcpExchange(a)) },
+            "fixtool_acceptor_rules" to { a -> acceptorRules(mcpExchange(a)) },
+        )
+
+    /**
+     * MCP Streamable HTTP endpoint (JSON-RPC 2.0). Lets Claude Code connect directly with
+     * `claude mcp add --transport http fixtool http://127.0.0.1:<port>/mcp` — no extra process.
+     */
+    private fun mcpHandle(ex: HttpExchange) {
+        try {
+            if (!authorized(ex)) {
+                respondJson(ex, HTTP_UNAUTHORIZED, errorObject("unauthorized"))
+                return
+            }
+            if (ex.requestMethod.uppercase() != "POST") {
+                respondText(ex, HTTP_METHOD_NOT_ALLOWED, "use POST")
+                return
+            }
+            val request = Json.parseToJsonElement(ex.requestBody.readBytes().decodeToString()).jsonObject
+            val id = request["id"]
+            if (id == null || id is JsonNull) {
+                // A notification (e.g. notifications/initialized) — acknowledge with no body.
+                ex.sendResponseHeaders(HTTP_NO_CONTENT, -1)
+                return
+            }
+            val result =
+                when (request["method"]?.jsonPrimitive?.content) {
+                    "initialize" -> mcpInitialize(request)
+                    "tools/list" ->
+                        buildJsonObject { put("tools", buildJsonArray { McpTools.tools.forEach { add(it) } }) }
+                    "tools/call" -> mcpToolsCall(request)
+                    "ping" -> buildJsonObject {}
+                    else -> null
+                }
+            respondJson(ex, HTTP_OK, mcpEnvelope(id, result, request["method"]?.jsonPrimitive?.content))
+        } catch (e: Exception) {
+            logger.error("MCP request failed", e)
+            respondJson(ex, HTTP_OK, mcpError(JsonNull, MCP_INTERNAL_ERROR, e.message ?: "internal error"))
+        } finally {
+            ex.close()
+        }
+    }
+
+    private fun mcpEnvelope(id: JsonElement, result: JsonObject?, method: String?): JsonObject =
+        if (result != null) {
+            buildJsonObject {
+                put("jsonrpc", "2.0")
+                put("id", id)
+                put("result", result)
+            }
+        } else {
+            mcpError(id, MCP_METHOD_NOT_FOUND, "Method not found: $method")
+        }
+
+    private fun mcpError(id: JsonElement, code: Int, message: String): JsonObject =
+        buildJsonObject {
+            put("jsonrpc", "2.0")
+            put("id", id)
+            put(
+                "error",
+                buildJsonObject {
+                    put("code", code)
+                    put("message", message)
+                },
+            )
+        }
+
+    private fun mcpInitialize(request: JsonObject): JsonObject {
+        val clientVersion = request["params"]?.jsonObject?.get("protocolVersion")?.jsonPrimitive?.content
+        return buildJsonObject {
+            put("protocolVersion", clientVersion ?: MCP_PROTOCOL_VERSION)
+            put("capabilities", buildJsonObject { put("tools", buildJsonObject {}) })
+            put(
+                "serverInfo",
+                buildJsonObject {
+                    put("name", "fixtool")
+                    put("version", "1")
+                },
+            )
+        }
+    }
+
+    private fun mcpToolsCall(request: JsonObject): JsonObject {
+        val params = request["params"]?.jsonObject ?: return mcpToolResult("missing params", isError = true)
+        val name = params["name"]?.jsonPrimitive?.content ?: return mcpToolResult("missing tool name", isError = true)
+        val args = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
+        if (name == "fixtool_screenshot") return mcpScreenshotResult()
+        val handler = mcpDispatch[name] ?: return mcpToolResult("unknown tool: $name", isError = true)
+        return mcpToolResult(handler(args).toString())
+    }
+
+    private fun mcpToolResult(text: String, isError: Boolean = false): JsonObject =
+        buildJsonObject {
+            put(
+                "content",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("type", "text")
+                            put("text", text)
+                        },
+                    )
+                },
+            )
+            if (isError) put("isError", true)
+        }
+
+    private fun mcpScreenshotResult(): JsonObject {
+        val png = captureWindowPng() ?: return mcpToolResult("no window / screenshot unavailable", isError = true)
+        return buildJsonObject {
+            put(
+                "content",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("type", "image")
+                            put("data", Base64.getEncoder().encodeToString(png))
+                            put("mimeType", "image/png")
+                        },
+                    )
+                },
+            )
+        }
+    }
+
+    /**
+     * Adapts an MCP tool-call's arguments into the [HttpExchange] the existing endpoint handlers
+     * expect — primitives go to both the query string and the JSON body; objects/arrays go to the
+     * body only — so every handler reads its inputs unchanged (no per-handler refactor).
+     */
+    private fun mcpExchange(args: JsonObject): HttpExchange {
+        val query =
+            args.entries
+                .mapNotNull { (k, v) -> (v as? JsonPrimitive)?.let { k to it.content } }
+                .joinToString("&") { (k, v) -> "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}" }
+        val uri = URI("/mcp" + if (query.isEmpty()) "" else "?$query")
+        return McpRequestExchange(uri, args.toString().encodeToByteArray())
     }
 
     // ---------------------------------------------------------------- plumbing
@@ -994,11 +1177,16 @@ class ControlServer(
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_SERVER_ERROR = 500
+        private const val HTTP_METHOD_NOT_ALLOWED = 405
+        private const val HTTP_NO_CONTENT = 204
         private const val DEFAULT_MESSAGE_LIMIT = 50
         private const val HTTP_POOL_SIZE = 4
         private const val DEFAULT_WAIT_MS = 10_000L
         private const val MAX_WAIT_MS = 120_000L
         private const val WAIT_POLL_MS = 100L
+        private const val MCP_PROTOCOL_VERSION = "2025-06-18"
+        private const val MCP_METHOD_NOT_FOUND = -32601
+        private const val MCP_INTERNAL_ERROR = -32603
     }
 }
 
@@ -1041,4 +1229,51 @@ object ControlServerLauncher {
         server = null
         currentPort = null
     }
+}
+
+/**
+ * A minimal in-memory [HttpExchange] used only to replay an MCP tool call through the existing
+ * HTTP endpoint handlers (which read the request URI, method and body). The response-side methods
+ * are never invoked on this path — handlers return a value rather than writing to the exchange.
+ */
+private class McpRequestExchange(
+    private val uri: URI,
+    bodyBytes: ByteArray,
+) : HttpExchange() {
+    private val body = ByteArrayInputStream(bodyBytes)
+    private val headers = Headers()
+
+    override fun getRequestHeaders(): Headers = headers
+
+    override fun getResponseHeaders(): Headers = headers
+
+    override fun getRequestURI(): URI = uri
+
+    override fun getRequestMethod(): String = "POST"
+
+    override fun getRequestBody(): InputStream = body
+
+    override fun close() = Unit
+
+    override fun getResponseBody(): OutputStream = throw UnsupportedOperationException()
+
+    override fun sendResponseHeaders(rCode: Int, responseLength: Long): Unit = throw UnsupportedOperationException()
+
+    override fun getResponseCode(): Int = -1
+
+    override fun getRemoteAddress(): InetSocketAddress = throw UnsupportedOperationException()
+
+    override fun getLocalAddress(): InetSocketAddress = throw UnsupportedOperationException()
+
+    override fun getProtocol(): String = "HTTP/1.1"
+
+    override fun getHttpContext(): HttpContext = throw UnsupportedOperationException()
+
+    override fun getAttribute(name: String?): Any? = null
+
+    override fun setAttribute(name: String?, value: Any?) = Unit
+
+    override fun setStreams(i: InputStream?, o: OutputStream?) = Unit
+
+    override fun getPrincipal(): HttpPrincipal? = null
 }

@@ -1,4 +1,10 @@
-# FixTool MCP server
+# FixTool MCP server (standalone, Node)
+
+> **Most users don't need this.** FixTool **embeds an MCP server** in the app itself — enable it
+> in Settings → Automation Control and connect with
+> `claude mcp add --transport http fixtool http://127.0.0.1:8765/mcp` (no Node, no clone). See
+> [`docs/AUTOMATION.md`](../../docs/AUTOMATION.md). This standalone Node server is a stdio-transport
+> alternative, mainly for FixTool developers working in this repo.
 
 An [MCP](https://modelcontextprotocol.io) server that lets Claude Code (or any MCP client)
 drive a running FixTool instance for automated testing — connect sessions, send FIX

@@ -17,6 +17,7 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 
+@Suppress("TooManyFunctions") // a session aggregates message I/O, filtering, latency and admin controls
 class FixMessageSession(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
@@ -362,6 +363,24 @@ class FixMessageSession(
     fun snapshotLatestIncomingByType(): Map<String, FixMessage> = latestIncomingByType.toMap()
 
     fun snapshotLatestOutgoingByType(): Map<String, FixMessage> = latestOutgoingByType.toMap()
+
+    // Admin / session-level controls (delegate to the underlying QuickFIX session).
+    fun resetSequenceNumbers(sender: Int?, target: Int?): Boolean =
+        quickFixService?.resetSequenceNumbers(sender, target) ?: false
+
+    fun sequenceNumbers(): Pair<Int, Int>? = quickFixService?.sequenceNumbers()
+
+    fun sendTestRequest(testReqId: String): Boolean = quickFixService?.sendTestRequest(testReqId) ?: false
+
+    fun sendResendRequest(beginSeqNo: Int, endSeqNo: Int): Boolean =
+        quickFixService?.sendResendRequest(beginSeqNo, endSeqNo) ?: false
+
+    fun sendSequenceReset(newSeqNo: Int, gapFill: Boolean): Boolean =
+        quickFixService?.sendSequenceReset(newSeqNo, gapFill) ?: false
+
+    fun forceLogout(reason: String?): Boolean = quickFixService?.forceLogout(reason) ?: false
+
+    fun forceDisconnect(reason: String): Boolean = quickFixService?.forceDisconnect(reason) ?: false
 
     // ========================================
     // Latency Tracking Methods

@@ -231,6 +231,34 @@ class ControlServerIntegrationTest {
         assertEquals(404, get("/screenshot").statusCode())
     }
 
+    // -------------------------------------------------- validate / dictionary / admin
+
+    @Test
+    fun `validate reports validity and errors`() {
+        val resp = obj(post("/validate", """{"raw":"8=FIX.4.4|35=ZZZ|"}"""))
+        assertFalse(resp["isValid"]!!.jsonPrimitive.boolean)
+        assertTrue(resp["errors"]!!.jsonArray.isNotEmpty())
+    }
+
+    @Test
+    fun `dictionary can be read and switched by version`() {
+        val current = obj(get("/dictionary"))
+        assertTrue(current.containsKey("version"))
+        assertTrue(current["valid"]!!.jsonPrimitive.boolean)
+
+        assertEquals("ok", status(post("/dictionary", """{"version":"FIX_4_2"}""")))
+        assertEquals("FIX_4_2", obj(get("/dictionary"))["version"]!!.jsonPrimitive.content)
+        // Switch back so the rest of the (per-test) instance is unaffected.
+        assertEquals("ok", status(post("/dictionary", """{"version":"FIX_4_4"}""")))
+
+        assertEquals("error", status(post("/dictionary", """{"version":"NOPE"}""")))
+    }
+
+    @Test
+    fun `admin rejects an unknown action and a missing session`() {
+        assertEquals("error", status(post("/admin", """{"action":"seqnum"}""")))
+    }
+
     // -------------------------------------------------------------- auth gate
 
     @Test
@@ -336,6 +364,14 @@ class ControlServerIntegrationTest {
                 awaitCondition(5_000) { fixServer.applicationMessages.any { it.contains("11=TPL-1") } },
                 "test server should receive the template-sent order",
             )
+
+            // Admin / session control against the live QuickFIX session.
+            val seq = obj(post("/admin", """{"action":"seqnum","session":"LIVE"}"""))
+            assertEquals("ok", seq["status"]!!.jsonPrimitive.content)
+            assertTrue(seq["nextSenderSeqNum"]!!.jsonPrimitive.int >= 1)
+            assertEquals("ok", status(post("/admin", """{"action":"test-request","session":"LIVE","id":"TR-1"}""")))
+            assertEquals("ok", status(post("/admin", """{"action":"reset-seqnum","session":"LIVE","target":1}""")))
+            assertEquals("ok", status(post("/admin", """{"action":"resend-request","session":"LIVE","begin":1,"end":0}""")))
         } finally {
             fixServer.stop()
         }

@@ -356,4 +356,75 @@ class QuickFixService(
             logger.error("Error sending logout: ${e.message}", e)
         }
     }
+
+    // ---------------------------------------------------------------- admin / session control
+
+    /** Looks up the active QuickFIX session and runs [action]; returns false if absent or on error. */
+    private fun withSession(action: (Session, SessionID) -> Unit): Boolean {
+        val sessionID = currentSessionID ?: run {
+            logger.warn("No active session for admin action")
+            return false
+        }
+        val session = Session.lookupSession(sessionID) ?: run {
+            logger.warn("Session not found: {}", sessionID)
+            return false
+        }
+        return try {
+            action(session, sessionID)
+            true
+        } catch (e: Exception) {
+            logger.error("Admin action failed: ${e.message}", e)
+            false
+        }
+    }
+
+    /** Resets sequence numbers. With both null, performs a full session reset (clears the store). */
+    fun resetSequenceNumbers(sender: Int?, target: Int?): Boolean =
+        withSession { session, _ ->
+            if (sender == null && target == null) {
+                session.reset()
+            } else {
+                sender?.let { session.setNextSenderMsgSeqNum(it) }
+                target?.let { session.setNextTargetMsgSeqNum(it) }
+            }
+        }
+
+    /** Current next expected sender/target sequence numbers, or null if there is no active session. */
+    fun sequenceNumbers(): Pair<Int, Int>? {
+        val sessionID = currentSessionID ?: return null
+        val session = Session.lookupSession(sessionID) ?: return null
+        return try {
+            session.expectedSenderNum to session.expectedTargetNum
+        } catch (e: Exception) {
+            logger.error("Failed to read sequence numbers: ${e.message}", e)
+            null
+        }
+    }
+
+    fun sendTestRequest(testReqId: String): Boolean =
+        withSession { session, _ -> session.generateTestRequest(testReqId) }
+
+    fun sendResendRequest(beginSeqNo: Int, endSeqNo: Int): Boolean =
+        withSession { _, sessionID ->
+            val msg = Message()
+            msg.header.setString(35, "2") // MsgType = ResendRequest
+            msg.setInt(7, beginSeqNo) // BeginSeqNo
+            msg.setInt(16, endSeqNo) // EndSeqNo (0 = up to latest)
+            Session.sendToTarget(msg, sessionID)
+        }
+
+    fun sendSequenceReset(newSeqNo: Int, gapFill: Boolean): Boolean =
+        withSession { _, sessionID ->
+            val msg = Message()
+            msg.header.setString(35, "4") // MsgType = SequenceReset
+            msg.setInt(36, newSeqNo) // NewSeqNo
+            msg.setBoolean(123, gapFill) // GapFillFlag
+            Session.sendToTarget(msg, sessionID)
+        }
+
+    fun forceLogout(reason: String?): Boolean =
+        withSession { session, _ -> if (reason.isNullOrBlank()) session.logout() else session.logout(reason) }
+
+    /** Drops the connection without a graceful logout (for resilience/recovery testing). */
+    fun forceDisconnect(reason: String): Boolean = withSession { session, _ -> session.disconnect(reason, false) }
 }

@@ -361,4 +361,62 @@ server.tool(
   },
 );
 
+server.tool(
+  "fixtool_admin",
+  "FIX session/admin control for recovery & gap-fill testing. action is one of: seqnum (read " +
+    "current sender/target seq nums), reset-seqnum (sender/target), test-request (id), " +
+    "resend-request (begin/end), sequence-reset (newSeq/gapFill), logout (reason), disconnect " +
+    "(reason, ungraceful).",
+  {
+    session: z.string().describe("session id, title or index"),
+    action: z.enum([
+      "seqnum",
+      "reset-seqnum",
+      "test-request",
+      "resend-request",
+      "sequence-reset",
+      "logout",
+      "disconnect",
+    ]),
+    sender: z.number().int().optional(),
+    target: z.number().int().optional(),
+    id: z.string().optional().describe("TestReqID"),
+    begin: z.number().int().optional(),
+    end: z.number().int().optional().describe("0 = up to latest"),
+    newSeq: z.number().int().optional(),
+    gapFill: z.boolean().optional(),
+    reason: z.string().optional(),
+  },
+  async (args) => {
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/admin", body);
+  },
+);
+
+server.tool(
+  "fixtool_validate",
+  "Validate a raw FIX message against the loaded data dictionary; returns {isValid, errors}.",
+  { raw: z.string().describe("raw FIX message, pipe- or SOH-delimited") },
+  async ({ raw }) => text("POST", "/validate", { raw }),
+);
+
+server.tool(
+  "fixtool_dictionary",
+  "Read or switch the active FIX data dictionary. With no args, returns the current version and " +
+    'validity. Pass a version (e.g. "FIX_4_4", "FIX_5_0_SP2") to switch to a bundled dictionary, or ' +
+    "a path (+ optional transportPath for FIX 5.0+) to load a custom one.",
+  {
+    version: z.string().optional().describe("bundled FIX version name, beginString, or display name"),
+    path: z.string().optional().describe("custom dictionary file path"),
+    transportPath: z.string().optional().describe("FIXT transport dictionary path (FIX 5.0+)"),
+  },
+  async (args) => {
+    if (args.version === undefined && args.path === undefined) return text("GET", "/dictionary");
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/dictionary", body);
+  },
+);
+
 await server.connect(new StdioServerTransport());

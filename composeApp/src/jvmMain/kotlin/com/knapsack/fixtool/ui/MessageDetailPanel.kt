@@ -19,13 +19,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.MatchContextMode
 import quickfix.Field
 import quickfix.FieldMap
 import java.awt.Cursor
@@ -49,11 +55,25 @@ fun MessageDetailPanel(
         com.knapsack.fixtool.model.AppSettings
             .default(),
     modifier: Modifier = Modifier,
+    // Optional hoisted search state. When provided (e.g. by the app host, backed by the ViewModel),
+    // the search box and context toggle are driven externally so they can be set via the control
+    // surface / MCP. When null, the panel keeps its own internal state (used by standalone callers
+    // and unit tests).
+    externalSearchQuery: String? = null,
+    onSearchQueryChange: ((String) -> Unit)? = null,
+    externalMatchContextMode: MatchContextMode? = null,
+    onMatchContextModeChange: ((MatchContextMode) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val density = LocalDensity.current
     var rawMessageSplitRatio by remember { mutableStateOf(0.2f) } // Raw message section takes 30% by default
-    var searchQuery by remember { mutableStateOf("") }
+
+    var localSearchQuery by remember { mutableStateOf("") }
+    var localMatchContextMode by remember { mutableStateOf(MatchContextMode.IDENTITY) }
+    val searchQuery = externalSearchQuery ?: localSearchQuery
+    val setSearchQuery: (String) -> Unit = onSearchQueryChange ?: { localSearchQuery = it }
+    val matchContextMode = externalMatchContextMode ?: localMatchContextMode
+    val setMatchContextMode: (MatchContextMode) -> Unit = onMatchContextModeChange ?: { localMatchContextMode = it }
 
     Box(
         modifier =
@@ -152,7 +172,7 @@ fun MessageDetailPanel(
 
                     BasicTextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        onValueChange = { setSearchQuery(it) },
                         modifier =
                             Modifier
                                 .weight(1f)
@@ -176,6 +196,14 @@ fun MessageDetailPanel(
                             }
                             innerTextField()
                         },
+                    )
+                }
+
+                // Match-context toggle: only relevant while actively searching a message
+                if (message != null && searchQuery.isNotBlank()) {
+                    MatchContextToggle(
+                        mode = matchContextMode,
+                        onModeChange = { setMatchContextMode(it) },
                     )
                 }
 
@@ -238,6 +266,7 @@ fun MessageDetailPanel(
                                             dictionary = dictionary,
                                             hideProtocolTags = appSettings.hideProtocolTags,
                                             searchQuery = searchQuery,
+                                            matchContextMode = matchContextMode,
                                             protocolTags = appSettings.protocolTags,
                                             expandedGroups = expandedGroups,
                                             onToggleGroup = { key ->
@@ -444,6 +473,7 @@ private fun FieldRow(
     indentLevel: Int = 0,
     isExpanded: Boolean = false,
     onToggleExpand: () -> Unit = {},
+    searchQuery: String = "",
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
     val translation = dictionary.getFieldValueDescription(tag, value)
@@ -473,7 +503,7 @@ private fun FieldRow(
     ) {
         // Tag number
         Text(
-            text = tag.toString(),
+            text = highlightMatches(tag.toString(), searchQuery, searchHighlightColor),
             color = tagNumberColor,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
@@ -484,7 +514,7 @@ private fun FieldRow(
 
         // Field name
         Text(
-            text = fieldName,
+            text = highlightMatches(fieldName, searchQuery, searchHighlightColor),
             color = fieldNameColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
@@ -495,7 +525,7 @@ private fun FieldRow(
 
         // Value with expand/collapse support
         Text(
-            text = displayValue,
+            text = highlightMatches(displayValue, searchQuery, searchHighlightColor),
             color = fieldValueColor,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
@@ -526,6 +556,7 @@ private fun GroupHeaderRow(
     isExpanded: Boolean,
     onToggle: () -> Unit,
     indentLevel: Int = 0,
+    searchQuery: String = "",
 ) {
     val groupName = dictionary.getFieldName(tag) ?: "Group $tag"
 
@@ -559,7 +590,7 @@ private fun GroupHeaderRow(
 
         // Group name
         Text(
-            text = "$groupName ($count)",
+            text = highlightMatches("$groupName ($count)", searchQuery, searchHighlightColor),
             color = groupHeaderTextColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
@@ -598,6 +629,7 @@ private fun LazyListScope.renderQuickFixMessage(
     dictionary: FixDictionary,
     hideProtocolTags: Boolean,
     searchQuery: String,
+    matchContextMode: MatchContextMode,
     protocolTags: Set<Int>,
     expandedGroups: Set<String>,
     onToggleGroup: (String) -> Unit,
@@ -612,6 +644,7 @@ private fun LazyListScope.renderQuickFixMessage(
         dictionary = dictionary,
         hideProtocolTags = hideProtocolTags,
         searchQuery = searchQuery,
+        matchContextMode = matchContextMode,
         protocolTags = protocolTags,
         expandedGroups = expandedGroups,
         onToggleGroup = onToggleGroup,
@@ -627,6 +660,7 @@ private fun LazyListScope.renderQuickFixMessage(
         dictionary = dictionary,
         hideProtocolTags = hideProtocolTags,
         searchQuery = searchQuery,
+        matchContextMode = matchContextMode,
         protocolTags = protocolTags,
         expandedGroups = expandedGroups,
         onToggleGroup = onToggleGroup,
@@ -642,6 +676,7 @@ private fun LazyListScope.renderQuickFixMessage(
         dictionary = dictionary,
         hideProtocolTags = hideProtocolTags,
         searchQuery = searchQuery,
+        matchContextMode = matchContextMode,
         protocolTags = protocolTags,
         expandedGroups = expandedGroups,
         onToggleGroup = onToggleGroup,
@@ -660,6 +695,7 @@ private fun LazyListScope.renderFieldMap(
     dictionary: FixDictionary,
     hideProtocolTags: Boolean,
     searchQuery: String,
+    matchContextMode: MatchContextMode,
     protocolTags: Set<Int>,
     expandedGroups: Set<String>,
     onToggleGroup: (String) -> Unit,
@@ -717,6 +753,26 @@ private fun LazyListScope.renderFieldMap(
                     continue
                 }
 
+                // While searching with a context mode, reveal each matching instance together with
+                // its surrounding context instead of the legacy "matched rows only" view.
+                if (searchQuery.isNotBlank() && matchContextMode != MatchContextMode.BARE) {
+                    renderSearchedGroup(
+                        fieldMap = fieldMap,
+                        tag = tag,
+                        groupCount = groupCount,
+                        groupKey = groupKey,
+                        dictionary = dictionary,
+                        searchQuery = searchQuery,
+                        mode = matchContextMode,
+                        hideProtocolTags = hideProtocolTags,
+                        protocolTags = protocolTags,
+                        expandedFields = expandedFields,
+                        onToggleField = onToggleField,
+                        indentLevel = indentLevel,
+                    )
+                    continue
+                }
+
                 val isExpanded = expandedGroups.contains(groupKey)
 
                 // Render group header
@@ -728,6 +784,7 @@ private fun LazyListScope.renderFieldMap(
                         isExpanded = isExpanded,
                         onToggle = { onToggleGroup(groupKey) },
                         indentLevel = indentLevel,
+                        searchQuery = searchQuery,
                     )
                 }
 
@@ -750,6 +807,7 @@ private fun LazyListScope.renderFieldMap(
                                 dictionary = dictionary,
                                 hideProtocolTags = hideProtocolTags,
                                 searchQuery = searchQuery,
+                                matchContextMode = matchContextMode,
                                 protocolTags = protocolTags,
                                 expandedGroups = expandedGroups,
                                 onToggleGroup = onToggleGroup,
@@ -780,6 +838,7 @@ private fun LazyListScope.renderFieldMap(
                         indentLevel = indentLevel,
                         isExpanded = expandedFields.contains(fieldKey),
                         onToggleExpand = { onToggleField(fieldKey) },
+                        searchQuery = searchQuery,
                     )
                 }
             }
@@ -802,6 +861,369 @@ private fun LazyListScope.renderFieldMap(
                     onToggleExpand = { onToggleField(fieldKey) },
                 )
             }
+        }
+    }
+}
+
+/**
+ * Compact three-way toggle controlling how much context a search match reveals. Only shown while a
+ * search is active.
+ */
+@Composable
+private fun MatchContextToggle(
+    mode: MatchContextMode,
+    onModeChange: (MatchContextMode) -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(headerBackgroundColor)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Context:",
+            color = timestampColor,
+            fontSize = 9.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+        MatchContextMode.entries.forEach { entry ->
+            val selected = entry == mode
+            Text(
+                text = entry.label,
+                color = if (selected) AppTheme.Colors.background else AppTheme.Colors.textSecondary,
+                fontSize = 9.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                fontFamily = FontFamily.Monospace,
+                modifier =
+                    Modifier
+                        .clip(searchFieldShape)
+                        .background(if (selected) AppTheme.Colors.primary else AppTheme.Colors.surfaceVariant)
+                        .clickable { onModeChange(entry) }
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Renders a repeating group while a search is active (IDENTITY/FULL modes). Only the instances that
+ * contain a match are shown; each keeps its surrounding context per [mode]. The group header is
+ * always shown as an ancestor anchor so the match never loses its path.
+ */
+private fun LazyListScope.renderSearchedGroup(
+    fieldMap: FieldMap,
+    tag: Int,
+    groupCount: Int,
+    groupKey: String,
+    dictionary: FixDictionary,
+    searchQuery: String,
+    mode: MatchContextMode,
+    hideProtocolTags: Boolean,
+    protocolTags: Set<Int>,
+    expandedFields: Set<String>,
+    onToggleField: (String) -> Unit,
+    indentLevel: Int,
+) {
+    item {
+        GroupHeaderRow(
+            tag = tag,
+            count = groupCount,
+            dictionary = dictionary,
+            isExpanded = true,
+            onToggle = {},
+            indentLevel = indentLevel,
+            searchQuery = searchQuery,
+        )
+    }
+
+    for (i in 1..groupCount) {
+        try {
+            val group = fieldMap.getGroup(i, tag)
+            if (!fieldMapMatchesSearch(group, dictionary, searchQuery, hideProtocolTags, protocolTags)) {
+                continue
+            }
+
+            item {
+                GroupInstanceHeader(
+                    instanceNumber = i,
+                    indentLevel = indentLevel + 1,
+                )
+            }
+
+            val instanceKey = "${groupKey}_$i"
+            if (mode == MatchContextMode.FULL) {
+                renderFullFieldMap(
+                    fieldMap = group,
+                    dictionary = dictionary,
+                    searchQuery = searchQuery,
+                    hideProtocolTags = hideProtocolTags,
+                    protocolTags = protocolTags,
+                    expandedFields = expandedFields,
+                    onToggleField = onToggleField,
+                    indentLevel = indentLevel + 1,
+                    parentKey = instanceKey,
+                )
+            } else {
+                renderIdentityInstance(
+                    group = group,
+                    dictionary = dictionary,
+                    searchQuery = searchQuery,
+                    hideProtocolTags = hideProtocolTags,
+                    protocolTags = protocolTags,
+                    expandedFields = expandedFields,
+                    onToggleField = onToggleField,
+                    indentLevel = indentLevel + 1,
+                    parentKey = instanceKey,
+                )
+            }
+        } catch (e: Exception) {
+            // Skip invalid groups
+        }
+    }
+}
+
+/**
+ * Renders every field of [fieldMap] in full, with all nested groups force-expanded. Used by FULL
+ * mode once an instance is known to contain a match.
+ */
+private fun LazyListScope.renderFullFieldMap(
+    fieldMap: FieldMap,
+    dictionary: FixDictionary,
+    searchQuery: String,
+    hideProtocolTags: Boolean,
+    protocolTags: Set<Int>,
+    expandedFields: Set<String>,
+    onToggleField: (String) -> Unit,
+    indentLevel: Int,
+    parentKey: String,
+) {
+    val iterator = fieldMap.iterator()
+    while (iterator.hasNext()) {
+        @Suppress("UNCHECKED_CAST")
+        val field = iterator.next() as Field<*>
+        val tag = field.tag
+        if (hideProtocolTags && tag in protocolTags) {
+            continue
+        }
+        val value = field.getObject().toString()
+        val fieldKey = "${parentKey}_$tag"
+        val groupCount = groupCountOrZero(fieldMap, tag)
+        if (groupCount > 0) {
+            val groupKey = "$parentKey/${tag}_$groupCount"
+            item {
+                GroupHeaderRow(
+                    tag = tag,
+                    count = groupCount,
+                    dictionary = dictionary,
+                    isExpanded = true,
+                    onToggle = {},
+                    indentLevel = indentLevel,
+                    searchQuery = searchQuery,
+                )
+            }
+            for (i in 1..groupCount) {
+                try {
+                    val nested = fieldMap.getGroup(i, tag)
+                    item {
+                        GroupInstanceHeader(
+                            instanceNumber = i,
+                            indentLevel = indentLevel + 1,
+                        )
+                    }
+                    renderFullFieldMap(
+                        fieldMap = nested,
+                        dictionary = dictionary,
+                        searchQuery = searchQuery,
+                        hideProtocolTags = hideProtocolTags,
+                        protocolTags = protocolTags,
+                        expandedFields = expandedFields,
+                        onToggleField = onToggleField,
+                        indentLevel = indentLevel + 1,
+                        parentKey = "${groupKey}_$i",
+                    )
+                } catch (e: Exception) {
+                    // Skip invalid groups
+                }
+            }
+        } else {
+            item {
+                FieldRow(
+                    tag = tag,
+                    value = value,
+                    dictionary = dictionary,
+                    indentLevel = indentLevel,
+                    isExpanded = expandedFields.contains(fieldKey),
+                    onToggleExpand = { onToggleField(fieldKey) },
+                    searchQuery = searchQuery,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Renders a single matching group instance in IDENTITY mode: its identity field plus any simple
+ * field that matches, plus nested sub-groups that contain a match (recursively).
+ */
+private fun LazyListScope.renderIdentityInstance(
+    group: FieldMap,
+    dictionary: FixDictionary,
+    searchQuery: String,
+    hideProtocolTags: Boolean,
+    protocolTags: Set<Int>,
+    expandedFields: Set<String>,
+    onToggleField: (String) -> Unit,
+    indentLevel: Int,
+    parentKey: String,
+) {
+    val includedTags = identityInstanceTags(group, dictionary, searchQuery, hideProtocolTags, protocolTags).toSet()
+    val iterator = group.iterator()
+    while (iterator.hasNext()) {
+        @Suppress("UNCHECKED_CAST")
+        val field = iterator.next() as Field<*>
+        val tag = field.tag
+        if (hideProtocolTags && tag in protocolTags) {
+            continue
+        }
+        val groupCount = groupCountOrZero(group, tag)
+        if (groupCount > 0) {
+            if (!groupMatchesSearch(group, tag, groupCount, dictionary, searchQuery, hideProtocolTags, protocolTags)) {
+                continue
+            }
+            renderSearchedGroup(
+                fieldMap = group,
+                tag = tag,
+                groupCount = groupCount,
+                groupKey = "$parentKey/${tag}_$groupCount",
+                dictionary = dictionary,
+                searchQuery = searchQuery,
+                mode = MatchContextMode.IDENTITY,
+                hideProtocolTags = hideProtocolTags,
+                protocolTags = protocolTags,
+                expandedFields = expandedFields,
+                onToggleField = onToggleField,
+                indentLevel = indentLevel,
+            )
+            continue
+        }
+        if (tag !in includedTags) {
+            continue
+        }
+        val value = field.getObject().toString()
+        val fieldKey = "${parentKey}_$tag"
+        item {
+            FieldRow(
+                tag = tag,
+                value = value,
+                dictionary = dictionary,
+                indentLevel = indentLevel,
+                isExpanded = expandedFields.contains(fieldKey),
+                onToggleExpand = { onToggleField(fieldKey) },
+                searchQuery = searchQuery,
+            )
+        }
+    }
+}
+
+/** Returns the repeating-group count for [tag] in [fieldMap], or 0 when [tag] is not a group. */
+private fun groupCountOrZero(fieldMap: FieldMap, tag: Int): Int =
+    try {
+        fieldMap.getGroupCount(tag)
+    } catch (e: Exception) {
+        0
+    }
+
+/**
+ * The identity field of a group instance: its first simple (non-group) field — e.g. PartyID for a
+ * NoPartyIDs entry. Returns null when the instance has no simple field.
+ */
+internal fun identityFieldTag(
+    fieldMap: FieldMap,
+    hideProtocolTags: Boolean,
+    protocolTags: Set<Int>,
+): Int? {
+    val iterator = fieldMap.iterator()
+    while (iterator.hasNext()) {
+        @Suppress("UNCHECKED_CAST")
+        val field = iterator.next() as Field<*>
+        val tag = field.tag
+        if (hideProtocolTags && tag in protocolTags) {
+            continue
+        }
+        if (groupCountOrZero(fieldMap, tag) > 0) {
+            continue
+        }
+        return tag
+    }
+    return null
+}
+
+/**
+ * The simple-field tags to render for a group instance in IDENTITY mode: the identity field plus
+ * any simple field whose tag/name/value/translation matches the query, in FIX field order. Nested
+ * groups are handled separately by the renderer.
+ */
+internal fun identityInstanceTags(
+    fieldMap: FieldMap,
+    dictionary: FixDictionary,
+    searchQuery: String,
+    hideProtocolTags: Boolean,
+    protocolTags: Set<Int>,
+): List<Int> {
+    val identityTag = identityFieldTag(fieldMap, hideProtocolTags, protocolTags)
+    val tags = mutableListOf<Int>()
+    val iterator = fieldMap.iterator()
+    while (iterator.hasNext()) {
+        @Suppress("UNCHECKED_CAST")
+        val field = iterator.next() as Field<*>
+        val tag = field.tag
+        if (hideProtocolTags && tag in protocolTags) {
+            continue
+        }
+        if (groupCountOrZero(fieldMap, tag) > 0) {
+            continue
+        }
+        val value = field.getObject().toString()
+        if (tag == identityTag || fieldMatchesSearch(tag, value, dictionary, searchQuery)) {
+            tags.add(tag)
+        }
+    }
+    return tags
+}
+
+/**
+ * Builds an [AnnotatedString] highlighting every case-insensitive occurrence of [query] in [text].
+ * Returns the plain text when [query] is blank or absent.
+ */
+internal fun highlightMatches(
+    text: String,
+    query: String,
+    highlightColor: Color,
+): AnnotatedString {
+    if (query.isBlank()) {
+        return AnnotatedString(text)
+    }
+    val lowerText = text.lowercase()
+    val lowerQuery = query.lowercase()
+    if (!lowerText.contains(lowerQuery)) {
+        return AnnotatedString(text)
+    }
+    return buildAnnotatedString {
+        var start = 0
+        while (true) {
+            val index = lowerText.indexOf(lowerQuery, start)
+            if (index < 0) {
+                append(text.substring(start))
+                break
+            }
+            append(text.substring(start, index))
+            withStyle(SpanStyle(background = highlightColor)) {
+                append(text.substring(index, index + lowerQuery.length))
+            }
+            start = index + lowerQuery.length
         }
     }
 }
@@ -990,6 +1412,9 @@ private val fieldValueColor = AppTheme.Colors.text
 private val groupHeaderTextColor = Color(0xFFD4A574) // Keep unique group header color
 private val groupInstanceTextColor = AppTheme.Colors.fieldValue
 private val expandIndicatorColor = AppTheme.Colors.textSecondary
+
+// Translucent amber background drawn behind text matching the active search query
+private val searchHighlightColor = Color(0x66FFD54F)
 
 private val focusedBorderColor = AppTheme.Colors.primary
 private val unfocusedBorderColor = AppTheme.Colors.border

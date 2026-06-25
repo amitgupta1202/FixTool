@@ -168,6 +168,19 @@ object McpTools {
                 ),
             ),
             tool(
+                "fixtool_detail_search",
+                "Drive the message detail panel's tag search. Set query (tag number, field name, value or enum " +
+                    "text) and/or mode: bare = matched rows only (legacy); identity = each matching repeating-group " +
+                    "entry also shows its identity field (e.g. PartyID) so you can tell which entry matched; full = " +
+                    "the whole matching entry. Pair with fixtool_select + fixtool_screenshot to inspect a nested tag " +
+                    "(e.g. PartyRole across many parties) without losing context. show reveals the panel.",
+                props(
+                    "query" to string("tag number, field name, value, or enum text"),
+                    "mode" to enumStr("bare", "identity", "full"),
+                    "show" to boolean("reveal the detail panel"),
+                ),
+            ),
+            tool(
                 "fixtool_admin",
                 "FIX session/admin control: seqnum (read), reset-seqnum (sender/target), test-request (id), " +
                     "resend-request (begin/end), sequence-reset (newSeq/gapFill), logout (reason), disconnect (reason).",

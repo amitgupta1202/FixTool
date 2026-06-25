@@ -88,6 +88,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 `test-request` (`id`), `resend-request` (`begin`/`end`), `sequence-reset` (`newSeq`/`gapFill`),
 `logout` (`reason`), `disconnect` (`reason`, ungraceful). Used for session-recovery / gap-fill QA.
 | `POST /select`       | `{"session"?, "index"?, "messageType"?, "direction"?}` | selects a message in the browser → opens the detail panel |
+| `POST /detail`       | `{"query"?, "mode"?, "show"?}`         | drives the detail panel's tag search: sets the query and/or match-context `mode` (`bare`\|`identity`\|`full`) so a nested tag keeps its repeating-group context |
 | `POST /search`       | `{"query", "pin"?}`                    | cross-session matches sorted chronologically (a timeline); pins to the search pane |
 | `POST /filter`       | `{"scope"?, "session"?, "regex"?, "messageTypes"?, "showIncoming"?, "showOutgoing"?, "showSeparator"?}` | filters the grid for a focused screenshot |
 | `GET /screenshot`    | —                                      | `image/png` bytes of the window                      |

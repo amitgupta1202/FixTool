@@ -346,6 +346,25 @@ server.tool(
 );
 
 server.tool(
+  "fixtool_detail_search",
+  "Drive the message detail panel's tag search. Set query (tag number, field name, value or enum " +
+    "text) and/or mode: bare = matched rows only (legacy); identity = each matching repeating-group " +
+    "entry also shows its identity field (e.g. PartyID) so you can tell which entry matched; full = " +
+    "the whole matching entry. Pair with fixtool_select + fixtool_screenshot to inspect a nested tag " +
+    "(e.g. PartyRole across many parties) without losing context. show reveals the panel.",
+  {
+    query: z.string().optional().describe("tag number, field name, value, or enum text to search"),
+    mode: z.enum(["bare", "identity", "full"]).optional().describe("match-context mode"),
+    show: z.boolean().optional().describe("reveal the detail panel"),
+  },
+  async (args) => {
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/detail", body);
+  },
+);
+
+server.tool(
   "fixtool_screenshot",
   "Capture a PNG screenshot of the FixTool window for visual verification.",
   {},

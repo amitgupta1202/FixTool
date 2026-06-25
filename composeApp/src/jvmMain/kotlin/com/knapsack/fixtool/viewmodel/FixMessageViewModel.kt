@@ -12,6 +12,7 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.MessageEditorState
 import com.knapsack.fixtool.model.Notification
@@ -87,6 +88,14 @@ class FixMessageViewModel(
     // Global detail panel visibility (shared across all panes/sessions)
     private val _showDetailPanel = MutableStateFlow(false)
     val showDetailPanel: StateFlow<Boolean> = _showDetailPanel.asStateFlow()
+
+    // Detail-panel search state — driven by the in-panel search box and by the automation
+    // control surface (/detail), so a nested-tag search and its context mode can be set by an agent.
+    private val _detailSearchQuery = MutableStateFlow("")
+    val detailSearchQuery: StateFlow<String> = _detailSearchQuery.asStateFlow()
+
+    private val _detailMatchContextMode = MutableStateFlow(MatchContextMode.IDENTITY)
+    val detailMatchContextMode: StateFlow<MatchContextMode> = _detailMatchContextMode.asStateFlow()
 
     // Message editor dialog visibility
     private val _showMessageEditor = MutableStateFlow(false)
@@ -619,6 +628,16 @@ class FixMessageViewModel(
 
     fun toggleDetailPanel() {
         _showDetailPanel.value = !_showDetailPanel.value
+    }
+
+    /**
+     * Sets the message-detail-panel search query and/or match-context mode. A null argument leaves
+     * that value unchanged. Backs both the in-panel search box and the control surface's /detail
+     * endpoint.
+     */
+    fun setDetailSearch(query: String? = null, mode: MatchContextMode? = null) {
+        if (query != null) _detailSearchQuery.value = query
+        if (mode != null) _detailMatchContextMode.value = mode
     }
 
     fun toggleMessageEditor() {

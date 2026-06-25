@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -228,6 +229,33 @@ class ControlServerIntegrationTest {
     }
 
     @Test
+    fun `detail search sets the detail panel query and mode on the view model`() {
+        val resp = post("/detail", """{"query":"PartyRole","mode":"identity","show":true}""")
+        assertEquals("ok", status(resp))
+        assertEquals("PartyRole", obj(resp)["query"]!!.jsonPrimitive.content)
+        assertEquals("identity", obj(resp)["mode"]!!.jsonPrimitive.content)
+        assertEquals("PartyRole", viewModel.detailSearchQuery.value)
+        assertEquals(MatchContextMode.IDENTITY, viewModel.detailMatchContextMode.value)
+        assertTrue(viewModel.showDetailPanel.value, "show:true should reveal the detail panel")
+
+        // mode-only leaves the query unchanged
+        assertEquals("ok", status(post("/detail", """{"mode":"full"}""")))
+        assertEquals("PartyRole", viewModel.detailSearchQuery.value)
+        assertEquals(MatchContextMode.FULL, viewModel.detailMatchContextMode.value)
+
+        // query-only leaves the mode unchanged
+        assertEquals("ok", status(post("/detail", """{"query":"448"}""")))
+        assertEquals("448", viewModel.detailSearchQuery.value)
+        assertEquals(MatchContextMode.FULL, viewModel.detailMatchContextMode.value)
+    }
+
+    @Test
+    fun `detail search rejects an unknown mode and an empty request`() {
+        assertEquals("error", status(post("/detail", """{"mode":"sideways"}""")))
+        assertEquals("error", status(post("/detail", """{}""")))
+    }
+
+    @Test
     fun `screenshot without a window returns 404`() {
         assertEquals(404, get("/screenshot").statusCode())
     }
@@ -274,7 +302,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(27, tools.size)
+        assertEquals(28, tools.size)
         tools.forEach {
             val t = it.jsonObject
             assertTrue(t.containsKey("name") && t.containsKey("inputSchema"), "each tool needs a name and schema")
@@ -291,6 +319,8 @@ class ControlServerIntegrationTest {
         assertTrue(mcpCall("fixtool_save_profile", """{"name":"MCP-P","config":{"port":"1"}}""").contains("\"created\""))
         // query-arg tool reaches the handler (adapter query) -> session not found
         assertTrue(mcpCall("fixtool_get_messages", """{"session":"99"}""").contains("session not found"))
+        // detail-search tool drives the detail-panel state through the same control logic
+        assertTrue(mcpCall("fixtool_detail_search", """{"query":"452","mode":"full"}""").contains("\"mode\":\"full\""))
         // unknown tool -> isError
         val unknown =
             obj(post("/mcp", """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"nope","arguments":{}}}"""))["result"]!!

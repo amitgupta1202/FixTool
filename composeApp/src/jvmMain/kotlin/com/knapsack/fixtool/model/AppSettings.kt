@@ -51,6 +51,9 @@ data class AppSettings(
     val showLatencyColumn: Boolean = true, // Show latency column in grid view when tracking is enabled
     // Session-Editor Sync Settings
     val autoSyncSessionToEditor: Boolean = true, // Auto-sync selected session tab to message editor connection dropdown
+    // Automation control server (lets Claude/MCP/curl drive the app; loopback-only, off by default)
+    val automationControlEnabled: Boolean = false,
+    val automationControlPort: Int = 8765,
 ) {
     companion object {
         /**

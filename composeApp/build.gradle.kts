@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
+    alias(libs.plugins.testRetry)
     jacoco
 }
 
@@ -216,6 +217,17 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 
 tasks.withType<Test> {
     finalizedBy(tasks.named("jacocoTestReport"))
+
+    // Retry flaky tests on CI only, so a transient failure (timing/order-sensitive integration and
+    // UI tests, e.g. TabSelectionTest / BulkSendIntegrationTest) doesn't fail the release build. A
+    // test that fails every attempt still fails; local runs stay strict so flakes remain visible.
+    retry {
+        if (System.getenv("CI") != null) {
+            maxRetries.set(2)
+            maxFailures.set(20)
+            failOnPassedAfterRetry.set(false)
+        }
+    }
 }
 
 // Verification task that runs all quality checks

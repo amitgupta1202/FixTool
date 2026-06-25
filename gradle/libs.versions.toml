@@ -10,6 +10,7 @@ kotlinx-serialization = "1.9.0"
 ktlint = "12.1.2"
 logback = "1.5.34"
 quickfixj = "2.3.2"
+testRetry = "1.6.2"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -34,3 +35,4 @@ detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
+testRetry = { id = "org.gradle.test-retry", version.ref = "testRetry" }

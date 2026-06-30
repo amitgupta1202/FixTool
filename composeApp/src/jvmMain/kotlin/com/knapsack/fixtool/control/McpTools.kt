@@ -39,8 +39,8 @@ object McpTools {
             ),
             tool(
                 "fixtool_panel",
-                "Show or hide a UI panel for verification screenshots: connection, editor, detail or settings.",
-                props("panel" to enumStr("connection", "editor", "detail", "settings"), "show" to boolean("default true")),
+                "Show or hide a UI panel for verification screenshots: connection, editor, detail, settings or scenarios.",
+                props("panel" to enumStr("connection", "editor", "detail", "settings", "scenarios"), "show" to boolean("default true")),
                 required = listOf("panel"),
             ),
             tool(
@@ -231,6 +231,20 @@ object McpTools {
                     "teardown" to arraySchema(objectSchema("ScenarioStep run after steps, even on failure"), "teardown steps"),
                 ),
                 required = listOf("name", "steps"),
+            ),
+            tool(
+                "fixtool_capture_scenario",
+                "Record the current session message flow into a replayable scenario — the capture-driven " +
+                    "way to author one. Captures across one or more sessions (RFQ / multi-session friendly): " +
+                    "outgoing app messages become Send steps (TransactTime and correlation IDs auto-parameterized), " +
+                    "incoming become Expect steps with smart-seeded matchers, and any echoed id is auto-wired to a " +
+                    "reference matcher. Admin messages skipped; setup clears each session. Saved to the store.",
+                props(
+                    "name" to string("scenario name"),
+                    "profile" to string("connection profile id/name to tag the scenario with"),
+                    "sessions" to arraySchema(string(), "session ids/titles/indices to capture; default all"),
+                ),
+                required = listOf("name"),
             ),
             tool(
                 "fixtool_list_scenarios",

@@ -22,6 +22,7 @@ import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
+import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioHost
 import com.knapsack.fixtool.service.ScenarioReport
@@ -109,6 +110,7 @@ class ControlServer(
         httpServer.createContext("/assert") { ex -> handle(ex) { assertMessage(ex) } }
         httpServer.createContext("/expectation/capture") { ex -> handle(ex) { captureExpectation(ex) } }
         httpServer.createContext("/scenarios/run") { ex -> handle(ex) { runScenario(ex) } }
+        httpServer.createContext("/scenarios/capture") { ex -> handle(ex) { captureScenario(ex) } }
         httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
         httpServer.createContext("/detail") { ex -> handle(ex) { detailSearch(ex) } }
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
@@ -255,11 +257,12 @@ class ControlServer(
                         "editor" -> viewModel.showMessageEditor.value to viewModel::toggleMessageEditor
                         "detail" -> viewModel.showDetailPanel.value to viewModel::toggleDetailPanel
                         "settings" -> viewModel.showSettingsDialog.value to viewModel::toggleSettingsDialog
+                        "scenarios" -> viewModel.showScenariosDialog.value to viewModel::toggleScenariosDialog
                         else -> return@onEdt null
                     }
                 if (state != show) toggle()
                 show
-            } ?: return errorObject("unknown panel '$name' (connection|editor|detail|settings)")
+            } ?: return errorObject("unknown panel '$name' (connection|editor|detail|settings|scenarios)")
         return buildJsonObject {
             put("status", "ok")
             put("panel", name)
@@ -674,6 +677,39 @@ class ControlServer(
             put("status", if (!ok) "failed" else if (existed) "updated" else "created")
             put("id", id)
             put("name", scenario.name)
+        }
+    }
+
+    /**
+     * Records the current session message flow into a replayable scenario (capture-driven authoring),
+     * across one or more sessions. Saves it and returns the generated scenario for inspection/editing.
+     */
+    private fun captureScenario(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val name = body["name"]?.jsonPrimitive?.content ?: return errorObject("missing 'name'")
+        val profile = body["profile"]?.jsonPrimitive?.content
+        val keys = body["sessions"]?.jsonArray?.map { it.jsonPrimitive.content }
+        val chosen =
+            if (keys.isNullOrEmpty()) onEdt { viewModel.sessions.toList() } else keys.mapNotNull { resolveSession(it) }
+        if (chosen.isEmpty()) return errorObject("no sessions to capture")
+        val captured = chosen.map { sess ->
+            ScenarioCapture.CapturedSession(sess.title, onEdt { sess.messages.value.filterIsInstance<FixMessage>() })
+        }
+        val scenario =
+            ScenarioCapture.capture(
+                id = java.util.UUID.randomUUID().toString(),
+                name = name,
+                profile = profile,
+                sessions = captured,
+                dictionary = onEdt { viewModel.dictionary },
+            )
+        val ok = viewModel.scenarioService.save(scenario)
+        return buildJsonObject {
+            put("status", if (ok) "created" else "failed")
+            put("id", scenario.id)
+            put("name", scenario.name)
+            put("steps", scenario.steps.size)
+            put("scenario", ScenarioCodec.toJson(scenario))
         }
     }
 
@@ -1233,6 +1269,7 @@ class ControlServer(
             "fixtool_assert" to { a -> assertMessage(mcpExchange(a)) },
             "fixtool_capture_expectation" to { a -> captureExpectation(mcpExchange(a)) },
             "fixtool_save_scenario" to { a -> saveScenario(mcpExchange(a)) },
+            "fixtool_capture_scenario" to { a -> captureScenario(mcpExchange(a)) },
             "fixtool_list_scenarios" to { a -> listScenarios(mcpExchange(a)) },
             "fixtool_run_scenario" to { a -> runScenario(mcpExchange(a)) },
             "fixtool_delete_scenario" to { a -> deleteScenario(mcpExchange(a)) },

@@ -25,8 +25,12 @@ interface ScenarioHost {
     /** The session's connection-state name (e.g. LOGGED_ON), or null. */
     fun connectionState(session: String?): String?
 
-    /** A resolver for `reference` matchers against the session's current message history. */
-    fun referenceResolver(session: String?): (String) -> String?
+    /**
+     * A resolver for `reference` matchers. Resolves `${...}` against both the persistent scenario
+     * [scope] (so a value sent on one session can be echo-matched in a response on any session) and
+     * the session's incoming/outgoing message history (`${out.D.11}`-style refs).
+     */
+    fun referenceResolver(session: String?, scope: Map<String, String>): (String) -> String?
 
     /** Adapt a captured message to the evaluator's view. */
     fun view(message: FixMessage): MessageView
@@ -87,7 +91,7 @@ class ScenarioRunner(
                 StepResult(index, "send", phase, ok, detail = if (ok) resolved else "send failed: $resolved")
             }
             is ScenarioStep.Wait -> runWait(step, index, phase)
-            is ScenarioStep.Expect -> runExpect(step, index, phase, consumed)
+            is ScenarioStep.Expect -> runExpect(step, index, phase, scope, consumed)
             is ScenarioStep.ClearMessages -> {
                 host.clearMessages(step.session)
                 StepResult(index, "clear", phase, true, detail = "cleared")
@@ -120,6 +124,7 @@ class ScenarioRunner(
         step: ScenarioStep.Expect,
         index: Int,
         phase: String,
+        scope: Map<String, String>,
         consumed: MutableSet<FixMessage>,
     ): StepResult {
         val msgType = step.match?.messageType ?: step.expectation.messageType
@@ -138,8 +143,8 @@ class ScenarioRunner(
             return StepResult(index, "expect", phase, false, detail = detail)
         }
         consumed.add(target)
-        val tags =
-            ExpectationEvaluator.evaluate(host.view(target), step.expectation, host.referenceResolver(step.session))
+        val resolver = host.referenceResolver(step.session, scope)
+        val tags = ExpectationEvaluator.evaluate(host.view(target), step.expectation, resolver)
         return StepResult(
             index,
             "expect",

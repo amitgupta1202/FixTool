@@ -346,6 +346,51 @@ server.tool(
 );
 
 server.tool(
+  "fixtool_assert",
+  "Assert a received message against an expectation (per-tag matchers) — the machine-check that " +
+    "replaces eyeballing a response. Selects the message like fixtool_select (by " +
+    "messageType/direction/index), or awaits one for up to timeoutMs. Returns {passed, tags:[{tag, " +
+    "matcher, expected, actual, passed}]} for tag-by-tag pass/fail. mode=open asserts only listed " +
+    "tags; strict also fails on unexpected tags. Each field is {tag, matcher:{type,...}, path?}; " +
+    "matcher types: exact (value), presence, absent, regex (pattern), oneOf (values[]), numeric " +
+    "(value, tolerance?), temporal (kind today|now_within_tolerance, toleranceSeconds?), reference " +
+    "(expression, e.g. ${out.D.11}).",
+  {
+    session: z.string().default("0").describe("session id, title or index"),
+    messageType: z.string().optional().describe("FIX msg type to select/await, e.g. \"8\""),
+    direction: z.enum(["in", "incoming", "out", "outgoing"]).optional().describe("filter by direction; default in"),
+    index: z.number().int().optional().describe("0-based index into matching messages; default last"),
+    timeoutMs: z.number().int().optional().describe("await a matching message up to this long; default 0 = already received"),
+    mode: z.enum(["open", "strict"]).optional().describe("open (default) asserts only listed tags; strict fails on extras"),
+    fields: z.array(z.record(z.any())).describe("per-tag matchers: [{tag, matcher:{type,...}, path?}]"),
+  },
+  async (args) => {
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/assert", body);
+  },
+);
+
+server.tool(
+  "fixtool_capture_expectation",
+  "Build an auto-seeded expectation from a received message: matchers pre-seeded from dictionary " +
+    "field types (timestamps -> temporal, prices/quantities -> numeric, OrderID/ExecID -> presence, " +
+    "else exact; header volatiles 9/10/34/52 omitted). Selects by messageType/direction/index like " +
+    "fixtool_select. Returns {messageType, mode, fields:[...]} ready to edit and pass to fixtool_assert.",
+  {
+    session: z.string().default("0").describe("session id, title or index"),
+    messageType: z.string().optional().describe("FIX msg type to select, e.g. \"8\""),
+    direction: z.enum(["in", "incoming", "out", "outgoing"]).optional().describe("filter by direction; default in"),
+    index: z.number().int().optional().describe("0-based index into matching messages; default last"),
+  },
+  async (args) => {
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/expectation/capture", body);
+  },
+);
+
+server.tool(
   "fixtool_detail_search",
   "Drive the message detail panel's tag search. Set query (tag number, field name, value or enum " +
     "text) and/or mode: bare = matched rows only (legacy); identity = each matching repeating-group " +

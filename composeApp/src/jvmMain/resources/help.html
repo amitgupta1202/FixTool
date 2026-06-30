@@ -1991,23 +1991,32 @@ stunnel stunnel.conf</code></pre>
     <code>~/.fixtool/scenarios/</code> &mdash; diffable, shareable, and easy to commit alongside your
     project.</p>
 
-    <p><strong>In the app:</strong> click the <strong>Scenarios</strong> button (the ▶ playlist icon)
-    in the toolbar to open the Scenarios panel. There you can <strong>run</strong> a saved scenario
-    and watch its <strong>per-step, per-tag red/green result</strong> (each <em>expect</em> step
-    expands to one row per asserted tag, showing expected vs actual &mdash; red where it failed),
-    <strong>delete</strong> scenarios, or author a new one by pasting its JSON. This is where a failed
-    assertion is rendered visually inside FixTool.</p>
-
-    <p><strong>Building scenarios visually:</strong> click <strong>Build scenario</strong> in the
-    Scenarios panel to assemble a flow by clicking &mdash; add <em>Send / Wait / Expect / Clear /
-    Reset</em> steps, set a <strong>per-step session</strong> (so one scenario can drive an initiator
-    and assert on an acceptor), and reorder or remove steps. For an <em>Expect</em> step, paste a
-    captured "golden" response and FixTool <strong>auto-seeds a matcher per tag</strong> from the
-    dictionary (timestamps&rarr;temporal, prices&rarr;numeric, IDs&rarr;presence, &hellip;); edit any
-    matcher as a <strong>chip with a live green/red preview</strong> against the golden, attach a
-    repeating-group <em>path</em> to match a group entry by identity, and use
-    <strong>Verify generalizes</strong> to check the expectation against a second instance so an
-    over-specified field (e.g. an exact timestamp) is flagged before you save.</p>
+    <p><strong>The workflow in the app (capture &rarr; run &rarr; relax):</strong></p>
+    <ol>
+        <li><strong>Work a flow normally</strong> &mdash; connect and send/receive messages across one
+        or more sessions (e.g. an RFQ: QuoteRequest out, Quote back; or an order and its
+        ExecutionReport).</li>
+        <li>Open the <strong>Scenarios</strong> panel (the ▶ playlist button in the toolbar) and click
+        <strong>Capture current session(s)</strong>. FixTool records the flow into a scenario:
+        outgoing messages become parameterized sends (fresh ClOrdID/QuoteReqID + TransactTime each
+        run), incoming messages become assertions with <strong>smart-seeded matchers</strong>
+        (timestamps&rarr;temporal, prices&rarr;numeric, IDs&rarr;presence, else exact), and any echoed
+        id is auto-correlated &mdash; even across sessions.</li>
+        <li><strong>Run</strong> a saved scenario. It replays deterministically and the results appear
+        <strong>right in the session window</strong>: matched message rows are tinted green/red, and
+        selecting a message shows each asserted tag in the detail panel with
+        <strong>expected vs actual</strong> &mdash; red where it failed. That is where a failed
+        assertion is rendered.</li>
+        <li><strong>Relax/constrain</strong> what's too strict: click <strong>Edit</strong> on a
+        scenario to open it in the builder, where each <em>Expect</em>'s tags are editable
+        <strong>matcher chips</strong> with a live green/red preview against the captured message.
+        Loosen a volatile field (e.g. <code>LastPx</code> &rarr; presence, or numeric with a
+        tolerance), attach a repeating-group <em>path</em> to match a group entry by identity, then
+        save. Re-run to confirm it's green.</li>
+    </ol>
+    <p>Each step keeps its own <strong>session</strong>, so one scenario can span multiple sessions
+    (drive an initiator, assert on an acceptor, correlate a quote and a trade). Scenarios are stored
+    one file per scenario under <code>~/.fixtool/scenarios/</code>.</p>
 
     <div class="tip">
         <strong>The point:</strong> the LLM (or a human) authors the scenario once; a dumb runner

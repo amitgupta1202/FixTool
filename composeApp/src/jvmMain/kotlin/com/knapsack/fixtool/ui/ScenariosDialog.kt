@@ -51,17 +51,32 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
  */
 @Composable
 fun ScenariosDialog(viewModel: FixMessageViewModel, onClose: () -> Unit) {
-    val dialogState = rememberDialogState(width = 1000.dp, height = 720.dp)
+    val dialogState = rememberDialogState(width = 1040.dp, height = 760.dp)
+    var building by remember { mutableStateOf(false) }
+    var refreshKey by remember { mutableStateOf(0) }
     Dialog(onCloseRequest = onClose, title = "Repeatable Scenarios", state = dialogState) {
         Column(modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface)) {
-            TitleBar(onClose)
-            Row(modifier = Modifier.fillMaxSize()) {
-                Box(modifier = Modifier.fillMaxHeight().width(380.dp).padding(12.dp)) {
-                    ScenarioListPane(viewModel)
+            TitleBar(building = building, onToggleBuild = { building = !building }, onClose = onClose)
+            if (building) {
+                Box(modifier = Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
+                    ScenarioBuilder(
+                        dictionary = viewModel.dictionary,
+                        onSave = {
+                            viewModel.scenarioService.save(it)
+                            refreshKey++
+                            building = false
+                        },
+                    )
                 }
-                Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(AppTheme.Colors.border))
-                Box(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                    ResultsPane(viewModel)
+            } else {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.fillMaxHeight().width(380.dp).padding(12.dp)) {
+                        androidx.compose.runtime.key(refreshKey) { ScenarioListPane(viewModel) }
+                    }
+                    Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(AppTheme.Colors.border))
+                    Box(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                        ResultsPane(viewModel)
+                    }
                 }
             }
         }
@@ -69,7 +84,7 @@ fun ScenariosDialog(viewModel: FixMessageViewModel, onClose: () -> Unit) {
 }
 
 @Composable
-private fun TitleBar(onClose: () -> Unit) {
+private fun TitleBar(building: Boolean, onToggleBuild: () -> Unit, onClose: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -79,11 +94,14 @@ private fun TitleBar(onClose: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Repeatable Scenarios",
+            text = if (building) "Build a scenario" else "Repeatable Scenarios",
             color = AppTheme.Colors.text,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
         )
+        OutlinedButton(onClick = onToggleBuild) {
+            Text(if (building) "Cancel" else "Build scenario", color = AppTheme.Colors.text, fontSize = 12.sp)
+        }
         IconButton(onClick = onClose) {
             Icon(Icons.Default.Close, contentDescription = "Close", tint = AppTheme.Colors.text)
         }

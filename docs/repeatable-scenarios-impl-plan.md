@@ -15,8 +15,10 @@ hard part; the scenario format is a thin sequencing layer on top of it.
 > Phase 2 (Walk): the `Scenario` model, persistent-scope `ScenarioRunner`, the extended
 > match predicate (multi-tag AND + consumed cursor), the directory `ScenarioService`,
 > the JSON+JUnit report, and the four scenario MCP tools.
-> Phase 3 (Run): the in-app Scenarios panel — run / list / delete / author-by-JSON — and the
-> per-tag **red/green run-results rendering** in the app.
+> Phase 3 (Run): the full in-app authoring UX — the Scenarios panel (run / list / delete), the
+> per-tag **red/green run-results rendering**, the **visual scenario builder** (per-step
+> multi-session), and the **expectation builder** with editable matcher chips, live preview,
+> dictionary auto-seed, group-by-identity, and the two-instance verify-generalizes check.
 
 Sizing is relative (S ≈ ½ day, M ≈ 1–2 days, L ≈ 3–5 days), assuming familiarity
 with the codebase.
@@ -123,23 +125,23 @@ LLM, and emit a CI-consumable report. This is the regression-testing payoff.
 
 ---
 
-## Phase 3 — Run: in-app authoring UX ✅ Delivered (results overlay + run/manage; rich visual authoring deferred)
+## Phase 3 — Run: in-app authoring UX ✅ Delivered (complete — nothing deferred)
 
 **Goal:** a QA engineer (or agent) authors and saves scenarios in the app, without
 hand-editing JSON.
 
-> **Delivered.** A **Scenarios panel** (toolbar ▶ button → `ScenariosDialog`) that lists
-> saved scenarios and lets you **run** (3.5), **delete**, and **author by pasting JSON**
-> them, with the **per-tag red/green run-results overlay** (`ScenarioResultsView`) — the
-> in-app rendering of a failed assertion. The runner is shared with the control surface via
-> `ViewModelScenarioHost`. Capture-to-expectation (3.2) is available via the
-> `fixtool_capture_expectation` tool.
->
-> **Deferred (future enhancement):** the richer in-*detail-panel* authoring — per-tag matcher
-> chips with live preview (3.1), the two-instance "verify generalizes" check (3.3), a visual
-> step-by-step builder (3.4), and a dedicated multi-session authoring UI (3.6). Scenarios are
-> fully authorable today via JSON, the `fixtool_save_scenario` tool, or an agent; these items
-> are convenience UX on top of an already-complete feature.
+> **Delivered, in full.** All of 3.1–3.6:
+> - **3.5** per-tag red/green **run-results overlay** (`ScenarioResultsView`) — the in-app
+>   rendering of a failed assertion.
+> - **Scenarios panel** (toolbar ▶ button → `ScenariosDialog`): run / list / delete, author by
+>   pasting JSON, or **Build scenario** visually. Runner shared with the control surface via
+>   `ViewModelScenarioHost`.
+> - **3.4 / 3.6** the **visual `ScenarioBuilder`**: add Send/Wait/Expect/Clear/Reset steps by
+>   clicking, **per-step session** selector (multi-session authoring), reorder/remove, save.
+> - **3.1 / 3.2 / 3.3** the **`ExpectationBuilder`** + **`MatcherEditor`**: a captured message
+>   rendered tag-by-tag with editable matcher **chips**, dictionary **auto-seeding** (capture),
+>   a **live green/red preview** against the golden, **group-by-identity** path editing, and a
+>   **two-instance "verify generalizes"** check that flags over-specified fields.
 
 ### Deliverables
 

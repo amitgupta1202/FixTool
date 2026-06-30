@@ -214,6 +214,47 @@ object McpTools {
                 ),
             ),
             tool(
+                "fixtool_save_scenario",
+                "Save a repeatable scenario (an ordered sequence of sends + assertions a deterministic runner " +
+                    "replays). Body is the scenario JSON: {name, profile?, userTags?, setup?:[step], steps:[step], " +
+                    "teardown?:[step]}. A step is {type, ...}: send {raw, session?}; wait {session?, state?, match?, " +
+                    "timeoutMs?}; expect {session?, direction?, match?, timeoutMs?, expectation:{messageType?, mode?, " +
+                    "fields:[{tag, matcher, path?}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
+                    "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create.",
+                props(
+                    "name" to string("scenario name"),
+                    "id" to string("existing scenario id to update"),
+                    "profile" to string("connection profile id/name this scenario targets"),
+                    "userTags" to arraySchema(string(), "organising tags (also used for per-profile filtering)"),
+                    "setup" to arraySchema(objectSchema("ScenarioStep run before steps"), "setup steps"),
+                    "steps" to arraySchema(objectSchema("ScenarioStep"), "the ordered steps"),
+                    "teardown" to arraySchema(objectSchema("ScenarioStep run after steps, even on failure"), "teardown steps"),
+                ),
+                required = listOf("name", "steps"),
+            ),
+            tool(
+                "fixtool_list_scenarios",
+                "List saved scenarios (id, name, profile, step counts, userTags), optionally filtered by profile.",
+                props("profile" to string("profile id, name, or tag to filter by")),
+            ),
+            tool(
+                "fixtool_run_scenario",
+                "Run a scenario deterministically (no LLM in the loop) and return a per-step, per-tag pass/fail " +
+                    "report. Identify it by id (from the store) or pass an inline scenario. With format=junit the " +
+                    "result is returned as JUnit XML for CI; otherwise as JSON {scenario, passed, steps:[...]}.",
+                props(
+                    "id" to string("saved scenario id"),
+                    "scenario" to objectSchema("inline scenario JSON (alternative to id)"),
+                    "format" to enumStr("json", "junit"),
+                ),
+            ),
+            tool(
+                "fixtool_delete_scenario",
+                "Delete a saved scenario by id.",
+                props("id" to string("scenario id")),
+                required = listOf("id"),
+            ),
+            tool(
                 "fixtool_admin",
                 "FIX session/admin control: seqnum (read), reset-seqnum (sender/target), test-request (id), " +
                     "resend-request (begin/end), sequence-reset (newSeq/gapFill), logout (reason), disconnect (reason).",

@@ -26,6 +26,7 @@ import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.SavedMessagesService
+import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.SessionIdentityResolver
 import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.ui.FixField
@@ -197,6 +198,14 @@ class FixMessageViewModel(
     }
     private val _savedMessages = mutableStateListOf<SavedFixMessage>()
     val savedMessages: List<SavedFixMessage> = _savedMessages
+
+    // Repeatable scenarios — directory store (lazy-initialized to use appSettings paths)
+    val scenarioService by lazy {
+        ScenarioService(
+            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            customDir = resolveStoragePath(_appSettings.value.scenariosPath, "scenarios"),
+        )
+    }
 
     /**
      * Resolves where a JSON store (connection profiles, saved messages) is kept. An explicit

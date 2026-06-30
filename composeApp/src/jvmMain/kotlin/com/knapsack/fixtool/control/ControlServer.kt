@@ -14,7 +14,7 @@ import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.scenario.MatchMode
-import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper
@@ -22,6 +22,11 @@ import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
+import com.knapsack.fixtool.service.MessageView
+import com.knapsack.fixtool.service.ScenarioCodec
+import com.knapsack.fixtool.service.ScenarioHost
+import com.knapsack.fixtool.service.ScenarioReport
+import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.sun.net.httpserver.Headers
@@ -103,6 +108,8 @@ class ControlServer(
         httpServer.createContext("/select") { ex -> handle(ex) { select(ex) } }
         httpServer.createContext("/assert") { ex -> handle(ex) { assertMessage(ex) } }
         httpServer.createContext("/expectation/capture") { ex -> handle(ex) { captureExpectation(ex) } }
+        httpServer.createContext("/scenarios/run") { ex -> handle(ex) { runScenario(ex) } }
+        httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
         httpServer.createContext("/detail") { ex -> handle(ex) { detailSearch(ex) } }
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
         httpServer.createContext("/filter") { ex -> handle(ex) { filter(ex) } }
@@ -525,7 +532,7 @@ class ControlServer(
             put("passed", results.all { it.passed })
             put("messageType", target.messageType)
             put("direction", target.direction.name)
-            put("tags", buildJsonArray { results.forEach { add(tagResultJson(it)) } })
+            put("tags", buildJsonArray { results.forEach { add(ScenarioReport.tagToJson(it)) } })
         }
     }
 
@@ -606,13 +613,165 @@ class ControlServer(
         }
     }
 
-    private fun tagResultJson(result: TagResult): JsonObject =
-        buildJsonObject {
-            put("tag", result.tag)
-            put("matcher", result.matcher)
-            put("expected", result.expected)
-            put("actual", result.actual)
-            put("passed", result.passed)
+    // ------------------------------------------------------------ repeatable scenarios
+
+    private fun scenariosEndpoint(ex: HttpExchange): JsonElement =
+        when (ex.requestMethod.uppercase()) {
+            "GET" -> listScenarios(ex)
+            "DELETE" -> deleteScenario(ex)
+            else -> saveScenario(ex)
+        }
+
+    /** Lists saved scenarios (summaries), optionally filtered to a profile (id, name, or tag). */
+    private fun listScenarios(ex: HttpExchange): JsonElement {
+        val profileKey = queryParams(ex)["profile"]
+        val profileId =
+            if (profileKey == null) {
+                null
+            } else {
+                onEdt { viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }?.id }
+                    ?: profileKey
+            }
+        val service = viewModel.scenarioService
+        val scenarios = if (profileId == null) service.list() else service.listForProfile(profileId)
+        return buildJsonObject {
+            put("count", scenarios.size)
+            put(
+                "scenarios",
+                buildJsonArray {
+                    scenarios.forEach { s ->
+                        add(
+                            buildJsonObject {
+                                put("id", s.id)
+                                put("name", s.name)
+                                s.profile?.let { put("profile", it) }
+                                put("setup", s.setup.size)
+                                put("steps", s.steps.size)
+                                put("teardown", s.teardown.size)
+                                put("userTags", buildJsonArray { s.userTags.forEach { add(it) } })
+                            },
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    /** Creates or updates a scenario from its JSON body (id generated when absent). */
+    private fun saveScenario(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        if (body["name"]?.jsonPrimitive?.content == null) return errorObject("missing 'name'")
+        val id = body["id"]?.jsonPrimitive?.content ?: java.util.UUID.randomUUID().toString()
+        val scenario =
+            try {
+                ScenarioCodec.fromJson(JsonObject(body + ("id" to JsonPrimitive(id))))
+            } catch (e: IllegalArgumentException) {
+                return errorObject("invalid scenario: ${e.message}")
+            }
+        val existed = viewModel.scenarioService.load(id) != null
+        val ok = viewModel.scenarioService.save(scenario)
+        return buildJsonObject {
+            put("status", if (!ok) "failed" else if (existed) "updated" else "created")
+            put("id", id)
+            put("name", scenario.name)
+        }
+    }
+
+    /** Deletes a scenario by id. */
+    private fun deleteScenario(ex: HttpExchange): JsonElement {
+        val id = readJson(ex)["id"]?.jsonPrimitive?.content ?: return errorObject("missing 'id'")
+        val ok = viewModel.scenarioService.delete(id)
+        return buildJsonObject {
+            put("status", if (ok) "deleted" else "not found")
+            put("id", id)
+        }
+    }
+
+    /**
+     * Runs a scenario deterministically (by `id` from the store, or an inline `scenario`/body) and
+     * returns a per-step, per-tag [ScenarioResult]. With `format:"junit"` returns JUnit XML for CI.
+     */
+    private fun runScenario(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val id = body["id"]?.jsonPrimitive?.content
+        val scenario: Scenario =
+            if (id != null) {
+                viewModel.scenarioService.load(id) ?: return errorObject("scenario not found: $id")
+            } else {
+                val obj = body["scenario"]?.jsonObject ?: body
+                val withId =
+                    if (obj["id"] != null) {
+                        obj
+                    } else {
+                        JsonObject(obj + ("id" to JsonPrimitive(java.util.UUID.randomUUID().toString())))
+                    }
+                try {
+                    ScenarioCodec.fromJson(withId)
+                } catch (e: IllegalArgumentException) {
+                    return errorObject("invalid scenario: ${e.message}")
+                }
+            }
+        val result = ScenarioRunner(scenarioHost()).run(scenario)
+        return if (body["format"]?.jsonPrimitive?.content?.lowercase() == "junit") {
+            buildJsonObject {
+                put("passed", result.passed)
+                put("junit", ScenarioReport.toJUnitXml(result))
+            }
+        } else {
+            ScenarioReport.toJson(result)
+        }
+    }
+
+    /** The [ScenarioHost] backing the runner — bridges to the live sessions via the existing helpers. */
+    private fun scenarioHost(): ScenarioHost =
+        object : ScenarioHost {
+            override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String {
+                val sess = resolveSession(session)
+                val msgs =
+                    if (sess == null) emptyList() else onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
+                val incoming =
+                    msgs.filter { it.direction == FixMessage.Direction.INCOMING }.associateBy { it.messageType }
+                val outgoing =
+                    msgs.filter { it.direction == FixMessage.Direction.OUTGOING }.associateBy { it.messageType }
+                return FixMessageTemplate.evaluate(raw, incoming, outgoing, scope, onEdt { viewModel.dictionary })
+            }
+
+            override fun send(raw: String, session: String?): Boolean =
+                onEdt {
+                    val sess = resolveSession(session) ?: return@onEdt false
+                    val index = viewModel.sessions.indexOf(sess)
+                    if (index < 0) return@onEdt false
+                    viewModel.setActiveSession(index)
+                    val result = viewModel.sendMessage(raw)
+                    result != null && sendResultStatus(result) != "failed"
+                }
+
+            override fun messages(session: String?): List<FixMessage> {
+                val sess = resolveSession(session) ?: return emptyList()
+                return onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
+            }
+
+            override fun connectionState(session: String?): String? {
+                val sess = resolveSession(session) ?: return null
+                return onEdt { sess.connectionState.value.name }
+            }
+
+            override fun referenceResolver(session: String?): (String) -> String? {
+                val sess = resolveSession(session) ?: return { null }
+                return referenceResolverFor(sess)
+            }
+
+            override fun view(message: FixMessage): MessageView = FixMessageView(message)
+
+            override fun clearMessages(session: String?) {
+                val sess = resolveSession(session) ?: return
+                onEdt { sess.clearMessages() }
+            }
+
+            override fun resetSeqNum(session: String?, sender: Int?, target: Int?) {
+                val sess = resolveSession(session) ?: return
+                onEdt { sess.resetSequenceNumbers(sender, target) }
+            }
         }
 
     /**
@@ -1122,6 +1281,10 @@ class ControlServer(
             "fixtool_select" to { a -> select(mcpExchange(a)) },
             "fixtool_assert" to { a -> assertMessage(mcpExchange(a)) },
             "fixtool_capture_expectation" to { a -> captureExpectation(mcpExchange(a)) },
+            "fixtool_save_scenario" to { a -> saveScenario(mcpExchange(a)) },
+            "fixtool_list_scenarios" to { a -> listScenarios(mcpExchange(a)) },
+            "fixtool_run_scenario" to { a -> runScenario(mcpExchange(a)) },
+            "fixtool_delete_scenario" to { a -> deleteScenario(mcpExchange(a)) },
             "fixtool_detail_search" to { a -> detailSearch(mcpExchange(a)) },
             "fixtool_admin" to { a -> admin(mcpExchange(a)) },
             "fixtool_validate" to { a -> validate(mcpExchange(a)) },

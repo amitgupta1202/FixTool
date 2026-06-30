@@ -9,12 +9,15 @@ The phasing follows the design's **crawl → walk → run**. Each phase is indep
 shippable and useful on its own. Build the assertion vocabulary first — it is the
 hard part; the scenario format is a thin sequencing layer on top of it.
 
-> **Status — Phase 1 (Crawl) is delivered and tested.** The matcher vocabulary,
-> `fixtool_assert`, `fixtool_capture_expectation`, dictionary auto-seeding, and the
-> atomic-write utility are implemented and covered by unit + live-session integration
-> tests (42 tests, 0 failures). See
+> **Status — Phases 1 (Crawl) and 2 (Walk) are delivered and tested.**
+> Phase 1: the matcher vocabulary, `fixtool_assert`, `fixtool_capture_expectation`,
+> auto-seeding, atomic writes —
 > [`repeatable-scenarios-phase1-evidence.md`](./repeatable-scenarios-phase1-evidence.md).
-> Phase 2 (Walk) and Phase 3 (Run) are not started.
+> Phase 2: the `Scenario` model, persistent-scope `ScenarioRunner`, the extended
+> match predicate (multi-tag AND + consumed cursor), the directory `ScenarioService`,
+> the JSON+JUnit report, and the four scenario MCP tools —
+> [`repeatable-scenarios-phase2-evidence.md`](./repeatable-scenarios-phase2-evidence.md).
+> Phase 3 (Run — in-app authoring UI + red/green overlay) is next.
 
 Sizing is relative (S ≈ ½ day, M ≈ 1–2 days, L ≈ 3–5 days), assuming familiarity
 with the codebase.
@@ -85,10 +88,16 @@ a loop over this evaluation.
 
 ---
 
-## Phase 2 — Walk: scenario model + runner + storage + CI report
+## Phase 2 — Walk: scenario model + runner + storage + CI report ✅ Delivered
 
 **Goal:** author a flow once, repeat it deterministically any number of times with no
 LLM, and emit a CI-consumable report. This is the regression-testing payoff.
+
+> **Delivered.** `Scenario`/`ScenarioStep`/`MatchPredicate` model, `ScenarioCodec`,
+> `ScenarioService` (directory store), `ScenarioRunner` (persistent scope, consumed
+> cursor, setup/teardown), `ScenarioReport` (JSON + JUnit), and the
+> `fixtool_save_scenario` / `list_scenarios` / `run_scenario` / `delete_scenario` tools.
+> Evidence: [`repeatable-scenarios-phase2-evidence.md`](./repeatable-scenarios-phase2-evidence.md).
 
 ### Deliverables
 

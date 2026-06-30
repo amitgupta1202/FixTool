@@ -40,6 +40,7 @@ data class AppSettings(
     // Configurable Data Directories
     val connectionProfilesPath: String = "", // Path to connection profiles JSON file (empty = default: ~/.fixtool/connection_profiles.json)
     val savedMessagesPath: String = "", // Path to saved messages JSON file (empty = default: ~/.fixtool/saved_messages.json)
+    val scenariosPath: String = "", // Path to scenarios directory (empty = default: ~/.fixtool/scenarios)
     // Latency Tracking Settings
     val enableLatencyTracking: Boolean = false, // Enable latency tracking feature
     val captureNetworkInterface: String = "", // Network interface for packet capture (empty = auto-detect)

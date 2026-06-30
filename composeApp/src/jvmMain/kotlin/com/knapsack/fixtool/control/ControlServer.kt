@@ -747,7 +747,16 @@ class ControlServer(
                     return errorObject("invalid scenario: ${e.message}")
                 }
             }
-        val result = ScenarioRunner(scenarioHost()).run(scenario)
+        val matched = linkedMapOf<FixMessage, com.knapsack.fixtool.model.scenario.StepResult>()
+        viewModel.setAssertionResults(emptyMap())
+        val result =
+            ScenarioRunner(
+                scenarioHost(),
+                onExpectMatched = { message, stepResult ->
+                    matched[message] = stepResult
+                    viewModel.setAssertionResults(matched.toMap())
+                },
+            ).run(scenario)
         return if (body["format"]?.jsonPrimitive?.content?.lowercase() == "junit") {
             buildJsonObject {
                 put("passed", result.passed)

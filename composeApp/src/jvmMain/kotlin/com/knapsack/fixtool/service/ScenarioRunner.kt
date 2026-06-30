@@ -52,6 +52,8 @@ class ScenarioRunner(
     private val host: ScenarioHost,
     private val pollMs: Long = 100,
     private val now: () -> Long = { System.currentTimeMillis() },
+    /** Called when an Expect step binds to a live message, so the UI can tint that row green/red. */
+    private val onExpectMatched: (FixMessage, StepResult) -> Unit = { _, _ -> },
 ) {
     fun run(scenario: Scenario): ScenarioResult {
         val scope = mutableMapOf<String, String>()
@@ -145,7 +147,7 @@ class ScenarioRunner(
         consumed.add(target)
         val resolver = host.referenceResolver(step.session, scope)
         val tags = ExpectationEvaluator.evaluate(host.view(target), step.expectation, resolver)
-        return StepResult(
+        val result = StepResult(
             index,
             "expect",
             phase,
@@ -153,6 +155,8 @@ class ScenarioRunner(
             detail = "messageType=${target.messageType}",
             tags = tags,
         )
+        onExpectMatched(target, result)
+        return result
     }
 
     @Suppress("ReturnCount")

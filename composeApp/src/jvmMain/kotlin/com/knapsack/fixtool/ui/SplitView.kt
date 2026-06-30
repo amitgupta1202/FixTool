@@ -50,6 +50,7 @@ fun SplitView(
     onPasteMessage: ((String) -> Unit)? = null,
     orientation: SplitOrientation = SplitOrientation.HORIZONTAL,
     gridViewColumns: List<Int> = emptyList(),
+    assertionResults: Map<FixMessage, com.knapsack.fixtool.model.scenario.StepResult> = emptyMap(),
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
@@ -157,6 +158,7 @@ fun SplitView(
                                     onSelectMessage = onSelectMessage,
                                     onPasteMessage = onPasteMessage,
                                     gridViewColumns = gridViewColumns,
+                                    assertionResults = assertionResults,
                                     appSettings = appSettings,
                                     modifier = Modifier.fillMaxSize(),
                                 )
@@ -259,6 +261,7 @@ private fun SessionPanel(
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
     onPasteMessage: ((String) -> Unit)? = null,
     gridViewColumns: List<Int> = emptyList(),
+    assertionResults: Map<FixMessage, com.knapsack.fixtool.model.scenario.StepResult> = emptyMap(),
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
@@ -804,6 +807,7 @@ private fun SessionPanel(
             wrapText = wrapText,
             selectedMessage = selectedMessage,
             recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+            assertionResults = assertionResults,
             onSelectMessage = onSelectMessage,
             onPasteMessage = onPasteMessage,
             showDetailPanel = false,

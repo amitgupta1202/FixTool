@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.MatchContextMode
+import com.knapsack.fixtool.model.scenario.TagResult
 import quickfix.Field
 import quickfix.FieldMap
 import java.awt.Cursor
@@ -63,6 +64,9 @@ fun MessageDetailPanel(
     onSearchQueryChange: ((String) -> Unit)? = null,
     externalMatchContextMode: MatchContextMode? = null,
     onMatchContextModeChange: ((MatchContextMode) -> Unit)? = null,
+    // Per-tag assertion results for the displayed message (from the last scenario run) — colors each
+    // tag row green/red and shows expected-vs-actual.
+    tagResults: Map<Int, TagResult> = emptyMap(),
 ) {
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -264,6 +268,7 @@ fun MessageDetailPanel(
                                         renderQuickFixMessage(
                                             message = message.quickfixMessage,
                                             dictionary = dictionary,
+                                            tagResults = tagResults,
                                             hideProtocolTags = appSettings.hideProtocolTags,
                                             searchQuery = searchQuery,
                                             matchContextMode = matchContextMode,
@@ -474,6 +479,7 @@ private fun FieldRow(
     isExpanded: Boolean = false,
     onToggleExpand: () -> Unit = {},
     searchQuery: String = "",
+    tagResult: TagResult? = null,
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
     val translation = dictionary.getFieldValueDescription(tag, value)
@@ -487,11 +493,15 @@ private fun FieldRow(
 
     val isLongValue = displayValue.length > LONG_VALUE_THRESHOLD
 
+    val rowBackground =
+        tagResult?.let {
+            if (it.passed) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
+        } ?: fieldRowBackgroundColor
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(fieldRowBackgroundColor)
+                .background(rowBackground)
                 .let { mod ->
                     if (isLongValue) {
                         mod.clickable { onToggleExpand() }
@@ -543,6 +553,20 @@ private fun FieldRow(
                 color = expandIndicatorColor,
                 fontSize = 8.sp,
                 modifier = Modifier.padding(end = 4.dp),
+            )
+        }
+
+        // Scenario assertion result for this tag (green check / red expected-vs-actual).
+        tagResult?.let { tr ->
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = if (tr.passed) "✓ ${tr.matcher}" else "✗ exp ${tr.expected} · act ${tr.actual ?: "<absent>"}",
+                color = if (tr.passed) AppTheme.Colors.success else AppTheme.Colors.error,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = 4.dp).widthIn(max = 220.dp),
             )
         }
     }
@@ -637,6 +661,7 @@ private fun LazyListScope.renderQuickFixMessage(
     onToggleField: (String) -> Unit,
     indentLevel: Int = 0,
     parentKey: String = "",
+    tagResults: Map<Int, TagResult> = emptyMap(),
 ) {
     // Render header fields
     renderFieldMap(
@@ -652,6 +677,7 @@ private fun LazyListScope.renderQuickFixMessage(
         onToggleField = onToggleField,
         indentLevel = indentLevel,
         parentKey = parentKey,
+        tagResults = tagResults,
     )
 
     // Render body fields
@@ -668,6 +694,7 @@ private fun LazyListScope.renderQuickFixMessage(
         onToggleField = onToggleField,
         indentLevel = indentLevel,
         parentKey = parentKey,
+        tagResults = tagResults,
     )
 
     // Render trailer fields
@@ -684,6 +711,7 @@ private fun LazyListScope.renderQuickFixMessage(
         onToggleField = onToggleField,
         indentLevel = indentLevel,
         parentKey = parentKey,
+        tagResults = tagResults,
     )
 }
 
@@ -703,6 +731,7 @@ private fun LazyListScope.renderFieldMap(
     onToggleField: (String) -> Unit,
     indentLevel: Int = 0,
     parentKey: String = "",
+    tagResults: Map<Int, TagResult> = emptyMap(),
 ) {
     val iterator = fieldMap.iterator()
 
@@ -769,6 +798,7 @@ private fun LazyListScope.renderFieldMap(
                         expandedFields = expandedFields,
                         onToggleField = onToggleField,
                         indentLevel = indentLevel,
+                        tagResults = tagResults,
                     )
                     continue
                 }
@@ -815,6 +845,7 @@ private fun LazyListScope.renderFieldMap(
                                 onToggleField = onToggleField,
                                 indentLevel = indentLevel + 1,
                                 parentKey = "${groupKey}_$i",
+                                tagResults = tagResults,
                             )
                         } catch (e: Exception) {
                             // Skip invalid groups
@@ -839,6 +870,7 @@ private fun LazyListScope.renderFieldMap(
                         isExpanded = expandedFields.contains(fieldKey),
                         onToggleExpand = { onToggleField(fieldKey) },
                         searchQuery = searchQuery,
+                        tagResult = tagResults[tag],
                     )
                 }
             }
@@ -926,6 +958,7 @@ private fun LazyListScope.renderSearchedGroup(
     expandedFields: Set<String>,
     onToggleField: (String) -> Unit,
     indentLevel: Int,
+    tagResults: Map<Int, TagResult> = emptyMap(),
 ) {
     item {
         GroupHeaderRow(
@@ -965,6 +998,7 @@ private fun LazyListScope.renderSearchedGroup(
                     onToggleField = onToggleField,
                     indentLevel = indentLevel + 1,
                     parentKey = instanceKey,
+                    tagResults = tagResults,
                 )
             } else {
                 renderIdentityInstance(
@@ -977,6 +1011,7 @@ private fun LazyListScope.renderSearchedGroup(
                     onToggleField = onToggleField,
                     indentLevel = indentLevel + 1,
                     parentKey = instanceKey,
+                    tagResults = tagResults,
                 )
             }
         } catch (e: Exception) {
@@ -999,6 +1034,7 @@ private fun LazyListScope.renderFullFieldMap(
     onToggleField: (String) -> Unit,
     indentLevel: Int,
     parentKey: String,
+    tagResults: Map<Int, TagResult> = emptyMap(),
 ) {
     val iterator = fieldMap.iterator()
     while (iterator.hasNext()) {
@@ -1058,6 +1094,7 @@ private fun LazyListScope.renderFullFieldMap(
                     isExpanded = expandedFields.contains(fieldKey),
                     onToggleExpand = { onToggleField(fieldKey) },
                     searchQuery = searchQuery,
+                    tagResult = tagResults[tag],
                 )
             }
         }
@@ -1078,6 +1115,7 @@ private fun LazyListScope.renderIdentityInstance(
     onToggleField: (String) -> Unit,
     indentLevel: Int,
     parentKey: String,
+    tagResults: Map<Int, TagResult> = emptyMap(),
 ) {
     val includedTags = identityInstanceTags(group, dictionary, searchQuery, hideProtocolTags, protocolTags).toSet()
     val iterator = group.iterator()
@@ -1106,6 +1144,7 @@ private fun LazyListScope.renderIdentityInstance(
                 expandedFields = expandedFields,
                 onToggleField = onToggleField,
                 indentLevel = indentLevel,
+                tagResults = tagResults,
             )
             continue
         }
@@ -1123,6 +1162,7 @@ private fun LazyListScope.renderIdentityInstance(
                 isExpanded = expandedFields.contains(fieldKey),
                 onToggleExpand = { onToggleField(fieldKey) },
                 searchQuery = searchQuery,
+                tagResult = tagResults[tag],
             )
         }
     }

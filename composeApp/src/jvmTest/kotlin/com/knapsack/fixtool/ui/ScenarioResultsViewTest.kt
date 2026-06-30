@@ -2,8 +2,11 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
@@ -67,8 +70,12 @@ class ScenarioResultsViewTest {
 
     @Composable
     private fun view(result: ScenarioResult) {
+        // Reproduce the real container (ResultsPane wraps this in a verticalScroll) so a
+        // LazyColumn-in-scrollable regression would crash this test.
         Box(modifier = Modifier.size(860.dp, 360.dp).background(AppTheme.Colors.background).padding(12.dp)) {
-            ScenarioResultsView(result)
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                ScenarioResultsView(result)
+            }
         }
     }
 

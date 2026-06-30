@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,8 +49,10 @@ fun ScenarioResultsView(result: ScenarioResult, modifier: Modifier = Modifier) {
             val counts = "${result.steps.count { it.passed }}/${result.steps.size} steps"
             Text(text = counts, color = MutedText, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp))
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(result.steps) { step -> StepRow(step) }
+        // Plain Column (not LazyColumn): the caller already provides vertical scrolling, and a
+        // LazyColumn nested in a scrollable parent throws ("infinity max height").
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            result.steps.forEach { StepRow(it) }
         }
     }
 }

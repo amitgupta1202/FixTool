@@ -181,6 +181,39 @@ object McpTools {
                 ),
             ),
             tool(
+                "fixtool_assert",
+                "Assert a received message against an expectation (per-tag matchers) — the machine-check that " +
+                    "replaces eyeballing a response. Selects the message like fixtool_select (by " +
+                    "messageType/direction/index), or awaits one for up to timeoutMs. Returns {passed, tags:[{tag, " +
+                    "matcher, expected, actual, passed}]} for tag-by-tag pass/fail. mode=open asserts only listed " +
+                    "tags; strict also fails on unexpected tags. Matcher {type,...}: exact (value), presence, absent, " +
+                    "regex (pattern), oneOf (values[]), numeric (value, tolerance?), temporal (kind today|" +
+                    "now_within_tolerance, toleranceSeconds?), reference (expression, e.g. \${out.D.11}).",
+                props(
+                    "session" to string("session id/title/index; default active"),
+                    "messageType" to string("FIX msg type to select/await, e.g. 8"),
+                    "direction" to enumStr("in", "incoming", "out", "outgoing"),
+                    "index" to integer("0-based into matching messages; default last"),
+                    "timeoutMs" to integer("await a matching message up to this long; default 0 = use already-received"),
+                    "mode" to enumStr("open", "strict"),
+                    "fields" to arraySchema(objectSchema("FieldExpectation: {tag, matcher:{type,...}, path?:{groupTag,identityTag,identityValue}}"), "per-tag matchers"),
+                ),
+                required = listOf("fields"),
+            ),
+            tool(
+                "fixtool_capture_expectation",
+                "Build an auto-seeded expectation from a received message: matchers pre-seeded from dictionary field " +
+                    "types (timestamps -> temporal, prices/quantities -> numeric, OrderID/ExecID -> presence, else " +
+                    "exact; header volatiles 9/10/34/52 omitted). Selects by messageType/direction/index like " +
+                    "fixtool_select. Returns {messageType, mode, fields:[...]} ready to edit and pass to fixtool_assert.",
+                props(
+                    "session" to string("session id/title/index; default active"),
+                    "messageType" to string("FIX msg type to select, e.g. 8"),
+                    "direction" to enumStr("in", "incoming", "out", "outgoing"),
+                    "index" to integer("0-based into matching messages; default last"),
+                ),
+            ),
+            tool(
                 "fixtool_admin",
                 "FIX session/admin control: seqnum (read), reset-seqnum (sender/target), test-request (id), " +
                     "resend-request (begin/end), sequence-reset (newSeq/gapFill), logout (reason), disconnect (reason).",

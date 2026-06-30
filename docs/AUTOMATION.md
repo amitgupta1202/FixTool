@@ -37,7 +37,8 @@ claude mcp add --transport http fixtool http://127.0.0.1:8765/mcp
 
 This works from **any** project directory (use `--scope user` to make it global), so Claude can
 drive FixTool while you work in a different FIX codebase. The Settings → Automation Control screen
-shows this exact command. All 27 tools (`fixtool_connect`, `fixtool_send`, `fixtool_wait`, …) are
+shows this exact command. All tools (`fixtool_connect`, `fixtool_send`, `fixtool_wait`,
+`fixtool_assert`, …) are
 served by the in-app Kotlin registry (`control/McpTools.kt`); the standalone Node server in
 `tools/fixtool-mcp/` remains as an alternative stdio transport for FixTool developers.
 
@@ -88,6 +89,8 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 `test-request` (`id`), `resend-request` (`begin`/`end`), `sequence-reset` (`newSeq`/`gapFill`),
 `logout` (`reason`), `disconnect` (`reason`, ungraceful). Used for session-recovery / gap-fill QA.
 | `POST /select`       | `{"session"?, "index"?, "messageType"?, "direction"?}` | selects a message in the browser → opens the detail panel |
+| `POST /assert`       | `{"session"?, "messageType"?, "direction"?, "index"?, "timeoutMs"?, "mode"?, "fields":[{tag, matcher, path?}]}` | machine-checks a received message tag-by-tag → `{passed, tags:[{tag, matcher, expected, actual, passed}]}` |
+| `POST /expectation/capture` | `{"session"?, "messageType"?, "direction"?, "index"?}` | builds an auto-seeded expectation from a message → `{messageType, mode, fields:[…]}` |
 | `POST /detail`       | `{"query"?, "mode"?, "show"?}`         | drives the detail panel's tag search: sets the query and/or match-context `mode` (`bare`\|`identity`\|`full`) so a nested tag keeps its repeating-group context |
 | `POST /search`       | `{"query", "pin"?}`                    | cross-session matches sorted chronologically (a timeline); pins to the search pane |
 | `POST /filter`       | `{"scope"?, "session"?, "regex"?, "messageTypes"?, "showIncoming"?, "showOutgoing"?, "showSeparator"?}` | filters the grid for a focused screenshot |
@@ -96,6 +99,44 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 `session` may be an index (`0`), an id, or a title. `direction` is `in`/`out` (or omitted).
 Each message in `/messages` includes `timestamp`, `direction`, `messageType` (tag 35), the
 `raw` string, and an ordered `fields` array of `{tag, value}`.
+
+### Asserting responses
+
+`/assert` (MCP: `fixtool_assert`) machine-checks a received message against an **expectation** —
+a list of per-tag matchers — instead of eyeballing it. It selects the message (by
+`messageType`/`direction`/`index`) or awaits one for up to `timeoutMs`, then returns a tag-by-tag
+report. `mode` is `open` (default — only the listed tags are checked; extras ignored) or `strict`
+(any unexpected tag, besides volatile header/trailer tags, fails). Each field is
+`{tag, matcher:{type, …}, path?}`, where `matcher.type` is one of:
+
+| type | extra fields | checks |
+| --- | --- | --- |
+| `exact` | `value` | literal equality |
+| `presence` | — | tag is present (value ignored) |
+| `absent` | — | tag is not present |
+| `regex` | `pattern` | value matches the pattern |
+| `oneOf` | `values[]` | value ∈ set |
+| `numeric` | `value`, `tolerance`? | `abs(actual − value) ≤ tolerance` (0 still ignores formatting) |
+| `temporal` | `kind` (`today`\|`now_within_tolerance`), `toleranceSeconds`? | parsed as UTCTimestamp/UTCDate |
+| `reference` | `expression` | equals a `${…}` expr resolved over session history, e.g. `${out.D.11}` |
+
+`path` (`{groupTag, identityTag, identityValue}`) locates a repeating-group entry by identity, not
+position. `/expectation/capture` (MCP: `fixtool_capture_expectation`) returns a draft expectation
+with matchers pre-seeded from the data dictionary, ready to edit.
+
+```bash
+# send an order, then assert the ExecutionReport echoes the ClOrdID and has an OrderID
+curl -s -XPOST $B/send   -d '{"session":"CLI","raw":"35=D|11=ORD-1|55=EUR/USD|54=1|38=100|40=1|"}'
+curl -s -XPOST $B/assert -d '{
+  "session":"CLI","messageType":"8","direction":"in","timeoutMs":5000,
+  "fields":[
+    {"tag":150,"matcher":{"type":"exact","value":"0"}},
+    {"tag":39,"matcher":{"type":"oneOf","values":["0","1","2"]}},
+    {"tag":37,"matcher":{"type":"presence"}},
+    {"tag":11,"matcher":{"type":"reference","expression":"${out.D.11}"}}
+  ]
+}'
+```
 
 ### Setting up connections from scratch
 

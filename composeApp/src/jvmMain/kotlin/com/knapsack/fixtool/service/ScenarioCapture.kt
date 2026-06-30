@@ -114,7 +114,12 @@ object ScenarioCapture {
             direction = "in",
             match = MatchPredicate(messageType = entry.message.messageType),
             timeoutMs = DEFAULT_TIMEOUT_MS,
-            expectation = Expectation(fields = correlated, messageType = entry.message.messageType, mode = seeded.mode),
+            expectation = Expectation(
+                fields = correlated,
+                messageType = entry.message.messageType,
+                mode = seeded.mode,
+                golden = entry.message.rawMessage,
+            ),
         )
     }
 

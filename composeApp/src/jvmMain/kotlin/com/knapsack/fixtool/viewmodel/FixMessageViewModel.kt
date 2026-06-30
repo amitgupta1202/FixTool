@@ -29,6 +29,7 @@ import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.SavedMessagesService
+import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
@@ -732,6 +733,28 @@ class FixMessageViewModel(
             _scenarioResult.value = result
             _scenarioRunning.value = false
         }
+    }
+
+    /**
+     * Capture the current session message flow into a saved scenario (capture-driven authoring).
+     * Captures all sessions by default, or only [sessionTitles]. Returns the new scenario id, or null.
+     */
+    fun captureScenarioFromSessions(name: String, sessionTitles: List<String>? = null): String? {
+        val chosen = if (sessionTitles.isNullOrEmpty()) _sessions.toList() else _sessions.filter { it.title in sessionTitles }
+        if (chosen.isEmpty()) {
+            showNotification("No sessions to capture", NotificationType.ERROR)
+            return null
+        }
+        val captured = chosen.map { ScenarioCapture.CapturedSession(it.title, it.messages.value.filterIsInstance<FixMessage>()) }
+        val scenario =
+            ScenarioCapture.capture(
+                id = java.util.UUID.randomUUID().toString(),
+                name = name,
+                profile = null,
+                sessions = captured,
+                dictionary = dictionary,
+            )
+        return if (scenarioService.save(scenario)) scenario.id else null
     }
 
     /** Persist a scenario (used by the Scenarios dialog's "save from JSON"); returns its id or null. */

@@ -22,13 +22,13 @@ import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
-import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioHost
 import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import com.knapsack.fixtool.viewmodel.ViewModelScenarioHost
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpContext
 import com.sun.net.httpserver.HttpExchange
@@ -722,57 +722,8 @@ class ControlServer(
         }
     }
 
-    /** The [ScenarioHost] backing the runner — bridges to the live sessions via the existing helpers. */
-    private fun scenarioHost(): ScenarioHost =
-        object : ScenarioHost {
-            override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String {
-                val sess = resolveSession(session)
-                val msgs =
-                    if (sess == null) emptyList() else onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
-                val incoming =
-                    msgs.filter { it.direction == FixMessage.Direction.INCOMING }.associateBy { it.messageType }
-                val outgoing =
-                    msgs.filter { it.direction == FixMessage.Direction.OUTGOING }.associateBy { it.messageType }
-                return FixMessageTemplate.evaluate(raw, incoming, outgoing, scope, onEdt { viewModel.dictionary })
-            }
-
-            override fun send(raw: String, session: String?): Boolean =
-                onEdt {
-                    val sess = resolveSession(session) ?: return@onEdt false
-                    val index = viewModel.sessions.indexOf(sess)
-                    if (index < 0) return@onEdt false
-                    viewModel.setActiveSession(index)
-                    val result = viewModel.sendMessage(raw)
-                    result != null && sendResultStatus(result) != "failed"
-                }
-
-            override fun messages(session: String?): List<FixMessage> {
-                val sess = resolveSession(session) ?: return emptyList()
-                return onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
-            }
-
-            override fun connectionState(session: String?): String? {
-                val sess = resolveSession(session) ?: return null
-                return onEdt { sess.connectionState.value.name }
-            }
-
-            override fun referenceResolver(session: String?): (String) -> String? {
-                val sess = resolveSession(session) ?: return { null }
-                return referenceResolverFor(sess)
-            }
-
-            override fun view(message: FixMessage): MessageView = FixMessageView(message)
-
-            override fun clearMessages(session: String?) {
-                val sess = resolveSession(session) ?: return
-                onEdt { sess.clearMessages() }
-            }
-
-            override fun resetSeqNum(session: String?, sender: Int?, target: Int?) {
-                val sess = resolveSession(session) ?: return
-                onEdt { sess.resetSequenceNumbers(sender, target) }
-            }
-        }
+    /** The [ScenarioHost] backing the runner — shared with the in-app "Run scenario" action. */
+    private fun scenarioHost(): ScenarioHost = ViewModelScenarioHost(viewModel)
 
     /**
      * Drives the message detail panel's tag search: sets the search `query` and/or the

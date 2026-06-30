@@ -59,6 +59,7 @@ fun Toolbar(
     onToggleHideProtocolTags: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     onOpenHelp: (() -> Unit)? = null,
+    onOpenScenarios: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -464,6 +465,22 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.Help,
                     contentDescription = "Help",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = tooltipIconModifier,
+                )
+            }
+        }
+
+        // Scenarios button (repeatable scenarios + assertion results)
+        if (onOpenScenarios != null) {
+            TooltipIconButton(
+                tooltip = "Repeatable Scenarios",
+                onClick = onOpenScenarios,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlaylistPlay,
+                    contentDescription = "Repeatable Scenarios",
                     tint = AppTheme.Colors.textSecondary,
                     modifier = tooltipIconModifier,
                 )

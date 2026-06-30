@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedButton
@@ -110,8 +108,10 @@ fun ExpectationBuilder(
             overSpecified = overSpecified,
             onSave = { onSave(expectation()) },
         )
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.fillMaxWidth()) {
-            itemsIndexed(drafts) { index, draft ->
+        // Plain Column (not LazyColumn) so this builder can be embedded inside scrollable parents
+        // (the scenario builder / dialog) without the "infinity max height" nesting crash.
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.fillMaxWidth()) {
+            drafts.forEachIndexed { index, draft ->
                 FieldDraftRow(
                     draft = draft,
                     livePass = if (draft.included) previewPass(draft, goldenView) else null,

@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -96,8 +94,10 @@ fun ScenarioBuilder(dictionary: FixDictionary?, onSave: (Scenario) -> Unit, modi
             }
         }
         AddStepBar { steps.add(StepDraft(kind = it)) }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            itemsIndexed(steps) { index, draft ->
+        // Plain Column (not LazyColumn): the dialog wraps this builder in a verticalScroll, and a
+        // LazyColumn nested in a scrollable parent throws ("infinity max height").
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            steps.forEachIndexed { index, draft ->
                 StepCard(
                     index = index,
                     total = steps.size,

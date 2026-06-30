@@ -91,6 +91,10 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /select`       | `{"session"?, "index"?, "messageType"?, "direction"?}` | selects a message in the browser → opens the detail panel |
 | `POST /assert`       | `{"session"?, "messageType"?, "direction"?, "index"?, "timeoutMs"?, "mode"?, "fields":[{tag, matcher, path?}]}` | machine-checks a received message tag-by-tag → `{passed, tags:[{tag, matcher, expected, actual, passed}]}` |
 | `POST /expectation/capture` | `{"session"?, "messageType"?, "direction"?, "index"?}` | builds an auto-seeded expectation from a message → `{messageType, mode, fields:[…]}` |
+| `GET /scenarios`     | query: `profile`?                      | list saved scenarios (id, name, profile, step counts, userTags) |
+| `POST /scenarios`    | scenario JSON `{name, steps:[…], setup?, teardown?, …}` | create/update a scenario (id generated if absent) |
+| `DELETE /scenarios`  | `{"id"}`                               | delete a scenario                                   |
+| `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`) |
 | `POST /detail`       | `{"query"?, "mode"?, "show"?}`         | drives the detail panel's tag search: sets the query and/or match-context `mode` (`bare`\|`identity`\|`full`) so a nested tag keeps its repeating-group context |
 | `POST /search`       | `{"query", "pin"?}`                    | cross-session matches sorted chronologically (a timeline); pins to the search pane |
 | `POST /filter`       | `{"scope"?, "session"?, "regex"?, "messageTypes"?, "showIncoming"?, "showOutgoing"?, "showSeparator"?}` | filters the grid for a focused screenshot |
@@ -137,6 +141,36 @@ curl -s -XPOST $B/assert -d '{
   ]
 }'
 ```
+
+### Repeatable scenarios
+
+A **scenario** chains a whole flow into a saved, parameterized sequence of sends and assertions that
+a deterministic runner replays identically — no LLM in the hot path. It is an ordered list of steps
+over one persistent variable scope, plus optional `setup`/`teardown` step lists (teardown always
+runs). Step `{type, …}` is one of: `send {raw, session?}`, `expect {session?, direction?, match?,
+timeoutMs?, expectation}`, `wait {session?, state?, match?, timeoutMs?}`, `clearMessages {session?}`,
+`resetSeqNum {session?, sender?, target?}`. An `expect` consumes the message it matches, so a
+partial-fill sequence is just successive `expect`s; `match {messageType?, direction?, fields:[{tag,
+value}]}` selects by AND. Each step can target a different `session` (initiator + acceptor in one
+scenario). Scenarios are stored one-file-per-scenario under `~/.fixtool/scenarios/`.
+
+```bash
+# run a book-a-trade flow and get a pass/fail report (no AI in the loop)
+curl -s -XPOST $B/scenarios/run -d '{"scenario":{
+  "name":"book-a-trade",
+  "setup":[{"type":"clearMessages","session":"CLI"}],
+  "steps":[
+    {"type":"send","session":"CLI","raw":"35=D|11=ORD-1|55=EUR/USD|54=1|38=100|40=1|"},
+    {"type":"expect","session":"CLI","direction":"in","timeoutMs":8000,"expectation":{
+      "messageType":"8","fields":[
+        {"tag":150,"matcher":{"type":"exact","value":"0"}},
+        {"tag":11,"matcher":{"type":"reference","expression":"${out.D.11}"}}
+      ]}}
+  ]}}'                                    # add "format":"junit" for CI XML
+```
+
+`fixtool_save_scenario` / `fixtool_list_scenarios` / `fixtool_run_scenario` /
+`fixtool_delete_scenario` are the MCP equivalents.
 
 ### Setting up connections from scratch
 

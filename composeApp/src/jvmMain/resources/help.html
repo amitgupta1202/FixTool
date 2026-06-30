@@ -184,7 +184,7 @@
             <li><a href="#settings">9. Settings</a></li>
             <li><a href="#latency">10. Latency Measurement</a></li>
             <li><a href="#automation">11. Automation &amp; AI Control</a></li>
-            <li><a href="#assertions">12. Automated Verification (Assertions)</a></li>
+            <li><a href="#assertions">12. Automated Verification &amp; Scenarios</a></li>
         </ul>
     </div>
 
@@ -1893,7 +1893,7 @@ stunnel stunnel.conf</code></pre>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
-    <h2 id="assertions">12. Automated Verification (Assertions)</h2>
+    <h2 id="assertions">12. Automated Verification &amp; Scenarios</h2>
 
     <p>Instead of <em>eyeballing</em> a response to decide whether it looks right, you (or an agent)
     can <strong>machine-check</strong> a received message tag-by-tag against an <strong>expectation</strong>
@@ -1962,12 +1962,39 @@ stunnel stunnel.conf</code></pre>
         has ExecType=New, an OrderID, and a ClOrdID that matches the order I sent."</em>
     </div>
 
+    <h3 id="scenarios">Repeatable scenarios (author once, run forever)</h3>
+
+    <p>An assertion checks one message; a <strong>scenario</strong> chains a whole flow &mdash; a saved,
+    parameterized sequence of sends and assertions that a <strong>deterministic runner</strong> replays
+    identically every time, with no AI in the loop. Author it once (by hand or with an agent); re-run it
+    as a regression test forever.</p>
+
+    <p>A scenario is an ordered list of <strong>steps</strong> over a single persistent variable scope:</p>
+    <ul>
+        <li><strong>send</strong> &mdash; a (parameterized) message; <code>${&hellip;}</code> resolves at
+        run time, and a value set in one step is visible in later steps.</li>
+        <li><strong>expect</strong> &mdash; await the next matching message and assert it against an
+        expectation (the same matchers as above). Successive expects walk successive messages, so a
+        partial-fill sequence (two partials then a fill) is just three expect steps.</li>
+        <li><strong>wait</strong> &mdash; block until a state (e.g. LOGGED_ON) or a matching message.</li>
+        <li><strong>clearMessages / resetSeqNum</strong> &mdash; typical setup steps for a clean start.</li>
+    </ul>
+    <p><code>setup</code> steps run first; <code>teardown</code> steps always run, even after a failure.
+    Each step can target a different <code>session</code>, so one scenario can drive an initiator and
+    assert on an acceptor.</p>
+
+    <p>Four tools manage them: <code>fixtool_save_scenario</code>, <code>fixtool_list_scenarios</code>,
+    <code>fixtool_run_scenario</code>, and <code>fixtool_delete_scenario</code>. A run returns a
+    per-step, per-tag pass/fail report; pass <code>format:"junit"</code> to get JUnit XML for CI.</p>
+
+    <p>Scenarios are stored as one JSON file per scenario under
+    <code>~/.fixtool/scenarios/</code> &mdash; diffable, shareable, and easy to commit alongside your
+    project.</p>
+
     <div class="tip">
-        <strong>Where this is heading.</strong> <code>fixtool_assert</code> is the first step (the
-        "crawl" phase) of <strong>repeatable scenarios</strong>: author a flow once, then a
-        deterministic runner replays the sends and assertions as a regression test &mdash; with no AI
-        in the loop. See the design in <code>docs/repeatable-scenarios-proposal.md</code> and the
-        plan in <code>docs/repeatable-scenarios-impl-plan.md</code>.
+        <strong>The point:</strong> the LLM (or a human) authors the scenario once; a dumb runner
+        repeats it forever. The model is out of the hot path, so runs are fast, deterministic, and
+        CI-friendly. Full design: <code>docs/repeatable-scenarios-proposal.md</code>.
     </div>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>

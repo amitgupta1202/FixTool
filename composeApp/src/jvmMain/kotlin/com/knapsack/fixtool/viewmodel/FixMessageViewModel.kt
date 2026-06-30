@@ -19,6 +19,8 @@ import com.knapsack.fixtool.model.Notification
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
@@ -26,6 +28,8 @@ import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.SavedMessagesService
+import com.knapsack.fixtool.service.ScenarioCodec
+import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.SessionIdentityResolver
 import com.knapsack.fixtool.service.demo.DemoServerManager
@@ -42,6 +46,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import java.io.File
 
 class FixMessageViewModel(
@@ -113,6 +122,16 @@ class FixMessageViewModel(
     // Help dialog visibility
     private val _showHelpDialog = MutableStateFlow(false)
     val showHelpDialog: StateFlow<Boolean> = _showHelpDialog.asStateFlow()
+
+    // Scenarios dialog visibility
+    private val _showScenariosDialog = MutableStateFlow(false)
+    val showScenariosDialog: StateFlow<Boolean> = _showScenariosDialog.asStateFlow()
+
+    // Last scenario run result (drives the in-app red/green report) and the running flag
+    private val _scenarioResult = MutableStateFlow<ScenarioResult?>(null)
+    val scenarioResult: StateFlow<ScenarioResult?> = _scenarioResult.asStateFlow()
+    private val _scenarioRunning = MutableStateFlow(false)
+    val scenarioRunning: StateFlow<Boolean> = _scenarioRunning.asStateFlow()
 
     // Latency panel visibility
     private val _showLatencyPanel = MutableStateFlow(false)
@@ -669,6 +688,50 @@ class FixMessageViewModel(
     fun toggleHelpDialog() {
         _showHelpDialog.value = !_showHelpDialog.value
     }
+
+    fun toggleScenariosDialog() {
+        _showScenariosDialog.value = !_showScenariosDialog.value
+    }
+
+    /**
+     * Runs a saved scenario deterministically off the UI thread (the runner blocks on polling) and
+     * publishes the per-step / per-tag [ScenarioResult] to [scenarioResult] for the red/green overlay.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    fun runScenario(scenario: Scenario) {
+        if (_scenarioRunning.value) return
+        _scenarioRunning.value = true
+        _scenarioResult.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val result =
+                try {
+                    ScenarioRunner(ViewModelScenarioHost(this@FixMessageViewModel)).run(scenario)
+                } catch (e: Exception) {
+                    showNotification("Scenario run failed: ${e.message}", NotificationType.ERROR)
+                    null
+                }
+            _scenarioResult.value = result
+            _scenarioRunning.value = false
+        }
+    }
+
+    /** Persist a scenario (used by the Scenarios dialog's "save from JSON"); returns its id or null. */
+    @Suppress("TooGenericExceptionCaught")
+    fun saveScenarioJson(json: String): String? =
+        try {
+            val obj = Json.parseToJsonElement(json).jsonObject
+            val withId =
+                if (obj["id"] != null) {
+                    obj
+                } else {
+                    JsonObject(obj + ("id" to JsonPrimitive(java.util.UUID.randomUUID().toString())))
+                }
+            val scenario = ScenarioCodec.fromJson(withId)
+            if (scenarioService.save(scenario)) scenario.id else null
+        } catch (e: Exception) {
+            showNotification("Invalid scenario JSON: ${e.message}", NotificationType.ERROR)
+            null
+        }
 
     fun toggleLatencyPanel() {
         _showLatencyPanel.value = !_showLatencyPanel.value

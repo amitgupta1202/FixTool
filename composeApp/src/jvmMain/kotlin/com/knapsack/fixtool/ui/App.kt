@@ -104,6 +104,7 @@ fun App(
             val showConnectionPanel by viewModel.showConnectionPanel.collectAsState()
             val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
             val showHelpDialog by viewModel.showHelpDialog.collectAsState()
+            val showScenariosDialog by viewModel.showScenariosDialog.collectAsState()
             val showGlobalSearchDialog by viewModel.showGlobalSearchDialog.collectAsState()
             val globalSearchQuery by viewModel.globalSearchQuery.collectAsState()
             val globalSearchResults by viewModel.globalSearchResults.collectAsState()
@@ -214,6 +215,7 @@ fun App(
                         onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
                         onOpenSettings = { viewModel.toggleSettingsDialog() },
                         onOpenHelp = { viewModel.toggleHelpDialog() },
+                        onOpenScenarios = { viewModel.toggleScenariosDialog() },
                     )
 
                     // Settings Dialog
@@ -230,6 +232,14 @@ fun App(
                     if (showHelpDialog) {
                         HelpDialog(
                             onClose = { viewModel.toggleHelpDialog() },
+                        )
+                    }
+
+                    // Scenarios Dialog
+                    if (showScenariosDialog) {
+                        ScenariosDialog(
+                            viewModel = viewModel,
+                            onClose = { viewModel.toggleScenariosDialog() },
                         )
                     }
 

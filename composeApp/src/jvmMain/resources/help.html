@@ -1991,6 +1991,13 @@ stunnel stunnel.conf</code></pre>
     <code>~/.fixtool/scenarios/</code> &mdash; diffable, shareable, and easy to commit alongside your
     project.</p>
 
+    <p><strong>In the app:</strong> click the <strong>Scenarios</strong> button (the ▶ playlist icon)
+    in the toolbar to open the Scenarios panel. There you can <strong>run</strong> a saved scenario
+    and watch its <strong>per-step, per-tag red/green result</strong> (each <em>expect</em> step
+    expands to one row per asserted tag, showing expected vs actual &mdash; red where it failed),
+    <strong>delete</strong> scenarios, or author a new one by pasting its JSON. This is where a failed
+    assertion is rendered visually inside FixTool.</p>
+
     <div class="tip">
         <strong>The point:</strong> the LLM (or a human) authors the scenario once; a dumb runner
         repeats it forever. The model is out of the hot path, so runs are fast, deterministic, and

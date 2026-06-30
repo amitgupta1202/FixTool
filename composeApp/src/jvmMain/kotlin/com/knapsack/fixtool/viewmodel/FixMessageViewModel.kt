@@ -21,6 +21,7 @@ import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
+import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
@@ -132,6 +133,16 @@ class FixMessageViewModel(
     val scenarioResult: StateFlow<ScenarioResult?> = _scenarioResult.asStateFlow()
     private val _scenarioRunning = MutableStateFlow(false)
     val scenarioRunning: StateFlow<Boolean> = _scenarioRunning.asStateFlow()
+
+    // Per-message assertion results from the last run — keyed by the matched message — so the session
+    // grid can tint rows green/red and the detail panel can show per-tag expected-vs-actual.
+    private val _assertionResults = mutableStateOf<Map<FixMessage, StepResult>>(emptyMap())
+    val assertionResults: Map<FixMessage, StepResult> get() = _assertionResults.value
+
+    /** Publish per-message assertion results (also used by control-surface runs so they light up the UI). */
+    fun setAssertionResults(results: Map<FixMessage, StepResult>) {
+        _assertionResults.value = results
+    }
 
     // Latency panel visibility
     private val _showLatencyPanel = MutableStateFlow(false)
@@ -702,10 +713,18 @@ class FixMessageViewModel(
         if (_scenarioRunning.value) return
         _scenarioRunning.value = true
         _scenarioResult.value = null
+        _assertionResults.value = emptyMap()
+        val matched = linkedMapOf<FixMessage, StepResult>()
         viewModelScope.launch(Dispatchers.IO) {
             val result =
                 try {
-                    ScenarioRunner(ViewModelScenarioHost(this@FixMessageViewModel)).run(scenario)
+                    ScenarioRunner(
+                        ViewModelScenarioHost(this@FixMessageViewModel),
+                        onExpectMatched = { message, stepResult ->
+                            matched[message] = stepResult
+                            _assertionResults.value = matched.toMap()
+                        },
+                    ).run(scenario)
                 } catch (e: Exception) {
                     showNotification("Scenario run failed: ${e.message}", NotificationType.ERROR)
                     null

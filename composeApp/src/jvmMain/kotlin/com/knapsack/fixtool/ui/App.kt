@@ -337,6 +337,7 @@ fun App(
                                                 wrapText = wrapText,
                                                 selectedMessage = selectedMessage,
                                                 recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                                                assertionResults = viewModel.assertionResults,
                                                 onSelectMessage = { message -> viewModel.selectMessage(message) },
                                                 showDetailPanel = false,
                                                 hideProtocolTags = viewModel.appSettings.hideProtocolTags,
@@ -632,6 +633,7 @@ fun App(
                                                 },
                                                 orientation = splitOrientation,
                                                 gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                                assertionResults = viewModel.assertionResults,
                                                 appSettings = viewModel.appSettings,
                                                 modifier = Modifier.weight(1f),
                                             )
@@ -852,6 +854,7 @@ fun App(
                                         onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
                                         orientation = splitOrientation,
                                         gridViewColumns = viewModel.appSettings.gridViewColumns,
+                                        assertionResults = viewModel.assertionResults,
                                         appSettings = viewModel.appSettings,
                                         modifier = Modifier.weight(1f),
                                     )
@@ -1137,6 +1140,7 @@ private fun AppMessageDetailPanel(
         onSearchQueryChange = { viewModel.setDetailSearch(query = it) },
         externalMatchContextMode = detailMatchContextMode,
         onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
+        tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags?.associateBy { t -> t.tag } } ?: emptyMap(),
     )
 }
 

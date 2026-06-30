@@ -237,6 +237,7 @@ fun HierarchicalGridView(
     selectedMessage: FixMessage? = null,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
     recentlySentMessageTimestamp: LocalDateTime? = null,
+    assertionResults: Map<FixMessage, com.knapsack.fixtool.model.scenario.StepResult> = emptyMap(),
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
@@ -1051,6 +1052,7 @@ fun HierarchicalGridView(
                                             isMultiSelected = selectedMessageIds.contains(messageId),
                                             messageIndex = index,
                                             recentlySentMessageTimestamp = recentlySentMessageTimestamp,
+                                            stepResult = assertionResults[message],
                                             onToggleExpand = {
                                                 val wasExpanded = isExpanded
                                                 expandedMessages[messageId] = !isExpanded
@@ -1136,6 +1138,7 @@ fun MessageSummaryRow(
     isMultiSelected: Boolean = false,
     messageIndex: Int = 0,
     recentlySentMessageTimestamp: LocalDateTime? = null,
+    stepResult: com.knapsack.fixtool.model.scenario.StepResult? = null,
     onToggleExpand: () -> Unit,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
     onMultiSelectClick: ((isCtrlOrCmd: Boolean, isShift: Boolean) -> Unit)? = null,
@@ -1174,15 +1177,18 @@ fun MessageSummaryRow(
             false
         }
 
-    // Background color: highlight if recently sent, selected, multi-selected, or default
+    // Background color: selection wins, then scenario assertion result (green/red), then recently
+    // sent, then default. The assertion tint marks messages a played scenario matched.
+    val assertionTint =
+        stepResult?.let {
+            if (it.passed) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
+        }
     val backgroundColor =
         when {
-            isRecentlySent -> {
-                AppTheme.Colors.messageRecentlySent
-            }
-
             isSelected -> selectedRowBackgroundColor
             isMultiSelected -> multiSelectedRowBackgroundColor
+            assertionTint != null -> assertionTint
+            isRecentlySent -> AppTheme.Colors.messageRecentlySent
             else -> mainBackgroundColor
         }
 

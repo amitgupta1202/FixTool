@@ -50,16 +50,17 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    override fun referenceResolver(session: String?): (String) -> String? {
-        val sess = resolveSession(session) ?: return { null }
-        val msgs = onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
+    override fun referenceResolver(session: String?, scope: Map<String, String>): (String) -> String? {
+        val sess = resolveSession(session)
+        val msgs = if (sess == null) emptyList() else onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
         val incoming = byType(msgs, incoming = true)
         val outgoing = byType(msgs, incoming = false)
         val dictionary = onEdt { viewModel.dictionary }
+        val vars = scope.toMutableMap()
         return { expression ->
             try {
                 FixMessageTemplate
-                    .evaluate(expression, incoming, outgoing, null, dictionary)
+                    .evaluate(expression, incoming, outgoing, vars, dictionary)
                     .takeIf { it != expression }
             } catch (e: Exception) {
                 null

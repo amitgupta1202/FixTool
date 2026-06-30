@@ -143,7 +143,8 @@ class ScenarioRunnerTest {
 
         override fun connectionState(session: String?): String = "LOGGED_ON"
 
-        override fun referenceResolver(session: String?): (String) -> String? = { null }
+        override fun referenceResolver(session: String?, scope: Map<String, String>): (String) -> String? =
+            { expr -> scope[expr.removePrefix("\${").removeSuffix("}")] }
 
         override fun view(message: FixMessage): MessageView = MapView(viewTags[message] ?: emptyMap())
 

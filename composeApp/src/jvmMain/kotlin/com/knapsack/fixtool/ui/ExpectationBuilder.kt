@@ -66,6 +66,24 @@ object ExpectationDrafts {
             )
         }
     }
+
+    /** Rebuild editable drafts from a previously saved expectation (preserving relaxed matchers). */
+    fun fromExpectation(expectation: Expectation, dictionary: FixDictionary?): List<FieldDraft> {
+        val goldenValues =
+            expectation.golden
+                ?.let { FixMessageHelper.parseFixMessage(it).associate { f -> f.first to f.second } }
+                ?: emptyMap()
+        return expectation.fields.map { fe ->
+            FieldDraft(
+                tag = fe.tag,
+                name = dictionary?.getFieldName(fe.tag) ?: "",
+                value = goldenValues[fe.tag] ?: "",
+                included = true,
+                matcher = fe.matcher,
+                path = fe.path,
+            )
+        }
+    }
 }
 
 /**

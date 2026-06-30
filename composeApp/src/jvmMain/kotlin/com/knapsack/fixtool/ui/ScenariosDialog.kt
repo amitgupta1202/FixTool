@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,9 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,15 +25,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,22 +40,25 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 
 /**
- * The Scenarios window: list saved scenarios, run one (▶) and watch its per-tag red/green report,
- * delete (🗑), or author a new scenario by pasting its JSON. The runner is deterministic — no AI in
- * the loop — so this is also where a failed assertion is rendered in the app.
+ * The Scenarios window — capture-driven. Record the current session flow into a scenario, run a
+ * saved scenario (its results render back in the session window — green/red rows + per-tag drill-in),
+ * or open one in the visual builder to relax/edit its assertions. No separate results pane: results
+ * live where the messages do.
  */
 @Composable
 fun ScenariosDialog(viewModel: FixMessageViewModel, onClose: () -> Unit) {
     val dialogState = rememberDialogState(width = 1040.dp, height = 760.dp)
     var building by remember { mutableStateOf(false) }
+    var editScenario by remember { mutableStateOf<Scenario?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
     Dialog(onCloseRequest = onClose, title = "Repeatable Scenarios", state = dialogState) {
         Column(modifier = Modifier.fillMaxSize().background(AppTheme.Colors.surface)) {
-            TitleBar(building = building, onToggleBuild = { building = !building }, onClose = onClose)
+            TitleBar(building = building, onCancelBuild = { building = false }, onClose = onClose)
             if (building) {
                 Box(modifier = Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
                     ScenarioBuilder(
                         dictionary = viewModel.dictionary,
+                        initial = editScenario,
                         onSave = {
                             viewModel.scenarioService.save(it)
                             refreshKey++
@@ -69,13 +67,14 @@ fun ScenariosDialog(viewModel: FixMessageViewModel, onClose: () -> Unit) {
                     )
                 }
             } else {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.fillMaxHeight().width(380.dp).padding(12.dp)) {
-                        androidx.compose.runtime.key(refreshKey) { ScenarioListPane(viewModel) }
-                    }
-                    Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(AppTheme.Colors.border))
-                    Box(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                        ResultsPane(viewModel)
+                Box(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    androidx.compose.runtime.key(refreshKey) {
+                        ScenarioListPane(
+                            viewModel = viewModel,
+                            onNew = { editScenario = null; building = true },
+                            onEdit = { editScenario = it; building = true },
+                            onRun = { viewModel.runScenario(it); onClose() },
+                        )
                     }
                 }
             }
@@ -84,7 +83,7 @@ fun ScenariosDialog(viewModel: FixMessageViewModel, onClose: () -> Unit) {
 }
 
 @Composable
-private fun TitleBar(building: Boolean, onToggleBuild: () -> Unit, onClose: () -> Unit) {
+private fun TitleBar(building: Boolean, onCancelBuild: () -> Unit, onClose: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -94,13 +93,15 @@ private fun TitleBar(building: Boolean, onToggleBuild: () -> Unit, onClose: () -
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = if (building) "Build a scenario" else "Repeatable Scenarios",
+            text = if (building) "Edit scenario" else "Repeatable Scenarios",
             color = AppTheme.Colors.text,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f),
         )
-        OutlinedButton(onClick = onToggleBuild) {
-            Text(if (building) "Cancel" else "Build scenario", color = AppTheme.Colors.text, fontSize = 12.sp)
+        if (building) {
+            OutlinedButton(onClick = onCancelBuild) {
+                Text("Back to list", color = AppTheme.Colors.text, fontSize = 12.sp)
+            }
         }
         IconButton(onClick = onClose) {
             Icon(Icons.Default.Close, contentDescription = "Close", tint = AppTheme.Colors.text)
@@ -109,47 +110,52 @@ private fun TitleBar(building: Boolean, onToggleBuild: () -> Unit, onClose: () -
 }
 
 @Composable
-private fun ScenarioListPane(viewModel: FixMessageViewModel) {
+private fun ScenarioListPane(
+    viewModel: FixMessageViewModel,
+    onNew: () -> Unit,
+    onEdit: (Scenario) -> Unit,
+    onRun: (Scenario) -> Unit,
+) {
     var scenarios by remember { mutableStateOf(viewModel.scenarioService.list()) }
-    var authoring by remember { mutableStateOf(false) }
+    var captureName by remember { mutableStateOf("") }
     fun refresh() {
         scenarios = viewModel.scenarioService.list()
     }
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-        ) {
-            Text(
-                text = "Saved scenarios (${scenarios.size})",
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 12.sp,
-                modifier = Modifier.weight(1f),
+        // Capture-from-session is the primary way to author a scenario.
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+            OutlinedTextField(
+                value = captureName,
+                onValueChange = { captureName = it },
+                label = { Text("New scenario name", fontSize = 10.sp) },
+                singleLine = true,
+                modifier = Modifier.width(260.dp),
             )
-            OutlinedButton(onClick = { authoring = !authoring }) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = "New",
-                    tint = AppTheme.Colors.text,
-                    modifier = Modifier.height(16.dp),
-                )
-                Text(
-                    text = if (authoring) "Cancel" else "New (JSON)",
-                    color = AppTheme.Colors.text,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(start = 4.dp),
-                )
+            OutlinedButton(
+                onClick = {
+                    val name = captureName.ifBlank { "Captured scenario" }
+                    if (viewModel.captureScenarioFromSessions(name) != null) {
+                        captureName = ""
+                        refresh()
+                    }
+                },
+                modifier = Modifier.padding(start = 8.dp),
+            ) {
+                Text("Capture current session(s)", color = AppTheme.Colors.success, fontSize = 12.sp)
+            }
+            OutlinedButton(onClick = onNew, modifier = Modifier.padding(start = 8.dp)) {
+                Text("New (visual)", color = AppTheme.Colors.text, fontSize = 12.sp)
             }
         }
-        if (authoring) {
-            JsonAuthoring(viewModel) {
-                authoring = false
-                refresh()
-            }
-        }
+        Text(
+            text = "Run replays the flow; results show in the session window (green/red rows + per-tag detail).",
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
         if (scenarios.isEmpty()) {
             Text(
-                text = "No scenarios yet. Create one with \"New (JSON)\" or the fixtool_save_scenario tool.",
+                "No scenarios yet. Capture the current session flow to create one.",
                 color = AppTheme.Colors.textSecondary,
                 fontSize = 12.sp,
             )
@@ -158,7 +164,8 @@ private fun ScenarioListPane(viewModel: FixMessageViewModel) {
                 items(scenarios) { scenario ->
                     ScenarioRow(
                         scenario = scenario,
-                        onRun = { viewModel.runScenario(scenario) },
+                        onRun = { onRun(scenario) },
+                        onEdit = { onEdit(scenario) },
                         onDelete = {
                             viewModel.scenarioService.delete(scenario.id)
                             refresh()
@@ -171,13 +178,10 @@ private fun ScenarioListPane(viewModel: FixMessageViewModel) {
 }
 
 @Composable
-private fun ScenarioRow(scenario: Scenario, onRun: () -> Unit, onDelete: () -> Unit) {
+private fun ScenarioRow(scenario: Scenario, onRun: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(AppTheme.Colors.surfaceVariant)
-            .padding(start = 8.dp),
+        modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceVariant).padding(start = 8.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(scenario.name, color = AppTheme.Colors.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -187,54 +191,11 @@ private fun ScenarioRow(scenario: Scenario, onRun: () -> Unit, onDelete: () -> U
         IconButton(onClick = onRun) {
             Icon(Icons.Default.PlayArrow, contentDescription = "Run", tint = AppTheme.Colors.success)
         }
+        IconButton(onClick = onEdit) {
+            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = AppTheme.Colors.textSecondary)
+        }
         IconButton(onClick = onDelete) {
             Icon(Icons.Default.Delete, contentDescription = "Delete", tint = AppTheme.Colors.error)
-        }
-    }
-}
-
-@Composable
-private fun JsonAuthoring(viewModel: FixMessageViewModel, onSaved: () -> Unit) {
-    var json by remember { mutableStateOf("") }
-    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-        OutlinedTextField(
-            value = json,
-            onValueChange = { json = it },
-            label = { Text("Scenario JSON", fontSize = 11.sp) },
-            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
-            modifier = Modifier.fillMaxWidth().height(160.dp),
-        )
-        OutlinedButton(
-            onClick = { if (viewModel.saveScenarioJson(json) != null) onSaved() },
-            modifier = Modifier.padding(top = 6.dp),
-        ) {
-            Text("Save scenario", color = AppTheme.Colors.text, fontSize = 12.sp)
-        }
-    }
-}
-
-@Composable
-private fun ResultsPane(viewModel: FixMessageViewModel) {
-    val result by viewModel.scenarioResult.collectAsState()
-    val running by viewModel.scenarioRunning.collectAsState()
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        when {
-            running -> Text("Running scenario…", color = AppTheme.Colors.textSecondary, fontSize = 13.sp)
-            result != null -> ScenarioResultsView(result!!)
-            else -> {
-                Text(
-                    text = "Run a scenario to see its per-tag result here.",
-                    color = AppTheme.Colors.textSecondary,
-                    fontSize = 13.sp,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Each step shows pass/fail; an expect step expands into one row per asserted " +
-                        "tag (tag, matcher, expected vs actual) — red where it failed.",
-                    color = AppTheme.Colors.textSecondary,
-                    fontSize = 11.sp,
-                )
-            }
         }
     }
 }

@@ -53,6 +53,23 @@ data class StepDraft(
     val target: Int? = null,
 )
 
+/** Convert a saved step back into an editable draft (for load-for-edit). */
+private fun ScenarioStep.toDraft(): StepDraft =
+    when (this) {
+        is ScenarioStep.Send -> StepDraft("send", session ?: "", raw = raw)
+        is ScenarioStep.Wait -> StepDraft("wait", session ?: "", state = state ?: "", timeoutMs = timeoutMs)
+        is ScenarioStep.Expect -> StepDraft(
+            kind = "expect",
+            session = session ?: "",
+            direction = direction,
+            timeoutMs = timeoutMs,
+            goldenRaw = expectation.golden ?: "",
+            expectation = expectation,
+        )
+        is ScenarioStep.ClearMessages -> StepDraft("clear", session ?: "")
+        is ScenarioStep.ResetSeqNum -> StepDraft("reset", session ?: "", sender = sender, target = target)
+    }
+
 private fun StepDraft.toStep(): ScenarioStep? {
     val s = session.ifBlank { null }
     return when (kind) {
@@ -71,9 +88,14 @@ private fun StepDraft.toStep(): ScenarioStep? {
  * reorder/remove, author each Expect's expectation inline via [ExpectationBuilder], then save.
  */
 @Composable
-fun ScenarioBuilder(dictionary: FixDictionary?, onSave: (Scenario) -> Unit, modifier: Modifier = Modifier) {
-    var name by remember { mutableStateOf("") }
-    val steps = remember { mutableStateListOf<StepDraft>() }
+fun ScenarioBuilder(
+    dictionary: FixDictionary?,
+    onSave: (Scenario) -> Unit,
+    initial: Scenario? = null,
+    modifier: Modifier = Modifier,
+) {
+    var name by remember { mutableStateOf(initial?.name ?: "") }
+    val steps = remember { mutableStateListOf<StepDraft>().apply { initial?.let { addAll(it.steps.map { s -> s.toDraft() }) } } }
     var editingExpect by remember { mutableStateOf<Int?>(null) }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -86,7 +108,18 @@ fun ScenarioBuilder(dictionary: FixDictionary?, onSave: (Scenario) -> Unit, modi
                 modifier = Modifier.width(260.dp).testTag("scenario-name"),
             )
             OutlinedButton(
-                onClick = { onSave(Scenario(id = java.util.UUID.randomUUID().toString(), name = name, steps = steps.mapNotNull { it.toStep() })) },
+                onClick = {
+                    onSave(
+                        Scenario(
+                            id = initial?.id ?: java.util.UUID.randomUUID().toString(),
+                            name = name,
+                            profile = initial?.profile,
+                            setup = initial?.setup ?: emptyList(),
+                            steps = steps.mapNotNull { it.toStep() },
+                            userTags = initial?.userTags ?: emptyList(),
+                        ),
+                    )
+                },
                 enabled = name.isNotBlank() && steps.isNotEmpty(),
                 modifier = Modifier.padding(start = 10.dp),
             ) {
@@ -205,9 +238,20 @@ private fun ExpectFields(
         CompactField("golden raw (paste a captured message, then seed)", draft.goldenRaw, 620.dp) {
             onChange(draft.copy(goldenRaw = it))
         }
-        val drafts = remember(draft.goldenRaw) { ExpectationDrafts.fromRaw(draft.goldenRaw, dictionary) }
+        val existing = draft.expectation
+        // Editing a captured/loaded expectation preserves its (possibly relaxed) matchers; a freshly
+        // pasted golden re-seeds smart defaults.
+        val drafts =
+            remember(draft.goldenRaw, existing) {
+                if (existing != null && existing.fields.isNotEmpty()) {
+                    ExpectationDrafts.fromExpectation(existing, dictionary)
+                } else {
+                    ExpectationDrafts.fromRaw(draft.goldenRaw, dictionary)
+                }
+            }
         val golden = remember(draft.goldenRaw) { RawMessageView(draft.goldenRaw) }
-        val messageType = remember(draft.goldenRaw) { drafts.firstOrNull { it.tag == 35 }?.value ?: "" }
+        val messageType =
+            remember(draft.goldenRaw, existing) { existing?.messageType ?: drafts.firstOrNull { it.tag == 35 }?.value ?: "" }
         ExpectationBuilder(
             messageType = messageType,
             initialFields = drafts,

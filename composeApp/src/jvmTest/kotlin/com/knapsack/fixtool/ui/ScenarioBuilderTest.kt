@@ -2,8 +2,11 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
@@ -31,8 +34,11 @@ class ScenarioBuilderTest {
     fun `builds a multi-session scenario from clicks`() {
         var saved: Scenario? = null
         composeTestRule.setContent {
+            // Reproduce the dialog's scrollable container (verticalScroll) around the builder.
             Box(modifier = Modifier.size(940.dp, 520.dp).background(AppTheme.Colors.surface).padding(10.dp)) {
-                ScenarioBuilder(dictionary = null, onSave = { saved = it })
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    ScenarioBuilder(dictionary = null, onSave = { saved = it })
+                }
             }
         }
         // Add a Send step (on the initiator) and a Clear step (on the acceptor).

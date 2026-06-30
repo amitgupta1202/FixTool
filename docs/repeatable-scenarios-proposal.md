@@ -46,9 +46,14 @@ This design is mostly assembly of parts FixTool already owns:
   [`FixMessageTemplate`](../composeApp/src/jvmMain/kotlin/com/knapsack/fixtool/service/FixMessageTemplate.kt)
   evaluates `${...}` at send time: `${UUID.randomUUID()}`, `${LocalDateTime.now()...}`,
   cross-message references `${out.D.11}` / `incoming["D"].valueOfTag(11)`, and
-  variable assignment/retrieval (`${orderId = UUID.randomUUID()}` then `${orderId}`)
-  carried across evaluations via a shared `variables` map. This is the foundation
-  for **parameterizing requests** and for **reference matchers**.
+  variable assignment/retrieval (`${orderId = UUID.randomUUID()}` then `${orderId}`).
+  This is the foundation for **parameterizing requests** and for **reference
+  matchers**. ⚠️ **Scope caveat (see [Decision 0](#decision-0--persistent-scenario-scoped-variables)):**
+  the `variables` map is allocated **fresh per send** — assignments made in one
+  `fixtool_send` do *not* survive to the next. Only the `incoming[...]`/`outgoing[...]`
+  message context persists across sends (per-session, and wiped by
+  `fixtool_clear_messages`). The runner therefore must own a persistent scenario
+  scope; it cannot simply reuse the engine's map.
 - **Deterministic wait** — `fixtool_wait` blocks until a session reaches a state or
   a matching message arrives, or until `timeoutMs`. This *is* the positive-presence
   assertion primitive.
@@ -99,9 +104,12 @@ Two capture concerns, one on each side of every step:
 
 ## Data model
 
-A **scenario** is an ordered list of steps over a shared variable scope (the
-`variables` map from the expression engine). Each step is a send, a wait, or an
-assert. Persisted as JSON next to templates so it is diffable, shareable, and
+A **scenario** is an ordered list of steps over a **persistent, scenario-scoped
+variable map owned by the runner** (not the engine's per-send map — see
+[Decision 0](#decision-0--persistent-scenario-scoped-variables)). Each step is a
+send, a wait, or an assert, plus optional `setup`/`teardown` step lists. Each
+scenario is persisted as its own JSON file (see
+[Storage](#storage--one-file-per-scenario)) so it is diffable, shareable, and
 PR-able.
 
 ```kotlin
@@ -109,12 +117,15 @@ data class Scenario(
     val id: String,
     val name: String,
     val profile: String,              // connection profile id/name
+    val setup: List<ScenarioStep> = emptyList(),    // run before steps; e.g. clear_messages, reset-seqnum
     val steps: List<ScenarioStep>,
+    val teardown: List<ScenarioStep> = emptyList(), // run after steps, even on failure
     val userTags: List<String> = emptyList(),
+    val version: Int = 1,             // per-file schema version (migrate() hook)
 )
 
 sealed interface ScenarioStep {
-    // Send a (parameterized) message. Expressions resolved against the shared scope.
+    // Send a (parameterized) message. Expressions resolved against the scenario scope.
     data class Send(
         val raw: String,              // pipe/SOH-delimited FIX with ${...} expressions
         val session: String? = null,  // default: active session
@@ -128,15 +139,24 @@ sealed interface ScenarioStep {
         val timeoutMs: Int = 10_000,
     ) : ScenarioStep
 
-    // Assert the next/selected message against an expectation.
+    // Assert the next message that satisfies `match` against an expectation.
     data class Expect(
         val session: String? = null,
         val direction: Direction = Direction.INCOMING,
+        val match: MatchPredicate? = null, // bind to a specific message (e.g. ExecType=F, OrdStatus=2);
+                                           // consumed-on-match so successive Expects walk successive fills
         val timeoutMs: Int = 10_000,  // how long to wait for the message to arrive
         val expectation: Expectation,
     ) : ScenarioStep
 }
 ```
+
+`MatchPredicate` extends the existing `fixtool_wait` predicate
+([`ControlServer.matchesMessage`](../composeApp/src/jvmMain/kotlin/com/knapsack/fixtool/control/ControlServer.kt))
+with **multiple tag/value pairs (AND)** and **consumed-cursor** semantics so an
+ordered run of partial-fill `Expect`s each binds to the next matching message
+rather than re-matching the first (see
+[Decision 4](#decision-4--partial-fill-sequences)).
 
 ### Expectation = a FIX message whose tags carry matchers
 
@@ -202,6 +222,34 @@ data class GroupPath(
 ```
 
 This mirrors `fixtool_detail_search` mode `identity`.
+
+### Storage — one file per scenario
+
+The two existing stores
+([`SavedMessagesService`](../composeApp/src/jvmMain/kotlin/com/knapsack/fixtool/service/SavedMessagesService.kt)
+→ `~/.fixtool/saved_messages.json`,
+[`ConnectionProfileService`](../composeApp/src/jvmMain/kotlin/com/knapsack/fixtool/service/ConnectionProfileService.kt)
+→ `~/.fixtool/connection_profiles.json`) each hold one collection, hard-typed inside
+their own `*Container`, written whole-file on every change. That pattern does not
+scale to the target of **hundreds-to-low-thousands of scenarios** (≈5–20 KB each
+with captured goldens), and it fights the diffable/PR-able goal above:
+
+- a single multi-MB file produces unreadable git diffs when one scenario changes;
+- every edit rewrites the entire collection (write amplification);
+- one interrupted/corrupt write loses *all* scenarios — and today's `saveAll`
+  uses `writeText` (truncate-in-place), which is **not atomic** despite its comment;
+- `list` and `run` (the hot paths) must deserialize every golden just to read
+  one scenario's metadata or body.
+
+**Decision:** a dedicated `ScenarioService` backed by a **directory store** —
+one file per scenario at `~/.fixtool/scenarios/<id>.json` (base path overridable
+via `AppSettings.scenariosPath`). Each file is a versioned, self-migrating JSON
+document; per-profile scoping reuses the existing `userTags` tag-filter convention.
+`list_scenarios` scans the directory on demand (cheap at this scale); a metadata
+sidecar/index is added **only if** profiling later shows it is needed. Stay on
+plain JSON (not SQLite) to preserve diffability. **All writes are atomic** (write
+`<id>.json.tmp`, then `Files.move(…, ATOMIC_MOVE)`) — a fix worth backporting to
+the existing services.
 
 ---
 
@@ -317,22 +365,84 @@ Build `fixtool_assert` first: the assertion vocabulary (predicates, tolerances,
 absence, groups, masking) is the actual hard design, and the scenario format is a
 thin sequencing layer on top of it.
 
+The detailed, task-level breakdown of these phases — deliverables, file touchpoints,
+new types/services/tools, and exit criteria — is in the companion
+[implementation plan](./repeatable-scenarios-impl-plan.md).
+
 ---
 
-## Open questions
+## Resolved decisions
 
-1. **Storage location** — alongside templates in the per-profile store, or a
-   separate scenario store? (Leaning: same store, new type, so they share
-   import/export.)
-2. **Setup/teardown & environment reset** — a repeatable scenario assumes a known
-   starting state (flat book, fresh seqnums, known reference data). Should a scenario
-   own explicit setup/teardown steps (e.g. `fixtool_admin reset-seqnum`,
-   `fixtool_clear_messages`), and is environment reset in scope or a precondition?
-3. **`Numeric` default tolerance** — per-field-type defaults, or always explicit?
-4. **Partial-fill sequences** — when a flow yields N `ExecutionReport`s of the same
-   type, how does a step bind to "the Fill" vs "a partial"? (Likely a `match`
-   predicate on the `Expect` step selecting by `OrdStatus`/`ExecType`.)
-5. **Multi-session scenarios** — initiator + acceptor in one scenario (send as
-   client, assert on the acceptor side)?
+These were the open questions; each is now resolved with the rationale, grounded in
+the current codebase. They are the contract the
+[implementation plan](./repeatable-scenarios-impl-plan.md) builds against.
+
+### Decision 0 — Persistent scenario-scoped variables
+
+*(Surfaced during review; prerequisite for everything below.)* The engine's
+`variables` map is allocated **fresh per send** — values set in one `fixtool_send`
+do not survive to the next; only `incoming[...]`/`outgoing[...]` context persists
+across sends (per-session, wiped by `fixtool_clear_messages`). The original
+"steps share the engine's variables map" assumption is therefore false.
+
+**Decision:** the runner owns a **persistent, scenario-wide variable map**. It is
+injected as `seedVariables` into every step's evaluation, and assignments are
+accumulated back out after each step. The scope is scenario-wide (not per-session)
+so a value produced on one session can be referenced in an assertion on another
+([Decision 5](#decision-5--multi-session-scenarios)). Because `clear_messages` in
+setup wipes the message-reference context, **scenario variables are the preferred
+cross-step correlation mechanism**; `${out.D.11}`-style refs remain available but
+are secondary.
+
+### Decision 1 — Storage: directory store, one file per scenario
+
+Resolved in [Storage](#storage--one-file-per-scenario). A dedicated `ScenarioService`
++ `~/.fixtool/scenarios/<id>.json` directory store with atomic writes — chosen over
+the existing single-collection-file pattern because it scales to hundreds/thousands,
+gives clean per-scenario git diffs, isolates write blast radius, and makes the
+list/run hot paths read only what they need.
+
+### Decision 2 — Setup/teardown in scope; environment reset is a precondition
+
+A scenario owns optional `setup`/`teardown` step lists (ordinary `ScenarioStep`s, so
+no new execution machinery; teardown runs even on failure). **In scope** and
+auto-suggested in setup: `fixtool_clear_messages` + `fixtool_admin reset-seqnum`
+(both already exist and compose cleanly; clearing the log is what makes "await the
+next message" deterministic). **Out of scope:** business/market state (flat book,
+reference data) lives on the MD/exchange server FixTool does not control — it is a
+documented **precondition**, optionally asserted by a leading `Expect` step that
+fails fast with a clear message when the environment is not clean.
+
+### Decision 3 — Numeric tolerance: per-field-type default, visible and editable
+
+The capture step seeds tolerance from the dictionary field type (the same metadata
+that drives matcher auto-seeding) and surfaces it as an editable chip — never a
+silent global default. Defaults: `PRICE` → small **absolute** tolerance (traders
+think in ticks; relative tolerance misbehaves near zero), tick size if available;
+`QTY` → `0` (exact, but format-robust: `100` == `100.0`); `AMT` → currency precision;
+generic `FLOAT` → `0`. "Always explicit" is rejected because it defeats the
+auto-seeding usability lever; a silent global default is rejected because it can mask
+a real price break.
+
+### Decision 4 — Partial-fill sequences: match predicate on `Expect`, consumed-on-match
+
+A step binds to a specific message via the `match` predicate on `Expect`, selecting
+by business fields (`ExecType 150`, `OrdStatus 39`) rather than position (arrival
+order is not guaranteed — same reasoning as group-by-identity). This reuses the
+existing `fixtool_wait` matcher, extended minimally with **multi-tag AND** (a partial
+is `150=F AND 39=1`; the fill is `150=F AND 39=2`) and a **consumed cursor** so
+successive same-type `Expect`s walk successive fills instead of re-matching the
+first. *Deferred:* aggregate/cross-message assertions (e.g. Σ`LastQty` == `OrderQty`)
+— a separate future feature.
+
+### Decision 5 — Multi-session: supported in the model now, authoring UX later
+
+Every `ScenarioStep` already carries an optional `session` selector, resolved per
+step via the existing `resolveSession()`. "Send on initiator, assert on acceptor" is
+just two steps with different `session` values — no atomic cross-session primitive
+needed (sequential steps plus the `Wait`/`Expect` timeouts cover the async gap), and
+it enables validating acceptor auto-response rules by driving an initiator. The
+marginal cost is zero, so the format supports it from day one; the polished
+multi-session **authoring UI** is deferred to the Run phase.
 </content>
 </invoke>

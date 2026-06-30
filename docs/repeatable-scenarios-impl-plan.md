@@ -151,6 +151,20 @@ hand-editing JSON.
 > Evidence (incl. rendered PNGs of every piece):
 > [`repeatable-scenarios-phase3-evidence.md`](./repeatable-scenarios-phase3-evidence.md).
 
+> **UX redesign (supersedes the Phase-3 dialog/results-pane).** After review the UX was
+> reworked from "author a scenario from scratch in a dialog" to **capture-driven**, with results
+> shown **in the session window** rather than a separate pane (the engine — matchers, evaluator,
+> runner, store, MCP tools — was kept unchanged):
+> - **Capture** the live session flow into a scenario (`ScenarioCapture`, `fixtool_capture_scenario`);
+>   multi-session aware, volatile fields parameterized, echoed ids auto-correlated via scenario
+>   variables (works cross-session).
+> - **Run** → matched message rows tint green/red in the session grid and the message detail panel
+>   shows each asserted tag's expected-vs-actual (`assertionResults` overlay threaded through the
+>   grid + `MessageDetailPanel`).
+> - **Edit** a saved scenario in the builder to relax/constrain matchers (per-tag chips + live
+>   preview; captured golden restored). The from-scratch step-builder primacy and the separate
+>   `ScenarioResultsView` pane were removed.
+
 ### Deliverables
 
 | # | Item | Files | Size |

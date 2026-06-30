@@ -494,4 +494,58 @@ server.tool(
   async ({ profile }) => text("GET", `/acceptor/rules?profile=${encodeURIComponent(profile)}`),
 );
 
+server.tool(
+  "fixtool_save_scenario",
+  "Save a repeatable scenario: an ordered sequence of sends + assertions a deterministic runner " +
+    "replays (no LLM in the loop). Steps {type,...}: send {raw, session?}; wait {session?, state?, " +
+    "match?, timeoutMs?}; expect {session?, direction?, match?, timeoutMs?, expectation:{messageType?, " +
+    "mode?, fields:[{tag, matcher, path?}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
+    "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create.",
+  {
+    name: z.string().describe("scenario name"),
+    id: z.string().optional().describe("existing scenario id to update"),
+    profile: z.string().optional().describe("connection profile id/name this scenario targets"),
+    userTags: z.array(z.string()).optional().describe("organising tags (also per-profile filtering)"),
+    setup: z.array(z.record(z.any())).optional().describe("steps run before steps"),
+    steps: z.array(z.record(z.any())).describe("the ordered steps"),
+    teardown: z.array(z.record(z.any())).optional().describe("steps run after steps, even on failure"),
+  },
+  async (args) => {
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/scenarios", body);
+  },
+);
+
+server.tool(
+  "fixtool_list_scenarios",
+  "List saved scenarios (id, name, profile, step counts, userTags), optionally filtered by profile.",
+  { profile: z.string().optional().describe("profile id, name, or tag to filter by") },
+  async ({ profile }) =>
+    text("GET", profile === undefined ? "/scenarios" : `/scenarios?profile=${encodeURIComponent(profile)}`),
+);
+
+server.tool(
+  "fixtool_run_scenario",
+  "Run a scenario deterministically and return a per-step, per-tag pass/fail report. Identify by id " +
+    "(from the store) or pass an inline scenario. format=junit returns JUnit XML for CI.",
+  {
+    id: z.string().optional().describe("saved scenario id"),
+    scenario: z.record(z.any()).optional().describe("inline scenario JSON (alternative to id)"),
+    format: z.enum(["json", "junit"]).optional().describe("output format; default json"),
+  },
+  async (args) => {
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/scenarios/run", body);
+  },
+);
+
+server.tool(
+  "fixtool_delete_scenario",
+  "Delete a saved scenario by id.",
+  { id: z.string().describe("scenario id") },
+  async ({ id }) => text("DELETE", "/scenarios", { id }),
+);
+
 await server.connect(new StdioServerTransport());

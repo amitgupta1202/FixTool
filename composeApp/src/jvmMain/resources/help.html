@@ -1998,6 +1998,17 @@ stunnel stunnel.conf</code></pre>
     <strong>delete</strong> scenarios, or author a new one by pasting its JSON. This is where a failed
     assertion is rendered visually inside FixTool.</p>
 
+    <p><strong>Building scenarios visually:</strong> click <strong>Build scenario</strong> in the
+    Scenarios panel to assemble a flow by clicking &mdash; add <em>Send / Wait / Expect / Clear /
+    Reset</em> steps, set a <strong>per-step session</strong> (so one scenario can drive an initiator
+    and assert on an acceptor), and reorder or remove steps. For an <em>Expect</em> step, paste a
+    captured "golden" response and FixTool <strong>auto-seeds a matcher per tag</strong> from the
+    dictionary (timestamps&rarr;temporal, prices&rarr;numeric, IDs&rarr;presence, &hellip;); edit any
+    matcher as a <strong>chip with a live green/red preview</strong> against the golden, attach a
+    repeating-group <em>path</em> to match a group entry by identity, and use
+    <strong>Verify generalizes</strong> to check the expectation against a second instance so an
+    over-specified field (e.g. an exact timestamp) is flagged before you save.</p>
+
     <div class="tip">
         <strong>The point:</strong> the LLM (or a human) authors the scenario once; a dumb runner
         repeats it forever. The model is out of the hot path, so runs are fast, deterministic, and

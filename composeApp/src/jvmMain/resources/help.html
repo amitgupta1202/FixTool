@@ -184,6 +184,7 @@
             <li><a href="#settings">9. Settings</a></li>
             <li><a href="#latency">10. Latency Measurement</a></li>
             <li><a href="#automation">11. Automation &amp; AI Control</a></li>
+            <li><a href="#assertions">12. Automated Verification (Assertions)</a></li>
         </ul>
     </div>
 
@@ -1889,6 +1890,85 @@ stunnel stunnel.conf</code></pre>
 
     <p>The full tool list, the HTTP API, and acceptor auto-response rules are documented in the
     <a href="https://github.com/amitgupta1202/FixTool/blob/main/docs/AUTOMATION.md" target="_blank">Automation Guide</a>.</p>
+
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+
+    <h2 id="assertions">12. Automated Verification (Assertions)</h2>
+
+    <p>Instead of <em>eyeballing</em> a response to decide whether it looks right, you (or an agent)
+    can <strong>machine-check</strong> a received message tag-by-tag against an <strong>expectation</strong>
+    &mdash; a set of per-tag matchers. The result is a green/red verdict per tag, so a wrong field
+    is pinpointed immediately and a check can be repeated identically every time. This is the
+    foundation for turning a manual test flow into a repeatable regression check.</p>
+
+    <p>Two automation tools drive it (available over MCP, the HTTP API, and <code>curl</code> once
+    <a href="#automation">automation control</a> is enabled):</p>
+    <ul>
+        <li><code>fixtool_capture_expectation</code> &mdash; take a received message and get back a
+        <strong>draft expectation</strong> whose matchers are pre-seeded from the data dictionary
+        (timestamps become time matchers, prices/quantities become numeric matchers, IDs become
+        presence checks, volatile header tags are dropped). You edit the draft instead of writing
+        matchers from scratch.</li>
+        <li><code>fixtool_assert</code> &mdash; assert a received message against an expectation. It
+        selects the message (by message type / direction / index) or <strong>awaits</strong> one for
+        up to <code>timeoutMs</code>, then returns <code>{passed, tags:[{tag, matcher, expected,
+        actual, passed}]}</code>.</li>
+    </ul>
+
+    <h3>Matcher types</h3>
+    <table>
+        <tr><th>Matcher</th><th>Checks that the tag&hellip;</th></tr>
+        <tr><td><code>exact</code></td><td>equals a literal value (the default for business fields)</td></tr>
+        <tr><td><code>presence</code></td><td>is present; its value is ignored (e.g. a venue-assigned OrderID/ExecID)</td></tr>
+        <tr><td><code>absent</code></td><td>is <em>not</em> present (e.g. no reject <code>Text</code>)</td></tr>
+        <tr><td><code>oneOf</code></td><td>is one of a set of values (e.g. OrdStatus in 1 or 2)</td></tr>
+        <tr><td><code>regex</code></td><td>matches a regular expression</td></tr>
+        <tr><td><code>numeric</code></td><td>equals a number within a tolerance (so <code>1.2345</code> = <code>1.23450</code>; widen the tolerance for fuzzy price/qty checks)</td></tr>
+        <tr><td><code>temporal</code></td><td>is a timestamp near "now" (&plusmn; N seconds) or a date equal to today &mdash; instead of a brittle literal time</td></tr>
+        <tr><td><code>reference</code></td><td>equals a <code>${&hellip;}</code> expression resolved over the session, e.g. an ExecutionReport's ClOrdID echoes the order you sent: <code>${out.D.11}</code></td></tr>
+    </table>
+
+    <p>For a tag inside a <strong>repeating group</strong>, add a <code>path</code> that locates the
+    entry by <em>identity</em> rather than position (group order is not guaranteed) &mdash; e.g. "the
+    <code>PartyID</code> of the entry whose <code>PartyRole</code> = 1".</p>
+
+    <h3>OPEN vs STRICT</h3>
+    <ul>
+        <li><strong>open</strong> (default) &mdash; only the tags you list are checked; extra tags on
+        the response are ignored, so a venue adding an optional field doesn't fail the check. Use an
+        <code>absent</code> matcher to forbid a specific tag.</li>
+        <li><strong>strict</strong> &mdash; any unexpected tag (besides volatile header/trailer tags)
+        fails the check. For contracts that must be exact.</li>
+    </ul>
+
+    <h3>Example</h3>
+    <p>After sending a NewOrderSingle and receiving an ExecutionReport (35=8), assert it:</p>
+    <div class="example">
+        <code>{<br>
+        &nbsp;&nbsp;"session": "Demo User 1", "messageType": "8", "direction": "in", "timeoutMs": 5000,<br>
+        &nbsp;&nbsp;"fields": [<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 150, "matcher": { "type": "exact", "value": "0" } },<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 39, "matcher": { "type": "oneOf", "values": ["0","1","2"] } },<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 37, "matcher": { "type": "presence" } },<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 11, "matcher": { "type": "reference", "expression": "${out.D.11}" } },<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 60, "matcher": { "type": "temporal", "kind": "now_within_tolerance", "toleranceSeconds": 30 } }<br>
+        &nbsp;&nbsp;]<br>
+        }</code>
+    </div>
+
+    <p>Or just ask an agent in plain language:</p>
+    <div class="example">
+        <em>"Send a NewOrderSingle for EUR/USD to the demo server, then assert the ExecutionReport
+        has ExecType=New, an OrderID, and a ClOrdID that matches the order I sent."</em>
+    </div>
+
+    <div class="tip">
+        <strong>Where this is heading.</strong> <code>fixtool_assert</code> is the first step (the
+        "crawl" phase) of <strong>repeatable scenarios</strong>: author a flow once, then a
+        deterministic runner replays the sends and assertions as a regression test &mdash; with no AI
+        in the loop. See the design in <code>docs/repeatable-scenarios-proposal.md</code> and the
+        plan in <code>docs/repeatable-scenarios-impl-plan.md</code>.
+    </div>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 

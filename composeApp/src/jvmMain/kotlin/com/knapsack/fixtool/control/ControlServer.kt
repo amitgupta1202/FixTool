@@ -13,8 +13,15 @@ import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.model.scenario.MatchMode
+import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.service.ExpectationEvaluator
+import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
+import com.knapsack.fixtool.service.FixMessageView
+import com.knapsack.fixtool.service.MatcherCodec
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.sun.net.httpserver.Headers
@@ -33,6 +40,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -93,6 +101,8 @@ class ControlServer(
         httpServer.createContext("/messages") { ex -> handle(ex) { messages(ex) } }
         httpServer.createContext("/wait") { ex -> handle(ex) { waitFor(ex) } }
         httpServer.createContext("/select") { ex -> handle(ex) { select(ex) } }
+        httpServer.createContext("/assert") { ex -> handle(ex) { assertMessage(ex) } }
+        httpServer.createContext("/expectation/capture") { ex -> handle(ex) { captureExpectation(ex) } }
         httpServer.createContext("/detail") { ex -> handle(ex) { detailSearch(ex) } }
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
         httpServer.createContext("/filter") { ex -> handle(ex) { filter(ex) } }
@@ -474,6 +484,136 @@ class ControlServer(
             }
         }
     }
+
+    /**
+     * Asserts a received message against an expectation (per-tag matchers): selects/awaits the
+     * message like [select]/[waitFor], evaluates each field via [ExpectationEvaluator], and returns
+     * a tag-by-tag pass/fail report. This is the standalone keystone of the repeatable-scenarios
+     * design — it converts the manual "eyeball the response" step into a machine check. `reference`
+     * matchers (e.g. `${out.D.11}`) resolve against the session's message history, exactly the way
+     * `fixtool_send resolve=true` does.
+     */
+    private fun assertMessage(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val session = resolveSession(body["session"]?.jsonPrimitive?.content) ?: return errorObject("session not found")
+        val msgType = body["messageType"]?.jsonPrimitive?.content
+        val directionFilter = body["direction"]?.jsonPrimitive?.content?.lowercase() ?: "in"
+        val index = body["index"]?.jsonPrimitive?.intOrNull
+        val timeoutMs = (body["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 0L).coerceIn(0, MAX_WAIT_MS)
+        val strict = body["mode"]?.jsonPrimitive?.content?.lowercase() == "strict"
+        val mode = if (strict) MatchMode.STRICT else MatchMode.OPEN
+        val fieldsArray = body["fields"]?.jsonArray ?: return errorObject("missing 'fields' (per-tag matchers)")
+
+        val expectation =
+            try {
+                MatcherCodec.parseExpectation(fieldsArray, msgType, mode)
+            } catch (e: IllegalArgumentException) {
+                return errorObject("invalid fields: ${e.message}")
+            }
+
+        val target =
+            awaitMessage(session, msgType, directionFilter, index, timeoutMs)
+                ?: return buildJsonObject {
+                    put("passed", false)
+                    put("status", "timeout")
+                    put("error", "no ${msgType ?: "matching"} '$directionFilter' message within ${timeoutMs}ms")
+                }
+
+        val resolver = referenceResolverFor(session)
+        val results = ExpectationEvaluator.evaluate(FixMessageView(target), expectation, resolver)
+        return buildJsonObject {
+            put("passed", results.all { it.passed })
+            put("messageType", target.messageType)
+            put("direction", target.direction.name)
+            put("tags", buildJsonArray { results.forEach { add(tagResultJson(it)) } })
+        }
+    }
+
+    /**
+     * Builds an auto-seeded expectation from a selected/awaited message (matchers pre-seeded from
+     * dictionary field types via [ExpectationSeeder]) so an author edits a draft rather than writing
+     * matchers from scratch. Returns the same {messageType, mode, fields:[...]} shape [assertMessage]
+     * consumes.
+     */
+    private fun captureExpectation(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val session = resolveSession(body["session"]?.jsonPrimitive?.content) ?: return errorObject("session not found")
+        val msgType = body["messageType"]?.jsonPrimitive?.content
+        val directionFilter = body["direction"]?.jsonPrimitive?.content?.lowercase() ?: "in"
+        val index = body["index"]?.jsonPrimitive?.intOrNull
+        val target =
+            awaitMessage(session, msgType, directionFilter, index, 0)
+                ?: return errorObject("no matching message to capture")
+
+        val fields = FixMessageHelper.parseFixMessage(target.rawMessage)
+        val expectation = ExpectationSeeder.seed(fields, onEdt { viewModel.dictionary })
+        return buildJsonObject {
+            put("messageType", target.messageType)
+            put("direction", target.direction.name)
+            put("mode", "open")
+            put(
+                "fields",
+                buildJsonArray { expectation.fields.forEach { add(MatcherCodec.fieldExpectationToJson(it)) } },
+            )
+        }
+    }
+
+    /**
+     * Selects (or, with `timeoutMs > 0`, awaits) the message to assert/capture against: the [index]th
+     * — default last — message of [msgType]/[directionFilter] in the session's log.
+     */
+    private fun awaitMessage(
+        session: FixMessageSession,
+        msgType: String?,
+        directionFilter: String?,
+        index: Int?,
+        timeoutMs: Long,
+    ): FixMessage? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            val candidates =
+                onEdt {
+                    session.messages.value
+                        .filterIsInstance<FixMessage>()
+                        .filter { msgType == null || it.messageType == msgType }
+                        .filter { directionMatches(it, directionFilter) }
+                }
+            val target = if (index != null) candidates.getOrNull(index) else candidates.lastOrNull()
+            if (target != null) return target
+            if (System.currentTimeMillis() >= deadline) return null
+            Thread.sleep(WAIT_POLL_MS)
+        }
+    }
+
+    /**
+     * A resolver for `reference` matchers: resolves a `${...}` expression against the session's
+     * latest incoming/outgoing message per type, exactly like the editor's resolve-on-send path.
+     */
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
+    private fun referenceResolverFor(session: FixMessageSession): (String) -> String? {
+        val messages = onEdt { session.messages.value.filterIsInstance<FixMessage>() }
+        val incoming = messages.filter { it.direction == FixMessage.Direction.INCOMING }.associateBy { it.messageType }
+        val outgoing = messages.filter { it.direction == FixMessage.Direction.OUTGOING }.associateBy { it.messageType }
+        val dictionary = onEdt { viewModel.dictionary }
+        return { expression ->
+            try {
+                FixMessageTemplate
+                    .evaluate(expression, incoming, outgoing, null, dictionary)
+                    .takeIf { it != expression }
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun tagResultJson(result: TagResult): JsonObject =
+        buildJsonObject {
+            put("tag", result.tag)
+            put("matcher", result.matcher)
+            put("expected", result.expected)
+            put("actual", result.actual)
+            put("passed", result.passed)
+        }
 
     /**
      * Drives the message detail panel's tag search: sets the search `query` and/or the
@@ -980,6 +1120,8 @@ class ControlServer(
             "fixtool_search" to { a -> search(mcpExchange(a)) },
             "fixtool_filter" to { a -> filter(mcpExchange(a)) },
             "fixtool_select" to { a -> select(mcpExchange(a)) },
+            "fixtool_assert" to { a -> assertMessage(mcpExchange(a)) },
+            "fixtool_capture_expectation" to { a -> captureExpectation(mcpExchange(a)) },
             "fixtool_detail_search" to { a -> detailSearch(mcpExchange(a)) },
             "fixtool_admin" to { a -> admin(mcpExchange(a)) },
             "fixtool_validate" to { a -> validate(mcpExchange(a)) },

@@ -302,7 +302,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(28, tools.size)
+        assertEquals(30, tools.size)
         tools.forEach {
             val t = it.jsonObject
             assertTrue(t.containsKey("name") && t.containsKey("inputSchema"), "each tool needs a name and schema")

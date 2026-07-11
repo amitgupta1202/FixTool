@@ -451,10 +451,10 @@ class DemoFixServer(
             message.setString(54, request.getString(54)) // Side
         }
 
-        // ValidUntilTime - quote valid for 30 seconds
+        // ValidUntilTime - quote valid for 30 seconds (UTCTimestamp -> UTC now)
         message.setString(
             62,
-            LocalDateTime.now().plusSeconds(30).format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss")),
+            LocalDateTime.now(java.time.ZoneOffset.UTC).plusSeconds(30).format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss")),
         )
 
         return message

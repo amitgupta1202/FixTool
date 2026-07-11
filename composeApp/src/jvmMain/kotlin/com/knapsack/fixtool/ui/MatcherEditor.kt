@@ -4,24 +4,12 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.Matcher
@@ -29,6 +17,18 @@ import com.knapsack.fixtool.model.scenario.TemporalKind
 
 /** The matcher type names, in the order shown in the editor's dropdown. */
 val MATCHER_TYPES = listOf("exact", "presence", "absent", "oneOf", "regex", "numeric", "temporal", "reference")
+
+/** One-line explanation per matcher type, shown in the type dropdown for users new to FIX testing. */
+private val MATCHER_HELP = mapOf(
+    "exact" to "value must equal exactly",
+    "presence" to "tag must exist, any value",
+    "absent" to "tag must NOT appear",
+    "oneOf" to "value in a set",
+    "regex" to "value matches a pattern",
+    "numeric" to "number compare ± tolerance",
+    "temporal" to "date/time vs now/today",
+    "reference" to "equals a \${...} expression",
+)
 
 /** Short type label for a [Matcher] (matches the control-surface encodings). */
 fun matcherTypeName(matcher: Matcher): String =
@@ -57,35 +57,22 @@ fun defaultMatcherForType(type: String, value: String): Matcher =
     }
 
 /**
- * Edits one [Matcher]: a type dropdown plus type-specific fields. Switching type seeds a sensible
- * default from the captured value. Emits the new matcher via [onChange].
+ * Edits one [Matcher]: a type dropdown (with a one-line explanation per type) plus type-specific
+ * fields, all in the app's slim-input style. Switching type seeds a sensible default from the
+ * captured value. Emits the new matcher via [onChange].
  */
 @Composable
 fun MatcherEditor(matcher: Matcher, capturedValue: String, onChange: (Matcher) -> Unit, modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        TypeDropdown(matcher) { type -> onChange(defaultMatcherForType(type, capturedValue)) }
+        SlimDropdown(
+            value = matcherTypeName(matcher),
+            options = MATCHER_TYPES,
+            onValueChange = { type -> type?.let { onChange(defaultMatcherForType(it, capturedValue)) } },
+            displayText = { it },
+            itemText = { type -> MATCHER_HELP[type]?.let { "$type — $it" } ?: type },
+            modifier = Modifier.width(90.dp),
+        )
         MatcherParams(matcher, onChange)
-    }
-}
-
-@Composable
-private fun TypeDropdown(matcher: Matcher, onPick: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }) {
-            Text(matcherTypeName(matcher), fontSize = 11.sp, color = AppTheme.Colors.text)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            MATCHER_TYPES.forEach { type ->
-                DropdownMenuItem(
-                    text = { Text(type, fontSize = 12.sp) },
-                    onClick = {
-                        onPick(type)
-                        expanded = false
-                    },
-                )
-            }
-        }
     }
 }
 
@@ -93,59 +80,44 @@ private fun TypeDropdown(matcher: Matcher, onPick: (String) -> Unit) {
 private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit) {
     when (matcher) {
         is Matcher.Presence, is Matcher.Absent -> Unit
-        is Matcher.Exact -> SmallField("value", matcher.value) { onChange(Matcher.Exact(it)) }
-        is Matcher.Regex -> SmallField("pattern", matcher.pattern) { onChange(Matcher.Regex(it)) }
-        is Matcher.Reference -> SmallField("expression", matcher.expression, 200.dp) { onChange(Matcher.Reference(it)) }
+        is Matcher.Exact ->
+            SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.width(130.dp))
+        is Matcher.Regex ->
+            SlimLabeled("pattern") {
+                SlimField(matcher.pattern, { onChange(Matcher.Regex(it)) }, monospace = true, modifier = Modifier.width(120.dp))
+            }
+        is Matcher.Reference ->
+            SlimField(matcher.expression, { onChange(Matcher.Reference(it)) }, monospace = true, modifier = Modifier.width(180.dp))
         is Matcher.OneOf ->
-            SmallField("values (comma)", matcher.values.joinToString(","), 180.dp) {
-                onChange(Matcher.OneOf(it.split(",").map(String::trim).filter(String::isNotEmpty)))
+            SlimLabeled("any of") {
+                SlimField(
+                    matcher.values.joinToString(","),
+                    { onChange(Matcher.OneOf(it.split(",").map(String::trim).filter(String::isNotEmpty))) },
+                    monospace = true,
+                    modifier = Modifier.width(140.dp),
+                )
             }
         is Matcher.Numeric -> {
-            SmallField("value", numText(matcher.expected), 90.dp) {
-                onChange(Matcher.Numeric(it.toDoubleOrNull() ?: matcher.expected, matcher.tolerance))
-            }
-            SmallField("± tol", numText(matcher.tolerance), 90.dp) {
-                onChange(Matcher.Numeric(matcher.expected, it.toDoubleOrNull() ?: matcher.tolerance))
+            SlimField(numText(matcher.expected), { onChange(Matcher.Numeric(it.toDoubleOrNull() ?: matcher.expected, matcher.tolerance)) }, monospace = true, modifier = Modifier.width(80.dp))
+            SlimLabeled("± tol") {
+                SlimField(numText(matcher.tolerance), { onChange(Matcher.Numeric(matcher.expected, it.toDoubleOrNull() ?: matcher.tolerance)) }, monospace = true, modifier = Modifier.width(70.dp))
             }
         }
         is Matcher.Temporal -> {
-            TemporalKindDropdown(matcher.kind) { onChange(Matcher.Temporal(it, matcher.toleranceSeconds)) }
+            SlimDropdown(
+                value = matcher.kind,
+                options = TemporalKind.values().toList(),
+                onValueChange = { kind -> kind?.let { onChange(Matcher.Temporal(it, matcher.toleranceSeconds)) } },
+                displayText = { if (it == TemporalKind.TODAY) "today" else "now ±" },
+                modifier = Modifier.width(76.dp),
+            )
             if (matcher.kind == TemporalKind.NOW_WITHIN_TOLERANCE) {
-                SmallField("± sec", matcher.toleranceSeconds.toString(), 80.dp) {
-                    onChange(Matcher.Temporal(matcher.kind, it.toLongOrNull() ?: matcher.toleranceSeconds))
+                SlimLabeled("± sec") {
+                    SlimField(matcher.toleranceSeconds.toString(), { onChange(Matcher.Temporal(matcher.kind, it.toLongOrNull() ?: matcher.toleranceSeconds)) }, monospace = true, modifier = Modifier.width(56.dp))
                 }
             }
         }
     }
-}
-
-@Composable
-private fun TemporalKindDropdown(kind: TemporalKind, onPick: (TemporalKind) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(onClick = { expanded = true }) {
-            Text(if (kind == TemporalKind.TODAY) "today" else "now±", fontSize = 11.sp, color = AppTheme.Colors.text)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("today") }, onClick = { onPick(TemporalKind.TODAY); expanded = false })
-            DropdownMenuItem(
-                text = { Text("now_within_tolerance") },
-                onClick = { onPick(TemporalKind.NOW_WITHIN_TOLERANCE); expanded = false },
-            )
-        }
-    }
-}
-
-@Composable
-private fun SmallField(label: String, value: String, fieldWidth: androidx.compose.ui.unit.Dp = 120.dp, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label, fontSize = 9.sp) },
-        singleLine = true,
-        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
-        modifier = Modifier.width(fieldWidth).padding(0.dp),
-    )
 }
 
 /** Renders a double without a trailing ".0" so integer-ish values read cleanly. */

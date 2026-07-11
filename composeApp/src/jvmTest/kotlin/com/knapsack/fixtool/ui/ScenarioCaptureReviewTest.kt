@@ -1,0 +1,131 @@
+package com.knapsack.fixtool.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.dp
+import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.service.ScenarioCapture
+import org.junit.Rule
+import org.junit.Test
+import quickfix.Message
+import java.io.File
+import java.time.LocalDateTime
+import javax.imageio.ImageIO
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * Capture-review curation: nothing saves blind. Unticking a row excludes it from the built scenario,
+ * "Start here" trims everything before the selected row, and the correlation badges react to the
+ * selection (excluding the send that mints an id removes its echo badge).
+ */
+class ScenarioCaptureReviewTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+    private val outDir = File("build/scenario-screenshots").absoluteFile
+
+    private fun msg(raw: String, dir: FixMessage.Direction, second: Int): FixMessage =
+        FixMessage(
+            timestamp = LocalDateTime.of(2026, 7, 10, 9, 0, second),
+            direction = dir,
+            rawMessage = raw,
+            quickfixMessage = Message(),
+        )
+
+    // A stale first order (noise), then the real RFQ flow across two sessions.
+    private val candidates = ScenarioCapture.candidates(
+        listOf(
+            ScenarioCapture.CapturedSession(
+                "QUOTE",
+                listOf(
+                    msg("8=FIX.4.4|35=D|11=STALE-1|10=001|", FixMessage.Direction.OUTGOING, 0),
+                    msg("8=FIX.4.4|35=R|131=QR-1|55=EUR/USD|10=002|", FixMessage.Direction.OUTGOING, 1),
+                    msg("8=FIX.4.4|35=S|131=QR-1|117=Q-9|10=003|", FixMessage.Direction.INCOMING, 2),
+                ),
+            ),
+            ScenarioCapture.CapturedSession(
+                "TRADE",
+                listOf(msg("8=FIX.4.4|35=8|131=QR-1|17=E-1|10=004|", FixMessage.Direction.INCOMING, 3)),
+            ),
+        ),
+    )
+
+    private fun render(onSave: (String, List<ScenarioCapture.Candidate>) -> Boolean) {
+        composeTestRule.setContent {
+            Box(modifier = Modifier.size(1200.dp, 700.dp).background(AppTheme.Colors.background).padding(10.dp)) {
+                ScenarioCaptureReview(candidates = candidates, dictionary = null, onSave = onSave, onBack = {})
+            }
+        }
+    }
+
+    @Test
+    fun `unticking a row excludes it from the saved selection`() {
+        var savedName: String? = null
+        var savedSelection: List<ScenarioCapture.Candidate>? = null
+        render { name, selection ->
+            savedName = name
+            savedSelection = selection
+            true
+        }
+        composeTestRule.onNodeWithTag("capture-name").performTextInput("rfq")
+        composeTestRule.onNodeWithTag("candidate-check-0").performClick() // untick the stale order
+        composeTestRule.waitForIdle()
+        snapshot("capture_review.png")
+        composeTestRule.onNodeWithTag("capture-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("rfq", savedName)
+        val selection = savedSelection
+        assertTrue(selection != null, "save should fire")
+        assertEquals(3, selection!!.size)
+        assertTrue(selection.none { it.message.rawMessage.contains("STALE-1") }, "unticked noise is excluded")
+    }
+
+    @Test
+    fun `the From range dropdown trims everything before the picked message`() {
+        var savedSelection: List<ScenarioCapture.Candidate>? = null
+        render { _, selection ->
+            savedSelection = selection
+            true
+        }
+        composeTestRule.onNodeWithTag("capture-from").performClick()
+        composeTestRule.onNodeWithText("#2 ▶ R · QUOTE").performClick() // start the flow at the QuoteRequest
+        composeTestRule.onNodeWithTag("capture-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val selection = savedSelection
+        assertTrue(selection != null)
+        assertEquals(3, selection!!.size)
+        assertEquals("R", selection.first().message.messageType, "flow starts at the picked row")
+    }
+
+    @Test
+    fun `correlation badges follow the selection`() {
+        render { _, _ -> true }
+        // With the stale order excluded, QR-1 mints id0 (●id0 on the QuoteRequest) and its echoes on
+        // the Quote and the cross-session ExecReport carry ○id0 — variables renumber with the selection.
+        composeTestRule.onNodeWithTag("candidate-check-0").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue(composeTestRule.onAllNodesWithText("○id0").fetchSemanticsNodes().size >= 2)
+        // Exclude the QuoteRequest that mints id0 -> the echoes are no longer correlated; badges go.
+        composeTestRule.onNodeWithTag("candidate-check-1").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(0, composeTestRule.onAllNodesWithText("○id0").fetchSemanticsNodes().size)
+    }
+
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
+    private fun snapshot(name: String) {
+        try {
+            outDir.mkdirs()
+            ImageIO.write(composeTestRule.onRoot().captureToImage().toAwtImage(), "png", File(outDir, name))
+        } catch (e: Exception) {
+            println("[ScenarioCaptureReviewTest] snapshot '$name' skipped: ${e.message}")
+        }
+    }
+}

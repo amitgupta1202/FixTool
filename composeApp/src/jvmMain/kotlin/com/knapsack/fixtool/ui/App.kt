@@ -1,16 +1,9 @@
 package com.knapsack.fixtool.ui
 
-import androidx.compose.foundation.LocalScrollbarStyle
-import androidx.compose.foundation.ScrollbarStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.LocalTextSelectionColors
-import androidx.compose.foundation.text.selection.TextSelectionColors
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -37,18 +30,6 @@ import java.awt.Cursor
 
 private val logger = LoggerFactory.getLogger("com.knapsack.fixtool.ui.App")
 
-private val DarkColorScheme =
-    darkColorScheme(
-        primary = Color(0xFF3A3A3A),
-        secondary = Color(0xFF2B2B2B),
-        background = Color(0xFF1E1E1E),
-        surface = Color(0xFF2B2B2B),
-        onPrimary = Color(0xFFE0E0E0),
-        onSecondary = Color(0xFFE0E0E0),
-        onBackground = Color(0xFFE0E0E0),
-        onSurface = Color(0xFFE0E0E0),
-    )
-
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 @Preview
@@ -56,31 +37,7 @@ fun App(
     modifier: Modifier = Modifier,
     onViewModelCreated: (FixMessageViewModel) -> Unit = {},
 ) {
-    MaterialTheme(
-        colorScheme = DarkColorScheme,
-    ) {
-        // Custom text selection colors for better visibility in dark theme
-        val customTextSelectionColors =
-            TextSelectionColors(
-                handleColor = AppTheme.Colors.textSelectionHandle,
-                backgroundColor = AppTheme.Colors.textSelectionBackground,
-            )
-
-        // Custom scrollbar style for visibility against dark background
-        val customScrollbarStyle =
-            ScrollbarStyle(
-                minimalHeight = 16.dp,
-                thickness = 8.dp,
-                shape = RoundedCornerShape(4.dp),
-                hoverDurationMillis = 300,
-                unhoverColor = AppTheme.Colors.scrollbar,
-                hoverColor = AppTheme.Colors.scrollbarHover,
-            )
-
-        CompositionLocalProvider(
-            LocalTextSelectionColors provides customTextSelectionColors,
-            LocalScrollbarStyle provides customScrollbarStyle,
-        ) {
+    FixToolWindowChrome {
             val viewModel: FixMessageViewModel = viewModel { FixMessageViewModel() }
 
             // Expose viewModel reference to parent
@@ -104,7 +61,6 @@ fun App(
             val showConnectionPanel by viewModel.showConnectionPanel.collectAsState()
             val showSettingsDialog by viewModel.showSettingsDialog.collectAsState()
             val showHelpDialog by viewModel.showHelpDialog.collectAsState()
-            val showScenariosDialog by viewModel.showScenariosDialog.collectAsState()
             val showGlobalSearchDialog by viewModel.showGlobalSearchDialog.collectAsState()
             val globalSearchQuery by viewModel.globalSearchQuery.collectAsState()
             val globalSearchResults by viewModel.globalSearchResults.collectAsState()
@@ -232,14 +188,6 @@ fun App(
                     if (showHelpDialog) {
                         HelpDialog(
                             onClose = { viewModel.toggleHelpDialog() },
-                        )
-                    }
-
-                    // Scenarios Dialog
-                    if (showScenariosDialog) {
-                        ScenariosDialog(
-                            viewModel = viewModel,
-                            onClose = { viewModel.toggleScenariosDialog() },
                         )
                     }
 
@@ -898,7 +846,6 @@ fun App(
                     onDismiss = { notificationId -> viewModel.dismissNotification(notificationId) },
                 )
             }
-        }
     }
 }
 

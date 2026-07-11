@@ -2,7 +2,11 @@ package com.knapsack.fixtool
 
 import androidx.compose.foundation.focusable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -13,6 +17,7 @@ import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
 import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.ui.App
+import com.knapsack.fixtool.ui.ScenarioWorkbenchWindow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
@@ -47,10 +52,15 @@ fun main() {
         }
     }
 
+    // Track if we're closing to avoid duplicate cleanup. Declared outside application {} so the
+    // close handler keeps one instance across recompositions of the application scope.
+    var isClosing = false
+
     application {
-        // Track if we're closing to avoid duplicate cleanup
-        var isClosing = false
-        var viewModelRef: com.knapsack.fixtool.viewmodel.FixMessageViewModel? = null
+        // Compose state so secondary windows (the Scenarios workbench) can react to viewmodel flows.
+        var viewModelRef by remember {
+            mutableStateOf<com.knapsack.fixtool.viewmodel.FixMessageViewModel?>(null)
+        }
 
         Window(
             onCloseRequest = {
@@ -119,6 +129,18 @@ fun main() {
                     }
                 },
             )
+        }
+
+        // Scenarios workbench: a real (non-modal) window so the live session view stays usable
+        // while capturing/editing. Bound to the same flow the toolbar and fixtool_panel toggle.
+        viewModelRef?.let { viewModel ->
+            val showScenarios by viewModel.showScenariosDialog.collectAsState()
+            if (showScenarios) {
+                ScenarioWorkbenchWindow(
+                    viewModel = viewModel,
+                    onClose = { viewModel.toggleScenariosDialog() },
+                )
+            }
         }
     }
 }

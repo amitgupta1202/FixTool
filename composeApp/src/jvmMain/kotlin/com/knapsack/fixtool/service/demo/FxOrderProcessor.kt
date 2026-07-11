@@ -309,8 +309,11 @@ class FxOrderProcessor(
         private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS")
 
         /**
-         * Formats a timestamp for FIX messages
+         * Formats a timestamp for FIX messages. Defaults to **UTC** now: tag 60 (TransactTime) is a
+         * UTCTimestamp, and stamping local time makes every temporal assertion an hour off outside
+         * UTC (caught by a scenario run's `now ±60s` matcher failing in summer time).
          */
-        fun formatTimestamp(dateTime: LocalDateTime = LocalDateTime.now()): String = dateTime.format(timestampFormatter)
+        fun formatTimestamp(dateTime: LocalDateTime = LocalDateTime.now(java.time.ZoneOffset.UTC)): String =
+            dateTime.format(timestampFormatter)
     }
 }

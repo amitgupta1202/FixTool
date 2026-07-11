@@ -22,7 +22,7 @@ interface ScenarioHost {
     /** A chronological snapshot (oldest first) of a session's messages. */
     fun messages(session: String?): List<FixMessage>
 
-    /** The session's connection-state name (e.g. LOGGED_ON), or null. */
+    /** The session's connection-state name (e.g. LOGGED_ON), or **null when the session doesn't exist**. */
     fun connectionState(session: String?): String?
 
     /**
@@ -35,9 +35,11 @@ interface ScenarioHost {
     /** Adapt a captured message to the evaluator's view. */
     fun view(message: FixMessage): MessageView
 
-    fun clearMessages(session: String?)
+    /** Clear a session's message log; returns false when the session doesn't exist. */
+    fun clearMessages(session: String?): Boolean
 
-    fun resetSeqNum(session: String?, sender: Int?, target: Int?)
+    /** Reset a session's sequence numbers; returns false when the session doesn't exist. */
+    fun resetSeqNum(session: String?, sender: Int?, target: Int?): Boolean
 
     fun sleep(ms: Long) = Thread.sleep(ms)
 }
@@ -45,7 +47,9 @@ interface ScenarioHost {
 /**
  * Walks a [Scenario] deterministically — `setup` → `steps` → `teardown` (teardown always runs) — over
  * a single persistent variable scope, with no LLM in the loop. `Expect` steps consume the message
- * they match so successive expectations walk successive messages (partial-fill sequences). Produces a
+ * they match so successive expectations walk successive messages (partial-fill sequences); their
+ * match-predicate values may be `${...}` expressions resolved against the scenario scope, so a step
+ * binds to *the response to this run's order*, not just the first same-type message. Produces a
  * per-tag [ScenarioResult] that drives both CI and the in-app overlay.
  */
 class ScenarioRunner(
@@ -56,6 +60,10 @@ class ScenarioRunner(
     private val onExpectMatched: (FixMessage, StepResult) -> Unit = { _, _ -> },
 ) {
     fun run(scenario: Scenario): ScenarioResult {
+        // Fail fast, by name, before touching anything: a missing/unconnected session otherwise
+        // surfaces minutes later as a misleading Expect timeout.
+        preflight(scenario)?.let { return ScenarioResult(scenario.name, false, listOf(it)) }
+
         val scope = mutableMapOf<String, String>()
         val consumed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
         val results = mutableListOf<StepResult>()
@@ -79,6 +87,34 @@ class ScenarioRunner(
         return ScenarioResult(scenario.name, results.all { it.passed }, results)
     }
 
+    /** Non-null = the reason this scenario cannot run at all. */
+    @Suppress("ReturnCount")
+    private fun preflight(scenario: Scenario): StepResult? {
+        val all = scenario.setup + scenario.steps + scenario.teardown
+        // A session whose logon the scenario itself waits for doesn't need to be LOGGED_ON up front.
+        val waitCovered =
+            all.filterIsInstance<ScenarioStep.Wait>()
+                .filter { it.state?.equals("LOGGED_ON", ignoreCase = true) == true }
+                .map { it.session }
+                .toSet()
+        val traffic = all.filter { it is ScenarioStep.Send || it is ScenarioStep.Expect }
+        for (session in all.map { it.session }.distinct()) {
+            val label = session ?: "(active session)"
+            val state = host.connectionState(session)
+                ?: return preflightFailure(
+                    "session '$label' not found — connect it, or remap the step's session in the editor, then run again",
+                )
+            val needsLogon = traffic.any { it.session == session } && session !in waitCovered
+            if (needsLogon && !state.equals("LOGGED_ON", ignoreCase = true)) {
+                return preflightFailure("session '$label' is $state, not LOGGED_ON — connect it before running")
+            }
+        }
+        return null
+    }
+
+    private fun preflightFailure(detail: String): StepResult =
+        StepResult(-1, "preflight", "setup", passed = false, detail = detail)
+
     private fun runStep(
         step: ScenarioStep,
         index: Int,
@@ -90,37 +126,47 @@ class ScenarioRunner(
             is ScenarioStep.Send -> {
                 val resolved = host.resolve(step.raw, scope, step.session)
                 val ok = host.send(resolved, step.session)
-                StepResult(index, "send", phase, ok, detail = if (ok) resolved else "send failed: $resolved")
+                val detail =
+                    if (ok) resolved
+                    else "send failed on '${label(step.session)}' (state=${host.connectionState(step.session) ?: "session not found"}): $resolved"
+                StepResult(index, "send", phase, ok, detail = detail)
             }
-            is ScenarioStep.Wait -> runWait(step, index, phase)
+            is ScenarioStep.Wait -> runWait(step, index, phase, scope)
             is ScenarioStep.Expect -> runExpect(step, index, phase, scope, consumed)
             is ScenarioStep.ClearMessages -> {
-                host.clearMessages(step.session)
-                StepResult(index, "clear", phase, true, detail = "cleared")
+                val ok = host.clearMessages(step.session)
+                StepResult(index, "clear", phase, ok, detail = if (ok) "cleared" else "session '${label(step.session)}' not found")
             }
             is ScenarioStep.ResetSeqNum -> {
-                host.resetSeqNum(step.session, step.sender, step.target)
-                StepResult(index, "reset", phase, true, detail = "reset-seqnum")
+                val ok = host.resetSeqNum(step.session, step.sender, step.target)
+                StepResult(index, "reset", phase, ok, detail = if (ok) "reset-seqnum" else "session '${label(step.session)}' not found")
             }
         }
 
     @Suppress("ReturnCount")
-    private fun runWait(step: ScenarioStep.Wait, index: Int, phase: String): StepResult {
+    private fun runWait(step: ScenarioStep.Wait, index: Int, phase: String, scope: Map<String, String>): StepResult {
         if (step.state == null && step.match == null) {
             return StepResult(index, "wait", phase, true, detail = "nothing to wait for")
         }
+        val match = step.match?.let { resolveMatch(it, step.session, scope) }
         val deadline = now() + step.timeoutMs
         while (true) {
             if (step.state != null && step.state.equals(host.connectionState(step.session), ignoreCase = true)) {
                 return StepResult(index, "wait", phase, true, detail = "state=${step.state}")
             }
-            if (step.match != null && host.messages(step.session).any { matches(it, null, null, step.match) }) {
+            if (match != null && host.messages(step.session).any { matches(it, null, null, match) }) {
                 return StepResult(index, "wait", phase, true, detail = "matched")
             }
-            if (now() >= deadline) return StepResult(index, "wait", phase, false, detail = "timeout")
+            if (now() >= deadline) {
+                return StepResult(index, "wait", phase, false, detail = "timeout ${describeWaitTarget(step)}")
+            }
             host.sleep(pollMs)
         }
     }
+
+    private fun describeWaitTarget(step: ScenarioStep.Wait): String =
+        "waiting for ${step.state ?: "a matching message"} on '${label(step.session)}' " +
+            "(state=${host.connectionState(step.session) ?: "session not found"})"
 
     private fun runExpect(
         step: ScenarioStep.Expect,
@@ -129,19 +175,26 @@ class ScenarioRunner(
         scope: Map<String, String>,
         consumed: MutableSet<FixMessage>,
     ): StepResult {
-        val msgType = step.match?.messageType ?: step.expectation.messageType
-        val direction = step.match?.direction ?: step.direction
+        // Resolve ${...} in the bind predicate once, up front — its inputs (the scenario scope) do
+        // not change while this step polls.
+        val match = step.match?.let { resolveMatch(it, step.session, scope) }
+        val msgType = match?.messageType ?: step.expectation.messageType
+        val direction = match?.direction ?: step.direction
         val deadline = now() + step.timeoutMs
         var target: FixMessage? = null
         while (target == null) {
             target = host.messages(step.session)
-                .firstOrNull { it !in consumed && matches(it, msgType, direction, step.match) }
+                .firstOrNull { it !in consumed && matches(it, msgType, direction, match) }
             if (target != null) break
             if (now() >= deadline) break
             host.sleep(pollMs)
         }
         if (target == null) {
-            val detail = "no ${msgType ?: "matching"} message within ${step.timeoutMs}ms"
+            val constraints = match?.fields?.takeIf { it.isNotEmpty() }
+                ?.joinToString(" AND ", prefix = " where ") { "${it.tag}=${it.value}" } ?: ""
+            val detail = "no ${msgType ?: "matching"} message$constraints within ${step.timeoutMs}ms on " +
+                "'${label(step.session)}' (state=${host.connectionState(step.session) ?: "session not found"}, " +
+                "${host.messages(step.session).size} messages seen)"
             return StepResult(index, "expect", phase, false, detail = detail)
         }
         consumed.add(target)
@@ -158,6 +211,19 @@ class ScenarioRunner(
         onExpectMatched(target, result)
         return result
     }
+
+    /** Resolves `${...}` in the predicate's constraint values against the scenario scope. */
+    private fun resolveMatch(predicate: MatchPredicate, session: String?, scope: Map<String, String>): MatchPredicate {
+        if (predicate.fields.none { it.value.contains("\${") }) return predicate
+        val resolver = host.referenceResolver(session, scope)
+        return predicate.copy(
+            fields = predicate.fields.map { tv ->
+                if (tv.value.contains("\${")) tv.copy(value = resolver(tv.value) ?: tv.value) else tv
+            },
+        )
+    }
+
+    private fun label(session: String?): String = session ?: "(active session)"
 
     @Suppress("ReturnCount")
     private fun matches(msg: FixMessage, msgType: String?, direction: String?, predicate: MatchPredicate?): Boolean {

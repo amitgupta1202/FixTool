@@ -305,6 +305,15 @@ class QuickFixService(
             val dataDictionary = dictionary.getDataDictionary()
             var validationWarning: String? = null
 
+            // Name a dictionary mismatch locally instead of leaving a cryptic counterparty reject:
+            // tags the loaded dictionary doesn't define for this message type get sent flat.
+            val unknownTags = DictionaryLint.unknownTags(FixMessageHelper.parseFixMessage(rawMessage), dictionary)
+            if (unknownTags.isNotEmpty()) {
+                val lint = DictionaryLint.describe(unknownTags, FixMessageHelper.parseFixMessage(rawMessage), dictionary)
+                logger.warn(lint, notifyUser = true)
+                validationWarning = lint
+            }
+
             val message =
                 if (dataDictionary != null) {
                     // Two-tier approach: try validated construction first
@@ -315,8 +324,9 @@ class QuickFixService(
                         // Validation failed - fall back to manual construction
                         logger.warn("Message validation failed, using manual construction: ${validationException.message}")
 
-                        // Store warning to return later
-                        validationWarning = validationException.message ?: "QuickFIX validation failed"
+                        // Store warning to return later (append to a dictionary-lint warning if present)
+                        val reason = validationException.message ?: "QuickFIX validation failed"
+                        validationWarning = listOfNotNull(validationWarning, reason).joinToString("; ")
 
                         // Use manual construction as fallback (must be last expression to return Message)
                         // Pass the full dictionary adapter to preserve FIX version for header/trailer tag detection

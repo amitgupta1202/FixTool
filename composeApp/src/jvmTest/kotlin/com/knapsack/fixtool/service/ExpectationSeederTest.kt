@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import org.junit.Test
@@ -52,5 +53,48 @@ class ExpectationSeederTest {
         assertTrue(byTag[32]!!.matcher is Matcher.Numeric, "LastQty should seed Numeric")
         assertTrue(byTag[37]!!.matcher is Matcher.Presence, "OrderID should seed Presence")
         assertTrue(byTag[11]!!.matcher is Matcher.Exact, "ClOrdID should seed Exact")
+    }
+
+    // A FIX44 QuoteRequest with a two-entry NoRelatedSym(146) repeating group.
+    private val groupedQuoteRequest =
+        listOf(
+            35 to "R",
+            131 to "QR-1",
+            146 to "2",
+            55 to "EUR/USD", // entry 1 (delimiter Symbol 55)
+            54 to "1",
+            38 to "1000000",
+            55 to "GBP/USD", // entry 2
+            54 to "2",
+            38 to "2000000",
+        )
+
+    @Test
+    fun `group-internal tags seed with a by-identity GroupPath, never flat`() {
+        val seeded = ExpectationSeeder.seedDetailed(groupedQuoteRequest, dictionary)
+
+        // Top level: message type, correlation id, and the entry count.
+        assertNull(seeded.first { it.field.tag == 131 }.field.path, "QuoteReqID is top-level")
+        assertNull(seeded.first { it.field.tag == 146 }.field.path, "the group count is asserted top-level")
+
+        // Entry fields are located by identity, and BOTH entries are seeded (no distinct-by-tag collapse).
+        val sides = seeded.filter { it.field.tag == 54 }
+        assertEquals(2, sides.size, "one Side assertion per entry")
+        assertEquals(GroupPath(146, 55, "EUR/USD"), sides[0].field.path)
+        assertEquals(GroupPath(146, 55, "GBP/USD"), sides[1].field.path)
+        assertEquals("1", sides[0].capturedValue)
+        assertEquals("2", sides[1].capturedValue)
+    }
+
+    @Test
+    fun `a grouped golden evaluates green against itself (capture-replay consistency)`() {
+        val raw = groupedQuoteRequest.joinToString("|", postfix = "|") { "${it.first}=${it.second}" }
+        val expectation = ExpectationSeeder.seed(groupedQuoteRequest, dictionary)
+
+        // RawMessageView is group-aware with a dictionary — the same view the editor preview uses.
+        val results = ExpectationEvaluator.evaluate(RawMessageView(raw, dictionary), expectation)
+
+        assertTrue(results.isNotEmpty())
+        assertTrue(results.all { it.passed }, "self-evaluation must be all green: ${results.filterNot { it.passed }}")
     }
 }

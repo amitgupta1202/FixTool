@@ -73,6 +73,9 @@ class ScenarioCaptureTest {
 
         // Quote echoes QR-1 -> reference matcher on the same scenario variable.
         assertEquals(Matcher.Reference("\${id0}"), matcher(expectS, 131))
+        // ...and the echo also BINDS the step: on a busy session this Expect must pick the quote
+        // answering this run's request, not the first quote of any kind.
+        assertEquals(listOf(com.knapsack.fixtool.model.scenario.TagValue(131, "\${id0}")), expectS.match?.fields)
 
         // NewOrderSingle: fresh ClOrdID variable, and it re-uses the quote's variable for QuoteReqID
         // (cross-session correlation), plus a templated TransactTime.
@@ -85,6 +88,44 @@ class ScenarioCaptureTest {
         assertEquals(Matcher.Reference("\${id0}"), matcher(expect8, 131))
         // a smart-seeded field survives where there's no echo (TransactTime -> temporal).
         assertTrue(matcher(expect8, 60) is Matcher.Temporal, "TransactTime should smart-seed temporal")
+    }
+
+    @Test
+    fun `candidates lists business messages chronologically across sessions and excludes admin`() {
+        val a = ScenarioCapture.CapturedSession(
+            "A",
+            listOf(
+                msg("8=FIX.4.4|35=A|34=1|49=CLI|56=SRV|10=001|", FixMessage.Direction.OUTGOING, 0), // Logon: admin
+                msg("8=FIX.4.4|35=D|34=2|49=CLI|56=SRV|11=X-1|10=002|", FixMessage.Direction.OUTGOING, 1),
+            ),
+        )
+        val b = ScenarioCapture.CapturedSession(
+            "B",
+            listOf(msg("8=FIX.4.4|35=8|34=2|49=SRV|56=CLI|11=X-1|10=003|", FixMessage.Direction.INCOMING, 2)),
+        )
+
+        val candidates = ScenarioCapture.candidates(listOf(b, a))
+
+        assertEquals(listOf("A" to "D", "B" to "8"), candidates.map { it.session to it.message.messageType })
+    }
+
+    @Test
+    fun `captureFrom builds only the curated selection and scopes setup to its sessions`() {
+        val noise = msg("8=FIX.4.4|35=D|34=2|49=CLI|56=SRV|11=OLD-1|10=001|", FixMessage.Direction.OUTGOING, 0)
+        val send = msg("8=FIX.4.4|35=D|34=3|49=CLI|56=SRV|11=ORD-1|10=002|", FixMessage.Direction.OUTGOING, 1)
+        val reply = msg("8=FIX.4.4|35=8|34=3|49=SRV|56=CLI|11=ORD-1|17=E-1|10=003|", FixMessage.Direction.INCOMING, 2)
+        val all = ScenarioCapture.candidates(
+            listOf(ScenarioCapture.CapturedSession("A", listOf(noise, send, reply))),
+        )
+
+        // The review screen unticked the stale first order.
+        val scenario = ScenarioCapture.captureFrom("sc2", "curated", null, all.drop(1), dictionary)
+
+        assertEquals(2, scenario.steps.size)
+        val sendStep = scenario.steps[0] as ScenarioStep.Send
+        assertTrue(sendStep.raw.contains("11=\${id0 = UUID.randomUUID()}"), "curated send should mint id0; got ${sendStep.raw}")
+        assertEquals(Matcher.Reference("\${id0}"), matcher(scenario.steps[1] as ScenarioStep.Expect, 11))
+        assertEquals(listOf("A"), scenario.setup.filterIsInstance<ScenarioStep.ClearMessages>().map { it.session })
     }
 
     private fun sessionOf(step: ScenarioStep): String? =

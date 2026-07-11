@@ -244,6 +244,16 @@ fun MessageDetailPanel(
                         color = AppTheme.Separators.color,
                         thickness = AppTheme.Separators.dividerThickness,
                     )
+
+                    // Scenario assertion verdict for this message — the summary first, so a failure
+                    // is announced before the user scans the tag list.
+                    if (tagResults.isNotEmpty()) {
+                        AssertionSummaryBanner(tagResults.values.toList(), dictionary)
+                        HorizontalDivider(
+                            color = AppTheme.Separators.color,
+                            thickness = AppTheme.Separators.dividerThickness,
+                        )
+                    }
                 }
 
                 // Resizable split between fields list and raw message
@@ -470,6 +480,47 @@ fun MessageDetailPanel(
 // Threshold for considering a value "long" and expandable
 private const val LONG_VALUE_THRESHOLD = 50
 
+/**
+ * The verdict of a scenario assertion on this message: "all N checks passed", or which tags broke.
+ * Failures lead; the per-tag rows below carry the expected-vs-actual detail.
+ */
+@Composable
+private fun AssertionSummaryBanner(results: List<TagResult>, dictionary: FixDictionary) {
+    val failed = results.filterNot { it.passed }
+    val background = if (failed.isEmpty()) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
+    Column(modifier = Modifier.fillMaxWidth().background(background).padding(horizontal = 12.dp, vertical = 6.dp)) {
+        if (failed.isEmpty()) {
+            Text(
+                text = "✓ Scenario assertion passed — all ${results.size} checked tags matched",
+                color = AppTheme.Colors.success,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        } else {
+            Text(
+                text = "✗ Scenario assertion failed — ${failed.size} of ${results.size} checked tags",
+                color = AppTheme.Colors.error,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            failed.take(5).forEach { tr ->
+                val name = dictionary.getFieldName(tr.tag) ?: ""
+                Text(
+                    text = "   ${tr.tag} $name — expected ${tr.expected}, got ${tr.actual ?: "nothing (tag absent)"}",
+                    color = AppTheme.Colors.error,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (failed.size > 5) {
+                Text("   +${failed.size - 5} more — see the red rows below", color = AppTheme.Colors.error, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
 @Composable
 private fun FieldRow(
     tag: Int,
@@ -493,15 +544,15 @@ private fun FieldRow(
 
     val isLongValue = displayValue.length > LONG_VALUE_THRESHOLD
 
-    val rowBackground =
-        tagResult?.let {
-            if (it.passed) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
-        } ?: fieldRowBackgroundColor
+    // A failed assertion owns the row (red tint + detail line below); a passed one stays subtle —
+    // a green check only — so failures are the thing the eye lands on, not a wall of green.
+    val failedAssertion = tagResult != null && !tagResult.passed
+    val rowBackground = if (failedAssertion) AppTheme.Colors.notificationErrorBackground else fieldRowBackgroundColor
+    Column(modifier = Modifier.fillMaxWidth().background(rowBackground)) {
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(rowBackground)
                 .let { mod ->
                     if (isLongValue) {
                         mod.clickable { onToggleExpand() }
@@ -556,19 +607,36 @@ private fun FieldRow(
             )
         }
 
-        // Scenario assertion result for this tag (green check / red expected-vs-actual).
+        // Scenario assertion verdict chip: a quiet check for a pass, a loud cross for a failure.
         tagResult?.let { tr ->
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = if (tr.passed) "✓ ${tr.matcher}" else "✗ exp ${tr.expected} · act ${tr.actual ?: "<absent>"}",
+                text = if (tr.passed) "✓ ${tr.matcher}" else "✗ ${tr.matcher}",
                 color = if (tr.passed) AppTheme.Colors.success else AppTheme.Colors.error,
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,
+                fontWeight = if (tr.passed) FontWeight.Normal else FontWeight.Bold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(end = 4.dp).widthIn(max = 220.dp),
+                modifier = Modifier.padding(end = 4.dp),
             )
         }
+    }
+    // A failure gets its expected-vs-actual spelled out full-width, with the actual value's
+    // dictionary meaning — never truncated into an unreadable suffix.
+    if (failedAssertion && tagResult != null) {
+        val actualText =
+            tagResult.actual?.let { actual ->
+                val desc = dictionary.getFieldValueDescription(tag, actual)?.takeIf { it != actual }
+                if (desc != null) "$actual ($desc)" else actual
+            } ?: "nothing — tag absent"
+        Text(
+            text = "expected ${tagResult.expected} · actual $actualText",
+            color = AppTheme.Colors.error,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.fillMaxWidth().padding(start = (8 + indentLevel * 8 + 39).dp, end = 8.dp, bottom = 4.dp),
+        )
+    }
     }
 }
 

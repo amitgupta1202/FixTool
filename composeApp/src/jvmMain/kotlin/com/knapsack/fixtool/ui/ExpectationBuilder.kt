@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,41 +46,60 @@ data class FieldDraft(
     val included: Boolean,
     val matcher: Matcher,
     val path: GroupPath? = null,
+    /** The captured value's dictionary description (e.g. "2" → "FILLED"), for FIX newcomers. */
+    val description: String = "",
 )
 
 /** Builds the initial per-tag drafts for a captured message: dictionary-seeded matchers (capture). */
 object ExpectationDrafts {
-    fun fromRaw(raw: String, dictionary: FixDictionary?): List<FieldDraft> {
-        val fields = FixMessageHelper.parseFixMessage(raw)
-        val seeded = ExpectationSeeder.seed(fields, dictionary).fields.associateBy { it.tag }
-        return fields.distinctBy { it.first }.map { (tag, value) ->
-            val fe = seeded[tag]
-            FieldDraft(
-                tag = tag,
-                name = dictionary?.getFieldName(tag) ?: "",
-                value = value,
-                included = fe != null,
-                matcher = fe?.matcher ?: Matcher.Exact(value),
-            )
-        }
-    }
+    private fun describe(dictionary: FixDictionary?, tag: Int, value: String): String =
+        dictionary?.getFieldValueDescription(tag, value)?.takeIf { it != value } ?: ""
 
-    /** Rebuild editable drafts from a previously saved expectation (preserving relaxed matchers). */
+    /**
+     * Rebuild editable drafts from a previously saved expectation. Rows come from the **golden ∪ the
+     * asserted fields**: a tag the author unticked earlier reappears unticked (with a freshly seeded
+     * matcher) instead of vanishing forever — unticking is not a one-way door.
+     */
     fun fromExpectation(expectation: Expectation, dictionary: FixDictionary?): List<FieldDraft> {
-        val goldenValues =
-            expectation.golden
-                ?.let { FixMessageHelper.parseFixMessage(it).associate { f -> f.first to f.second } }
-                ?: emptyMap()
-        return expectation.fields.map { fe ->
+        val remaining = expectation.fields.toMutableList()
+
+        fun claim(tag: Int, path: GroupPath?): FieldExpectation? {
+            // Prefer an exact (tag, path) match; fall back to tag-only so scenarios saved before
+            // group-aware seeding (paths were null) still map onto their rows.
+            val found = remaining.firstOrNull { it.tag == tag && it.path == path }
+                ?: remaining.firstOrNull { it.tag == tag && it.path == null }
+            found?.let { remaining.remove(it) }
+            return found
+        }
+
+        val goldenDrafts =
+            expectation.golden?.let { golden ->
+                ExpectationSeeder.seedDetailed(FixMessageHelper.parseFixMessage(golden), dictionary).map { sf ->
+                    val existing = claim(sf.field.tag, sf.field.path)
+                    FieldDraft(
+                        tag = sf.field.tag,
+                        name = dictionary?.getFieldName(sf.field.tag) ?: "",
+                        value = sf.capturedValue,
+                        included = existing != null,
+                        matcher = existing?.matcher ?: sf.field.matcher,
+                        path = existing?.path ?: sf.field.path,
+                        description = describe(dictionary, sf.field.tag, sf.capturedValue),
+                    )
+                }
+            } ?: emptyList()
+
+        // Asserted fields with no golden row (hand-authored, or no golden at all) stay editable.
+        val orphanDrafts = remaining.map { fe ->
             FieldDraft(
                 tag = fe.tag,
                 name = dictionary?.getFieldName(fe.tag) ?: "",
-                value = goldenValues[fe.tag] ?: "",
+                value = "",
                 included = true,
                 matcher = fe.matcher,
                 path = fe.path,
             )
         }
+        return goldenDrafts + orphanDrafts
     }
 }
 
@@ -97,13 +114,15 @@ object ExpectationDrafts {
 fun ExpectationBuilder(
     messageType: String,
     initialFields: List<FieldDraft>,
-    goldenView: MessageView,
+    goldenView: MessageView?,
     secondView: MessageView? = null,
-    onSave: (Expectation) -> Unit,
+    initialMode: MatchMode = MatchMode.OPEN,
+    onSave: ((Expectation) -> Unit)? = null,
+    onChange: ((Expectation) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val drafts = remember { mutableStateListOf<FieldDraft>().apply { addAll(initialFields) } }
-    var strict by remember { mutableStateOf(false) }
+    var strict by remember { mutableStateOf(initialMode == MatchMode.STRICT) }
     var overSpecified by remember { mutableStateOf<Set<Int>?>(null) }
 
     fun expectation(): Expectation =
@@ -113,28 +132,38 @@ fun ExpectationBuilder(
             mode = if (strict) MatchMode.STRICT else MatchMode.OPEN,
         )
 
+    fun notifyChange() {
+        onChange?.invoke(expectation())
+    }
+
     Column(modifier = modifier.fillMaxWidth()) {
         BuilderHeader(
             messageType = messageType,
             strict = strict,
-            onStrictChange = { strict = it },
+            onStrictChange = {
+                strict = it
+                notifyChange()
+            },
             canVerify = secondView != null,
             onVerify = {
                 val results = ExpectationEvaluator.evaluate(secondView!!, expectation())
                 overSpecified = results.filterNot { it.passed }.map { it.tag }.toSet()
             },
             overSpecified = overSpecified,
-            onSave = { onSave(expectation()) },
+            onSave = onSave?.let { save -> { save(expectation()) } },
         )
         // Plain Column (not LazyColumn) so this builder can be embedded inside scrollable parents
-        // (the scenario builder / dialog) without the "infinity max height" nesting crash.
+        // (the step detail panel) without the "infinity max height" nesting crash.
         Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.fillMaxWidth()) {
             drafts.forEachIndexed { index, draft ->
                 FieldDraftRow(
                     draft = draft,
-                    livePass = if (draft.included) previewPass(draft, goldenView) else null,
+                    livePass = if (draft.included && goldenView != null) previewPass(draft, goldenView) else null,
                     overSpecified = overSpecified?.contains(draft.tag) == true,
-                    onChange = { drafts[index] = it },
+                    onChange = {
+                        drafts[index] = it
+                        notifyChange()
+                    },
                 )
             }
         }
@@ -154,7 +183,7 @@ private fun BuilderHeader(
     canVerify: Boolean,
     onVerify: () -> Unit,
     overSpecified: Set<Int>?,
-    onSave: () -> Unit,
+    onSave: (() -> Unit)?,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Text("Expectation · msg $messageType", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -162,11 +191,9 @@ private fun BuilderHeader(
             Checkbox(checked = strict, onCheckedChange = onStrictChange)
             Text("STRICT", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
         }
-        OutlinedButton(onClick = onVerify, enabled = canVerify, modifier = Modifier.padding(start = 12.dp)) {
-            Text("Verify generalizes", color = AppTheme.Colors.text, fontSize = 11.sp)
-        }
-        OutlinedButton(onClick = onSave, modifier = Modifier.padding(start = 8.dp)) {
-            Text("Save expectation", color = AppTheme.Colors.success, fontSize = 11.sp)
+        SlimButton("Verify generalizes", onClick = onVerify, enabled = canVerify, modifier = Modifier.padding(start = 12.dp))
+        if (onSave != null) {
+            SlimButton("Save expectation", onClick = onSave, color = AppTheme.Colors.success, modifier = Modifier.padding(start = 8.dp))
         }
         if (overSpecified != null) {
             val msg = if (overSpecified.isEmpty()) "✓ generalizes" else "⚠ ${overSpecified.size} over-specified"
@@ -183,15 +210,25 @@ private fun FieldDraftRow(draft: FieldDraft, livePass: Boolean?, overSpecified: 
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Checkbox(checked = draft.included, onCheckedChange = { onChange(draft.copy(included = it)) })
             PreviewDot(livePass, overSpecified)
-            Text("${draft.tag}", color = AppTheme.Colors.text, fontFamily = FontFamily.Monospace, fontSize = 12.sp, modifier = Modifier.width(44.dp))
-            Text(draft.name.take(16), color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.width(110.dp))
+            Text("${draft.tag}", color = AppTheme.Colors.tagNumber, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.width(40.dp))
+            Text(draft.name.take(18), color = AppTheme.Colors.fieldName, fontSize = 10.sp, modifier = Modifier.width(110.dp))
             if (draft.included) {
                 MatcherEditor(matcher = draft.matcher, capturedValue = draft.value, onChange = { onChange(draft.copy(matcher = it)) })
-                OutlinedButton(onClick = { groupOpen = !groupOpen }, modifier = Modifier.padding(start = 6.dp)) {
-                    Text(if (draft.path != null) "grp✓" else "grp", fontSize = 10.sp, color = AppTheme.Colors.textSecondary)
+                if (draft.description.isNotEmpty()) {
+                    Text("(${draft.description})", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(start = 6.dp))
                 }
+                Row(modifier = Modifier.weight(1f)) {}
+                SlimButton(
+                    text = if (draft.path != null) "grp✓" else "grp",
+                    onClick = { groupOpen = !groupOpen },
+                    color = if (draft.path != null) AppTheme.Colors.groupTag else AppTheme.Colors.textSecondary,
+                    modifier = Modifier.padding(start = 6.dp, end = 4.dp),
+                )
             } else {
-                Text(draft.value.take(24), color = AppTheme.Colors.textDisabled, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                Text(draft.value.take(24), color = AppTheme.Colors.textDisabled, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                if (draft.description.isNotEmpty()) {
+                    Text("(${draft.description})", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(start = 6.dp))
+                }
             }
         }
         if (groupOpen && draft.included) {
@@ -221,27 +258,21 @@ private fun PreviewDot(livePass: Boolean?, overSpecified: Boolean) {
     )
 }
 
+/**
+ * Locates a repeating-group entry by identity ("the entry whose PartyRole(452) = 1"), never by
+ * position — group order is not guaranteed. Labeled in plain words for users new to FIX groups.
+ */
 @Composable
 private fun GroupPathEditor(path: GroupPath?, onChange: (GroupPath?) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 48.dp, top = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("group:", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
-        GroupField("groupTag", path?.groupTag?.toString() ?: "") { onChange(updatePath(path, groupTag = it.toIntOrNull())) }
-        GroupField("idTag", path?.identityTag?.toString() ?: "") { onChange(updatePath(path, identityTag = it.toIntOrNull())) }
-        GroupField("idValue", path?.identityValue ?: "") { onChange(updatePath(path, identityValue = it)) }
-        OutlinedButton(onClick = { onChange(null) }) { Text("clear", fontSize = 10.sp, color = AppTheme.Colors.textSecondary) }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 48.dp, top = 4.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("in group", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
+        SlimField(path?.groupTag?.toString() ?: "", { onChange(updatePath(path, groupTag = it.toIntOrNull())) }, monospace = true, tintBlank = true, modifier = Modifier.width(56.dp))
+        Text("pick the entry where tag", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
+        SlimField(path?.identityTag?.toString() ?: "", { onChange(updatePath(path, identityTag = it.toIntOrNull())) }, monospace = true, tintBlank = true, modifier = Modifier.width(56.dp))
+        Text("=", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
+        SlimField(path?.identityValue ?: "", { onChange(updatePath(path, identityValue = it)) }, monospace = true, tintBlank = true, modifier = Modifier.width(80.dp))
+        SlimButton("clear", onClick = { onChange(null) }, color = AppTheme.Colors.textSecondary)
     }
-}
-
-@Composable
-private fun GroupField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
-        label = { Text(label, fontSize = 9.sp) },
-        singleLine = true,
-        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
-        modifier = Modifier.width(96.dp),
-    )
 }
 
 private fun updatePath(path: GroupPath?, groupTag: Int? = null, identityTag: Int? = null, identityValue: String? = null): GroupPath? {

@@ -35,4 +35,24 @@ class ScenarioEditTest {
         assertEquals(Matcher.Reference("\${id0}"), drafts[11]!!.matcher)
         assertEquals("ORD-1", drafts[11]!!.value)
     }
+
+    @Test
+    fun `an unticked tag reappears unticked instead of vanishing (no one-way door)`() {
+        val golden = "8=FIX.4.4|35=8|11=ORD-1|31=1.2345|39=2|10=000|"
+        // The author previously unticked 31 (LastPx): it is absent from the saved fields.
+        val expectation = Expectation(
+            fields = listOf(FieldExpectation(11, Matcher.Exact("ORD-1")), FieldExpectation(39, Matcher.Exact("2"))),
+            messageType = "8",
+            golden = golden,
+        )
+
+        val drafts = ExpectationDrafts.fromExpectation(expectation, dictionary = null).associateBy { it.tag }
+
+        val lastPx = drafts[31]
+        kotlin.test.assertTrue(lastPx != null, "the unticked golden tag must still be a row")
+        kotlin.test.assertFalse(lastPx!!.included, "…shown unticked")
+        assertEquals("1.2345", lastPx.value, "…with its captured value, ready to re-include")
+        kotlin.test.assertTrue(drafts[11]!!.included)
+        kotlin.test.assertTrue(drafts[39]!!.included)
+    }
 }

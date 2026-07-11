@@ -43,9 +43,9 @@ class MatcherEditorTest {
         var last: Matcher = Matcher.Exact("8")
         composeTestRule.setContent { editor { last = it } }
         snapshot("matcher_editor_exact.png")
-        // Open the type dropdown (button shows the current type) and pick oneOf.
+        // Open the type dropdown (chip shows the current type) and pick oneOf (menu items carry help text).
         composeTestRule.onNodeWithText("exact").performClick()
-        composeTestRule.onNodeWithText("oneOf").performClick()
+        composeTestRule.onNodeWithText("oneOf", substring = true).performClick()
         composeTestRule.waitForIdle()
         assertTrue(last is Matcher.OneOf, "expected OneOf, got $last")
         snapshot("matcher_editor_oneof.png")

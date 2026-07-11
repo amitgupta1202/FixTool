@@ -64,7 +64,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /profiles`      | —                                      | array of connection profiles                         |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?}`        | create (or update if `id` given) a profile → `{status, id, name}` |
 | `DELETE /profiles`   | `{"id"}` (or `?id=`)                   | delete a profile (demo profiles are protected)       |
-| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings", "show"?}` | show/hide a panel for screenshots |
+| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios", "show"?}` | show/hide a panel (`scenarios` opens the Scenarios window) |
 | `GET /templates`     | query: `profile`?                      | list saved templates (name, type, userTags, isFavorite, fields) |
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |

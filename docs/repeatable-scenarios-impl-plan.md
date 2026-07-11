@@ -157,6 +157,84 @@ hand-editing JSON.
 >   preview; captured golden restored). The from-scratch step-builder primacy and the separate
 >   `ScenarioResultsView` pane were removed.
 
+> **UX redesign 2 — the Scenarios workbench (supersedes the modal dialog + blind capture).**
+> A second review found capture too blind (one click saved everything in the logs, unseen) and the
+> editing dialog cramped and lossy. The engine was again untouched; the authoring surface was
+> rebuilt around one representation — *the scenario is a conversation across sessions*:
+> - **A real window, not a modal** (`ScenarioWorkbenchWindow`, composed at application scope in
+>   `main.kt`): resizable, non-modal, so live sessions stay usable while capturing/editing.
+> - **Capture goes through a review screen** (`ScenarioCaptureReview` over
+>   `ScenarioCapture.candidates`/`captureFrom`): all business messages across sessions,
+>   chronological, session-color badges + direction glyphs; untick noise or trim with *Start/End
+>   here*; the right pane previews per-tag what each row becomes. **Correlation badges**
+>   (`ScenarioAnnotations`: ●minted / ○echoed, color-stable per id) update live with the selection —
+>   the RFQ cross-session echo is drawn, not implied.
+> - **The editor shows the same flow list** (`ScenarioEditor`); the selected step edits in a detail
+>   pane — Send as a field grid (never a raw pipe string), Expect as bind predicate
+>   (msgType + tag=value AND) plus the matcher-chip `ExpectationBuilder` (live preview,
+>   verify-generalizes fed by a live second instance). Sessions are dropdowns.
+>   **Two data-loss bugs fixed:** the old builder dropped the Expect/Wait `match` predicate and the
+>   expectation `golden` on save; `EditStep` round-trips everything (pinned by `ScenarioEditStepTest`).
+> - The from-scratch "New (visual)" path was removed; `ScenariosDialog`/`ScenarioBuilder` deleted.
+> - Fallout fixed along the way: the bundled demo server stamped TransactTime(60)/ValidUntilTime(62)
+>   with *local* time (UTCTimestamp fields) — caught by a captured scenario's `now ±60s` matcher
+>   failing outside UTC; both now stamp UTC.
+>
+> **Usability pass (post-review).** Inputs matched to the app convention and the dictionary put to
+> work for users new to FIX:
+> - All workbench inputs use the **slim** family (`SlimField`/`SlimButton`/`SlimLabeled` published in
+>   `SlimComponents.kt`, same recipe as the message editor's fields) instead of the tall Material3
+>   OutlinedTextField; interactive minimums reduced to 24dp inside the workbench.
+> - Capture-review range selection is **From/To dropdowns** listing the candidate messages (the
+>   message editor's dropdown idiom) instead of per-row Start/End buttons.
+> - **Dictionary everywhere**: Send-grid values get enum dropdowns ("1 (BUY)") or value descriptions;
+>   the bind predicate's message type is a named dropdown ("8 (EXECUTION_REPORT)"); constraint values
+>   are enum-aware; matcher chips show the captured value's meaning; matcher types carry one-line
+>   help in their dropdown.
+> - **Tags are pickable by name**: `SlimTagPicker` (in `SlimComponents.kt`, over
+>   `dictionary.getAllFields()`) autocompletes a tag cell from a number *or* a field name — type
+>   "Symbol", pick "55 · Symbol". Used in the Send field grid and match constraints; plain numeric
+>   typing still works, and it degrades to a simple field with no dictionary. Reusable by the
+>   message editor (whose tag cell is free-text today).
+> - **Assertion failure UI**: the detail panel opens with a verdict banner ("✗ failed — 2 of 19
+>   checked tags", naming them); failed rows are red with a full-width `expected … · actual …
+>   (meaning)` line; passed rows show only a quiet green check so failures dominate; the workbench
+>   list's last-run line names the first failing step and tags (`AssertionResultsUiTest`).
+>
+> **Hardening slice (QA stuck-point review).** A usability audit of the run path fixed the ways a
+> run could fail *misleadingly*:
+> - **Preflight** (`ScenarioRunner.preflight`): every referenced session must exist — and be
+>   LOGGED_ON when the scenario sends/expects on it (unless the scenario itself `Wait`s for logon) —
+>   or the run fails immediately with a named reason ("session 'Demo User 2' not found — connect it,
+>   or remap the step's session in the editor"), instead of a misleading Expect timeout minutes later.
+> - **Honest step results**: `clearMessages`/`resetSeqNum` on a vanished session now fail (the host
+>   returns Boolean) instead of silently passing; Expect timeouts name the session, its connection
+>   state, the bind constraints, and how many messages were seen.
+> - **Correlation-aware binding**: capture adds echoed correlation ids as bind constraints
+>   (`match.fields = [11=${id0}]`), and the runner resolves `${...}` in predicate values against the
+>   scenario scope — an Expect binds to *the response to this run's order*, not the first
+>   same-type message on a busy session.
+> - **Group-aware seeding**: `FixStructure.walk` (dictionary-driven) locates repeating-group fields,
+>   and `ExpectationSeeder` seeds them with a by-identity `GroupPath` — previously grouped fields
+>   were seeded flat and *always* failed as "absent" on replay. `RawMessageView` is group-aware with
+>   a dictionary, so editor previews predict the runner. Nested groups (level 2+) are consumed, not
+>   asserted. Pinned by "a grouped golden evaluates green against itself".
+> - **No more one-way door**: expectation drafts rebuild from *golden ∪ asserted fields* — an
+>   unticked tag reappears unticked with its captured value.
+> - **Run integrity**: the UI and control-surface runners share one run slot
+>   (`beginScenarioRun`/`endScenarioRun`; a concurrent `/scenarios/run` returns "already in
+>   progress"), and the host sends to the step's session directly instead of flipping the active tab.
+> - **Workbench**: notifications now surface in the Scenarios window; Delete asks for confirmation;
+>   rows gained Duplicate; the header gained "Open folder" (the diffable-JSON story's UI handle).
+> - **Dictionary-mismatch lint** (`DictionaryLint`): the "grouped send flattening" seen live was
+>   root-caused to dictionary fidelity, not a construction bug — manual construction builds groups
+>   correctly (`GroupedSendConstructionTest`), but the loaded venue dialect (e.g. a BrokerTec
+>   dictionary defining QuoteRequest *flat*, no NoRelatedSym) makes unknown tags go out as plain
+>   top-level fields, which the counterparty rejects cryptically. Now the mismatch is named locally:
+>   sends warn+notify ("tags not defined for QuoteRequest (R) in the loaded dictionary: 146
+>   NoRelatedSym…"), and the scenario editor's Send detail and the capture-review preview show the
+>   same warning inline.
+
 ### Deliverables
 
 | # | Item | Files | Size |

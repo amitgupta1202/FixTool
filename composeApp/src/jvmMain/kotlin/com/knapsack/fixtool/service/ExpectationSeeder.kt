@@ -34,14 +34,34 @@ object ExpectationSeeder {
     /** Default tolerance (seconds) for timestamp fields seeded as "now ± N". */
     private const val DEFAULT_TIME_TOLERANCE_SECONDS = 60L
 
+    /** One seeded assertion plus the captured value it was seeded from (for editor/preview rows). */
+    data class SeededField(val field: FieldExpectation, val capturedValue: String)
+
     fun seed(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): Expectation {
         val messageType = fields.firstOrNull { it.first == 35 }?.second
-        val seeded =
-            fields
-                .filterNot { it.first in OMITTED_TAGS }
-                .distinctBy { it.first }
-                .map { (tag, value) -> FieldExpectation(tag = tag, matcher = seedMatcher(tag, value, dictionary)) }
-        return Expectation(fields = seeded, messageType = messageType, mode = MatchMode.OPEN)
+        return Expectation(
+            fields = seedDetailed(fields, dictionary).map { it.field },
+            messageType = messageType,
+            mode = MatchMode.OPEN,
+        )
+    }
+
+    /**
+     * Structure-aware seeding: repeating-group fields get a [com.knapsack.fixtool.model.scenario.GroupPath]
+     * locating their entry by identity — a top-level lookup on a group-internal tag would always be
+     * "absent", so seeding it flat would guarantee a false failure on replay.
+     */
+    fun seedDetailed(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): List<SeededField> {
+        val seen = mutableSetOf<Pair<Int, Any?>>()
+        return FixStructure.walk(fields, dictionary)
+            .filterNot { it.tag in OMITTED_TAGS }
+            .filter { seen.add(it.tag to it.path) }
+            .map { sf ->
+                SeededField(
+                    field = FieldExpectation(tag = sf.tag, matcher = seedMatcher(sf.tag, sf.value, dictionary), path = sf.path),
+                    capturedValue = sf.value,
+                )
+            }
     }
 
     private fun seedMatcher(tag: Int, value: String, dictionary: FixDictionaryAdapter?): Matcher {

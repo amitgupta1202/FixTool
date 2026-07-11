@@ -29,6 +29,9 @@ class ScenarioService(
             File(System.getProperty("user.home"), ".fixtool/scenarios")
         }
 
+    /** Where scenarios live on disk — one JSON per scenario, made for diffing/sharing/PR-ing. */
+    val directory: File get() = dir
+
     /** All saved scenarios, sorted by name; unreadable files are skipped, not fatal. */
     fun list(): List<Scenario> =
         synchronized(lock) {

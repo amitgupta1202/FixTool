@@ -31,12 +31,11 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
 
     override fun send(raw: String, session: String?): Boolean =
         onEdt {
+            // Send to the session directly — never via the active tab, so a multi-session run
+            // doesn't flip what the user is looking at (or race their own selection).
             val sess = resolveSession(session) ?: return@onEdt false
-            val index = viewModel.sessions.indexOf(sess)
-            if (index < 0) return@onEdt false
-            viewModel.setActiveSession(index)
-            val result = viewModel.sendMessage(raw)
-            result != null && result !is SendResult.Failed
+            val result = sess.sendFixMessage(raw, viewModel.dictionary)
+            result !is SendResult.Failed
         }
 
     override fun messages(session: String?): List<FixMessage> {
@@ -70,14 +69,16 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
 
     override fun view(message: FixMessage): MessageView = FixMessageView(message)
 
-    override fun clearMessages(session: String?) {
-        val sess = resolveSession(session) ?: return
+    override fun clearMessages(session: String?): Boolean {
+        val sess = resolveSession(session) ?: return false
         onEdt { sess.clearMessages() }
+        return true
     }
 
-    override fun resetSeqNum(session: String?, sender: Int?, target: Int?) {
-        val sess = resolveSession(session) ?: return
+    override fun resetSeqNum(session: String?, sender: Int?, target: Int?): Boolean {
+        val sess = resolveSession(session) ?: return false
         onEdt { sess.resetSequenceNumbers(sender, target) }
+        return true
     }
 
     private fun byType(msgs: List<FixMessage>, incoming: Boolean): Map<String, FixMessage> {

@@ -19,14 +19,16 @@ data class Scenario(
     val version: Int = 1,
 )
 
-/** One step of a scenario. */
+/** One step of a scenario. Every step targets a [session] (null = the active session). */
 sealed interface ScenarioStep {
+    val session: String?
+
     /** Send a (parameterized) message; `${...}` is resolved against the scenario scope at run time. */
-    data class Send(val raw: String, val session: String? = null) : ScenarioStep
+    data class Send(val raw: String, override val session: String? = null) : ScenarioStep
 
     /** Block until a connection state is reached or a matching message arrives (no consume). */
     data class Wait(
-        val session: String? = null,
+        override val session: String? = null,
         val state: String? = null,
         val match: MatchPredicate? = null,
         val timeoutMs: Long = 10_000,
@@ -34,7 +36,7 @@ sealed interface ScenarioStep {
 
     /** Await the next not-yet-consumed matching message and assert it against an expectation. */
     data class Expect(
-        val session: String? = null,
+        override val session: String? = null,
         val direction: String = "in",
         val match: MatchPredicate? = null,
         val timeoutMs: Long = 10_000,
@@ -42,10 +44,14 @@ sealed interface ScenarioStep {
     ) : ScenarioStep
 
     /** Clear a session's observable message log (typical setup step). */
-    data class ClearMessages(val session: String? = null) : ScenarioStep
+    data class ClearMessages(override val session: String? = null) : ScenarioStep
 
     /** Reset a session's FIX sequence numbers (typical setup step). */
-    data class ResetSeqNum(val session: String? = null, val sender: Int? = null, val target: Int? = null) : ScenarioStep
+    data class ResetSeqNum(
+        override val session: String? = null,
+        val sender: Int? = null,
+        val target: Int? = null,
+    ) : ScenarioStep
 }
 
 /**

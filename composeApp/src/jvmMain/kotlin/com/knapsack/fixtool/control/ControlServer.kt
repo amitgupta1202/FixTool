@@ -747,16 +747,24 @@ class ControlServer(
                     return errorObject("invalid scenario: ${e.message}")
                 }
             }
+        // One run at a time — a UI run and a control run would consume each other's messages.
+        if (!viewModel.beginScenarioRun()) {
+            return errorObject("a scenario run is already in progress")
+        }
         val matched = linkedMapOf<FixMessage, com.knapsack.fixtool.model.scenario.StepResult>()
         viewModel.setAssertionResults(emptyMap())
         val result =
-            ScenarioRunner(
-                scenarioHost(),
-                onExpectMatched = { message, stepResult ->
-                    matched[message] = stepResult
-                    viewModel.setAssertionResults(matched.toMap())
-                },
-            ).run(scenario)
+            try {
+                ScenarioRunner(
+                    scenarioHost(),
+                    onExpectMatched = { message, stepResult ->
+                        matched[message] = stepResult
+                        viewModel.setAssertionResults(matched.toMap())
+                    },
+                ).run(scenario)
+            } finally {
+                viewModel.endScenarioRun()
+            }
         return if (body["format"]?.jsonPrimitive?.content?.lowercase() == "junit") {
             buildJsonObject {
                 put("passed", result.passed)

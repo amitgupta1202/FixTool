@@ -709,10 +709,19 @@ class FixMessageViewModel(
      * Runs a saved scenario deterministically off the UI thread (the runner blocks on polling) and
      * publishes the per-step / per-tag [ScenarioResult] to [scenarioResult] for the red/green overlay.
      */
+    /**
+     * Claims the single run slot (shared by the UI and the control surface, whose runners would
+     * otherwise race each other's consumed-message cursors). Pair with [endScenarioRun].
+     */
+    fun beginScenarioRun(): Boolean = _scenarioRunning.compareAndSet(expect = false, update = true)
+
+    fun endScenarioRun() {
+        _scenarioRunning.value = false
+    }
+
     @Suppress("TooGenericExceptionCaught")
     fun runScenario(scenario: Scenario) {
-        if (_scenarioRunning.value) return
-        _scenarioRunning.value = true
+        if (!beginScenarioRun()) return
         _scenarioResult.value = null
         _assertionResults.value = emptyMap()
         val matched = linkedMapOf<FixMessage, StepResult>()
@@ -731,7 +740,7 @@ class FixMessageViewModel(
                     null
                 }
             _scenarioResult.value = result
-            _scenarioRunning.value = false
+            endScenarioRun()
         }
     }
 
@@ -752,6 +761,32 @@ class FixMessageViewModel(
                 name = name,
                 profile = null,
                 sessions = captured,
+                dictionary = dictionary,
+            )
+        return if (scenarioService.save(scenario)) scenario.id else null
+    }
+
+    /**
+     * The capture-review rows: every business message across all sessions, oldest first. A snapshot —
+     * the review screen curates a stable list, not a live feed.
+     */
+    fun captureCandidates(): List<ScenarioCapture.Candidate> =
+        ScenarioCapture.candidates(
+            _sessions.map { ScenarioCapture.CapturedSession(it.title, it.messages.value.filterIsInstance<FixMessage>()) },
+        )
+
+    /** Persist a curated capture selection as a scenario (the review screen's Save); id or null. */
+    fun saveCapturedSelection(name: String, selection: List<ScenarioCapture.Candidate>): String? {
+        if (selection.isEmpty()) {
+            showNotification("No messages selected to capture", NotificationType.ERROR)
+            return null
+        }
+        val scenario =
+            ScenarioCapture.captureFrom(
+                id = java.util.UUID.randomUUID().toString(),
+                name = name,
+                profile = null,
+                selection = selection,
                 dictionary = dictionary,
             )
         return if (scenarioService.save(scenario)) scenario.id else null

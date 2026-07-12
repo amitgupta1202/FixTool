@@ -89,7 +89,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 `test-request` (`id`), `resend-request` (`begin`/`end`), `sequence-reset` (`newSeq`/`gapFill`),
 `logout` (`reason`), `disconnect` (`reason`, ungraceful). Used for session-recovery / gap-fill QA.
 | `POST /select`       | `{"session"?, "index"?, "messageType"?, "direction"?}` | selects a message in the browser → opens the detail panel |
-| `POST /assert`       | `{"session"?, "messageType"?, "direction"?, "index"?, "timeoutMs"?, "mode"?, "fields":[{tag, matcher, path?}]}` | machine-checks a received message tag-by-tag → `{passed, tags:[{tag, matcher, expected, actual, passed}]}` |
+| `POST /assert`       | `{"session"?, "messageType"?, "direction"?, "index"?, "timeoutMs"?, "mode"?, "fields":[{tag, matcher, path?}]}` | machine-checks a received message tag-by-tag → `{passed, tags:[{tag, matcher, expected, actual, passed, path?}]}` (`path` echoes a group-entry assertion's locator, omitted for top-level tags) |
 | `POST /expectation/capture` | `{"session"?, "messageType"?, "direction"?, "index"?}` | builds an auto-seeded expectation from a message → `{messageType, mode, fields:[…]}` |
 | `GET /scenarios`     | query: `profile`?                      | list saved scenarios (id, name, profile, step counts, userTags) |
 | `POST /scenarios`    | scenario JSON `{name, steps:[…], setup?, teardown?, …}` | create/update a scenario (id generated if absent) |

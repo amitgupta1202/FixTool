@@ -108,6 +108,12 @@ The `tags` list is the single representation that drives **both** consumers: CI 
 `passed`; the message viewer renders each entry as a red/green row. `expected`/`actual`
 are human-readable so a failure reads on its own.
 
+A row produced by a group-path assertion additionally carries its `path`
+(`{"groupTag", "identityTag", "identityValue"}`, same shape as the request field) so
+that two assertions on the same tag under different group entries stay distinguishable
+in results — the field is **omitted** (not null) for top-level rows, keeping older
+consumers parsing.
+
 ---
 
 ## Evaluation rules

@@ -526,6 +526,14 @@ server.tool(
 );
 
 server.tool(
+  "fixtool_get_scenario",
+  "Fetch one saved scenario's full JSON definition by id — the exact shape fixtool_save_scenario " +
+    "accepts, so a scenario can be read, edited, and saved back losslessly.",
+  { id: z.string().describe("scenario id (from fixtool_list_scenarios)") },
+  async ({ id }) => text("GET", `/scenarios?id=${encodeURIComponent(id)}`),
+);
+
+server.tool(
   "fixtool_run_scenario",
   "Run a scenario deterministically and return a per-step, per-tag pass/fail report. Identify by id " +
     "(from the store) or pass an inline scenario. format=junit returns JUnit XML for CI.",

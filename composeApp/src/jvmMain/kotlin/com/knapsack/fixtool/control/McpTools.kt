@@ -252,6 +252,13 @@ object McpTools {
                 props("profile" to string("profile id, name, or tag to filter by")),
             ),
             tool(
+                "fixtool_get_scenario",
+                "Fetch one saved scenario's full JSON definition by id — the exact shape fixtool_save_scenario " +
+                    "accepts, so a scenario can be read, edited, and saved back losslessly.",
+                props("id" to string("scenario id (from fixtool_list_scenarios)")),
+                required = listOf("id"),
+            ),
+            tool(
                 "fixtool_run_scenario",
                 "Run a scenario deterministically (no LLM in the loop) and return a per-step, per-tag pass/fail " +
                     "report. Identify it by id (from the store) or pass an inline scenario. With format=junit the " +

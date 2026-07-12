@@ -125,6 +125,32 @@ class ScenarioIntegrationTest {
     }
 
     /**
+     * The read → edit → save-back loop: GET /scenarios?id= returns the full definition in exactly
+     * the shape POST /scenarios accepts, and a fetch → save → fetch round-trip is lossless. Also
+     * exposed over MCP as fixtool_get_scenario.
+     */
+    @Test
+    fun `get by id round-trips losslessly through save`() {
+        val id = obj(post("/scenarios", scenarioJson("roundtrip", "0")))["id"]!!.jsonPrimitive.content
+
+        val fetched = obj(get("/scenarios?id=$id"))
+        assertEquals(id, fetched["id"]!!.jsonPrimitive.content)
+        assertEquals(2, fetched["steps"]!!.jsonArray.size, "full definition, not a summary: $fetched")
+
+        // Save the fetched JSON back verbatim, fetch again — byte-for-byte identical definition.
+        assertEquals("updated", obj(post("/scenarios", fetched.toString()))["status"]!!.jsonPrimitive.content)
+        assertEquals(fetched, obj(get("/scenarios?id=$id")))
+
+        // And it still runs green after the round-trip.
+        assertTrue(obj(post("/scenarios/run", """{"id":"$id"}"""))["passed"]!!.jsonPrimitive.boolean)
+
+        // MCP surface returns the same definition; unknown id is a named error.
+        assertTrue(mcpCall("fixtool_get_scenario", """{"id":"$id"}""").contains("\"steps\""))
+        assertTrue(obj(get("/scenarios?id=nope"))["error"]!!.jsonPrimitive.content.contains("not found"))
+        delete("/scenarios", """{"id":"$id"}""")
+    }
+
+    /**
      * The fail → fix loop end to end over real sessions: a saved scenario fails (wrong ExecType),
      * the failure deep-links to its expect step, a quick-fix rebaselines the assertion at the point
      * of failure, and the re-run of the (rewritten) scenario is green.

@@ -620,10 +620,20 @@ class ControlServer(
 
     private fun scenariosEndpoint(ex: HttpExchange): JsonElement =
         when (ex.requestMethod.uppercase()) {
-            "GET" -> listScenarios(ex)
+            "GET" -> if (queryParams(ex)["id"] != null) getScenario(ex) else listScenarios(ex)
             "DELETE" -> deleteScenario(ex)
             else -> saveScenario(ex)
         }
+
+    /**
+     * One saved scenario's full JSON definition — the exact shape [saveScenario] accepts, so an
+     * agent can read → edit → save back losslessly (the list endpoint returns summaries only).
+     */
+    private fun getScenario(ex: HttpExchange): JsonElement {
+        val id = queryParams(ex)["id"] ?: return errorObject("missing 'id'")
+        val scenario = viewModel.scenarioService.load(id) ?: return errorObject("scenario not found: $id")
+        return ScenarioCodec.toJson(scenario)
+    }
 
     /** Lists saved scenarios (summaries), optionally filtered to a profile (id, name, or tag). */
     private fun listScenarios(ex: HttpExchange): JsonElement {
@@ -1289,6 +1299,7 @@ class ControlServer(
             "fixtool_save_scenario" to { a -> saveScenario(mcpExchange(a)) },
             "fixtool_capture_scenario" to { a -> captureScenario(mcpExchange(a)) },
             "fixtool_list_scenarios" to { a -> listScenarios(mcpExchange(a)) },
+            "fixtool_get_scenario" to { a -> getScenario(mcpExchange(a)) },
             "fixtool_run_scenario" to { a -> runScenario(mcpExchange(a)) },
             "fixtool_delete_scenario" to { a -> deleteScenario(mcpExchange(a)) },
             "fixtool_detail_search" to { a -> detailSearch(mcpExchange(a)) },

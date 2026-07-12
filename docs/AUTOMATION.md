@@ -92,6 +92,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /assert`       | `{"session"?, "messageType"?, "direction"?, "index"?, "timeoutMs"?, "mode"?, "fields":[{tag, matcher, path?}]}` | machine-checks a received message tag-by-tag → `{passed, tags:[{tag, matcher, expected, actual, passed, path?}]}` (`path` echoes a group-entry assertion's locator, omitted for top-level tags) |
 | `POST /expectation/capture` | `{"session"?, "messageType"?, "direction"?, "index"?}` | builds an auto-seeded expectation from a message → `{messageType, mode, fields:[…]}` |
 | `GET /scenarios`     | query: `profile`?                      | list saved scenarios (id, name, profile, step counts, userTags) |
+| `GET /scenarios?id=` | query: `id`                            | one scenario's **full JSON definition** — the exact shape `POST /scenarios` accepts, for read → edit → save round-trips |
 | `POST /scenarios`    | scenario JSON `{name, steps:[…], setup?, teardown?, …}` | create/update a scenario (id generated if absent) |
 | `DELETE /scenarios`  | `{"id"}`                               | delete a scenario                                   |
 | `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`) |
@@ -169,8 +170,9 @@ curl -s -XPOST $B/scenarios/run -d '{"scenario":{
   ]}}'                                    # add "format":"junit" for CI XML
 ```
 
-`fixtool_save_scenario` / `fixtool_list_scenarios` / `fixtool_run_scenario` /
-`fixtool_delete_scenario` are the MCP equivalents.
+`fixtool_save_scenario` / `fixtool_list_scenarios` / `fixtool_get_scenario` /
+`fixtool_run_scenario` / `fixtool_delete_scenario` are the MCP equivalents —
+get + save give an agent a lossless read → edit → save-back loop.
 
 ### Setting up connections from scratch
 

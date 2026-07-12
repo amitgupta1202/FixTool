@@ -94,6 +94,16 @@ fun EditStep.toStep(): ScenarioStep =
     }
 
 /**
+ * The failing-run context handed from the session window by the failure → editor deep-link:
+ * which tags failed (highlighted in the builder) and the raw message that failed them (a second
+ * live preview target, so a matcher edit shows "would now pass" against the real failure).
+ */
+data class RunFailureContext(
+    val failedTags: List<com.knapsack.fixtool.model.scenario.TagResult>,
+    val actualRaw: String?,
+)
+
+/**
  * The scenario editor: the same chronological, session-badged flow list as capture-review on the
  * left; the selected step's detail on the right (Send = a message-editor-style field grid with
  * dictionary names + enum dropdowns, Expect = bind-predicate + the matcher-chip expectation builder
@@ -107,11 +117,15 @@ fun ScenarioEditor(
     onSave: (Scenario) -> Unit,
     onBack: () -> Unit,
     secondInstance: (String?, String?, String?) -> MessageView? = { _, _, _ -> null },
+    /** Step index to open on (failure → editor deep-link); null opens on the first step. */
+    focusStep: Int? = null,
+    /** Failed-run context for [focusStep]'s builder; null outside a deep-link. */
+    runFailure: RunFailureContext? = null,
     modifier: Modifier = Modifier,
 ) {
     var name by remember { mutableStateOf(initial.name) }
     val steps = remember { mutableStateListOf<EditStep>().apply { addAll(initial.steps.map { it.toEditStep() }) } }
-    var selectedIdx by remember { mutableStateOf(if (initial.steps.isEmpty()) -1 else 0) }
+    var selectedIdx by remember { mutableStateOf(focusStep ?: if (initial.steps.isEmpty()) -1 else 0) }
 
     val builtSteps = steps.map { it.toStep() }
     val stepVars = ScenarioAnnotations.annotate(builtSteps)
@@ -151,9 +165,25 @@ fun ScenarioEditor(
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 6.dp),
             )
         }
+        // Deep-link orientation: say why the editor opened here and which tags to look at.
+        if (focusStep != null && runFailure != null && runFailure.failedTags.isNotEmpty()) {
+            val tagText = runFailure.failedTags.take(4).joinToString(", ") { t ->
+                val n = dictionary?.getFieldName(t.tag)?.let { " $it" } ?: ""
+                "${t.tag}$n"
+            } + (if (runFailure.failedTags.size > 4) " +${runFailure.failedTags.size - 4} more" else "")
+            Text(
+                "Opened at step ${focusStep + 1} — the last run failed here on: $tagText. Failed rows are tinted below; the ▶ dot previews against that run's actual message.",
+                color = AppTheme.Colors.error,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 6.dp),
+            )
+        }
+        val stepListState = androidx.compose.foundation.lazy.rememberLazyListState(
+            initialFirstVisibleItemIndex = (focusStep ?: 0).coerceAtLeast(0),
+        )
         Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
             Column(modifier = Modifier.weight(0.46f).fillMaxHeight()) {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
+                LazyColumn(state = stepListState, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                     itemsIndexed(steps) { i, step ->
                         StepRow(
                             index = i,
@@ -196,6 +226,9 @@ fun ScenarioEditor(
                             dictionary = dictionary,
                             sessionOptions = sessionOptions,
                             secondInstance = secondInstance,
+                            // The failed-run context belongs to the focused step only — other steps
+                            // matched different messages (or none).
+                            runFailure = if (selectedIdx == focusStep) runFailure else null,
                             onChange = { steps[selectedIdx] = it },
                         )
                     }
@@ -273,6 +306,7 @@ private fun StepDetail(
     sessionOptions: List<String>,
     secondInstance: (String?, String?, String?) -> MessageView?,
     onChange: (EditStep) -> Unit,
+    runFailure: RunFailureContext? = null,
 ) {
     Text("Step ${index + 1} — ${step.kind.name.lowercase()}", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)) {
@@ -288,7 +322,7 @@ private fun StepDetail(
     }
     when (step.kind) {
         StepKind.SEND -> SendDetail(step, dictionary, onChange)
-        StepKind.EXPECT -> ExpectDetail(step, dictionary, secondInstance, onChange)
+        StepKind.EXPECT -> ExpectDetail(step, dictionary, secondInstance, onChange, runFailure)
         StepKind.WAIT ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 SlimLabeled("State") {
@@ -416,6 +450,7 @@ private fun ExpectDetail(
     dictionary: FixDictionary?,
     secondInstance: (String?, String?, String?) -> MessageView?,
     onChange: (EditStep) -> Unit,
+    runFailure: RunFailureContext? = null,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         SlimLabeled("Direction") {
@@ -445,12 +480,16 @@ private fun ExpectDetail(
         val goldenView = remember { step.expectation.golden?.let { RawMessageView(it, dictionary) } }
         val second = remember { secondInstance(step.session, messageType.ifBlank { null }, step.expectation.golden) }
         val golden = step.expectation.golden
+        val failedView = remember { runFailure?.actualRaw?.let { RawMessageView(it, dictionary) } }
+        val failedKeys = remember { runFailure?.failedTags?.map { it.tag to it.path }?.toSet() ?: emptySet() }
         ExpectationBuilder(
             messageType = messageType,
             initialFields = drafts,
             goldenView = goldenView,
             secondView = second,
             initialMode = step.expectation.mode,
+            failedView = failedView,
+            failedKeys = failedKeys,
             onChange = { updated -> onChange(step.copy(expectation = updated.copy(golden = golden))) },
             modifier = Modifier.padding(top = 8.dp),
         )

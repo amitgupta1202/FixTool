@@ -2011,16 +2011,31 @@ stunnel stunnel.conf</code></pre>
         <li><strong>Run</strong> a saved scenario. It replays deterministically and the results appear
         <strong>right in the session window</strong>: matched message rows are tinted green/red, and
         selecting a message shows each asserted tag in the detail panel with
-        <strong>expected vs actual</strong> &mdash; red where it failed. That is where a failed
-        assertion is rendered.</li>
-        <li><strong>Relax/constrain</strong> what's too strict: click <strong>Edit</strong> on a
-        scenario. The editor shows the same flow list; selecting a step edits it in the detail pane
-        &mdash; a send as a proper <strong>field grid</strong> (expression values highlighted), an
-        expect as its bind predicate (message type + tag=value constraints, e.g. partial fills) plus
-        editable <strong>matcher chips</strong> with a live green/red preview against the captured
-        message. Loosen a volatile field (e.g. <code>LastPx</code> &rarr; presence, or numeric with a
+        <strong>expected vs actual</strong> &mdash; red where it failed. A tag asserted inside a
+        repeating group lights up only the group entry it targets (by identity), with the entry named
+        in the failure summary.</li>
+        <li><strong>Relax/constrain at the point of failure</strong> &mdash; no hunting through the
+        editor:
+        <ul>
+            <li><strong>Quick fixes, right on the red row:</strong> each failed tag offers
+            <em>accept actual</em> (the run's value becomes the expected one; a missing tag becomes an
+            <code>absent</code> assertion), <em>presence only</em> (the tag must exist, value is
+            volatile), and <em>drop check</em>. Clicks accumulate as <strong>pending edits</strong>
+            (a chip again = undo) and nothing is written until you press
+            <strong>Save to scenario</strong> on the failure banner &mdash; <strong>Discard</strong>
+            drops the drafts. On save the edited rows immediately re-check against that same message
+            ("would now pass"); re-run the scenario to confirm for real.</li>
+            <li><strong>Deeper edits:</strong> the failure banner's <strong>Edit assertion&hellip;</strong>
+            button opens the Scenarios editor <em>directly on the failing step</em>, failed rows
+            tinted. Each matcher row shows two preview dots: against the captured golden message and
+            <strong>against the run's actual message</strong> &mdash; edit the matcher (regex,
+            tolerance, oneOf, group path&hellip;) until the second dot turns green, then save. The
+            session window with the failed run stays open next to it, so nothing about the failure is
+            lost while you edit.</li>
+        </ul>
+        Loosen a volatile field (e.g. <code>LastPx</code> &rarr; presence, or numeric with a
         tolerance), attach a repeating-group <em>path</em> to match a group entry by identity, then
-        save. Re-run to confirm it's green.</li>
+        save and re-run to confirm it's green.</li>
     </ol>
     <p>Each step keeps its own <strong>session</strong> (a dropdown in the step detail), so one
     scenario can span multiple sessions &mdash; drive an initiator, assert on an acceptor, correlate

@@ -1087,7 +1087,12 @@ private fun AppMessageDetailPanel(
         onSearchQueryChange = { viewModel.setDetailSearch(query = it) },
         externalMatchContextMode = detailMatchContextMode,
         onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
-        tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags?.associateBy { t -> t.tag } } ?: emptyMap(),
+        tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags } ?: emptyList(),
+        onEditAssertion = selectedMessage?.let { msg -> { viewModel.openScenarioEditorForFailure(msg) } },
+        pendingQuickFixes = viewModel.pendingAssertionEdits.mapValues { it.value.kind },
+        onQuickFix = { tagResult, kind -> viewModel.toggleAssertionQuickFix(tagResult, kind) },
+        onSaveQuickFixes = selectedMessage?.let { msg -> { viewModel.saveAssertionQuickFixes(msg) } },
+        onDiscardQuickFixes = { viewModel.discardAssertionQuickFixes() },
     )
 }
 

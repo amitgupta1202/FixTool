@@ -19,10 +19,18 @@ import com.knapsack.fixtool.model.Notification
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.GroupPath
+import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
+import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.service.AppSettingsService
+import com.knapsack.fixtool.service.AssertionQuickFixes
+import com.knapsack.fixtool.service.ExpectationEvaluator
+import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
@@ -143,6 +151,153 @@ class FixMessageViewModel(
     /** Publish per-message assertion results (also used by control-surface runs so they light up the UI). */
     fun setAssertionResults(results: Map<FixMessage, StepResult>) {
         _assertionResults.value = results
+        // A fresh run (results reset) invalidates any quick-fixes drafted against the old one.
+        if (results.isEmpty()) _pendingAssertionEdits.value = emptyMap()
+    }
+
+    // The scenario snapshot behind the current assertionResults — attribution for the
+    // failure → editor deep-link. Results are cleared at run start, so one slot is enough.
+    private val _lastRunScenario = MutableStateFlow<Scenario?>(null)
+    val lastRunScenario: StateFlow<Scenario?> = _lastRunScenario.asStateFlow()
+
+    /** Record which scenario the upcoming run's results belong to (UI and control-surface runs). */
+    fun noteScenarioRun(scenario: Scenario) {
+        _lastRunScenario.value = scenario
+    }
+
+    /**
+     * A one-shot navigation request for the Scenarios workbench: open the editor on [scenario] at
+     * [focusStep] (an index into its `steps`, null = unfocused), with the last run's [failedTags]
+     * highlighted and [actualRaw] (the message that failed the assertions) wired into the builder's
+     * live preview. The workbench consumes it via [consumeWorkbenchEditRequest].
+     */
+    data class WorkbenchEditRequest(
+        val scenario: Scenario,
+        val focusStep: Int?,
+        val failedTags: List<TagResult> = emptyList(),
+        val actualRaw: String? = null,
+    )
+
+    private val _workbenchEditRequest = MutableStateFlow<WorkbenchEditRequest?>(null)
+    val workbenchEditRequest: StateFlow<WorkbenchEditRequest?> = _workbenchEditRequest.asStateFlow()
+
+    fun consumeWorkbenchEditRequest() {
+        _workbenchEditRequest.value = null
+    }
+
+    /**
+     * Failure → editor deep-link: opens the Scenarios workbench on the expect step whose assertions
+     * failed on [message], failed tags highlighted, the actual message feeding the builder preview.
+     * Degenerate cases fall back gracefully: scenario deleted → error notification; scenario
+     * reshaped since the run (step index no longer an expect) → editor opens unfocused with a note.
+     */
+    fun openScenarioEditorForFailure(message: FixMessage) {
+        val step = assertionResults[message] ?: return
+        val ranScenario = _lastRunScenario.value ?: return
+        val saved = scenarioService.load(ranScenario.id)
+        if (saved == null) {
+            showNotification(
+                "Scenario '${ranScenario.name}' is no longer saved — cannot edit its assertions",
+                NotificationType.ERROR,
+            )
+            return
+        }
+        // The editor edits `steps` only and run indices are per-phase, so focus needs both to line
+        // up — otherwise open unfocused rather than land on the wrong step.
+        val focus = step.stepIndex.takeIf {
+            step.phase == "steps" && it in saved.steps.indices && saved.steps[it] is ScenarioStep.Expect
+        }
+        if (focus == null) {
+            showNotification(
+                "Scenario '${saved.name}' changed since this run — pick the step manually",
+                NotificationType.INFO,
+            )
+        }
+        _workbenchEditRequest.value =
+            WorkbenchEditRequest(
+                scenario = saved,
+                focusStep = focus,
+                failedTags = step.tags.filterNot { it.passed },
+                actualRaw = message.rawMessage,
+            )
+        if (!_showScenariosDialog.value) _showScenariosDialog.value = true
+    }
+
+    // Pending relax-at-point-of-failure edits from the detail panel's failed rows, keyed by
+    // (tag, path). Batched deliberately: nothing touches the scenario file until an explicit Save,
+    // and Discard drops the lot — no write-per-click, no bulk "make it all pass".
+    private val _pendingAssertionEdits =
+        mutableStateOf<Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Edit>>(emptyMap())
+    val pendingAssertionEdits: Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Edit> get() = _pendingAssertionEdits.value
+
+    /** Toggle a quick-fix on a failed tag row: same verb again = undo, different verb = replace. */
+    fun toggleAssertionQuickFix(tagResult: TagResult, kind: AssertionQuickFixes.Kind) {
+        val key = tagResult.tag to tagResult.path
+        val current = _pendingAssertionEdits.value
+        _pendingAssertionEdits.value =
+            if (current[key]?.kind == kind) {
+                current - key
+            } else {
+                current + (key to AssertionQuickFixes.Edit(tagResult.tag, tagResult.path, kind, tagResult.actual))
+            }
+    }
+
+    fun discardAssertionQuickFixes() {
+        _pendingAssertionEdits.value = emptyMap()
+    }
+
+    /**
+     * Writes the pending quick-fixes into the scenario that produced [message]'s failures, then
+     * re-evaluates the edited tags against that same message so the rows flip green immediately —
+     * honest instant feedback ("would now pass"), with a nudge to re-run for the real confirmation.
+     */
+    fun saveAssertionQuickFixes(message: FixMessage) {
+        val edits = _pendingAssertionEdits.value.values.toList()
+        if (edits.isEmpty()) return
+        val step = assertionResults[message] ?: return
+        val ranScenario = _lastRunScenario.value ?: return
+        val saved = scenarioService.load(ranScenario.id)
+        if (saved == null) {
+            showNotification(
+                "Scenario '${ranScenario.name}' is no longer saved — cannot update its assertions",
+                NotificationType.ERROR,
+            )
+            return
+        }
+        val idx = step.stepIndex
+        val expect =
+            (saved.steps.getOrNull(idx) as? ScenarioStep.Expect)?.takeIf { step.phase == "steps" }
+                ?: run {
+                    showNotification(
+                        "Scenario '${saved.name}' changed since this run — edit it in the Scenarios window instead",
+                        NotificationType.ERROR,
+                    )
+                    return
+                }
+        val updatedExpectation = AssertionQuickFixes.apply(expect.expectation, edits)
+        val updatedScenario =
+            saved.copy(steps = saved.steps.toMutableList().apply { this[idx] = expect.copy(expectation = updatedExpectation) })
+        if (!scenarioService.save(updatedScenario)) return
+        _pendingAssertionEdits.value = emptyMap()
+        noteScenarioRun(updatedScenario)
+
+        // Re-evaluate only the edited tags (their new matchers are Exact/Presence/Absent — no run
+        // scope needed); untouched tags keep their genuine run results, dropped tags disappear.
+        val editedKeys = edits.map { it.tag to it.path }.toSet()
+        val keptTags = step.tags.filter { (it.tag to it.path) !in editedKeys }
+        val editedFields = updatedExpectation.fields.filter { (it.tag to it.path) in editedKeys }
+        val reEvaluated =
+            ExpectationEvaluator.evaluate(
+                RawMessageView(message.rawMessage, dictionary),
+                Expectation(editedFields, mode = MatchMode.OPEN),
+            )
+        val newTags = keptTags + reEvaluated
+        _assertionResults.value =
+            assertionResults + (message to step.copy(tags = newTags, passed = newTags.all { it.passed }))
+        showNotification(
+            "Assertions updated in '${saved.name}' — re-run the scenario to confirm",
+            NotificationType.SUCCESS,
+        )
     }
 
     // Latency panel visibility
@@ -722,8 +877,9 @@ class FixMessageViewModel(
     @Suppress("TooGenericExceptionCaught")
     fun runScenario(scenario: Scenario) {
         if (!beginScenarioRun()) return
+        noteScenarioRun(scenario)
         _scenarioResult.value = null
-        _assertionResults.value = emptyMap()
+        setAssertionResults(emptyMap())
         val matched = linkedMapOf<FixMessage, StepResult>()
         viewModelScope.launch(Dispatchers.IO) {
             val result =

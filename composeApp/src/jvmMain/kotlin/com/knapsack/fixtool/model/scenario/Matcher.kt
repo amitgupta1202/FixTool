@@ -98,4 +98,9 @@ data class TagResult(
     /** The actual value found, or null if the tag was absent. */
     val actual: String?,
     val passed: Boolean,
+    /**
+     * The originating [FieldExpectation]'s group path. Without it, two assertions on the same tag
+     * under different group entries (e.g. PartyID per PartyRole) are indistinguishable in results.
+     */
+    val path: GroupPath? = null,
 )

@@ -51,10 +51,10 @@ class AssertionResultsUiTest {
 
     @Test
     fun `failure banner leads and failed rows spell out expected vs actual`() {
-        val tagResults = mapOf(
-            11 to TagResult(11, "reference", "\${id0}", "ORD-1", passed = true),
-            44 to TagResult(44, "numeric", "≈ 1.0850", "1.0851", passed = false),
-            150 to TagResult(150, "exact", "= 2", "0", passed = false),
+        val tagResults = listOf(
+            TagResult(11, "reference", "\${id0}", "ORD-1", passed = true),
+            TagResult(44, "numeric", "≈ 1.0850", "1.0851", passed = false),
+            TagResult(150, "exact", "= 2", "0", passed = false),
         )
         composeTestRule.setContent {
             MessageDetailPanel(
@@ -73,9 +73,9 @@ class AssertionResultsUiTest {
 
     @Test
     fun `all-green run is a single quiet banner`() {
-        val tagResults = mapOf(
-            11 to TagResult(11, "reference", "\${id0}", "ORD-1", passed = true),
-            44 to TagResult(44, "numeric", "≈ 1.0851", "1.0851", passed = true),
+        val tagResults = listOf(
+            TagResult(11, "reference", "\${id0}", "ORD-1", passed = true),
+            TagResult(44, "numeric", "≈ 1.0851", "1.0851", passed = true),
         )
         composeTestRule.setContent {
             MessageDetailPanel(

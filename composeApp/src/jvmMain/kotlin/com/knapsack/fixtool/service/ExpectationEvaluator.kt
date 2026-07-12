@@ -84,6 +84,7 @@ object ExpectationEvaluator {
                     expectedText(field.matcher, null),
                     "<no entry>",
                     passed = false,
+                    path = field.path,
                 )
             }
             actual = entry.valueOfTag(field.tag)
@@ -92,7 +93,7 @@ object ExpectationEvaluator {
         }
 
         val (passed, expected) = applyMatcher(field.matcher, actual, referenceResolver, now)
-        return TagResult(field.tag, matcherDesc, expected, actual, passed)
+        return TagResult(field.tag, matcherDesc, expected, actual, passed, path = field.path)
     }
 
     private fun resolveGroupEntry(message: MessageView, path: GroupPath): MessageView? =

@@ -124,6 +124,45 @@ class ScenarioIntegrationTest {
         assertTrue(text.contains("\"passed\":true"), "MCP run_scenario should pass; got $text")
     }
 
+    /**
+     * The fail → fix loop end to end over real sessions: a saved scenario fails (wrong ExecType),
+     * the failure deep-links to its expect step, a quick-fix rebaselines the assertion at the point
+     * of failure, and the re-run of the (rewritten) scenario is green.
+     */
+    @Test
+    fun `a failing run is fixed at the point of failure and re-runs green`() {
+        // Expect ExecType=8 (Rejected); the acceptor answers ExecType=0 (New) -> the run fails.
+        val created = obj(post("/scenarios", scenarioJson("fixloop", "8")))
+        val id = created["id"]!!.jsonPrimitive.content
+        val firstRun = obj(post("/scenarios/run", """{"id":"$id"}"""))
+        assertFalse(firstRun["passed"]!!.jsonPrimitive.boolean)
+
+        // The run left per-message attribution behind: exactly one message carries the failed step.
+        val (failedMessage, failedStep) = viewModel.assertionResults.entries.single { !it.value.passed }
+        val failed150 = failedStep.tags.single { it.tag == 150 && !it.passed }
+        assertEquals("0", failed150.actual, "acceptor answers ExecType=0")
+
+        // Deep-link lands on the failing expect step (steps index 1: send=0, expect=1).
+        viewModel.openScenarioEditorForFailure(failedMessage)
+        val request = viewModel.workbenchEditRequest.value!!
+        assertEquals(id, request.scenario.id)
+        assertEquals(1, request.focusStep)
+        assertEquals(listOf(150), request.failedTags.map { it.tag })
+        viewModel.consumeWorkbenchEditRequest()
+
+        // Quick-fix: accept the actual value, save -> the scenario file is rewritten and the
+        // in-memory rows flip green against the same message.
+        viewModel.toggleAssertionQuickFix(failed150, com.knapsack.fixtool.service.AssertionQuickFixes.Kind.ACCEPT_ACTUAL)
+        viewModel.saveAssertionQuickFixes(failedMessage)
+        assertEquals(0, viewModel.pendingAssertionEdits.size)
+        assertTrue(viewModel.assertionResults[failedMessage]!!.passed, "edited rows should re-check green")
+
+        // The re-run of the saved (now rebaselined) scenario passes for real.
+        val secondRun = obj(post("/scenarios/run", """{"id":"$id"}"""))
+        assertTrue(secondRun["passed"]!!.jsonPrimitive.boolean, "rebaselined scenario should pass: $secondRun")
+        delete("/scenarios", """{"id":"$id"}""")
+    }
+
     // ----------------------------------------------------------------- helpers
 
     private fun connectAcceptorAndClient() {

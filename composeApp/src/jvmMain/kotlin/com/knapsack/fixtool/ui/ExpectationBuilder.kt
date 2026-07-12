@@ -117,6 +117,10 @@ fun ExpectationBuilder(
     goldenView: MessageView?,
     secondView: MessageView? = null,
     initialMode: MatchMode = MatchMode.OPEN,
+    /** The message that failed the last run's assertions — adds a would-now-pass preview dot per row. */
+    failedView: MessageView? = null,
+    /** (tag, path) keys of the last run's failed assertions — those rows are tinted red. */
+    failedKeys: Set<Pair<Int, GroupPath?>> = emptySet(),
     onSave: ((Expectation) -> Unit)? = null,
     onChange: ((Expectation) -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -152,6 +156,15 @@ fun ExpectationBuilder(
             overSpecified = overSpecified,
             onSave = onSave?.let { save -> { save(expectation()) } },
         )
+        if (failedView != null) {
+            Text(
+                text = "▶ second dot: this matcher against the last run's actual message — edit until it turns ✓ " +
+                    "(reference matchers show · here: they need a live run's scope).",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
         // Plain Column (not LazyColumn) so this builder can be embedded inside scrollable parents
         // (the step detail panel) without the "infinity max height" nesting crash.
         Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.fillMaxWidth()) {
@@ -159,6 +172,9 @@ fun ExpectationBuilder(
                 FieldDraftRow(
                     draft = draft,
                     livePass = if (draft.included && goldenView != null) previewPass(draft, goldenView) else null,
+                    runPass = if (draft.included && failedView != null) previewPass(draft, failedView) else null,
+                    showRunDot = failedView != null && draft.included,
+                    runFailed = (draft.tag to draft.path) in failedKeys,
                     overSpecified = overSpecified?.contains(draft.tag) == true,
                     onChange = {
                         drafts[index] = it
@@ -170,7 +186,10 @@ fun ExpectationBuilder(
     }
 }
 
-private fun previewPass(draft: FieldDraft, golden: MessageView): Boolean {
+private fun previewPass(draft: FieldDraft, golden: MessageView): Boolean? {
+    // A reference matcher resolves against a run's variable scope — offline there is none, so an
+    // honest "unknown" beats a misleading red dot.
+    if (draft.matcher is Matcher.Reference) return null
     val results = ExpectationEvaluator.evaluate(golden, Expectation(listOf(FieldExpectation(draft.tag, draft.matcher, draft.path))))
     return results.firstOrNull()?.passed ?: false
 }
@@ -204,12 +223,22 @@ private fun BuilderHeader(
 }
 
 @Composable
-private fun FieldDraftRow(draft: FieldDraft, livePass: Boolean?, overSpecified: Boolean, onChange: (FieldDraft) -> Unit) {
+private fun FieldDraftRow(
+    draft: FieldDraft,
+    livePass: Boolean?,
+    overSpecified: Boolean,
+    onChange: (FieldDraft) -> Unit,
+    runPass: Boolean? = null,
+    showRunDot: Boolean = false,
+    runFailed: Boolean = false,
+) {
     var groupOpen by remember { mutableStateOf(draft.path != null) }
-    Column(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceVariant).padding(4.dp)) {
+    val rowBackground = if (runFailed) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant
+    Column(modifier = Modifier.fillMaxWidth().background(rowBackground).padding(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Checkbox(checked = draft.included, onCheckedChange = { onChange(draft.copy(included = it)) })
             PreviewDot(livePass, overSpecified)
+            if (showRunDot) PreviewDot(runPass, overSpecified = false)
             Text("${draft.tag}", color = AppTheme.Colors.tagNumber, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.width(40.dp))
             Text(draft.name.take(18), color = AppTheme.Colors.fieldName, fontSize = 10.sp, modifier = Modifier.width(110.dp))
             if (draft.included) {

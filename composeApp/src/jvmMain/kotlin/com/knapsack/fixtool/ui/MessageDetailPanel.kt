@@ -39,7 +39,9 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.MatchContextMode
+import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.service.AssertionQuickFixes
 import quickfix.Field
 import quickfix.FieldMap
 import java.awt.Cursor
@@ -65,8 +67,18 @@ fun MessageDetailPanel(
     externalMatchContextMode: MatchContextMode? = null,
     onMatchContextModeChange: ((MatchContextMode) -> Unit)? = null,
     // Per-tag assertion results for the displayed message (from the last scenario run) — colors each
-    // tag row green/red and shows expected-vs-actual.
-    tagResults: Map<Int, TagResult> = emptyMap(),
+    // tag row green/red and shows expected-vs-actual. A list, not a tag-keyed map: the same tag can
+    // be asserted once per group entry (distinct GroupPaths), and those must not collapse.
+    tagResults: List<TagResult> = emptyList(),
+    // Failure → editor deep-link: opens the Scenarios workbench on the step that produced these
+    // results. Shown on the failure banner only when provided.
+    onEditAssertion: (() -> Unit)? = null,
+    // Relax-at-point-of-failure quick actions on failed rows. Edits accumulate as pending state
+    // (chips highlight) and only an explicit Save on the banner writes the scenario.
+    pendingQuickFixes: Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Kind> = emptyMap(),
+    onQuickFix: ((TagResult, AssertionQuickFixes.Kind) -> Unit)? = null,
+    onSaveQuickFixes: (() -> Unit)? = null,
+    onDiscardQuickFixes: (() -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -248,7 +260,14 @@ fun MessageDetailPanel(
                     // Scenario assertion verdict for this message — the summary first, so a failure
                     // is announced before the user scans the tag list.
                     if (tagResults.isNotEmpty()) {
-                        AssertionSummaryBanner(tagResults.values.toList(), dictionary)
+                        AssertionSummaryBanner(
+                            results = tagResults,
+                            dictionary = dictionary,
+                            onEditAssertion = onEditAssertion,
+                            pendingCount = pendingQuickFixes.size,
+                            onSaveQuickFixes = onSaveQuickFixes,
+                            onDiscardQuickFixes = onDiscardQuickFixes,
+                        )
                         HorizontalDivider(
                             color = AppTheme.Separators.color,
                             thickness = AppTheme.Separators.dividerThickness,
@@ -265,6 +284,11 @@ fun MessageDetailPanel(
                     Column {
                         // Fields list (only when message is selected)
                         if (message != null) {
+                            // Top-level assertions key by tag; group-path assertions stay a list and
+                            // only light up the group entry their identity selects.
+                            val topLevelTagResults = remember(tagResults) { tagResults.filter { it.path == null }.associateBy { it.tag } }
+                            val groupTagResults = remember(tagResults) { tagResults.filter { it.path != null } }
+                            val quickFixHooks = onQuickFix?.let { QuickFixHooks(pendingQuickFixes, it) }
                             Box(modifier = Modifier.height(fieldsHeight)) {
                                 SelectionContainer {
                                     LazyColumn(
@@ -278,7 +302,9 @@ fun MessageDetailPanel(
                                         renderQuickFixMessage(
                                             message = message.quickfixMessage,
                                             dictionary = dictionary,
-                                            tagResults = tagResults,
+                                            tagResults = topLevelTagResults,
+                                            groupTagResults = groupTagResults,
+                                            quickFix = quickFixHooks,
                                             hideProtocolTags = appSettings.hideProtocolTags,
                                             searchQuery = searchQuery,
                                             matchContextMode = matchContextMode,
@@ -485,7 +511,14 @@ private const val LONG_VALUE_THRESHOLD = 50
  * Failures lead; the per-tag rows below carry the expected-vs-actual detail.
  */
 @Composable
-private fun AssertionSummaryBanner(results: List<TagResult>, dictionary: FixDictionary) {
+private fun AssertionSummaryBanner(
+    results: List<TagResult>,
+    dictionary: FixDictionary,
+    onEditAssertion: (() -> Unit)? = null,
+    pendingCount: Int = 0,
+    onSaveQuickFixes: (() -> Unit)? = null,
+    onDiscardQuickFixes: (() -> Unit)? = null,
+) {
     val failed = results.filterNot { it.passed }
     val background = if (failed.isEmpty()) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
     Column(modifier = Modifier.fillMaxWidth().background(background).padding(horizontal = 12.dp, vertical = 6.dp)) {
@@ -497,16 +530,25 @@ private fun AssertionSummaryBanner(results: List<TagResult>, dictionary: FixDict
                 fontWeight = FontWeight.Bold,
             )
         } else {
-            Text(
-                text = "✗ Scenario assertion failed — ${failed.size} of ${results.size} checked tags",
-                color = AppTheme.Colors.error,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "✗ Scenario assertion failed — ${failed.size} of ${results.size} checked tags",
+                    color = AppTheme.Colors.error,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                // Fix-at-point-of-failure: jump straight to this step's assertion in the workbench
+                // editor — no list → edit → hunt-for-the-step detour.
+                if (onEditAssertion != null) {
+                    SlimButton("Edit assertion…", onClick = onEditAssertion, color = AppTheme.Colors.error)
+                }
+            }
             failed.take(5).forEach { tr ->
                 val name = dictionary.getFieldName(tr.tag) ?: ""
+                val entry = tr.path?.let { p -> " (in group ${p.groupTag}, entry ${p.identityTag}=${p.identityValue})" } ?: ""
                 Text(
-                    text = "   ${tr.tag} $name — expected ${tr.expected}, got ${tr.actual ?: "nothing (tag absent)"}",
+                    text = "   ${tr.tag} $name$entry — expected ${tr.expected}, got ${tr.actual ?: "nothing (tag absent)"}",
                     color = AppTheme.Colors.error,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
@@ -516,6 +558,24 @@ private fun AssertionSummaryBanner(results: List<TagResult>, dictionary: FixDict
             }
             if (failed.size > 5) {
                 Text("   +${failed.size - 5} more — see the red rows below", color = AppTheme.Colors.error, fontSize = 10.sp)
+            }
+            // Batched quick-fixes: nothing is written until Save; Discard drops the drafts.
+            if (pendingCount > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    Text(
+                        text = "$pendingCount pending assertion edit${if (pendingCount == 1) "" else "s"} — not saved yet:",
+                        color = AppTheme.Colors.warning,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    if (onSaveQuickFixes != null) {
+                        SlimButton("Save to scenario", onClick = onSaveQuickFixes, color = AppTheme.Colors.success)
+                    }
+                    if (onDiscardQuickFixes != null) {
+                        SlimButton("Discard", onClick = onDiscardQuickFixes, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(start = 6.dp))
+                    }
+                }
             }
         }
     }
@@ -531,6 +591,8 @@ private fun FieldRow(
     onToggleExpand: () -> Unit = {},
     searchQuery: String = "",
     tagResult: TagResult? = null,
+    pendingKind: AssertionQuickFixes.Kind? = null,
+    onQuickFix: ((TagResult, AssertionQuickFixes.Kind) -> Unit)? = null,
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
     val translation = dictionary.getFieldValueDescription(tag, value)
@@ -636,8 +698,55 @@ private fun FieldRow(
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.fillMaxWidth().padding(start = (8 + indentLevel * 8 + 39).dp, end = 8.dp, bottom = 4.dp),
         )
+        // Relax-at-point-of-failure verbs. Each chip toggles a *pending* edit (highlighted until
+        // saved from the banner); richer edits go through "Edit assertion…" into the builder.
+        if (onQuickFix != null) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(start = (8 + indentLevel * 8 + 39).dp, end = 8.dp, bottom = 4.dp),
+            ) {
+                QuickFixChip(
+                    label = if (tagResult.actual != null) "accept actual" else "expect absent",
+                    active = pendingKind == AssertionQuickFixes.Kind.ACCEPT_ACTUAL,
+                    onClick = { onQuickFix(tagResult, AssertionQuickFixes.Kind.ACCEPT_ACTUAL) },
+                )
+                if (tagResult.actual != null) {
+                    QuickFixChip(
+                        label = "presence only",
+                        active = pendingKind == AssertionQuickFixes.Kind.LOOSEN_TO_PRESENCE,
+                        onClick = { onQuickFix(tagResult, AssertionQuickFixes.Kind.LOOSEN_TO_PRESENCE) },
+                    )
+                }
+                QuickFixChip(
+                    label = "drop check",
+                    active = pendingKind == AssertionQuickFixes.Kind.DROP,
+                    onClick = { onQuickFix(tagResult, AssertionQuickFixes.Kind.DROP) },
+                )
+                if (pendingKind != null) {
+                    Text("pending — Save on the banner above", color = AppTheme.Colors.warning, fontSize = 9.sp)
+                }
+            }
+        }
     }
     }
+}
+
+/** A tiny toggle chip for one quick-fix verb; active = drafted, click again to undo. */
+@Composable
+private fun QuickFixChip(label: String, active: Boolean, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = if (active) AppTheme.Colors.background else AppTheme.Colors.textSecondary,
+        fontSize = 9.sp,
+        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+        modifier =
+            Modifier
+                .clip(searchFieldShape)
+                .background(if (active) AppTheme.Colors.warning else AppTheme.Colors.surfaceVariant)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 @Composable
@@ -730,6 +839,8 @@ private fun LazyListScope.renderQuickFixMessage(
     indentLevel: Int = 0,
     parentKey: String = "",
     tagResults: Map<Int, TagResult> = emptyMap(),
+    groupTagResults: List<TagResult> = emptyList(),
+    quickFix: QuickFixHooks? = null,
 ) {
     // Render header fields
     renderFieldMap(
@@ -746,6 +857,8 @@ private fun LazyListScope.renderQuickFixMessage(
         indentLevel = indentLevel,
         parentKey = parentKey,
         tagResults = tagResults,
+        groupTagResults = groupTagResults,
+        quickFix = quickFix,
     )
 
     // Render body fields
@@ -763,6 +876,8 @@ private fun LazyListScope.renderQuickFixMessage(
         indentLevel = indentLevel,
         parentKey = parentKey,
         tagResults = tagResults,
+        groupTagResults = groupTagResults,
+        quickFix = quickFix,
     )
 
     // Render trailer fields
@@ -780,8 +895,45 @@ private fun LazyListScope.renderQuickFixMessage(
         indentLevel = indentLevel,
         parentKey = parentKey,
         tagResults = tagResults,
+        groupTagResults = groupTagResults,
+        quickFix = quickFix,
     )
 }
+
+/** Quick-fix wiring carried down the render tree alongside the assertion results. */
+private data class QuickFixHooks(
+    val pending: Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Kind>,
+    val onQuickFix: (TagResult, AssertionQuickFixes.Kind) -> Unit,
+) {
+    fun pendingKindFor(tagResult: TagResult?): AssertionQuickFixes.Kind? =
+        tagResult?.let { pending[it.tag to it.path] }
+}
+
+/**
+ * The assertion results that apply *inside* one repeating-group entry: the enclosing level's
+ * results plus every group-path result whose identity (`groupTag` + `identityTag=identityValue`)
+ * selects this entry — the pathed result wins over a same-tag top-level one within its entry.
+ */
+private fun resultsForGroupEntry(
+    entry: FieldMap,
+    groupTag: Int,
+    inherited: Map<Int, TagResult>,
+    groupTagResults: List<TagResult>,
+): Map<Int, TagResult> {
+    val matching = groupTagResults.filter { tr ->
+        val p = tr.path
+        p != null && p.groupTag == groupTag && fieldValueOrNull(entry, p.identityTag) == p.identityValue
+    }
+    return if (matching.isEmpty()) inherited else inherited + matching.associateBy { it.tag }
+}
+
+/** The value of [tag] in [fieldMap], or null when unset (never throws). */
+private fun fieldValueOrNull(fieldMap: FieldMap, tag: Int): String? =
+    try {
+        if (fieldMap.isSetField(tag)) fieldMap.getString(tag) else null
+    } catch (e: Exception) {
+        null
+    }
 
 /**
  * Renders a FieldMap (which can be header, body, trailer, or a group)
@@ -800,6 +952,8 @@ private fun LazyListScope.renderFieldMap(
     indentLevel: Int = 0,
     parentKey: String = "",
     tagResults: Map<Int, TagResult> = emptyMap(),
+    groupTagResults: List<TagResult> = emptyList(),
+    quickFix: QuickFixHooks? = null,
 ) {
     val iterator = fieldMap.iterator()
 
@@ -867,6 +1021,8 @@ private fun LazyListScope.renderFieldMap(
                         onToggleField = onToggleField,
                         indentLevel = indentLevel,
                         tagResults = tagResults,
+                        groupTagResults = groupTagResults,
+                        quickFix = quickFix,
                     )
                     continue
                 }
@@ -913,7 +1069,9 @@ private fun LazyListScope.renderFieldMap(
                                 onToggleField = onToggleField,
                                 indentLevel = indentLevel + 1,
                                 parentKey = "${groupKey}_$i",
-                                tagResults = tagResults,
+                                tagResults = resultsForGroupEntry(group, tag, tagResults, groupTagResults),
+                                groupTagResults = groupTagResults,
+                                quickFix = quickFix,
                             )
                         } catch (e: Exception) {
                             // Skip invalid groups
@@ -939,6 +1097,8 @@ private fun LazyListScope.renderFieldMap(
                         onToggleExpand = { onToggleField(fieldKey) },
                         searchQuery = searchQuery,
                         tagResult = tagResults[tag],
+                        pendingKind = quickFix?.pendingKindFor(tagResults[tag]),
+                        onQuickFix = quickFix?.onQuickFix,
                     )
                 }
             }
@@ -1027,6 +1187,8 @@ private fun LazyListScope.renderSearchedGroup(
     onToggleField: (String) -> Unit,
     indentLevel: Int,
     tagResults: Map<Int, TagResult> = emptyMap(),
+    groupTagResults: List<TagResult> = emptyList(),
+    quickFix: QuickFixHooks? = null,
 ) {
     item {
         GroupHeaderRow(
@@ -1055,6 +1217,7 @@ private fun LazyListScope.renderSearchedGroup(
             }
 
             val instanceKey = "${groupKey}_$i"
+            val instanceResults = resultsForGroupEntry(group, tag, tagResults, groupTagResults)
             if (mode == MatchContextMode.FULL) {
                 renderFullFieldMap(
                     fieldMap = group,
@@ -1066,7 +1229,9 @@ private fun LazyListScope.renderSearchedGroup(
                     onToggleField = onToggleField,
                     indentLevel = indentLevel + 1,
                     parentKey = instanceKey,
-                    tagResults = tagResults,
+                    tagResults = instanceResults,
+                    groupTagResults = groupTagResults,
+                    quickFix = quickFix,
                 )
             } else {
                 renderIdentityInstance(
@@ -1079,7 +1244,9 @@ private fun LazyListScope.renderSearchedGroup(
                     onToggleField = onToggleField,
                     indentLevel = indentLevel + 1,
                     parentKey = instanceKey,
-                    tagResults = tagResults,
+                    tagResults = instanceResults,
+                    groupTagResults = groupTagResults,
+                    quickFix = quickFix,
                 )
             }
         } catch (e: Exception) {
@@ -1103,6 +1270,8 @@ private fun LazyListScope.renderFullFieldMap(
     indentLevel: Int,
     parentKey: String,
     tagResults: Map<Int, TagResult> = emptyMap(),
+    groupTagResults: List<TagResult> = emptyList(),
+    quickFix: QuickFixHooks? = null,
 ) {
     val iterator = fieldMap.iterator()
     while (iterator.hasNext()) {
@@ -1147,6 +1316,9 @@ private fun LazyListScope.renderFullFieldMap(
                         onToggleField = onToggleField,
                         indentLevel = indentLevel + 1,
                         parentKey = "${groupKey}_$i",
+                        tagResults = resultsForGroupEntry(nested, tag, tagResults, groupTagResults),
+                        groupTagResults = groupTagResults,
+                        quickFix = quickFix,
                     )
                 } catch (e: Exception) {
                     // Skip invalid groups
@@ -1163,6 +1335,8 @@ private fun LazyListScope.renderFullFieldMap(
                     onToggleExpand = { onToggleField(fieldKey) },
                     searchQuery = searchQuery,
                     tagResult = tagResults[tag],
+                    pendingKind = quickFix?.pendingKindFor(tagResults[tag]),
+                    onQuickFix = quickFix?.onQuickFix,
                 )
             }
         }
@@ -1184,6 +1358,8 @@ private fun LazyListScope.renderIdentityInstance(
     indentLevel: Int,
     parentKey: String,
     tagResults: Map<Int, TagResult> = emptyMap(),
+    groupTagResults: List<TagResult> = emptyList(),
+    quickFix: QuickFixHooks? = null,
 ) {
     val includedTags = identityInstanceTags(group, dictionary, searchQuery, hideProtocolTags, protocolTags).toSet()
     val iterator = group.iterator()
@@ -1213,6 +1389,8 @@ private fun LazyListScope.renderIdentityInstance(
                 onToggleField = onToggleField,
                 indentLevel = indentLevel,
                 tagResults = tagResults,
+                groupTagResults = groupTagResults,
+                quickFix = quickFix,
             )
             continue
         }
@@ -1231,6 +1409,8 @@ private fun LazyListScope.renderIdentityInstance(
                 onToggleExpand = { onToggleField(fieldKey) },
                 searchQuery = searchQuery,
                 tagResult = tagResults[tag],
+                pendingKind = quickFix?.pendingKindFor(tagResults[tag]),
+                onQuickFix = quickFix?.onQuickFix,
             )
         }
     }

@@ -118,6 +118,30 @@ class ExpectationEvaluatorTest {
         assertEquals("<no entry>", missing.actual)
     }
 
+    @Test
+    fun `results carry the group path so same-tag entries stay distinguishable`() {
+        val groups = mapOf(453 to listOf(mapOf(452 to "1", 448 to "BROKER-A"), mapOf(452 to "2", 448 to "CLIENT-X")))
+        val v = view(35 to "8", groups = groups)
+        val results =
+            eval(
+                v,
+                fe(448, Matcher.Exact("BROKER-A"), GroupPath(453, 452, "1")),
+                fe(448, Matcher.Exact("WRONG"), GroupPath(453, 452, "2")),
+            )
+        // Two results for the same tag, told apart by path — one per group entry.
+        assertEquals(2, results.size)
+        val broker = results.single { it.path == GroupPath(453, 452, "1") }
+        val client = results.single { it.path == GroupPath(453, 452, "2") }
+        assertTrue(broker.passed)
+        assertFalse(client.passed)
+        assertEquals("CLIENT-X", client.actual)
+        // A missing entry keeps its path too, so the failure is still attributable.
+        val noEntry = eval(v, fe(448, Matcher.Presence, GroupPath(453, 452, "9"))).single()
+        assertEquals(GroupPath(453, 452, "9"), noEntry.path)
+        // Top-level results carry no path.
+        assertEquals(null, eval(v, fe(35, Matcher.Exact("8"))).single().path)
+    }
+
     /** In-memory [MessageView] for tests: flat tags plus optional single-level repeating groups. */
     private class MapMessageView(
         private val tags: Map<Int, String>,

@@ -752,6 +752,7 @@ class ControlServer(
             return errorObject("a scenario run is already in progress")
         }
         val matched = linkedMapOf<FixMessage, com.knapsack.fixtool.model.scenario.StepResult>()
+        viewModel.noteScenarioRun(scenario)
         viewModel.setAssertionResults(emptyMap())
         val result =
             try {

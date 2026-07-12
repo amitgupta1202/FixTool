@@ -74,12 +74,29 @@ private sealed interface Mode {
 
     object Capture : Mode
 
-    data class Edit(val scenario: Scenario) : Mode
+    data class Edit(
+        val scenario: Scenario,
+        /** Index into `scenario.steps` to open on, from the failure → editor deep-link. */
+        val focusStep: Int? = null,
+        /** The last run's failed tags for the focused step — highlighted in the builder. */
+        val failedTags: kotlin.collections.List<com.knapsack.fixtool.model.scenario.TagResult> = emptyList(),
+        /** Raw message that failed the assertions — feeds the builder's would-now-pass preview. */
+        val actualRaw: String? = null,
+    ) : Mode
 }
 
 @Composable
 fun ScenarioWorkbench(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
     var mode by remember { mutableStateOf<Mode>(Mode.List) }
+    // Failure → editor deep-link: a one-shot request from the session window (Edit assertion… on a
+    // failed message) lands the editor directly on the failing step — no list → edit → hunt.
+    val editRequest by viewModel.workbenchEditRequest.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(editRequest) {
+        editRequest?.let { req ->
+            mode = Mode.Edit(req.scenario, req.focusStep, req.failedTags, req.actualRaw)
+            viewModel.consumeWorkbenchEditRequest()
+        }
+    }
     // Slim interactive targets (checkboxes, icon buttons) to match the app's dense-desktop feel —
     // Material3's default 48dp minimum is a touch-screen convention that fattens every row.
     androidx.compose.runtime.CompositionLocalProvider(
@@ -118,6 +135,8 @@ private fun ScenarioWorkbenchBody(viewModel: FixMessageViewModel, mode: Mode, on
                     dictionary = viewModel.dictionary,
                     sessionOptions = (mode.scenario.sessionsInvolved() + viewModel.sessions.map { it.title }).distinct(),
                     secondInstance = { session, messageType, golden -> viewModel.liveSecondInstance(session, messageType, golden) },
+                    focusStep = mode.focusStep,
+                    runFailure = if (mode.focusStep != null) RunFailureContext(mode.failedTags, mode.actualRaw) else null,
                     onSave = { edited ->
                         viewModel.scenarioService.save(edited)
                         onMode(Mode.List)

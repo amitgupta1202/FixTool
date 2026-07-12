@@ -38,6 +38,18 @@ object ScenarioReport {
             put("expected", tag.expected)
             put("actual", tag.actual)
             put("passed", tag.passed)
+            // Same shape as the scenario codec's FieldExpectation path, so a report row can be
+            // traced back to the exact group-entry assertion that produced it.
+            tag.path?.let { p ->
+                put(
+                    "path",
+                    buildJsonObject {
+                        put("groupTag", p.groupTag)
+                        put("identityTag", p.identityTag)
+                        put("identityValue", p.identityValue)
+                    },
+                )
+            }
         }
 
     /** Renders a [ScenarioResult] as a single-suite JUnit XML document for CI consumption. */

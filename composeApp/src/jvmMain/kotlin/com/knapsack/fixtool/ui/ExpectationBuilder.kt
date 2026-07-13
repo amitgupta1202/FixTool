@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -207,7 +208,7 @@ private fun BuilderHeader(
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Text("Expectation · msg $messageType", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp)) {
-            Checkbox(checked = strict, onCheckedChange = onStrictChange)
+            Checkbox(checked = strict, onCheckedChange = onStrictChange, modifier = Modifier.testTag("strict-mode"))
             Text("STRICT", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
         }
         SlimButton("Verify generalizes", onClick = onVerify, enabled = canVerify, modifier = Modifier.padding(start = 12.dp))

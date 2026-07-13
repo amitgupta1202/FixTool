@@ -60,6 +60,31 @@ class AssertIntegrationTest {
         testDir.deleteRecursively()
     }
 
+    /**
+     * Send used to judge the editor's body as a wire frame, which it never is — no BodyLength(9), no
+     * CheckSum(10), the session supplies the sequencing header. So *every* send came back
+     * "warning: validation bypassed", contradicting a green Validate and leaving an agent unable to
+     * tell a real problem from the permanent noise. Send now asks the same linter Validate does.
+     */
+    @Test
+    fun `a well-formed message sends clean, and a bad one says what is wrong`() {
+        connectAcceptorAndClient()
+
+        val wellFormed =
+            """{"session":"CLI","raw":"35=D|11=ORD-OK|55=EUR/USD|54=1|38=100|40=1|60=20260713-10:00:00.000|"}"""
+        assertEquals("sent", status(post("/send", wellFormed)), "a valid body must not warn")
+
+        // ExecType(150) belongs to an ExecutionReport, not a NewOrderSingle: sent, but say so.
+        val badTag =
+            """{"session":"CLI","raw":"35=D|11=ORD-BAD|55=EUR/USD|54=1|38=100|40=1|60=20260713-10:00:00.000|150=2|"}"""
+        val warned = obj(post("/send", badTag))
+        assertEquals("warning", warned["status"]!!.jsonPrimitive.content)
+        assertTrue(
+            warned.toString().contains("150"),
+            "the warning should name the offending tag, not blame construction: $warned",
+        )
+    }
+
     @Test
     fun `assert machine-checks an execution report tag by tag`() {
         connectAcceptorAndClient()

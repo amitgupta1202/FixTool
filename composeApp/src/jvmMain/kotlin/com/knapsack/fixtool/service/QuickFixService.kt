@@ -20,10 +20,14 @@ import java.time.LocalDateTime
  * Result of sending a FIX message
  */
 sealed class SendResult {
-    /** Message sent successfully with validation */
+    /** Message sent, and it satisfies the loaded dictionary. */
     object Success : SendResult()
 
-    /** Message sent but validation was bypassed (manual construction used) */
+    /**
+     * Message sent, but something about it is worth saying: it does not satisfy the loaded
+     * dictionary, or it carries tags that dictionary does not define for its type. The send still
+     * happened — this is advisory, and [warning] says what is wrong with the message itself.
+     */
     data class SuccessWithWarning(
         val warning: String,
     ) : SendResult()
@@ -317,22 +321,19 @@ class QuickFixService(
 
             val message =
                 if (dataDictionary != null) {
-                    // Two-tier approach: try validated construction first
-                    try {
-                        logger.debug("Attempting message construction with validation enabled")
-                        rawMessage.toQuickFixMessage(dataDictionary, validate = true)
-                    } catch (validationException: Exception) {
-                        // Validation failed - fall back to manual construction
-                        logger.warn("Message validation failed, using manual construction: ${validationException.message}")
-
-                        // Store warning to return later (append to a dictionary-lint warning if present)
-                        val reason = validationException.message ?: "QuickFIX validation failed"
-                        validationWarning = listOfNotNull(validationWarning, reason).joinToString("; ")
-
-                        // Use manual construction as fallback (must be last expression to return Message)
-                        // Pass the full dictionary adapter to preserve FIX version for header/trailer tag detection
-                        rawMessage.toQuickFixMessageManual(dictionary)
+                    // What we are handed is a message *body*, not a wire frame: BodyLength(9) and
+                    // CheckSum(10) are computed on the way out and the session supplies the sequencing
+                    // header. Judging it as a frame therefore failed every message that ever passed
+                    // through here ("Header fields out of order"), so every send came back warning
+                    // "validation bypassed" — noise that drowned the real thing and contradicted the
+                    // editor's linter. Ask the linter itself, so the two cannot disagree.
+                    FixMessageValidator.validate(rawMessage, dictionary).errors.firstOrNull()?.let { problem ->
+                        logger.warn("Message does not satisfy the loaded dictionary: $problem")
+                        validationWarning = listOfNotNull(validationWarning, problem).joinToString("; ")
                     }
+                    // Construct through the dictionary-aware manual builder, which handles the nested
+                    // groups QuickFIX's own frame parser struggles with.
+                    rawMessage.toQuickFixMessageManual(dictionary)
                 } else {
                     logger.info("Sending message without data dictionary validation")
                     rawMessage.toQuickFixMessage()

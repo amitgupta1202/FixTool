@@ -159,7 +159,14 @@ object ScenarioCapture {
         // against the first leg's value — an assertion pointing at a field it does not describe.
         val seeded = ExpectationSeeder.seedDetailed(entry.fields, dictionary)
         val correlated = seeded.map { sf ->
-            val ref = refByValue[sf.capturedValue]
+            // Correlated by TAG as well as by value. Keying on the raw value alone rewrote every seeded row
+            // whose captured value merely *equalled* a sent id — across every tag in the message. A tester
+            // whose NewOrderSingle carries the utterly ordinary `11=1` therefore had Side(54)=1,
+            // OrdStatus(39)=1 and ExecType(150)=1 all rewritten to Reference("${id0}"); on replay ${id0} is a
+            // fresh uuid, so the scenario asserted that Side equals a uuid and was permanently red for a
+            // reason pointing at nothing the author wrote. An echo comes back in a correlation-id field —
+            // which is precisely the filter the bind constraints below already apply.
+            val ref = if (sf.field.tag in ID_TAGS) refByValue[sf.capturedValue] else null
             if (ref != null) sf.field.copy(matcher = Matcher.Reference(ref)) else sf.field
         }
         // Echoed correlation ids also become bind constraints, so on a busy session this step binds

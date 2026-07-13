@@ -151,7 +151,10 @@ object McpTools {
             tool(
                 "fixtool_get_messages",
                 "Read parsed messages from a session (timestamp, direction, messageType, raw, ordered {tag,value} " +
-                    "fields) for verification — assert against these rather than screenshots.",
+                    "fields) for verification — assert against these rather than screenshots. Each message also " +
+                    "carries wireOrderKnown: when false, FixTool has no wire bytes for it, so fields[] is a " +
+                    "best-effort read in QuickFIX's order rather than the venue's — and fixtool_assert will refuse " +
+                    "that message. Do not build an expectation from a message whose wireOrderKnown is false.",
                 props("session" to string("session id/title/index"), "limit" to integer("most recent last"), "direction" to enumStr("in", "incoming", "out", "outgoing")),
             ),
             tool(

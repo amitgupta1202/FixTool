@@ -292,7 +292,9 @@ server.tool(
   "fixtool_get_messages",
   "Read parsed messages from a session for verification. Each message has timestamp, direction, " +
     'messageType (tag 35), the raw string, and an ordered "fields" array of {tag, value} — assert ' +
-    "against these rather than screenshots.",
+    "against these rather than screenshots. Each message also carries wireOrderKnown: when false, FixTool " +
+    "has no wire bytes for it, so fields[] is a best-effort read in QuickFIX's field order rather than the " +
+    "venue's — and fixtool_assert will REFUSE that message. Do not build an expectation from one.",
   {
     session: z.string().default("0").describe("session id, title or index"),
     limit: z.number().int().positive().default(50).describe("max messages, most recent last"),

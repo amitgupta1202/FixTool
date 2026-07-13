@@ -80,11 +80,19 @@ where being told about it is the point. The [reconcile view](#reconciling-a-fail
 accepting a legitimate reorder a single click, so a false red costs a moment and cannot be mistaken
 for a pass.
 
-### OPEN — "the venue said at least this much"
+### OPEN — "the venue said at least this much, in the order it said it"
 
 Only the listed rows are checked. Any tag the reply carries that the expectation does not mention
-is ignored — a venue adding an optional field does not break the scenario. Order among the
-listed rows is *not* enforced; each row pairs with the *k*-th occurrence of its tag.
+is ignored — a venue adding an optional field does not break the scenario.
+
+**Relative order is enforced.** The listed rows must appear in the reply *in the order they are
+listed*, with anything else allowed in between: a **subsequence** match, not a set match. This is
+what keeps OPEN honest about repeating groups. Under set semantics, an expectation listing
+`452=1` then `452=4` would still pass against a reply that sent the roles the other way round —
+the two entries swapped, the assertion none the wiser. Under subsequence semantics it fails, and
+says so.
+
+So OPEN is tolerant about what it does **not** mention, and strict about what it does.
 
 OPEN also supports the negative assertion: a row whose matcher is `absent` asserts the tag does
 **not** appear. Absent rows take no part in pairing; they are checked against the whole message.
@@ -97,8 +105,9 @@ OPEN also supports the negative assertion: a row whose matcher is `absent` asser
 | Asserted tag missing from the reply | fail | fail |
 | Reply carries a tag the expectation does not mention | fail | pass |
 | Reply repeats an asserted tag more times than captured | fail | pass (extra occurrences unchecked) |
-| Group entries reordered | fail | fail (the *k*-th occurrence no longer matches) |
-| Body fields reordered (spec-legal) | fail | pass |
+| Group entries reordered | fail | fail |
+| Two asserted rows swap relative order | fail | fail (subsequence) |
+| An unasserted tag moves | fail | pass |
 | Tag asserted `absent` is present | fail | fail |
 
 ---
@@ -150,10 +159,38 @@ the current quick-fix chips already use:
 | Same values, different order | **Accept new order** — reorders the expectation's rows to match the reply |
 | Whole step wrong | **Re-seed from this message** (recapture the step against what actually arrived) |
 
-"Accept new order" is what makes STRICT's order-sensitivity affordable: a venue that legitimately
-reorders is a one-click acknowledgement, not a redesign of the scenario. The view is close to the
-message editor in feel — two columns, per-row actions, an explicit Save — so it reads as an editing
-surface rather than a report.
+"Accept new order" is what makes order-sensitivity affordable: a venue that legitimately reorders is
+a one-click acknowledgement, not a redesign of the scenario. The view is close to the message editor
+in feel — two columns, per-row actions, an explicit Save — so it reads as an editing surface rather
+than a report.
+
+### Why a move is an entry-level action, not per-tag arrows
+
+The obvious control for "this row is in the wrong place" is an up/down arrow per row. It should not
+be the primary one, for three reasons:
+
+1. **It is the wrong unit.** A venue does not move `PartyRole`; it moves a *party* — the delimiter
+   and everything under it, three to six tags travelling together. Fixing that with per-row arrows is
+   several clicks to express one fact, and each click leaves the expectation in a state that is
+   momentarily wrong.
+2. **It can produce an order no message has.** Arrows let a user interleave rows freely:
+   `448, 447, 448, 452, 452`. That is not a FIX message, it is not what any venue sent, and the tool
+   would have helped them build it.
+3. **It can silently re-aim an assertion.** Move the second `452` above the first and the two rows
+   swap which occurrence they check — so a row that read *"the clearing firm's role is 4"* now means
+   *"the executing firm's role is 4"*. It still says `452 exact 4` on screen. That is the
+   assert-the-wrong-field failure this model was designed to eliminate, walked back in through the
+   editor.
+
+So the diff detects **moved runs** — a contiguous block whose tags and values match but whose
+position changed — brackets them as one unit, and offers a single **Accept new order** that rewrites
+the expectation's row order to match the reply exactly. Atomic, correct by construction, and it
+cannot invent an ordering.
+
+Manual arrows still exist, on the **block**, for the case the diff aligns wrongly (two entries that
+genuinely swapped *and* changed a value can be ambiguous to align). They move an entry, never a
+loose tag. And every hand edit is checked live against the failing message — the row shows whether
+it *would now pass* — so a user cannot save an expectation they have quietly broken.
 
 ---
 
@@ -230,10 +267,9 @@ this whole exercise exists to remove.
 
 ## Open questions
 
-1. **Should OPEN enforce relative order?** As specified it does not (the *k*-th occurrence pairs
-   with the *k*-th occurrence, but a body-field reshuffle is invisible). A "subsequence" variant —
-   listed rows must appear *in order*, extras tolerated between them — is stricter without being
-   brittle to added fields. Worth deciding before implementation.
+1. ~~Should OPEN enforce relative order?~~ **Decided: yes.** OPEN is a subsequence match — the listed
+   rows must appear in the listed order, with anything else allowed between them. Set semantics would
+   let two swapped group entries pass unnoticed, which is the failure this model exists to prevent.
 2. **Repeated occurrences beyond what was captured.** OPEN ignores a fifth party when four were
    captured. Should the count tag (`453`) being asserted `exact 2` be enough to catch that, or does
    OPEN need an explicit "no more than captured" option?

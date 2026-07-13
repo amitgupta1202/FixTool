@@ -16,7 +16,8 @@ class RawMessageView(raw: String, dictionary: FixDictionaryAdapter? = null) : Me
 
     override fun valueOfTag(tag: Int): String? = topLevel[tag]
 
-    override fun presentTags(): Set<Int> = fields.map { it.first }.toSet()
+    /** Top level only — STRICT's notion of an "extra" tag. Group members are not extras. */
+    override fun presentTags(): Set<Int> = topLevel.keys
 
     override fun groupEntries(groupTag: Int): List<MessageView> =
         structured

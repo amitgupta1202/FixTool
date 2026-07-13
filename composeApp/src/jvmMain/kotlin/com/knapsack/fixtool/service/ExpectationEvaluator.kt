@@ -22,7 +22,11 @@ interface MessageView {
     /** The value of a top-level (header/body/trailer) tag, or null if absent. */
     fun valueOfTag(tag: Int): String?
 
-    /** All top-level tags present in the message (used for STRICT-mode extra detection). */
+    /**
+     * The **top-level** tags present in the message — never a repeating group's members, which are
+     * reached through [groupEntries]. STRICT mode subtracts the expectation's top-level tags from
+     * this to find extras, so returning group members here fails every grouped message.
+     */
     fun presentTags(): Set<Int>
 
     /** The entries of a repeating group, each itself a [MessageView]. */
@@ -57,6 +61,8 @@ object ExpectationEvaluator {
             results += evaluateField(message, field, referenceResolver, now)
         }
         if (expectation.mode == MatchMode.STRICT) {
+            // Both sides are top-level: presentTags() excludes group members (see MessageView), so the
+            // grouped fields the expectation asserts by path are not counted as extras here.
             val listedTopLevel = expectation.fields.filter { it.path == null }.map { it.tag }.toSet()
             val extras = (message.presentTags() - listedTopLevel - VOLATILE_HEADER_TRAILER).sorted()
             for (tag in extras) {

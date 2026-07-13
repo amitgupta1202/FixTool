@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.scenario.GroupPath
+import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -124,6 +125,37 @@ class RepeatedGroupIdentityTest {
         assertTrue(
             ExpectationEvaluator.evaluate(RawMessageView(raw(priceBeforeType), dictionary), seeded).all { it.passed },
         )
+    }
+
+    /**
+     * STRICT means "no unexpected *top-level* tag". It used to compare the expectation's top-level
+     * tags against every tag on the wire, so each grouped field the expectation did assert came back
+     * as "strict: unexpected" — no message carrying a repeating group could ever pass, which is most
+     * business messages.
+     */
+    @Test
+    fun `STRICT passes on a message with repeating groups`() {
+        val strict = ExpectationSeeder.seed(twoLevelBook, dictionary).copy(mode = MatchMode.STRICT)
+
+        val results = ExpectationEvaluator.evaluate(RawMessageView(raw(twoLevelBook), dictionary), strict)
+
+        assertTrue(
+            results.none { it.matcher == "strict: unexpected" },
+            "group members are not extras: ${results.filter { !it.passed }}",
+        )
+        assertTrue(results.all { it.passed })
+    }
+
+    @Test
+    fun `STRICT still catches a genuinely unexpected top-level tag`() {
+        val strict = ExpectationSeeder.seed(twoLevelBook, dictionary).copy(mode = MatchMode.STRICT)
+
+        val withExtra = twoLevelBook + (58 to "surprise") // Text(58), never asserted
+        val results = ExpectationEvaluator.evaluate(RawMessageView(raw(withExtra), dictionary), strict)
+
+        val extra = results.single { it.matcher == "strict: unexpected" }
+        assertEquals(58, extra.tag)
+        assertFalse(extra.passed)
     }
 
     @Test

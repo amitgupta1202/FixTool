@@ -64,17 +64,29 @@ object ScenarioReport {
             sb.append("  <testcase name=\"").append(esc(caseName)).append("\" classname=\"")
                 .append(esc(result.scenario)).append("\">")
             if (!step.passed) {
-                val failed = step.tags.filter { !it.passed }
-                val msg =
-                    step.detail
-                        ?: failed.joinToString("; ") { "tag ${it.tag}: expected ${it.expected}, actual ${it.actual}" }
-                        .ifEmpty { "step failed" }
-                sb.append("\n    <failure message=\"").append(esc(msg)).append("\"/>\n  ")
+                sb.append("\n    <failure message=\"").append(esc(failureMessage(step))).append("\"/>\n  ")
             }
             sb.append("</testcase>\n")
         }
         sb.append("</testsuite>\n")
         return sb.toString()
+    }
+
+    /**
+     * What failed, and why. The per-tag diff is the whole point of the engine, and it used to be
+     * dropped: the message was `detail ?: <tag diff>`, but an expect step always carries a detail
+     * ("messageType=8"), so CI only ever saw that and an engineer had to re-run the scenario locally
+     * to find out which tag mismatched. Both now — the context *and* the diff.
+     */
+    private fun failureMessage(step: StepResult): String {
+        val diff =
+            step.tags
+                .filter { !it.passed }
+                .joinToString("; ") { "tag ${it.tag}: expected ${it.expected}, actual ${it.actual}" }
+        return listOf(step.detail, diff.ifEmpty { null })
+            .filterNotNull()
+            .joinToString(" — ")
+            .ifEmpty { "step failed" }
     }
 
     private fun esc(s: String): String =

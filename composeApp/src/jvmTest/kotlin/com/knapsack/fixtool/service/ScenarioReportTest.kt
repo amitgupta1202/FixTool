@@ -31,8 +31,15 @@ class ScenarioReportTest {
         assertNull(flat["path"])
     }
 
+    /**
+     * A real expect step always carries a detail ("messageType=8") — ScenarioRunner sets it on every
+     * match. The failure message used to be `detail ?: <tag diff>`, so the diff was dead code and CI
+     * showed `<failure message="messageType=8"/>`: a red build with no reason, and an engineer having
+     * to re-run the scenario locally to find out which tag mismatched. The fixture below carries a
+     * detail precisely because the old test did not, which is how the bug survived.
+     */
     @Test
-    fun `junit xml still renders for pathed failures`() {
+    fun `junit xml names the failing tag, not just the matched message type`() {
         val result =
             ScenarioResult(
                 scenario = "rfq",
@@ -44,12 +51,31 @@ class ScenarioReportTest {
                             kind = "expect",
                             phase = "steps",
                             passed = false,
-                            tags = listOf(TagResult(448, "exact B", "B", "X", passed = false, path = GroupPath(453, 452, "1"))),
+                            detail = "messageType=8", // what every real run sets
+                            tags =
+                                listOf(
+                                    TagResult(39, "exact 2", "2", "8", passed = false),
+                                    TagResult(448, "exact B", "B", "X", passed = false, path = GroupPath(453, 452, "1")),
+                                ),
                         ),
                     ),
             )
         val xml = ScenarioReport.toJUnitXml(result)
+
         assertTrue(xml.contains("failures=\"1\""))
-        assertTrue(xml.contains("tag 448"))
+        assertTrue(xml.contains("messageType=8"), "keep the context: $xml")
+        assertTrue(xml.contains("tag 39: expected 2, actual 8"), "the diff is the point of the report: $xml")
+        assertTrue(xml.contains("tag 448"), xml)
+    }
+
+    @Test
+    fun `a step that failed with no tag diff still explains itself`() {
+        val result =
+            ScenarioResult(
+                scenario = "rfq",
+                passed = false,
+                steps = listOf(StepResult(1, "expect", "steps", passed = false, detail = "timeout after 8000ms")),
+            )
+        assertTrue(ScenarioReport.toJUnitXml(result).contains("timeout after 8000ms"))
     }
 }

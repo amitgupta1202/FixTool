@@ -517,11 +517,15 @@ fun MessageEditorPanel(
 
                 // Button 0: Send
                 if (visibleButtonsCount > 0) {
+                    // A profile that has never been connected owns no session, so name it rather
+                    // than reporting the state of a session that does not exist.
+                    val unconnectedProfileName =
+                        if (selectedSession == null) selectedEditorProfile?.name else null
                     val sendTooltip =
-                        if (canSend) {
-                            "Send Message (QuickFIX/J manages header/trailer fields)"
-                        } else {
-                            "Cannot send - Session not logged on (${connectionState.getDisplayText()})"
+                        when {
+                            canSend -> "Send Message (QuickFIX/J manages header/trailer fields)"
+                            unconnectedProfileName != null -> "Cannot send - $unconnectedProfileName is not connected"
+                            else -> "Cannot send - Session not logged on (${connectionState.getDisplayText()})"
                         }
                     TooltipIconButton(
                         tooltip = sendTooltip,
@@ -541,7 +545,10 @@ fun MessageEditorPanel(
                                     )
                                 } else if (selectedSession == null) {
                                     onSetValidationErrors(
-                                        listOf("No session selected. Select a session to send message."),
+                                        listOf(
+                                            unconnectedProfileName?.let { "$it is not connected. Connect it to send message." }
+                                                ?: "No session selected. Select a session to send message.",
+                                        ),
                                     )
                                 } else {
                                     // Validate required fields before sending

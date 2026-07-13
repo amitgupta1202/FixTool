@@ -1,6 +1,10 @@
 package com.knapsack.fixtool.viewmodel
 
+import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.NotificationType
+import com.knapsack.fixtool.model.SavedFixField
+import com.knapsack.fixtool.model.SavedFixMessage
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -14,6 +18,7 @@ import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Integration tests for session selection and editor profile synchronization.
@@ -449,5 +454,103 @@ class SessionEditorProfileSyncTest {
 
         viewModel.setActiveSession(1)
         assertEquals(profile1, viewModel.selectedEditorProfile.value)
+    }
+
+    // ========================================
+    // loadEditorMessage() Session Selection Tests
+    // ========================================
+
+    private fun templateFor(name: String, vararg profiles: FixConnectionProfile): SavedFixMessage =
+        SavedFixMessage(
+            name = name,
+            userTags = profiles.map { it.id }.toSet(),
+            fields = listOf(SavedFixField(tag = "35", value = "D")),
+        )
+
+    @Test
+    fun testLoadTemplateKeepsActiveSessionWhenItBelongsToTheTemplate() {
+        // Given: Three profiles the template belongs to, working in the last of them
+        val (profileA, _) = viewModel.createSessionWithProfileForTest("Profile A")
+        val (profileB, _) = viewModel.createSessionWithProfileForTest("Profile B")
+        val (profileC, sessionC) = viewModel.createSessionWithProfileForTest("Profile C")
+        viewModel.setActiveSession(2)
+
+        // When: Loading a template associated with all three
+        viewModel.loadEditorMessage(templateFor("Order", profileA, profileB, profileC))
+
+        // Then: The session in hand is kept - not re-sorted to the alphabetically first profile
+        assertEquals(sessionC, viewModel.activeSession, "A template that fits the active session must not move it")
+        assertEquals(profileC, viewModel.selectedEditorProfile.value)
+    }
+
+    @Test
+    fun testLoadTemplateSwitchesWhenActiveSessionDoesNotBelongToTheTemplate() {
+        // Given: Working in a profile the template has nothing to do with
+        val (profileA, sessionA) = viewModel.createSessionWithProfileForTest("Profile A")
+        val (profileB, _) = viewModel.createSessionWithProfileForTest("Profile B")
+        val (_, _) = viewModel.createSessionWithProfileForTest("Profile C")
+        viewModel.setActiveSession(2)
+
+        // When: Loading a template associated with the other two
+        viewModel.loadEditorMessage(templateFor("Order", profileA, profileB))
+
+        // Then: It still moves to the best of the template's own profiles
+        assertEquals(sessionA, viewModel.activeSession)
+        assertEquals(profileA, viewModel.selectedEditorProfile.value)
+    }
+
+    @Test
+    fun testLoadTemplateKeepsTheSlotOfAMultiSessionProfile() {
+        // Given: One profile owning two sessions (sessionCount > 1), working in the second
+        val (profile, _) = viewModel.createSessionWithProfileForTest("Profile A [1]")
+        val secondSession = viewModel.addSessionToProfileForTest(profile, "Profile A [2]")
+        viewModel.setActiveSession(1)
+
+        // When: Loading a template associated with that profile
+        viewModel.loadEditorMessage(templateFor("Order", profile))
+
+        // Then: It stays in slot 2 rather than snapping back to the profile's first session
+        assertEquals(secondSession, viewModel.activeSession, "Loading a template must not snap back to slot 1")
+        assertEquals(profile, viewModel.selectedEditorProfile.value)
+    }
+
+    @Test
+    fun testLoadTemplateForNeverConnectedProfileKeepsItNamedInTheEditor() {
+        // Given: A template belonging only to a profile that owns no session
+        val (_, _) = viewModel.createSessionWithProfileForTest("Profile A")
+        viewModel.setActiveSession(0)
+        val neverConnected = viewModel.createProfileWithoutSessionForTest("Profile Z")
+
+        // When: Loading it
+        viewModel.loadEditorMessage(templateFor("Order", neverConnected))
+
+        // Then: There is no session to send on, but the editor still names the profile
+        assertEquals(
+            neverConnected,
+            viewModel.selectedEditorProfile.value,
+            "The editor must keep naming the profile instead of blanking",
+        )
+        assertNull(viewModel.activeSession, "A profile with no session must not leave another session active")
+        assertEquals(-1, viewModel.activeSessionIndex)
+        assertTrue(
+            viewModel.notifications.any { it.type == NotificationType.WARNING && "Profile Z" in it.message },
+            "The user must be told why nothing was selected",
+        )
+    }
+
+    @Test
+    fun testLoadTemplatePrefersTheProfileThatOwnsASession() {
+        // Given: Two associated profiles, the alphabetically first of which was never connected
+        val neverConnected = viewModel.createProfileWithoutSessionForTest("Profile A")
+        val (withSession, session) = viewModel.createSessionWithProfileForTest("Profile B")
+        val (_, _) = viewModel.createSessionWithProfileForTest("Profile C")
+        viewModel.setActiveSession(1) // Profile C's session - not one of the template's
+
+        // When: Loading a template associated with both
+        viewModel.loadEditorMessage(templateFor("Order", neverConnected, withSession))
+
+        // Then: The one that can actually be sent on wins, despite sorting later by name
+        assertEquals(withSession, viewModel.selectedEditorProfile.value)
+        assertEquals(session, viewModel.activeSession)
     }
 }

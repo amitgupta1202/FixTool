@@ -40,6 +40,41 @@ sealed interface Matcher {
     data class Reference(val expression: String) : Matcher
 }
 
+/**
+ * The compiled pattern, or null if it does not compile.
+ *
+ * The single place a [Matcher.Regex] is compiled. Both callers — the evaluator, which has to match a
+ * value, and the editor, which has to tell the author what is wrong — go through here, so they cannot
+ * drift into disagreeing about whether a pattern is usable, or into describing the same fault two
+ * different ways.
+ */
+fun Matcher.Regex.compiled(): kotlin.text.Regex? =
+    try {
+        kotlin.text.Regex(pattern)
+    } catch (e: java.util.regex.PatternSyntaxException) {
+        null
+    }
+
+/**
+ * What is wrong with this matcher, in the author's words, or null if it is usable.
+ *
+ * Judged where it can be acted on — live in the editor as it is typed, and on the failing row of a run
+ * — and **never** by the codec or the file format. A matcher that does not compile is a bad assertion,
+ * not a corrupt scenario: refusing to write it lost the author every other assertion in the file along
+ * with it. The evaluator reports such a row as failed and quotes this reason on it, so the reader of a
+ * CI report or an `fixtool_assert` response is told *why* the pattern is bad, not merely that it is.
+ */
+@Suppress("SwallowedException")
+fun Matcher.validationError(): String? {
+    if (this !is Matcher.Regex) return null
+    return try {
+        kotlin.text.Regex(pattern)
+        null
+    } catch (e: java.util.regex.PatternSyntaxException) {
+        "'$pattern' is not a usable pattern: ${e.description}"
+    }
+}
+
 /** Temporal comparison kinds. */
 enum class TemporalKind {
     /** The date portion must equal today's UTC date. */

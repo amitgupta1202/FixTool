@@ -332,7 +332,7 @@ class QuickFixService(
                     FixMessageValidator.validate(rawMessage, dictionary).errors.firstOrNull()
                         // The lint above already named these tags, in better words. Saying it twice
                         // reads as two problems when there is one.
-                        ?.takeUnless { problem -> unknownTags.any { problem.contains("field=$it") } }
+                        ?.takeUnless { problem -> DictionaryLint.alreadyNamed(problem, unknownTags) }
                         ?.let { problem ->
                             logger.warn("Message does not satisfy the loaded dictionary: $problem")
                             validationWarning = listOfNotNull(validationWarning, problem).joinToString("; ")

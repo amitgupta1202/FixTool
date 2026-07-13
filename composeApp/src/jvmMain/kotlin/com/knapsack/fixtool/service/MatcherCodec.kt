@@ -19,7 +19,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import java.util.regex.PatternSyntaxException
 
 /**
  * Converts between the JSON encodings used on the control surface (see
@@ -55,24 +54,21 @@ object MatcherCodec {
         obj[key]?.jsonPrimitive?.intOrNull ?: throw IllegalArgumentException("missing integer '$key'")
 
     /**
-     * A regex matcher is only usable if the pattern compiles.
+     * A pattern that does not compile is a **bad assertion, not a corrupt file**, so the codec carries
+     * it verbatim in both directions and judges it nowhere.
      *
-     * Enforced on **both** sides, and that symmetry is the point: rejecting only on read let the UI
-     * write a scenario file it could never load back — on the next start the scenario simply vanished
-     * from the list, with the load error swallowed, and the author's work looked lost. What we can
-     * write, we can read; a pattern that does not compile is refused at the point it is offered.
+     * It used to be refused on both sides. Refusing on encode meant a single half-typed character
+     * class — `EXEC-[`, mid-keystroke — threw out of `Save` and failed the write of the *entire*
+     * scenario: every other step, every other assertion, gone, for a row the author was still editing.
+     * Refusing only on read is the bug that the encode-side check was added to fix (a file we wrote
+     * and could never load back, vanishing from the list on next start). Both are the same mistake in
+     * different clothes: enforcing an editable value as if it were a structural invariant.
+     *
+     * The pattern is checked in the one place the author can do something about it — live in the
+     * editor, via `Matcher.validationError()` — and a bad one that reaches a run fails its own row
+     * with the reason on it (see `ExpectationEvaluator.matchRegex`). Nobody loses work; nothing
+     * silently passes.
      */
-    private fun requirePattern(obj: JsonObject): String = validPattern(requireStr(obj, "pattern"))
-
-    private fun validPattern(pattern: String): String {
-        try {
-            Regex(pattern)
-        } catch (e: PatternSyntaxException) {
-            throw IllegalArgumentException("regex matcher has an invalid pattern '$pattern': ${e.description}", e)
-        }
-        return pattern
-    }
-
     @Suppress("CyclomaticComplexMethod", "ThrowsCount")
     fun parseMatcher(obj: JsonObject): Matcher {
         val type = obj["type"]?.jsonPrimitive?.contentOrNull?.lowercase()
@@ -81,7 +77,7 @@ object MatcherCodec {
             "exact" -> Matcher.Exact(requireStr(obj, "value"))
             "presence" -> Matcher.Presence
             "absent" -> Matcher.Absent
-            "regex" -> Matcher.Regex(requirePattern(obj))
+            "regex" -> Matcher.Regex(requireStr(obj, "pattern"))
             "oneof" -> Matcher.OneOf(
                 (obj["values"]?.jsonArray ?: throw IllegalArgumentException("oneOf matcher missing 'values'"))
                     .map { it.jsonPrimitive.content },
@@ -134,7 +130,7 @@ object MatcherCodec {
                 is Matcher.Presence -> put("type", "presence")
                 is Matcher.Absent -> put("type", "absent")
                 is Matcher.Regex -> {
-                    put("type", "regex"); put("pattern", validPattern(matcher.pattern))
+                    put("type", "regex"); put("pattern", matcher.pattern)
                 }
                 is Matcher.OneOf -> {
                     put("type", "oneOf"); put("values", buildJsonArray { matcher.values.forEach { add(it) } })

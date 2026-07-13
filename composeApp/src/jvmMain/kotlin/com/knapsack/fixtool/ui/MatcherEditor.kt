@@ -4,19 +4,25 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TemporalKind
+import com.knapsack.fixtool.model.scenario.validationError
 
 /** The matcher type names, in the order shown in the editor's dropdown. */
 val MATCHER_TYPES = listOf("exact", "presence", "absent", "oneOf", "regex", "numeric", "temporal", "reference")
+
+/** Shared by the pattern field and the error beneath it, so the message wraps instead of widening the row. */
+private val PATTERN_FIELD_WIDTH = 120.dp
 
 /** One-line explanation per matcher type, shown in the type dropdown for users new to FIX testing. */
 private val MATCHER_HELP = mapOf(
@@ -43,13 +49,27 @@ fun matcherTypeName(matcher: Matcher): String =
         is Matcher.Reference -> "reference"
     }
 
+/** The regex metacharacters, escaped one by one so the seeded pattern stays readable (`1\.5`, not `\Q1.5\E`). */
+private val REGEX_META = Regex("""[\\.\[\]{}()*+?^$|]""")
+
+/**
+ * The captured value as a pattern that matches **only itself**.
+ *
+ * Seeding the raw value was a false green, and a quiet one: a Price captured as `1.5` became the
+ * pattern `1.5`, where `.` is any character — so an actual price of `125` matched it and the
+ * assertion passed. Switching a row to "regex" is the ordinary way an author loosens it, and it was
+ * loosening it further than anyone asked, in the direction of passing. An escaped seed means the same
+ * thing as `exact` until the author deliberately widens it.
+ */
+private fun literalPattern(value: String): String = value.replace(REGEX_META) { "\\${it.value}" }
+
 /** A sensible default [Matcher] when switching to [type], seeded from the captured [value]. */
 fun defaultMatcherForType(type: String, value: String): Matcher =
     when (type) {
         "presence" -> Matcher.Presence
         "absent" -> Matcher.Absent
         "oneOf" -> Matcher.OneOf(if (value.isBlank()) emptyList() else listOf(value))
-        "regex" -> Matcher.Regex(value.ifBlank { ".*" })
+        "regex" -> Matcher.Regex(if (value.isBlank()) ".*" else literalPattern(value))
         "numeric" -> Matcher.Numeric(value.toDoubleOrNull() ?: 0.0, 0.0)
         "temporal" -> Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)
         "reference" -> Matcher.Reference("\${out.D.11}")
@@ -82,10 +102,36 @@ private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit) {
         is Matcher.Presence, is Matcher.Absent -> Unit
         is Matcher.Exact ->
             SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.width(130.dp))
-        is Matcher.Regex ->
+        is Matcher.Regex -> {
+            // The one place a pattern is judged. The codec carries a bad one through unharmed, so the
+            // author never loses a scenario to a half-typed character class — they are told here,
+            // while they are typing it, and the row stays red until it compiles.
+            //
+            // The reason goes *under* the field, in its own column: as a sibling of the enclosing Row it
+            // was laid out beside the field instead, and a 50-character message measured before the
+            // row's trailing controls left them nothing to occupy.
+            val problem = remember(matcher.pattern) { matcher.validationError() }
             SlimLabeled("pattern") {
-                SlimField(matcher.pattern, { onChange(Matcher.Regex(it)) }, monospace = true, modifier = Modifier.width(120.dp))
+                Column {
+                    SlimField(
+                        matcher.pattern,
+                        { onChange(Matcher.Regex(it)) },
+                        monospace = true,
+                        textColor = if (problem != null) AppTheme.Colors.error else AppTheme.Colors.text,
+                        modifier = Modifier.width(PATTERN_FIELD_WIDTH),
+                    )
+                    if (problem != null) {
+                        Text(
+                            problem,
+                            color = AppTheme.Colors.error,
+                            fontSize = 9.sp,
+                            lineHeight = 11.sp,
+                            modifier = Modifier.width(PATTERN_FIELD_WIDTH),
+                        )
+                    }
+                }
             }
+        }
         is Matcher.Reference ->
             SlimField(matcher.expression, { onChange(Matcher.Reference(it)) }, monospace = true, modifier = Modifier.width(180.dp))
         is Matcher.OneOf ->

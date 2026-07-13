@@ -13,13 +13,15 @@ import com.knapsack.fixtool.model.scenario.TemporalKind
  * would have to manually downgrade every timestamp / seqnum / ID from `Exact`, and the first
  * replay would fail on a dozen forgotten volatile tags. The author then only corrects the seed.
  *
- * Seeding rules (see the design doc's auto-seed table):
+ * Seeding rules, in the order they are applied:
+ * - the envelope ([SessionTags.NEVER_ASSERTED])        → omitted entirely
+ * - IDs and addressing ([SessionTags.VALUE_NOT_PORTABLE], OrderID 37, ExecID 17) → `Presence`
  * - `UTCTIMESTAMP` / time-ish     → `Temporal(NOW_WITHIN_TOLERANCE)`
  * - `UTCDATEONLY` / date-ish      → `Temporal(TODAY)`
  * - `PRICE`/`QTY`/`AMT`/`FLOAT`   → `Numeric(captured)` (tolerance 0 = format-robust exact)
- * - header volatiles 9,10,34,52   → omitted
- * - well-known IDs (OrderID 37, ExecID 17) → `Presence`
  * - everything else               → `Exact(captured)`
+ *
+ * Presence is checked before the type rules, and the order carries a defect with it — see [seedMatcher].
  */
 object ExpectationSeeder {
     /**
@@ -29,8 +31,12 @@ object ExpectationSeeder {
      */
     private val OMITTED_TAGS = SessionTags.NEVER_ASSERTED
 
-    /** Well-known venue-assigned identifiers whose presence matters but whose value is random. */
-    private val PRESENCE_TAGS = setOf(37, 17) // OrderID, ExecID
+    /**
+     * Tags asserted for their presence, never their value: the venue-assigned identifiers whose value
+     * is random (OrderID, ExecID) and the addressing/origin tags whose value belongs to the
+     * environment rather than the behaviour (see [SessionTags.VALUE_NOT_PORTABLE]).
+     */
+    private val PRESENCE_TAGS = setOf(37, 17) + SessionTags.VALUE_NOT_PORTABLE // OrderID, ExecID
 
     /** Default tolerances per numeric family. 0 still ignores formatting (parsed as numbers). */
     private const val DEFAULT_NUMERIC_TOLERANCE = 0.0
@@ -105,12 +111,16 @@ object ExpectationSeeder {
     private fun seedMatcher(tag: Int, value: String, dictionary: FixDictionaryAdapter?): Matcher {
         val fieldType = fieldTypeName(tag, dictionary)
         return when {
+            // Ahead of the type rules, not after them: OrigSendingTime(122) is a UTCTIMESTAMP, so a
+            // type-first walk seeded it "~now ±60s" — and a resend's OrigSendingTime is *by definition*
+            // the old message's, minutes or hours in the past. Every resend scenario went red on every
+            // run, on the environment it was captured on.
+            tag in PRESENCE_TAGS -> Matcher.Presence
             fieldType in TIMESTAMP_TYPES ->
                 Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, DEFAULT_TIME_TOLERANCE_SECONDS)
             fieldType in DATE_TYPES -> Matcher.Temporal(TemporalKind.TODAY)
             fieldType in NUMERIC_TYPES && value.toDoubleOrNull() != null ->
                 Matcher.Numeric(value.toDouble(), DEFAULT_NUMERIC_TOLERANCE)
-            tag in PRESENCE_TAGS -> Matcher.Presence
             else -> Matcher.Exact(value)
         }
     }

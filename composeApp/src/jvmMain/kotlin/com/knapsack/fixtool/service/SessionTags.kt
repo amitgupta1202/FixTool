@@ -39,14 +39,15 @@ object SessionTags {
         )
 
     /**
-     * Never asserted on an **Expect** step, and never counted as an unexpected extra in STRICT: these
-     * identify the connection and the moment, not the behaviour under test, so a scenario captured on
-     * DEV would go red on QA on every step purely because the CompIDs differ.
+     * The envelope: never seeded on an **Expect** step, and never counted as an unexpected extra in
+     * STRICT. These are the frame's own bookkeeping and the two CompIDs that name the endpoints — they
+     * are present on every message by definition, they differ on every environment, and no assertion
+     * on them could ever say anything about the venue's behaviour. A row for BodyLength is noise that
+     * cannot fail; a row for SenderCompID is a scenario that only runs where it was captured.
      *
-     * Deliberately narrower than [REWRITTEN_ON_SEND]. PossDupFlag(43), PossResend(97),
-     * OrigSendingTime(122) and the SubID/LocationID routing tags are *not* here: a resend or routing
-     * scenario exists precisely to assert them, and silently dropping them would let it pass while
-     * checking nothing.
+     * Deliberately *not* the same list as [VALUE_NOT_PORTABLE]. "Its value is environment-specific" and
+     * "it should not be asserted at all" are different claims, and collapsing them is how the routing
+     * tags came to be dropped from the assertion engine entirely — see that field's note.
      */
     val NEVER_ASSERTED: Set<Int> =
         setOf(
@@ -57,5 +58,43 @@ object SessionTags {
             49, // SenderCompID — whose environment this is
             52, // SendingTime — the moment, not the content
             56, // TargetCompID
+            369, // LastMsgSeqNumProcessed — how much of our history the venue has seen
+        )
+
+    /**
+     * Seeded as **Presence**: the tag's *presence* is the venue's behaviour, its *value* belongs to
+     * this environment or this moment. Asserting that a routed ExecutionReport still carries a
+     * TargetSubID is portable and is worth checking; asserting that it carries `DESK7` passes only on
+     * the desk it was captured on.
+     *
+     * The pair of mistakes this sits between, both of which we shipped:
+     * - Seeding them **Exact** (what the code did before) made every captured scenario non-portable:
+     *   red on QA on every step, for reasons that have nothing to do with the venue.
+     * - **Omitting** them (the obvious repair, and the wrong one) silently deleted routing coverage.
+     *   Unseeded *and* excluded from STRICT's extras, a venue could start delivering to the wrong desk,
+     *   or stop populating DeliverToCompID, and every scenario would still report green. That is a
+     *   false green — the one outcome a testing tool must never produce — and the recovery it assumed
+     *   ("the author adds the row by hand") does not exist: the builder can only show rows the seeder
+     *   produced, so the coverage would have left the scenario with nothing on screen to say so.
+     *
+     * Presence is the cut that keeps both properties. The row is portable, the row is *there* — visible,
+     * with its captured value beside it — so a routing test tightens it to Exact from the dropdown, and
+     * because it is listed, STRICT still reports an addressing tag that appears when none was captured.
+     */
+    val VALUE_NOT_PORTABLE: Set<Int> =
+        setOf(
+            // The address: which desk, which location, on whose behalf.
+            50, // SenderSubID
+            57, // TargetSubID
+            115, // OnBehalfOfCompID
+            128, // DeliverToCompID
+            142, // SenderLocationID
+            143, // TargetLocationID
+            144, // OnBehalfOfLocationID
+            145, // DeliverToLocationID
+            // The moment the *original* was sent. A resend scenario asserts that a resend carries an
+            // OrigSendingTime — never what it says, which is minutes or hours old by definition. Seeded
+            // from its UTCTIMESTAMP type it became "~now ±60s" and went red on every single run.
+            122, // OrigSendingTime
         )
 }

@@ -531,9 +531,32 @@ class ControlServer(
                     put("error", "no ${msgType ?: "matching"} '$directionFilter' message within ${timeoutMs}ms")
                 }
 
+        // See ScenarioRunner: an expectation asserts an order as well as a set of values, so a message
+        // whose wire order we do not have cannot be judged at all. Report that, rather than assert
+        // against QuickFIX's re-serialisation and blame the venue for the difference.
+        val view =
+            FixMessageView.of(target)
+                ?: return buildJsonObject {
+                    put("passed", false)
+                    put("status", "no-wire-bytes")
+                    put(
+                        "error",
+                        "FixTool has no wire bytes for the matched ${target.messageType}, so its field " +
+                            "order is unknown and this expectation cannot be evaluated. This is a FixTool " +
+                            "limitation, not a venue failure.",
+                    )
+                    // Same keys as a judged reply, so a caller can read this one without special-casing it.
+                    // `tags` is present and empty because that is the truth — no row was evaluated — and a
+                    // client that reads `tags` unconditionally should get the diagnosis, not a parse error
+                    // on the one response whose whole purpose is to tell it something went wrong.
+                    put("messageType", target.messageType)
+                    put("direction", target.direction.name)
+                    put("tags", buildJsonArray { })
+                }
+
         val resolver = referenceResolverFor(session)
         val results =
-            ExpectationEvaluator.evaluate(FixMessageView(target), expectation, resolver)
+            ExpectationEvaluator.evaluate(view, expectation, resolver)
         return buildJsonObject {
             put("passed", results.all { it.passed })
             put("messageType", target.messageType)
@@ -558,7 +581,20 @@ class ControlServer(
             awaitMessage(session, msgType, directionFilter, index, 0)
                 ?: return errorObject("no matching message to capture")
 
-        val fields = FixMessageHelper.parseFixMessage(target.rawMessage)
+        // Through the same door the engine reads: the venue's bytes, in the venue's order. Seeding from
+        // `rawMessage` — the '|'-substituted display string — made this tool mint expectations the tool
+        // itself could not satisfy. It split a value containing a pipe into a truncated field plus a
+        // phantom one, so the seeded row failed against the very message it was seeded from; and where the
+        // wire bytes were missing it seeded from QuickFIX's re-serialisation, baking a field order no venue
+        // sent into a golden an agent would then save. capture_expectation and assert must agree about what
+        // arrived, or the round trip through the MCP surface contradicts itself.
+        val fields =
+            FixMessageHelper.wireFields(target)
+                ?: return errorObject(
+                    "FixTool has no wire bytes for the matched ${target.messageType}, so its field order is " +
+                        "unknown and an expectation seeded from it would assert an order the venue never sent. " +
+                        "This is a FixTool limitation, not a venue failure.",
+                )
         val seeded = ExpectationSeeder.seedDetailed(fields, onEdt { viewModel.dictionary })
         return buildJsonObject {
             put("messageType", target.messageType)

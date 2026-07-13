@@ -8,6 +8,7 @@ import org.junit.Test
 import quickfix.Message
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -61,7 +62,7 @@ class WireFieldsTest {
                 ),
             )
 
-        val results = ExpectationEvaluator.evaluate(FixMessageView(withPipeInValue), expectation)
+        val results = ExpectationEvaluator.evaluate(FixMessageView.of(withPipeInValue)!!, expectation)
 
         assertTrue(results.all { it.passed }, "the reply says exactly this: ${results.filterNot { it.passed }}")
     }
@@ -70,16 +71,24 @@ class WireFieldsTest {
     fun `and the truncated prefix does not pass`() {
         val expectation = Expectation(listOf(FieldExpectation(58, Matcher.Exact("Rejected"))))
 
-        val result = ExpectationEvaluator.evaluate(FixMessageView(withPipeInValue), expectation).single()
+        val result = ExpectationEvaluator.evaluate(FixMessageView.of(withPipeInValue)!!, expectation).single()
 
         assertTrue(!result.passed, "'Rejected' is a prefix of the Text field, not the Text field")
         assertEquals("Rejected|insufficient margin", result.actual)
     }
 
+    /**
+     * This test used to assert the opposite — that with no wire bytes the engine "still reads the display
+     * string, in order". It was wrong, and it was wrong in the way that matters: on the only path that
+     * reached it, the display string had itself been built from `quickfix.Message.toString()`, whose order
+     * is ascending-tag with the repeating groups moved to the end. So "in order" meant *in an order no
+     * venue sent*, and an order-sensitive assertion judged against it went red citing the venue.
+     *
+     * There is no reading of the wire order from a message we do not have the wire for. The engine says so.
+     */
     @Test
-    fun `without the wire bytes it still reads the display string, in order`() {
-        // The fallback path: the raw-capture log missed, so all we have is the substituted string.
-        val fallback =
+    fun `without the wire bytes there is no wire order, and the engine refuses to invent one`() {
+        val noWireBytes =
             FixMessage(
                 timestamp = LocalDateTime.now(),
                 direction = FixMessage.Direction.INCOMING,
@@ -89,6 +98,13 @@ class WireFieldsTest {
                 wireRaw = null,
             )
 
-        assertEquals(listOf(35 to "8", 11 to "ORD-1", 39 to "2"), FixMessageHelper.wireFields(fallback))
+        assertNull(FixMessageHelper.wireFields(noWireBytes), "a guessed order must not be offered as the wire")
+        assertNull(FixMessageView.of(noWireBytes), "the assertion engine must not be handed a guessed order")
+
+        // Rendering is the one place a best-effort list beats a blank pane — and it is clearly labelled.
+        assertEquals(
+            listOf(35 to "8", 11 to "ORD-1", 39 to "2"),
+            FixMessageHelper.fieldsForDisplay(noWireBytes),
+        )
     }
 }

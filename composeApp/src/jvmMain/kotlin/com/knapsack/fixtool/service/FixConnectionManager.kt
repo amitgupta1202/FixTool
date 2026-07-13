@@ -35,7 +35,11 @@ class FixConnectionManager(
         // Create factories - these will be initialized with settings during start()
         val settings = createSessionSettings()
         messageStoreFactory = FileStoreFactory(settings)
-        logFactory = RawMessageCapturingLogFactory(FileLogFactory(settings))
+        // Plain FileLogFactory. This used to be wrapped in a RawMessageCapturingLogFactory that stashed
+        // every incoming string in a process-wide map so the wire bytes could be recovered later; QFJ
+        // already retains them (Message.toRawString()), so the wrapper was a second, leakier answer to a
+        // question QuickFIX had already answered. See QuickFixService.wireBytesOf.
+        logFactory = FileLogFactory(settings)
         messageFactory = DefaultMessageFactory()
     }
 

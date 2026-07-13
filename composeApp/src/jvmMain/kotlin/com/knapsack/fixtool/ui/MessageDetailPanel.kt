@@ -285,7 +285,7 @@ fun MessageDetailPanel(
                             val verdictsByTag =
                                 remember(tagResults, message) {
                                     val occurrences =
-                                        FixMessageHelper.wireFields(message).groupingBy { it.first }.eachCount()
+                                        FixMessageHelper.fieldsForDisplay(message).groupingBy { it.first }.eachCount()
                                     tagResults.groupBy { it.tag }.mapValues { (tag, results) ->
                                         TagVerdict(results, occurrences[tag] ?: results.size)
                                     }

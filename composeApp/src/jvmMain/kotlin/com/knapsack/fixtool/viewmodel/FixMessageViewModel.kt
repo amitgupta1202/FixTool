@@ -214,7 +214,11 @@ class FixMessageViewModel(
                 scenario = saved,
                 focusStep = focus,
                 failedTags = step.tags.filterNot { it.passed },
-                actualRaw = message.rawMessage,
+                // The bytes, not the display string. This is what the reconcile view diffs the expectation
+                // against and what "Accept actual" writes into the scenario — so a '|' inside a value (a
+                // venue's `58=Rejected|insufficient margin`) reaching it as the display string would have
+                // the view offer, and then save, a truncated value the venue never sent.
+                actualRaw = message.wireRaw ?: message.rawMessage,
             )
         if (!_showScenariosDialog.value) _showScenariosDialog.value = true
     }
@@ -856,11 +860,15 @@ class FixMessageViewModel(
     }
 
     /**
-     * The capture-review rows: every business message across all sessions, oldest first. A snapshot —
-     * the review screen curates a stable list, not a live feed.
+     * The capture-review rows: every business message across all sessions, oldest first, **plus whatever
+     * had to be left out**. A snapshot — the review screen curates a stable list, not a live feed.
+     *
+     * The omissions come back with the rows rather than being dropped here, because a capture is a claim
+     * about coverage. A message FixTool cannot read is a message the scenario will not check, and an author
+     * who is not told has been handed a test that looks complete and is not.
      */
-    fun captureCandidates(): List<ScenarioCapture.Candidate> =
-        ScenarioCapture.candidates(
+    fun captureScan(): ScenarioCapture.Scan =
+        ScenarioCapture.scan(
             _sessions.map { ScenarioCapture.CapturedSession(it.title, it.messages.value.filterIsInstance<FixMessage>()) },
         )
 

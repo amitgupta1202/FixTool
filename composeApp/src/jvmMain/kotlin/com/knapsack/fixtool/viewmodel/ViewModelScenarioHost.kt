@@ -67,9 +67,9 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
         }
     }
 
-    // The dictionary the expectation was seeded with: without it the view cannot tell a grouped field
-    // from a top-level one, and STRICT would flag every group member as unexpected.
-    override fun view(message: FixMessage): MessageView = FixMessageView(message)
+    // Null when the venue's bytes are unavailable — the runner turns that into a failed step that says
+    // so, instead of asserting against QuickFIX's re-ordered re-serialisation. See FixMessage.wireRaw.
+    override fun view(message: FixMessage): MessageView? = FixMessageView.of(message)
 
     override fun clearMessages(session: String?): Boolean {
         val sess = resolveSession(session) ?: return false

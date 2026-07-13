@@ -14,6 +14,7 @@ import java.time.format.DateTimeFormatter
 import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -24,12 +25,22 @@ import kotlin.test.assertTrue
 class ScenarioCaptureTest {
     private val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
 
+    /**
+     * A message shaped the way the transport actually shapes one: `rawMessage` is the `|`-substituted
+     * *display* string and `wireRaw` is the SOH bytes, and both are always present.
+     *
+     * The fixture used to omit `wireRaw`, which no production path does — and omitting it is not a
+     * harmless simplification, because `wireRaw` is where the venue's field *order* lives, and the order
+     * is half of what a captured expectation asserts. A fixture with no wire order tests a capture that
+     * cannot happen.
+     */
     private fun msg(raw: String, dir: FixMessage.Direction, second: Int): FixMessage =
         FixMessage(
             timestamp = LocalDateTime.of(2026, 6, 30, 10, 0, second),
             direction = dir,
             rawMessage = raw,
             quickfixMessage = Message(),
+            wireRaw = raw.replace('|', ''),
         )
 
     /**
@@ -235,4 +246,61 @@ class ScenarioCaptureTest {
 
     private fun matcher(expect: ScenarioStep.Expect, tag: Int): Matcher =
         expect.expectation.fields.first { it.tag == tag }.matcher
+
+    /**
+     * The golden is the venue's bytes, and the rows are seeded from the same bytes — one decoder, not two.
+     *
+     * It used to store `rawMessage`, the '|'-substituted *display* string, while the rows were seeded from
+     * the SOH wire bytes. Two decodings of one message, and on a value containing a pipe they disagreed:
+     * a venue rejecting an order with `58=Rejected|insufficient margin` seeded the row
+     * `58 exact "Rejected|insufficient margin"` — correct — and then stored a golden that splits into
+     * `58=Rejected` plus a phantom field. The editor previews the rows *against the golden*, so the row went
+     * red against the very message it was captured from, and the author was invited to "fix" a matcher that
+     * was already right.
+     *
+     * Nothing pinned the golden's format, which is why that survived. This does.
+     */
+    @Test
+    fun `the golden is the wire, so a pipe inside a value survives capture and previews green`() {
+        val soh = '\u0001'
+        val display =
+            "8=FIX.4.4|35=8|34=2|49=TV|52=20260630-10:00:03|56=CLI|11=ORD-1|39=8|" +
+                "58=Rejected|insufficient margin|10=004|"
+        val wire =
+            "8=FIX.4.4${soh}35=8${soh}34=2${soh}49=TV${soh}52=20260630-10:00:03${soh}56=CLI${soh}11=ORD-1$soh" +
+                "39=8${soh}58=Rejected|insufficient margin${soh}10=004$soh"
+        // The transport's two forms of one message. rawMessage is lossy here *by construction* — splitting
+        // it on '|' invents a field — which is exactly why the golden must not be built from it.
+        val reject =
+            FixMessage(
+                timestamp = LocalDateTime.of(2026, 6, 30, 10, 0, 3),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = display,
+                quickfixMessage = Message(),
+                wireRaw = wire,
+            )
+
+        val scenario =
+            ScenarioCapture.capture(
+                id = "id",
+                name = "reject",
+                profile = null,
+                sessions = listOf(ScenarioCapture.CapturedSession("TRADE", listOf(reject))),
+                dictionary = dictionary,
+            )
+        val expect = scenario.steps.filterIsInstance<ScenarioStep.Expect>().single()
+
+        // The row carries the whole value, pipe and all.
+        val text = expect.expectation.fields.single { it.tag == 58 }
+        assertEquals(Matcher.Exact("Rejected|insufficient margin"), text.matcher)
+
+        // And the golden agrees with it — which is the property that was broken. Evaluating the captured
+        // expectation against its own golden is precisely what the expectation builder previews, so this is
+        // the red the author used to be shown.
+        val golden = expect.expectation.golden
+        assertNotNull(golden, "a captured expectation must keep the message it was captured from")
+        val results = ExpectationEvaluator.evaluate(RawMessageView(golden), expect.expectation)
+        val failed = results.filterNot { it.passed }
+        assertTrue(failed.isEmpty(), "a captured expectation must pass its own golden: $failed")
+    }
 }

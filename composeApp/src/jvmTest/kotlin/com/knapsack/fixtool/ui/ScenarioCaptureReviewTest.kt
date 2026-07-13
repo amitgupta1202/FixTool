@@ -30,12 +30,16 @@ class ScenarioCaptureReviewTest {
     val composeTestRule = createComposeRule()
     private val outDir = File("build/scenario-screenshots").absoluteFile
 
+    // rawMessage is the '|'-substituted display string and wireRaw the SOH bytes — both always present,
+    // exactly as the transport builds them. wireRaw is where the venue's field order lives, and a captured
+    // expectation asserts that order, so a fixture without it is a capture that cannot happen.
     private fun msg(raw: String, dir: FixMessage.Direction, second: Int): FixMessage =
         FixMessage(
             timestamp = LocalDateTime.of(2026, 7, 10, 9, 0, second),
             direction = dir,
             rawMessage = raw,
             quickfixMessage = Message(),
+            wireRaw = raw.replace('|', '\u0001'),
         )
 
     // A stale first order (noise), then the real RFQ flow across two sessions.

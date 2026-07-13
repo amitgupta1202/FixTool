@@ -29,15 +29,27 @@ data class FixMessage(
      */
     val captureTimeMicros: Long = 0L,
     /**
-     * The message as it actually was on the wire — **SOH-delimited**, unsubstituted. Null when the
-     * transport could not hand one over.
+     * The message as it actually was on the wire — **SOH-delimited, in the order the bytes arrived**.
+     * Null means *we do not know that order*, and nothing may guess it.
      *
-     * [rawMessage] is a *display* string: it replaces SOH with `|` so a human can read it. That
-     * substitution is lossy, because `|` is an ordinary character inside a FIX value — a venue is
-     * entitled to reject an order with `58=Rejected|insufficient margin`, and splitting that on `|`
-     * yields a truncated Text field and a phantom one. Harmless while only a human was reading it;
-     * not harmless now that the assertion engine reads the field list, where it means comparing an
-     * assertion against a value the venue never sent.
+     * Two properties, and the second is newer and easier to lose.
+     *
+     * **It is unsubstituted.** [rawMessage] is a *display* string: it replaces SOH with `|` so a human
+     * can read it. That substitution is lossy, because `|` is an ordinary character inside a FIX value —
+     * a venue is entitled to reject an order with `58=Rejected|insufficient margin`, and splitting that
+     * on `|` yields a truncated Text field and a phantom one.
+     *
+     * **It is the venue's order, never a re-serialisation.** The assertion engine pairs the k-th row for
+     * a tag with the k-th occurrence of it, and OPEN requires the expectation to be a *subsequence* of
+     * the reply — so the field order here is load-bearing, not incidental. `quickfix.Message.toString()`
+     * is **not** a legal source for an incoming message: with no `fieldOrder` set it re-emits the body in
+     * ascending tag order and relocates every repeating group to the end (`FieldMap.calculateString`,
+     * QFJ 2.3.2 — pinned by `WireOrderFallbackTest`). Filling this field with it would hand the engine a
+     * message no venue sent, and the resulting red would look exactly like a venue regression.
+     *
+     * So the incoming path reads `quickfix.Message.toRawString()`, which is the bytes QFJ parsed, and
+     * this field is null when even that is unavailable. Null is not a licence to fall back to the display
+     * string — it is a fact the caller must report. See `FixMessageHelper.wireFields`.
      */
     val wireRaw: String? = null,
 ) : AppMessage(timestamp) {

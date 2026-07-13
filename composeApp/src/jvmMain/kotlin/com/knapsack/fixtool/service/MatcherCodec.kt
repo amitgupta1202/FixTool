@@ -19,6 +19,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import java.util.regex.PatternSyntaxException
 
 /**
  * Converts between the JSON encodings used on the control surface (see
@@ -54,6 +55,21 @@ object MatcherCodec {
     private fun requireInt(obj: JsonObject, key: String): Int =
         obj[key]?.jsonPrimitive?.intOrNull ?: throw IllegalArgumentException("missing integer '$key'")
 
+    /**
+     * A regex matcher is only usable if the pattern compiles. Rejecting it here names the mistake in
+     * the caller's own request (or in the scenario file being loaded); accepting it deferred the
+     * failure to run time, where it read as "scenario run failed" with no hint as to why.
+     */
+    private fun requirePattern(obj: JsonObject): String {
+        val pattern = requireStr(obj, "pattern")
+        try {
+            Regex(pattern)
+        } catch (e: PatternSyntaxException) {
+            throw IllegalArgumentException("regex matcher has an invalid pattern '$pattern': ${e.description}", e)
+        }
+        return pattern
+    }
+
     @Suppress("CyclomaticComplexMethod", "ThrowsCount")
     fun parseMatcher(obj: JsonObject): Matcher {
         val type = obj["type"]?.jsonPrimitive?.contentOrNull?.lowercase()
@@ -62,7 +78,7 @@ object MatcherCodec {
             "exact" -> Matcher.Exact(requireStr(obj, "value"))
             "presence" -> Matcher.Presence
             "absent" -> Matcher.Absent
-            "regex" -> Matcher.Regex(requireStr(obj, "pattern"))
+            "regex" -> Matcher.Regex(requirePattern(obj))
             "oneof" -> Matcher.OneOf(
                 (obj["values"]?.jsonArray ?: throw IllegalArgumentException("oneOf matcher missing 'values'"))
                     .map { it.jsonPrimitive.content },

@@ -14,7 +14,10 @@ import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import org.junit.Test
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ScenarioCodecTest {
@@ -76,5 +79,24 @@ class ScenarioCodecTest {
         assertTrue(xml.contains("<testsuite name=\"book-a-trade\" tests=\"2\" failures=\"1\""), xml)
         assertTrue(xml.contains("<failure"), xml)
         assertTrue(xml.contains("tag 39"), xml)
+    }
+
+    /**
+     * A regex matcher is only usable if it compiles. Accepted unchecked, a bad pattern from
+     * `fixtool_assert` or a hand-edited scenario file blew up at run time as "scenario run failed",
+     * with nothing to say which assertion was at fault.
+     */
+    @Test
+    fun `a regex matcher with an uncompilable pattern is rejected at parse`() {
+        val bad = Json.parseToJsonElement("""{"type":"regex","pattern":"EXEC-["}""").jsonObject
+
+        val error = assertFailsWith<IllegalArgumentException> { MatcherCodec.parseMatcher(bad) }
+        assertTrue(error.message!!.contains("EXEC-["), "the error should quote the pattern: ${error.message}")
+    }
+
+    @Test
+    fun `a valid regex matcher still round-trips`() {
+        val ok = Json.parseToJsonElement("""{"type":"regex","pattern":"EXEC-\\d+"}""").jsonObject
+        assertEquals(Matcher.Regex("EXEC-\\d+"), MatcherCodec.parseMatcher(ok))
     }
 }

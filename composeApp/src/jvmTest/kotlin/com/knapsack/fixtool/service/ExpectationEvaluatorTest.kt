@@ -142,6 +142,29 @@ class ExpectationEvaluatorTest {
         assertEquals(null, eval(v, fe(35, Matcher.Exact("8"))).single().path)
     }
 
+    /**
+     * The expectation builder re-evaluates on every keystroke, so an unguarded compile took the
+     * whole workbench down (with the author's unsaved edits) the moment they typed a lone `[`. An
+     * unusable pattern is a failed assertion that says so, not an exception.
+     */
+    @Test
+    fun `an invalid regex fails the row instead of throwing`() {
+        val v = MapMessageView(mapOf(35 to "8", 17 to "EXEC-1"))
+
+        val result = eval(v, fe(17, Matcher.Regex("EXEC-["))).single()
+
+        assertFalse(result.passed)
+        assertTrue(result.expected.contains("invalid regex"), "the row should say why: ${result.expected}")
+    }
+
+    @Test
+    fun `a valid regex still matches`() {
+        val v = MapMessageView(mapOf(35 to "8", 17 to "EXEC-1"))
+
+        assertTrue(eval(v, fe(17, Matcher.Regex("EXEC-\\d+"))).single().passed)
+        assertFalse(eval(v, fe(17, Matcher.Regex("ORD-\\d+"))).single().passed)
+    }
+
     /** In-memory [MessageView] for tests: flat tags plus optional single-level repeating groups. */
     private class MapMessageView(
         private val tags: Map<Int, String>,

@@ -12,37 +12,64 @@ import quickfix.DataDictionary
  * Single level only for *emission*: fields of a group nested *inside* another group's entry are
  * consumed but not emitted (the evaluator reads one group level; deeper assertions are authored
  * manually). Nesting of any depth is still traversed — see [consumeNested].
+ *
+ * An identity only locates an entry if it is **unique** within its group. When two entries share a
+ * delimiter value — a market-data snapshot with two MDEntries of the same MDEntryType, two legs on
+ * the same symbol — nothing in the path tells them apart. The walk reports those groups in
+ * [Structure.ambiguousGroups] rather than quietly picking one: FixTool refuses to assert what it
+ * cannot locate, because a scenario that asserts the wrong entry and passes is worse than one that
+ * says it cannot check this.
  */
 object FixStructure {
-    /** One field with its location: `path == null` → top level, else inside the located entry. */
-    data class StructuredField(val tag: Int, val value: String, val path: GroupPath?)
+    /**
+     * One field with its location: `path == null` → top level, else inside the located entry.
+     *
+     * [entryIndex] is the entry's ordinal within its group in wire order — a *view* concern (it lets
+     * a reader iterate real entries even when two share an identity), never persisted and never part
+     * of an assertion.
+     */
+    data class StructuredField(val tag: Int, val value: String, val path: GroupPath?, val entryIndex: Int? = null)
+
+    /** The walked fields plus the groups whose entries are not distinguishable by their identity. */
+    data class Structure(val fields: List<StructuredField>, val ambiguousGroups: Set<Int>)
+
+    fun walk(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): List<StructuredField> =
+        structure(fields, dictionary).fields
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    fun walk(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): List<StructuredField> {
+    fun structure(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): Structure {
         val dd = try {
             dictionary?.getDataDictionary()
         } catch (e: Exception) {
             null
         }
         val msgType = fields.firstOrNull { it.first == 35 }?.second
-        if (dd == null || msgType == null) return fields.map { StructuredField(it.first, it.second, null) }
+        if (dd == null || msgType == null) {
+            return Structure(fields.map { StructuredField(it.first, it.second, null) }, emptySet())
+        }
 
         val out = mutableListOf<StructuredField>()
+        val identities = mutableMapOf<Int, MutableList<String>>() // group tag → each entry's identity, in wire order
         var i = 0
         while (i < fields.size) {
             val (tag, value) = fields[i]
-            if (isGroup(dd, msgType, tag)) {
-                out += StructuredField(tag, value, null) // the entry count itself is assertable
-                i = walkEntries(fields, i + 1, dd, msgType, tag, out)
-            } else {
-                out += StructuredField(tag, value, null)
-                i++
-            }
+            out += StructuredField(tag, value, null) // the entry count itself is assertable
+            i = if (isGroup(dd, msgType, tag)) walkEntries(fields, i + 1, dd, msgType, tag, out, identities) else i + 1
         }
-        return out
+        val ambiguous = identities.filterValues { it.size != it.distinct().size }.keys
+        return Structure(out, ambiguous)
     }
 
-    @Suppress("TooGenericExceptionCaught", "SwallowedException", "ReturnCount")
+    /**
+     * Walks one group's entries.
+     *
+     * An entry begins at its delimiter — but venues do not always put the delimiter first, so a tag
+     * that *repeats* within the current entry also begins the next one (the rule FixMessageHelper
+     * already uses to build such messages). Fields seen ahead of an entry's delimiter are held and
+     * attributed to the entry that delimiter opens, rather than being dropped or, worse, folded into
+     * the previous entry.
+     */
+    @Suppress("TooGenericExceptionCaught", "SwallowedException", "LongParameterList", "NestedBlockDepth")
     private fun walkEntries(
         fields: List<Pair<Int, String>>,
         start: Int,
@@ -50,6 +77,7 @@ object FixStructure {
         msgType: String,
         groupTag: Int,
         out: MutableList<StructuredField>,
+        identities: MutableMap<Int, MutableList<String>>,
     ): Int {
         val info = try {
             dd.getGroup(msgType, groupTag)
@@ -58,36 +86,54 @@ object FixStructure {
         } ?: return start
         val delimiter = info.delimiterField
         val groupDD = info.dataDictionary
-        // Entries are located by identity, but an identity need not be unique (two MDEntries of the
-        // same MDEntryType, two legs on the same symbol). Counting repeats of each identity value
-        // keeps such entries distinct instead of collapsing them onto one path.
-        val repeats = mutableMapOf<String, Int>()
+        val entries = identities.getOrPut(groupTag) { mutableListOf() }
+
         var entry: GroupPath? = null
-        // The spec puts the delimiter first in an entry; venues do not always oblige. Fields seen
-        // ahead of the first delimiter are held here rather than dropped — they belong to the entry
-        // that delimiter opens, and dropping them left them unasserted *and* unflagged.
-        val beforeFirstDelimiter = mutableListOf<Pair<Int, String>>()
+        var entryIndex = -1
+        val seenInEntry = mutableSetOf<Int>()
+        val pending = mutableListOf<Pair<Int, String>>() // fields of an entry that arrived before its delimiter
+
         var i = start
         while (i < fields.size) {
             val (tag, value) = fields[i]
             if (!belongsTo(groupDD, msgType, tag)) break
-            if (tag == delimiter) { // a recurring delimiter starts the next entry
-                val occurrence = repeats.getOrDefault(value, 0)
-                repeats[value] = occurrence + 1
-                entry = GroupPath(groupTag, delimiter, value, occurrence)
-                beforeFirstDelimiter.forEach { (t, v) -> out += StructuredField(t, v, entry) }
-                beforeFirstDelimiter.clear()
-            }
-            if (isGroup(groupDD, msgType, tag)) {
-                i = consumeNested(fields, i + 1, groupDD, msgType, tag)
-            } else {
-                if (entry != null) out += StructuredField(tag, value, entry) else beforeFirstDelimiter += tag to value
-                i++
+
+            when {
+                tag == delimiter -> {
+                    entry = GroupPath(groupTag, delimiter, value)
+                    entryIndex = entries.size
+                    entries += value
+                    seenInEntry.clear()
+                    seenInEntry += tag
+                    // The held fields are this entry's — and they count as seen in it, so a later
+                    // repeat of one of them is recognised as the start of the *next* entry.
+                    pending.forEach { (t, v) ->
+                        out += StructuredField(t, v, entry, entryIndex)
+                        seenInEntry += t
+                    }
+                    pending.clear()
+                    out += StructuredField(tag, value, entry, entryIndex)
+                    i++
+                }
+                isGroup(groupDD, msgType, tag) -> i = consumeNested(fields, i + 1, groupDD, msgType, tag)
+                entry == null || tag in seenInEntry -> {
+                    // Either we have not met this entry's delimiter yet, or this tag already appeared in
+                    // the current entry — which means the next entry has started ahead of its delimiter.
+                    entry = null
+                    seenInEntry.clear()
+                    pending += tag to value
+                    i++
+                }
+                else -> {
+                    seenInEntry += tag
+                    out += StructuredField(tag, value, entry, entryIndex)
+                    i++
+                }
             }
         }
-        // A group that never sent its delimiter is malformed. Surface those fields at top level so the
-        // lint names them, rather than swallowing them into a group entry that does not exist.
-        beforeFirstDelimiter.forEach { (t, v) -> out += StructuredField(t, v, null) }
+        // A trailing run with no delimiter belongs to no entry we can name. Surface it at top level so
+        // the dictionary lint reports it, rather than folding it into an entry it may not belong to.
+        pending.forEach { (t, v) -> out += StructuredField(t, v, null) }
         return i
     }
 

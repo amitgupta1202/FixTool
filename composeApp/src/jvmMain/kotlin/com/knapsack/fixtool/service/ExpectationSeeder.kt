@@ -23,11 +23,11 @@ import com.knapsack.fixtool.model.scenario.TemporalKind
  */
 object ExpectationSeeder {
     /**
-     * Session/transport tags are never asserted: they identify the connection, not the behaviour.
-     * Seeding SenderCompID(49) or BeginString(8) as Exact made a captured scenario fail on every
-     * other environment — the same list capture already strips from Send steps ([SessionTags]).
+     * Never asserted: they identify the connection and the moment, not the behaviour. Seeding
+     * SenderCompID(49) or BeginString(8) as Exact made a captured scenario fail on every other
+     * environment. Narrower than what a Send step strips — see [SessionTags].
      */
-    private val OMITTED_TAGS = SessionTags.TRANSPORT
+    private val OMITTED_TAGS = SessionTags.NEVER_ASSERTED
 
     /** Well-known venue-assigned identifiers whose presence matters but whose value is random. */
     private val PRESENCE_TAGS = setOf(37, 17) // OrderID, ExecID
@@ -41,6 +41,17 @@ object ExpectationSeeder {
     /** One seeded assertion plus the captured value it was seeded from (for editor/preview rows). */
     data class SeededField(val field: FieldExpectation, val capturedValue: String)
 
+    /**
+     * A group whose fields were **not** asserted, and why. Two entries carry the same identity, so a
+     * [com.knapsack.fixtool.model.scenario.GroupPath] cannot name one of them; asserting anyway would
+     * bind to whichever came first and report it as the other's. Said out loud so the author knows
+     * this part of the message is not covered, instead of trusting a green run that never checked it.
+     */
+    data class UnassertableGroup(val groupTag: Int, val identityTag: Int, val reason: String)
+
+    /** What a capture produced: the assertions, and the groups it declined to assert. */
+    data class Seed(val fields: List<SeededField>, val unassertable: List<UnassertableGroup>)
+
     fun seed(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): Expectation {
         val messageType = fields.firstOrNull { it.first == 35 }?.second
         return Expectation(
@@ -50,15 +61,23 @@ object ExpectationSeeder {
         )
     }
 
+    fun seedDetailed(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): List<SeededField> =
+        seedAll(fields, dictionary).fields
+
     /**
      * Structure-aware seeding: repeating-group fields get a [com.knapsack.fixtool.model.scenario.GroupPath]
      * locating their entry by identity — a top-level lookup on a group-internal tag would always be
      * "absent", so seeding it flat would guarantee a false failure on replay.
+     *
+     * A group whose entries are not distinguishable by that identity is skipped entirely and returned
+     * in [Seed.unassertable]. FixTool asserts what it can locate and names what it cannot.
      */
-    fun seedDetailed(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): List<SeededField> {
+    fun seedAll(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): Seed {
+        val structure = FixStructure.structure(fields, dictionary)
         val seen = mutableSetOf<Pair<Int, Any?>>()
-        return FixStructure.walk(fields, dictionary)
+        val seeded = structure.fields
             .filterNot { it.tag in OMITTED_TAGS }
+            .filterNot { it.path != null && it.path.groupTag in structure.ambiguousGroups }
             .filter { seen.add(it.tag to it.path) }
             .map { sf ->
                 SeededField(
@@ -66,7 +85,22 @@ object ExpectationSeeder {
                     capturedValue = sf.value,
                 )
             }
+        val unassertable = structure.ambiguousGroups.sorted().map { groupTag ->
+            val identityTag = structure.fields.firstOrNull { it.path?.groupTag == groupTag }?.path?.identityTag ?: 0
+            UnassertableGroup(
+                groupTag = groupTag,
+                identityTag = identityTag,
+                reason = groupLabel(groupTag, dictionary) + " has entries that share " +
+                    tagLabel(identityTag, dictionary) + ", so an assertion cannot say which entry it means",
+            )
+        }
+        return Seed(seeded, unassertable)
     }
+
+    private fun groupLabel(tag: Int, dictionary: FixDictionaryAdapter?): String = tagLabel(tag, dictionary)
+
+    private fun tagLabel(tag: Int, dictionary: FixDictionaryAdapter?): String =
+        dictionary?.getFieldName(tag)?.let { "$it($tag)" } ?: "tag $tag"
 
     private fun seedMatcher(tag: Int, value: String, dictionary: FixDictionaryAdapter?): Matcher {
         val fieldType = fieldTypeName(tag, dictionary)

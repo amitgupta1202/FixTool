@@ -29,7 +29,7 @@ object ScenarioCapture {
     private val ADMIN_MSG_TYPES = setOf("0", "1", "2", "3", "4", "5", "A")
 
     /** Transport/session header+trailer tags the framework re-stamps on send; dropped from Send raw. */
-    private val TRANSPORT_TAGS = SessionTags.TRANSPORT
+    private val TRANSPORT_TAGS = SessionTags.REWRITTEN_ON_SEND
 
     /** Client-originated correlation id tags: parameterized on send, echo-matched on responses. */
     private val ID_TAGS = setOf(11, 41, 131, 526, 583)
@@ -60,6 +60,24 @@ object ScenarioCapture {
         sessions: List<CapturedSession>,
         dictionary: FixDictionaryAdapter?,
     ): Scenario = captureFrom(id, name, profile, candidates(sessions), dictionary)
+
+    /**
+     * What this capture will **not** assert: groups whose entries share an identity, so no assertion
+     * can say which entry it means (see [ExpectationSeeder.UnassertableGroup]).
+     *
+     * Said at authoring time, on the capture-review screen, because that is when the author can still
+     * do something about it — narrow the flow, or accept that this part of the message is uncovered.
+     * The alternative, asserting an entry we cannot locate, produces a scenario that passes while
+     * checking the wrong thing, and there is no worse outcome for a testing tool.
+     */
+    fun unassertable(
+        selection: List<Candidate>,
+        dictionary: FixDictionaryAdapter?,
+    ): List<ExpectationSeeder.UnassertableGroup> =
+        selection
+            .filter { it.message.direction == FixMessage.Direction.INCOMING }
+            .flatMap { ExpectationSeeder.seedAll(it.fields, dictionary).unassertable }
+            .distinctBy { it.groupTag }
 
     /** Builds the scenario from an already-curated [selection] (capture-review's Save). */
     fun captureFrom(

@@ -290,11 +290,13 @@ class QuickFixService(
     }
 
     /**
-     * Sends a FIX message through the QuickFIX session
+     * Sends a FIX message through the QuickFIX session.
      *
-     * Uses a two-tier approach:
-     * 1. First tries QuickFIX's default parser with validation enabled
-     * 2. If validation fails, falls back to manual construction
+     * The message is constructed through the dictionary-aware manual builder, which handles the
+     * nested groups QuickFIX's own frame parser struggles with, and judged by [FixMessageValidator] —
+     * the same call the editor's linter makes, so Validate and Send can never disagree. A message
+     * that does not satisfy the dictionary is still sent (this is a testing tool; sending a bad
+     * message on purpose is a legitimate thing to want), with a warning saying what is wrong with it.
      *
      * @return SendResult indicating success, success with warning, or failure
      */
@@ -327,10 +329,14 @@ class QuickFixService(
                     // through here ("Header fields out of order"), so every send came back warning
                     // "validation bypassed" — noise that drowned the real thing and contradicted the
                     // editor's linter. Ask the linter itself, so the two cannot disagree.
-                    FixMessageValidator.validate(rawMessage, dictionary).errors.firstOrNull()?.let { problem ->
-                        logger.warn("Message does not satisfy the loaded dictionary: $problem")
-                        validationWarning = listOfNotNull(validationWarning, problem).joinToString("; ")
-                    }
+                    FixMessageValidator.validate(rawMessage, dictionary).errors.firstOrNull()
+                        // The lint above already named these tags, in better words. Saying it twice
+                        // reads as two problems when there is one.
+                        ?.takeUnless { problem -> unknownTags.any { problem.contains("field=$it") } }
+                        ?.let { problem ->
+                            logger.warn("Message does not satisfy the loaded dictionary: $problem")
+                            validationWarning = listOfNotNull(validationWarning, problem).joinToString("; ")
+                        }
                     // Construct through the dictionary-aware manual builder, which handles the nested
                     // groups QuickFIX's own frame parser struggles with.
                     rawMessage.toQuickFixMessageManual(dictionary)

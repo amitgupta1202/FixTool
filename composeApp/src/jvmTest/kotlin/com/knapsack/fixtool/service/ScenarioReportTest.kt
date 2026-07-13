@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -66,6 +67,38 @@ class ScenarioReportTest {
         assertTrue(xml.contains("messageType=8"), "keep the context: $xml")
         assertTrue(xml.contains("tag 39: expected 2, actual 8"), "the diff is the point of the report: $xml")
         assertTrue(xml.contains("tag 448"), xml)
+    }
+
+    /**
+     * A FIX value may hold a newline or a control character; an XML attribute may not. Now that the
+     * failure message always carries actual wire values, one such byte would make a CI parser reject
+     * the whole report — "the report is unreadable" being a far worse thing for a build to say than
+     * "one test failed".
+     */
+    @Test
+    fun `a wire value with a newline or control character does not break the xml`() {
+        val result =
+            ScenarioResult(
+                scenario = "rfq",
+                passed = false,
+                steps =
+                    listOf(
+                        StepResult(
+                            1,
+                            "expect",
+                            "steps",
+                            passed = false,
+                            detail = "messageType=8",
+                            tags = listOf(TagResult(58, "exact ok", "ok", "line1\nline2", passed = false)),
+                        ),
+                    ),
+            )
+
+        val xml = ScenarioReport.toJUnitXml(result)
+
+        assertTrue(xml.lineSequence().none { it.contains("line2") && !it.contains("<failure") }, "no raw newline: $xml")
+        assertFalse(xml.contains(""), "control characters must not reach the attribute: $xml")
+        assertTrue(xml.contains("tag 58"), xml)
     }
 
     @Test

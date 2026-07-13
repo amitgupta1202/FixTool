@@ -126,6 +126,10 @@ fun ExpectationBuilder(
 ) {
     val drafts = remember { mutableStateListOf<FieldDraft>().apply { addAll(initialFields) } }
     var strict by remember { mutableStateOf(initialMode == MatchMode.STRICT) }
+    // Keyed by **draft row**, not by tag. Keyed by tag, a single over-specified occurrence painted its
+    // warning onto every row sharing that tag: verify a two-party expectation whose second PartyRole is
+    // over-specified, and the first entry's row — which is fine — lit up too. The same by-tag collapse this
+    // model exists to remove, in the one place whose job is to point at a specific row.
     var overSpecified by remember { mutableStateOf<Set<Int>?>(null) }
 
     // Read from `drafts` at call time, never from a list captured during composition: closing over a
@@ -189,8 +193,10 @@ fun ExpectationBuilder(
             },
             canVerify = secondView != null,
             onVerify = {
+                val rows = includedRows()
                 val results = ExpectationEvaluator.evaluate(secondView!!, expectation())
-                overSpecified = results.filterNot { it.passed }.map { it.tag }.toSet()
+                val failedRows = results.filterNot { it.passed }
+                overSpecified = failedRows.mapNotNull { r -> r.index?.let { rows.getOrNull(it)?.index } }.toSet()
             },
             overSpecified = overSpecified,
             unlistedInStrict = unlistedInStrict,
@@ -205,7 +211,7 @@ fun ExpectationBuilder(
                     draft = draft,
                     showOccurrence = draft.tag in repeated,
                     livePass = livePasses[index],
-                    overSpecified = overSpecified?.contains(draft.tag) == true,
+                    overSpecified = overSpecified?.contains(index) == true,
                     // The tick belongs to the tag; the matcher belongs to the row. See setIncluded.
                     onIncludedChange = { setIncluded(draft.tag, it) },
                     onChange = {

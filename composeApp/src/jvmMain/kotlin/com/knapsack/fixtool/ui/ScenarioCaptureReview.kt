@@ -41,6 +41,7 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.ScenarioAnnotations
 import com.knapsack.fixtool.service.ScenarioCapture
@@ -324,7 +325,14 @@ private fun CandidateDetail(
     }
 }
 
-/** What an outgoing message becomes: per-tag "captured value → replay behavior". */
+/**
+ * What an outgoing message becomes: one row per **occurrence**, in wire order.
+ *
+ * It used to be one row per *tag* (`distinctBy { it.first }`, and a `Map` of the replay values, which
+ * collapses duplicates the same way). A message with two party entries showed three rows where six fields
+ * were captured, and the review screen — the last thing between an author and a saved scenario — described
+ * a message shorter than the one it was about to save.
+ */
 @Composable
 private fun SendPreview(
     candidate: ScenarioCapture.Candidate,
@@ -342,11 +350,21 @@ private fun SendPreview(
             modifier = Modifier.padding(bottom = 6.dp),
         )
     }
-    val transformed = FixMessageHelper.parseFixMessage(step.raw).toMap()
-    candidate.fields.distinctBy { it.first }.forEach { (tag, value) ->
+    // The Send raw is the captured fields, in order, minus the transport headers the framework re-stamps.
+    // So walking the two with one cursor pairs each captured field with what will actually be sent for it —
+    // and a field the cursor does not advance past is one that was dropped. A Map keyed by tag could not
+    // express either fact: it answers for the *last* occurrence of a repeated tag, whichever row is asking.
+    val transformed = FixMessageHelper.parseFixMessage(step.raw)
+    val repeated = repeatedTags(candidate.fields)
+    val occurrences = mutableMapOf<Int, Int>()
+    var cursor = 0
+    candidate.fields.forEach { (tag, value) ->
+        val occurrence = nextOccurrence(occurrences, tag)
+        val replay = transformed.getOrNull(cursor)?.takeIf { it.first == tag }?.second
+        if (replay != null) cursor++
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
             TagAndName(tag, dictionary)
-            val replay = transformed[tag]
+            OccurrenceLabel(occurrence, show = tag in repeated)
             when {
                 replay == null ->
                     Text("dropped (session/transport header)", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
@@ -383,7 +401,21 @@ private fun ReplayChip(expression: String, varColors: Map<String, androidx.compo
     }
 }
 
-/** What an incoming message becomes: per-tag matcher summary (references shown as id badges). */
+/**
+ * What an incoming message becomes: one row per **occurrence**, in wire order, each showing the matcher
+ * that will actually check *that* field.
+ *
+ * It used to collapse both sides by tag — `distinctBy { it.first }` over the captured fields, and
+ * `associateBy { it.tag }` over the assertion rows — and the two collapses did not even agree with each
+ * other. `distinctBy` keeps the *first* occurrence; `associateBy` keeps the *last*. So on an
+ * ExecutionReport with two party entries the screen showed three rows where six assertions had been
+ * seeded, and the one PartyRole row it did show read "captured 1 → asserts exact 4": the executing firm's
+ * value beside the clearing firm's matcher, an assertion that exists nowhere.
+ *
+ * The pairing comes from [ExpectationEvaluator.align] — the same function the runner uses to decide which
+ * field a row refers to. Anything else here would be a second rule for a question the engine has already
+ * answered, and this screen would eventually describe a scenario the engine does not run.
+ */
 @Composable
 private fun ExpectPreview(
     candidate: ScenarioCapture.Candidate,
@@ -397,10 +429,15 @@ private fun ExpectPreview(
         fontSize = 11.sp,
         modifier = Modifier.padding(bottom = 6.dp),
     )
-    val byTag = step.expectation.fields.associateBy { it.tag }
-    candidate.fields.distinctBy { it.first }.forEach { (tag, value) ->
+    val aligned = ExpectationEvaluator.align(step.expectation, candidate.fields)
+    val rowAt = aligned.mapNotNull { a -> a.wireIndex?.let { w -> a.row?.let { w to it } } }.toMap()
+    val repeated = repeatedTags(candidate.fields)
+    val occurrences = mutableMapOf<Int, Int>()
+    candidate.fields.forEachIndexed { wireIndex, (tag, value) ->
+        val occurrence = nextOccurrence(occurrences, tag)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
             TagAndName(tag, dictionary)
+            OccurrenceLabel(occurrence, show = tag in repeated)
             Text(
                 valueWithDescription(dictionary, tag, value).take(34),
                 color = AppTheme.Colors.textDisabled,
@@ -409,7 +446,7 @@ private fun ExpectPreview(
                 maxLines = 1,
                 modifier = Modifier.width(180.dp),
             )
-            val fe = byTag[tag]
+            val fe = rowAt[wireIndex]
             if (fe == null) {
                 Text("not asserted", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
             } else {
@@ -423,6 +460,36 @@ private fun ExpectPreview(
             }
         }
     }
+}
+
+/** Tags the message carries more than once — the only ones whose rows need an occurrence label. */
+private fun repeatedTags(fields: List<Pair<Int, String>>): Set<Int> {
+    val counts = mutableMapOf<Int, Int>()
+    fields.forEach { counts.merge(it.first, 1, Int::plus) }
+    return counts.filterValues { it > 1 }.keys
+}
+
+/** The 0-based occurrence of [tag], advancing the running count. */
+private fun nextOccurrence(counts: MutableMap<Int, Int>, tag: Int): Int {
+    val seen = counts.getOrDefault(tag, 0)
+    counts[tag] = seen + 1
+    return seen
+}
+
+/**
+ * Which entry this row is — `#2` for the second occurrence of a repeating tag, blank when the tag is
+ * unique. Same convention as the ExpectationBuilder, and for the same reason: four identical "452
+ * PartyRole" rows are four rows the author cannot tell apart, and the one they mean is a guess.
+ */
+@Composable
+private fun OccurrenceLabel(occurrence: Int, show: Boolean) {
+    Text(
+        text = if (show) "#${occurrence + 1}" else "",
+        color = AppTheme.Colors.groupTag,
+        fontFamily = FontFamily.Monospace,
+        fontSize = 10.sp,
+        modifier = Modifier.width(26.dp),
+    )
 }
 
 @Composable

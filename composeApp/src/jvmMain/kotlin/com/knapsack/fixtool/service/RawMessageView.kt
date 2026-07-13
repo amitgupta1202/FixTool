@@ -16,7 +16,7 @@ class RawMessageView(raw: String) : MessageView {
     // display string: a venue's `58=Rejected|insufficient margin` arrived here as `58=Rejected` plus a
     // phantom field, and "Accept actual" would have written the truncated value into the scenario as the
     // thing to assert forever after.
-    private val fields = FixMessageHelper.parseStoredMessage(raw)
+    private val fields = FixMessageHelper.parseFixMessage(raw)
 
     override fun fields(): List<Pair<Int, String>> = fields
 }

@@ -132,4 +132,49 @@ class ScenarioCaptureReviewTest {
             println("[ScenarioCaptureReviewTest] snapshot '$name' skipped: ${e.message}")
         }
     }
+
+    /**
+     * The preview shows every occurrence, each with the matcher that will actually check it.
+     *
+     * A venue sends the same firm twice under different roles — the case the sequence model exists for.
+     * Capture seeds six assertions for the party block. This screen used to show three: it collapsed the
+     * captured fields by tag with `distinctBy` (which keeps the FIRST occurrence) and the assertion rows by
+     * tag with `associateBy` (which keeps the LAST). So the single PartyRole row it drew showed the
+     * executing firm's captured value, `1`, beside the clearing firm's matcher, `= 4` — an assertion that
+     * exists in no scenario, on the one screen whose whole job is to tell the author what they are about to
+     * save.
+     */
+    @Test
+    fun `the preview shows every occurrence of a repeated tag, each with its own matcher`() {
+        val twoParties =
+            ScenarioCapture.candidates(
+                listOf(
+                    ScenarioCapture.CapturedSession(
+                        "TRADE",
+                        listOf(
+                            msg(
+                                "8=FIX.4.4|35=8|39=2|453=2|448=FIRMA|447=D|452=1|448=FIRMA|447=D|452=4|10=004|",
+                                FixMessage.Direction.INCOMING,
+                                1,
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        composeTestRule.setContent {
+            Box(modifier = Modifier.size(1200.dp, 700.dp).background(AppTheme.Colors.background).padding(10.dp)) {
+                ScenarioCaptureReview(candidates = twoParties, dictionary = null, onSave = { _, _ -> true }, onBack = {})
+            }
+        }
+        composeTestRule.onNodeWithTag("candidate-0").performClick()
+
+        // The second party entry has three rows of its own — 448, 447, 452 — labelled #2. The old preview
+        // could not show them at all: it kept one row per tag.
+        composeTestRule.onAllNodesWithText("#2").assertCountEquals(3)
+
+        // And each PartyRole row carries the matcher for *its own* entry. The old preview paired the first
+        // entry's captured value with the second entry's matcher, so "= 1" was shown for no row at all.
+        composeTestRule.onNodeWithText("= 1").assertExists()
+        composeTestRule.onNodeWithText("= 4").assertExists()
+    }
 }

@@ -81,15 +81,23 @@ object FixMessageHelper {
     }
 
     /**
-     * Parses a FIX message string into a list of (tag, value) pairs, **guessing** the delimiter.
+     * Parses a FIX message string into a list of (tag, value) pairs, establishing the delimiter from the
+     * string itself — **SOH wins**, and the precedence is the whole point.
      *
-     * The guess is why [wireFields] exists: `|` is an ordinary character inside a FIX value, so a
-     * message that is really SOH-delimited but carries `58=Rejected|insufficient margin` gets split on
-     * the wrong character here. Tolerable for the editor and the display, which is what this serves.
-     * Not tolerable for the assertion engine, which must be handed the real delimiter.
+     * It is not a guess, because the two forms are totally discriminated: a wire string always contains
+     * SOH (FIX terminates every field with it, `8=FIX.4.4<SOH>` included), and a display or editor string
+     * never does, because producing one replaces every SOH with `|`.
+     *
+     * This used to ask `contains('|')` first, which is the same test run backwards, and it failed on the
+     * one case that matters: `|` is an *ordinary character inside a FIX value*. A venue rejecting an order
+     * with `58=Rejected|insufficient margin` sends a perfectly good SOH-delimited message that happens to
+     * contain a pipe — and the old precedence split it on the pipe, shredding the message into fields the
+     * venue never sent. That reached the expectation builder through a captured `golden`, where every row
+     * lost its captured value, and the reconcile view, where "Accept actual" would have written a
+     * truncated value into the scenario as the thing to assert from then on.
      */
     internal fun parseFixMessage(raw: String): List<Pair<Int, String>> =
-        parseFixMessage(raw, delimiter = if (raw.contains('|')) '|' else '\u0001')
+        parseFixMessage(raw, delimiter = if (raw.contains(SOH)) SOH else '|')
 
     /** Parses with a **known** delimiter — no guessing, so a `|` inside a value stays inside it. */
     internal fun parseFixMessage(raw: String, delimiter: Char): List<Pair<Int, String>> =
@@ -123,22 +131,6 @@ object FixMessageHelper {
      */
     fun wireFields(message: FixMessage): List<Pair<Int, String>>? =
         message.wireRaw?.let { parseFixMessage(it, delimiter = '\u0001') }
-
-    /**
-     * Parse a stored or captured FIX string whose delimiter we have to establish — a scenario's `golden`,
-     * a run's `actualRaw`, anything that has been through a file.
-     *
-     * **The one place the delimiter is decided**, and it is decided by a fact rather than a guess: a wire
-     * string always contains SOH (FIX terminates every field with it, `8=FIX.4.4<SOH>` included), and a
-     * display string never does, because building one replaces every SOH with `|`. So the two are totally
-     * discriminated by `contains(SOH)`.
-     *
-     * The `|` branch reads goldens written before wire bytes were stored, and it is lossy in the one way
-     * the display string has always been lossy: a `|` inside a value splits a field in two. Anything
-     * captured from now on stores SOH, so the lossy branch shrinks to legacy data and dies with it.
-     */
-    fun parseStoredMessage(raw: String): List<Pair<Int, String>> =
-        if (raw.contains(SOH)) parseFixMessage(raw, delimiter = SOH) else parseFixMessage(raw)
 
     /** The FIX field delimiter. `|` is the display substitution for it, and only ever that. */
     const val SOH: Char = '\u0001'

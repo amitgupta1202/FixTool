@@ -500,23 +500,41 @@ private fun ExpectDetail(
             modifier = Modifier.padding(top = 8.dp),
         )
     } else {
-        val drafts = remember { ExpectationDrafts.fromExpectation(step.expectation, dictionary) }
-        val goldenView = remember { step.expectation.golden?.let { RawMessageView(it) } }
-        val second = remember { secondInstance(step.session, messageType.ifBlank { null }, step.expectation.golden) }
         val golden = step.expectation.golden
-        val failedView = remember { runFailure?.actualRaw?.let { RawMessageView(it) } }
-        val failedTags = remember { runFailure?.failedTags?.map { it.tag }?.toSet() ?: emptySet() }
-        ExpectationBuilder(
-            messageType = messageType,
-            initialFields = drafts,
-            goldenView = goldenView,
-            secondView = second,
-            initialMode = step.expectation.mode,
-            failedView = failedView,
-            failedTags = failedTags,
-            onChange = { updated -> onChange(step.copy(expectation = updated.copy(golden = golden))) },
-            modifier = Modifier.padding(top = 8.dp),
-        )
+        val failedView = remember(runFailure) { runFailure?.actualRaw?.let { RawMessageView(it) } }
+
+        // A step that failed a run is reconciled, not re-authored. This is the surface that can see both
+        // sides — so it is the only one that can show the row the venue stopped sending, or the entry it
+        // moved. The builder below stays for authoring an expectation that has not been run.
+        if (failedView != null) {
+            ReconcileView(
+                expectation = step.expectation,
+                actual = failedView,
+                dictionary = dictionary,
+                // The golden follows the reconciliation. An expectation reconciled against *this* message
+                // describes *this* message, so keeping the old golden left the two contradicting each other:
+                // reopen the step later, without a failure, and the builder previews the new assertions
+                // against the message they were deliberately changed away from — showing red rows for edits
+                // that are correct, and offering to "fix" them back.
+                onChange = { updated ->
+                    onChange(step.copy(expectation = updated.copy(golden = runFailure?.actualRaw ?: golden)))
+                },
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        } else {
+            val drafts = remember { ExpectationDrafts.fromExpectation(step.expectation, dictionary) }
+            val goldenView = remember { step.expectation.golden?.let { RawMessageView(it) } }
+            val second = remember { secondInstance(step.session, messageType.ifBlank { null }, step.expectation.golden) }
+            ExpectationBuilder(
+                messageType = messageType,
+                initialFields = drafts,
+                goldenView = goldenView,
+                secondView = second,
+                initialMode = step.expectation.mode,
+                onChange = { updated -> onChange(step.copy(expectation = updated.copy(golden = golden))) },
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
     }
 }
 

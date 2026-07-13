@@ -97,18 +97,32 @@ class ExpectationEvaluatorTest {
      */
     private val twoPartyEntries =
         listOf(
-            35 to "8", 11 to "ORD-1", 39 to "2",
+            35 to "8",
+            11 to "ORD-1",
+            39 to "2",
             453 to "2",
-            448 to "FIRMA", 447 to "D", 452 to "1", // executing firm
-            448 to "FIRMA", 447 to "D", 452 to "4", // clearing firm
+            // executing firm
+            448 to "FIRMA",
+            447 to "D",
+            452 to "1",
+            // clearing firm
+            448 to "FIRMA",
+            447 to "D",
+            452 to "4",
         )
 
     private fun twoPartyExpectation(firstRole: String, secondRole: String) =
         listOf(
-            fe(35, Matcher.Exact("8")), fe(11, Matcher.Exact("ORD-1")), fe(39, Matcher.Exact("2")),
+            fe(35, Matcher.Exact("8")),
+            fe(11, Matcher.Exact("ORD-1")),
+            fe(39, Matcher.Exact("2")),
             fe(453, Matcher.Exact("2")),
-            fe(448, Matcher.Exact("FIRMA")), fe(447, Matcher.Exact("D")), fe(452, Matcher.Exact(firstRole)),
-            fe(448, Matcher.Exact("FIRMA")), fe(447, Matcher.Exact("D")), fe(452, Matcher.Exact(secondRole)),
+            fe(448, Matcher.Exact("FIRMA")),
+            fe(447, Matcher.Exact("D")),
+            fe(452, Matcher.Exact(firstRole)),
+            fe(448, Matcher.Exact("FIRMA")),
+            fe(447, Matcher.Exact("D")),
+            fe(452, Matcher.Exact(secondRole)),
         )
 
     @Test
@@ -137,12 +151,19 @@ class ExpectationEvaluatorTest {
 
     @Test
     fun `a venue that swaps its two party entries fails, in both modes`() {
+        // The clearing firm now comes first.
         val swapped =
             listOf(
-                35 to "8", 11 to "ORD-1", 39 to "2",
+                35 to "8",
+                11 to "ORD-1",
+                39 to "2",
                 453 to "2",
-                448 to "FIRMA", 447 to "D", 452 to "4", // clearing firm now first
-                448 to "FIRMA", 447 to "D", 452 to "1",
+                448 to "FIRMA",
+                447 to "D",
+                452 to "4",
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
             )
         for (mode in listOf(MatchMode.OPEN, MatchMode.STRICT)) {
             val results = eval(wireView(swapped), *twoPartyExpectation("1", "4").toTypedArray(), mode = mode)
@@ -173,6 +194,7 @@ class ExpectationEvaluatorTest {
         val values = mapOf(1 to "a", 2 to "b", 3 to "c", 4 to "d", 5 to "e", 6 to "f")
 
         fun rows(vararg tags: Int) = tags.map { fe(it, Matcher.Exact(values.getValue(it))) }.toTypedArray()
+
         fun holds(vararg tags: Int) = eval(reply, *rows(*tags)).all { it.passed }
 
         assertTrue(holds(1, 3, 5), "a subsequence: the reply may carry 2 and 4 in between")
@@ -209,15 +231,20 @@ class ExpectationEvaluatorTest {
         val threeParties =
             listOf(
                 453 to "3",
-                448 to "A", 452 to "1",
-                448 to "B", 452 to "4",
-                448 to "C", 452 to "7",
+                448 to "A",
+                452 to "1",
+                448 to "B",
+                452 to "4",
+                448 to "C",
+                452 to "7",
             )
         val expectationForTwo =
             listOf(
                 fe(453, Matcher.Exact("2")),
-                fe(448, Matcher.Exact("A")), fe(452, Matcher.Exact("1")),
-                fe(448, Matcher.Exact("B")), fe(452, Matcher.Exact("4")),
+                fe(448, Matcher.Exact("A")),
+                fe(452, Matcher.Exact("1")),
+                fe(448, Matcher.Exact("B")),
+                fe(452, Matcher.Exact("4")),
             )
 
         val results = eval(wireView(threeParties), *expectationForTwo.toTypedArray())
@@ -284,7 +311,17 @@ class ExpectationEvaluatorTest {
     // ------------------------------------------------------------------------- the envelope
 
     private val withEnvelope =
-        wireView(8 to "FIX.4.4", 9 to "212", 35 to "8", 34 to "5", 49 to "VENUE", 56 to "ME", 52 to "x", 39 to "2", 10 to "071")
+        wireView(
+            8 to "FIX.4.4",
+            9 to "212",
+            35 to "8",
+            34 to "5",
+            49 to "VENUE",
+            56 to "ME",
+            52 to "x",
+            39 to "2",
+            10 to "071",
+        )
 
     @Test
     fun `the envelope is never an unexpected extra`() {

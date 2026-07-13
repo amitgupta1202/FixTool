@@ -60,12 +60,13 @@ claude mcp add fixtool -- node tools/fixtool-mcp/index.mjs
 
 | Tool                    | What it does                                                            |
 | ----------------------- | ---------------------------------------------------------------------- |
+| `fixtool_syntax`        | **The `${…}` template + matcher grammar.** Read it before authoring a scenario, a templated message or an expectation |
 | `fixtool_health`        | Liveness check + session count                                         |
 | `fixtool_sessions`      | List sessions (index, id, title, state, message count, comp IDs)       |
 | `fixtool_profiles`      | List connection profiles                                               |
 | `fixtool_save_profile`  | Create/update a connection profile (set up a connection from scratch)  |
 | `fixtool_delete_profile`| Delete a connection profile by id                                      |
-| `fixtool_panel`         | Show/hide a UI panel (connection, editor, detail, settings)            |
+| `fixtool_panel`         | Show/hide a UI panel (connection, editor, detail, settings, scenarios) |
 | `fixtool_list_templates`| List saved message templates (optionally per profile)                  |
 | `fixtool_save_template` | Create/update a reusable template (from fields or a raw FIX string)     |
 | `fixtool_delete_template`| Delete a template by id                                               |
@@ -87,6 +88,14 @@ claude mcp add fixtool -- node tools/fixtool-mcp/index.mjs
 | `fixtool_detail_search` | Drive the detail panel's tag search: query + mode (bare\|identity\|full) so a nested tag keeps its context |
 | `fixtool_search`        | Cross-session search → chronological timeline; pins to the search pane  |
 | `fixtool_filter`        | Filter the grid (global or per-session) for a focused screenshot        |
+| `fixtool_assert`        | Machine-check a received message tag-by-tag against per-tag matchers    |
+| `fixtool_capture_expectation` | Draft an expectation from a received message, matchers pre-seeded from the dictionary |
+| `fixtool_capture_scenario` | Record the live message flow into a scenario, already parameterized  |
+| `fixtool_save_scenario` | Create/update a repeatable scenario (sends + assertions)               |
+| `fixtool_list_scenarios`| List saved scenarios (optionally per profile)                          |
+| `fixtool_get_scenario`  | Fetch one scenario's full JSON — read → edit → save back losslessly    |
+| `fixtool_run_scenario`  | Run a scenario deterministically → per-step/per-tag report (or JUnit XML) |
+| `fixtool_delete_scenario` | Delete a scenario by id                                              |
 | `fixtool_screenshot`    | Capture a PNG of the window                                            |
 
 ## Example flow (self-contained, no external server)

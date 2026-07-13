@@ -59,6 +59,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 
 | Method & path        | Body                                   | Returns                                              |
 | -------------------- | -------------------------------------- | ---------------------------------------------------- |
+| `GET /syntax`        | —                                      | `text/markdown`: the template-expression + matcher reference (see below) |
 | `GET /health`        | —                                      | `{status, sessionCount, version}`                    |
 | `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …)       |
 | `GET /profiles`      | —                                      | array of connection profiles                         |
@@ -72,7 +73,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /demo`         | `{"action":"start"\|"stop"}`           | `{status, action, running}`                          |
 | `POST /connect`      | `{"profile":"<name or id>"}`           | `{status, profile}` (logon is async)                 |
 | `POST /disconnect`   | `{"profile":"<name or id>"}`           | `{status, profile}`                                  |
-| `POST /send`         | `{"raw":"8=FIX.4.4|35=D|…", "session"?, "resolve"?}` | `{status, result}`; `resolve` resolves `${…}`/`{n}` first |
+| `POST /send`         | `{"raw":"8=FIX.4.4|35=D|…", "session"?, "resolve"?}` | `{status, result}`; `resolve` (default **false**) resolves `${…}` first — without it `raw` goes on the wire verbatim |
 | `POST /send/all`     | `{"raw":"…"}`                          | bulk-send to all logged-on sessions; per-session results |
 | `POST /templates/send` | `{"id", "session"?}`                 | send a saved template (expressions resolved)         |
 | `GET /messages`      | query: `session`, `limit`, `direction` | `{session, total, messages:[…]}` with parsed fields  |
@@ -95,6 +96,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /scenarios?id=` | query: `id`                            | one scenario's **full JSON definition** — the exact shape `POST /scenarios` accepts, for read → edit → save round-trips |
 | `POST /scenarios`    | scenario JSON `{name, steps:[…], setup?, teardown?, …}` | create/update a scenario (id generated if absent) |
 | `DELETE /scenarios`  | `{"id"}`                               | delete a scenario                                   |
+| `POST /scenarios/capture` | `{"name", "profile"?, "sessions"?}` | record the live message flow into a scenario (auto-parameterized, echoed ids wired to `reference` matchers) |
 | `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`) |
 | `POST /detail`       | `{"query"?, "mode"?, "show"?}`         | drives the detail panel's tag search: sets the query and/or match-context `mode` (`bare`\|`identity`\|`full`) so a nested tag keeps its repeating-group context |
 | `POST /search`       | `{"query", "pin"?}`                    | cross-session matches sorted chronologically (a timeline); pins to the search pane |
@@ -104,6 +106,29 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 `session` may be an index (`0`), an id, or a title. `direction` is `in`/`out` (or omitted).
 Each message in `/messages` includes `timestamp`, `direction`, `messageType` (tag 35), the
 `raw` string, and an ordered `fields` array of `{tag, value}`.
+
+### Template expressions
+
+`${…}` expressions parameterize what you send, so a scenario re-run does not collide with its own
+last run. `GET /syntax` (MCP: `fixtool_syntax`) serves the full grammar as markdown — it is the
+authoritative reference; the summary here is the shape of it:
+
+| Expression | Produces |
+| --- | --- |
+| `${uuid}` | a fresh UUID |
+| `${now}`, `${now:yyyyMMdd}`, `${now+1d}`, `${now-2h:yyyyMMdd}` | timestamp, optionally offset (`h`/`d`/`w`/`m`/`y`) and/or formatted |
+| `${D.11}`, `${in.D.11}`, `${out.D.ClOrdID}`, `${out.D.11.0}` | a tag off the latest message of that type (auto / incoming / outgoing; trailing index for a repeating group) |
+| `${clOrdId = uuid}` then `${clOrdId}` | assign (expanding to the value inline), then re-read later |
+
+**Where they resolve** is the part that bites: a scenario `send`/`match`/`reference` matcher
+**always** resolves them, with no flag — but `POST /send` only does so with `"resolve": true`, and
+its default is `false`, so an unresolved `${uuid}` is sent as *that literal text*. The variable scope
+persists across an entire scenario run (setup → steps → teardown, and across sessions), which is what
+lets a value sent on one session be asserted in a response on another. An unknown `${name}` is left
+as literal text rather than raising an error.
+
+`{n}`/`{nn}` is *not* one of these — it is the profile CompID numbering pattern (a `senderCompID` of
+`LOADGEN{nn}` with `sessionCount: 4`), and it is not resolved in a message body.
 
 ### Asserting responses
 
@@ -125,9 +150,13 @@ report. `mode` is `open` (default — only the listed tags are checked; extras i
 | `temporal` | `kind` (`today`\|`now_within_tolerance`), `toleranceSeconds`? | parsed as UTCTimestamp/UTCDate |
 | `reference` | `expression` | equals a `${…}` expr resolved over session history, e.g. `${out.D.11}` |
 
-`path` (`{groupTag, identityTag, identityValue}`) locates a repeating-group entry by identity, not
-position. `/expectation/capture` (MCP: `fixtool_capture_expectation`) returns a draft expectation
-with matchers pre-seeded from the data dictionary, ready to edit.
+`path` (`{groupTag, identityTag, identityValue, occurrence?}`) locates a repeating-group entry by
+identity, not position — e.g. `{"groupTag":453, "identityTag":452, "identityValue":"1"}` is "the
+NoPartyIDs entry whose PartyRole is 1". `occurrence` (0-based, default `0`) is only needed when that
+identity is *not* unique, such as several `NoMDEntries` sharing an `MDEntryType`; it counts, in wire
+order, among the entries sharing that identity value. `/expectation/capture` (MCP:
+`fixtool_capture_expectation`) returns a draft expectation with matchers pre-seeded from the data
+dictionary, ready to edit.
 
 ```bash
 # send an order, then assert the ExecutionReport echoes the ClOrdID and has an OrderID
@@ -154,6 +183,12 @@ timeoutMs?, expectation}`, `wait {session?, state?, match?, timeoutMs?}`, `clear
 partial-fill sequence is just successive `expect`s; `match {messageType?, direction?, fields:[{tag,
 value}]}` selects by AND. Each step can target a different `session` (initiator + acceptor in one
 scenario). Scenarios are stored one-file-per-scenario under `~/.fixtool/scenarios/`.
+
+A send's `raw`, a `match` value and a `reference` matcher all resolve `${…}` expressions (above) —
+always, with no `resolve` flag — over the one variable scope the run threads through every step. The
+idiom is `11=${clOrdId = uuid}` in the send, then `{"type":"reference","expression":"${clOrdId}"}` to
+assert the echo. `/scenarios/capture` (MCP: `fixtool_capture_scenario`) records a live flow into a
+scenario that is already parameterized this way, which is usually faster than authoring one by hand.
 
 ```bash
 # run a book-a-trade flow and get a pass/fail report (no AI in the loop)

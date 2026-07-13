@@ -18,6 +18,14 @@ import kotlinx.serialization.json.put
 object McpTools {
     val tools: List<JsonObject> =
         listOf(
+            tool(
+                "fixtool_syntax",
+                "The reference for FixTool's two mini-languages, as markdown: template expressions " +
+                    "(\${uuid}, \${now+1d}, \${out.D.11}, \${var = ...} — how to parameterize what you send, and " +
+                    "which contexts resolve them) and matchers (how to assert what came back, including 'path' " +
+                    "for repeating groups). Read this BEFORE authoring a scenario, a templated message, or an " +
+                    "expectation — it is the only complete statement of either grammar.",
+            ),
             tool("fixtool_health", "Check that the control server is reachable; returns status and session count."),
             tool("fixtool_sessions", "List all FIX sessions with index, id, title, connection state and message count."),
             tool("fixtool_profiles", "List the available connection profiles (id, name, host, port, sender/target CompID)."),
@@ -95,9 +103,16 @@ object McpTools {
             ),
             tool(
                 "fixtool_send",
-                "Send a raw FIX message from a session (active, or session by id/title/index). With resolve=true, " +
-                    "template expressions are resolved against the session first.",
-                props("raw" to string("raw FIX, pipe- or SOH-delimited"), "session" to string("session id/title/index"), "resolve" to boolean()),
+                "Send a raw FIX message from a session (active, or session by id/title/index). With resolve=true the " +
+                    "\${...} template expressions in raw are resolved against the session first (\${uuid}, \${now}, " +
+                    "\${out.D.11}, and the per-session \${sessionIndex}/\${sessionQualifier}/\${sessionTitle}/" +
+                    "\${sessionSenderCompID}); see fixtool_syntax. Without resolve, raw is sent verbatim — an " +
+                    "unresolved \${uuid} goes on the wire as that literal text.",
+                props(
+                    "raw" to string("raw FIX, pipe- or SOH-delimited"),
+                    "session" to string("session id/title/index"),
+                    "resolve" to boolean("resolve \${...} expressions before sending; default false"),
+                ),
                 required = listOf("raw"),
             ),
             tool(
@@ -188,7 +203,11 @@ object McpTools {
                     "matcher, expected, actual, passed}]} for tag-by-tag pass/fail. mode=open asserts only listed " +
                     "tags; strict also fails on unexpected tags. Matcher {type,...}: exact (value), presence, absent, " +
                     "regex (pattern), oneOf (values[]), numeric (value, tolerance?), temporal (kind today|" +
-                    "now_within_tolerance, toleranceSeconds?), reference (expression, e.g. \${out.D.11}).",
+                    "now_within_tolerance, toleranceSeconds?), reference (expression, e.g. \${out.D.11} — see " +
+                    "fixtool_syntax). path locates a tag inside a repeating group by identity, never by position: " +
+                    "{groupTag, identityTag, identityValue, occurrence?} — e.g. {groupTag:453, identityTag:452, " +
+                    "identityValue:\"1\"} is \"the NoPartyIDs entry whose PartyRole is 1\" (occurrence, default 0, " +
+                    "is only needed when that identity is not unique).",
                 props(
                     "session" to string("session id/title/index; default active"),
                     "messageType" to string("FIX msg type to select/await, e.g. 8"),
@@ -196,7 +215,7 @@ object McpTools {
                     "index" to integer("0-based into matching messages; default last"),
                     "timeoutMs" to integer("await a matching message up to this long; default 0 = use already-received"),
                     "mode" to enumStr("open", "strict"),
-                    "fields" to arraySchema(objectSchema("FieldExpectation: {tag, matcher:{type,...}, path?:{groupTag,identityTag,identityValue}}"), "per-tag matchers"),
+                    "fields" to arraySchema(objectSchema("FieldExpectation: {tag, matcher:{type,...}, path?:{groupTag,identityTag,identityValue,occurrence?}}"), "per-tag matchers"),
                 ),
                 required = listOf("fields"),
             ),
@@ -220,7 +239,12 @@ object McpTools {
                     "teardown?:[step]}. A step is {type, ...}: send {raw, session?}; wait {session?, state?, match?, " +
                     "timeoutMs?}; expect {session?, direction?, match?, timeoutMs?, expectation:{messageType?, mode?, " +
                     "fields:[{tag, matcher, path?}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
-                    "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create.",
+                    "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create. " +
+                    "PARAMETERIZE IT: a send's raw, a match value and a reference matcher all resolve \${...} " +
+                    "expressions — always, with no resolve flag — over one variable scope that persists across every " +
+                    "step. The idiom is 11=\${clOrdId = uuid} in the send, then assert the echo with " +
+                    "{\"type\":\"reference\",\"expression\":\"\${clOrdId}\"}. Call fixtool_syntax for the full " +
+                    "grammar, or fixtool_capture_scenario to record one that is already correctly templated.",
                 props(
                     "name" to string("scenario name"),
                     "id" to string("existing scenario id to update"),
@@ -307,7 +331,10 @@ object McpTools {
             ),
             tool(
                 "fixtool_acceptor_rules",
-                "Inspect a profile's acceptor auto-response rules (rules are set via fixtool_save_profile's config).",
+                "Inspect a profile's acceptor auto-response rules (rules are set via fixtool_save_profile's config, " +
+                    "as acceptorResponseRules:[{whenMsgType, whenFields?, responseTemplate}]). A responseTemplate " +
+                    "understands a restricted subset of the template language — \${req.<tag>} to echo a request " +
+                    "field, \${uuid} and \${now} — and nothing else; see fixtool_syntax.",
                 props("profile" to string("profile id or name")),
                 required = listOf("profile"),
             ),

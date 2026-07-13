@@ -288,6 +288,23 @@ class ControlServerIntegrationTest {
         assertEquals("error", status(post("/admin", """{"action":"seqnum"}""")))
     }
 
+    // -------------------------------------------------------- syntax reference
+
+    @Test
+    fun `syntax reference is served over HTTP and MCP`() {
+        // It ships as a bundled resource, so a packaging slip would otherwise surface as an agent
+        // quietly being told the grammar is "unavailable".
+        val http = get("/syntax")
+        assertEquals(200, http.statusCode())
+        assertTrue(http.headers().firstValue("content-type").orElse("").startsWith("text/markdown"))
+
+        val mcp = mcpCall("fixtool_syntax", "{}")
+        assertEquals(http.body(), mcp, "both surfaces serve the same reference")
+        // The things an agent came here to find: both grammars, and the resolve gotcha.
+        listOf("\${uuid}", "\${clOrdId = uuid}", "\${out.D.11}", "reference", "occurrence", "resolve")
+            .forEach { assertTrue(mcp.contains(it), "syntax reference should document '$it'") }
+    }
+
     // -------------------------------------------------------- embedded MCP server
 
     @Test
@@ -302,7 +319,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(36, tools.size)
+        assertEquals(37, tools.size)
         tools.forEach {
             val t = it.jsonObject
             assertTrue(t.containsKey("name") && t.containsKey("inputSchema"), "each tool needs a name and schema")

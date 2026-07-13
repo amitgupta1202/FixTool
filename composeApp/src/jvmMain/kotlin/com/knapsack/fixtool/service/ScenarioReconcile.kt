@@ -265,9 +265,20 @@ object ScenarioReconcile {
      */
     fun movedRows(draft: Expectation, message: MessageView): Set<Int> = plan(draft, message)?.moved ?: emptySet()
 
-    /** A re-ordering that is safe, complete, and verified — or nothing at all. */
     private data class Plan(val reordered: Expectation, val moved: Set<Int>)
 
+    /**
+     * A re-ordering that is safe, complete and verified — or nothing at all.
+     *
+     * There are exactly **two** ways a reply can be a reorder of the expectation rather than a regression of
+     * it, and they need different proofs. Neither is "each failing row finds a field its matcher likes":
+     * that is the matcher-driven pairing [ExpectationEvaluator.align] is forbidden from using, and it cannot
+     * tell a venue reordering its two party entries (shape — FIRMA still holds role 1) from the two firms
+     * swapping roles (behaviour — FIRMA now holds role 4). Both present as "the 448 rows fail". Re-aiming row
+     * by row greens them both, brackets the regression as "entry moved — same values, different position",
+     * and deletes the assertion that FIRMA holds role 1 in one click, silently. That is the false green this
+     * model exists to make impossible, walked back in through the editor.
+     */
     @Suppress("ReturnCount")
     private fun plan(draft: Expectation, message: MessageView): Plan? {
         val wire = message.fields()
@@ -275,79 +286,168 @@ object ScenarioReconcile {
         val paired = before.mapNotNull { d -> d.alignment.index?.let { it to d.alignment.wireIndex } }.toMap()
         val passes = before.mapNotNull { d -> d.alignment.index?.let { it to d.result.passed } }.toMap()
 
-        // A row that already PASSES is locked to the field it is checking. This is the safety rule, and the
-        // first version of this did not have it: it re-mapped every row by a k-th-row/k-th-occurrence rule of
-        // its own, so a green row checking the *second* 452 — an earlier row having pushed the engine's
-        // cursor past the first — was dragged onto the first one and turned red. The author, offered "Accept
-        // actual" on it, would then rebase their assertion onto a party entry they never chose while the one
-        // they did choose silently stopped being asserted. Green build, coverage gone, two clicks.
-        val key = mutableMapOf<Int, Double>()
-        val used = mutableSetOf<Int>()
-        for (index in draft.fields.indices) {
-            val at = paired[index]
-            if (passes[index] == true && at != null) {
-                key[index] = at.toDouble()
-                used += at
-            }
-        }
+        val placement =
+            placeByOccurrence(draft, wire)
+                ?: placeByMovedEntry(draft, wire, passes, paired)
+                ?: return null
 
-        // A row that is FAILING is free to go where the field it actually describes is. It carries its own
-        // matcher with it, so the row asserting FIRMA lands on the entry that *is* FIRMA — the assertion is
-        // unchanged, only its position. That is what makes a venue's reorder a one-click acknowledgement
-        // rather than a redesign of the scenario, and it is not a re-aiming: nothing about what the row
-        // checks for has changed.
-        //
-        // A row that describes nothing in the reply is *parked* where it already sits — it is a value the
-        // venue changed, or a tag it stopped sending, and neither is an ordering problem. Bailing out here
-        // instead (the first attempt) meant one genuine value change anywhere in the message suppressed the
-        // re-order for the whole step.
-        val moved = mutableSetOf<Int>()
+        val moved = placement.filter { (index, at) -> paired[index] != at }.keys
+        if (moved.isEmpty()) return null // nothing is out of place; a button here would do nothing at all
+
+        // Rows that take no part in ordering (absent) park beside the row they already follow.
+        val key = mutableMapOf<Int, Double>()
         var lastKey = -1.0
         for (index in draft.fields.indices) {
-            if (index in key) { lastKey = key.getValue(index); continue }
-            val row = draft.fields[index]
-            val at =
-                wire.withIndex()
-                    .firstOrNull { (i, f) ->
-                        i !in used && f.first == row.tag && ExpectationEvaluator.satisfies(row.matcher, f.second)
-                    }
-                    ?.index
-            when {
-                at != null -> {
-                    key[index] = at.toDouble()
-                    used += at
-                    if (at != paired[index]) moved += index
-                    lastKey = at.toDouble()
-                }
-                paired[index] != null -> {
-                    key[index] = paired.getValue(index)!!.toDouble()
-                    lastKey = key.getValue(index)
-                }
-                else -> {
-                    // Nowhere to be. Keep it beside the row it already follows.
-                    lastKey += EPSILON
-                    key[index] = lastKey
-                }
+            val at = placement[index]
+            if (at != null) {
+                key[index] = at.toDouble()
+                lastKey = at.toDouble()
+            } else {
+                lastKey += EPSILON
+                key[index] = lastKey
             }
         }
-        if (moved.isEmpty()) return null // nothing is out of place; a button here would do nothing at all
 
         val permutation = draft.fields.indices.sortedBy { key.getValue(it) }
         val reordered = draft.copy(fields = permutation.map { draft.fields[it] })
 
-        // Verify against the engine itself, never against our own reasoning about it. Nothing that worked may
-        // break, and every row this was offered for must actually be repaired by it.
+        // Verify against the engine itself, never against our own reasoning about it. Every row this was
+        // offered for must actually be repaired, and nothing that already worked may break.
         val after = ExpectationEvaluator.diff(message, reordered)
-        val landedAt = after.mapNotNull { d -> d.alignment.index?.let { it to d.alignment.wireIndex } }.toMap()
         val passesNow = after.mapNotNull { d -> d.alignment.index?.let { it to d.result.passed } }.toMap()
         permutation.forEachIndexed { newIndex, originalIndex ->
-            if (passes[originalIndex] == true) {
-                if (landedAt[newIndex] != paired[originalIndex]) return null // it re-aimed a row that was fine
-                if (passesNow[newIndex] != true) return null
-            }
-            if (originalIndex in moved && passesNow[newIndex] != true) return null // it did not fix what it was for
+            if (passes[originalIndex] == true && passesNow[newIndex] != true) return null
+            if (originalIndex in moved && passesNow[newIndex] == false) return null
         }
         return Plan(reordered, moved)
+    }
+
+    /**
+     * **The venue reordered the fields, and every row still checks the occurrence it always checked.**
+     *
+     * The *k*-th row for a tag is placed on the *k*-th occurrence of that tag — which is the model's own
+     * pairing rule, so this placement **cannot re-aim an assertion**: no row can end up describing a
+     * different entry than it did, whatever the reply's field order. That is the entire safety argument, and
+     * it is structural rather than a check that might miss a case.
+     *
+     * It covers the venue that reshapes an entry internally — sending `447` before `448` where it used to
+     * send `448` first — which is a pure shape change and a legitimate one-click accept.
+     *
+     * Null when this is not merely a reorder: a tag with fewer occurrences than the expectation has rows for
+     * it (the venue dropped an entry — that is missing, not moved), or a row whose value no longer holds at
+     * its own occurrence (the venue changed a value — that is behaviour, not shape). A `reference` row cannot
+     * be judged offline, so it is placed but not value-checked; placement is occurrence-preserving, so it
+     * keeps checking exactly the field it always did and the reference is still verified at replay.
+     */
+    private fun placeByOccurrence(draft: Expectation, wire: List<Pair<Int, String>>): Map<Int, Int>? {
+        val byTag = wire.withIndex().groupBy { it.value.first }
+        val seen = mutableMapOf<Int, Int>()
+        val place = mutableMapOf<Int, Int>()
+        for ((index, row) in draft.fields.withIndex()) {
+            if (row.matcher is Matcher.Absent) continue // takes no part in ordering
+            val k = seen.merge(row.tag, 1, Int::plus)!! - 1
+            val field = byTag[row.tag]?.getOrNull(k) ?: return null // the venue sends fewer: missing, not moved
+            if (row.matcher !is Matcher.Reference &&
+                !ExpectationEvaluator.satisfies(row.matcher, field.value.second)
+            ) {
+                return null // the value at this row's own occurrence changed: behaviour, not shape
+            }
+            place[index] = field.index
+        }
+        return place
+    }
+
+    /**
+     * **A whole entry moved**, and it appears **verbatim** in the reply — same tags, same values,
+     * contiguously, in the same order.
+     *
+     * The view's own label says exactly this ("same tags, same values, different position"), and it is what
+     * separates the two party entries swapping places from the two firms swapping roles. An entry that really
+     * moved is still there, intact, somewhere else. A role swap leaves no such run anywhere, because the
+     * `(firm, role)` pairing is precisely what changed.
+     *
+     * A **one-row** block is only allowed when its tag occurs once in the expectation. Without that, this rule
+     * degenerates into the row-by-row re-aiming it exists to replace: a lone row "matching a window" is just
+     * the row matching some field somewhere, and shifting one `452` past another silently swaps which
+     * occurrence the two rows check — a row reading "the clearing firm's role is 4" comes to mean "the
+     * executing firm's", while still saying `452 exact 4` on screen.
+     */
+    private fun placeByMovedEntry(
+        draft: Expectation,
+        wire: List<Pair<Int, String>>,
+        passes: Map<Int, Boolean>,
+        paired: Map<Int, Int?>,
+    ): Map<Int, Int>? {
+        val occurrences = draft.fields.groupingBy { it.tag }.eachCount()
+
+        fun movable(i: Int) = draft.fields[i].matcher !is Matcher.Absent
+
+        // Longest first, so a whole party is preferred over any single row inside it.
+        val blocks = mutableListOf<List<Int>>()
+        for (length in draft.fields.size downTo 1) {
+            for (start in 0..draft.fields.size - length) {
+                val run = (start until start + length).toList()
+                if (!run.all(::movable)) continue
+                if (run.none { passes[it] == false }) continue // nothing here is broken; nothing to move
+                if (length == 1 && occurrences.getOrDefault(draft.fields[start].tag, 0) > 1) continue
+                blocks += run
+            }
+        }
+
+        val place = mutableMapOf<Int, Int>()
+        val used = mutableSetOf<Int>()
+        for (block in blocks) {
+            if (block.any { it in place }) continue
+            val at = verbatimWindow(draft, block, wire, used) ?: continue
+            block.forEachIndexed { offset, index ->
+                place[index] = at + offset
+                used += at + offset
+            }
+        }
+        if (place.isEmpty()) return null
+
+        // Everything else keeps **the field the engine already has it checking** — not "the first free field
+        // of the right tag", which is the re-aiming this whole rule exists to prevent. A green row checking
+        // the *second* 452 (an earlier row having pushed the cursor past the first) would otherwise be handed
+        // the first one, turn red, and the author — offered "Accept actual" on it — would rebase their
+        // assertion onto a party entry they never chose while the one they did choose silently stopped being
+        // asserted. Green build, coverage gone, two clicks.
+        for ((index, row) in draft.fields.withIndex()) {
+            if (index in place || row.matcher is Matcher.Absent) continue
+            val at = paired[index] ?: continue // nothing was checking it; leave it unplaced
+            if (at in used) return null // a moved block wants the field this row is checking — not a safe move
+            place[index] = at
+            used += at
+        }
+        return place
+    }
+
+    /**
+     * Where [block] appears in the reply verbatim — every row satisfied by the field at its own offset, the
+     * whole run contiguous and in order, over fields nothing else has claimed.
+     *
+     * This is the one place a matcher is asked about *position*, and it is safe precisely because it is asked
+     * about the whole run at once. A contiguous run of rows matching a contiguous run of fields, value for
+     * value, is an entry that moved. A single row matching some field somewhere is not.
+     */
+    private fun verbatimWindow(
+        draft: Expectation,
+        block: List<Int>,
+        wire: List<Pair<Int, String>>,
+        used: Set<Int>,
+    ): Int? {
+        if (block.isEmpty() || wire.size < block.size) return null
+        for (at in 0..wire.size - block.size) {
+            if ((at until at + block.size).any { it in used }) continue
+            val fits =
+                block.withIndex().all { (offset, index) ->
+                    val row = draft.fields[index]
+                    val field = wire[at + offset]
+                    field.first == row.tag && ExpectationEvaluator.satisfies(row.matcher, field.second)
+                }
+            if (fits) return at
+        }
+        return null
     }
 
     /** Enough to keep an unplaceable row beside its neighbour without colliding with a real wire position. */

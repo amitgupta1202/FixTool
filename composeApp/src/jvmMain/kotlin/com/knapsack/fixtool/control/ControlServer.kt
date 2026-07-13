@@ -530,7 +530,8 @@ class ControlServer(
                 }
 
         val resolver = referenceResolverFor(session)
-        val results = ExpectationEvaluator.evaluate(FixMessageView(target), expectation, resolver)
+        val results =
+            ExpectationEvaluator.evaluate(FixMessageView(target, onEdt { viewModel.dictionary }), expectation, resolver)
         return buildJsonObject {
             put("passed", results.all { it.passed })
             put("messageType", target.messageType)

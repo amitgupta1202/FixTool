@@ -1,20 +1,36 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import quickfix.Group
 
 /**
  * Adapts a captured [FixMessage] to the [MessageView] the [ExpectationEvaluator] reads.
- * Top-level lookups go through QuickFIX (header/body/trailer); the present-tag set is taken
- * from the raw string so STRICT mode sees exactly what was on the wire; repeating-group
- * entries are read from the parsed QuickFIX message.
+ * Top-level lookups go through QuickFIX (header/body/trailer) and repeating-group entries are read
+ * from the parsed QuickFIX message.
+ *
+ * [presentTags] is **top level only**, which is what STRICT mode means by an "extra" tag. It is
+ * resolved through [FixStructure] with the same [dictionary] the expectation was seeded with, so the
+ * two sides agree on what lives inside a group: taking every tag off the wire instead made STRICT
+ * re-report each grouped field the expectation *did* assert as unexpected, and no message carrying a
+ * repeating group could ever pass. Without a dictionary there is no group knowledge on either side —
+ * everything reads as top level, and the two still agree.
  */
 @Suppress("TooGenericExceptionCaught", "SwallowedException")
-class FixMessageView(private val message: FixMessage) : MessageView {
+class FixMessageView(
+    private val message: FixMessage,
+    private val dictionary: FixDictionaryAdapter? = null,
+) : MessageView {
+    private val topLevelTags: Set<Int> by lazy {
+        FixStructure.walk(FixMessageHelper.parseFixMessage(message.rawMessage), dictionary)
+            .filter { it.path == null }
+            .map { it.tag }
+            .toSet()
+    }
+
     override fun valueOfTag(tag: Int): String? = message.valueOfTag(tag)
 
-    override fun presentTags(): Set<Int> =
-        FixMessageHelper.parseFixMessage(message.rawMessage).map { it.first }.toSet()
+    override fun presentTags(): Set<Int> = topLevelTags
 
     override fun groupEntries(groupTag: Int): List<MessageView> =
         try {

@@ -67,7 +67,9 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
         }
     }
 
-    override fun view(message: FixMessage): MessageView = FixMessageView(message)
+    // The dictionary the expectation was seeded with: without it the view cannot tell a grouped field
+    // from a top-level one, and STRICT would flag every group member as unexpected.
+    override fun view(message: FixMessage): MessageView = FixMessageView(message, onEdt { viewModel.dictionary })
 
     override fun clearMessages(session: String?): Boolean {
         val sess = resolveSession(session) ?: return false

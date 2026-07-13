@@ -41,8 +41,9 @@ class QuickFixService(
     private val onStateChanged: (FixConnectionState) -> Unit,
     private val onError: ((String) -> Unit)? = null,
     private val onConnectionFailed: (() -> Unit)? = null,
+    private val onWarning: ((String) -> Unit)? = null,
 ) : Application {
-    private val logger = NotifyingLogger(QuickFixService::class.java, onError)
+    private val logger = NotifyingLogger(QuickFixService::class.java, onError, onWarning)
     private var currentSessionID: SessionID? = null
 
     /**

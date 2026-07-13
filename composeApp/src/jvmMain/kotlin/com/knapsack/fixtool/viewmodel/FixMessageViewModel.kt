@@ -649,6 +649,7 @@ class FixMessageViewModel(
                 profileSlot = profileSlot,
                 bufferSize = _appSettings.value.sessionBufferSize,
                 onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+                onWarning = { warning -> showNotification(warning, NotificationType.WARNING) },
             )
         _sessions.add(session)
         // Do NOT auto-select session on connect - let user or template loading do it

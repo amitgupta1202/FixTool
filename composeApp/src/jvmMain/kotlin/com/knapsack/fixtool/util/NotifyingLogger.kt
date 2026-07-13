@@ -7,12 +7,18 @@ import org.slf4j.LoggerFactory
  * A logger wrapper that both logs messages and optionally notifies the user via callback.
  * This ensures errors are not silently suppressed and users are informed of issues.
  *
+ * Severity survives the hop to the UI: a [warn] notifies through [onNotifyWarning] and an [error]
+ * through [onNotify], so an advisory (the message still sent) is not dressed up as a failure.
+ * Callers with no warning channel fall back to [onNotify] — warnings surface, they just look severe.
+ *
  * @param clazz The class this logger is for (used to get the proper logger name)
- * @param onNotify Optional callback to show notifications to the user (e.g., error popups)
+ * @param onNotify Optional callback to show error notifications to the user (e.g., error popups)
+ * @param onNotifyWarning Optional callback for warnings; defaults to [onNotify]
  */
 class NotifyingLogger(
     clazz: Class<*>,
     private val onNotify: ((String) -> Unit)? = null,
+    private val onNotifyWarning: ((String) -> Unit)? = null,
 ) {
     private val logger: Logger = LoggerFactory.getLogger(clazz)
 
@@ -41,8 +47,8 @@ class NotifyingLogger(
             logger.warn(message)
         }
 
-        if (notifyUser && onNotify != null) {
-            onNotify(message)
+        if (notifyUser) {
+            (onNotifyWarning ?: onNotify)?.invoke(message)
         }
     }
 

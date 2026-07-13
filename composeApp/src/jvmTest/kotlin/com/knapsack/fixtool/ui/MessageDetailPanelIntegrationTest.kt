@@ -74,7 +74,13 @@ class MessageDetailPanelIntegrationTest {
                 "131=QUOTE_REQ_1|146=2|55=EUR/USD|54=1|38=1000000|55=GBP/USD|54=2|38=2000000|10=456|"
 
         return FixMessage(
-            timestamp = LocalDateTime.now(),
+            // Pinned, not LocalDateTime.now(). The panel renders this timestamp, and
+            // testTrailerFieldsAreRendered asserts onNodeWithText("456") — which fails when *more than
+            // one* node matches. So on any run whose clock happened to put "456" in the fractional
+            // seconds, the CheckSum row and the timestamp both matched and the test died, at random,
+            // roughly once in a few hundred CI runs. A fixture that depends on the wall clock is a
+            // fixture that fails for a reason that has nothing to do with the code.
+            timestamp = LocalDateTime.of(2025, 1, 28, 11, 0, 0),
             direction = FixMessage.Direction.INCOMING,
             rawMessage = rawMessage,
             messageType = "R",

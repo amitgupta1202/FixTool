@@ -6,7 +6,9 @@ import com.knapsack.fixtool.model.FixMessage
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -37,9 +39,8 @@ class IncomingMessageReparseTest {
                 onError = null,
             )
 
-        // Simulate what the RawMessageCapturingLogFactory does:
-        // Set a wire message on the ThreadLocal BEFORE calling fromApp
-        // This message has fields 309 and 305 appearing BEFORE the delimiter 944
+        // Fields 309 and 305 arrive BEFORE the group delimiter 944 — the shape QFJ's native parse mangles
+        // and the manual re-parse exists to recover.
         val wireMessage =
             "8=FIX.4.4\u000135=AY\u000149=SENDER\u000156=TARGET\u000134=1\u000152=20251125-21:13:13\u0001" +
                 "902=TestID\u0001895=1\u0001903=1\u00011043=1\u0001" +
@@ -48,18 +49,8 @@ class IncomingMessageReparseTest {
                 "309=BTT080393489\u0001305=4\u0001944=2\u0001228=10\u0001" + // Instance 2: non-delimiter fields first
                 "10=000\u0001"
 
-        // Simulate the log factory capturing the wire message into ConcurrentHashMap
-        setWireMessage(wireMessage)
-
-        // Create a QuickFIX Message that would result from native parsing (lossy - groups may be broken)
-        // Must include header fields 49, 56, 34 so getWireMessage() can look up the wire bytes
-        val nativeMessage = quickfix.Message()
-        nativeMessage.header.setString(35, "AY")
-        nativeMessage.header.setString(8, "FIX.4.4")
-        nativeMessage.header.setString(49, "SENDER")
-        nativeMessage.header.setString(56, "TARGET")
-        nativeMessage.header.setInt(34, 1)
-        nativeMessage.setString(902, "TestID")
+        // The message as QFJ delivers it: parsed from these bytes, and still carrying them.
+        val nativeMessage = parsedFromWire(wireMessage, dictionary)
 
         // Simulate the session ID
         val sessionId = quickfix.SessionID("FIX.4.4", "SENDER", "TARGET")
@@ -98,8 +89,19 @@ class IncomingMessageReparseTest {
         assertEquals("10", group2.getString(228), "Second instance should have RelSymTransactTime")
     }
 
+    /**
+     * The one case where we genuinely have no wire bytes: a `Message` QFJ did not parse from bytes, so
+     * `toRawString()` is empty.
+     *
+     * What must NOT happen is the thing that used to: filling `wireRaw` with `message.toString()`, which
+     * re-emits the body in ascending tag order with the repeating groups relocated to the end. It looks
+     * exactly like a wire string — same SOH, same tag=value — and the assertion engine cannot tell, so an
+     * order-sensitive expectation was judged against a message no venue sent and went red blaming the venue.
+     *
+     * `wireRaw` is null instead, and the assertion engine refuses the message rather than guess at it.
+     */
     @Test
-    fun `fromApp falls back to native message when no wire message captured`() {
+    fun `a message QFJ did not parse from bytes has no wire order, and none is invented`() {
         val dictionary = getTestDictionary()
         var receivedMessage: FixMessage? = null
 
@@ -112,15 +114,13 @@ class IncomingMessageReparseTest {
                 onError = null,
             )
 
-        // No wire message set in ConcurrentHashMap - getWireMessage() will return null
-
-        // Create a native QuickFIX message with header fields for lookup
+        // Built with setters, never parsed from bytes — so QFJ retained none.
         val nativeMessage = quickfix.Message()
         nativeMessage.header.setString(35, "AY")
         nativeMessage.header.setString(8, "FIX.4.4")
         nativeMessage.header.setString(49, "SENDER")
         nativeMessage.header.setString(56, "TARGET")
-        nativeMessage.header.setInt(34, 99) // seqnum with no matching wire message
+        nativeMessage.header.setInt(34, 99)
         nativeMessage.setString(902, "TestID")
         nativeMessage.setString(895, "1")
 
@@ -130,11 +130,18 @@ class IncomingMessageReparseTest {
         service.fromApp(nativeMessage, sessionId)
 
         assertNotNull(receivedMessage, "Should have received a message")
-        // The quickfixMessage should be the native message (no re-parse)
         assertEquals(
             nativeMessage,
             receivedMessage!!.quickfixMessage,
-            "Should use native message when no wire message captured",
+            "Should use native message when there are no wire bytes to re-parse",
+        )
+        assertNull(
+            receivedMessage!!.wireRaw,
+            "toString() is not the wire: it sorts the body and moves groups to the end. Null is the honest answer.",
+        )
+        assertNull(
+            FixMessageView.of(receivedMessage!!),
+            "the assertion engine must refuse a message whose field order it would have to invent",
         )
     }
 
@@ -152,18 +159,9 @@ class IncomingMessageReparseTest {
                 onError = null,
             )
 
-        // Set a wire message for an admin heartbeat
+        // An admin heartbeat, as it arrives on the wire — QFJ keeps these bytes on the parsed message.
         val wireMessage = "8=FIX.4.4\u000135=0\u000149=SENDER\u000156=TARGET\u000134=5\u000152=20251125-21:13:13\u000110=123\u0001"
-        setWireMessage(wireMessage)
-
-        // Create a native message
-        val nativeMessage = quickfix.Message()
-        nativeMessage.header.setString(35, "0")
-        nativeMessage.header.setString(8, "FIX.4.4")
-        nativeMessage.header.setString(49, "SENDER")
-        nativeMessage.header.setString(56, "TARGET")
-        nativeMessage.header.setInt(34, 5)
-        nativeMessage.header.setString(52, "20251125-21:13:13")
+        val nativeMessage = parsedFromWire(wireMessage, dictionary)
 
         val sessionId = quickfix.SessionID("FIX.4.4", "SENDER", "TARGET")
         service.onCreate(sessionId)
@@ -192,20 +190,11 @@ class IncomingMessageReparseTest {
                 onError = null,
             )
 
-        // Set a wire message
         val wireMessage =
             "8=FIX.4.4\u000135=AY\u000149=SENDER\u000156=TARGET\u000134=1\u000152=20251125-21:13:13\u0001" +
                 "902=TestID\u000110=000\u0001"
-        setWireMessage(wireMessage)
-
-        // Create a native message with header fields for lookup
-        val nativeMessage = quickfix.Message()
-        nativeMessage.header.setString(35, "AY")
-        nativeMessage.header.setString(8, "FIX.4.4")
-        nativeMessage.header.setString(49, "SENDER")
-        nativeMessage.header.setString(56, "TARGET")
-        nativeMessage.header.setInt(34, 1)
-        nativeMessage.setString(902, "TestID")
+        // Parsed with the *empty* dictionary, so the manual re-parse below has nothing to work with.
+        val nativeMessage = parsedFromWire(wireMessage, emptyDictionary)
 
         val sessionId = quickfix.SessionID("FIX.4.4", "SENDER", "TARGET")
         service.onCreate(sessionId)
@@ -228,24 +217,75 @@ class IncomingMessageReparseTest {
     }
 
     /**
-     * Helper to store a wire message in the ConcurrentHashMap, simulating what
-     * RawMessageCapturingLogFactory.RawMessageCapturingLog.onIncoming() does.
+     * A message as QuickFIX/J hands it to `fromApp`: parsed **from the wire bytes**, which QFJ retains on
+     * the object (`toRawString()`). That is now the only source of wire bytes, so a test that wants to
+     * exercise the real path must produce the message the real way.
+     *
+     * This used to be `setWireMessage(...)`, which pushed the bytes into a process-wide map that a `Log`
+     * decorator owned, while the `Message` itself was hand-built with setters. Two objects, correlated by
+     * `sender->target:seqnum`, and the test had to keep them in step — which meant the test could pass
+     * while the two disagreed, and in production they sometimes did.
      */
-    private fun setWireMessage(message: String) {
-        val log =
-            RawMessageCapturingLogFactory.RawMessageCapturingLog(
-                object : quickfix.Log {
-                    override fun onIncoming(message: String) {}
+    private fun parsedFromWire(wire: String, dictionary: FixDictionaryAdapter): quickfix.Message {
+        val message = quickfix.Message()
+        message.fromString(wire, dictionary.getDataDictionary(), false)
+        return message
+    }
 
-                    override fun onOutgoing(message: String) {}
+    /**
+     * The diff's central invariant, pinned on **both** incoming paths: `wireRaw` is the bytes QFJ parsed,
+     * never `toString()`.
+     *
+     * Nothing asserted this before. The other tests here check that `rawMessage` *contains* `35=0` and
+     * `49=SENDER` — which `message.toString()` satisfies every bit as well as the wire does — so restoring
+     * `wireRaw = wireMessage ?: message.toString()` on the admin path would have left the suite entirely
+     * green while every admin message in a capture carried QuickFIX's re-serialised field order.
+     *
+     * The test is written so it can only pass on the wire: the venue's bytes here are deliberately NOT in
+     * ascending tag order (`52` before `34`), which is legal FIX and which `toString()` cannot reproduce.
+     */
+    @Test
+    fun `incoming wireRaw is the venue's bytes, on fromApp and on fromAdmin alike`() {
+        val dictionary = getTestDictionary()
 
-                    override fun onEvent(text: String) {}
+        // 52 before 34 — a legal order, and one QFJ's ascending-tag re-serialisation cannot produce.
+        val appBytes =
+            "8=FIX.4.4\u000135=AY\u000149=SENDER\u000156=TARGET\u000152=20251125-21:13:13\u000134=1\u0001" +
+                "902=TestID\u000110=000\u0001"
+        val adminBytes =
+            "8=FIX.4.4\u000135=0\u000149=SENDER\u000156=TARGET\u000152=20251125-21:13:13\u000134=5\u000110=123\u0001"
 
-                    override fun onErrorEvent(text: String) {}
+        for ((bytes, isAdmin) in listOf(appBytes to false, adminBytes to true)) {
+            var received: FixMessage? = null
+            val service =
+                QuickFixService(
+                    config = FixConnectionConfig(),
+                    dictionary = dictionary,
+                    onMessageReceived = { received = it },
+                    onStateChanged = { },
+                    onError = null,
+                )
+            val sessionId = quickfix.SessionID("FIX.4.4", "SENDER", "TARGET")
+            service.onCreate(sessionId)
+            val message = parsedFromWire(bytes, dictionary)
+            if (isAdmin) service.fromAdmin(message, sessionId) else service.fromApp(message, sessionId)
 
-                    override fun clear() {}
-                },
+            val wireRaw = received?.wireRaw
+            assertNotNull(wireRaw, "wireRaw must be populated from toRawString() (admin=$isAdmin)")
+            assertEquals(bytes, wireRaw, "wireRaw must be the venue's bytes verbatim (admin=$isAdmin)")
+            assertNotEquals(
+                message.toString(),
+                wireRaw,
+                "wireRaw must not be QuickFIX's re-serialisation (admin=$isAdmin) — this fixture puts 52 " +
+                    "before 34 precisely so the two strings cannot coincide",
             )
-        log.onIncoming(message)
+
+            // And the engine reads that order, not the sorted one.
+            val order = FixMessageView.of(received!!)!!.fields().map { it.first }
+            assertTrue(
+                order.indexOf(52) < order.indexOf(34),
+                "the engine must see the venue's order (admin=$isAdmin): $order",
+            )
+        }
     }
 }

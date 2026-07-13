@@ -127,7 +127,12 @@ class QuickFixService(
             logger.error("Error in toAdmin: ${e.message}", e)
         }
 
-        val rawMessage = message.toRawFixMessage()
+        // Serialised once. `toRawFixMessage()` is `toString().replace(SOH, '|')`, so taking both from one
+        // string spares a second full serialisation — QFJ recomputes BodyLength and re-checksums the whole
+        // message each time — and, more to the point, guarantees the two fields are the same serialisation
+        // of the same object rather than two independent ones taken a moment apart.
+        val wire = message.toString()
+        val rawMessage = wire.toRawFixMessage()
         logger.info("Sending: {}", rawMessage)
 
         try {
@@ -138,7 +143,7 @@ class QuickFixService(
                     rawMessage = rawMessage,
                     quickfixMessage = message,
                     captureTimeMicros = captureMicros,
-                    wireRaw = message.toString(),
+                    wireRaw = if (rewrittenAfterThisCallback(message)) null else wire,
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -147,17 +152,73 @@ class QuickFixService(
     }
 
     /**
-     * Retrieves the raw wire message from the capturing log factory using message header fields.
+     * Will QuickFIX/J still change this outgoing admin message after we have looked at it?
+     *
+     * For a **Logon carrying `ResetSeqNumFlag=Y`** it will. `Session.sendRaw` (QFJ 2.3.2, ~line 2600) calls
+     * `application.toAdmin(...)` — this callback — and only *then* does `resetState()` and
+     * `header.setInt(MsgSeqNum, getExpectedSenderNum())`, before serialising. So the `MsgSeqNum` we can see
+     * here is the pre-reset one, and the venue receives `34=1`.
+     *
+     * That makes `toString()` at this moment **not the wire**, and the difference is exactly the kind an
+     * assertion would be written about: a step checking the Logon's `34` would have been judged against a
+     * sequence number that was never sent, and could pass on it. So we record no wire bytes at all and let
+     * the engine refuse the message — a false red on an exotic assertion, rather than a false green on a
+     * sequence number the counterparty never saw.
+     *
+     * The guard is deliberately a shade wider than QFJ's own condition (which also requires that no reset
+     * was *received*), because that state is not visible from here. Erring wide costs a refusal; erring
+     * narrow costs a green.
      */
-    private fun getWireMessage(message: Message): String? =
+    private fun rewrittenAfterThisCallback(message: Message): Boolean =
         try {
-            val header = message.header
-            val sender = header.getString(49)
-            val target = header.getString(56)
-            val seqNum = header.getInt(34)
-            RawMessageCapturingLogFactory.RawMessageCapturingLog.getAndRemoveRawIncoming(sender, target, seqNum)
+            message.header.getString(35) == "A" &&
+                message.isSetField(RESET_SEQ_NUM_FLAG) &&
+                message.getBoolean(RESET_SEQ_NUM_FLAG)
         } catch (e: Exception) {
-            logger.debug("Could not extract wire message key: ${e.message}")
+            logger.debug("Could not read ResetSeqNumFlag: ${e.message}")
+            false
+        }
+
+    /**
+     * The bytes an incoming message actually arrived as — **the one source of wire order**.
+     *
+     * QuickFIX/J keeps what it parsed (`Message.messageData`, exposed as `toRawString()`), so there is
+     * nothing to intercept, correlate or cache. This used to be a `Log` decorator that stashed every
+     * incoming string in a process-wide map keyed by `sender->target:seqnum` and consumed it
+     * destructively. That map was a second implementation of a fact QFJ already had, and it was wrong in
+     * three ways it could not be right in: the key carried no BeginString or session qualifier, so two
+     * sessions sharing a CompID pair addressed the same slot; the read was destructive, so a PossDup
+     * replay of a sequence number found nothing; and every message QFJ rejected before dispatch leaked
+     * its entry for the life of the process. Asking QFJ has none of those failure modes.
+     *
+     * Null only if QFJ hands us a message it did not parse from bytes. The caller must **say so** rather
+     * than substitute `toString()`, which is not the venue's order — see [FixMessage.wireRaw].
+     */
+    private fun wireBytesOf(message: Message): String? {
+        val raw = message.toRawString()?.takeIf { it.isNotBlank() }
+        if (raw == null) {
+            // Name the message. This is the one line that fires when the design's load-bearing assumption
+            // breaks, and on a multi-session run "an incoming message" tells an operator nothing they can
+            // act on — not which venue, not which sequence number, not whether it is one message or all of
+            // them. Every scenario step bound to such a message will fail citing FixTool, and this is where
+            // they find out why.
+            logger.warn(
+                "No wire bytes for incoming {} from {} to {} seq {} — order-sensitive assertions on it " +
+                    "cannot be evaluated",
+                headerOrNull(message, 35),
+                headerOrNull(message, 49),
+                headerOrNull(message, 56),
+                headerOrNull(message, 34),
+            )
+        }
+        return raw
+    }
+
+    private fun headerOrNull(message: Message, tag: Int): String? =
+        try {
+            if (message.header.isSetField(tag)) message.header.getString(tag) else null
+        } catch (e: Exception) {
+            logger.debug("Could not read header tag $tag: ${e.message}")
             null
         }
 
@@ -169,7 +230,7 @@ class QuickFixService(
         val captureMicros = captureTimeMicros()
 
         try {
-            val wireMessage = getWireMessage(message)
+            val wireMessage = wireBytesOf(message)
 
             val rawMessage =
                 wireMessage?.toRawFixMessage()
@@ -184,7 +245,7 @@ class QuickFixService(
                     messageType = message.header.getString(35),
                     quickfixMessage = message, // Admin messages don't need re-parse
                     captureTimeMicros = captureMicros,
-                    wireRaw = wireMessage ?: message.toString(),
+                    wireRaw = wireMessage,
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -199,7 +260,9 @@ class QuickFixService(
         // Capture timestamp immediately for accurate latency tracking
         val captureMicros = captureTimeMicros()
 
-        val rawMessage = message.toRawFixMessage()
+        // One serialisation, two views of it — see toAdmin.
+        val wire = message.toString()
+        val rawMessage = wire.toRawFixMessage()
         logger.info("QuickFIX toApp: {}", rawMessage)
 
         // Capture outgoing application message for UI display
@@ -211,7 +274,12 @@ class QuickFixService(
                     rawMessage = rawMessage,
                     quickfixMessage = message,
                     captureTimeMicros = captureMicros,
-                    wireRaw = message.toString(),
+                    // Genuinely the wire, and unlike toAdmin nothing mutates the message after this call:
+                    // `Session.sendRaw` serialises it on the very next statement after `toApp` returns, and
+                    // sends that string. (It is QFJ's field ordering rather than the order the author typed
+                    // in the editor — but that is what the counterparty receives, and a capture must record
+                    // what was sent, not what was meant.)
+                    wireRaw = wire,
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -226,8 +294,8 @@ class QuickFixService(
         // Capture timestamp immediately for accurate latency tracking
         val captureMicros = captureTimeMicros()
 
-        // Get actual wire message from ConcurrentHashMap (keyed by sender/target/seqnum)
-        val wireMessage = getWireMessage(message)
+        // The bytes as they arrived — QFJ kept them; see wireBytesOf.
+        val wireMessage = wireBytesOf(message)
 
         // Raw message for display: prefer wire bytes, fall back to parsed
         val rawMessage =
@@ -263,11 +331,14 @@ class QuickFixService(
                     rawMessage = rawMessage,
                     quickfixMessage = parsedMessage,
                     captureTimeMicros = captureMicros,
-                    // The bytes as they arrived, SOH and all. rawMessage above has substituted '|' for
-                    // SOH so a human can read it, and that substitution cannot be undone: a value that
-                    // legitimately contains '|' is indistinguishable from a field boundary. The
-                    // assertion engine reads this instead.
-                    wireRaw = wireMessage ?: message.toString(),
+                    // The bytes as they arrived, SOH and all — or null, honestly, when we do not have
+                    // them. rawMessage above has substituted '|' for SOH so a human can read it, and that
+                    // substitution cannot be undone: a value that legitimately contains '|' is
+                    // indistinguishable from a field boundary. The assertion engine reads this instead,
+                    // and it reads it *for the order* as much as for the values — so `message.toString()`
+                    // is not an acceptable stand-in here, however plausible its output looks. See
+                    // FixMessage.wireRaw.
+                    wireRaw = wireMessage,
                 )
 
             // Route to the message handler
@@ -473,4 +544,9 @@ class QuickFixService(
 
     /** Drops the connection without a graceful logout (for resilience/recovery testing). */
     fun forceDisconnect(reason: String): Boolean = withSession { session, _ -> session.disconnect(reason, false) }
+
+    private companion object {
+        /** ResetSeqNumFlag — the one field whose presence means QFJ will rewrite the Logon after toAdmin. */
+        const val RESET_SEQ_NUM_FLAG = 141
+    }
 }

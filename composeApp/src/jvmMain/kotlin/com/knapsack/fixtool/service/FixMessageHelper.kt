@@ -107,16 +107,49 @@ object FixMessageHelper {
             }
 
     /**
-     * The fields of a captured message, in wire order, read from the bytes the venue actually sent.
+     * The fields of a captured message, in wire order, read from the bytes the venue actually sent —
+     * or **null when we do not have those bytes**.
      *
-     * The single door the assertion engine and the capture path both go through. It prefers
-     * [FixMessage.wireRaw] — SOH-delimited, unsubstituted — and falls back to the `|`-substituted
-     * display string only when the transport could not hand over the original.
+     * The single door the assertion engine and the capture path both go through, and it does not guess.
+     * It used to fall back to the `|`-substituted display string, which read as a harmless convenience
+     * and was not one: on the very path where [FixMessage.wireRaw] was missing, that display string was
+     * itself built from `quickfix.Message.toString()` — so the "fallback" handed the engine a body sorted
+     * by ascending tag with every repeating group relocated to the end of it. Under the subsequence rule
+     * that is a message no venue sent, and the step went red citing the venue.
+     *
+     * Null is the honest answer, and a caller that asserts must **report** it rather than route around
+     * it: a scenario that cannot check order is not a scenario that passes. For rendering — where a
+     * best-effort field list beats a blank pane — use [fieldsForDisplay].
      */
-    fun wireFields(message: FixMessage): List<Pair<Int, String>> =
-        message.wireRaw
-            ?.let { parseFixMessage(it, delimiter = '\u0001') }
-            ?: parseFixMessage(message.rawMessage)
+    fun wireFields(message: FixMessage): List<Pair<Int, String>>? =
+        message.wireRaw?.let { parseFixMessage(it, delimiter = '\u0001') }
+
+    /**
+     * Parse a stored or captured FIX string whose delimiter we have to establish — a scenario's `golden`,
+     * a run's `actualRaw`, anything that has been through a file.
+     *
+     * **The one place the delimiter is decided**, and it is decided by a fact rather than a guess: a wire
+     * string always contains SOH (FIX terminates every field with it, `8=FIX.4.4<SOH>` included), and a
+     * display string never does, because building one replaces every SOH with `|`. So the two are totally
+     * discriminated by `contains(SOH)`.
+     *
+     * The `|` branch reads goldens written before wire bytes were stored, and it is lossy in the one way
+     * the display string has always been lossy: a `|` inside a value splits a field in two. Anything
+     * captured from now on stores SOH, so the lossy branch shrinks to legacy data and dies with it.
+     */
+    fun parseStoredMessage(raw: String): List<Pair<Int, String>> =
+        if (raw.contains(SOH)) parseFixMessage(raw, delimiter = SOH) else parseFixMessage(raw)
+
+    /** The FIX field delimiter. `|` is the display substitution for it, and only ever that. */
+    const val SOH: Char = '\u0001'
+
+    /**
+     * Best-effort fields **for rendering only**: the wire bytes when we have them, the lossy display
+     * string when we do not. Never for assertions — the order may be QuickFIX's rather than the venue's,
+     * and a `|` inside a value splits one field into two. See [wireFields].
+     */
+    fun fieldsForDisplay(message: FixMessage): List<Pair<Int, String>> =
+        wireFields(message) ?: parseFixMessage(message.rawMessage)
 
     /**
      * Recursively processes fields and groups, returning the index of the next unprocessed field

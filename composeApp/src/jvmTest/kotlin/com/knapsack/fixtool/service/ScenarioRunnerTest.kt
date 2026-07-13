@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import org.junit.Test
 import quickfix.Message
@@ -32,6 +33,50 @@ class ScenarioRunnerTest {
         val result = run(host, scenario)
         assertTrue(result.passed, "scenario should pass: ${result.steps}")
         assertEquals(listOf("35=D|11=ORD|"), host.sent)
+    }
+
+    /**
+     * A matched message whose wire order we do not have cannot be judged, and the step says so.
+     *
+     * The tempting alternatives are both worse than a red. Asserting anyway means judging against
+     * QuickFIX's re-serialisation — ascending tags, repeating groups moved to the end — which is a message
+     * no venue sent, so the verdict is about nothing. Skipping the order check and passing the values means
+     * a step that reports green while silently doing less than it says.
+     *
+     * So: it fails, and the text blames FixTool rather than the counterparty, because a red that sends an
+     * engineer hunting a venue bug that does not exist is barely better than a green.
+     */
+    @Test
+    fun `a matched message with no wire order fails the step, and blames the tool`() {
+        val host = FakeHost()
+        val reply = incoming("8", mapOf(35 to "8", 39 to "2"))
+        host.inbox += reply
+        host.noWireOrder += reply
+
+        val reported = mutableListOf<Pair<FixMessage, StepResult>>()
+        val result =
+            runRecordingVerdicts(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("2")))), reported)
+
+        assertFalse(result.passed, "an expectation that cannot be evaluated has not passed")
+
+        // Reported through the same channel as any other verdict. This is what tints the matched message red
+        // in the grid and gives the reconcile deep-link a message to show; an early return that skipped it
+        // left the one step that failed as the one message the grid does not mark — red in the report, clean
+        // on the surface the tester actually looks at.
+        assertEquals(1, reported.size, "the failing step must report the message it bound to")
+        assertEquals(reply, reported.single().first)
+        assertFalse(reported.single().second.passed, "and it must report it as failed")
+        val step = result.steps.single()
+        val detail = step.detail.orEmpty()
+        assertTrue(
+            detail.contains("no wire bytes", ignoreCase = true) && detail.contains("FixTool"),
+            "the failure must name the tool as the cause, not the venue: '$detail'",
+        )
+        assertTrue(
+            step.tags.isEmpty(),
+            "no per-tag verdicts may be reported: every one of them would be a claim about a message " +
+                "whose field order we invented",
+        )
     }
 
     @Test
@@ -178,6 +223,18 @@ class ScenarioRunnerTest {
     private fun run(host: FakeHost, scenario: Scenario) =
         ScenarioRunner(host, pollMs = 10, now = { host.clock }).run(scenario)
 
+    /** [run], but recording every (message, verdict) the runner reports — what tints the message grid. */
+    private fun runRecordingVerdicts(
+        host: FakeHost,
+        scenario: Scenario,
+        seen: MutableList<Pair<FixMessage, StepResult>>,
+    ) = ScenarioRunner(
+        host,
+        pollMs = 10,
+        now = { host.clock },
+        onExpectMatched = { m, r -> seen += m to r },
+    ).run(scenario)
+
     private fun scenario(vararg steps: ScenarioStep) = Scenario(id = "x", name = "t", steps = steps.toList())
 
     private fun expect(messageType: String, vararg fields: FieldExpectation) =
@@ -231,7 +288,11 @@ class ScenarioRunnerTest {
         override fun referenceResolver(session: String?, scope: Map<String, String>): (String) -> String? =
             { expr -> scope[expr.removePrefix("\${").removeSuffix("}")] }
 
-        override fun view(message: FixMessage): MessageView = MapView(viewTags[message] ?: emptyMap())
+        /** Messages whose wire order we do not have — the host answers null, and the runner must say so. */
+        val noWireOrder = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
+
+        override fun view(message: FixMessage): MessageView? =
+            if (message in noWireOrder) null else MapView(viewTags[message] ?: emptyMap())
 
         override fun clearMessages(session: String?): Boolean {
             if (!clearOk) return false

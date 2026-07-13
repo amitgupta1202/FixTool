@@ -41,7 +41,6 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
-import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.ScenarioAnnotations
 import com.knapsack.fixtool.service.ScenarioCapture
@@ -65,6 +64,8 @@ fun ScenarioCaptureReview(
     onSave: (String, List<ScenarioCapture.Candidate>) -> Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Messages FixTool could not read the wire bytes for — see [UnreadableNotice]. */
+    unreadable: List<FixMessage> = emptyList(),
 ) {
     var name by remember { mutableStateOf("") }
     var selectedIdx by remember { mutableStateOf(if (candidates.isEmpty()) -1 else 0) }
@@ -114,6 +115,7 @@ fun ScenarioCaptureReview(
             fontSize = 11.sp,
             modifier = Modifier.padding(start = 12.dp, bottom = 6.dp),
         )
+        UnreadableNotice(unreadable, dictionary)
         RangeSelectors(
             candidates = candidates,
             dictionary = dictionary,
@@ -164,6 +166,33 @@ fun ScenarioCaptureReview(
             }
         }
     }
+}
+
+/**
+ * The messages this capture cannot offer, and why — because a capture is a claim about coverage.
+ *
+ * A message whose wire bytes FixTool does not have cannot become an assertion: every seeded expectation is
+ * an ordered list of rows, the order is half of what it asserts, and seeding one from a field order we had
+ * to guess writes a fabricated order into the golden. So the message is left out — and *said*. Dropping it
+ * quietly would hand the author a scenario that omits a reply and looks complete, which is the one thing a
+ * testing tool must never do.
+ *
+ * In practice this is empty: QuickFIX/J retains the bytes it parsed. If it is ever not empty, that is worth
+ * knowing about, and the log line at `QuickFixService.wireBytesOf` names the message.
+ */
+@Composable
+private fun UnreadableNotice(unreadable: List<FixMessage>, dictionary: FixDictionary?) {
+    if (unreadable.isEmpty()) return
+    val types = unreadable.joinToString(", ") { msgTypeLabel(dictionary, it.messageType) }
+    Text(
+        text = "⚠ ${unreadable.size} message${if (unreadable.size == 1) "" else "s"} left out — FixTool has no " +
+            "wire bytes for ${if (unreadable.size == 1) "it" else "them"} ($types), so their field order is " +
+            "unknown and an assertion seeded from them would check an order the venue never sent. This " +
+            "scenario will not cover ${if (unreadable.size == 1) "it" else "them"}.",
+        color = AppTheme.Colors.warning,
+        fontSize = 11.sp,
+        modifier = Modifier.padding(start = 12.dp, bottom = 6.dp).testTag("capture-unreadable"),
+    )
 }
 
 @Composable

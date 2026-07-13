@@ -117,9 +117,10 @@ private fun ScenarioWorkbenchBody(viewModel: FixMessageViewModel, mode: Mode, on
                     onEdit = { onMode(Mode.Edit(it)) },
                 )
             is Mode.Capture -> {
-                val candidates = remember { viewModel.captureCandidates() }
+                val scan = remember { viewModel.captureScan() }
                 ScenarioCaptureReview(
-                    candidates = candidates,
+                    candidates = scan.candidates,
+                    unreadable = scan.unreadable,
                     dictionary = viewModel.dictionary,
                     onSave = { name, selection ->
                         val saved = viewModel.saveCapturedSelection(name, selection) != null
@@ -157,8 +158,13 @@ private fun FixMessageViewModel.liveSecondInstance(session: String?, messageType
     return sessions
         .filter { session == null || it.title == session }
         .flatMap { it.messages.value.filterIsInstance<FixMessage>() }
-        .lastOrNull { it.direction == FixMessage.Direction.INCOMING && it.messageType == messageType && it.rawMessage != golden }
-        ?.let { RawMessageView(it.rawMessage) }
+        // Compared and read as wire bytes, because that is what the golden now stores. Comparing the
+        // display string against an SOH golden never matches, so the golden message itself would come back
+        // as its own "second instance" — and "Verify generalizes", whose entire job is to re-check the
+        // expectation against a *different* message, would have been checking it against the same one and
+        // reporting that everything generalizes.
+        .lastOrNull { it.direction == FixMessage.Direction.INCOMING && it.messageType == messageType && it.wireRaw != golden }
+        ?.let { msg -> msg.wireRaw?.let { RawMessageView(it) } }
 }
 
 @Composable

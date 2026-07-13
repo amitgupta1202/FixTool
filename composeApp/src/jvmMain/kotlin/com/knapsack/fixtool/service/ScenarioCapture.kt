@@ -44,15 +44,43 @@ object ScenarioCapture {
      */
     data class Candidate(val session: String, val message: FixMessage, val fields: List<Pair<Int, String>>)
 
-    /** All business messages across [sessions], merged chronologically — the capture-review rows. */
-    fun candidates(sessions: List<CapturedSession>): List<Candidate> =
-        sessions
-            .flatMap { s ->
-                s.messages
-                    .filter { it.messageType !in ADMIN_MSG_TYPES }
-                    .map { Candidate(s.title, it, FixMessageHelper.wireFields(it)) }
-            }
-            .sortedBy { it.message.timestamp }
+    /**
+     * What a capture found: the rows it can offer, and the messages it had to leave out.
+     *
+     * [unreadable] exists so that leaving a message out is a thing the author is *told*, not a thing that
+     * happens. A capture is a claim about coverage — "these are the messages in your flow" — and a silent
+     * omission turns a scenario that checks four of five replies into one that looks complete.
+     */
+    data class Scan(
+        val candidates: List<Candidate>,
+        val unreadable: List<FixMessage>,
+    )
+
+    /**
+     * All business messages across [sessions], merged chronologically — the capture-review rows.
+     *
+     * A message whose **wire order is unknown** cannot be a row. Every seeded expectation is an ordered
+     * list whose order is half of what it asserts, so seeding one from a field list we had to guess bakes
+     * a fabricated order into the golden — and it would then go red, forever, against the venue's real
+     * one. See [FixMessage.wireRaw]; in practice this is empty, because QuickFIX/J retains the bytes it
+     * parsed.
+     */
+    fun scan(sessions: List<CapturedSession>): Scan {
+        val business =
+            sessions
+                .flatMap { s -> s.messages.filter { it.messageType !in ADMIN_MSG_TYPES }.map { s.title to it } }
+                .sortedBy { it.second.timestamp }
+        val candidates = mutableListOf<Candidate>()
+        val unreadable = mutableListOf<FixMessage>()
+        for ((title, message) in business) {
+            val fields = FixMessageHelper.wireFields(message)
+            if (fields == null) unreadable += message else candidates += Candidate(title, message, fields)
+        }
+        return Scan(candidates, unreadable)
+    }
+
+    /** The rows only. Callers that must report what was left out use [scan]. */
+    fun candidates(sessions: List<CapturedSession>): List<Candidate> = scan(sessions).candidates
 
     fun capture(
         id: String,
@@ -150,7 +178,15 @@ object ScenarioCapture {
                 fields = correlated,
                 messageType = entry.message.messageType,
                 mode = MatchMode.OPEN,
-                golden = entry.message.rawMessage,
+                // The venue's bytes, not the display string. The rows above were seeded from `wireFields`
+                // (SOH, unsubstituted) while the golden used to be stored as the '|'-substituted string —
+                // two decoders of one message, and they disagreed about it: the editor previews the seeded
+                // rows *against the golden*, so a reply carrying `58=Rejected|insufficient margin` seeded a
+                // row for the whole value and then previewed it against a golden that had been split into
+                // `58=Rejected` plus a phantom. The row went red against the very message it was captured
+                // from, and the author was invited to "fix" a matcher that was already right.
+                // Non-null by construction: `scan` does not offer a candidate whose wire bytes are missing.
+                golden = entry.message.wireRaw ?: entry.message.rawMessage,
             ),
         )
     }

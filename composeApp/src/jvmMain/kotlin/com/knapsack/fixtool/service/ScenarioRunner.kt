@@ -32,8 +32,11 @@ interface ScenarioHost {
      */
     fun referenceResolver(session: String?, scope: Map<String, String>): (String) -> String?
 
-    /** Adapt a captured message to the evaluator's view. */
-    fun view(message: FixMessage): MessageView
+    /**
+     * Adapt a captured message to the evaluator's view — **null when its wire order is unknown**, which
+     * the caller must report rather than paper over. See [FixMessage.wireRaw].
+     */
+    fun view(message: FixMessage): MessageView?
 
     /** Clear a session's message log; returns false when the session doesn't exist. */
     fun clearMessages(session: String?): Boolean
@@ -198,8 +201,27 @@ class ScenarioRunner(
             return StepResult(index, "expect", phase, false, detail = detail)
         }
         consumed.add(target)
+        // No wire bytes, no verdict. The expectation's row order *is* half of what it asserts, so judging
+        // it against a message whose order we had to invent would produce a result about a message nobody
+        // sent — green or red, it would not be about the venue. A step that cannot be evaluated fails, and
+        // it names the tool rather than the counterparty, because that is whose fault it is.
+        val view = host.view(target)
+        if (view == null) {
+            val why =
+                "FixTool has no wire bytes for the matched ${target.messageType} on '${label(step.session)}', " +
+                    "so the order of its fields is unknown and this expectation cannot be evaluated. This is a " +
+                    "FixTool limitation, not a venue failure — the message itself may be perfectly correct."
+            val failed = StepResult(index, "expect", phase, false, detail = why)
+            // Reported through the same channel as every other verdict, and that is the whole point of not
+            // returning early here. onExpectMatched is what tints the matched message red in the grid and
+            // hands the reconcile deep-link the message to show. Skipping it would have left the one step
+            // that failed as the one message the grid does not mark — a run that is red in the report and
+            // clean on the surface the tester actually looks at, which is a false green wearing a red hat.
+            onExpectMatched(target, failed)
+            return failed
+        }
         val resolver = host.referenceResolver(step.session, scope)
-        val tags = ExpectationEvaluator.evaluate(host.view(target), step.expectation, resolver)
+        val tags = ExpectationEvaluator.evaluate(view, step.expectation, resolver)
         val result = StepResult(
             index,
             "expect",

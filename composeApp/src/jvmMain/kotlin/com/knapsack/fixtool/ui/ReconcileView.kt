@@ -4,16 +4,20 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -22,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,18 +39,20 @@ import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
 
 /**
- * The reconcile view: the expectation against the message that actually arrived, side by side, with the
- * fix that fits each row — and the **only** surface in the app that authors an assertion from a failure.
+ * The reconcile view: a failed Expect step as **a diff you can fix**.
  *
- * The message viewer diagnoses; this authors. The viewer renders the message that *arrived*, so it can
- * never be the place a failure is repaired: a tag the venue stopped sending has no row to click, and a
- * moved entry looks perfectly fine tag by tag — every value matches, nothing is red, and the step still
- * failed. This view sees both sides, so it can show the row that is missing and the field that is extra.
+ * A failed step is two lists that disagree — what we captured, and what actually arrived. Aligned the way
+ * `git diff` aligns two files, every kind of failure becomes one row with one obvious fix: a changed value,
+ * a tag the venue added, a tag it dropped, an entry it reordered.
  *
- * Every edit is pushed to the step as it happens — nothing reaches *disk* until the workbench's Save — and
- * the diff re-runs after each, so a row that would now pass turns green in front of the author. It emits
- * per-edit rather than behind its own Save button because it used to do the latter, and clicking another
- * step in the list then threw the whole session's repairs away without a word.
+ * This is the only surface in the app that authors an assertion from a failure. The message viewer
+ * diagnoses; this authors. The viewer renders the message that *arrived*, so it can never repair a failure:
+ * a tag the venue stopped sending has no row to click, and a moved entry looks perfectly fine tag by tag —
+ * every value matches, nothing is red, and the step still failed. Only this view sees both sides.
+ *
+ * The organising idea is the verdict line: **shape versus behaviour**. Three red rows may all be the venue
+ * reshaping its message and one of them the venue behaving differently, and only the last is a regression.
+ * A reader should never have to work that out for themselves.
  */
 @Composable
 fun ReconcileView(
@@ -54,239 +61,368 @@ fun ReconcileView(
     dictionary: FixDictionary?,
     onChange: (Expectation) -> Unit,
     modifier: Modifier = Modifier,
+    /** "Step 2 · Expect · ExecutionReport (8) · session CLI" — the breadcrumb over the diff. */
+    crumb: String = "",
 ) {
     val original = remember(expectation) { expectation }
+    // Every fix is staged: the scenario file is not touched until the workbench saves, and Undo walks back
+    // one fix at a time. The draft is pushed to the step as it changes so that navigating away — to look at
+    // what the step before it sent — cannot silently destroy a session's worth of repairs.
+    val history = remember(expectation) { mutableStateListOf<StagedFix>() }
     var draft by remember(expectation) { mutableStateOf(expectation) }
-    var editing by remember(expectation) { mutableStateOf<Int?>(null) }
+    var loosening by remember(expectation) { mutableStateOf<Int?>(null) }
 
-    fun update(next: Expectation?) {
-        if (next == null) return
+    fun stage(label: String, next: Expectation?) {
+        if (next == null || next == draft) return
+        history.add(StagedFix(label, draft))
         draft = next
         onChange(next)
     }
 
+    fun undo() {
+        val last = history.removeLastOrNull() ?: return
+        draft = last.before
+        onChange(last.before)
+    }
+
+    fun discard() {
+        history.clear()
+        draft = original
+        onChange(original)
+    }
+
     val rows = ScenarioReconcile.rows(draft, actual, dictionary)
-    // Only offered when there is a re-ordering that actually repairs the rows it is offered for, and moves
-    // no assertion onto a field the author did not choose. A button that claims to fix and does not is
-    // worse than no button — and one that fixes by re-aiming is worse than either.
     val reorder = ScenarioReconcile.acceptNewOrder(draft, actual)
-    val blocks = if (reorder != null) ScenarioReconcile.movedBlocks(rows) else emptyList()
+    // A row is "moved" exactly when Accept-new-order would put it somewhere else — defined by the fix
+    // itself, so there is no second opinion about it to disagree with the first. That is what lets a party
+    // arriving out of order read as *one* entry that moved, rather than as six unrelated value mismatches.
+    val movedRows = ScenarioReconcile.movedRows(draft, actual)
+    val blocks = contiguousBlocks(rows, movedRows)
 
-    Column(modifier = modifier.fillMaxWidth().testTag("reconcile-view")) {
-        ReconcileHeader(
-            rows = rows,
+    Column(modifier = modifier.fillMaxWidth().border(1.dp, AppTheme.Colors.border).testTag("reconcile-view")) {
+        StepHeader(
+            crumb = crumb,
             strict = draft.mode == MatchMode.STRICT,
-            onStrictChange = { update(draft.copy(mode = if (it) MatchMode.STRICT else MatchMode.OPEN)) },
-            canAcceptOrder = reorder != null,
-            onAcceptOrder = { update(reorder) },
-            onReseed = { update(ScenarioReconcile.reseed(actual, dictionary, draft.mode).copy(golden = draft.golden)) },
-            dirty = draft != original,
-            onRevert = { update(original) },
+            failing = rows.any { !it.passed },
+            staged = history.size,
+            canAcceptShape = rows.any { ScenarioReconcile.isShapeChange(it) || (it.unasserted && it.wireIndex != null) },
+            onAcceptShape = { stage("Accepted every shape change", ScenarioReconcile.acceptEveryShapeChange(draft, actual, dictionary)) },
+            onReseed = { stage("Re-seeded the step", ScenarioReconcile.reseed(actual, dictionary, draft.mode).copy(golden = draft.golden)) },
+            onDiscard = ::discard,
+            onStrictChange = { stage(if (it) "Switched to STRICT" else "Switched to OPEN", draft.copy(mode = if (it) MatchMode.STRICT else MatchMode.OPEN)) },
         )
+        VerdictBar(rows, movedRows, blocks.size)
+        DiffHeaderRow()
 
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)) {
-            Text("expected (captured)", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.width(300.dp))
-            Text("actual (this run)", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
-        }
-
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             rows.forEachIndexed { i, row ->
-                // A venue does not move a PartyRole, it moves a *party* — the delimiter and everything under
-                // it. The block is bracketed and offered one fix, because three clicks would be three ways to
-                // say one thing, each leaving the expectation momentarily wrong.
                 blocks.firstOrNull { it.first == i }?.let { block ->
-                    MovedBlockBanner(rows = block.map { rows[it] }, onAcceptOrder = { update(reorder) })
+                    MovedBlockHeader(
+                        rows = block.map { rows[it] },
+                        dictionary = dictionary,
+                        onAcceptOrder = { stage("Accepted the new order", reorder) },
+                    )
                 }
-                ReconcileRowView(
+                DiffRowView(
                     row = row,
-                    dictionary = dictionary,
-                    editing = editing == i,
-                    onToggleEdit = { editing = if (editing == i) null else i },
-                    onMatcherChange = { update(ScenarioReconcile.loosen(draft, row.index!!, it)) },
-                    onAcceptActual = { update(ScenarioReconcile.acceptActual(draft, row.index!!, row.actual)) },
-                    onAssertAbsent = { update(ScenarioReconcile.assertAbsent(draft, row.index!!)) },
+                    moved = row.index in movedRows,
+                    edited = isEdited(row, original, actual, dictionary),
+                    loosening = loosening == i,
+                    onLoosen = { loosening = if (loosening == i) null else i },
+                    onMatcherChange = { stage("Loosened ${row.tag} to ${ExpectationDescribe.of(it)}", ScenarioReconcile.loosen(draft, row.index!!, it)) },
+                    onAcceptActual = { stage("Accepted ${row.tag} = ${row.actual}", ScenarioReconcile.acceptActual(draft, row.index!!, row.actual)) },
+                    onAssertAbsent = { stage("Asserting ${row.tag} absent", ScenarioReconcile.assertAbsent(draft, row.index!!)) },
                     canAssertAbsent = row.index?.let { ScenarioReconcile.canAssertAbsent(draft, actual, it) } == true,
-                    onDrop = { update(ScenarioReconcile.drop(draft, row.index!!)) },
+                    onDrop = { stage("Dropped ${row.tag}", ScenarioReconcile.drop(draft, row.index!!)) },
                     dropTakesWholeTag = row.index?.let { ScenarioReconcile.dropTakesWholeTag(draft, it) } == true,
-                    onAddAssertion = { update(ScenarioReconcile.addAssertion(draft, actual, row.wireIndex!!, dictionary)) },
+                    onAssertIt = { stage("Now asserted: ${row.tag} = ${row.actual}", ScenarioReconcile.addAssertion(draft, actual, row.wireIndex!!, dictionary)) },
                 )
+                if (blocks.any { it.last == i }) BlockEnd()
             }
         }
+        Footer(staged = history.size, canUndo = history.isNotEmpty(), onUndo = ::undo)
     }
 }
 
+/** One staged fix: what it was called, and the expectation to go back to. */
+private data class StagedFix(val label: String, val before: Expectation)
+
+// ---------------------------------------------------------------------------------- header
+
 @Composable
-private fun ReconcileHeader(
-    rows: List<ScenarioReconcile.Row>,
+private fun StepHeader(
+    crumb: String,
     strict: Boolean,
-    onStrictChange: (Boolean) -> Unit,
-    canAcceptOrder: Boolean,
-    onAcceptOrder: () -> Unit,
+    failing: Boolean,
+    staged: Int,
+    canAcceptShape: Boolean,
+    onAcceptShape: () -> Unit,
     onReseed: () -> Unit,
-    dirty: Boolean,
-    onRevert: () -> Unit,
+    onDiscard: () -> Unit,
+    onStrictChange: (Boolean) -> Unit,
 ) {
-    val judged = rows.filter { it.judged }
-    val failing = judged.count { !it.passed }
-    val unexpected = rows.count { it.unasserted && !it.passed } // in STRICT an unmentioned tag is a failure
-    val unknown = rows.count { it.unknown }
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = summary(judged.size, failing, unexpected),
-                color = if (judged.isNotEmpty() && failing == 0 && unexpected == 0) AppTheme.Colors.success else AppTheme.Colors.error,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 12.sp,
-                modifier = Modifier.testTag("reconcile-summary"),
-            )
-            if (canAcceptOrder) {
-                SlimButton("Accept new order", onClick = onAcceptOrder, color = AppTheme.Colors.info, modifier = Modifier.padding(start = 10.dp))
-            }
-            SlimButton("Re-seed from this message", onClick = onReseed, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(start = 6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp)) {
-                Checkbox(checked = strict, onCheckedChange = onStrictChange, modifier = Modifier.testTag("reconcile-strict"))
-                Text("STRICT", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
-            }
-            Row(modifier = Modifier.weight(1f)) {}
-            if (dirty) {
-                SlimButton("Revert", onClick = onRevert, color = AppTheme.Colors.textSecondary)
-            }
-        }
-        // A step that asserts nothing passes every run for ever while saying nothing about the venue. It is
-        // the worst outcome this tool can produce, and it is a few Drops away from any failing expectation —
-        // so it is never, under any arithmetic, allowed to be reported as a success.
-        if (judged.isEmpty()) {
-            Text(
-                "⚠ this step now asserts nothing about the reply — it would pass every run without checking anything",
-                color = AppTheme.Colors.warning,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 11.sp,
-                modifier = Modifier.testTag("reconcile-asserts-nothing"),
-            )
-        }
-        if (unknown > 0) {
-            Text(
-                "· $unknown reference matcher${if (unknown == 1) "" else "s"} cannot be judged here — they resolve against a live run's scope",
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 10.sp,
-            )
-        }
-    }
-}
-
-private fun summary(judged: Int, failing: Int, unexpected: Int): String {
-    if (judged == 0) return "✗ nothing is asserted"
-    val extras = if (unexpected > 0) " · $unexpected unexpected tag${if (unexpected == 1) "" else "s"}" else ""
-    return if (failing == 0 && unexpected == 0) {
-        "✓ every assertion would now pass ($judged checked)"
-    } else {
-        "✗ $failing of $judged assertions fail$extras"
-    }
-}
-
-/** One bracketed run of rows that dislocated together, with the single fix that puts them back. */
-@Composable
-private fun MovedBlockBanner(rows: List<ScenarioReconcile.Row>, onAcceptOrder: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.highlightOther).padding(horizontal = 6.dp, vertical = 3.dp),
+        modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        val subject = if (rows.size == 1) "this field is" else "these ${rows.size} fields are"
-        val tags = rows.joinToString(", ") { it.tag.toString() }
-        Text("⌐ $subject in the reply ($tags), in a different place", color = AppTheme.Colors.warning, fontSize = 10.sp)
-        SlimButton("Accept new order", onClick = onAcceptOrder, color = AppTheme.Colors.info, modifier = Modifier.padding(start = 8.dp))
+        if (crumb.isNotBlank()) {
+            Text(crumb, color = AppTheme.Colors.textSecondary, fontSize = 11.sp, modifier = Modifier.padding(end = 8.dp))
+        }
+        Chip(if (strict) "strict" else "open", AppTheme.Colors.warning, onClick = { onStrictChange(!strict) })
+        if (failing) Chip("failed", AppTheme.Colors.error, tinted = true)
+        Row(modifier = Modifier.weight(1f)) {}
+
+        // Shape churn is the common case and it is tedious, not interesting. This takes the reorder, the
+        // tags the venue added and the ones it stopped sending — and deliberately leaves every value
+        // mismatch alone, because those are the rows that mean something.
+        if (canAcceptShape) {
+            SlimButton("Accept every shape change", onClick = onAcceptShape, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(end = 6.dp))
+        }
+        SlimButton("Re-seed step from this message", onClick = onReseed, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(end = 6.dp))
+        SlimButton("Discard", onClick = onDiscard, color = AppTheme.Colors.textSecondary, enabled = staged > 0)
     }
 }
 
 @Composable
-private fun ReconcileRowView(
+private fun Chip(label: String, color: Color, tinted: Boolean = false, onClick: (() -> Unit)? = null) {
+    val box = Modifier
+        .padding(end = 6.dp)
+        .border(1.dp, color)
+        .background(if (tinted) AppTheme.Colors.notificationErrorBackground else Color.Transparent)
+        .padding(horizontal = 6.dp, vertical = 1.dp)
+    Box(modifier = if (onClick != null) box.clickable(onClick = onClick) else box) {
+        Text(label.uppercase(), color = color, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/**
+ * The line that separates **shape** from **behaviour**.
+ *
+ * Four red rows say nothing about whether the venue regressed or merely reshaped its message. This says it:
+ * "1 value changed · 1 tag added · 1 tag missing · 1 entry moved — only the value change alters what this
+ * scenario checks."
+ */
+@Composable
+private fun VerdictBar(rows: List<ScenarioReconcile.Row>, movedRows: Set<Int?>, movedEntries: Int) {
+    fun isMoved(r: ScenarioReconcile.Row) = r.index != null && r.index in movedRows
+    val judged = rows.count { it.judged }
+    // A moved row is the message's SHAPE changing, not the venue's behaviour — that is the whole split.
+    val values = rows.count { !it.passed && !it.unknown && !isMoved(it) && (it.status == TagStatus.VALUE || it.status == TagStatus.INVALID) }
+    val behaviour = values
+    val added = rows.count { it.unasserted && it.wireIndex != null }
+    val missing = rows.count { !it.passed && !isMoved(it) && it.status == TagStatus.MISSING }
+    val moved = movedEntries
+    val attention = values + added + missing + moved
+
+    val parts = buildList {
+        if (values > 0) add("$values value${plural(values)} changed")
+        if (added > 0) add("$added tag${plural(added)} added")
+        if (missing > 0) add("$missing tag${plural(missing)} missing")
+        if (moved > 0) add("$moved entr${if (moved == 1) "y" else "ies"} moved")
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().background(if (attention > 0) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text = headline(judged, attention, added),
+            color = if (attention > 0 || added > 0) AppTheme.Colors.error else if (judged == 0) AppTheme.Colors.warning else AppTheme.Colors.success,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            modifier = Modifier.testTag("reconcile-summary"),
+        )
+        if (parts.isNotEmpty()) {
+            Text(" │ ", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
+            Text(parts.joinToString(" · "), color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
+            Text(" │ ", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
+            Text(
+                text = shapeVersusBehaviour(behaviour),
+                color = if (behaviour > 0) AppTheme.Colors.error else AppTheme.Colors.textSecondary,
+                fontSize = 11.sp,
+                modifier = Modifier.testTag("reconcile-shape-or-behaviour"),
+            )
+        }
+    }
+}
+
+private fun headline(judged: Int, attention: Int, added: Int): String {
+    // A step that asserts nothing passes every run for ever while checking nothing. It is one Drop away from
+    // any failing expectation, and it is never allowed to read as a success.
+    if (judged == 0) return "⚠ nothing is asserted — this step would pass every run without checking anything"
+    val needing = attention + added
+    return if (needing == 0) "✓ every assertion would now pass ($judged checked)" else "$needing of $judged rows need attention"
+}
+
+private fun shapeVersusBehaviour(behaviour: Int): String =
+    when (behaviour) {
+        0 -> "nothing here changes what this scenario checks — it is all shape"
+        1 -> "only the value change alters what this scenario checks"
+        else -> "$behaviour value changes alter what this scenario checks"
+    }
+
+private fun plural(n: Int) = if (n == 1) "" else "s"
+
+// ---------------------------------------------------------------------------------- the table
+
+private val GUT = 20.dp
+private val TAG = 150.dp
+private val EXPECTED = 210.dp
+private val ACTUAL = 180.dp
+private val STATUS = 84.dp
+
+@Composable
+private fun DiffHeaderRow() {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 10.dp, vertical = 5.dp),
+    ) {
+        HeadCell("", GUT)
+        HeadCell("tag", TAG)
+        HeadCell("expected (captured)", EXPECTED)
+        HeadCell("actual (this run)", ACTUAL)
+        HeadCell("status", STATUS)
+        Text("fix", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun HeadCell(text: String, width: androidx.compose.ui.unit.Dp) {
+    Text(text, color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(width))
+}
+
+/**
+ * The runs of rows that travelled together — one bracket per entry that moved.
+ *
+ * A party's fields do not all *move*: when the venue swaps two parties, the PartyIDSource of each is `D`
+ * either way, so those rows pass where they stand and only the PartyID and PartyRole change position. Left
+ * as-is that reads as three separate brackets with a passing row wedged between them — three decisions
+ * offered for what is one fact. So a run is carried across the passing rows riding along inside it.
+ *
+ * Only across *passing* rows, and only a couple of them: a row that fails is a fact of its own and must never
+ * be swallowed into somebody else's bracket.
+ */
+private const val MAX_RIDERS = 2
+
+private fun contiguousBlocks(rows: List<ScenarioReconcile.Row>, moved: Set<Int?>): List<IntRange> {
+    fun isMoved(i: Int) = rows[i].index != null && rows[i].index in moved
+    val blocks = mutableListOf<IntRange>()
+    var i = 0
+    while (i < rows.size) {
+        if (!isMoved(i)) { i++; continue }
+        var end = i
+        var scan = i + 1
+        var riders = 0
+        while (scan < rows.size) {
+            when {
+                isMoved(scan) -> { end = scan; riders = 0 }
+                rows[scan].passed && riders < MAX_RIDERS -> riders++
+                else -> break
+            }
+            scan++
+        }
+        blocks += i..end
+        i = end + 1
+    }
+    return blocks
+}
+
+@Composable
+private fun DiffRowView(
     row: ScenarioReconcile.Row,
-    dictionary: FixDictionary?,
-    editing: Boolean,
-    onToggleEdit: () -> Unit,
+    moved: Boolean,
+    edited: Boolean,
+    loosening: Boolean,
+    onLoosen: () -> Unit,
     onMatcherChange: (Matcher) -> Unit,
     onAcceptActual: () -> Unit,
     onAssertAbsent: () -> Unit,
     canAssertAbsent: Boolean,
     onDrop: () -> Unit,
     dropTakesWholeTag: Boolean,
-    onAddAssertion: () -> Unit,
+    onAssertIt: () -> Unit,
 ) {
-    val background =
-        when {
-            row.unknown -> AppTheme.Colors.surfaceVariant
-            row.unasserted && row.passed -> AppTheme.Colors.surfaceVariant
-            row.passed -> AppTheme.Colors.surface
-            else -> AppTheme.Colors.notificationErrorBackground
-        }
-    Column(modifier = Modifier.fillMaxWidth().background(background).padding(horizontal = 6.dp, vertical = 3.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().background(rowBackground(row, moved, edited)).padding(horizontal = 10.dp, vertical = 3.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(glyph(row), color = statusColor(row), fontSize = 11.sp, modifier = Modifier.width(16.dp))
+            Text(glyph(row, moved), color = statusColor(row, moved), fontSize = 11.sp, modifier = Modifier.width(GUT))
 
+            Row(modifier = Modifier.width(TAG)) {
+                Text("${row.tag}${occurrenceSuffix(row)}", color = AppTheme.Colors.info, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                Text(" ${row.name.take(18)}", color = AppTheme.Colors.textDisabled, fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
+            }
             Text(
-                text = if (row.unasserted) "—" else "${row.tag}${occurrenceSuffix(row)} ${row.name.take(14)}  ${row.expected.take(28)}",
-                color = if (row.unasserted) AppTheme.Colors.textDisabled else AppTheme.Colors.text,
+                text = if (row.unasserted) "not asserted" else row.expected,
+                color = if (row.unasserted) AppTheme.Colors.textDisabled else AppTheme.Colors.textSecondary,
+                fontStyle = if (row.unasserted) FontStyle.Italic else FontStyle.Normal,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,
                 maxLines = 1,
-                modifier = Modifier.width(300.dp),
+                modifier = Modifier.width(EXPECTED),
             )
             Text(
-                text = row.actual?.let { "${row.tag} = $it" } ?: "—",
-                color = if (row.actual == null) AppTheme.Colors.textDisabled else AppTheme.Colors.text,
+                text = row.actual ?: "not sent",
+                color = actualColor(row),
+                fontStyle = if (row.actual == null) FontStyle.Italic else FontStyle.Normal,
+                fontWeight = if (row.status == TagStatus.VALUE && !row.passed && !moved) FontWeight.Bold else FontWeight.Normal,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,
                 maxLines = 1,
-                modifier = Modifier.width(200.dp),
+                modifier = Modifier.width(ACTUAL),
             )
-
-            Row(modifier = Modifier.weight(1f)) {}
-            RowActions(row, editing, onToggleEdit, onAcceptActual, onAssertAbsent, canAssertAbsent, onDrop, dropTakesWholeTag, onAddAssertion)
+            Text(
+                text = statusWord(row, moved, edited),
+                color = if (edited) AppTheme.Colors.success else statusColor(row, moved),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.width(STATUS),
+            )
+            RowFixes(row, moved, loosening, onLoosen, onAcceptActual, onAssertAbsent, canAssertAbsent, onDrop, dropTakesWholeTag, onAssertIt)
         }
-        reason(row, dictionary)?.let {
-            Text(it, color = statusColor(row), fontSize = 9.sp, modifier = Modifier.padding(start = 16.dp, top = 1.dp))
-        }
-        // The full matcher vocabulary, on the row that needs it. With only "Loosen → presence" on offer, a
-        // price that drifted by a cent could be repaired *only* by pinning it exactly (red again next run)
-        // or by not checking it at all. A numeric tolerance is what that failure actually calls for, and so
-        // are oneOf, regex and temporal for the failures that call for them.
-        if (editing && row.matcher != null) {
-            Row(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, top = 2.dp, bottom = 2.dp)) {
+        if (loosening && row.matcher != null) {
+            Row(modifier = Modifier.fillMaxWidth().padding(start = GUT + 4.dp, top = 3.dp, bottom = 3.dp)) {
                 MatcherEditor(matcher = row.matcher, capturedValue = row.actual ?: "", onChange = onMatcherChange)
             }
         }
     }
 }
 
-/** Only the fixes that fit this row's failure. An action that cannot help is not offered. */
+/** Only the fixes that fit this row's failure. An action that cannot help it is not offered. */
 @Composable
-private fun RowActions(
+private fun RowFixes(
     row: ScenarioReconcile.Row,
-    editing: Boolean,
-    onToggleEdit: () -> Unit,
+    moved: Boolean,
+    loosening: Boolean,
+    onLoosen: () -> Unit,
     onAcceptActual: () -> Unit,
     onAssertAbsent: () -> Unit,
     canAssertAbsent: Boolean,
     onDrop: () -> Unit,
     dropTakesWholeTag: Boolean,
-    onAddAssertion: () -> Unit,
+    onAssertIt: () -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         when {
-            row.unasserted -> SlimButton("Add assertion", onClick = onAddAssertion, color = AppTheme.Colors.info)
+            // A moved row is fixed by its block's one Accept-new-order, never per row: a per-row arrow could
+            // swap which occurrence two same-tag rows refer to, which is the failure this model exists to
+            // prevent. It is one decision, not three.
+            moved -> Unit
 
-            // A reference we cannot resolve here is not a failing row, and must never be offered "Accept
-            // actual": one click would pin the assertion to this run's ClOrdID and quietly destroy the
-            // cross-step binding it exists to express — green for ever, for the wrong reason.
-            row.unknown -> {
-                SlimButton(if (editing) "Close" else "Edit matcher", onClick = onToggleEdit, color = AppTheme.Colors.textSecondary)
-                DropButton(onDrop, dropTakesWholeTag)
+            // A tag the venue sent that we do not assert. In OPEN it is harmless; in STRICT it fails the
+            // step. Either way the author's two answers are: start checking it, or say you meant not to.
+            row.unasserted -> {
+                SlimButton("Assert it", onClick = onAssertIt, color = AppTheme.Colors.info)
+                SlimButton("Ignore", onClick = {}, color = AppTheme.Colors.textDisabled, enabled = false)
             }
+
+            // A reference resolves against a live run's scope; there is none here. It is not failing, and it
+            // must never be offered "Accept actual" — one click would pin the assertion to this run's ClOrdID
+            // and destroy the cross-step binding it exists to express.
+            row.unknown -> SlimButton("Loosen ▾", onClick = onLoosen, color = AppTheme.Colors.textSecondary)
+
+            row.passed -> Unit
 
             row.status == TagStatus.VALUE || row.status == TagStatus.INVALID -> {
                 if (row.actual != null) SlimButton("Accept actual", onClick = onAcceptActual, color = AppTheme.Colors.success)
-                SlimButton(if (editing) "Close" else "Edit matcher", onClick = onToggleEdit, color = AppTheme.Colors.textSecondary)
+                SlimButton(if (loosening) "Loosen ▴" else "Loosen ▾", onClick = onLoosen, color = AppTheme.Colors.textSecondary)
                 DropButton(onDrop, dropTakesWholeTag)
             }
 
@@ -295,68 +431,155 @@ private fun RowActions(
                 DropButton(onDrop, dropTakesWholeTag)
             }
 
-            // A moved row is fixed by the block's Accept-new-order, not per row: an up/down arrow here could
-            // swap which occurrence two same-tag rows refer to, which is the whole failure this model exists
-            // to prevent. Dropping it is still the author's to choose.
-            row.status == TagStatus.MOVED -> DropButton(onDrop, dropTakesWholeTag)
+            // A moved row is fixed by its block's Accept-new-order, never per row: a per-row arrow could swap
+            // which occurrence two same-tag rows refer to, which is the failure this model exists to prevent.
+            row.status == TagStatus.MOVED -> Unit
 
-            // A passing row is droppable too: an author may simply stop caring about a tag. What keeps that
-            // honest is the header, which refuses to call a step with nothing left in it a success.
-            else -> {
-                SlimButton(if (editing) "Close" else "Edit matcher", onClick = onToggleEdit, color = AppTheme.Colors.textSecondary)
-                DropButton(onDrop, dropTakesWholeTag)
-            }
+            else -> DropButton(onDrop, dropTakesWholeTag)
         }
     }
 }
 
 /**
  * Dropping one row of a repeated tag would promote its siblings — the second `452` becomes the first and
- * silently starts checking the executing firm's entry. So it takes the tag's rows with it, and the button
- * says so before the click rather than after.
+ * silently starts checking the executing firm's entry. So it takes the tag's rows with it, and says so.
  */
 @Composable
 private fun DropButton(onDrop: () -> Unit, takesWholeTag: Boolean) {
     SlimButton(
-        text = if (takesWholeTag) "Drop tag (all occurrences)" else "Drop",
+        text = if (takesWholeTag) "Drop tag" else "Drop",
         onClick = onDrop,
-        color = AppTheme.Colors.textSecondary,
+        color = AppTheme.Colors.error,
     )
 }
 
-private fun glyph(row: ScenarioReconcile.Row): String =
+/**
+ * A moved entry, bracketed as one thing with one fix.
+ *
+ * A venue does not move a PartyRole; it moves a *party* — the delimiter and everything under it, three to
+ * six tags travelling together. Fixing that row by row would be several clicks to express one fact, and each
+ * click would leave the expectation in a state that is momentarily wrong.
+ */
+@Composable
+private fun MovedBlockHeader(rows: List<ScenarioReconcile.Row>, dictionary: FixDictionary?, onAcceptOrder: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppTheme.Colors.selectionSecondary)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text("⇅", color = AppTheme.Colors.warning, fontSize = 11.sp, modifier = Modifier.width(GUT))
+        val travelled = rows.filter { it.status == TagStatus.MOVED || !it.passed }.ifEmpty { rows }
+        Text(
+            text = if (travelled.size == 1) "Field moved" else "Entry moved",
+            color = AppTheme.Colors.warning,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(end = 8.dp),
+        )
+        val names = travelled.map { "${it.tag}${dictionary?.getFieldName(it.tag)?.let { n -> " $n" } ?: ""}" }.distinct()
+        Text(
+            text = "${names.joinToString(", ")} — same tags, same values, different position",
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 10.sp,
+            maxLines = 1,
+        )
+        Row(modifier = Modifier.weight(1f)) {}
+        SlimButton("Accept new order", onClick = onAcceptOrder, color = AppTheme.Colors.info)
+    }
+}
+
+/** Closes the bracket under a moved block, so the eye reads it as one unit. */
+@Composable
+private fun BlockEnd() {
+    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AppTheme.Colors.warning))
+}
+
+@Composable
+private fun Footer(staged: Int, canUndo: Boolean, onUndo: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text("$staged", color = AppTheme.Colors.text, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.testTag("reconcile-staged"))
+        Text(if (staged == 1) " fix staged" else " fixes staged", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
+        Text(" · nothing is written to the scenario until you save", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
+        Row(modifier = Modifier.weight(1f)) {}
+        SlimButton("Undo last", onClick = onUndo, color = AppTheme.Colors.textSecondary, enabled = canUndo)
+    }
+}
+
+// ------------------------------------------------------------------------------- row rendering
+
+/** True when this row's assertion is not what the author started with — the staged-fix tint. */
+private fun isEdited(
+    row: ScenarioReconcile.Row,
+    original: Expectation,
+    actual: MessageView,
+    dictionary: FixDictionary?,
+): Boolean {
+    if (row.matcher == null) return false
+    val before = ScenarioReconcile.rows(original, actual, dictionary)
+        .firstOrNull { it.tag == row.tag && it.occurrence == row.occurrence && !it.unasserted }
+    return before == null || before.matcher != row.matcher
+}
+
+private fun rowBackground(row: ScenarioReconcile.Row, moved: Boolean, edited: Boolean): Color =
     when {
+        edited -> AppTheme.Colors.notificationSuccessBackground
+        moved -> AppTheme.Colors.highlightOther
+        row.unknown -> AppTheme.Colors.surface
+        row.unasserted -> AppTheme.Colors.selectionSecondary
+        row.passed -> AppTheme.Colors.surface
+        row.status == TagStatus.MISSING || row.status == TagStatus.MOVED -> AppTheme.Colors.highlightOther
+        else -> AppTheme.Colors.notificationErrorBackground
+    }
+
+private fun statusWord(row: ScenarioReconcile.Row, moved: Boolean, edited: Boolean): String =
+    when {
+        edited -> "staged"
+        moved -> "moved"
+        row.unknown -> "needs a run"
+        row.unasserted -> "added"
+        row.passed -> "ok"
+        row.status == TagStatus.MISSING -> "missing"
+        row.status == TagStatus.MOVED -> "moved"
+        row.status == TagStatus.INVALID -> "invalid"
+        else -> "value"
+    }
+
+private fun glyph(row: ScenarioReconcile.Row, moved: Boolean): String =
+    when {
+        moved -> "⇅"
         row.unknown -> "·"
         row.unasserted -> "+"
         row.passed -> "✓"
         row.status == TagStatus.MISSING -> "−"
-        row.status == TagStatus.MOVED -> "↕"
+        row.status == TagStatus.MOVED -> "⇅"
         else -> "✗"
     }
 
-private fun statusColor(row: ScenarioReconcile.Row): Color =
+private fun statusColor(row: ScenarioReconcile.Row, moved: Boolean): Color =
     when {
-        row.unknown -> AppTheme.Colors.textSecondary
-        row.unasserted -> if (row.passed) AppTheme.Colors.textSecondary else AppTheme.Colors.error
+        moved -> AppTheme.Colors.warning
+        row.unknown -> AppTheme.Colors.textDisabled
+        row.unasserted -> AppTheme.Colors.info
         row.passed -> AppTheme.Colors.success
-        row.status == TagStatus.MOVED -> AppTheme.Colors.warning
+        row.status == TagStatus.MISSING || row.status == TagStatus.MOVED -> AppTheme.Colors.warning
         else -> AppTheme.Colors.error
+    }
+
+private fun actualColor(row: ScenarioReconcile.Row): Color =
+    when {
+        row.actual == null -> AppTheme.Colors.textDisabled
+        row.status == TagStatus.VALUE && !row.passed -> AppTheme.Colors.error
+        else -> AppTheme.Colors.text
     }
 
 private fun occurrenceSuffix(row: ScenarioReconcile.Row): String = if (row.occurrence > 0) "#${row.occurrence + 1}" else ""
 
-/** Why this row is the colour it is, in the words of what actually went wrong. */
-private fun reason(row: ScenarioReconcile.Row, dictionary: FixDictionary?): String? {
-    val name = dictionary?.getFieldName(row.tag)?.let { " ($it)" } ?: ""
-    return when {
-        row.unknown -> "a reference matcher — it resolves against a live run's scope, so it cannot be judged here"
-        row.unasserted && !row.passed -> "STRICT: the reply carries ${row.tag}$name and the expectation never mentions it"
-        row.unasserted -> "the reply carries ${row.tag}$name and the expectation never mentions it"
-        row.passed -> null
-        row.status == TagStatus.MISSING -> "the reply has nothing left at ${row.tag}$name for this row to check"
-        row.status == TagStatus.MOVED ->
-            "${row.tag}$name is in the reply, but not in this position — the rows must appear in the order the venue sends them"
-        row.status == TagStatus.INVALID -> row.reason
-        else -> "expected ${row.reason}, got ${row.actual}"
-    }
+/** Matcher description for a staged-fix label, without dragging the evaluator into the UI's imports. */
+private object ExpectationDescribe {
+    fun of(matcher: Matcher): String = com.knapsack.fixtool.service.ExpectationEvaluator.describe(matcher)
 }

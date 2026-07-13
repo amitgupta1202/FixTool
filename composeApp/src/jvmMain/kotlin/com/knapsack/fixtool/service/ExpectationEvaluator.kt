@@ -249,8 +249,13 @@ object ExpectationEvaluator {
         if (row.matcher is Matcher.Absent) {
             val present = wire.firstOrNull { it.first == row.tag }?.second
             return TagResult(
-                a.tag, describe, "<absent>", present,
-                passed = present == null, index = a.index, occurrence = a.occurrence,
+                tag = a.tag,
+                matcher = describe,
+                expected = "<absent>",
+                actual = present,
+                passed = present == null,
+                index = a.index,
+                occurrence = a.occurrence,
                 status = if (present == null) TagStatus.OK else TagStatus.VALUE,
             )
         }
@@ -371,6 +376,18 @@ object ExpectationEvaluator {
     }
 
     // ----------------------------------------------------------------- descriptions
+
+    /**
+     * Does this matcher accept this value?
+     *
+     * Exposed for the reconcile view, which has to work out *where in the reply* a failing row's field
+     * actually is before it can offer to re-order the rows. It is deliberately not used by [align]: pairing
+     * looks at the tag and the position and never at whether the matcher would pass, because a pairing that
+     * preferred the occurrence which satisfies a matcher would silently re-aim an assertion onto whichever
+     * field makes it green.
+     */
+    fun satisfies(matcher: Matcher, value: String): Boolean =
+        applyMatcher(matcher, value, { null }, { Instant.now() }).first
 
     /** Short matcher description for a [TagResult] / report row. */
     fun describe(matcher: Matcher): String =

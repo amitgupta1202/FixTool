@@ -67,18 +67,12 @@ class ScenarioReconcileTest {
     }
 
     /**
-     * A venue that emits a group entry's delimiter second sends the same data in a different order — and it
-     * is **not** something Accept-new-order can fix, which is worth pinning because the first version
-     * appeared to fix it and was lying.
-     *
-     * The engine's cursor pairs the `447` row with the *next* `447` at or after it, which is the second
-     * entry's — so the row is already paired, with a field whose value is wrong. Re-ordering rows that are
-     * already paired would re-aim them, and re-aiming is the one thing forbidden here. So the button is not
-     * offered, the rows show honest value mismatches, and the repair is "Re-seed from this message", which
-     * rebuilds the step from what the venue actually sent.
+     * A venue that emits a group entry's delimiter second sends the same data in a different order. Every row
+     * still describes a field that is in the reply — it is just somewhere else — so this is exactly what
+     * Accept-new-order is for, and it must not touch what any row asserts.
      */
     @Test
-    fun `a reshaped group entry is not a re-order, and is not offered as one`() {
+    fun `accept new order handles a whole group entry being reshaped`() {
         val reply =
             wireView(
                 447 to "D",
@@ -98,15 +92,13 @@ class ScenarioReconcileTest {
                 FieldExpectation(452, Matcher.Exact("4")),
             )
 
-        assertNull(
-            ScenarioReconcile.acceptNewOrder(draft, reply),
-            "these rows are already paired — moving them would re-aim them, so no re-order is offered",
-        )
+        val fixed = ScenarioReconcile.acceptNewOrder(draft, reply) ?: error("every row's field is in the reply")
 
-        // Re-seed is the honest repair, and it does produce a green step against what the venue sent.
-        val fresh = ScenarioReconcile.reseed(reply, dictionary, draft.mode)
-        assertEquals(listOf(447, 448, 452, 447, 448, 452), fresh.fields.map { it.tag })
-        assertTrue(ExpectationEvaluator.evaluate(reply, fresh).all { it.passed })
+        assertEquals(listOf(447, 448, 452, 447, 448, 452), fixed.fields.map { it.tag })
+        val results = ExpectationEvaluator.evaluate(reply, fixed)
+        assertTrue(results.all { it.passed }, "the entries are intact; only the field order changed: $results")
+        // Each row still asserts exactly what it always asserted, and now lands on the field that has it.
+        assertEquals(listOf("D", "A", "1", "E", "B", "4"), results.map { it.actual })
     }
 
     /**
@@ -149,13 +141,16 @@ class ScenarioReconcileTest {
     }
 
     /**
-     * The venue swapped two party entries — the *values* moved, not just the positions. Accept-new-order
-     * must NOT make that green: it would be accepting, with a single click, an assertion that now checks
-     * the other firm.
+     * The venue swapped its two party entries. That is the message's **shape** changing, not its behaviour,
+     * and the spec is explicit: a venue that legitimately reorders is a one-click acknowledgement, not a
+     * redesign of the scenario.
+     *
+     * The re-order is safe because each row carries its own matcher with it — the row asserting the clearing
+     * firm's role lands on the clearing firm's entry. Both roles remain asserted; nothing is re-aimed and no
+     * coverage is lost. (What must never happen is a *passing* row being moved, which is the test above.)
      */
     @Test
-    fun `accept new order cannot paper over two entries that genuinely swapped`() {
-        // The clearing firm now comes first.
+    fun `two entries that swapped are re-ordered, and every assertion survives`() {
         val reply =
             wireView(
                 448 to "FIRMA",
@@ -171,16 +166,14 @@ class ScenarioReconcileTest {
                 FieldExpectation(452, Matcher.Exact("4")),
             )
 
-        assertNull(
-            ScenarioReconcile.acceptNewOrder(draft, reply),
-            "there is no re-ordering that makes this right, so the button must not be offered at all",
-        )
-        val failures = ExpectationEvaluator.evaluate(reply, draft).filterNot { it.passed }
+        val fixed = ScenarioReconcile.acceptNewOrder(draft, reply) ?: error("the entries merely swapped")
+
         assertEquals(
-            listOf(452, 452),
-            failures.map { it.tag },
-            "the roles still mismatch — the author must accept the new values deliberately, not by a re-order",
+            listOf(Matcher.Exact("FIRMA"), Matcher.Exact("4"), Matcher.Exact("FIRMA"), Matcher.Exact("1")),
+            fixed.fields.map { it.matcher },
+            "both roles are still asserted — the clearing firm is simply expected first now",
         )
+        assertTrue(ExpectationEvaluator.evaluate(reply, fixed).all { it.passed })
     }
 
     /**

@@ -194,6 +194,33 @@ it *would now pass* — so a user cannot save an expectation they have quietly b
 
 ---
 
+### Where fixing happens — and where it does not
+
+**The message detail viewer diagnoses. The diff view authors.** There is exactly one surface that can
+change an assertion.
+
+The viewer keeps everything it does today: messages tinted red/green after a run, failing tag rows in
+red with expected against actual, so a tester scanning the session sees what broke without going
+anywhere. It gains one action — **Reconcile assertions →**, opening the diff view for that step,
+scrolled to the row that was clicked, as a side panel rather than a separate window.
+
+It loses the ability to *change* anything: no quick-fix chips, no accept/loosen/drop, no pending
+edits, no Save. Two reasons, and the first is structural:
+
+1. **The viewer renders the message that arrived, so it has no row for anything that did not.** A tag
+   the venue stopped sending — the most ordinary way a venue regresses — has nothing to click. A
+   moved entry looks perfectly fine tag by tag: every value matches, nothing is red, and the step
+   still failed. The viewer can only ever fix value mismatches, which makes it permanently the
+   incomplete surface, and teaches users that fixing lives in two places.
+2. **Two editing surfaces are two chances to rewrite the wrong assertion.** That is not hypothetical:
+   the quick-fix path shipped exactly those bugs — a pending-edit map keyed globally by `(tag, path)`
+   that wrote one message's edit into another message's step, and entry matching by identity alone
+   that rewrote the second party's assertion when the first party's row was clicked.
+
+Removing it deletes `AssertionQuickFixes`, `_pendingAssertionEdits` and its save/discard plumbing, the
+chips and `resultsForGroupEntry` in `MessageDetailPanel`, and both of those defects. The existing
+deep-link from a failed message to the step that failed stays — it points at the diff view now.
+
 ## Wire format
 
 The expectation loses `path` and gains nothing:
@@ -249,6 +276,8 @@ red on QA on every step.
   (structure from QuickFIX). Neither has to decide what an entry is, so they cannot disagree — the
   seam that produced the STRICT-fails-on-nested-groups defect stops existing.
 - Every defect three review rounds found in that machinery.
+- `AssertionQuickFixes`, the ViewModel's pending-edit map, and the message viewer's quick-fix chips —
+  fixing moves to the diff view, the only surface that can see the whole failure.
 
 The seeder becomes: walk the captured fields in order, drop the never-asserted tags, seed a matcher
 per field from its dictionary type. No structure walk at all.

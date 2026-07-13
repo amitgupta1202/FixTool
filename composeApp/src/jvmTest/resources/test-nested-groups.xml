@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fix major="4" minor="4" type="FIX">
+  <!--
+    Minimal data dictionary for testing group nesting deeper than one level.
+
+    QuoteRequest(R) carries the leg/nested-party shape venue dialects use (BrokerTec's AONX
+    quote flow, for one): NoLegs > NoNestedPartyIDs > NoNestedPartySubIDs — three levels deep.
+  -->
+
+  <header>
+    <field name="BeginString" required="Y"/>
+    <field name="BodyLength" required="Y"/>
+    <field name="MsgType" required="Y"/>
+    <field name="SenderCompID" required="Y"/>
+    <field name="TargetCompID" required="Y"/>
+    <field name="MsgSeqNum" required="Y"/>
+    <field name="SendingTime" required="Y"/>
+  </header>
+
+  <trailer>
+    <field name="CheckSum" required="Y"/>
+  </trailer>
+
+  <messages>
+    <message name="QuoteRequest" msgtype="R" msgcat="app">
+      <field name="QuoteReqID" required="Y"/>
+      <field name="Currency" required="N"/>
+      <group name="NoLegs" required="N">
+        <field name="LegSymbol" required="Y"/>
+        <field name="LegSide" required="N"/>
+        <field name="LegCurrency" required="N"/>
+        <group name="NoNestedPartyIDs" required="N">
+          <field name="NestedPartyID" required="Y"/>
+          <field name="NestedPartyIDSource" required="N"/>
+          <field name="NestedPartyRole" required="N"/>
+          <group name="NoNestedPartySubIDs" required="N">
+            <field name="NestedPartySubID" required="Y"/>
+            <field name="NestedPartySubIDType" required="N"/>
+          </group>
+        </group>
+      </group>
+    </message>
+  </messages>
+
+  <fields>
+    <field number="8" name="BeginString" type="STRING"/>
+    <field number="9" name="BodyLength" type="LENGTH"/>
+    <field number="10" name="CheckSum" type="STRING"/>
+    <field number="34" name="MsgSeqNum" type="SEQNUM"/>
+    <field number="35" name="MsgType" type="STRING">
+      <value enum="R" description="QUOTE_REQUEST"/>
+    </field>
+    <field number="49" name="SenderCompID" type="STRING"/>
+    <field number="52" name="SendingTime" type="UTCTIMESTAMP"/>
+    <field number="56" name="TargetCompID" type="STRING"/>
+    <field number="15" name="Currency" type="CURRENCY"/>
+    <field number="131" name="QuoteReqID" type="STRING"/>
+    <field number="555" name="NoLegs" type="NUMINGROUP"/>
+    <field number="600" name="LegSymbol" type="STRING"/>
+    <field number="624" name="LegSide" type="CHAR"/>
+    <field number="556" name="LegCurrency" type="CURRENCY"/>
+    <field number="539" name="NoNestedPartyIDs" type="NUMINGROUP"/>
+    <field number="524" name="NestedPartyID" type="STRING"/>
+    <field number="525" name="NestedPartyIDSource" type="CHAR"/>
+    <field number="538" name="NestedPartyRole" type="INT"/>
+    <field number="804" name="NoNestedPartySubIDs" type="NUMINGROUP"/>
+    <field number="545" name="NestedPartySubID" type="STRING"/>
+    <field number="805" name="NestedPartySubIDType" type="INT"/>
+  </fields>
+</fix>

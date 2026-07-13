@@ -9,8 +9,9 @@ import quickfix.DataDictionary
  * the [GroupPath] that locates its entry **by identity** (the entry's delimiter value), which is what
  * the expectation evaluator needs to assert grouped fields without relying on entry order.
  *
- * Single level only: fields of a group nested *inside* another group's entry are consumed but not
- * emitted (the evaluator reads one group level; deeper assertions are authored manually).
+ * Single level only for *emission*: fields of a group nested *inside* another group's entry are
+ * consumed but not emitted (the evaluator reads one group level; deeper assertions are authored
+ * manually). Nesting of any depth is still traversed — see [consumeNested].
  */
 object FixStructure {
     /** One field with its location: `path == null` → top level, else inside the located entry. */
@@ -73,7 +74,14 @@ object FixStructure {
         return i
     }
 
-    /** Skips a nested group's fields without emitting them (single-level evaluation). */
+    /**
+     * Skips a nested group's fields without emitting them (single-level evaluation).
+     *
+     * Descends into deeper groups rather than scanning flat: a group's dictionary is scoped to its
+     * own fields, so a field of a group nested below it (NestedPartySubID(545), defined in
+     * NoNestedPartySubIDs(804), not in NoNestedPartyIDs(539)) does not belong to it. A flat scan
+     * would stop there and leave the rest of the message to be read as top-level fields.
+     */
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun consumeNested(
         fields: List<Pair<Int, String>>,
@@ -87,8 +95,12 @@ object FixStructure {
         } catch (e: Exception) {
             null
         } ?: return start
+        val groupDD = info.dataDictionary
         var i = start
-        while (i < fields.size && belongsTo(info.dataDictionary, msgType, fields[i].first)) i++
+        while (i < fields.size && belongsTo(groupDD, msgType, fields[i].first)) {
+            val tag = fields[i].first
+            i = if (isGroup(groupDD, msgType, tag)) consumeNested(fields, i + 1, groupDD, msgType, tag) else i + 1
+        }
         return i
     }
 

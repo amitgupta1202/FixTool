@@ -4,7 +4,7 @@ package com.knapsack.fixtool.model.scenario
  * Per-tag comparison vocabulary for asserting a received FIX message against an *expectation*.
  *
  * This is the keystone schema from the repeatable-scenarios design
- * (see `docs/fixtool-assert-spec.md` for the JSON encodings). The scenario format reuses it
+ * (see `docs/scenario-assertion-model.md` for the JSON encodings). The scenario format reuses it
  * verbatim, so it is defined here in its own package, free of any UI/control dependencies.
  */
 sealed interface Matcher {

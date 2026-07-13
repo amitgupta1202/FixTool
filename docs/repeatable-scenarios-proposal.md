@@ -1,5 +1,15 @@
 # FixTool Repeatable Scenarios & Automated Verification — Design Spec
 
+> **The assertion sections of this document are superseded.** How an expectation is expressed, how it is
+> compared against a reply, and how a failure is reconciled are specified in
+> **[`scenario-assertion-model.md`](./scenario-assertion-model.md)** — which replaced the group-path model
+> this document originally proposed. The sections below have been cut back to a pointer where they said
+> something that is now false; a design doc that describes a deleted model as if it were current is worse
+> than no design doc.
+>
+> The rest — the background, the storage format, the runner and its report, the MCP surface, and the
+> resolved decisions — still stands.
+
 ## Background
 
 QA uses FixTool today to build flows like "create and book a trade": a sequence of
@@ -158,70 +168,20 @@ ordered run of partial-fill `Expect`s each binds to the next matching message
 rather than re-matching the first (see
 [Decision 4](#decision-4--partial-fill-sequences)).
 
-### Expectation = a FIX message whose tags carry matchers
+### Expectation, matchers, and repeating groups — see the assertion model
 
-The expectation is stored as the **captured FIX message** plus a per-tag matcher
-overlay. Keeping the golden as a real message means it renders in the existing
-viewer and diffs tag-by-tag; the overlay says *how* each tag is compared.
+This document originally specified an expectation as a captured message plus a **per-tag matcher overlay**,
+and located a field inside a repeating group by an **identity predicate** —
+`GroupPath(groupTag = 453, identityTag = 448, identityValue = "FIRMA")`, read as *"the party entry whose
+PartyID is FIRMA"*.
 
-```kotlin
-data class Expectation(
-    val messageType: String,          // e.g. "8" (ExecutionReport)
-    val golden: String,               // the captured raw FIX message (for display/diff)
-    val fields: List<FieldExpectation>,
-    val mode: MatchMode = MatchMode.OPEN, // OPEN = assert only listed tags; STRICT = no extras
-)
+**That model is gone, and it was wrong on ordinary messages.** One firm can act in two roles, so both party
+entries carry `448=FIRMA` and the identity does not identify. An expectation is now an **ordered list of
+rows**; the *k*-th row for a tag asserts the *k*-th occurrence of that tag. Position is the address.
 
-data class FieldExpectation(
-    val tag: Int,
-    val path: GroupPath? = null,      // null = top-level; else locates a group entry
-    val matcher: Matcher,
-)
-```
-
-### Matcher set
-
-```kotlin
-sealed interface Matcher {
-    object Exact                              : Matcher  // literal equality (default for business fields)
-    object Presence                           : Matcher  // tag must exist, value ignored (e.g. OrderID, ExecID)
-    object Absent                             : Matcher  // tag must NOT appear (negative assertion)
-    data class Regex(val pattern: String)     : Matcher
-    data class OneOf(val values: List<String>): Matcher  // value in set, e.g. OrdStatus in {1,2}
-    data class Numeric(val expected: Double,            // float compare with tolerance (PRICE/QTY)
-                       val tolerance: Double = 0.0)     : Matcher
-    data class Temporal(val kind: TemporalKind,         // format-aware date/time
-                        val toleranceSeconds: Long = 0) : Matcher
-    data class Reference(val expression: String): Matcher // equals an expr over the scope, e.g. ${out.D.11}
-}
-
-enum class TemporalKind { TODAY, NOW_WITHIN_TOLERANCE }
-```
-
-- **`Numeric` is not `Regex`.** `1.2345` vs `1.23450000` vs `1.2346` is a float
-  compare, not a string compare. Prices and quantities need this.
-- **`Reference`** reuses the expression engine: the ExecReport's `ClOrdID` (11) must
-  equal the `ClOrdID` sent in the originating order — `Reference("\${out.D.11}")`.
-- **`Temporal`** understands `UTCTimestamp`/`UTCDate` so `TransactTime` can match
-  "today" or "now ± N seconds" instead of a brittle literal.
-
-### Repeating groups: match by identity, never by position
-
-A trade/booking carries `NoPartyIDs`, `NoAllocs`, `NoMiscFees`. Tag `448 PartyID`
-appears N times and **group entry order is not guaranteed**, so positional
-comparison produces false failures. A `FieldExpectation` inside a group is located
-by an **identity predicate**, not an index:
-
-```kotlin
-data class GroupPath(
-    val groupTag: Int,                // e.g. 453 (NoPartyIDs)
-    val identityTag: Int,             // e.g. 452 (PartyRole)
-    val identityValue: String,        // e.g. "1"
-)
-// "the PartyID of the entry whose PartyRole = 1 must match X"
-```
-
-This mirrors `fixtool_detail_search` mode `identity`.
+The matcher vocabulary (`exact`, `presence`, `absent`, `regex`, `oneOf`, `numeric`, `temporal`, `reference`),
+the auto-seeding rules, the OPEN and STRICT semantics, the wire format, and the reconcile view are all
+specified in **[`scenario-assertion-model.md`](./scenario-assertion-model.md)**.
 
 ### Storage — one file per scenario
 
@@ -274,15 +234,13 @@ the matcher from the dictionary field type
 
 ## OPEN vs STRICT comparison
 
-When the live response carries a tag the expectation does not mention:
+Superseded — and not only in its details. This document said OPEN "asserts only the tags the expectation
+lists; ignores extras", with no constraint on order. **OPEN now also requires the expectation to be a
+subsequence of the reply**: the listed rows must appear in the order they are listed, with anything else
+allowed in between. A reply that keeps every per-tag sequence intact but reshuffles the fields between them
+is a message no venue sent, and OPEN says so.
 
-- **OPEN (default)** — assert only the tags the expectation lists; ignore extras.
-  Robust to venues adding optional fields. Use `Absent` to forbid a *specific* tag.
-- **STRICT** — any unexpected tag fails. For contracts that must be exact.
-
-Default OPEN: an expectation is a **contract** (a subset that must hold), not a
-**snapshot** (byte-exact), so a venue config change adding an optional field does
-not turn every build red.
+See [`scenario-assertion-model.md`](./scenario-assertion-model.md#the-two-modes).
 
 ---
 

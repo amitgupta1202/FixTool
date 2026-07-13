@@ -365,7 +365,12 @@ server.tool(
   "Assert a received message against an expectation — the machine-check that replaces eyeballing a " +
     "response. Selects the message like fixtool_select (by messageType/direction/index), or awaits one " +
     "for up to timeoutMs. Returns {passed, tags:[{tag, matcher, expected, actual, passed, index, " +
-    "occurrence, status}]}; status is ok|value|missing|unexpected|moved|invalid.\n\n" +
+    "occurrence, status}]}; a tag's status is ok|value|missing|unexpected|moved|invalid.\n\n" +
+    "A TOP-LEVEL status means nothing was judged: 'timeout' (no matching message arrived) or " +
+    "'no-wire-bytes' (FixTool could not read the message's bytes, so it does not know the venue's field " +
+    "order and REFUSES to evaluate an order-sensitive assertion against a guess). On no-wire-bytes, tags[] " +
+    "is empty and passed is false — but the fault is FixTool's, NOT the venue's. Do not report it as a " +
+    "venue regression.\n\n" +
     "ORDER MATTERS. fields[] is an ORDERED list of rows {tag, matcher} — there is NO `path`:\n" +
     "  * The k-th row for a tag asserts the k-th occurrence of that tag. Two party entries = two 448 " +
     "rows and two 452 rows; the second 452 row checks the second entry. Position is the address.\n" +
@@ -407,7 +412,9 @@ server.tool(
     "Rows come back in WIRE ORDER, one per occurrence of each tag — the order is part of the " +
     "assertion (see fixtool_assert), so pass fields[] through unsorted and un-de-duplicated. " +
     "Selects by messageType/direction/index like fixtool_select. Returns " +
-    "{messageType, mode, fields:[...], notAsserted:[...]} ready to edit and pass to fixtool_assert.",
+    "{messageType, mode, fields:[...], notAsserted:[...]} ready to edit and pass to fixtool_assert. " +
+    "Returns an error instead when FixTool has no wire bytes for the message: without the venue's field " +
+    "order, a seeded expectation would assert an order the venue never sent.",
   {
     session: z.string().default("0").describe("session id, title or index"),
     messageType: z.string().optional().describe("FIX msg type to select, e.g. \"8\""),
@@ -531,7 +538,7 @@ server.tool(
   "Save a repeatable scenario: an ordered sequence of sends + assertions a deterministic runner " +
     "replays (no LLM in the loop). Steps {type,...}: send {raw, session?}; wait {session?, state?, " +
     "match?, timeoutMs?}; expect {session?, direction?, match?, timeoutMs?, expectation:{messageType?, " +
-    "mode?, fields:[{tag, matcher, path?}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
+    "mode?, fields:[{tag, matcher}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
     "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create. " +
     "PARAMETERIZE IT: a send's raw, a match value and a reference matcher all resolve ${...} " +
     "expressions — always, with no resolve flag — over one variable scope that persists across every " +

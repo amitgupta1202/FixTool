@@ -1897,7 +1897,7 @@ stunnel stunnel.conf</code></pre>
 
     <p>Instead of <em>eyeballing</em> a response to decide whether it looks right, you (or an agent)
     can <strong>machine-check</strong> a received message tag-by-tag against an <strong>expectation</strong>
-    &mdash; a set of per-tag matchers. The result is a green/red verdict per tag, so a wrong field
+    &mdash; an <strong>ordered list</strong> of per-tag matchers. The result is a green/red verdict per tag, so a wrong field
     is pinpointed immediately and a check can be repeated identically every time. This is the
     foundation for turning a manual test flow into a repeatable regression check.</p>
 
@@ -1928,17 +1928,29 @@ stunnel stunnel.conf</code></pre>
         <tr><td><code>reference</code></td><td>equals a <code>${&hellip;}</code> expression resolved over the session, e.g. an ExecutionReport's ClOrdID echoes the order you sent: <code>${out.D.11}</code></td></tr>
     </table>
 
-    <p>For a tag inside a <strong>repeating group</strong>, add a <code>path</code> that locates the
-    entry by <em>identity</em> rather than position (group order is not guaranteed) &mdash; e.g. "the
-    <code>PartyID</code> of the entry whose <code>PartyRole</code> = 1".</p>
+    <p><strong>Order is the address.</strong> An expectation is an ordered list of rows, and the
+    <em>k</em>-th row for a tag asserts the <em>k</em>-th <strong>occurrence</strong> of that tag. A message
+    with two party entries gets two <code>448</code> rows and two <code>452</code> rows; the second
+    <code>452</code> row checks the second entry. There is no <code>path</code> and no group entry &mdash;
+    an earlier design located a field by <em>identity</em> ("the entry whose <code>PartyRole</code> = 1"),
+    which does not work, because one firm acting in two roles puts the same <code>448=FIRMA</code> in both
+    entries. Position identifies; identity does not.</p>
+
+    <p>Your rows must also be a <strong>subsequence</strong> of the reply &mdash; they must appear in the
+    order you list them. If the venue sends <code>37</code> before <code>11</code> and you list
+    <code>11</code> first, the step fails with <code>status: moved</code>. Capture seeds rows in the venue's
+    real wire order, so a captured scenario is a subsequence of its own golden by construction; hand-write
+    an expectation only when you know the order.</p>
 
     <h3>OPEN vs STRICT</h3>
     <ul>
-        <li><strong>open</strong> (default) &mdash; only the tags you list are checked; extra tags on
-        the response are ignored, so a venue adding an optional field doesn't fail the check. Use an
+        <li><strong>open</strong> (default) &mdash; only the tags you list are checked, <em>in the order
+        you list them</em>: your rows must be a <strong>subsequence</strong> of the reply. A tag you do not
+        mention is ignored, so a venue adding an optional field doesn't fail the check. Use an
         <code>absent</code> matcher to forbid a specific tag.</li>
-        <li><strong>strict</strong> &mdash; any unexpected tag (besides volatile header/trailer tags)
-        fails the check. For contracts that must be exact.</li>
+        <li><strong>strict</strong> &mdash; additionally asserts the message's <strong>shape</strong>: the
+        same tags, the same number of times, in the same order. Any unexpected tag (besides the session
+        envelope) fails the check. For contracts that must be exact.</li>
     </ul>
 
     <h3>Example</h3>
@@ -1947,11 +1959,11 @@ stunnel stunnel.conf</code></pre>
         <code>{<br>
         &nbsp;&nbsp;"session": "Demo User 1", "messageType": "8", "direction": "in", "timeoutMs": 5000,<br>
         &nbsp;&nbsp;"fields": [<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 150, "matcher": { "type": "exact", "value": "0" } },<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 39, "matcher": { "type": "oneOf", "values": ["0","1","2"] } },<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 37, "matcher": { "type": "presence" } },<br>
         &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 11, "matcher": { "type": "reference", "expression": "${out.D.11}" } },<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 60, "matcher": { "type": "temporal", "kind": "now_within_tolerance", "toleranceSeconds": 30 } }<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 37, "matcher": { "type": "presence" } },<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 39, "matcher": { "type": "oneOf", "values": ["0","1","2"] } },<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 60, "matcher": { "type": "temporal", "kind": "now_within_tolerance", "toleranceSeconds": 30 } },<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 150, "matcher": { "type": "exact", "value": "0" } }<br>
         &nbsp;&nbsp;]<br>
         }</code>
     </div>
@@ -2011,31 +2023,40 @@ stunnel stunnel.conf</code></pre>
         <li><strong>Run</strong> a saved scenario. It replays deterministically and the results appear
         <strong>right in the session window</strong>: matched message rows are tinted green/red, and
         selecting a message shows each asserted tag in the detail panel with
-        <strong>expected vs actual</strong> &mdash; red where it failed. A tag asserted inside a
-        repeating group lights up only the group entry it targets (by identity), with the entry named
-        in the failure summary.</li>
-        <li><strong>Relax/constrain at the point of failure</strong> &mdash; no hunting through the
-        editor:
+        <strong>expected vs actual</strong> &mdash; red where it failed. A tag that appears more than once
+        shows one row per <strong>occurrence</strong>, so the second party entry's <code>PartyRole</code> is
+        checked and reported separately from the first's.</li>
+        <li><strong>Reconcile the failure</strong> &mdash; one surface, and it can see both sides.
+        <p>The message viewer <em>diagnoses</em>: it tints the failed message red and shows expected against
+        actual, so you see what broke without going anywhere. It does not <em>fix</em>, and that is
+        deliberate. The viewer renders the message that arrived, so it has no row for anything that did not
+        &mdash; a tag the venue <em>stopped</em> sending, the most ordinary way a venue regresses, has
+        nothing to click. It gains one action: <strong>Reconcile assertions &rarr;</strong>.</p>
+        <p>That opens the <strong>reconcile view</strong>, which shows the failed step as a
+        <strong>diff</strong> &mdash; the expectation you captured beside the message that actually arrived,
+        aligned the way <code>git diff</code> aligns two files. Every kind of failure becomes one row with
+        one obvious fix:</p>
         <ul>
-            <li><strong>Quick fixes, right on the red row:</strong> each failed tag offers
-            <em>accept actual</em> (the run's value becomes the expected one; a missing tag becomes an
-            <code>absent</code> assertion), <em>presence only</em> (the tag must exist, value is
-            volatile), and <em>drop check</em>. Clicks accumulate as <strong>pending edits</strong>
-            (a chip again = undo) and nothing is written until you press
-            <strong>Save to scenario</strong> on the failure banner &mdash; <strong>Discard</strong>
-            drops the drafts. On save the edited rows immediately re-check against that same message
-            ("would now pass"); re-run the scenario to confirm for real.</li>
-            <li><strong>Deeper edits:</strong> the failure banner's <strong>Edit assertion&hellip;</strong>
-            button opens the Scenarios editor <em>directly on the failing step</em>, failed rows
-            tinted. Each matcher row shows two preview dots: against the captured golden message and
-            <strong>against the run's actual message</strong> &mdash; edit the matcher (regex,
-            tolerance, oneOf, group path&hellip;) until the second dot turns green, then save. The
-            session window with the failed run stays open next to it, so nothing about the failure is
-            lost while you edit.</li>
+            <li><strong>The value changed</strong> &mdash; <em>Accept actual</em> (which re-seeds the row,
+            keeping it numeric or exact as it was, rather than flattening it), <em>Loosen</em> (presence,
+            one-of, a numeric tolerance, a regex), or <em>Drop</em>.</li>
+            <li><strong>The venue sent a tag you don't assert</strong> &mdash; <em>Assert it</em>, seeded
+            from its type and inserted where it pairs, or ignore it.</li>
+            <li><strong>A tag you assert didn't arrive</strong> &mdash; <em>Assert absent</em>, or drop the
+            row.</li>
+            <li><strong>An entry moved</strong> &mdash; the reordered block is bracketed as one unit with a
+            single <em>Accept new order</em>. Never per-row arrows: moving one row of a repeating group would
+            silently swap which occurrence two rows refer to, which is the assert-the-wrong-field failure
+            this model exists to make impossible.</li>
         </ul>
-        Loosen a volatile field (e.g. <code>LastPx</code> &rarr; presence, or numeric with a
-        tolerance), attach a repeating-group <em>path</em> to match a group entry by identity, then
-        save and re-run to confirm it's green.</li>
+        <p>Nothing is written until you press <strong>Save</strong> &mdash; the same batched discipline as
+        the message editor. <strong>Undo last</strong> takes back one fix; <strong>Discard</strong> drops
+        the lot.</p>
+        <p>Two rows are deliberately <em>not</em> offered <em>Accept actual</em>: a
+        <strong>timestamp</strong> (<code>~now &plusmn;60s</code>), because accepting it would pin the
+        scenario to a moment that will never come again, and an <strong>echoed id</strong>
+        (<code>${out.D.11}</code>), because accepting it would pin the scenario to this run's id and delete
+        the correlation check. Loosen or drop those instead.</p></li>
     </ol>
     <p>Each step keeps its own <strong>session</strong> (a dropdown in the step detail), so one
     scenario can span multiple sessions &mdash; drive an initiator, assert on an acceptor, correlate

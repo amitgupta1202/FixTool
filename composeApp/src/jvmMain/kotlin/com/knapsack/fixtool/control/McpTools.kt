@@ -22,8 +22,9 @@ object McpTools {
                 "fixtool_syntax",
                 "The reference for FixTool's two mini-languages, as markdown: template expressions " +
                     "(\${uuid}, \${now+1d}, \${out.D.11}, \${var = ...} — how to parameterize what you send, and " +
-                    "which contexts resolve them) and matchers (how to assert what came back, including 'path' " +
-                    "for repeating groups). Read this BEFORE authoring a scenario, a templated message, or an " +
+                    "which contexts resolve them) and matchers (how to assert what came back: fields[] is an ORDERED " +
+                    "list, the k-th row for a tag asserts the k-th occurrence of it, and there is no 'path'). " +
+                    "Read this BEFORE authoring a scenario, a templated message, or an " +
                     "expectation — it is the only complete statement of either grammar.",
             ),
             tool("fixtool_health", "Check that the control server is reachable; returns status and session count."),
@@ -200,7 +201,12 @@ object McpTools {
                 "Assert a received message against an expectation — the machine-check that replaces eyeballing a " +
                     "response. Selects the message like fixtool_select (by messageType/direction/index), or awaits " +
                     "one for up to timeoutMs. Returns {passed, tags:[{tag, matcher, expected, actual, passed, index, " +
-                    "occurrence, status}]}; status is ok|value|missing|unexpected|moved|invalid.\n\n" +
+                    "occurrence, status}]}; a tag's status is ok|value|missing|unexpected|moved|invalid.\n\n" +
+                    "A TOP-LEVEL status means nothing was judged: 'timeout' (no matching message arrived) or " +
+                    "'no-wire-bytes' (FixTool could not read the message's bytes, so it does not know the venue's " +
+                    "field order and REFUSES to evaluate an order-sensitive assertion against a guess). On " +
+                    "no-wire-bytes, tags[] is empty and passed is false — but the fault is FixTool's, NOT the " +
+                    "venue's. Do not report it as a venue regression.\n\n" +
                     "ORDER MATTERS. fields[] is an ORDERED list of rows, and the order is part of the assertion:\n" +
                     "  * The k-th row for a tag asserts the k-th occurrence of that tag. Two party entries = two 448 " +
                     "rows and two 452 rows; the second 452 row checks the second entry. There is no group path — " +
@@ -240,7 +246,13 @@ object McpTools {
                     "DeliverToLocationID(145), and OrigSendingTime(122) — tighten one to exact if the scenario is " +
                     "about routing. NOT asserted at all, and reported in notAsserted: the session envelope " +
                     "8/9/10/34/49/52/56/369. Selects by messageType/direction/index like fixtool_select. " +
-                    "Returns {messageType, mode, fields:[...], notAsserted:[...]} ready to edit and pass to fixtool_assert.",
+                    "Returns {messageType, mode, fields:[...], notAsserted:[...]} ready to edit and pass to fixtool_assert.\n\n" +
+                    "Rows come back in WIRE ORDER, one per occurrence of each tag — the order is part of the " +
+                    "assertion (see fixtool_assert), so pass fields[] through UNSORTED and UN-DE-DUPLICATED. " +
+                    "Sorting it by tag, or collapsing the repeated 448/447/452 rows of a two-party group, silently " +
+                    "re-aims every assertion.\n\n" +
+                    "Returns an error instead when FixTool has no wire bytes for the message: without the venue's " +
+                    "field order, a seeded expectation would assert an order the venue never sent.",
                 props(
                     "session" to string("session id/title/index; default active"),
                     "messageType" to string("FIX msg type to select, e.g. 8"),
@@ -254,7 +266,7 @@ object McpTools {
                     "replays). Body is the scenario JSON: {name, profile?, userTags?, setup?:[step], steps:[step], " +
                     "teardown?:[step]}. A step is {type, ...}: send {raw, session?}; wait {session?, state?, match?, " +
                     "timeoutMs?}; expect {session?, direction?, match?, timeoutMs?, expectation:{messageType?, mode?, " +
-                    "fields:[{tag, matcher, path?}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
+                    "fields:[{tag, matcher}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
                     "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create. " +
                     "PARAMETERIZE IT: a send's raw, a match value and a reference matcher all resolve \${...} " +
                     "expressions — always, with no resolve flag — over one variable scope that persists across every " +

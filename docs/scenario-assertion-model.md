@@ -1,6 +1,6 @@
 # Scenario assertions: the sequence model
 
-**Status:** proposal. Replaces the group-path assertion model in
+**Status:** implemented. Replaces the group-path assertion model in
 [`fixtool-assert-spec.md`](./fixtool-assert-spec.md) and
 [`repeatable-scenarios-proposal.md`](./repeatable-scenarios-proposal.md).
 
@@ -356,12 +356,56 @@ this whole exercise exists to remove.
 3. ~~Reference matchers across occurrences.~~ **Decided: references stay scalar.** No current flow needs
    "the second leg's ClOrdID echoes the second order". It stays additive: a later `${out.D.11#2}` is a
    resolver change only, with no change to the scenario format, so nothing captured now needs recapture.
-4. **Re-seed granularity.** "Re-seed from this message" replaces a whole step. Is a per-row re-seed
-   worth having, or does Accept-actual already cover it? *(Open — a reconcile-view question, so it is
-   answered when that view is built.)*
-5. **The wire-order fallback.** The engine reads `FixMessage.rawMessage`, which for an incoming message
-   prefers the **actual bytes off the wire** and falls back to QuickFIX's `toString()` when the raw
-   capture misses. QuickFIX re-serialises body fields in ascending tag order, which is *not* the order
-   the venue sent — so on that fallback path an order-sensitive assertion could go red for a reason that
-   has nothing to do with the venue. The fallback is believed rare (it needs the raw-capture log to miss),
-   but it is the one place where "the wire order" is not actually the wire order. *(Open.)*
+4. ~~Re-seed granularity.~~ **Decided: Accept-actual *is* the per-row re-seed — once it stops flattening
+   the row.** It did not cover the case; it was actively destroying it. `acceptActual` wrote `Exact(actual)`
+   over *whatever matcher the row had*, so one click on a numeric row threw away its tolerance and its
+   format-robustness: `Numeric(500000, ±0)` parses both sides as numbers and survives a venue that starts
+   sending `500000.00`, and `Exact("500000")` goes red on it. The seeder chose numeric for that field on
+   purpose and the reconcile view was quietly un-choosing it.
+
+   It re-seeds now, keeping the matcher's kind and moving only its baseline. And on two kinds there is
+   nothing to accept, so the button is not drawn:
+
+   - **Temporal.** `~now ±60s` failing is a statement about a *moment*, not a value. Accepting the actual
+     pins the row to a timestamp that will not recur, so the step is red on every run from then on — and the
+     author does the only thing left, loosens it to `presence` or drops it, and the scenario silently stops
+     checking the timestamp. A red that leads to a deleted assertion is a green by a longer route.
+   - **Reference.** Accepting an echoed id pins the assertion to this run's ClOrdID and deletes the
+     cross-step binding the row exists to express.
+
+   The rule lives in `ScenarioReconcile.canAcceptActual`, not in the button that happens to draw it, so the
+   view and the engine cannot come to differ about it. No separate per-row re-seed action is needed.
+5. ~~The wire-order fallback.~~ **Decided: the engine reads the venue's bytes, or it refuses to judge.**
+
+   It was worse than the question assumed. QuickFIX's `toString()` does not merely sort the body by tag —
+   with no `fieldOrder` set it emits the flat fields in ascending order and then **appends every repeating
+   group at the end of the body** (`FieldMap.calculateString`, QFJ 2.3.2). A party block captured mid-message
+   came back after `Text`. It is not a subtle reshuffle; it is a message no venue sent, wearing SOH and
+   `tag=value` so that nothing downstream could tell.
+
+   The blast radius was a **false red, never a false green** — pairing looks at the tag and the position and
+   never at whether a matcher would pass, so a reordering can only fail to pair. But it was the worst kind of
+   false red: it read as a venue regression and it was not one.
+
+   Three changes:
+
+   - **Incoming messages read `quickfix.Message.toRawString()`** — the bytes QFJ retained when it parsed
+     them. It had been there all along and this repo never called it, which made `RawMessageCapturingLogFactory`
+     a second implementation of a fact QuickFIX already had. It is deleted. (It could not have been right
+     anyway: its key carried no BeginString or session qualifier, so two sessions sharing a CompID pair
+     addressed the same slot; its read was destructive, so a PossDup replay found nothing; and every message
+     QFJ rejected before dispatch leaked its entry for the life of the process.)
+   - **`wireRaw` is the venue's bytes or it is null, and nothing guesses.** `wireFields` returns null rather
+     than falling back to the `|`-substituted display string — on the only path that reached that fallback,
+     the display string was *itself* built from `toString()`, so the graceful degradation was the bug in
+     disguise. The runner, `fixtool_assert` and `fixtool_capture_expectation` fail loudly and **name FixTool
+     rather than the counterparty**: a red that sends an engineer hunting a venue bug that does not exist is
+     barely better than a green.
+   - **Outgoing messages keep `toString()`, because there it genuinely is the wire** — `Session.sendRaw`
+     serialises the same object on the next statement and writes that string. With one exception: for a Logon
+     carrying `ResetSeqNumFlag=Y`, QFJ calls `toAdmin`, *then* resets and rewrites `MsgSeqNum`, *then*
+     serialises. We were recording a sequence number the venue never saw, and an assertion could have passed
+     on it. Those messages now carry no wire bytes.
+
+   The order of the fields the engine reads is half of what an expectation asserts. It is not something to be
+   reconstructed on a best-effort basis.

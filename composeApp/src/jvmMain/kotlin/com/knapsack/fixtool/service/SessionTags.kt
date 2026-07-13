@@ -1,20 +1,21 @@
 package com.knapsack.fixtool.service
 
 /**
- * The session/transport layer's tags: the envelope, not the business message — CompIDs, sequence
- * numbers, the FIX version, sending times, the checksum.
+ * The session/transport layer's tags — the envelope rather than the business message.
  *
- * They belong to the connection, not to the behaviour under test. A scenario is captured on one
- * environment, committed, and replayed on another, so asserting SenderCompID(49) or BeginString(8)
- * as Exact fails every step on a teammate's session for reasons that have nothing to do with what
- * the scenario is checking.
- *
- * One list, three consumers — capture strips them from Send steps, the seeder never asserts them,
- * and STRICT never counts them as unexpected extras. They were three separate lists that disagreed,
- * and the disagreement is exactly what made captured scenarios non-portable.
+ * Two different questions, so two different lists. Conflating them cost either correctness or
+ * coverage, both ways round: one list too short and captured scenarios asserted the CompIDs of the
+ * environment they were captured on (red on everyone else's session); one list too long and tags
+ * that carry real meaning — PossDupFlag on a resend, the SubIDs a venue routes on — silently stopped
+ * being asserted at all.
  */
 object SessionTags {
-    val TRANSPORT: Set<Int> =
+    /**
+     * Stripped from a **Send** step: the FIX engine supplies them on the way out, so a captured raw
+     * that carried them would fight the session (stale sequence numbers, another environment's
+     * CompIDs, a checksum for different bytes).
+     */
+    val REWRITTEN_ON_SEND: Set<Int> =
         setOf(
             8, // BeginString
             9, // BodyLength
@@ -35,5 +36,26 @@ object SessionTags {
             144, // OnBehalfOfLocationID
             145, // DeliverToLocationID
             369, // LastMsgSeqNumProcessed
+        )
+
+    /**
+     * Never asserted on an **Expect** step, and never counted as an unexpected extra in STRICT: these
+     * identify the connection and the moment, not the behaviour under test, so a scenario captured on
+     * DEV would go red on QA on every step purely because the CompIDs differ.
+     *
+     * Deliberately narrower than [REWRITTEN_ON_SEND]. PossDupFlag(43), PossResend(97),
+     * OrigSendingTime(122) and the SubID/LocationID routing tags are *not* here: a resend or routing
+     * scenario exists precisely to assert them, and silently dropping them would let it pass while
+     * checking nothing.
+     */
+    val NEVER_ASSERTED: Set<Int> =
+        setOf(
+            8, // BeginString — the dialect's version, not the behaviour
+            9, // BodyLength
+            10, // CheckSum
+            34, // MsgSeqNum — depends on session history
+            49, // SenderCompID — whose environment this is
+            52, // SendingTime — the moment, not the content
+            56, // TargetCompID
         )
 }

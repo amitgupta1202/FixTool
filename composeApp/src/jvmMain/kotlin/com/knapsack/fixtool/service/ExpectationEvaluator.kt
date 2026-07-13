@@ -82,9 +82,40 @@ object ExpectationEvaluator {
         expectation: Expectation,
         referenceResolver: (String) -> String? = { null },
         now: () -> Instant = { Instant.now() },
-    ): List<TagResult> {
+    ): List<TagResult> =
+        diff(message, expectation, referenceResolver, now)
+            .filterNot { it.unasserted && expectation.mode == MatchMode.OPEN }
+            .map { it.result }
+
+    /** One line of the diff: where a row landed, and the verdict on it. */
+    data class DiffRow(
+        val alignment: Alignment,
+        val result: TagResult,
+    ) {
+        /** A field the reply carried that no row mentions. OPEN ignores it; the reconcile view offers it. */
+        val unasserted: Boolean get() = alignment.row == null
+    }
+
+    /**
+     * The whole diff between an expectation and a message — **including the fields the reply carries that
+     * no row mentions**, which OPEN drops from its results and the reconcile view has to show.
+     *
+     * The one alignment. The runner judges from it and the reconcile view draws from it, so the two
+     * cannot disagree about what failed or where: a view that ran its own diff would eventually offer a
+     * fix for a row the engine was not actually asserting.
+     */
+    fun diff(
+        message: MessageView,
+        expectation: Expectation,
+        referenceResolver: (String) -> String? = { null },
+        now: () -> Instant = { Instant.now() },
+    ): List<DiffRow> {
         val wire = message.fields()
-        return align(expectation, wire).mapNotNull { judge(it, expectation, wire, referenceResolver, now) }
+        val alignment = align(expectation, wire)
+        val claimed = alignment.mapNotNull { if (it.row != null) it.wireIndex else null }.toSet()
+        return alignment.map { a ->
+            DiffRow(a, judge(a, expectation, wire, claimed, referenceResolver, now))
+        }
     }
 
     /**
@@ -126,14 +157,22 @@ object ExpectationEvaluator {
         // problems) or through a row that could not be paired, which is the same field reported as
         // MOVED. STRICT used to emit both for a reordered tag, with contradictory text: "expected
         // <absent>, actual Y" beside "expected presence — present, but not in this position".
-        val spokenFor =
-            expectation.fields.filter { it.matcher is Matcher.Absent }.map { it.tag }.toSet() +
-                expectation.fields.withIndex().filter { it.index !in claimOf.keys }.map { it.value.tag }
+        val absentRows =
+            expectation.fields
+                .filter { it.matcher is Matcher.Absent }
+                .map { it.tag }
+        val unpairedRows =
+            expectation.fields
+                .withIndex()
+                .filter { it.index !in claimOf.keys }
+                .map { it.value.tag }
+        val spokenFor = (absentRows + unpairedRows).toSet()
 
         // Emit in reading order: each row where it sits, with the reply's unclaimed fields interleaved
         // at the position they actually occupy — so the result reads like a diff, top to bottom.
         val out = mutableListOf<Alignment>()
         var emittedUpTo = 0
+
         fun emitExtrasBefore(limit: Int) {
             while (emittedUpTo < limit) {
                 val w = emittedUpTo++
@@ -165,28 +204,45 @@ object ExpectationEvaluator {
     private fun expectedOccurrence(expectation: Expectation, index: Int): Int =
         (0 until index).count { expectation.fields[it].tag == expectation.fields[index].tag }
 
+    @Suppress("LongParameterList")
     private fun judge(
         a: Alignment,
         expectation: Expectation,
         wire: List<Pair<Int, String>>,
+        /** Wire positions some row already claimed — a value sitting in one of them has not "moved" here. */
+        claimed: Set<Int>,
         referenceResolver: (String) -> String?,
         now: () -> Instant,
-    ): TagResult? {
+    ): TagResult {
         val row = a.row
         if (row == null) {
-            // A field the reply carried that no row mentions. OPEN was told to tolerate exactly this.
-            if (expectation.mode == MatchMode.OPEN) return null
+            // A field the reply carried that no row mentions. OPEN was told to tolerate exactly this, so
+            // it is not a failure there — but it is still a *row of the diff*, and the reconcile view
+            // needs it to offer "Add assertion". Only STRICT calls it a failure.
+            val strict = expectation.mode == MatchMode.STRICT
             return TagResult(
-                a.tag, "strict: unexpected", "<absent>", a.actual,
-                passed = false, index = null, occurrence = a.occurrence, status = TagStatus.UNEXPECTED,
+                a.tag,
+                if (strict) "strict: unexpected" else "not asserted",
+                "<absent>",
+                a.actual,
+                passed = !strict,
+                index = null,
+                occurrence = a.occurrence,
+                status = TagStatus.UNEXPECTED,
             )
         }
 
         val describe = describe(row.matcher)
         row.matcher.validationError()?.let {
             return TagResult(
-                a.tag, describe, "invalid regex: $it", a.actual,
-                passed = false, index = a.index, occurrence = a.occurrence, status = TagStatus.INVALID,
+                tag = a.tag,
+                matcher = describe,
+                expected = "invalid regex: $it",
+                actual = a.actual,
+                passed = false,
+                index = a.index,
+                occurrence = a.occurrence,
+                status = TagStatus.INVALID,
             )
         }
 
@@ -209,7 +265,15 @@ object ExpectationEvaluator {
             // the venue sends 37 first describes a message nobody sent. It is a real failure and it
             // stays one — but the row says how to fix it, because "moved" on its own reads like a venue
             // bug when it is usually a hand-written expectation in the wrong order.
-            val elsewhere = wire.any { it.first == row.tag && matches(row.matcher, it.second, referenceResolver, now) }
+            // "Moved" means the value is somewhere **no other row is already checking**. Without that
+            // qualifier, a captured two-party expectation replayed against a one-party reply reports its
+            // surplus rows as "moved" — because the surviving entry satisfies them — and the view offers
+            // to re-order an expectation that has nothing to re-order. The venue sent fewer entries; the
+            // rows are missing, and saying so is the only thing that leads the author anywhere.
+            val elsewhere =
+                wire.withIndex().any { (i, f) ->
+                    i !in claimed && f.first == row.tag && matches(row.matcher, f.second, referenceResolver, now)
+                }
             val expected = expectedText(row.matcher, referenceResolver, now)
             return TagResult(
                 a.tag,

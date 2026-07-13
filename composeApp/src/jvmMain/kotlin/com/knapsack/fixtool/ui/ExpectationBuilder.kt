@@ -105,7 +105,11 @@ object ExpectationDrafts {
 
 /**
  * Authors an [Expectation] from a captured message: each row is a tag with an editable matcher chip
- * ([MatcherEditor]) and a **live green/red preview** against the golden message. Matchers are
+ * ([MatcherEditor]) and a **live green/red preview** against the golden message.
+ *
+ * This is the surface for an expectation that has not been run. A step that *failed* a run is repaired
+ * in the [ReconcileView] instead, which can see the message that arrived alongside the expectation — and
+ * so can show the row the venue stopped sending, which this builder has no way to render. Matchers are
  * pre-seeded from the dictionary, and **Verify generalizes** re-checks the whole expectation against a
  * second instance so an over-specified field (e.g. an `exact` timestamp) is flagged.
  */
@@ -116,10 +120,6 @@ fun ExpectationBuilder(
     goldenView: MessageView?,
     secondView: MessageView? = null,
     initialMode: MatchMode = MatchMode.OPEN,
-    /** The message that failed the last run's assertions — adds a would-now-pass preview dot per row. */
-    failedView: MessageView? = null,
-    /** Tags the last run failed on — those rows are tinted red. */
-    failedTags: Set<Int> = emptySet(),
     onSave: ((Expectation) -> Unit)? = null,
     onChange: ((Expectation) -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -169,7 +169,6 @@ fun ExpectationBuilder(
     val current = expectation()
     val included = includedRows()
     val livePasses = previewPasses(goldenView, current, included)
-    val runPasses = previewPasses(failedView, current, included)
     // STRICT's unexpected-tag failures carry no row index, so they never reach a row's dot. Counting
     // them here is what stops the builder swearing an all-green preview for an expectation that cannot
     // pass its own golden message — untick one row in STRICT and it fails on that very tag.
@@ -197,15 +196,6 @@ fun ExpectationBuilder(
             unlistedInStrict = unlistedInStrict,
             onSave = onSave?.let { save -> { save(expectation()) } },
         )
-        if (failedView != null) {
-            Text(
-                text = "▶ second dot: this matcher against the last run's actual message — edit until it turns ✓ " +
-                    "(reference matchers show · here: they need a live run's scope).",
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 10.sp,
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
-        }
         // Plain Column (not LazyColumn) so this builder can be embedded inside scrollable parents
         // (the step detail panel) without the "infinity max height" nesting crash.
         Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.fillMaxWidth()) {
@@ -215,9 +205,6 @@ fun ExpectationBuilder(
                     draft = draft,
                     showOccurrence = draft.tag in repeated,
                     livePass = livePasses[index],
-                    runPass = runPasses[index],
-                    showRunDot = failedView != null && draft.included,
-                    runFailed = draft.tag in failedTags,
                     overSpecified = overSpecified?.contains(draft.tag) == true,
                     // The tick belongs to the tag; the matcher belongs to the row. See setIncluded.
                     onIncludedChange = { setIncluded(draft.tag, it) },
@@ -301,18 +288,13 @@ private fun FieldDraftRow(
     onChange: (FieldDraft) -> Unit,
     onIncludedChange: (Boolean) -> Unit,
     showOccurrence: Boolean = false,
-    runPass: Boolean? = null,
-    showRunDot: Boolean = false,
-    runFailed: Boolean = false,
 ) {
-    val rowBackground = if (runFailed) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant
-    Column(modifier = Modifier.fillMaxWidth().background(rowBackground).padding(4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceVariant).padding(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             // Ticks the whole *tag*, every occurrence of it — see ExpectationBuilder.setIncluded. To
             // stop caring about one entry, keep its row and loosen it; its position addresses the others.
             Checkbox(checked = draft.included, onCheckedChange = onIncludedChange)
             PreviewDot(livePass, overSpecified)
-            if (showRunDot) PreviewDot(runPass, overSpecified = false)
             Text("${draft.tag}", color = AppTheme.Colors.tagNumber, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.width(40.dp))
             // Which entry this row is. Without it, four identical "452 PartyRole" rows are four rows the
             // author cannot tell apart — and the one they mean to edit is a guess.

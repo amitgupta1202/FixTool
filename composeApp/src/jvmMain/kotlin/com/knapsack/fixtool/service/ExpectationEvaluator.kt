@@ -12,6 +12,8 @@ import com.knapsack.fixtool.model.scenario.validationError
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
@@ -349,7 +351,7 @@ object ExpectationEvaluator {
         return when (matcher.kind) {
             TemporalKind.TODAY -> parseFixDate(actual) == LocalDate.ofInstant(now(), ZoneOffset.UTC)
             TemporalKind.NOW_WITHIN_TOLERANCE -> {
-                val instant = parseFixTimestamp(actual) ?: return false
+                val instant = parseFixTimestamp(actual, now) ?: return false
                 kotlin.math.abs(instant.epochSecond - now().epochSecond) <= matcher.toleranceSeconds
             }
         }
@@ -363,11 +365,41 @@ object ExpectationEvaluator {
             null
         }
 
+    /**
+     * Parse the timestamp shapes the **seeder actually seeds**, not just the one this used to know about.
+     *
+     * `ExpectationSeeder` maps `UTCTIMESTAMP`, `UTCTIMEONLY`, `TZTIMESTAMP`, `TZTIMEONLY` and `TIME` to a
+     * temporal matcher, and this accepted only `yyyyMMdd-HH:mm:ss[.SSS]`. So a `UTCTIMEONLY` field — an
+     * MDEntryTime on any MarketDataSnapshot — parsed as null, the matcher returned false, and the row was
+     * **hard-wired to fail**: red on the very message it was captured from, and on every run after that, with
+     * "~now ±60s" sitting beside the perfectly correct value. The only repairs the UI offers on a temporal row
+     * are Loosen and Drop, so the field silently stopped being checked. A red that leads straight to deleted
+     * coverage is a green by a longer route, and a seeder that seeds a matcher its own evaluator cannot satisfy
+     * is two components disagreeing about what a timestamp is.
+     *
+     * A time-only value carries no date, so it is read as a time **today** (UTC) — which is what it means on
+     * the wire, and what makes "~now ±60s" a sensible thing to ask of it.
+     */
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    private fun parseFixTimestamp(value: String): Instant? {
+    private fun parseFixTimestamp(value: String, now: () -> Instant): Instant? {
         for (pattern in TIMESTAMP_PATTERNS) {
             try {
                 return LocalDateTime.parse(value, DateTimeFormatter.ofPattern(pattern)).toInstant(ZoneOffset.UTC)
+            } catch (e: Exception) {
+                // try next pattern
+            }
+        }
+        for (pattern in OFFSET_TIMESTAMP_PATTERNS) {
+            try {
+                return OffsetDateTime.parse(value, DateTimeFormatter.ofPattern(pattern)).toInstant()
+            } catch (e: Exception) {
+                // try next pattern
+            }
+        }
+        for (pattern in TIME_ONLY_PATTERNS) {
+            try {
+                val time = LocalTime.parse(value, DateTimeFormatter.ofPattern(pattern))
+                return LocalDate.ofInstant(now(), ZoneOffset.UTC).atTime(time).toInstant(ZoneOffset.UTC)
             } catch (e: Exception) {
                 // try next pattern
             }
@@ -420,5 +452,21 @@ object ExpectationEvaluator {
             "yyyyMMdd-HH:mm:ss.SSSSSS",
             "yyyyMMdd-HH:mm:ss.SSS",
             "yyyyMMdd-HH:mm:ss",
+        )
+
+    /** TZTIMESTAMP — the same moment, carrying its offset. */
+    private val OFFSET_TIMESTAMP_PATTERNS =
+        listOf(
+            "yyyyMMdd-HH:mm:ss.SSSXXX",
+            "yyyyMMdd-HH:mm:ssXXX",
+        )
+
+    /** UTCTIMEONLY / TZTIMEONLY / TIME — a time of day, read as that time TODAY. */
+    private val TIME_ONLY_PATTERNS =
+        listOf(
+            "HH:mm:ss.SSSSSSSSS",
+            "HH:mm:ss.SSSSSS",
+            "HH:mm:ss.SSS",
+            "HH:mm:ss",
         )
 }

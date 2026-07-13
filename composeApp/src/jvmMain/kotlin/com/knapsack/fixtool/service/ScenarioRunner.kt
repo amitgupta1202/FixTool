@@ -253,7 +253,18 @@ class ScenarioRunner(
         if (type != null && msg.messageType != type) return false
         val dir = predicate?.direction ?: direction
         if (dir != null && !directionMatches(msg, dir)) return false
-        predicate?.fields?.forEach { if (msg.valueOfTag(it.tag) != it.value) return false }
+        // Read through the SAME door the engine judges through. This used to ask FixMessage.valueOfTag, which
+        // walks QuickFIX's parsed field maps and is blind to any tag inside a repeating group — it answers
+        // null for one. So a bind constraint on a grouped tag could never match, and the step timed out
+        // looking for a message that was sitting right there. Two deciders for "what is tag T in this
+        // message", and the one deciding WHICH MESSAGE a step binds to was the weaker of them.
+        val fields = predicate?.fields
+        if (!fields.isNullOrEmpty()) {
+            val wire = host.view(msg)?.fields() ?: return false
+            fields.forEach { tv ->
+                if (wire.firstOrNull { it.first == tv.tag }?.second != tv.value) return false
+            }
+        }
         return true
     }
 

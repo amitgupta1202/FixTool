@@ -447,6 +447,11 @@ class ControlServer(
             put("direction", msg.direction.name)
             put("messageType", msg.messageType)
             put("raw", msg.rawMessage)
+            // False when FixTool has no wire bytes for this message: `fields` below is then a BEST-EFFORT read
+            // of the display string, in QuickFIX's field order rather than the venue's, and `fixtool_assert`
+            // will refuse the message outright. Without this flag the read surface and the assert surface
+            // silently disagreed about what arrived — the agent is shown a message, then told it does not exist.
+            put("wireOrderKnown", msg.wireRaw != null)
             put(
                 "fields",
                 buildJsonArray {
@@ -522,6 +527,15 @@ class ControlServer(
         val strict = body["mode"]?.jsonPrimitive?.content?.lowercase() == "strict"
         val mode = if (strict) MatchMode.STRICT else MatchMode.OPEN
         val fieldsArray = body["fields"]?.jsonArray ?: return errorObject("missing 'fields' (per-tag matchers)")
+        // An empty rows array is not an assertion. `results.all { passed }` on an empty list is `true`, so this
+        // answered {passed: true, tags: []} — a check that verified nothing and reported success, to an agent
+        // that will record it as a green. The `?:` above only guarded the key being *absent*.
+        if (fieldsArray.isEmpty()) {
+            return errorObject(
+                "'fields' is empty: an expectation with no rows asserts nothing and would pass every run " +
+                    "without checking anything. Send at least one {tag, matcher}.",
+            )
+        }
 
         val expectation =
             try {
@@ -778,12 +792,17 @@ class ControlServer(
         val captured = chosen.map { sess ->
             ScenarioCapture.CapturedSession(sess.title, onEdt { sess.messages.value.filterIsInstance<FixMessage>() })
         }
+        // scan(), not capture(): a capture is a CLAIM ABOUT COVERAGE, and a message left out has to be
+        // reported. The UI honours that (ScenarioCaptureReview's UnreadableNotice); this surface silently
+        // discarded them, so an agent writing a CI job was handed a scenario that omits a reply, believes it
+        // covers the whole flow, and stays green while the venue regresses on the message that was dropped.
+        val scan = ScenarioCapture.scan(captured)
         val scenario =
-            ScenarioCapture.capture(
+            ScenarioCapture.captureFrom(
                 id = java.util.UUID.randomUUID().toString(),
                 name = name,
                 profile = profile,
-                sessions = captured,
+                selection = scan.candidates,
                 dictionary = onEdt { viewModel.dictionary },
             )
         val ok = viewModel.scenarioService.save(scenario)
@@ -792,6 +811,27 @@ class ControlServer(
             put("id", scenario.id)
             put("name", scenario.name)
             put("steps", scenario.steps.size)
+            if (scan.unreadable.isNotEmpty()) {
+                put(
+                    "omitted",
+                    buildJsonArray {
+                        scan.unreadable.forEach { m ->
+                            add(
+                                buildJsonObject {
+                                    put("messageType", m.messageType)
+                                    put("direction", m.direction.name)
+                                    put(
+                                        "reason",
+                                        "FixTool has no wire bytes for this message, so its field order is " +
+                                            "unknown and an assertion seeded from it would check an order the " +
+                                            "venue never sent. THIS SCENARIO DOES NOT COVER IT.",
+                                    )
+                                },
+                            )
+                        }
+                    },
+                )
+            }
             put("scenario", ScenarioCodec.toJson(scenario))
         }
     }

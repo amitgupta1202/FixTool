@@ -223,27 +223,38 @@ class FixMessageViewModel(
         if (!_showScenariosDialog.value) _showScenariosDialog.value = true
     }
 
-    // Pending relax-at-point-of-failure edits from the detail panel's failed rows, keyed by
-    // (tag, path). Batched deliberately: nothing touches the scenario file until an explicit Save,
-    // and Discard drops the lot — no write-per-click, no bulk "make it all pass".
+    // Pending relax-at-point-of-failure edits from the detail panel's failed rows, per **message**:
+    // the panel follows the message selection, and two failing messages can expect the same tag, so
+    // edits keyed by (tag, path) alone would be saved into whichever step the user happened to be
+    // looking at last. Batched deliberately: nothing touches the scenario file until an explicit
+    // Save, and Discard drops that message's lot — no write-per-click, no bulk "make it all pass".
     private val _pendingAssertionEdits =
-        mutableStateOf<Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Edit>>(emptyMap())
-    val pendingAssertionEdits: Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Edit> get() = _pendingAssertionEdits.value
+        mutableStateOf<Map<FixMessage, Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Edit>>>(emptyMap())
+
+    /** The pending quick-fixes authored against [message] — never another message's. */
+    fun pendingAssertionEdits(message: FixMessage?): Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Edit> =
+        message?.let { _pendingAssertionEdits.value[it] } ?: emptyMap()
 
     /** Toggle a quick-fix on a failed tag row: same verb again = undo, different verb = replace. */
-    fun toggleAssertionQuickFix(tagResult: TagResult, kind: AssertionQuickFixes.Kind) {
+    fun toggleAssertionQuickFix(message: FixMessage, tagResult: TagResult, kind: AssertionQuickFixes.Kind) {
         val key = tagResult.tag to tagResult.path
-        val current = _pendingAssertionEdits.value
-        _pendingAssertionEdits.value =
+        val current = pendingAssertionEdits(message)
+        val updated =
             if (current[key]?.kind == kind) {
                 current - key
             } else {
                 current + (key to AssertionQuickFixes.Edit(tagResult.tag, tagResult.path, kind, tagResult.actual))
             }
+        _pendingAssertionEdits.value =
+            if (updated.isEmpty()) {
+                _pendingAssertionEdits.value - message
+            } else {
+                _pendingAssertionEdits.value + (message to updated)
+            }
     }
 
-    fun discardAssertionQuickFixes() {
-        _pendingAssertionEdits.value = emptyMap()
+    fun discardAssertionQuickFixes(message: FixMessage) {
+        _pendingAssertionEdits.value = _pendingAssertionEdits.value - message
     }
 
     /**
@@ -252,7 +263,7 @@ class FixMessageViewModel(
      * honest instant feedback ("would now pass"), with a nudge to re-run for the real confirmation.
      */
     fun saveAssertionQuickFixes(message: FixMessage) {
-        val edits = _pendingAssertionEdits.value.values.toList()
+        val edits = pendingAssertionEdits(message).values.toList()
         if (edits.isEmpty()) return
         val step = assertionResults[message] ?: return
         val ranScenario = _lastRunScenario.value ?: return
@@ -278,7 +289,7 @@ class FixMessageViewModel(
         val updatedScenario =
             saved.copy(steps = saved.steps.toMutableList().apply { this[idx] = expect.copy(expectation = updatedExpectation) })
         if (!scenarioService.save(updatedScenario)) return
-        _pendingAssertionEdits.value = emptyMap()
+        discardAssertionQuickFixes(message) // only this message's — another message's drafts stand
         noteScenarioRun(updatedScenario)
 
         // Re-evaluate only the edited tags (their new matchers are Exact/Presence/Absent — no run

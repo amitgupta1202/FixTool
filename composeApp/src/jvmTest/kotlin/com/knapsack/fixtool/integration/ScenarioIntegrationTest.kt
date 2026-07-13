@@ -178,9 +178,13 @@ class ScenarioIntegrationTest {
 
         // Quick-fix: accept the actual value, save -> the scenario file is rewritten and the
         // in-memory rows flip green against the same message.
-        viewModel.toggleAssertionQuickFix(failed150, com.knapsack.fixtool.service.AssertionQuickFixes.Kind.ACCEPT_ACTUAL)
+        viewModel.toggleAssertionQuickFix(
+            failedMessage,
+            failed150,
+            com.knapsack.fixtool.service.AssertionQuickFixes.Kind.ACCEPT_ACTUAL,
+        )
         viewModel.saveAssertionQuickFixes(failedMessage)
-        assertEquals(0, viewModel.pendingAssertionEdits.size)
+        assertEquals(0, viewModel.pendingAssertionEdits(failedMessage).size)
         assertTrue(viewModel.assertionResults[failedMessage]!!.passed, "edited rows should re-check green")
 
         // The re-run of the saved (now rebaselined) scenario passes for real.

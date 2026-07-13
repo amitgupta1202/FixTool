@@ -12,6 +12,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.regex.PatternSyntaxException
 
 /**
  * A minimal, side-effect-free view of a parsed FIX message that the [ExpectationEvaluator]
@@ -126,7 +127,7 @@ object ExpectationEvaluator {
             is Matcher.Absent -> (actual == null) to "<absent>"
             is Matcher.Presence -> (actual != null) to "<present>"
             is Matcher.Exact -> (actual == matcher.value) to matcher.value
-            is Matcher.Regex -> (actual != null && Regex(matcher.pattern).matches(actual)) to "~/${matcher.pattern}/"
+            is Matcher.Regex -> matchRegex(matcher, actual)
             is Matcher.OneOf -> (actual != null && actual in matcher.values) to matcher.values.joinToString(" | ")
             is Matcher.Numeric -> matchNumeric(matcher, actual) to numericExpected(matcher)
             is Matcher.Temporal -> matchTemporal(matcher, actual, now) to temporalExpected(matcher)
@@ -134,6 +135,22 @@ object ExpectationEvaluator {
                 val resolved = referenceResolver(matcher.expression)
                 (resolved != null && actual == resolved) to (resolved ?: matcher.expression)
             }
+        }
+
+    /**
+     * An unusable pattern is a failed assertion, not an exception.
+     *
+     * The expectation builder re-evaluates on every keystroke, so compiling unguarded took the
+     * workbench down (with the author's unsaved edits) the moment they typed a lone `[` — and a bad
+     * pattern arriving in a saved scenario or over `fixtool_assert` surfaced as a 500 rather than a
+     * red row. The row now says what is wrong with it.
+     */
+    @Suppress("SwallowedException")
+    private fun matchRegex(matcher: Matcher.Regex, actual: String?): Pair<Boolean, String> =
+        try {
+            (actual != null && Regex(matcher.pattern).matches(actual)) to "~/${matcher.pattern}/"
+        } catch (e: PatternSyntaxException) {
+            false to "~/${matcher.pattern}/ (invalid regex)"
         }
 
     private fun matchNumeric(matcher: Matcher.Numeric, actual: String?): Boolean {

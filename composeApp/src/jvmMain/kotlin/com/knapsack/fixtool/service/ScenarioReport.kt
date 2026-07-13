@@ -89,9 +89,25 @@ object ScenarioReport {
             .ifEmpty { "step failed" }
     }
 
+    /**
+     * XML-escapes, and drops what XML 1.0 cannot carry at all.
+     *
+     * A FIX value may hold a newline or a control character; an XML attribute may not. Since the
+     * failure message now always contains actual wire values, one such byte would make a CI parser
+     * reject the whole report — turning "one test failed" into "the report is unreadable", which is a
+     * far worse thing for a build to say.
+     */
+    /** XML 1.0 cannot carry most control characters at all, whether escaped or not. */
+    private fun carriable(c: Char): Boolean = c.code >= 0x20 || c in "\t\n\r"
+
     private fun esc(s: String): String =
-        s.replace("&", "&amp;")
+        s.map { c -> if (carriable(c)) c else ' ' }
+            .joinToString("")
+            .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
+            .replace("\n", "&#10;")
+            .replace("\r", "&#13;")
+            .replace("\t", "&#9;")
 }

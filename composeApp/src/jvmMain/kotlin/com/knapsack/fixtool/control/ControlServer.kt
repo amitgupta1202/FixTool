@@ -450,7 +450,14 @@ class ControlServer(
             put(
                 "fields",
                 buildJsonArray {
-                    FixMessageHelper.parseFixMessage(msg.rawMessage).forEach { (tag, value) ->
+                    // From the venue's bytes, not from `raw`. `raw` substitutes '|' for SOH so a human can
+                    // read it, and that substitution is lossy: `|` is an ordinary character inside a FIX
+                    // value, so splitting `58=Rejected|insufficient margin` on it yields a truncated Text
+                    // field. This array is what an agent is told to assert against — its own tool
+                    // description says "assert against these rather than screenshots" — so it handed the
+                    // agent `58 = "Rejected"`, which fixtool_assert (reading the real bytes) then failed.
+                    // The read surface and the assert surface must agree about what arrived.
+                    FixMessageHelper.fieldsForDisplay(msg).forEach { (tag, value) ->
                         add(
                             buildJsonObject {
                                 put("tag", tag)

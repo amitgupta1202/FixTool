@@ -64,6 +64,17 @@ async function text(method, path, body) {
 const server = new McpServer({ name: "fixtool", version: "1.0.0" });
 
 server.tool(
+  "fixtool_syntax",
+  "The reference for FixTool's two mini-languages, as markdown: template expressions (${uuid}, " +
+    "${now+1d}, ${out.D.11}, ${var = ...} — how to parameterize what you send, and which contexts " +
+    "resolve them) and matchers (how to assert what came back, including 'path' for repeating " +
+    "groups). Read this BEFORE authoring a scenario, a templated message, or an expectation — it is " +
+    "the only complete statement of either grammar.",
+  {},
+  async () => text("GET", "/syntax"),
+);
+
+server.tool(
   "fixtool_health",
   "Check that the FixTool control server is reachable; returns status and session count.",
   {},
@@ -112,9 +123,10 @@ server.tool(
 server.tool(
   "fixtool_panel",
   "Show or hide a UI panel for verification screenshots: connection (the connection/profile " +
-    "editor), editor (message editor), detail (message details), or settings.",
+    "editor), editor (message editor), detail (message details), settings, or scenarios (the " +
+    "scenarios workbench).",
   {
-    panel: z.enum(["connection", "editor", "detail", "settings"]),
+    panel: z.enum(["connection", "editor", "detail", "settings", "scenarios"]),
     show: z.boolean().default(true),
   },
   async ({ panel, show }) => text("POST", "/panel", { panel, show }),
@@ -204,12 +216,15 @@ server.tool(
   "fixtool_send",
   "Send a raw FIX message from a logged-on session. Use pipe- or SOH-delimited FIX, e.g. " +
     '"8=FIX.4.4|35=D|11=ORD1|55=EUR/USD|54=1|38=1000000|40=1|60=20260624-21:47:47|". ' +
-    "QuickFIX/J re-stamps header fields (34/49/52/56) on send. With resolve=true, template " +
-    'expressions in raw (${...}, {n}) are resolved against the session before sending.',
+    "QuickFIX/J re-stamps header fields (34/49/52/56) on send. With resolve=true the ${...} template " +
+    "expressions in raw are resolved against the session first (${uuid}, ${now}, ${out.D.11}, and the " +
+    "per-session ${sessionIndex}/${sessionQualifier}/${sessionTitle}/${sessionSenderCompID}); see " +
+    "fixtool_syntax. Without resolve, raw is sent verbatim — an unresolved ${uuid} goes on the wire as " +
+    "that literal text.",
   {
     raw: z.string().describe("raw FIX message, pipe- or SOH-delimited"),
     session: z.string().optional().describe("session id, title or index; defaults to active session"),
-    resolve: z.boolean().optional().describe("resolve template expressions before sending"),
+    resolve: z.boolean().optional().describe("resolve ${...} expressions before sending; default false"),
   },
   async (args) => {
     const body = { raw: args.raw };
@@ -354,7 +369,10 @@ server.tool(
     "tags; strict also fails on unexpected tags. Each field is {tag, matcher:{type,...}, path?}; " +
     "matcher types: exact (value), presence, absent, regex (pattern), oneOf (values[]), numeric " +
     "(value, tolerance?), temporal (kind today|now_within_tolerance, toleranceSeconds?), reference " +
-    "(expression, e.g. ${out.D.11}).",
+    "(expression, e.g. ${out.D.11} — see fixtool_syntax). path locates a tag inside a repeating group " +
+    "by identity, never by position: {groupTag, identityTag, identityValue, occurrence?} — e.g. " +
+    '{groupTag:453, identityTag:452, identityValue:"1"} is "the NoPartyIDs entry whose PartyRole is ' +
+    '1" (occurrence, default 0, is only needed when that identity is not unique).',
   {
     session: z.string().default("0").describe("session id, title or index"),
     messageType: z.string().optional().describe("FIX msg type to select/await, e.g. \"8\""),
@@ -489,7 +507,8 @@ server.tool(
   "fixtool_acceptor_rules",
   "Inspect a profile's acceptor auto-response rules. (Rules are SET via fixtool_save_profile by " +
     "putting an acceptorResponseRules array in config; each rule is {whenMsgType, whenFields?, " +
-    'responseTemplate} where the template echoes request fields via ${req.<tag>}, ${uuid}, ${now}.)',
+    "responseTemplate}. A responseTemplate understands a restricted subset of the template language — " +
+    "${req.<tag>} to echo a request field, ${uuid} and ${now} — and nothing else; see fixtool_syntax.)",
   { profile: z.string().describe("profile id or name") },
   async ({ profile }) => text("GET", `/acceptor/rules?profile=${encodeURIComponent(profile)}`),
 );
@@ -500,7 +519,12 @@ server.tool(
     "replays (no LLM in the loop). Steps {type,...}: send {raw, session?}; wait {session?, state?, " +
     "match?, timeoutMs?}; expect {session?, direction?, match?, timeoutMs?, expectation:{messageType?, " +
     "mode?, fields:[{tag, matcher, path?}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
-    "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create.",
+    "target?}. match is {messageType?, direction?, fields:[{tag, value}]} (AND). Omit id to create. " +
+    "PARAMETERIZE IT: a send's raw, a match value and a reference matcher all resolve ${...} " +
+    "expressions — always, with no resolve flag — over one variable scope that persists across every " +
+    "step. The idiom is 11=${clOrdId = uuid} in the send, then assert the echo with " +
+    '{"type":"reference","expression":"${clOrdId}"}. Call fixtool_syntax for the full grammar, or ' +
+    "fixtool_capture_scenario to record one that is already correctly templated.",
   {
     name: z.string().describe("scenario name"),
     id: z.string().optional().describe("existing scenario id to update"),
@@ -514,6 +538,29 @@ server.tool(
     const body = {};
     for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
     return text("POST", "/scenarios", body);
+  },
+);
+
+server.tool(
+  "fixtool_capture_scenario",
+  "Record the current session message flow into a replayable scenario — the capture-driven way to " +
+    "author one, and the quickest route to a correctly-templated scenario. Captures across one or " +
+    "more sessions (RFQ / multi-session friendly): outgoing app messages become send steps " +
+    "(TransactTime and correlation IDs auto-parameterized), incoming become expect steps with " +
+    "smart-seeded matchers, and any echoed id is auto-wired to a reference matcher. Admin messages " +
+    "are skipped; setup clears each session. Saved to the store.",
+  {
+    name: z.string().describe("scenario name"),
+    profile: z.string().optional().describe("connection profile id/name to tag the scenario with"),
+    sessions: z
+      .array(z.string())
+      .optional()
+      .describe("session ids/titles/indices to capture; default all"),
+  },
+  async (args) => {
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/scenarios/capture", body);
   },
 );
 

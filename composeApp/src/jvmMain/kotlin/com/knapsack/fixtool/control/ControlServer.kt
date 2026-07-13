@@ -125,6 +125,7 @@ class ControlServer(
         httpServer.createContext("/validate") { ex -> handle(ex) { validate(ex) } }
         httpServer.createContext("/dictionary") { ex -> handle(ex) { dictionaryEndpoint(ex) } }
         httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRules(ex) } }
+        httpServer.createContext("/syntax") { ex -> syntax(ex) }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
         httpServer.createContext("/mcp") { ex -> mcpHandle(ex) }
         httpServer.start()
@@ -955,8 +956,9 @@ class ControlServer(
 
     /**
      * Sends a raw FIX message from one session (the active one, or `session` by id/title/index).
-     * With `resolve: true` the template expressions in `raw` (`${...}`, `{n}`) are resolved against
-     * the session before sending — the same path the editor's Send button uses.
+     * With `resolve: true` the `${...}` template expressions in `raw` are resolved against the
+     * session first — the same path the editor's Send button uses. Without it `raw` goes on the wire
+     * verbatim, so an unresolved `${uuid}` is sent *as that literal text*. See [SyntaxReference].
      */
     private fun send(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
@@ -1236,6 +1238,28 @@ class ControlServer(
         }
     }
 
+    /**
+     * Serves the template-expression / matcher reference as markdown. Raw text rather than JSON:
+     * it is prose meant to be read, and JSON-escaping every newline only makes it harder to.
+     */
+    private fun syntax(ex: HttpExchange) {
+        try {
+            if (!authorized(ex)) {
+                respondText(ex, HTTP_UNAUTHORIZED, "unauthorized")
+                return
+            }
+            val bytes = SyntaxReference.markdown.toByteArray()
+            ex.responseHeaders.add("Content-Type", "text/markdown; charset=utf-8")
+            ex.sendResponseHeaders(HTTP_OK, bytes.size.toLong())
+            ex.responseBody.use { it.write(bytes) }
+        } catch (e: Exception) {
+            logger.error("Syntax reference failed", e)
+            respondText(ex, HTTP_SERVER_ERROR, "syntax reference failed: ${e.message}")
+        } finally {
+            ex.close()
+        }
+    }
+
     private fun screenshot(ex: HttpExchange) {
         try {
             if (!authorized(ex)) {
@@ -1393,6 +1417,8 @@ class ControlServer(
         val name = params["name"]?.jsonPrimitive?.content ?: return mcpToolResult("missing tool name", isError = true)
         val args = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
         if (name == "fixtool_screenshot") return mcpScreenshotResult()
+        // Markdown prose, not a JSON body — hand it back verbatim rather than escaped inside one.
+        if (name == "fixtool_syntax") return mcpToolResult(SyntaxReference.markdown)
         val handler = mcpDispatch[name] ?: return mcpToolResult("unknown tool: $name", isError = true)
         return mcpToolResult(handler(args).toString())
     }

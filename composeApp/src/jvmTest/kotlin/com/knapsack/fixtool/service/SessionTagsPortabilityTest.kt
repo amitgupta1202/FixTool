@@ -53,14 +53,7 @@ class SessionTagsPortabilityTest {
             39 to "2", // OrdStatus — behaviour
         )
 
-    private fun viewOf(fields: List<Pair<Int, String>>) =
-        object : MessageView {
-            override fun valueOfTag(tag: Int): String? = fields.firstOrNull { it.first == tag }?.second
-
-            override fun presentTags(): Set<Int> = fields.map { it.first }.toSet()
-
-            override fun groupEntries(groupTag: Int): List<MessageView> = emptyList()
-        }
+    private fun viewOf(fields: List<Pair<Int, String>>) = wireView(fields)
 
     private val envelope = listOf(8, 9, 10, 34, 49, 52, 56, 369)
     private val addressing = listOf(50, 57, 115, 128, 142, 143, 144, 145)

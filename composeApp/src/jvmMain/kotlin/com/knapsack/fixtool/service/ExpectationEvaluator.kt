@@ -2,10 +2,10 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
-import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.model.scenario.compiled
 import com.knapsack.fixtool.model.scenario.validationError
@@ -16,40 +16,61 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 /**
- * A minimal, side-effect-free view of a parsed FIX message that the [ExpectationEvaluator]
- * can read. Keeping the evaluator behind this interface makes it pure and unit-testable
- * without constructing a real QuickFIX message.
+ * A FIX message as the assertion engine sees it: **an ordered list of `tag=value`**, and nothing else.
+ *
+ * There is no `groupEntries`, no `presentTags`, no notion of an entry — because the engine no longer
+ * needs one to decide what an assertion refers to, and because two views that each had to decide
+ * produced the defect that outlived three review rounds: one answered from `FixStructure`, the other
+ * from QuickFIX/J, and they disagreed about which fields a group entry contained. Neither has to
+ * decide now, so they cannot disagree.
  */
 interface MessageView {
-    /** The value of a top-level (header/body/trailer) tag, or null if absent. */
-    fun valueOfTag(tag: Int): String?
-
-    /**
-     * The **top-level** tags present in the message — never a repeating group's members, which are
-     * reached through [groupEntries]. STRICT mode subtracts the expectation's top-level tags from
-     * this to find extras, so returning group members here fails every grouped message.
-     */
-    fun presentTags(): Set<Int>
-
-    /** The entries of a repeating group, each itself a [MessageView]. */
-    fun groupEntries(groupTag: Int): List<MessageView>
+    /** Every field the message carries, in wire order, header through trailer. */
+    fun fields(): List<Pair<Int, String>>
 }
 
 /**
- * Evaluates a received message against an [ExpectationModel] (a set of per-tag matchers),
- * producing one [TagResult] per field plus, in STRICT mode, a synthetic failure for every
- * unexpected tag. This is the shared evaluation engine behind both `fixtool_assert` and the
- * (future) scenario runner; it does no I/O and no selection/awaiting — the caller supplies the
- * already-selected message.
+ * Compares a received message against an [Expectation].
+ *
+ * **The model.** An expectation is an ordered list of rows. The *k*-th row for tag `T` refers to the
+ * *k*-th occurrence of `T` in the message. That is the whole of it: no path, no group, no entry, no
+ * identity. Two party entries carrying the same `448=FIRMA` under different roles are asserted
+ * separately and correctly, because they are simply the first and second `452`.
+ *
+ * **The property worth protecting.** Pairing looks at the tag and the position — *never* at whether
+ * the matcher would pass. It is the one thing in here that must not be made cleverer. A pairing that
+ * preferred the occurrence a matcher happens to satisfy would re-aim an assertion onto whichever field
+ * makes it green: the venue reorders two party entries, each row finds the entry that still matches,
+ * and the step passes while asserting something nobody wrote. That is a false green, and it is the
+ * failure this model was built to make structurally impossible. A benign reorder costs a red instead,
+ * which the reconcile view fixes in a click. We take the trade — see docs/scenario-assertion-model.md.
  */
 @Suppress("TooManyFunctions")
 object ExpectationEvaluator {
     /**
-     * Never asserted, so never an "extra" either. The same list the seeder omits ([SessionTags]) — if
-     * STRICT used a different one it would fail on the very tags the seeder deliberately left out
-     * (SenderCompID and friends).
+     * Invisible to the engine: not paired, not asserted, never an unexpected extra. These identify the
+     * connection and the moment, so a scenario captured on DEV would otherwise go red on QA on every
+     * step. Same list the seeder omits, because a tag STRICT calls unexpected while the seeder refuses
+     * to seed it is a step that can never pass.
      */
-    val VOLATILE_HEADER_TRAILER: Set<Int> = SessionTags.NEVER_ASSERTED
+    val NEVER_ASSERTED: Set<Int> = SessionTags.NEVER_ASSERTED
+
+    /**
+     * How one row of the expectation lines up against the message. Produced once, by [align], and read
+     * by both the evaluator (to judge) and the reconcile view (to offer a fix), so the two cannot draw
+     * different diffs of the same failure.
+     */
+    data class Alignment(
+        /** Position in `expectation.fields`, or null for a field the reply carried that no row lists. */
+        val index: Int?,
+        val row: FieldExpectation?,
+        /** Position in the message's asserted fields, or null for a row nothing paired with. */
+        val wireIndex: Int?,
+        val tag: Int,
+        /** Which occurrence of [tag] this is — of the message where paired, of the expectation where not. */
+        val occurrence: Int,
+        val actual: String?,
+    )
 
     /**
      * @param referenceResolver resolves a `${...}` expression (for [Matcher.Reference]) against
@@ -62,112 +83,159 @@ object ExpectationEvaluator {
         referenceResolver: (String) -> String? = { null },
         now: () -> Instant = { Instant.now() },
     ): List<TagResult> {
-        val results = mutableListOf<TagResult>()
-        for (field in expectation.fields) {
-            results += evaluateField(message, field, referenceResolver, now)
-        }
-        if (expectation.mode == MatchMode.STRICT) results += strictExtras(message, expectation)
-        return results
+        val wire = message.fields()
+        return align(expectation, wire).mapNotNull { judge(it, expectation, wire, referenceResolver, now) }
     }
 
     /**
-     * Tags the message carries that the expectation never mentions — at top level, and inside each
-     * group entry it asserts.
+     * Lines the expectation's rows up against the message's fields.
      *
-     * Both levels, because a venue's new field lands wherever its dictionary puts it: a tag the
-     * dictionary defines as a group member is absorbed into an entry, so checking only the top level
-     * would let exactly the change STRICT exists to catch go by unnoticed. Entries the expectation
-     * does not assert are not inspected — an assertion nobody wrote cannot be violated.
+     * A single greedy left-to-right scan: each row claims the next unclaimed occurrence of its tag *at
+     * or after* the field the previous row claimed. That one rule delivers both halves of the model —
+     * the *k*-th row for tag `T` lands on the *k*-th `T` when the reply is shaped as captured, and a
+     * row whose tag has moved ahead of an earlier row's finds nothing left to claim, which is how a
+     * reordering is caught rather than absorbed.
+     *
+     * Rows matched `absent` take no part in the scan: they assert a tag is *not* there, so they claim
+     * nothing and are checked against the whole message.
+     *
+     * **The whole message is scanned, envelope included.** The connection's own tags are never *seeded*
+     * and never counted as an extra (see [NEVER_ASSERTED]) — but a row that names one explicitly is an
+     * assertion an author wrote, and it is evaluated like any other. Filtering them out of the wire
+     * before pairing made `{"tag":34,"matcher":{"type":"exact","value":"5"}}` — a legitimate check on a
+     * gap-fill test — permanently red with "the reply has no such tag", while the raw pane sat there
+     * showing `34=5`.
+     *
+     * Fields left unclaimed are the reply's extras — a failure in STRICT, ignored in OPEN.
      */
-    private fun strictExtras(message: MessageView, expectation: Expectation): List<TagResult> {
-        val results = mutableListOf<TagResult>()
+    fun align(expectation: Expectation, wire: List<Pair<Int, String>>): List<Alignment> {
+        val claimedBy = arrayOfNulls<Int>(wire.size) // wire position -> row index
+        val claimOf = HashMap<Int, Int>() // row index -> wire position
 
-        val listedTopLevel = expectation.fields.filter { it.path == null }.map { it.tag }.toSet()
-        for (tag in (message.presentTags() - listedTopLevel - VOLATILE_HEADER_TRAILER).sorted()) {
-            results += TagResult(tag, "strict: unexpected", "<absent>", message.valueOfTag(tag), passed = false)
+        var cursor = 0
+        for ((index, row) in expectation.fields.withIndex()) {
+            if (row.matcher is Matcher.Absent) continue
+            val at = (cursor until wire.size).firstOrNull { wire[it].first == row.tag } ?: continue
+            claimedBy[at] = index
+            claimOf[index] = at
+            cursor = at + 1
         }
 
-        val assertedByEntry = expectation.fields.filter { it.path != null }.groupBy { it.path!! }
-        for ((path, asserted) in assertedByEntry) {
-            val entry = (resolveGroupEntry(message, path) as? EntryLookup.Found)?.entry ?: continue
-            val listed = asserted.map { it.tag }.toSet() + path.identityTag
-            for (tag in (entry.presentTags() - listed - VOLATILE_HEADER_TRAILER).sorted()) {
-                results += TagResult(
-                    tag,
-                    "strict: unexpected @${path.groupTag}",
-                    "<absent>",
-                    entry.valueOfTag(tag),
-                    passed = false,
-                    path = path,
-                )
+        // A tag is not reported as an extra when the expectation has *already spoken about it* — either
+        // through an `absent` row (whose failure says the tag is present; saying it twice reads as two
+        // problems) or through a row that could not be paired, which is the same field reported as
+        // MOVED. STRICT used to emit both for a reordered tag, with contradictory text: "expected
+        // <absent>, actual Y" beside "expected presence — present, but not in this position".
+        val spokenFor =
+            expectation.fields.filter { it.matcher is Matcher.Absent }.map { it.tag }.toSet() +
+                expectation.fields.withIndex().filter { it.index !in claimOf.keys }.map { it.value.tag }
+
+        // Emit in reading order: each row where it sits, with the reply's unclaimed fields interleaved
+        // at the position they actually occupy — so the result reads like a diff, top to bottom.
+        val out = mutableListOf<Alignment>()
+        var emittedUpTo = 0
+        fun emitExtrasBefore(limit: Int) {
+            while (emittedUpTo < limit) {
+                val w = emittedUpTo++
+                if (claimedBy[w] == null && wire[w].first !in spokenFor && wire[w].first !in NEVER_ASSERTED) {
+                    out += Alignment(null, null, w, wire[w].first, occurrenceAt(wire, w), wire[w].second)
+                }
             }
         }
-        return results
+
+        for ((index, row) in expectation.fields.withIndex()) {
+            val at = claimOf[index]
+            if (at != null) {
+                emitExtrasBefore(at)
+                emittedUpTo = at + 1
+                out += Alignment(index, row, at, row.tag, occurrenceAt(wire, at), wire[at].second)
+            } else {
+                out += Alignment(index, row, null, row.tag, expectedOccurrence(expectation, index), null)
+            }
+        }
+        emitExtrasBefore(wire.size)
+        return out
     }
 
-    private fun evaluateField(
-        message: MessageView,
-        field: FieldExpectation,
+    /** How many fields with the same tag precede [at] — i.e. which occurrence [at] is. */
+    private fun occurrenceAt(wire: List<Pair<Int, String>>, at: Int): Int =
+        (0 until at).count { wire[it].first == wire[at].first }
+
+    /** Which occurrence of its tag a row is, counting rows — used when nothing paired with it. */
+    private fun expectedOccurrence(expectation: Expectation, index: Int): Int =
+        (0 until index).count { expectation.fields[it].tag == expectation.fields[index].tag }
+
+    private fun judge(
+        a: Alignment,
+        expectation: Expectation,
+        wire: List<Pair<Int, String>>,
         referenceResolver: (String) -> String?,
         now: () -> Instant,
-    ): TagResult {
-        val matcherDesc = describe(field.matcher)
-        // Locate the value: top-level, or inside a group entry selected by identity.
-        val actual: String?
-        if (field.path != null) {
-            fun unresolved(reason: String) =
-                TagResult(
-                    field.tag,
-                    "$matcherDesc @${field.path.groupTag}",
-                    expectedText(field.matcher, null),
-                    reason,
-                    passed = false,
-                    path = field.path,
-                )
-            when (val lookup = resolveGroupEntry(message, field.path)) {
-                is EntryLookup.Missing -> return unresolved("<no entry>")
-                is EntryLookup.Ambiguous -> {
-                    val identity = "${field.path.identityTag}=${field.path.identityValue}"
-                    return unresolved("<ambiguous: ${lookup.count} entries with $identity>")
-                }
-                is EntryLookup.Found -> actual = lookup.entry.valueOfTag(field.tag)
-            }
-        } else {
-            actual = message.valueOfTag(field.tag)
+    ): TagResult? {
+        val row = a.row
+        if (row == null) {
+            // A field the reply carried that no row mentions. OPEN was told to tolerate exactly this.
+            if (expectation.mode == MatchMode.OPEN) return null
+            return TagResult(
+                a.tag, "strict: unexpected", "<absent>", a.actual,
+                passed = false, index = null, occurrence = a.occurrence, status = TagStatus.UNEXPECTED,
+            )
         }
 
-        val (passed, expected) = applyMatcher(field.matcher, actual, referenceResolver, now)
-        return TagResult(field.tag, matcherDesc, expected, actual, passed, path = field.path)
-    }
-
-    /** How an assertion's group entry resolved: exactly one match, none, or several. */
-    private sealed interface EntryLookup {
-        data class Found(val entry: MessageView) : EntryLookup
-
-        object Missing : EntryLookup
-
-        /** Several entries carry this identity, so it does not identify one. */
-        data class Ambiguous(val count: Int) : EntryLookup
-    }
-
-    /**
-     * The entry with this identity — if there is exactly one.
-     *
-     * Binding to the first of several would assert one entry while reporting it as another's, and
-     * pass or fail for reasons the author cannot see. Ambiguity is a failure with a reason, not a
-     * coin toss: the seeder refuses to author such assertions in the first place, and this catches
-     * the case where a message that was unambiguous at capture arrives with repeated identities.
-     */
-    private fun resolveGroupEntry(message: MessageView, path: GroupPath): EntryLookup {
-        val matches =
-            message.groupEntries(path.groupTag)
-                .filter { it.valueOfTag(path.identityTag) == path.identityValue }
-        return when (matches.size) {
-            0 -> EntryLookup.Missing
-            1 -> EntryLookup.Found(matches.single())
-            else -> EntryLookup.Ambiguous(matches.size)
+        val describe = describe(row.matcher)
+        row.matcher.validationError()?.let {
+            return TagResult(
+                a.tag, describe, "invalid regex: $it", a.actual,
+                passed = false, index = a.index, occurrence = a.occurrence, status = TagStatus.INVALID,
+            )
         }
+
+        if (row.matcher is Matcher.Absent) {
+            val present = wire.firstOrNull { it.first == row.tag }?.second
+            return TagResult(
+                a.tag, describe, "<absent>", present,
+                passed = present == null, index = a.index, occurrence = a.occurrence,
+                status = if (present == null) TagStatus.OK else TagStatus.VALUE,
+            )
+        }
+
+        if (a.wireIndex == null) {
+            // Nothing left to pair with. If the value is in the reply and would satisfy this row, it is
+            // not gone — it is somewhere else, and saying so is the difference between "the venue
+            // dropped a field" and "the venue moved it", which are not the same bug.
+            //
+            // This is also the failure an author hits when they list their rows in an order the venue
+            // does not use: an expectation is a *subsequence* of the reply, so naming 37 after 11 when
+            // the venue sends 37 first describes a message nobody sent. It is a real failure and it
+            // stays one — but the row says how to fix it, because "moved" on its own reads like a venue
+            // bug when it is usually a hand-written expectation in the wrong order.
+            val elsewhere = wire.any { it.first == row.tag && matches(row.matcher, it.second, referenceResolver, now) }
+            val expected = expectedText(row.matcher, referenceResolver, now)
+            return TagResult(
+                a.tag,
+                describe,
+                if (elsewhere) "$expected — present, but not in this position: list the rows in the order the " +
+                    "venue sends them (a capture does this for you), or use the reconcile view to accept the new order"
+                else expected,
+                actual = null, passed = false, index = a.index, occurrence = a.occurrence,
+                status = if (elsewhere) TagStatus.MOVED else TagStatus.MISSING,
+            )
+        }
+
+        val (passed, expected) = applyMatcher(row.matcher, a.actual, referenceResolver, now)
+        return TagResult(
+            a.tag, describe, expected, a.actual, passed,
+            index = a.index, occurrence = a.occurrence,
+            status = if (passed) TagStatus.OK else TagStatus.VALUE,
+        )
     }
+
+    private fun matches(
+        matcher: Matcher,
+        actual: String?,
+        referenceResolver: (String) -> String?,
+        now: () -> Instant,
+    ): Boolean = applyMatcher(matcher, actual, referenceResolver, now).first
 
     /** Returns (passed, human-readable expected text). */
     private fun applyMatcher(
@@ -191,17 +259,10 @@ object ExpectationEvaluator {
         }
 
     /**
-     * An unusable pattern is a failed assertion, not an exception.
-     *
-     * The expectation builder re-evaluates on every keystroke, so compiling unguarded took the
-     * workbench down (with the author's unsaved edits) the moment they typed a lone `[` — and a bad
-     * pattern arriving in a saved scenario or over `fixtool_assert` surfaced as a 500 rather than a
-     * red row.
-     *
-     * The row says **why**, not just that it is invalid. The reader who most needs the reason is the
-     * one who cannot open the editor to see it: an agent reading a failed `fixtool_assert`, or an
-     * engineer reading a red step in a CI report. Told only "(invalid regex)", they cannot tell a
-     * typo'd assertion from a venue that genuinely broke.
+     * An unusable pattern is a failed assertion, not an exception — the builder re-evaluates on every
+     * keystroke, so compiling unguarded took the workbench down the moment an author typed a lone `[`.
+     * A row that reaches here with a bad pattern has already been reported as [TagStatus.INVALID]; this
+     * is the belt to that braces.
      */
     private fun matchRegex(matcher: Matcher.Regex, actual: String?): Pair<Boolean, String> {
         val compiled = matcher.compiled()
@@ -260,8 +321,8 @@ object ExpectationEvaluator {
             is Matcher.Reference -> "reference ${matcher.expression}"
         }
 
-    private fun expectedText(matcher: Matcher, actual: String?): String =
-        applyMatcher(matcher, actual, { null }, { Instant.now() }).second
+    private fun expectedText(matcher: Matcher, referenceResolver: (String) -> String?, now: () -> Instant): String =
+        applyMatcher(matcher, null, referenceResolver, now).second
 
     private fun numericExpected(matcher: Matcher.Numeric): String =
         if (matcher.tolerance == 0.0) matcher.expected.toString() else "${matcher.expected} ±${matcher.tolerance}"

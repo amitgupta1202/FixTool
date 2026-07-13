@@ -533,7 +533,7 @@ class ControlServer(
 
         val resolver = referenceResolverFor(session)
         val results =
-            ExpectationEvaluator.evaluate(FixMessageView(target, onEdt { viewModel.dictionary }), expectation, resolver)
+            ExpectationEvaluator.evaluate(FixMessageView(target), expectation, resolver)
         return buildJsonObject {
             put("passed", results.all { it.passed })
             put("messageType", target.messageType)
@@ -559,48 +559,39 @@ class ControlServer(
                 ?: return errorObject("no matching message to capture")
 
         val fields = FixMessageHelper.parseFixMessage(target.rawMessage)
-        val seed = ExpectationSeeder.seedAll(fields, onEdt { viewModel.dictionary })
+        val seeded = ExpectationSeeder.seedDetailed(fields, onEdt { viewModel.dictionary })
         return buildJsonObject {
             put("messageType", target.messageType)
             put("direction", target.direction.name)
             put("mode", "open")
+            // In wire order, one row per occurrence. The order is the assertion — the k-th row for a tag
+            // asserts the k-th occurrence of it — so a caller must not sort or de-duplicate this array.
             put(
                 "fields",
-                buildJsonArray { seed.fields.forEach { add(MatcherCodec.fieldExpectationToJson(it.field)) } },
+                buildJsonArray { seeded.forEach { add(MatcherCodec.fieldExpectationToJson(it.field)) } },
             )
             // What this capture does NOT assert, and why. An agent that cannot see the gap will assume
-            // the expectation covers the whole message — the same trap the UI's capture-review avoids
-            // by saying so out loud. Both kinds of gap belong here: the group whose entries we cannot
-            // tell apart, and the tag we deliberately left out. The second used to go unsaid, so a
-            // caller reading only fields[] had no way to learn that a tag it can see on the wire is
-            // absent from its expectation on purpose.
+            // the expectation covers the whole message, and ship a test that checks less than it thinks.
+            //
+            // There is only one kind of gap left. The groups whose entries we could not tell apart used
+            // to be reported here too, because the old model refused to assert them; the sequence model
+            // asserts them by position, so that hole is closed rather than disclosed.
             val omitted = fields.map { it.first }.distinct().filter { it in SessionTags.NEVER_ASSERTED }
-            if (seed.unassertable.isNotEmpty() || omitted.isNotEmpty()) {
+            if (omitted.isNotEmpty()) {
                 put(
                     "notAsserted",
                     buildJsonArray {
-                        if (omitted.isNotEmpty()) {
-                            add(
-                                buildJsonObject {
-                                    put("tags", buildJsonArray { omitted.sorted().forEach { add(it) } })
-                                    put(
-                                        "reason",
-                                        "the session envelope — these identify the connection and the moment, not the " +
-                                            "venue's behaviour, so asserting them would tie this scenario to the " +
-                                            "environment it was captured on",
-                                    )
-                                },
-                            )
-                        }
-                        seed.unassertable.forEach { group ->
-                            add(
-                                buildJsonObject {
-                                    put("groupTag", group.groupTag)
-                                    put("identityTag", group.identityTag)
-                                    put("reason", group.reason)
-                                },
-                            )
-                        }
+                        add(
+                            buildJsonObject {
+                                put("tags", buildJsonArray { omitted.sorted().forEach { add(it) } })
+                                put(
+                                    "reason",
+                                    "the session envelope — these identify the connection and the moment, not the " +
+                                        "venue's behaviour, so asserting them would tie this scenario to the " +
+                                        "environment it was captured on",
+                                )
+                            },
+                        )
                     },
                 )
             }

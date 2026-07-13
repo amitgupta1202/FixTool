@@ -71,7 +71,7 @@ outlive the message it came from, or cross sessions.
 
 ## 2. Matchers
 
-Each entry in an expectation's `fields` is `{tag, matcher: {type, ...}, path?}`.
+Each entry in an expectation's `fields` is `{tag, matcher: {type, ...}}`. There is no `path`.
 
 | `type` | Extra fields | Checks |
 | --- | --- | --- |
@@ -84,31 +84,73 @@ Each entry in an expectation's `fields` is `{tag, matcher: {type, ...}, path?}`.
 | `temporal` | `kind` (`today` \| `now_within_tolerance`), `toleranceSeconds`? | parsed as UTCTimestamp / UTCDateOnly |
 | `reference` | `expression` | the value equals a resolved `${...}` expression (§1) |
 
-`mode` is `open` (default — only the listed tags are checked, extras ignored) or `strict` (any
-unexpected tag, besides volatile header/trailer tags, fails).
-
 Tip: `fixtool_capture_expectation` builds a draft expectation from a message already received, with
-matchers pre-seeded from the data dictionary — usually faster than writing one by hand.
+matchers pre-seeded from the data dictionary, **in wire order** — usually faster, and always correctly
+ordered (see §3), than writing one by hand.
 
 ---
 
-## 3. `path` — asserting inside a repeating group
+## 3. `fields` is ordered, and the order is the assertion
 
-`path` locates a group entry by **identity, never by position** (entry order is not guaranteed):
+**`fields` is a list, not a set.** Two rules follow from that, and both matter.
 
-```json
-{"tag": 448, "matcher": {"type": "exact", "value": "BROKER-A"},
- "path": {"groupTag": 453, "identityTag": 452, "identityValue": "1"}}
+### The k-th row for a tag asserts the k-th occurrence of that tag
+
+This is how you assert inside a repeating group. There is no path, no entry, no identity — a repeating
+group is just a tag appearing more than once, and a row's **position is its address**:
+
+```
+453=2 |
+  448=FIRMA | 447=D | 452=1 |     <- executing firm
+  448=FIRMA | 447=D | 452=4 |     <- clearing firm
 ```
 
-→ "PartyID(448) of the NoPartyIDs(453) entry whose PartyRole(452) is 1".
+```json
+"fields": [
+  {"tag": 453, "matcher": {"type": "exact", "value": "2"}},
+  {"tag": 448, "matcher": {"type": "exact", "value": "FIRMA"}},
+  {"tag": 447, "matcher": {"type": "exact", "value": "D"}},
+  {"tag": 452, "matcher": {"type": "exact", "value": "1"}},
+  {"tag": 448, "matcher": {"type": "exact", "value": "FIRMA"}},
+  {"tag": 447, "matcher": {"type": "exact", "value": "D"}},
+  {"tag": 452, "matcher": {"type": "exact", "value": "4"}}
+]
+```
 
-| Field | Meaning |
+The 4th row asserts the *first* `452`; the 7th asserts the *second*. Both firms are `FIRMA`, so no
+identity could have told the two entries apart — the position does. **Do not sort or de-duplicate
+`fields`**: doing either silently re-aims the assertions onto different fields.
+
+### Your rows must be a subsequence of the message
+
+They must appear in the order you list them, with anything else allowed in between. Given a reply
+carrying `1, 2, 3, 4, 5`:
+
+| Your `fields` | Result |
 | --- | --- |
-| `groupTag` | the group's count tag, e.g. `453` |
-| `identityTag` | the tag that identifies the entry, e.g. `452` |
-| `identityValue` | the value that identifies it, e.g. `"1"` |
-| `occurrence`? | 0-based, default `0` — only needed when the identity is **not** unique (e.g. several `NoMDEntries` sharing an `MDEntryType`); it counts, in wire order, among entries sharing that identity value |
+| `1, 3, 5` | ✅ passes — a subsequence; `2` and `4` are simply ignored |
+| `1, 2, 3` | ✅ passes |
+| `1, 2, 4` | ✅ passes |
+| `1, 6, 3` | ❌ fails — there is no `6` in the reply (`status: missing`) |
+| `1, 3, 2` | ❌ fails — the reply puts `2` before `3` (`status: moved`) |
+
+So if the venue sends `37` before `11` and you list `11` before `37`, **the step fails** with
+`status: moved`. That is not a bug: it is the same rule that catches a venue swapping two group
+entries. List your rows in the order the venue sends them, or let
+`fixtool_capture_expectation` do it for you.
+
+### `mode`
+
+| `mode` | Checks |
+| --- | --- |
+| `open` (default) | only the listed rows, in the listed order. A tag you do not mention is ignored, so a venue adding an optional field does not break you. |
+| `strict` | additionally asserts the message's **shape**: the same tags, the same number of times, in the same order. Any unexpected tag fails. |
+
+Neither mode asserts the session envelope — `8`, `9`, `10`, `34`, `49`, `52`, `56`, `369` — which
+identifies the connection and the moment, not the venue's behaviour. Capture reports these under
+`notAsserted`.
+
+An `absent` row takes no part in the ordering: it asserts the tag appears nowhere in the message.
 
 ---
 

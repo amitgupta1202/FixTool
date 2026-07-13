@@ -65,11 +65,20 @@ class ScenarioService(
         }
 
     @Suppress("TooGenericExceptionCaught")
+    /**
+     * A scenario that cannot be read is **said out loud**, not dropped.
+     *
+     * `notifyUser = false` meant a file the codec refused simply vanished from the workbench — no
+     * banner, no row, no explanation, and the author's scenario apparently deleted itself. That was
+     * survivable while the only cause was a corrupt file. It is not survivable now: the codec refuses,
+     * by design, every scenario written by the group-path model, and an upgrade that silently empties a
+     * user's scenario list while telling them nothing is the worst possible way to deliver that message.
+     */
     private fun loadFile(file: File): Scenario? =
         try {
             ScenarioCodec.fromJson(Json.parseToJsonElement(file.readText()).jsonObject)
         } catch (e: Exception) {
-            logger.error("Failed to load scenario from ${file.name}: ${e.message}", e, notifyUser = false)
+            logger.error("Cannot load scenario '${file.name}': ${e.message}", e, notifyUser = true)
             null
         }
 

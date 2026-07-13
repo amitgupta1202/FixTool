@@ -84,43 +84,55 @@ enum class TemporalKind {
     NOW_WITHIN_TOLERANCE,
 }
 
-/** How tags present in the message but not listed in the expectation are treated. */
+/**
+ * How the reply is compared against the expectation's list of rows.
+ *
+ * Both modes pair a row with a field the same way — the *k*-th row for tag `T` refers to the *k*-th
+ * occurrence of `T` — and both enforce the order the rows are listed in. They differ only in what
+ * they do about a field the expectation never mentions.
+ */
 enum class MatchMode {
-    /** Assert only the listed tags; ignore extras. Robust to venues adding optional fields. */
+    /**
+     * A **subsequence** match: the listed rows must appear in the reply in the listed order, with
+     * anything else allowed in between. A tag the reply carries that no row mentions is ignored, so a
+     * venue adding an optional field does not break the scenario.
+     *
+     * Relative order is still enforced, and that is what keeps OPEN honest about repeating groups.
+     * Under set semantics an expectation listing `452=1` then `452=4` would pass against a reply that
+     * sent the two party roles the other way round — the entries swapped, the assertion none the wiser.
+     */
     OPEN,
 
-    /** Any unexpected tag (besides header/trailer volatiles) is a failure. */
+    /**
+     * The reply must carry **the same tags, the same number of times, in the same order**. A tag that
+     * appears, disappears or moves is a failure — a change in shape *is* the regression STRICT exists
+     * to report.
+     */
     STRICT,
 }
 
 /**
- * Locates a single entry within a repeating group by **identity**, never by position
- * (group entry order is not guaranteed). Mirrors `fixtool_detail_search` mode `identity`.
+ * One row of an expectation: a tag and how to compare it.
  *
- * Example: `GroupPath(453, 452, "1")` → "the entry whose PartyRole(452) = 1".
- *
- * This locates an entry only while the identity is **unique** within its group. Where it is not — a
- * market-data snapshot with two MDEntries of the same MDEntryType, two legs on the same symbol —
- * FixTool does not guess: the seeder refuses to assert that group and says so, and the evaluator
- * fails such an assertion as ambiguous rather than binding it to whichever entry came first. A
- * scenario that asserts the wrong entry and passes is worse than one that admits it cannot check.
+ * There is no path, no group and no entry — deliberately. A row's position in [Expectation.fields] is
+ * the whole of its addressing: the *k*-th row for tag `T` asserts the *k*-th occurrence of `T` in the
+ * message. Naming a group entry by its delimiter's value (the model this replaces) does not work on
+ * real FIX, because the same firm appears twice under different PartyRoles and both entries carry
+ * `448=FIRMA` — so the identity does not identify, and every repair for that produced a scenario that
+ * either asserted the wrong entry and passed, or refused to assert an entry it could have.
  */
-data class GroupPath(
-    val groupTag: Int,
-    val identityTag: Int,
-    val identityValue: String,
-)
-
-/** One tag's expectation: which tag, where to find it (optional group path), and how to compare. */
 data class FieldExpectation(
     val tag: Int,
     val matcher: Matcher,
-    val path: GroupPath? = null,
 )
 
 /**
- * A captured message's expected shape: a set of per-tag matchers plus a comparison mode.
+ * A captured message's expected shape: an **ordered** list of rows plus a comparison mode.
  * `golden` (the captured raw message) is optional and kept only for display/diff.
+ *
+ * The order of [fields] is not cosmetic. Rows are stored in captured wire order, and that order *is*
+ * the assertion: it decides which occurrence of a repeated tag each row refers to, and in STRICT it is
+ * itself asserted. Reordering this list re-aims its assertions.
  */
 data class Expectation(
     val fields: List<FieldExpectation>,
@@ -129,7 +141,28 @@ data class Expectation(
     val golden: String? = null,
 )
 
-/** The outcome of evaluating one [FieldExpectation] against a message. */
+/** Why a row passed or failed — what the reconcile view offers an action for. */
+enum class TagStatus {
+    /** The matcher was satisfied. */
+    OK,
+
+    /** The tag was found where expected; its value did not satisfy the matcher. */
+    VALUE,
+
+    /** The expectation lists this row; the reply has no occurrence left to pair it with. */
+    MISSING,
+
+    /** The reply carries this field; no row mentions it. Only a failure in STRICT. */
+    UNEXPECTED,
+
+    /** The value is somewhere in the reply and would satisfy the matcher — but not in this position. */
+    MOVED,
+
+    /** The matcher itself is unusable (an uncompilable regex). Not the venue's fault; the row's. */
+    INVALID,
+}
+
+/** The outcome of evaluating one row against a message. */
 data class TagResult(
     val tag: Int,
     /** Human-readable matcher description, e.g. "oneOf [1,2]". */
@@ -140,8 +173,12 @@ data class TagResult(
     val actual: String?,
     val passed: Boolean,
     /**
-     * The originating [FieldExpectation]'s group path. Without it, two assertions on the same tag
-     * under different group entries (e.g. PartyID per PartyRole) are indistinguishable in results.
+     * The row's position in [Expectation.fields], or null for an [TagStatus.UNEXPECTED] field, which
+     * the reply carried and the expectation never listed. This is what makes a failure addressable:
+     * two rows on the same tag (the two party entries) are otherwise indistinguishable in a report.
      */
-    val path: GroupPath? = null,
+    val index: Int? = null,
+    /** Which occurrence of this tag in the message the row refers to, 0-based. */
+    val occurrence: Int = 0,
+    val status: TagStatus = TagStatus.OK,
 )

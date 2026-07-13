@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
@@ -49,7 +50,7 @@ object ScenarioCapture {
             .flatMap { s ->
                 s.messages
                     .filter { it.messageType !in ADMIN_MSG_TYPES }
-                    .map { Candidate(s.title, it, FixMessageHelper.parseFixMessage(it.rawMessage)) }
+                    .map { Candidate(s.title, it, FixMessageHelper.wireFields(it)) }
             }
             .sortedBy { it.message.timestamp }
 
@@ -61,23 +62,10 @@ object ScenarioCapture {
         dictionary: FixDictionaryAdapter?,
     ): Scenario = captureFrom(id, name, profile, candidates(sessions), dictionary)
 
-    /**
-     * What this capture will **not** assert: groups whose entries share an identity, so no assertion
-     * can say which entry it means (see [ExpectationSeeder.UnassertableGroup]).
-     *
-     * Said at authoring time, on the capture-review screen, because that is when the author can still
-     * do something about it — narrow the flow, or accept that this part of the message is uncovered.
-     * The alternative, asserting an entry we cannot locate, produces a scenario that passes while
-     * checking the wrong thing, and there is no worse outcome for a testing tool.
-     */
-    fun unassertable(
-        selection: List<Candidate>,
-        dictionary: FixDictionaryAdapter?,
-    ): List<ExpectationSeeder.UnassertableGroup> =
-        selection
-            .filter { it.message.direction == FixMessage.Direction.INCOMING }
-            .flatMap { ExpectationSeeder.seedAll(it.fields, dictionary).unassertable }
-            .distinctBy { it.groupTag }
+    // There is no `unassertable` any more, and nothing to warn the author about. It existed to name the
+    // groups whose entries shared an identity, which the old model could not assert and therefore
+    // skipped — a hole in the coverage that the capture-review screen had to apologise for. Position is
+    // the identity now, so those groups are asserted like any other, entry by entry.
 
     /** Builds the scenario from an already-curated [selection] (capture-review's Save). */
     fun captureFrom(
@@ -136,13 +124,15 @@ object ScenarioCapture {
         dictionary: FixDictionaryAdapter?,
         refByValue: Map<String, String>,
     ): ScenarioStep.Expect {
-        val seeded = ExpectationSeeder.seed(entry.fields, dictionary)
-        // Override any top-level tag whose captured value echoes something we sent → verify by reference.
-        val correlated = seeded.fields.map { fe ->
-            if (fe.path != null) return@map fe
-            val captured = entry.fields.firstOrNull { it.first == fe.tag }?.second
-            val ref = captured?.let { refByValue[it] }
-            if (ref != null) fe.copy(matcher = Matcher.Reference(ref)) else fe
+        // Each seeded row carries the value it was seeded from, so a row that echoes something we sent
+        // becomes a reference check. Rows must be correlated by *their own* captured value, not by
+        // looking the tag up in the message: `firstOrNull { it.first == tag }` answers with the first
+        // occurrence, so on a two-leg order the second leg's ClOrdID row would have been correlated
+        // against the first leg's value — an assertion pointing at a field it does not describe.
+        val seeded = ExpectationSeeder.seedDetailed(entry.fields, dictionary)
+        val correlated = seeded.map { sf ->
+            val ref = refByValue[sf.capturedValue]
+            if (ref != null) sf.field.copy(matcher = Matcher.Reference(ref)) else sf.field
         }
         // Echoed correlation ids also become bind constraints, so on a busy session this step binds
         // to *the response to this run's ids* — not merely the first message of the same type. The
@@ -159,7 +149,7 @@ object ScenarioCapture {
             expectation = Expectation(
                 fields = correlated,
                 messageType = entry.message.messageType,
-                mode = seeded.mode,
+                mode = MatchMode.OPEN,
                 golden = entry.message.rawMessage,
             ),
         )

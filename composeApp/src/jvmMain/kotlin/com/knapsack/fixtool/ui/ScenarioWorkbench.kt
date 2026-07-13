@@ -158,7 +158,7 @@ private fun FixMessageViewModel.liveSecondInstance(session: String?, messageType
         .filter { session == null || it.title == session }
         .flatMap { it.messages.value.filterIsInstance<FixMessage>() }
         .lastOrNull { it.direction == FixMessage.Direction.INCOMING && it.messageType == messageType && it.rawMessage != golden }
-        ?.let { RawMessageView(it.rawMessage, dictionary) }
+        ?.let { RawMessageView(it.rawMessage) }
 }
 
 @Composable

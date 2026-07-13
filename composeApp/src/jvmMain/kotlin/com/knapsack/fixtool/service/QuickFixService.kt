@@ -138,6 +138,7 @@ class QuickFixService(
                     rawMessage = rawMessage,
                     quickfixMessage = message,
                     captureTimeMicros = captureMicros,
+                    wireRaw = message.toString(),
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -183,6 +184,7 @@ class QuickFixService(
                     messageType = message.header.getString(35),
                     quickfixMessage = message, // Admin messages don't need re-parse
                     captureTimeMicros = captureMicros,
+                    wireRaw = wireMessage ?: message.toString(),
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -209,6 +211,7 @@ class QuickFixService(
                     rawMessage = rawMessage,
                     quickfixMessage = message,
                     captureTimeMicros = captureMicros,
+                    wireRaw = message.toString(),
                 )
             onMessageReceived(fixMessage)
         } catch (e: Exception) {
@@ -260,6 +263,11 @@ class QuickFixService(
                     rawMessage = rawMessage,
                     quickfixMessage = parsedMessage,
                     captureTimeMicros = captureMicros,
+                    // The bytes as they arrived, SOH and all. rawMessage above has substituted '|' for
+                    // SOH so a human can read it, and that substitution cannot be undone: a value that
+                    // legitimately contains '|' is indistinguishable from a field boundary. The
+                    // assertion engine reads this instead.
+                    wireRaw = wireMessage ?: message.toString(),
                 )
 
             // Route to the message handler

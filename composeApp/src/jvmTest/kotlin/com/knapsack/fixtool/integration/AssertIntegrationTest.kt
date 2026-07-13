@@ -106,11 +106,11 @@ class AssertIntegrationTest {
         val fields =
             """[
               {"tag":35,"matcher":{"type":"exact","value":"8"}},
-              {"tag":150,"matcher":{"type":"exact","value":"0"}},
+              {"tag":11,"matcher":{"type":"reference","expression":"${'$'}{out.D.11}"}},
+              {"tag":37,"matcher":{"type":"presence"}},
               {"tag":39,"matcher":{"type":"oneOf","values":["0","1","2"]}},
               {"tag":55,"matcher":{"type":"exact","value":"EUR/USD"}},
-              {"tag":37,"matcher":{"type":"presence"}},
-              {"tag":11,"matcher":{"type":"reference","expression":"${'$'}{out.D.11}"}}
+              {"tag":150,"matcher":{"type":"exact","value":"0"}}
             ]"""
         val pass = obj(post("/assert", """{"session":"CLI","messageType":"8","direction":"in","timeoutMs":5000,"fields":$fields}"""))
         assertTrue(pass["passed"]!!.jsonPrimitive.boolean, "all matchers should pass; got $pass")

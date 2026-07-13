@@ -2,7 +2,6 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
-import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TemporalKind
@@ -39,19 +38,29 @@ object MatcherCodec {
             ?: throw IllegalArgumentException("field expectation missing integer 'tag'")
         val matcherObj = obj["matcher"]?.jsonObject
             ?: throw IllegalArgumentException("field expectation for tag $tag missing 'matcher'")
-        val path = obj["path"]?.jsonObject?.let { parseGroupPath(it) }
-        return FieldExpectation(tag = tag, matcher = parseMatcher(matcherObj), path = path)
+        rejectGroupPath(obj, tag)
+        return FieldExpectation(tag = tag, matcher = parseMatcher(matcherObj))
     }
 
-    private fun parseGroupPath(obj: JsonObject): GroupPath =
-        GroupPath(
-            groupTag = requireInt(obj, "groupTag"),
-            identityTag = requireInt(obj, "identityTag"),
-            identityValue = requireStr(obj, "identityValue"),
+    /**
+     * A row that still carries `path` or `occurrence` was written by the group-path model, and it is
+     * **refused**, loudly, rather than read as if the key were not there.
+     *
+     * `path` meant "the entry whose PartyID is FIRMA". A row without it means "the k-th occurrence of
+     * this tag". Those are different assertions, and on a message with two entries for the same firm
+     * they point at different fields. Dropping the key silently would leave the author with a scenario
+     * that loads, runs, goes green, and checks something they never wrote — which is the exact failure
+     * this whole model exists to remove, arriving through the back door of an upgrade.
+     */
+    private fun rejectGroupPath(obj: JsonObject, tag: Int) {
+        val stale = listOf("path", "occurrence").firstOrNull { obj.containsKey(it) } ?: return
+        throw IllegalArgumentException(
+            "the assertion on tag $tag carries '$stale', from the group-path model this build replaced. " +
+                "An expectation is now an ordered list of rows — the k-th row for a tag asserts the k-th " +
+                "occurrence of it — so this row cannot be read without changing what it asserts. " +
+                "Re-capture the step.",
         )
-
-    private fun requireInt(obj: JsonObject, key: String): Int =
-        obj[key]?.jsonPrimitive?.intOrNull ?: throw IllegalArgumentException("missing integer '$key'")
+    }
 
     /**
      * A pattern that does not compile is a **bad assertion, not a corrupt file**, so the codec carries
@@ -105,20 +114,15 @@ object MatcherCodec {
 
     // ----------------------------------------------------------------- serialization (for capture)
 
+    /**
+     * A row is a tag and a matcher. Its **position in the array is its address** — the k-th row for a
+     * tag asserts the k-th occurrence of that tag — so the array's order is load-bearing and nothing
+     * may sort it.
+     */
     fun fieldExpectationToJson(fe: FieldExpectation): JsonObject =
         buildJsonObject {
             put("tag", fe.tag)
             put("matcher", matcherToJson(fe.matcher))
-            fe.path?.let { p ->
-                put(
-                    "path",
-                    buildJsonObject {
-                        put("groupTag", p.groupTag)
-                        put("identityTag", p.identityTag)
-                        put("identityValue", p.identityValue)
-                    },
-                )
-            }
         }
 
     fun matcherToJson(matcher: Matcher): JsonObject =

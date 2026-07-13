@@ -82,17 +82,36 @@ for a pass.
 
 ### OPEN — "the venue said at least this much, in the order it said it"
 
-Only the listed rows are checked. Any tag the reply carries that the expectation does not mention
-is ignored — a venue adding an optional field does not break the scenario.
+**The expectation must be a subsequence of the reply.** The listed rows must appear in the order they
+are listed, with anything else allowed in between. Any tag the reply carries that the expectation does
+not mention is ignored — a venue adding an optional field does not break the scenario.
 
-**Relative order is enforced.** The listed rows must appear in the reply *in the order they are
-listed*, with anything else allowed in between: a **subsequence** match, not a set match. This is
-what keeps OPEN honest about repeating groups. Under set semantics, an expectation listing
-`452=1` then `452=4` would still pass against a reply that sent the roles the other way round —
-the two entries swapped, the assertion none the wiser. Under subsequence semantics it fails, and
-says so.
+Given a reply carrying tags `1, 2, 3, 4, 5` in that order:
+
+| Expectation | Result |
+|---|---|
+| `1, 3, 5` | ✅ a subsequence — `2` and `4` are simply not mentioned |
+| `1, 2, 3` | ✅ |
+| `1, 2, 4` | ✅ |
+| `1, 6, 3` | ❌ there is no `6` in the reply — `missing` |
+| `1, 3, 2` | ❌ the reply puts `2` before `3` — `moved` |
 
 So OPEN is tolerant about what it does **not** mention, and strict about what it does.
+
+This is a **stronger** rule than the pairing rule alone, and the difference is deliberate. Pairing on
+its own (*k*-th row for `T` ↔ *k*-th occurrence of `T`, order across different tags unchecked) already
+catches the case this model was built for — two swapped party entries fail either way, because the
+first `452` row still lands on the first `452` in the reply. What the subsequence rule adds is
+everything else about the message's shape: a reply that keeps every per-tag sequence intact but
+reshuffles the fields between them (`448 448 452 452` where the venue used to send
+`448 452 448 452`) is a message no venue sent, and OPEN says so.
+
+The price is a **false red on a hand-authored expectation whose rows are not in wire order**. If the
+venue sends `37` before `11` and the author lists `11` before `37`, the step fails with `moved`. That
+is the `1, 3, 2` row of the table, and it is the rule working. Capture always seeds rows in wire order,
+so a captured scenario is a subsequence of its own golden by construction; a hand-written one, or one
+an agent composes over `fixtool_assert`, must follow the venue's order — and the failure says so, in
+those words, on the row.
 
 OPEN also supports the negative assertion: a row whose matcher is `absent` asserts the tag does
 **not** appear. Absent rows take no part in pairing; they are checked against the whole message.
@@ -254,15 +273,44 @@ A result row reports its position, so a failure is addressable:
   "expected": "1", "actual": "4", "passed": false, "status": "value" }
 ```
 
-`status` is one of `ok` · `value` · `missing` · `unexpected` · `moved`.
+`status` is one of `ok` · `value` · `missing` · `unexpected` · `moved` · `invalid`.
 
-### Tags that are never asserted
+`invalid` is the row's own fault rather than the venue's — an uncompilable regex. It is reported as a
+failed row quoting the compiler's reason, never as an exception: the codec carries a bad pattern
+verbatim in both directions, because refusing to write it failed the save of the entire scenario over
+one half-typed character class, and refusing to read it produced a file that could never be loaded back.
+The pattern is judged where it can be acted on — live in the editor, and on the failing row of a run.
 
-Unchanged, and orthogonal to all of the above: `BeginString(8)`, `BodyLength(9)`, `CheckSum(10)`,
-`MsgSeqNum(34)`, `SendingTime(52)`, `SenderCompID(49)`, `TargetCompID(56)` and
-`LastMsgSeqNumProcessed(369)` identify the connection and the moment, not the behaviour. They are
-never seeded and never counted as unexpected in STRICT — otherwise a scenario captured on DEV goes
-red on QA on every step.
+### Tags that are never asserted — and the ones asserted only for presence
+
+Orthogonal to all of the above, and there are **two** lists, because "its value belongs to this
+environment" and "it should not be asserted at all" are different claims. Collapsing them is how the
+routing tags came to be dropped from the engine entirely, which silently deleted routing coverage.
+
+**The envelope — not seeded, and never an unexpected extra in STRICT.** `BeginString(8)`,
+`BodyLength(9)`, `CheckSum(10)`, `MsgSeqNum(34)`, `SendingTime(52)`, `SenderCompID(49)`,
+`TargetCompID(56)`, `LastMsgSeqNumProcessed(369)`. They are on every message by definition and differ
+on every environment: a row for `BodyLength` is noise that cannot fail, and a row for `SenderCompID` is
+a scenario that only runs where it was captured. A capture reports them under `notAsserted`.
+
+**The address — seeded as `Presence`.** `SenderSubID(50)`, `TargetSubID(57)`, `OnBehalfOfCompID(115)`,
+`DeliverToCompID(128)`, the LocationIDs `142`/`143`/`144`/`145`, and `OrigSendingTime(122)`. Their
+*presence* is the venue's behaviour; their *value* is this environment's or this moment's. Asserting
+that a routed ExecutionReport still carries a `TargetSubID` is portable and worth checking; asserting
+that it carries `DESK7` passes only on the desk it was captured on.
+
+Presence is the cut between two mistakes we shipped in turn. Seeding them **exact** made every captured
+scenario non-portable — red on QA on every step. **Omitting** them (the obvious repair) was worse: not
+seeded *and* excluded from STRICT's extras, a venue could deliver to the wrong desk, or stop populating
+`DeliverToCompID`, and every scenario would still report green. Presence keeps both properties: the row
+is portable, and it is *there* — visible, with its captured value beside it — so a routing test tightens
+it to `exact` from the dropdown, and because it is listed, STRICT still reports an addressing tag that
+appears when none was captured.
+
+`PossDupFlag(43)`, `PossResend(97)` are neither: they are behaviour, identical on every environment, and
+stay `exact`. `OrigSendingTime(122)` sits with the address because it is a *moment*, not a value — typed
+`UTCTIMESTAMP` it seeded as "~now ±60s", and a resend's OrigSendingTime is hours old by definition, so
+every resend scenario went red on every run.
 
 ---
 
@@ -296,14 +344,24 @@ this whole exercise exists to remove.
 
 ## Open questions
 
-1. ~~Should OPEN enforce relative order?~~ **Decided: yes.** OPEN is a subsequence match — the listed
-   rows must appear in the listed order, with anything else allowed between them. Set semantics would
-   let two swapped group entries pass unnoticed, which is the failure this model exists to prevent.
-2. **Repeated occurrences beyond what was captured.** OPEN ignores a fifth party when four were
-   captured. Should the count tag (`453`) being asserted `exact 2` be enough to catch that, or does
-   OPEN need an explicit "no more than captured" option?
-3. **Reference matchers across occurrences.** `${out.D.11}` resolves to one value. Does any real
-   flow need "the second leg's ClOrdID echoes the second order"? If so, references need an
-   occurrence index too.
+1. ~~Should OPEN enforce relative order?~~ **Decided: yes — the expectation must be a subsequence of
+   the reply.** Given a reply of `1,2,3,4,5`: `1,3,5` and `1,2,4` hold; `1,6,3` does not (no `6`), and
+   neither does `1,3,2` (the reply puts `2` first). The accepted cost is a false red on a hand-authored
+   expectation whose rows are not in wire order; the failure row says so and names the fix.
+2. ~~Repeated occurrences beyond what was captured.~~ **Decided: the count tag is enough.** A valid FIX
+   group always carries its `NoXXX` count, the seeder seeds it `exact`, so a reply with five parties
+   where four were captured already fails on `453` (expected 4, actual 5). No "closed" flag, no per-row
+   occurrence bound — nothing new to be wrong about. If an author loosens or drops the count row, the
+   diff view shows they did.
+3. ~~Reference matchers across occurrences.~~ **Decided: references stay scalar.** No current flow needs
+   "the second leg's ClOrdID echoes the second order". It stays additive: a later `${out.D.11#2}` is a
+   resolver change only, with no change to the scenario format, so nothing captured now needs recapture.
 4. **Re-seed granularity.** "Re-seed from this message" replaces a whole step. Is a per-row re-seed
-   worth having, or does Accept-actual already cover it?
+   worth having, or does Accept-actual already cover it? *(Open — a reconcile-view question, so it is
+   answered when that view is built.)*
+5. **The wire-order fallback.** The engine reads `FixMessage.rawMessage`, which for an incoming message
+   prefers the **actual bytes off the wire** and falls back to QuickFIX's `toString()` when the raw
+   capture misses. QuickFIX re-serialises body fields in ascending tag order, which is *not* the order
+   the venue sent — so on that fallback path an order-sensitive assertion could go red for a reason that
+   has nothing to do with the venue. The fallback is believed rare (it needs the raw-capture log to miss),
+   but it is the one place where "the wire order" is not actually the wire order. *(Open.)*

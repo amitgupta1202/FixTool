@@ -39,9 +39,9 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.MatchContextMode
-import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.TagResult
-import com.knapsack.fixtool.service.AssertionQuickFixes
+import com.knapsack.fixtool.model.scenario.TagStatus
+import com.knapsack.fixtool.service.FixMessageHelper
 import quickfix.Field
 import quickfix.FieldMap
 import java.awt.Cursor
@@ -67,18 +67,15 @@ fun MessageDetailPanel(
     externalMatchContextMode: MatchContextMode? = null,
     onMatchContextModeChange: ((MatchContextMode) -> Unit)? = null,
     // Per-tag assertion results for the displayed message (from the last scenario run) — colors each
-    // tag row green/red and shows expected-vs-actual. A list, not a tag-keyed map: the same tag can
-    // be asserted once per group entry (distinct GroupPaths), and those must not collapse.
+    // tag row green/red and shows expected-vs-actual. A list, not a tag-keyed map: the same tag is
+    // asserted once per occurrence (the four PartyRoles of four party entries), and those must not
+    // collapse into one.
     tagResults: List<TagResult> = emptyList(),
     // Failure → editor deep-link: opens the Scenarios workbench on the step that produced these
-    // results. Shown on the failure banner only when provided.
+    // results. Shown on the failure banner only when provided. This panel diagnoses a failure; it is
+    // not where one is repaired — that is the reconcile view, the only surface that can see both the
+    // expectation and the message that arrived.
     onEditAssertion: (() -> Unit)? = null,
-    // Relax-at-point-of-failure quick actions on failed rows. Edits accumulate as pending state
-    // (chips highlight) and only an explicit Save on the banner writes the scenario.
-    pendingQuickFixes: Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Kind> = emptyMap(),
-    onQuickFix: ((TagResult, AssertionQuickFixes.Kind) -> Unit)? = null,
-    onSaveQuickFixes: (() -> Unit)? = null,
-    onDiscardQuickFixes: (() -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -264,9 +261,6 @@ fun MessageDetailPanel(
                             results = tagResults,
                             dictionary = dictionary,
                             onEditAssertion = onEditAssertion,
-                            pendingCount = pendingQuickFixes.size,
-                            onSaveQuickFixes = onSaveQuickFixes,
-                            onDiscardQuickFixes = onDiscardQuickFixes,
                         )
                         HorizontalDivider(
                             color = AppTheme.Separators.color,
@@ -284,11 +278,18 @@ fun MessageDetailPanel(
                     Column {
                         // Fields list (only when message is selected)
                         if (message != null) {
-                            // Top-level assertions key by tag; group-path assertions stay a list and
-                            // only light up the group entry their identity selects.
-                            val topLevelTagResults = remember(tagResults) { tagResults.filter { it.path == null }.associateBy { it.tag } }
-                            val groupTagResults = remember(tagResults) { tagResults.filter { it.path != null } }
-                            val quickFixHooks = onQuickFix?.let { QuickFixHooks(pendingQuickFixes, it) }
+                            // Keyed by tag, carrying every result on that tag *and* how many times the
+                            // tag really occurs on the wire. Both halves matter: the count is what lets a
+                            // row say "1 of 4 checked" instead of painting a green tick on three entries
+                            // nobody asserted.
+                            val verdictsByTag =
+                                remember(tagResults, message) {
+                                    val occurrences =
+                                        FixMessageHelper.wireFields(message).groupingBy { it.first }.eachCount()
+                                    tagResults.groupBy { it.tag }.mapValues { (tag, results) ->
+                                        TagVerdict(results, occurrences[tag] ?: results.size)
+                                    }
+                                }
                             Box(modifier = Modifier.height(fieldsHeight)) {
                                 SelectionContainer {
                                     LazyColumn(
@@ -302,9 +303,7 @@ fun MessageDetailPanel(
                                         renderQuickFixMessage(
                                             message = message.quickfixMessage,
                                             dictionary = dictionary,
-                                            tagResults = topLevelTagResults,
-                                            groupTagResults = groupTagResults,
-                                            quickFix = quickFixHooks,
+                                            tagResults = verdictsByTag,
                                             hideProtocolTags = appSettings.hideProtocolTags,
                                             searchQuery = searchQuery,
                                             matchContextMode = matchContextMode,
@@ -515,9 +514,6 @@ private fun AssertionSummaryBanner(
     results: List<TagResult>,
     dictionary: FixDictionary,
     onEditAssertion: (() -> Unit)? = null,
-    pendingCount: Int = 0,
-    onSaveQuickFixes: (() -> Unit)? = null,
-    onDiscardQuickFixes: (() -> Unit)? = null,
 ) {
     val failed = results.filterNot { it.passed }
     val background = if (failed.isEmpty()) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
@@ -538,17 +534,17 @@ private fun AssertionSummaryBanner(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                 )
-                // Fix-at-point-of-failure: jump straight to this step's assertion in the workbench
-                // editor — no list → edit → hunt-for-the-step detour.
+                // The one way out of this panel and into a repair. It opens the step that failed; the
+                // reconcile view there shows the expectation against the message side by side, which is
+                // the only place a missing tag or a moved entry can even be seen, let alone fixed.
                 if (onEditAssertion != null) {
-                    SlimButton("Edit assertion…", onClick = onEditAssertion, color = AppTheme.Colors.error)
+                    SlimButton("Reconcile assertions…", onClick = onEditAssertion, color = AppTheme.Colors.error)
                 }
             }
             failed.take(5).forEach { tr ->
                 val name = dictionary.getFieldName(tr.tag) ?: ""
-                val entry = tr.path?.let { p -> " (in group ${p.groupTag}, entry ${p.identityTag}=${p.identityValue})" } ?: ""
                 Text(
-                    text = "   ${tr.tag} $name$entry — expected ${tr.expected}, got ${tr.actual ?: "nothing (tag absent)"}",
+                    text = "   ${tr.tag} $name${occurrenceSuffix(tr, failed)} — ${describe(tr)}",
                     color = AppTheme.Colors.error,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
@@ -559,27 +555,29 @@ private fun AssertionSummaryBanner(
             if (failed.size > 5) {
                 Text("   +${failed.size - 5} more — see the red rows below", color = AppTheme.Colors.error, fontSize = 10.sp)
             }
-            // Batched quick-fixes: nothing is written until Save; Discard drops the drafts.
-            if (pendingCount > 0) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    Text(
-                        text = "$pendingCount pending assertion edit${if (pendingCount == 1) "" else "s"} — not saved yet:",
-                        color = AppTheme.Colors.warning,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                    if (onSaveQuickFixes != null) {
-                        SlimButton("Save to scenario", onClick = onSaveQuickFixes, color = AppTheme.Colors.success)
-                    }
-                    if (onDiscardQuickFixes != null) {
-                        SlimButton("Discard", onClick = onDiscardQuickFixes, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(start = 6.dp))
-                    }
-                }
-            }
         }
     }
 }
+
+/** "#2" when the same tag failed more than once, so two party entries do not read as one row twice. */
+private fun occurrenceSuffix(result: TagResult, failed: List<TagResult>): String =
+    if (failed.count { it.tag == result.tag } > 1) " #${result.occurrence + 1}" else ""
+
+/**
+ * A failure in one line, in the words of what actually went wrong.
+ *
+ * "expected X, got nothing" is true of a tag the venue dropped *and* of an entry it merely moved, and
+ * they are not the same bug — one is a regression, the other is a reshuffle that a click will accept.
+ * The status says which.
+ */
+private fun describe(tr: TagResult): String =
+    when (tr.status) {
+        TagStatus.MISSING -> "expected ${tr.expected}, but the reply has no such tag"
+        TagStatus.MOVED -> "expected ${tr.expected} here — the value is in the reply, but not in this position"
+        TagStatus.UNEXPECTED -> "the reply carries this tag (${tr.actual}) and the expectation never mentions it"
+        TagStatus.INVALID -> tr.expected
+        else -> "expected ${tr.expected}, got ${tr.actual ?: "nothing (tag absent)"}"
+    }
 
 @Composable
 private fun FieldRow(
@@ -590,9 +588,8 @@ private fun FieldRow(
     isExpanded: Boolean = false,
     onToggleExpand: () -> Unit = {},
     searchQuery: String = "",
-    tagResult: TagResult? = null,
-    pendingKind: AssertionQuickFixes.Kind? = null,
-    onQuickFix: ((TagResult, AssertionQuickFixes.Kind) -> Unit)? = null,
+    // The verdict on this *tag*, not on this row — see [TagVerdict].
+    verdict: TagVerdict? = null,
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
     val translation = dictionary.getFieldValueDescription(tag, value)
@@ -608,7 +605,10 @@ private fun FieldRow(
 
     // A failed assertion owns the row (red tint + detail line below); a passed one stays subtle —
     // a green check only — so failures are the thing the eye lands on, not a wall of green.
-    val failedAssertion = tagResult != null && !tagResult.passed
+    val tagResults = verdict?.results.orEmpty()
+    val failures = tagResults.filterNot { it.passed }
+    val failedAssertion = failures.isNotEmpty()
+    val tagResult = failures.firstOrNull() ?: tagResults.firstOrNull()
     val rowBackground = if (failedAssertion) AppTheme.Colors.notificationErrorBackground else fieldRowBackgroundColor
     Column(modifier = Modifier.fillMaxWidth().background(rowBackground)) {
     Row(
@@ -669,85 +669,84 @@ private fun FieldRow(
             )
         }
 
-        // Scenario assertion verdict chip: a quiet check for a pass, a loud cross for a failure.
-        tagResult?.let { tr ->
+        // Scenario assertion verdict chip: a quiet check for a pass, a loud cross for a failure — and a
+        // muted count when only *some* of the tag's occurrences are asserted.
+        //
+        // That last case is the one that matters. A green tick here is keyed to the tag, not to this
+        // row, because the panel renders QuickFIX's parsed tree and its iteration order is not the
+        // wire's — so no row can honestly claim to be "the second 452". If an OPEN expectation asserts
+        // one PartyRole and the reply carries four entries, ticking all four would tell an engineer that
+        // four entries were checked when three were never asserted at all. It says "1 of 4 checked"
+        // instead, and the reconcile view says which.
+        if (tagResult != null && verdict != null) {
             Spacer(modifier = Modifier.width(6.dp))
+            val partial = !failedAssertion && !verdict.fullyAsserted
             Text(
-                text = if (tr.passed) "✓ ${tr.matcher}" else "✗ ${tr.matcher}",
-                color = if (tr.passed) AppTheme.Colors.success else AppTheme.Colors.error,
+                text = when {
+                    failedAssertion -> "✗ ${tagResult.matcher}"
+                    partial -> "◐ ${verdict.results.size} of ${verdict.occurrences} checked"
+                    else -> "✓ ${tagResult.matcher}"
+                },
+                color = when {
+                    failedAssertion -> AppTheme.Colors.error
+                    partial -> AppTheme.Colors.textSecondary
+                    else -> AppTheme.Colors.success
+                },
                 fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = if (tr.passed) FontWeight.Normal else FontWeight.Bold,
+                fontWeight = if (failedAssertion) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 modifier = Modifier.padding(end = 4.dp),
             )
         }
     }
-    // A failure gets its expected-vs-actual spelled out full-width, with the actual value's
-    // dictionary meaning — never truncated into an unreadable suffix.
-    if (failedAssertion && tagResult != null) {
+    // Each failure gets its expected-vs-actual spelled out full-width, with the actual value's
+    // dictionary meaning — never truncated into an unreadable suffix. Several, when the tag is asserted
+    // more than once: this is a diagnosis, and it names every occurrence that broke.
+    //
+    // There are no quick-fix chips here any more, and no Save. This surface renders the message that
+    // *arrived*, so it can never be the place a failure is repaired: a tag the venue stopped sending has
+    // no row to click, and a reordered group entry looks perfectly fine tag by tag — every value
+    // matches, nothing is red, and the step still failed. Reconciling happens in the diff view, which
+    // can see both sides. The viewer diagnoses; the diff view authors.
+    for (failure in failures) {
         val actualText =
-            tagResult.actual?.let { actual ->
+            failure.actual?.let { actual ->
                 val desc = dictionary.getFieldValueDescription(tag, actual)?.takeIf { it != actual }
                 if (desc != null) "$actual ($desc)" else actual
             } ?: "nothing — tag absent"
         Text(
-            text = "expected ${tagResult.expected} · actual $actualText",
+            text = "${occurrenceLabel(failure, tagResults.size)}expected ${failure.expected} · actual $actualText",
             color = AppTheme.Colors.error,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.fillMaxWidth().padding(start = (8 + indentLevel * 8 + 39).dp, end = 8.dp, bottom = 4.dp),
         )
-        // Relax-at-point-of-failure verbs. Each chip toggles a *pending* edit (highlighted until
-        // saved from the banner); richer edits go through "Edit assertion…" into the builder.
-        if (onQuickFix != null) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(start = (8 + indentLevel * 8 + 39).dp, end = 8.dp, bottom = 4.dp),
-            ) {
-                QuickFixChip(
-                    label = if (tagResult.actual != null) "accept actual" else "expect absent",
-                    active = pendingKind == AssertionQuickFixes.Kind.ACCEPT_ACTUAL,
-                    onClick = { onQuickFix(tagResult, AssertionQuickFixes.Kind.ACCEPT_ACTUAL) },
-                )
-                if (tagResult.actual != null) {
-                    QuickFixChip(
-                        label = "presence only",
-                        active = pendingKind == AssertionQuickFixes.Kind.LOOSEN_TO_PRESENCE,
-                        onClick = { onQuickFix(tagResult, AssertionQuickFixes.Kind.LOOSEN_TO_PRESENCE) },
-                    )
-                }
-                QuickFixChip(
-                    label = "drop check",
-                    active = pendingKind == AssertionQuickFixes.Kind.DROP,
-                    onClick = { onQuickFix(tagResult, AssertionQuickFixes.Kind.DROP) },
-                )
-                if (pendingKind != null) {
-                    Text("pending — Save on the banner above", color = AppTheme.Colors.warning, fontSize = 9.sp)
-                }
-            }
-        }
     }
     }
 }
 
-/** A tiny toggle chip for one quick-fix verb; active = drafted, click again to undo. */
-@Composable
-private fun QuickFixChip(label: String, active: Boolean, onClick: () -> Unit) {
-    Text(
-        text = label,
-        color = if (active) AppTheme.Colors.background else AppTheme.Colors.textSecondary,
-        fontSize = 9.sp,
-        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-        modifier =
-            Modifier
-                .clip(searchFieldShape)
-                .background(if (active) AppTheme.Colors.warning else AppTheme.Colors.surfaceVariant)
-                .clickable(onClick = onClick)
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-    )
+/**
+ * Everything the run said about one **tag**, plus how many times that tag actually occurs on the wire.
+ *
+ * The viewer judges by tag, not by row, and that is deliberate rather than lazy: it renders QuickFIX's
+ * parsed tree, whose iteration order is not the wire's, so a row's position here cannot be turned into
+ * "the k-th 452 on the wire" without the kind of guess this model exists to eliminate — and a guess
+ * would put a green tick on a row whose assertion actually failed.
+ *
+ * So a tag with *any* failing occurrence shows red on every row (over-red, never falsely green), and a
+ * tag only *partly* asserted shows neither green nor red — it says how many of its occurrences were
+ * checked. [occurrences] is what makes that distinction possible; without it, one passing assertion
+ * painted a green tick on four party entries, three of which nobody had asserted.
+ */
+data class TagVerdict(val results: List<TagResult>, val occurrences: Int) {
+    /** Every occurrence of this tag carries an assertion, so a green tick speaks for all of them. */
+    val fullyAsserted: Boolean get() = occurrences > 0 && results.size >= occurrences
 }
+
+/** "occurrence 2: " when a tag is asserted more than once, "" when it is not. */
+private fun occurrenceLabel(result: TagResult, assertionsOnTag: Int): String =
+    if (assertionsOnTag > 1) "occurrence ${result.occurrence + 1}: " else ""
 
 @Composable
 private fun GroupHeaderRow(
@@ -838,9 +837,7 @@ private fun LazyListScope.renderQuickFixMessage(
     onToggleField: (String) -> Unit,
     indentLevel: Int = 0,
     parentKey: String = "",
-    tagResults: Map<Int, TagResult> = emptyMap(),
-    groupTagResults: List<TagResult> = emptyList(),
-    quickFix: QuickFixHooks? = null,
+    tagResults: Map<Int, TagVerdict> = emptyMap(),
 ) {
     // Render header fields
     renderFieldMap(
@@ -857,8 +854,6 @@ private fun LazyListScope.renderQuickFixMessage(
         indentLevel = indentLevel,
         parentKey = parentKey,
         tagResults = tagResults,
-        groupTagResults = groupTagResults,
-        quickFix = quickFix,
     )
 
     // Render body fields
@@ -876,8 +871,6 @@ private fun LazyListScope.renderQuickFixMessage(
         indentLevel = indentLevel,
         parentKey = parentKey,
         tagResults = tagResults,
-        groupTagResults = groupTagResults,
-        quickFix = quickFix,
     )
 
     // Render trailer fields
@@ -895,45 +888,8 @@ private fun LazyListScope.renderQuickFixMessage(
         indentLevel = indentLevel,
         parentKey = parentKey,
         tagResults = tagResults,
-        groupTagResults = groupTagResults,
-        quickFix = quickFix,
     )
 }
-
-/** Quick-fix wiring carried down the render tree alongside the assertion results. */
-private data class QuickFixHooks(
-    val pending: Map<Pair<Int, GroupPath?>, AssertionQuickFixes.Kind>,
-    val onQuickFix: (TagResult, AssertionQuickFixes.Kind) -> Unit,
-) {
-    fun pendingKindFor(tagResult: TagResult?): AssertionQuickFixes.Kind? =
-        tagResult?.let { pending[it.tag to it.path] }
-}
-
-/**
- * The assertion results that apply *inside* one repeating-group entry: the enclosing level's
- * results plus every group-path result whose identity (`groupTag` + `identityTag=identityValue`)
- * selects this entry — the pathed result wins over a same-tag top-level one within its entry.
- */
-private fun resultsForGroupEntry(
-    entry: FieldMap,
-    groupTag: Int,
-    inherited: Map<Int, TagResult>,
-    groupTagResults: List<TagResult>,
-): Map<Int, TagResult> {
-    val matching = groupTagResults.filter { tr ->
-        val p = tr.path
-        p != null && p.groupTag == groupTag && fieldValueOrNull(entry, p.identityTag) == p.identityValue
-    }
-    return if (matching.isEmpty()) inherited else inherited + matching.associateBy { it.tag }
-}
-
-/** The value of [tag] in [fieldMap], or null when unset (never throws). */
-private fun fieldValueOrNull(fieldMap: FieldMap, tag: Int): String? =
-    try {
-        if (fieldMap.isSetField(tag)) fieldMap.getString(tag) else null
-    } catch (e: Exception) {
-        null
-    }
 
 /**
  * Renders a FieldMap (which can be header, body, trailer, or a group)
@@ -951,9 +907,7 @@ private fun LazyListScope.renderFieldMap(
     onToggleField: (String) -> Unit,
     indentLevel: Int = 0,
     parentKey: String = "",
-    tagResults: Map<Int, TagResult> = emptyMap(),
-    groupTagResults: List<TagResult> = emptyList(),
-    quickFix: QuickFixHooks? = null,
+    tagResults: Map<Int, TagVerdict> = emptyMap(),
 ) {
     val iterator = fieldMap.iterator()
 
@@ -1021,8 +975,6 @@ private fun LazyListScope.renderFieldMap(
                         onToggleField = onToggleField,
                         indentLevel = indentLevel,
                         tagResults = tagResults,
-                        groupTagResults = groupTagResults,
-                        quickFix = quickFix,
                     )
                     continue
                 }
@@ -1069,9 +1021,7 @@ private fun LazyListScope.renderFieldMap(
                                 onToggleField = onToggleField,
                                 indentLevel = indentLevel + 1,
                                 parentKey = "${groupKey}_$i",
-                                tagResults = resultsForGroupEntry(group, tag, tagResults, groupTagResults),
-                                groupTagResults = groupTagResults,
-                                quickFix = quickFix,
+                                tagResults = tagResults,
                             )
                         } catch (e: Exception) {
                             // Skip invalid groups
@@ -1096,9 +1046,7 @@ private fun LazyListScope.renderFieldMap(
                         isExpanded = expandedFields.contains(fieldKey),
                         onToggleExpand = { onToggleField(fieldKey) },
                         searchQuery = searchQuery,
-                        tagResult = tagResults[tag],
-                        pendingKind = quickFix?.pendingKindFor(tagResults[tag]),
-                        onQuickFix = quickFix?.onQuickFix,
+                        verdict = tagResults[tag],
                     )
                 }
             }
@@ -1186,9 +1134,7 @@ private fun LazyListScope.renderSearchedGroup(
     expandedFields: Set<String>,
     onToggleField: (String) -> Unit,
     indentLevel: Int,
-    tagResults: Map<Int, TagResult> = emptyMap(),
-    groupTagResults: List<TagResult> = emptyList(),
-    quickFix: QuickFixHooks? = null,
+    tagResults: Map<Int, TagVerdict> = emptyMap(),
 ) {
     item {
         GroupHeaderRow(
@@ -1217,7 +1163,6 @@ private fun LazyListScope.renderSearchedGroup(
             }
 
             val instanceKey = "${groupKey}_$i"
-            val instanceResults = resultsForGroupEntry(group, tag, tagResults, groupTagResults)
             if (mode == MatchContextMode.FULL) {
                 renderFullFieldMap(
                     fieldMap = group,
@@ -1229,9 +1174,7 @@ private fun LazyListScope.renderSearchedGroup(
                     onToggleField = onToggleField,
                     indentLevel = indentLevel + 1,
                     parentKey = instanceKey,
-                    tagResults = instanceResults,
-                    groupTagResults = groupTagResults,
-                    quickFix = quickFix,
+                    tagResults = tagResults,
                 )
             } else {
                 renderIdentityInstance(
@@ -1244,9 +1187,7 @@ private fun LazyListScope.renderSearchedGroup(
                     onToggleField = onToggleField,
                     indentLevel = indentLevel + 1,
                     parentKey = instanceKey,
-                    tagResults = instanceResults,
-                    groupTagResults = groupTagResults,
-                    quickFix = quickFix,
+                    tagResults = tagResults,
                 )
             }
         } catch (e: Exception) {
@@ -1269,9 +1210,7 @@ private fun LazyListScope.renderFullFieldMap(
     onToggleField: (String) -> Unit,
     indentLevel: Int,
     parentKey: String,
-    tagResults: Map<Int, TagResult> = emptyMap(),
-    groupTagResults: List<TagResult> = emptyList(),
-    quickFix: QuickFixHooks? = null,
+    tagResults: Map<Int, TagVerdict> = emptyMap(),
 ) {
     val iterator = fieldMap.iterator()
     while (iterator.hasNext()) {
@@ -1316,9 +1255,7 @@ private fun LazyListScope.renderFullFieldMap(
                         onToggleField = onToggleField,
                         indentLevel = indentLevel + 1,
                         parentKey = "${groupKey}_$i",
-                        tagResults = resultsForGroupEntry(nested, tag, tagResults, groupTagResults),
-                        groupTagResults = groupTagResults,
-                        quickFix = quickFix,
+                        tagResults = tagResults,
                     )
                 } catch (e: Exception) {
                     // Skip invalid groups
@@ -1334,9 +1271,7 @@ private fun LazyListScope.renderFullFieldMap(
                     isExpanded = expandedFields.contains(fieldKey),
                     onToggleExpand = { onToggleField(fieldKey) },
                     searchQuery = searchQuery,
-                    tagResult = tagResults[tag],
-                    pendingKind = quickFix?.pendingKindFor(tagResults[tag]),
-                    onQuickFix = quickFix?.onQuickFix,
+                    verdict = tagResults[tag],
                 )
             }
         }
@@ -1357,9 +1292,7 @@ private fun LazyListScope.renderIdentityInstance(
     onToggleField: (String) -> Unit,
     indentLevel: Int,
     parentKey: String,
-    tagResults: Map<Int, TagResult> = emptyMap(),
-    groupTagResults: List<TagResult> = emptyList(),
-    quickFix: QuickFixHooks? = null,
+    tagResults: Map<Int, TagVerdict> = emptyMap(),
 ) {
     val includedTags = identityInstanceTags(group, dictionary, searchQuery, hideProtocolTags, protocolTags).toSet()
     val iterator = group.iterator()
@@ -1389,8 +1322,6 @@ private fun LazyListScope.renderIdentityInstance(
                 onToggleField = onToggleField,
                 indentLevel = indentLevel,
                 tagResults = tagResults,
-                groupTagResults = groupTagResults,
-                quickFix = quickFix,
             )
             continue
         }
@@ -1408,9 +1339,7 @@ private fun LazyListScope.renderIdentityInstance(
                 isExpanded = expandedFields.contains(fieldKey),
                 onToggleExpand = { onToggleField(fieldKey) },
                 searchQuery = searchQuery,
-                tagResult = tagResults[tag],
-                pendingKind = quickFix?.pendingKindFor(tagResults[tag]),
-                onQuickFix = quickFix?.onQuickFix,
+                verdict = tagResults[tag],
             )
         }
     }

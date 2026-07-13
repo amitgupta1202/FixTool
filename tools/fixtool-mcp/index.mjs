@@ -362,17 +362,24 @@ server.tool(
 
 server.tool(
   "fixtool_assert",
-  "Assert a received message against an expectation (per-tag matchers) — the machine-check that " +
-    "replaces eyeballing a response. Selects the message like fixtool_select (by " +
-    "messageType/direction/index), or awaits one for up to timeoutMs. Returns {passed, tags:[{tag, " +
-    "matcher, expected, actual, passed}]} for tag-by-tag pass/fail. mode=open asserts only listed " +
-    "tags; strict also fails on unexpected tags. Each field is {tag, matcher:{type,...}, path?}; " +
-    "matcher types: exact (value), presence, absent, regex (pattern), oneOf (values[]), numeric " +
+  "Assert a received message against an expectation — the machine-check that replaces eyeballing a " +
+    "response. Selects the message like fixtool_select (by messageType/direction/index), or awaits one " +
+    "for up to timeoutMs. Returns {passed, tags:[{tag, matcher, expected, actual, passed, index, " +
+    "occurrence, status}]}; status is ok|value|missing|unexpected|moved|invalid.\n\n" +
+    "ORDER MATTERS. fields[] is an ORDERED list of rows {tag, matcher} — there is NO `path`:\n" +
+    "  * The k-th row for a tag asserts the k-th occurrence of that tag. Two party entries = two 448 " +
+    "rows and two 452 rows; the second 452 row checks the second entry. Position is the address.\n" +
+    "  * Your rows must be a SUBSEQUENCE of the message: they must appear in the order you list them, " +
+    "with anything else allowed in between. If the venue sends 37 before 11 and you list 11 before 37, " +
+    "the step FAILS with status=moved. List rows in the order the venue sends them — or call " +
+    "fixtool_capture_expectation, which seeds them in wire order for you.\n" +
+    "  * Do not sort or de-duplicate fields[].\n\n" +
+    "mode=open asserts only the listed rows (a tag you do not mention is ignored). mode=strict also " +
+    "asserts the message shape: same tags, same count, same order.\n\n" +
+    "Matcher types: exact (value), presence, absent, regex (pattern), oneOf (values[]), numeric " +
     "(value, tolerance?), temporal (kind today|now_within_tolerance, toleranceSeconds?), reference " +
-    "(expression, e.g. ${out.D.11} — see fixtool_syntax). path locates a tag inside a repeating group " +
-    "by identity, never by position: {groupTag, identityTag, identityValue, occurrence?} — e.g. " +
-    '{groupTag:453, identityTag:452, identityValue:"1"} is "the NoPartyIDs entry whose PartyRole is ' +
-    '1" (occurrence, default 0, is only needed when that identity is not unique).',
+    "(expression, e.g. ${out.D.11} — see fixtool_syntax). An `absent` row asserts the tag appears " +
+    "nowhere, and takes no part in the ordering.",
   {
     session: z.string().default("0").describe("session id, title or index"),
     messageType: z.string().optional().describe("FIX msg type to select/await, e.g. \"8\""),
@@ -380,7 +387,7 @@ server.tool(
     index: z.number().int().optional().describe("0-based index into matching messages; default last"),
     timeoutMs: z.number().int().optional().describe("await a matching message up to this long; default 0 = already received"),
     mode: z.enum(["open", "strict"]).optional().describe("open (default) asserts only listed tags; strict fails on extras"),
-    fields: z.array(z.record(z.any())).describe("per-tag matchers: [{tag, matcher:{type,...}, path?}]"),
+    fields: z.array(z.record(z.any())).describe("ORDERED rows [{tag, matcher:{type,...}}] in the order the venue sends them; the k-th row for a tag asserts the k-th occurrence of it. No `path`. Do not sort or de-duplicate."),
   },
   async (args) => {
     const body = {};
@@ -392,9 +399,15 @@ server.tool(
 server.tool(
   "fixtool_capture_expectation",
   "Build an auto-seeded expectation from a received message: matchers pre-seeded from dictionary " +
-    "field types (timestamps -> temporal, prices/quantities -> numeric, OrderID/ExecID -> presence, " +
-    "else exact; header volatiles 9/10/34/52 omitted). Selects by messageType/direction/index like " +
-    "fixtool_select. Returns {messageType, mode, fields:[...]} ready to edit and pass to fixtool_assert.",
+    "field types (timestamps -> temporal, prices/quantities -> numeric, else exact). Asserted for " +
+    "PRESENCE only, never value, because the value belongs to this environment or this moment: " +
+    "OrderID(37), ExecID(17), the routing addresses 50/57/115/128/142/143/144/145, and " +
+    "OrigSendingTime(122) — tighten one to exact if the scenario is about routing. NOT asserted at " +
+    "all, and listed in notAsserted: the session envelope 8/9/10/34/49/52/56/369. " +
+    "Rows come back in WIRE ORDER, one per occurrence of each tag — the order is part of the " +
+    "assertion (see fixtool_assert), so pass fields[] through unsorted and un-de-duplicated. " +
+    "Selects by messageType/direction/index like fixtool_select. Returns " +
+    "{messageType, mode, fields:[...], notAsserted:[...]} ready to edit and pass to fixtool_assert.",
   {
     session: z.string().default("0").describe("session id, title or index"),
     messageType: z.string().optional().describe("FIX msg type to select, e.g. \"8\""),

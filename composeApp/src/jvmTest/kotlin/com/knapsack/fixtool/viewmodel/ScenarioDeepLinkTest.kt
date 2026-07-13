@@ -4,7 +4,6 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
-import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -84,7 +83,7 @@ class ScenarioDeepLinkTest {
                 listOf(
                     TagResult(150, "exact F", "F", "8", passed = false),
                     TagResult(37, "presence", "<present>", "OID-1", passed = true),
-                    TagResult(448, "exact B", "B", "X", passed = false, path = GroupPath(453, 452, "1")),
+                    TagResult(448, "exact B", "B", "X", passed = false, index = 5, occurrence = 1),
                 ),
         )
 
@@ -102,8 +101,8 @@ class ScenarioDeepLinkTest {
         assertNotNull(request)
         assertEquals(scenario.id, request.scenario.id)
         assertEquals(1, request.focusStep)
-        // Only the failed tags travel, with their group paths intact.
-        assertEquals(listOf(150 to null, 448 to GroupPath(453, 452, "1")), request.failedTags.map { it.tag to it.path })
+        // Only the failed tags travel, each still naming the occurrence it checked.
+        assertEquals(listOf(150 to 0, 448 to 1), request.failedTags.map { it.tag to it.occurrence })
         assertEquals(msg.rawMessage, request.actualRaw)
         assertTrue(viewModel.showScenariosDialog.value)
 

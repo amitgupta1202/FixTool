@@ -1,6 +1,5 @@
 package com.knapsack.fixtool.service
 
-import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
@@ -19,17 +18,20 @@ import kotlin.test.assertTrue
  */
 class ScenarioReportTest {
     @Test
-    fun `tag json carries the group path when present and omits it when not`() {
-        val pathed = TagResult(448, "exact BROKER-A", "BROKER-A", "CLIENT-X", passed = false, path = GroupPath(453, 452, "1"))
-        val json = ScenarioReport.tagToJson(pathed)
+    fun `tag json says which row failed and which occurrence it checked`() {
+        // Two party entries fail on the same tag. Without the row index and the occurrence, the report
+        // says "tag 448" twice and a reader cannot tell which assertion to go and fix.
+        val second = TagResult(448, "exact BROKER-A", "BROKER-A", "CLIENT-X", passed = false, index = 5, occurrence = 1)
+        val json = ScenarioReport.tagToJson(second)
         assertEquals(448, json["tag"]?.jsonPrimitive?.content?.toInt())
-        val path = json["path"]?.jsonObject ?: error("path object missing")
-        assertEquals("453", path["groupTag"]?.jsonPrimitive?.content)
-        assertEquals("452", path["identityTag"]?.jsonPrimitive?.content)
-        assertEquals("1", path["identityValue"]?.jsonPrimitive?.content)
+        assertEquals("5", json["index"]?.jsonPrimitive?.content)
+        assertEquals("1", json["occurrence"]?.jsonPrimitive?.content)
+        assertEquals("ok", json["status"]?.jsonPrimitive?.content)
 
+        // A row that is not a duplicate carries no index only when it is an unexpected extra.
         val flat = ScenarioReport.tagToJson(TagResult(35, "exact 8", "8", "8", passed = true))
-        assertNull(flat["path"])
+        assertNull(flat["index"])
+        assertEquals("0", flat["occurrence"]?.jsonPrimitive?.content)
     }
 
     /**
@@ -56,7 +58,7 @@ class ScenarioReportTest {
                             tags =
                                 listOf(
                                     TagResult(39, "exact 2", "2", "8", passed = false),
-                                    TagResult(448, "exact B", "B", "X", passed = false, path = GroupPath(453, 452, "1")),
+                                    TagResult(448, "exact B", "B", "X", passed = false, index = 5, occurrence = 1),
                                 ),
                         ),
                     ),

@@ -28,6 +28,18 @@ data class FixMessage(
      * Default of 0 indicates timestamp was not captured (backward compatibility).
      */
     val captureTimeMicros: Long = 0L,
+    /**
+     * The message as it actually was on the wire — **SOH-delimited**, unsubstituted. Null when the
+     * transport could not hand one over.
+     *
+     * [rawMessage] is a *display* string: it replaces SOH with `|` so a human can read it. That
+     * substitution is lossy, because `|` is an ordinary character inside a FIX value — a venue is
+     * entitled to reject an order with `58=Rejected|insufficient margin`, and splitting that on `|`
+     * yields a truncated Text field and a phantom one. Harmless while only a human was reading it;
+     * not harmless now that the assertion engine reads the field list, where it means comparing an
+     * assertion against a value the venue never sent.
+     */
+    val wireRaw: String? = null,
 ) : AppMessage(timestamp) {
     enum class Direction {
         INCOMING,

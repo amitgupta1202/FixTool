@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
 import quickfix.DataDictionary
 import quickfix.FieldMap
@@ -80,11 +81,19 @@ object FixMessageHelper {
     }
 
     /**
-     * Parses a FIX message string into a list of (tag, value) pairs
+     * Parses a FIX message string into a list of (tag, value) pairs, **guessing** the delimiter.
+     *
+     * The guess is why [wireFields] exists: `|` is an ordinary character inside a FIX value, so a
+     * message that is really SOH-delimited but carries `58=Rejected|insufficient margin` gets split on
+     * the wrong character here. Tolerable for the editor and the display, which is what this serves.
+     * Not tolerable for the assertion engine, which must be handed the real delimiter.
      */
-    internal fun parseFixMessage(raw: String): List<Pair<Int, String>> {
-        val delimiter = if (raw.contains('|')) '|' else '\u0001'
-        return raw
+    internal fun parseFixMessage(raw: String): List<Pair<Int, String>> =
+        parseFixMessage(raw, delimiter = if (raw.contains('|')) '|' else '\u0001')
+
+    /** Parses with a **known** delimiter — no guessing, so a `|` inside a value stays inside it. */
+    internal fun parseFixMessage(raw: String, delimiter: Char): List<Pair<Int, String>> =
+        raw
             .split(delimiter)
             .filter { it.isNotBlank() }
             .mapNotNull { field ->
@@ -96,7 +105,18 @@ object FixMessageHelper {
                     null
                 }
             }
-    }
+
+    /**
+     * The fields of a captured message, in wire order, read from the bytes the venue actually sent.
+     *
+     * The single door the assertion engine and the capture path both go through. It prefers
+     * [FixMessage.wireRaw] — SOH-delimited, unsubstituted — and falls back to the `|`-substituted
+     * display string only when the transport could not hand over the original.
+     */
+    fun wireFields(message: FixMessage): List<Pair<Int, String>> =
+        message.wireRaw
+            ?.let { parseFixMessage(it, delimiter = '\u0001') }
+            ?: parseFixMessage(message.rawMessage)
 
     /**
      * Recursively processes fields and groups, returning the index of the next unprocessed field

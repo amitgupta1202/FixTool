@@ -62,8 +62,9 @@ class ScenarioIntegrationTest {
     }
 
     /** A book-a-trade scenario: clear, send the order, assert the ExecutionReport. */
-    private fun scenarioJson(name: String, execTypeExpected: String): String =
+    private fun scenarioJson(name: String, execTypeExpected: String, id: String? = null): String =
         """{
+          ${id?.let { "\"id\": \"$it\"," } ?: ""}
           "name": "$name",
           "setup": [ {"type":"clearMessages","session":"CLI"} ],
           "steps": [
@@ -71,9 +72,9 @@ class ScenarioIntegrationTest {
             {"type":"expect","session":"CLI","direction":"in","timeoutMs":8000,"expectation":{
               "messageType":"8","mode":"open","fields":[
                 {"tag":35,"matcher":{"type":"exact","value":"8"}},
-                {"tag":150,"matcher":{"type":"exact","value":"$execTypeExpected"}},
                 {"tag":11,"matcher":{"type":"reference","expression":"${'$'}{out.D.11}"}},
-                {"tag":37,"matcher":{"type":"presence"}}
+                {"tag":37,"matcher":{"type":"presence"}},
+                {"tag":150,"matcher":{"type":"exact","value":"$execTypeExpected"}}
               ]}}
           ]
         }""".replace("\${uuidShort}", "S$runId")
@@ -151,12 +152,19 @@ class ScenarioIntegrationTest {
     }
 
     /**
-     * The fail → fix loop end to end over real sessions: a saved scenario fails (wrong ExecType),
-     * the failure deep-links to its expect step, a quick-fix rebaselines the assertion at the point
-     * of failure, and the re-run of the (rewritten) scenario is green.
+     * The fail → fix loop end to end over real sessions: a saved scenario fails (wrong ExecType), the
+     * failure deep-links to the expect step that produced it, the assertion is rebaselined, and the
+     * re-run of the rewritten scenario is green.
+     *
+     * The rebaseline goes through the scenario itself rather than the message viewer. The viewer's
+     * quick-fix chips are gone: they could only ever repair a *value mismatch*, because that panel
+     * renders the message that arrived — a tag the venue stopped sending has no row to click, and a
+     * reordered group entry looks fine tag by tag while the step still fails. Authoring lives in the
+     * reconcile view now, which sees both sides. What this test guards is the loop, not the surface:
+     * a failure must be attributable to one step, and correcting that step must actually make it pass.
      */
     @Test
-    fun `a failing run is fixed at the point of failure and re-runs green`() {
+    fun `a failing run is attributed to its step, and correcting that step re-runs green`() {
         // Expect ExecType=8 (Rejected); the acceptor answers ExecType=0 (New) -> the run fails.
         val created = obj(post("/scenarios", scenarioJson("fixloop", "8")))
         val id = created["id"]!!.jsonPrimitive.content
@@ -167,6 +175,7 @@ class ScenarioIntegrationTest {
         val (failedMessage, failedStep) = viewModel.assertionResults.entries.single { !it.value.passed }
         val failed150 = failedStep.tags.single { it.tag == 150 && !it.passed }
         assertEquals("0", failed150.actual, "acceptor answers ExecType=0")
+        assertEquals(0, failed150.occurrence, "ExecType appears once — the first and only occurrence")
 
         // Deep-link lands on the failing expect step (steps index 1: send=0, expect=1).
         viewModel.openScenarioEditorForFailure(failedMessage)
@@ -176,18 +185,8 @@ class ScenarioIntegrationTest {
         assertEquals(listOf(150), request.failedTags.map { it.tag })
         viewModel.consumeWorkbenchEditRequest()
 
-        // Quick-fix: accept the actual value, save -> the scenario file is rewritten and the
-        // in-memory rows flip green against the same message.
-        viewModel.toggleAssertionQuickFix(
-            failedMessage,
-            failed150,
-            com.knapsack.fixtool.service.AssertionQuickFixes.Kind.ACCEPT_ACTUAL,
-        )
-        viewModel.saveAssertionQuickFixes(failedMessage)
-        assertEquals(0, viewModel.pendingAssertionEdits(failedMessage).size)
-        assertTrue(viewModel.assertionResults[failedMessage]!!.passed, "edited rows should re-check green")
-
-        // The re-run of the saved (now rebaselined) scenario passes for real.
+        // Rebaseline the step to what the venue actually sends, save it back, and re-run for real.
+        assertEquals("updated", obj(post("/scenarios", scenarioJson("fixloop", "0", id = id)))["status"]!!.jsonPrimitive.content)
         val secondRun = obj(post("/scenarios/run", """{"id":"$id"}"""))
         assertTrue(secondRun["passed"]!!.jsonPrimitive.boolean, "rebaselined scenario should pass: $secondRun")
         delete("/scenarios", """{"id":"$id"}""")

@@ -110,7 +110,7 @@ class ScenarioCaptureTest {
         // ...evaluated at the moment that fill arrived, so the seeded "~now" TransactTime is current.
         val results =
             ExpectationEvaluator.evaluate(
-                RawMessageView(onQa, dictionary),
+                RawMessageView(onQa),
                 expectation,
                 now = { Instant.parse("2026-07-01T08:12:44Z") },
             )

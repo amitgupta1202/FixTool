@@ -501,11 +501,11 @@ private fun ExpectDetail(
         )
     } else {
         val drafts = remember { ExpectationDrafts.fromExpectation(step.expectation, dictionary) }
-        val goldenView = remember { step.expectation.golden?.let { RawMessageView(it, dictionary) } }
+        val goldenView = remember { step.expectation.golden?.let { RawMessageView(it) } }
         val second = remember { secondInstance(step.session, messageType.ifBlank { null }, step.expectation.golden) }
         val golden = step.expectation.golden
-        val failedView = remember { runFailure?.actualRaw?.let { RawMessageView(it, dictionary) } }
-        val failedKeys = remember { runFailure?.failedTags?.map { it.tag to it.path }?.toSet() ?: emptySet() }
+        val failedView = remember { runFailure?.actualRaw?.let { RawMessageView(it) } }
+        val failedTags = remember { runFailure?.failedTags?.map { it.tag }?.toSet() ?: emptySet() }
         ExpectationBuilder(
             messageType = messageType,
             initialFields = drafts,
@@ -513,7 +513,7 @@ private fun ExpectDetail(
             secondView = second,
             initialMode = step.expectation.mode,
             failedView = failedView,
-            failedKeys = failedKeys,
+            failedTags = failedTags,
             onChange = { updated -> onChange(step.copy(expectation = updated.copy(golden = golden))) },
             modifier = Modifier.padding(top = 8.dp),
         )

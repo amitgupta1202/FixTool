@@ -29,7 +29,7 @@ object DictionaryLint {
         }
         if (!knownType) return emptyList()
         return FixStructure.walk(fields, dictionary)
-            .filter { it.path == null }
+            .filter { it.groupTag == null }
             .map { it.tag }
             .distinct()
             .filter { it != 35 }

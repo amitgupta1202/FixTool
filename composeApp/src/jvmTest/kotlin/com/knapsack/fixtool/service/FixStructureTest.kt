@@ -1,7 +1,6 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
-import com.knapsack.fixtool.model.scenario.GroupPath
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
@@ -10,12 +9,17 @@ import kotlin.test.assertTrue
 /**
  * The structural walk over nesting deeper than one level.
  *
+ * It answers exactly one question now — *is this field at the top level, or inside a repeating group?*
+ * — and it has exactly one caller, [DictionaryLint]. The assertion engine no longer asks it anything:
+ * it asserts the k-th occurrence of a tag and needs no structure at all, which is what removed the
+ * seam where this walker and QuickFIX/J disagreed about what a group entry contained.
+ *
  * Venue dialects nest legs several levels deep — BrokerTec's AONX quote flow runs
- * NoLegs(555) > NoNestedPartyIDs(539) > NoNestedPartySubIDs(804). A walker that scans a nested
- * group's fields flat stops at the first tag only a *deeper* group's dictionary defines (545, which
- * lives in 804's scope, not 539's), unwinds to top level, and mis-classifies every field after it —
- * which surfaces to the user as a phantom [DictionaryLint] "not defined for QuoteRequest (R)" warning
- * on a message that is in fact structurally valid.
+ * NoLegs(555) > NoNestedPartyIDs(539) > NoNestedPartySubIDs(804). A walker that scans a nested group's
+ * fields flat stops at the first tag only a *deeper* group's dictionary defines (545, which lives in
+ * 804's scope, not 539's), unwinds to top level, and mis-classifies every field after it — which
+ * surfaces to the user as a phantom "not defined for QuoteRequest (R)" warning on a message that is in
+ * fact structurally valid.
  */
 class FixStructureTest {
     private val dictionary: FixDictionaryAdapter = loadTestDictionary()
@@ -52,12 +56,12 @@ class FixStructureTest {
     @Test
     fun `fields of groups nested below the top group do not spill to top level`() {
         val walked = FixStructure.walk(threeDeepQuoteRequest, dictionary)
-        val topLevel = walked.filter { it.path == null }.map { it.tag }
+        val topLevel = walked.filter { it.groupTag == null }.map { it.tag }
 
         listOf(600, 624, 556, 524, 525, 538, 545, 805).forEach { tag ->
             assertTrue(tag !in topLevel, "tag $tag spilled to top level: $topLevel")
         }
-        // The group counts stay assertable at top level; 15 proves the walk resumes after the legs.
+        // The group counts stay top-level; 15 proves the walk resumes after the legs.
         assertEquals(listOf(35, 131, 555, 15), topLevel)
     }
 
@@ -67,15 +71,25 @@ class FixStructureTest {
     }
 
     @Test
-    fun `a leg's own fields stay located by that leg's identity across a nested subtree`() {
+    fun `a field after a nested subtree still belongs to the group it was sent in`() {
         val walked = FixStructure.walk(threeDeepQuoteRequest, dictionary)
 
-        fun pathOf(tag: Int, value: String): GroupPath? =
-            walked.first { it.tag == tag && it.value == value }.path
+        fun groupOf(tag: Int, value: String): Int? = walked.first { it.tag == tag && it.value == value }.groupTag
 
-        // LegCurrency follows the nested party subtree — it still belongs to the leg it was sent in.
-        assertEquals(GroupPath(555, 600, "LEG-1"), pathOf(556, "EUR"))
-        assertEquals(GroupPath(555, 600, "LEG-2"), pathOf(624, "2"))
-        assertEquals(GroupPath(555, 600, "LEG-2"), pathOf(556, "USD"))
+        // LegCurrency follows the nested party subtree — the walk must not have unwound to top level.
+        assertEquals(555, groupOf(556, "EUR"))
+        assertEquals(555, groupOf(556, "USD"))
+        assertEquals(555, groupOf(545, "SUB-1"))
+        assertEquals(null, groupOf(15, "GBP"))
+    }
+
+    @Test
+    fun `every field is walked exactly once`() {
+        val walked = FixStructure.walk(threeDeepQuoteRequest, dictionary)
+        assertEquals(
+            threeDeepQuoteRequest.map { it.first },
+            walked.map { it.tag },
+            "the walk must neither drop a field nor emit one twice — the lint reads this list",
+        )
     }
 }

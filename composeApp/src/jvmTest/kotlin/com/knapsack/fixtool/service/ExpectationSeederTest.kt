@@ -2,7 +2,6 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixVersion
-import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import org.junit.Test
@@ -70,20 +69,22 @@ class ExpectationSeederTest {
         )
 
     @Test
-    fun `group-internal tags seed with a by-identity GroupPath, never flat`() {
+    fun `the seed is the captured fields in wire order, one row per occurrence`() {
         val seeded = ExpectationSeeder.seedDetailed(groupedQuoteRequest, dictionary)
 
-        // Top level: message type, correlation id, and the entry count.
-        assertNull(seeded.first { it.field.tag == 131 }.field.path, "QuoteReqID is top-level")
-        assertNull(seeded.first { it.field.tag == 146 }.field.path, "the group count is asserted top-level")
+        // No structure walk, no de-duplication: the rows *are* the message, envelope aside.
+        assertEquals(
+            groupedQuoteRequest.map { it.first },
+            seeded.map { it.field.tag },
+            "the seeded rows must mirror the wire, in order — their order is what addresses them",
+        )
 
-        // Entry fields are located by identity, and BOTH entries are seeded (no distinct-by-tag collapse).
+        // Both entries seeded. The old seeder de-duplicated by (tag, path) and produced ONE Side
+        // assertion for a two-entry group: the second entry went unchecked, and the scenario looked
+        // complete while covering half of it.
         val sides = seeded.filter { it.field.tag == 54 }
         assertEquals(2, sides.size, "one Side assertion per entry")
-        assertEquals(GroupPath(146, 55, "EUR/USD"), sides[0].field.path)
-        assertEquals(GroupPath(146, 55, "GBP/USD"), sides[1].field.path)
-        assertEquals("1", sides[0].capturedValue)
-        assertEquals("2", sides[1].capturedValue)
+        assertEquals(listOf("1", "2"), sides.map { it.capturedValue })
     }
 
     @Test
@@ -91,10 +92,28 @@ class ExpectationSeederTest {
         val raw = groupedQuoteRequest.joinToString("|", postfix = "|") { "${it.first}=${it.second}" }
         val expectation = ExpectationSeeder.seed(groupedQuoteRequest, dictionary)
 
-        // RawMessageView is group-aware with a dictionary — the same view the editor preview uses.
-        val results = ExpectationEvaluator.evaluate(RawMessageView(raw, dictionary), expectation)
+        val results = ExpectationEvaluator.evaluate(RawMessageView(raw), expectation)
 
         assertTrue(results.isNotEmpty())
         assertTrue(results.all { it.passed }, "self-evaluation must be all green: ${results.filterNot { it.passed }}")
+    }
+
+    @Test
+    fun `a group whose entries share a delimiter value is asserted like any other`() {
+        // Two entries, same Symbol, opposite sides — the shape that made the old model give up:
+        // the identity "the entry whose Symbol is EUR/USD" names both of them. Position names one.
+        val twoSided =
+            listOf(
+                35 to "R", 131 to "QR-2", 146 to "2",
+                55 to "EUR/USD", 54 to "1", 38 to "1000000",
+                55 to "EUR/USD", 54 to "2", 38 to "2000000",
+            )
+        val raw = twoSided.joinToString("|", postfix = "|") { "${it.first}=${it.second}" }
+
+        val expectation = ExpectationSeeder.seed(twoSided, dictionary)
+        val results = ExpectationEvaluator.evaluate(RawMessageView(raw), expectation)
+
+        assertEquals(listOf("1", "2"), results.filter { it.tag == 54 }.map { it.actual })
+        assertTrue(results.all { it.passed }, "an ambiguous-identity group is no longer unassertable")
     }
 }

@@ -38,18 +38,12 @@ object ScenarioReport {
             put("expected", tag.expected)
             put("actual", tag.actual)
             put("passed", tag.passed)
-            // Same shape as the scenario codec's FieldExpectation path, so a report row can be
-            // traced back to the exact group-entry assertion that produced it.
-            tag.path?.let { p ->
-                put(
-                    "path",
-                    buildJsonObject {
-                        put("groupTag", p.groupTag)
-                        put("identityTag", p.identityTag)
-                        put("identityValue", p.identityValue)
-                    },
-                )
-            }
+            // Which row, and which occurrence of the tag it refers to. Without them two failures on the
+            // same tag — the two party entries — read as the same row reported twice, and a reader has
+            // no way to say which assertion to go and fix.
+            tag.index?.let { put("index", it) }
+            put("occurrence", tag.occurrence)
+            put("status", tag.status.name.lowercase())
         }
 
     /** Renders a [ScenarioResult] as a single-suite JUnit XML document for CI consumption. */
@@ -82,12 +76,22 @@ object ScenarioReport {
         val diff =
             step.tags
                 .filter { !it.passed }
-                .joinToString("; ") { "tag ${it.tag}: expected ${it.expected}, actual ${it.actual}" }
+                .joinToString("; ") { "tag ${name(it)}: expected ${it.expected}, actual ${it.actual}" }
         return listOf(step.detail, diff.ifEmpty { null })
             .filterNotNull()
             .joinToString(" — ")
             .ifEmpty { "step failed" }
     }
+
+    /**
+     * "452" for a tag that appears once, "452#2" for the second of several.
+     *
+     * A message with two party entries fails on "tag 452" twice, and an engineer reading that in CI
+     * cannot tell whether one assertion is broken or two, let alone which. The occurrence is the row's
+     * only address under the sequence model, so a report that omits it has not said where to look.
+     */
+    private fun name(tag: TagResult): String =
+        if (tag.occurrence == 0) "${tag.tag}" else "${tag.tag}#${tag.occurrence + 1}"
 
     /**
      * XML-escapes, and drops what XML 1.0 cannot carry at all.

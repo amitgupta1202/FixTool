@@ -23,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -31,7 +30,6 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
-import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.ExpectationEvaluator
@@ -39,16 +37,24 @@ import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.MessageView
 
-/** One editable tag row in the [ExpectationBuilder]. */
+/**
+ * One editable row in the [ExpectationBuilder].
+ *
+ * There is no group path. A row's **position in the list** is its address: the k-th row for a tag
+ * asserts the k-th occurrence of that tag. So a message with four party entries produces four
+ * PartyRole rows — not one, as it did when the builder de-duplicated them and left three entries
+ * silently unchecked — and the order of this list must never be sorted or otherwise disturbed.
+ */
 data class FieldDraft(
     val tag: Int,
     val name: String,
     val value: String,
     val included: Boolean,
     val matcher: Matcher,
-    val path: GroupPath? = null,
     /** The captured value's dictionary description (e.g. "2" → "FILLED"), for FIX newcomers. */
     val description: String = "",
+    /** Which occurrence of [tag] this row is, 0-based — shown only when the tag repeats. */
+    val occurrence: Int = 0,
 )
 
 /** Builds the initial per-tag drafts for a captured message: dictionary-seeded matchers (capture). */
@@ -60,56 +66,48 @@ object ExpectationDrafts {
      * Rebuild editable drafts from a previously saved expectation. Rows come from the **golden ∪ the
      * asserted fields**: a tag the author unticked earlier reappears unticked (with a freshly seeded
      * matcher) instead of vanishing forever — unticking is not a one-way door.
+     *
+     * Which golden row each saved assertion belongs to is decided by [ExpectationEvaluator.align] — the
+     * same pairing the runner uses, against the golden message instead of a live reply. Matching by tag
+     * alone would tick the wrong row the moment a tag repeated: with the first `452` unticked, the one
+     * saved `452` would re-attach itself to the first party entry rather than the second, and the author
+     * would reopen their scenario to find it asserting a different entry than the one they left.
      */
     fun fromExpectation(expectation: Expectation, dictionary: FixDictionary?): List<FieldDraft> {
-        val remaining = expectation.fields.toMutableList()
+        val seeds =
+            expectation.golden
+                ?.let { ExpectationSeeder.seedDetailed(FixMessageHelper.parseFixMessage(it), dictionary) }
+                ?: emptyList()
+        val goldenWire = seeds.map { it.field.tag to it.capturedValue }
 
-        fun claim(tag: Int, path: GroupPath?): FieldExpectation? {
-            // Prefer an exact (tag, path) match; fall back to tag-only so scenarios saved before
-            // group-aware seeding (paths were null) still map onto their rows.
-            val found = remaining.firstOrNull { it.tag == tag && it.path == path }
-                ?: remaining.firstOrNull { it.tag == tag && it.path == null }
-            found?.let { remaining.remove(it) }
-            return found
-        }
-
-        val goldenDrafts =
-            expectation.golden?.let { golden ->
-                ExpectationSeeder.seedDetailed(FixMessageHelper.parseFixMessage(golden), dictionary).map { sf ->
-                    val existing = claim(sf.field.tag, sf.field.path)
-                    FieldDraft(
-                        tag = sf.field.tag,
-                        name = dictionary?.getFieldName(sf.field.tag) ?: "",
-                        value = sf.capturedValue,
-                        included = existing != null,
-                        matcher = existing?.matcher ?: sf.field.matcher,
-                        path = existing?.path ?: sf.field.path,
-                        description = describe(dictionary, sf.field.tag, sf.capturedValue),
-                    )
-                }
-            } ?: emptyList()
-
-        // Asserted fields with no golden row (hand-authored, or no golden at all) stay editable.
-        val orphanDrafts = remaining.map { fe ->
+        // align() already emits its rows in reading order — each saved row where it sits, with the
+        // golden fields nothing claimed interleaved at the position they occupy. That merged order *is*
+        // the draft list, and taking it wholesale is what keeps the saved order intact. Appending the
+        // unpaired rows at the end instead (the obvious way to build this) quietly rewrote the order of
+        // the expectation the moment the author touched anything — and under this model the order is the
+        // assertion.
+        val occurrences = mutableMapOf<Int, Int>()
+        return ExpectationEvaluator.align(expectation, goldenWire).map { a ->
+            val goldenValue = a.wireIndex?.let { seeds[it].capturedValue } ?: ""
+            val seededMatcher = a.wireIndex?.let { seeds[it].field.matcher }
             FieldDraft(
-                tag = fe.tag,
-                name = dictionary?.getFieldName(fe.tag) ?: "",
-                value = "",
-                included = true,
-                matcher = fe.matcher,
-                path = fe.path,
+                tag = a.tag,
+                name = dictionary?.getFieldName(a.tag) ?: "",
+                value = goldenValue,
+                included = a.row != null,
+                matcher = a.row?.matcher ?: seededMatcher ?: Matcher.Presence,
+                description = describe(dictionary, a.tag, goldenValue),
+                occurrence = occurrences.merge(a.tag, 1) { n, _ -> n + 1 }!! - 1,
             )
         }
-        return goldenDrafts + orphanDrafts
     }
 }
 
 /**
- * Authors an [Expectation] from a captured message: each tag is a row with an editable matcher chip
+ * Authors an [Expectation] from a captured message: each row is a tag with an editable matcher chip
  * ([MatcherEditor]) and a **live green/red preview** against the golden message. Matchers are
- * pre-seeded from the dictionary (capture). A **group path** can be attached per tag (match a
- * repeating-group entry by identity), and **Verify generalizes** re-checks the whole expectation
- * against a second instance so an over-specified field (e.g. an `exact` timestamp) is flagged.
+ * pre-seeded from the dictionary, and **Verify generalizes** re-checks the whole expectation against a
+ * second instance so an over-specified field (e.g. an `exact` timestamp) is flagged.
  */
 @Composable
 fun ExpectationBuilder(
@@ -120,8 +118,8 @@ fun ExpectationBuilder(
     initialMode: MatchMode = MatchMode.OPEN,
     /** The message that failed the last run's assertions — adds a would-now-pass preview dot per row. */
     failedView: MessageView? = null,
-    /** (tag, path) keys of the last run's failed assertions — those rows are tinted red. */
-    failedKeys: Set<Pair<Int, GroupPath?>> = emptySet(),
+    /** Tags the last run failed on — those rows are tinted red. */
+    failedTags: Set<Int> = emptySet(),
     onSave: ((Expectation) -> Unit)? = null,
     onChange: ((Expectation) -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -130,9 +128,14 @@ fun ExpectationBuilder(
     var strict by remember { mutableStateOf(initialMode == MatchMode.STRICT) }
     var overSpecified by remember { mutableStateOf<Set<Int>?>(null) }
 
+    // Read from `drafts` at call time, never from a list captured during composition: closing over a
+    // snapshot meant every onChange reported the state *before* the edit that triggered it, so the
+    // author's last matcher change was silently dropped on save.
+    fun includedRows(): List<IndexedValue<FieldDraft>> = drafts.withIndex().filter { it.value.included }
+
     fun expectation(): Expectation =
         Expectation(
-            fields = drafts.filter { it.included }.map { FieldExpectation(it.tag, it.matcher, it.path) },
+            fields = includedRows().map { FieldExpectation(it.value.tag, it.value.matcher) },
             messageType = messageType,
             mode = if (strict) MatchMode.STRICT else MatchMode.OPEN,
         )
@@ -140,6 +143,42 @@ fun ExpectationBuilder(
     fun notifyChange() {
         onChange?.invoke(expectation())
     }
+
+    /**
+     * Ticking is per **tag**, not per row, and that is a correctness rule rather than a convenience.
+     *
+     * A row's position among its same-tag siblings *is* its occurrence — the second `452` row asserts
+     * the second `452`. So unticking the first one does not "keep the second": it promotes the survivor
+     * to occurrence 0, and the saved expectation now asserts the *executing* firm's role while the row
+     * on screen still reads `#2`. That is a false green authored by the tool, and it is precisely the
+     * failure this model exists to make impossible.
+     *
+     * There is no way to say "check only the k-th occurrence" — the model cannot express it, so the UI
+     * must not pretend to. To ignore one entry while checking another, keep both rows and loosen the one
+     * you do not care about (`presence`). Its position is what addresses the other.
+     */
+    fun setIncluded(tag: Int, included: Boolean) {
+        drafts.forEachIndexed { i, d -> if (d.tag == tag) drafts[i] = d.copy(included = included) }
+        notifyChange()
+    }
+
+    // Evaluated once for the whole expectation, never row by row. A single-row evaluation pairs with
+    // the *first* occurrence of its tag, so every repeated row — the second party's PartyRole, the
+    // third leg's Symbol — would have been previewed against the first entry's value, and shown the
+    // author a green dot for an assertion that checks a different field than the one on the row.
+    val current = expectation()
+    val included = includedRows()
+    val livePasses = previewPasses(goldenView, current, included)
+    val runPasses = previewPasses(failedView, current, included)
+    // STRICT's unexpected-tag failures carry no row index, so they never reach a row's dot. Counting
+    // them here is what stops the builder swearing an all-green preview for an expectation that cannot
+    // pass its own golden message — untick one row in STRICT and it fails on that very tag.
+    val unlistedInStrict =
+        if (goldenView != null && strict) {
+            ExpectationEvaluator.evaluate(goldenView, current).count { !it.passed && it.index == null }
+        } else {
+            0
+        }
 
     Column(modifier = modifier.fillMaxWidth()) {
         BuilderHeader(
@@ -155,6 +194,7 @@ fun ExpectationBuilder(
                 overSpecified = results.filterNot { it.passed }.map { it.tag }.toSet()
             },
             overSpecified = overSpecified,
+            unlistedInStrict = unlistedInStrict,
             onSave = onSave?.let { save -> { save(expectation()) } },
         )
         if (failedView != null) {
@@ -169,14 +209,18 @@ fun ExpectationBuilder(
         // Plain Column (not LazyColumn) so this builder can be embedded inside scrollable parents
         // (the step detail panel) without the "infinity max height" nesting crash.
         Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.fillMaxWidth()) {
+            val repeated = drafts.groupingBy { it.tag }.eachCount().filterValues { it > 1 }.keys
             drafts.forEachIndexed { index, draft ->
                 FieldDraftRow(
                     draft = draft,
-                    livePass = if (draft.included && goldenView != null) previewPass(draft, goldenView) else null,
-                    runPass = if (draft.included && failedView != null) previewPass(draft, failedView) else null,
+                    showOccurrence = draft.tag in repeated,
+                    livePass = livePasses[index],
+                    runPass = runPasses[index],
                     showRunDot = failedView != null && draft.included,
-                    runFailed = (draft.tag to draft.path) in failedKeys,
+                    runFailed = draft.tag in failedTags,
                     overSpecified = overSpecified?.contains(draft.tag) == true,
+                    // The tick belongs to the tag; the matcher belongs to the row. See setIncluded.
+                    onIncludedChange = { setIncluded(draft.tag, it) },
                     onChange = {
                         drafts[index] = it
                         notifyChange()
@@ -187,12 +231,26 @@ fun ExpectationBuilder(
     }
 }
 
-private fun previewPass(draft: FieldDraft, golden: MessageView): Boolean? {
-    // A reference matcher resolves against a run's variable scope — offline there is none, so an
-    // honest "unknown" beats a misleading red dot.
-    if (draft.matcher is Matcher.Reference) return null
-    val results = ExpectationEvaluator.evaluate(golden, Expectation(listOf(FieldExpectation(draft.tag, draft.matcher, draft.path))))
-    return results.firstOrNull()?.passed ?: false
+/**
+ * Pass/fail per **draft index**, by evaluating the expectation whole and mapping each result back to
+ * the row it came from. Null = not asserted, or a reference matcher (which resolves against a live
+ * run's scope — offline there is none, and an honest "unknown" beats a misleading red dot).
+ */
+private fun previewPasses(
+    view: MessageView?,
+    expectation: Expectation,
+    included: List<IndexedValue<FieldDraft>>,
+): Map<Int, Boolean?> {
+    if (view == null) return emptyMap()
+    val results = ExpectationEvaluator.evaluate(view, expectation)
+    return results
+        .mapNotNull { r -> r.index?.let { it to r } }
+        .filter { (rowIndex, _) -> rowIndex in included.indices }
+        .associate { (rowIndex, r) ->
+            val draftIndex = included[rowIndex].index
+            val matcher = included[rowIndex].value.matcher
+            draftIndex to if (matcher is Matcher.Reference) null else r.passed
+        }
 }
 
 @Composable
@@ -204,6 +262,7 @@ private fun BuilderHeader(
     onVerify: () -> Unit,
     overSpecified: Set<Int>?,
     onSave: (() -> Unit)?,
+    unlistedInStrict: Int = 0,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Text("Expectation · msg $messageType", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -220,6 +279,17 @@ private fun BuilderHeader(
             val color = if (overSpecified.isEmpty()) AppTheme.Colors.success else AppTheme.Colors.warning
             Text(msg, color = color, fontSize = 11.sp, modifier = Modifier.padding(start = 10.dp))
         }
+        // In STRICT, an unticked row is not "ignored" — it becomes an *unexpected tag*, and the step
+        // fails on it. Those failures carry no row, so no dot on any row can show them, and the preview
+        // would otherwise read all-green for an expectation that cannot even pass its own golden.
+        if (unlistedInStrict > 0) {
+            Text(
+                "⚠ $unlistedInStrict unticked tag${if (unlistedInStrict == 1) "" else "s"} — STRICT fails on each",
+                color = AppTheme.Colors.warning,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(start = 10.dp).testTag("strict-unlisted"),
+            )
+        }
     }
 }
 
@@ -229,18 +299,30 @@ private fun FieldDraftRow(
     livePass: Boolean?,
     overSpecified: Boolean,
     onChange: (FieldDraft) -> Unit,
+    onIncludedChange: (Boolean) -> Unit,
+    showOccurrence: Boolean = false,
     runPass: Boolean? = null,
     showRunDot: Boolean = false,
     runFailed: Boolean = false,
 ) {
-    var groupOpen by remember { mutableStateOf(draft.path != null) }
     val rowBackground = if (runFailed) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant
     Column(modifier = Modifier.fillMaxWidth().background(rowBackground).padding(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Checkbox(checked = draft.included, onCheckedChange = { onChange(draft.copy(included = it)) })
+            // Ticks the whole *tag*, every occurrence of it — see ExpectationBuilder.setIncluded. To
+            // stop caring about one entry, keep its row and loosen it; its position addresses the others.
+            Checkbox(checked = draft.included, onCheckedChange = onIncludedChange)
             PreviewDot(livePass, overSpecified)
             if (showRunDot) PreviewDot(runPass, overSpecified = false)
             Text("${draft.tag}", color = AppTheme.Colors.tagNumber, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.width(40.dp))
+            // Which entry this row is. Without it, four identical "452 PartyRole" rows are four rows the
+            // author cannot tell apart — and the one they mean to edit is a guess.
+            Text(
+                text = if (showOccurrence) "#${draft.occurrence + 1}" else "",
+                color = AppTheme.Colors.groupTag,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                modifier = Modifier.width(24.dp),
+            )
             Text(draft.name.take(18), color = AppTheme.Colors.fieldName, fontSize = 10.sp, modifier = Modifier.width(110.dp))
             if (draft.included) {
                 MatcherEditor(matcher = draft.matcher, capturedValue = draft.value, onChange = { onChange(draft.copy(matcher = it)) })
@@ -248,21 +330,12 @@ private fun FieldDraftRow(
                     Text("(${draft.description})", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(start = 6.dp))
                 }
                 Row(modifier = Modifier.weight(1f)) {}
-                SlimButton(
-                    text = if (draft.path != null) "grp✓" else "grp",
-                    onClick = { groupOpen = !groupOpen },
-                    color = if (draft.path != null) AppTheme.Colors.groupTag else AppTheme.Colors.textSecondary,
-                    modifier = Modifier.padding(start = 6.dp, end = 4.dp),
-                )
             } else {
                 Text(draft.value.take(24), color = AppTheme.Colors.textDisabled, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
                 if (draft.description.isNotEmpty()) {
                     Text("(${draft.description})", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, maxLines = 1, modifier = Modifier.padding(start = 6.dp))
                 }
             }
-        }
-        if (groupOpen && draft.included) {
-            GroupPathEditor(draft.path) { onChange(draft.copy(path = it)) }
         }
     }
 }
@@ -286,28 +359,4 @@ private fun PreviewDot(livePass: Boolean?, overSpecified: Boolean) {
         fontSize = 12.sp,
         modifier = Modifier.clip(RoundedCornerShape(2.dp)).padding(horizontal = 4.dp),
     )
-}
-
-/**
- * Locates a repeating-group entry by identity ("the entry whose PartyRole(452) = 1"), never by
- * position — group order is not guaranteed. Labeled in plain words for users new to FIX groups.
- */
-@Composable
-private fun GroupPathEditor(path: GroupPath?, onChange: (GroupPath?) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 48.dp, top = 4.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("in group", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
-        SlimField(path?.groupTag?.toString() ?: "", { onChange(updatePath(path, groupTag = it.toIntOrNull())) }, monospace = true, tintBlank = true, modifier = Modifier.width(56.dp))
-        Text("pick the entry where tag", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
-        SlimField(path?.identityTag?.toString() ?: "", { onChange(updatePath(path, identityTag = it.toIntOrNull())) }, monospace = true, tintBlank = true, modifier = Modifier.width(56.dp))
-        Text("=", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
-        SlimField(path?.identityValue ?: "", { onChange(updatePath(path, identityValue = it)) }, monospace = true, tintBlank = true, modifier = Modifier.width(80.dp))
-        SlimButton("clear", onClick = { onChange(null) }, color = AppTheme.Colors.textSecondary)
-    }
-}
-
-private fun updatePath(path: GroupPath?, groupTag: Int? = null, identityTag: Int? = null, identityValue: String? = null): GroupPath? {
-    val g = groupTag ?: path?.groupTag ?: return path
-    val t = identityTag ?: path?.identityTag ?: 0
-    val v = identityValue ?: path?.identityValue ?: ""
-    return GroupPath(g, t, v)
 }

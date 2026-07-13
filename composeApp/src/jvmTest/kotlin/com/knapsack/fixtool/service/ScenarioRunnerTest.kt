@@ -247,10 +247,9 @@ class ScenarioRunnerTest {
     }
 
     private class MapView(private val tags: Map<Int, String>) : MessageView {
-        override fun valueOfTag(tag: Int): String? = tags[tag]
-
-        override fun presentTags(): Set<Int> = tags.keys
-
-        override fun groupEntries(groupTag: Int): List<MessageView> = emptyList()
+        // A LinkedHashMap keeps insertion order, which is what the callers below rely on: under the
+        // sequence model the order of the fields *is* the addressing, so a view that reordered them
+        // would be testing against a message no venue ever sent.
+        override fun fields(): List<Pair<Int, String>> = tags.toList()
     }
 }

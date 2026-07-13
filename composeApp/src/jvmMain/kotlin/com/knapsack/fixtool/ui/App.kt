@@ -1092,15 +1092,6 @@ private fun AppMessageDetailPanel(
         onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
         tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags } ?: emptyList(),
         onEditAssertion = selectedMessage?.let { msg -> { viewModel.openScenarioEditorForFailure(msg) } },
-        // Quick-fixes belong to the message whose failed rows are on screen, never to the selection
-        // the user happens to land on next.
-        pendingQuickFixes = viewModel.pendingAssertionEdits(selectedMessage).mapValues { it.value.kind },
-        onQuickFix =
-            selectedMessage?.let { msg ->
-                { tagResult, kind -> viewModel.toggleAssertionQuickFix(msg, tagResult, kind) }
-            },
-        onSaveQuickFixes = selectedMessage?.let { msg -> { viewModel.saveAssertionQuickFixes(msg) } },
-        onDiscardQuickFixes = selectedMessage?.let { msg -> { viewModel.discardAssertionQuickFixes(msg) } },
     )
 }
 

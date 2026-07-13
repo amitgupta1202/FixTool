@@ -2,7 +2,6 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
-import com.knapsack.fixtool.model.scenario.GroupPath
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
@@ -47,7 +46,8 @@ class ScenarioCodecTest {
                                 FieldExpectation(31, Matcher.Numeric(1.2345, 0.00005)),
                                 FieldExpectation(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 30)),
                                 FieldExpectation(11, Matcher.Reference("\${out.D.11}")),
-                                FieldExpectation(448, Matcher.Exact("BROKER-A"), GroupPath(453, 452, "1")),
+                                FieldExpectation(448, Matcher.Exact("BROKER-A")),
+                                FieldExpectation(448, Matcher.Exact("BROKER-B")),
                             ),
                             messageType = "8",
                             mode = MatchMode.STRICT,
@@ -124,16 +124,10 @@ class ScenarioCodecTest {
 
     @Test
     fun `and the row it is on fails, saying why`() {
-        val view = object : MessageView {
-            override fun valueOfTag(tag: Int): String? = if (tag == 37) "EXEC-9" else null
-
-            override fun presentTags(): Set<Int> = setOf(37)
-
-            override fun groupEntries(groupTag: Int): List<MessageView> = emptyList()
-        }
-
         val result =
-            ExpectationEvaluator.evaluate(view, Expectation(listOf(FieldExpectation(37, Matcher.Regex("EXEC-["))))).single()
+            ExpectationEvaluator
+                .evaluate(wireView(37 to "EXEC-9"), Expectation(listOf(FieldExpectation(37, Matcher.Regex("EXEC-[")))))
+                .single()
 
         assertFalse(result.passed)
         // Not merely "invalid" — *why*. The reader who most needs the reason is the one who cannot open

@@ -114,7 +114,6 @@ fun ScenarioCaptureReview(
             fontSize = 11.sp,
             modifier = Modifier.padding(start = 12.dp, bottom = 6.dp),
         )
-        UnassertableNotice(remember(included.toList()) { ScenarioCapture.unassertable(selection, dictionary) })
         RangeSelectors(
             candidates = candidates,
             dictionary = dictionary,
@@ -165,26 +164,6 @@ fun ScenarioCaptureReview(
             }
         }
     }
-}
-
-/**
- * What this capture will *not* assert — groups whose entries share an identity, so no assertion can
- * say which entry it means.
- *
- * Shown here, while the author can still act on it, rather than leaving them to trust a green run
- * over a part of the message nothing actually checked. FixTool would rather admit a gap than paper
- * over one.
- */
-@Composable
-private fun UnassertableNotice(unassertable: List<ExpectationSeeder.UnassertableGroup>) {
-    if (unassertable.isEmpty()) return
-    Text(
-        text = "Not asserted — " + unassertable.joinToString("; ") { it.reason } +
-            ". Everything else in these messages is captured as normal.",
-        color = AppTheme.Colors.warning,
-        fontSize = 11.sp,
-        modifier = Modifier.padding(start = 12.dp, bottom = 6.dp).testTag("capture-unassertable"),
-    )
 }
 
 @Composable

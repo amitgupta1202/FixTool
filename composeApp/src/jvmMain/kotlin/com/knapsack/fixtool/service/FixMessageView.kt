@@ -50,7 +50,16 @@ private class GroupView(private val group: Group) : MessageView {
             null
         }
 
-    override fun presentTags(): Set<Int> = emptySet()
+    /**
+     * The entry's own fields. STRICT reads this to spot a tag the venue added inside a group, so
+     * returning nothing here would quietly answer "no extras" to a question never actually asked.
+     */
+    override fun presentTags(): Set<Int> =
+        try {
+            group.iterator().asSequence().map { it.tag }.toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
 
     override fun groupEntries(groupTag: Int): List<MessageView> = emptyList()
 }

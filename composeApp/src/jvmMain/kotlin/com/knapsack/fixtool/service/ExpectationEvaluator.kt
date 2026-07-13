@@ -44,11 +44,11 @@ interface MessageView {
 @Suppress("TooManyFunctions")
 object ExpectationEvaluator {
     /**
-     * Session/transport tags: never asserted, so never an "extra" either. Same list the seeder omits
-     * ([SessionTags]) — if STRICT used a shorter one it would fail on the very tags the seeder
-     * deliberately left out (SenderCompID and friends).
+     * Never asserted, so never an "extra" either. The same list the seeder omits ([SessionTags]) — if
+     * STRICT used a different one it would fail on the very tags the seeder deliberately left out
+     * (SenderCompID and friends).
      */
-    val VOLATILE_HEADER_TRAILER: Set<Int> = SessionTags.TRANSPORT
+    val VOLATILE_HEADER_TRAILER: Set<Int> = SessionTags.NEVER_ASSERTED
 
     /**
      * @param referenceResolver resolves a `${...}` expression (for [Matcher.Reference]) against
@@ -65,13 +65,40 @@ object ExpectationEvaluator {
         for (field in expectation.fields) {
             results += evaluateField(message, field, referenceResolver, now)
         }
-        if (expectation.mode == MatchMode.STRICT) {
-            // Both sides are top-level: presentTags() excludes group members (see MessageView), so the
-            // grouped fields the expectation asserts by path are not counted as extras here.
-            val listedTopLevel = expectation.fields.filter { it.path == null }.map { it.tag }.toSet()
-            val extras = (message.presentTags() - listedTopLevel - VOLATILE_HEADER_TRAILER).sorted()
-            for (tag in extras) {
-                results += TagResult(tag, "strict: unexpected", "<absent>", message.valueOfTag(tag), passed = false)
+        if (expectation.mode == MatchMode.STRICT) results += strictExtras(message, expectation)
+        return results
+    }
+
+    /**
+     * Tags the message carries that the expectation never mentions — at top level, and inside each
+     * group entry it asserts.
+     *
+     * Both levels, because a venue's new field lands wherever its dictionary puts it: a tag the
+     * dictionary defines as a group member is absorbed into an entry, so checking only the top level
+     * would let exactly the change STRICT exists to catch go by unnoticed. Entries the expectation
+     * does not assert are not inspected — an assertion nobody wrote cannot be violated.
+     */
+    private fun strictExtras(message: MessageView, expectation: Expectation): List<TagResult> {
+        val results = mutableListOf<TagResult>()
+
+        val listedTopLevel = expectation.fields.filter { it.path == null }.map { it.tag }.toSet()
+        for (tag in (message.presentTags() - listedTopLevel - VOLATILE_HEADER_TRAILER).sorted()) {
+            results += TagResult(tag, "strict: unexpected", "<absent>", message.valueOfTag(tag), passed = false)
+        }
+
+        val assertedByEntry = expectation.fields.filter { it.path != null }.groupBy { it.path!! }
+        for ((path, asserted) in assertedByEntry) {
+            val entry = (resolveGroupEntry(message, path) as? EntryLookup.Found)?.entry ?: continue
+            val listed = asserted.map { it.tag }.toSet() + path.identityTag
+            for (tag in (entry.presentTags() - listed - VOLATILE_HEADER_TRAILER).sorted()) {
+                results += TagResult(
+                    tag,
+                    "strict: unexpected @${path.groupTag}",
+                    "<absent>",
+                    entry.valueOfTag(tag),
+                    passed = false,
+                    path = path,
+                )
             }
         }
         return results
@@ -87,18 +114,23 @@ object ExpectationEvaluator {
         // Locate the value: top-level, or inside a group entry selected by identity.
         val actual: String?
         if (field.path != null) {
-            val entry = resolveGroupEntry(message, field.path)
-            if (entry == null) {
-                return TagResult(
+            fun unresolved(reason: String) =
+                TagResult(
                     field.tag,
                     "$matcherDesc @${field.path.groupTag}",
                     expectedText(field.matcher, null),
-                    "<no entry>",
+                    reason,
                     passed = false,
                     path = field.path,
                 )
+            when (val lookup = resolveGroupEntry(message, field.path)) {
+                is EntryLookup.Missing -> return unresolved("<no entry>")
+                is EntryLookup.Ambiguous -> {
+                    val identity = "${field.path.identityTag}=${field.path.identityValue}"
+                    return unresolved("<ambiguous: ${lookup.count} entries with $identity>")
+                }
+                is EntryLookup.Found -> actual = lookup.entry.valueOfTag(field.tag)
             }
-            actual = entry.valueOfTag(field.tag)
         } else {
             actual = message.valueOfTag(field.tag)
         }
@@ -107,14 +139,34 @@ object ExpectationEvaluator {
         return TagResult(field.tag, matcherDesc, expected, actual, passed, path = field.path)
     }
 
+    /** How an assertion's group entry resolved: exactly one match, none, or several. */
+    private sealed interface EntryLookup {
+        data class Found(val entry: MessageView) : EntryLookup
+
+        object Missing : EntryLookup
+
+        /** Several entries carry this identity, so it does not identify one. */
+        data class Ambiguous(val count: Int) : EntryLookup
+    }
+
     /**
-     * The entry with this identity — the [GroupPath.occurrence]-th of them when the identity repeats,
-     * so entries sharing a delimiter value stay distinct rather than all binding to the first.
+     * The entry with this identity — if there is exactly one.
+     *
+     * Binding to the first of several would assert one entry while reporting it as another's, and
+     * pass or fail for reasons the author cannot see. Ambiguity is a failure with a reason, not a
+     * coin toss: the seeder refuses to author such assertions in the first place, and this catches
+     * the case where a message that was unambiguous at capture arrives with repeated identities.
      */
-    private fun resolveGroupEntry(message: MessageView, path: GroupPath): MessageView? =
-        message.groupEntries(path.groupTag)
-            .filter { it.valueOfTag(path.identityTag) == path.identityValue }
-            .getOrNull(path.occurrence)
+    private fun resolveGroupEntry(message: MessageView, path: GroupPath): EntryLookup {
+        val matches =
+            message.groupEntries(path.groupTag)
+                .filter { it.valueOfTag(path.identityTag) == path.identityValue }
+        return when (matches.size) {
+            0 -> EntryLookup.Missing
+            1 -> EntryLookup.Found(matches.single())
+            else -> EntryLookup.Ambiguous(matches.size)
+        }
+    }
 
     /** Returns (passed, human-readable expected text). */
     private fun applyMatcher(

@@ -27,6 +27,7 @@ class FixMessageSession(
     val profileSlot: Int = 0,
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
     private val onError: ((String) -> Unit)? = null,
+    private val onWarning: ((String) -> Unit)? = null,
 ) {
     companion object {
         const val DEFAULT_BUFFER_SIZE = 1000
@@ -258,6 +259,7 @@ class FixMessageSession(
                         }
                     },
                     onError = onError,
+                    onWarning = onWarning,
                     onConnectionFailed = {
                         // Stop the connection manager when auto-reconnect is disabled
                         scope.launch {

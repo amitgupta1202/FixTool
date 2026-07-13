@@ -953,7 +953,8 @@ private fun AppMessageEditorPanel(
             // Display validation warnings in the message editor validation section
             when (result) {
                 is com.knapsack.fixtool.service.SendResult.SuccessWithWarning -> {
-                    viewModel.setEditorValidationErrors(listOf("WARNING: Message sent using manual construction (validation bypassed)"))
+                    // Say what is actually wrong with the message — it was sent regardless.
+                    viewModel.setEditorValidationErrors(listOf("WARNING: sent, but ${result.warning}"))
                 }
                 is com.knapsack.fixtool.service.SendResult.Failed -> {
                     // Error already logged and notified via NotifyingLogger
@@ -994,9 +995,11 @@ private fun AppMessageEditorPanel(
 
             val outcomes = viewModel.sendMessageToAllConnectedSessions(fields)
 
-            if (outcomes.any { it.result is com.knapsack.fixtool.service.SendResult.SuccessWithWarning }) {
+            val warned =
+                outcomes.mapNotNull { it.result as? com.knapsack.fixtool.service.SendResult.SuccessWithWarning }
+            if (warned.isNotEmpty()) {
                 viewModel.setEditorValidationErrors(
-                    listOf("WARNING: Some messages were sent using manual construction (validation bypassed)"),
+                    listOf("WARNING: sent, but ${warned.first().warning}"),
                 )
             }
         },

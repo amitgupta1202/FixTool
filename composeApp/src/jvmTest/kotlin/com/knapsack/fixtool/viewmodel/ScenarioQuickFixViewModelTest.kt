@@ -102,18 +102,18 @@ class ScenarioQuickFixViewModelTest {
         val t150 = failedStep().tags[0]
         val t31 = failedStep().tags[1]
         val t37 = failedStep().tags[2]
-        viewModel.toggleAssertionQuickFix(t150, Kind.ACCEPT_ACTUAL)
-        viewModel.toggleAssertionQuickFix(t31, Kind.LOOSEN_TO_PRESENCE)
-        viewModel.toggleAssertionQuickFix(t37, Kind.DROP)
+        viewModel.toggleAssertionQuickFix(msg, t150, Kind.ACCEPT_ACTUAL)
+        viewModel.toggleAssertionQuickFix(msg, t31, Kind.LOOSEN_TO_PRESENCE)
+        viewModel.toggleAssertionQuickFix(msg, t37, Kind.DROP)
         // Toggling the same verb again is an undo; a different verb replaces.
-        viewModel.toggleAssertionQuickFix(t37, Kind.DROP)
-        viewModel.toggleAssertionQuickFix(t37, Kind.ACCEPT_ACTUAL)
-        assertEquals(3, viewModel.pendingAssertionEdits.size)
+        viewModel.toggleAssertionQuickFix(msg, t37, Kind.DROP)
+        viewModel.toggleAssertionQuickFix(msg, t37, Kind.ACCEPT_ACTUAL)
+        assertEquals(3, viewModel.pendingAssertionEdits(msg).size)
 
         viewModel.saveAssertionQuickFixes(msg)
 
         // Pending cleared; scenario on disk updated.
-        assertEquals(0, viewModel.pendingAssertionEdits.size)
+        assertEquals(0, viewModel.pendingAssertionEdits(msg).size)
         val saved = viewModel.scenarioService.load(sc.id)!!
         val expect = saved.steps[1] as ScenarioStep.Expect
         assertEquals(Matcher.Exact("8"), expect.expectation.fields.single { it.tag == 150 }.matcher)
@@ -136,14 +136,53 @@ class ScenarioQuickFixViewModelTest {
         viewModel.noteScenarioRun(sc)
         viewModel.setAssertionResults(mapOf(msg to failedStep()))
 
-        viewModel.toggleAssertionQuickFix(failedStep().tags[0], Kind.DROP)
-        assertEquals(1, viewModel.pendingAssertionEdits.size)
-        viewModel.discardAssertionQuickFixes()
-        assertEquals(0, viewModel.pendingAssertionEdits.size)
+        viewModel.toggleAssertionQuickFix(msg, failedStep().tags[0], Kind.DROP)
+        assertEquals(1, viewModel.pendingAssertionEdits(msg).size)
+        viewModel.discardAssertionQuickFixes(msg)
+        assertEquals(0, viewModel.pendingAssertionEdits(msg).size)
 
-        viewModel.toggleAssertionQuickFix(failedStep().tags[0], Kind.DROP)
+        viewModel.toggleAssertionQuickFix(msg, failedStep().tags[0], Kind.DROP)
         viewModel.setAssertionResults(emptyMap()) // a fresh run resets results
-        assertEquals(0, viewModel.pendingAssertionEdits.size)
+        assertEquals(0, viewModel.pendingAssertionEdits(msg).size)
+    }
+
+    /**
+     * Two failing fills, two expect steps. Edits drafted against the first must never be written
+     * into the second's step: they used to be, because the pending map was keyed by (tag, path)
+     * alone, so Save silently rewrote a step the user had not touched — with another message's value.
+     */
+    @Test
+    fun `edits drafted against one message are not saved into another message's step`() {
+        val sc =
+            scenario().let { base ->
+                base.copy(steps = base.steps + (base.steps[1] as ScenarioStep.Expect)) // a second expect step
+            }
+        assertTrue(viewModel.scenarioService.save(sc))
+
+        val fill1 = failedMessage()
+        val fill2 = failedMessage()
+        viewModel.noteScenarioRun(sc)
+        viewModel.setAssertionResults(
+            mapOf(
+                fill1 to failedStep(), // stepIndex 1
+                fill2 to failedStep().copy(stepIndex = 2),
+            ),
+        )
+
+        // Draft against fill #1 (accept its LastPx), then walk away to fill #2 and save there.
+        viewModel.toggleAssertionQuickFix(fill1, failedStep().tags[1], Kind.ACCEPT_ACTUAL)
+        viewModel.saveAssertionQuickFixes(fill2)
+
+        val saved = viewModel.scenarioService.load(sc.id)!!
+        val step2 = saved.steps[2] as ScenarioStep.Expect
+        assertEquals(
+            Matcher.Numeric(1.2345, 0.0),
+            step2.expectation.fields.single { it.tag == 31 }.matcher,
+            "step 2 must keep its own assertion — fill #1's edit does not belong to it",
+        )
+        // Fill #1's draft is untouched and still savable against its own step.
+        assertEquals(1, viewModel.pendingAssertionEdits(fill1).size)
+        assertEquals(0, viewModel.pendingAssertionEdits(fill2).size)
     }
 
     @Test
@@ -152,11 +191,11 @@ class ScenarioQuickFixViewModelTest {
         val msg = failedMessage()
         viewModel.noteScenarioRun(sc)
         viewModel.setAssertionResults(mapOf(msg to failedStep()))
-        viewModel.toggleAssertionQuickFix(failedStep().tags[0], Kind.DROP)
+        viewModel.toggleAssertionQuickFix(msg, failedStep().tags[0], Kind.DROP)
 
         viewModel.saveAssertionQuickFixes(msg)
 
-        assertEquals(1, viewModel.pendingAssertionEdits.size)
+        assertEquals(1, viewModel.pendingAssertionEdits(msg).size)
         assertTrue(viewModel.notifications.any { it.type == NotificationType.ERROR && "no longer saved" in it.message })
     }
 }

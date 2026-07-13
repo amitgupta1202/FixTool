@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
@@ -289,5 +293,42 @@ class ReconcileViewTest {
         } catch (e: Exception) {
             println("[ReconcileViewTest] snapshot '$name' skipped: ${e.message}")
         }
+    }
+
+    /**
+     * The staging mechanism must survive the `onChange` it causes — which is what the real editor does.
+     *
+     * Every test in this file passed `onChange` a lambda that recorded into a local var and stopped there. The
+     * running app does not: `ScenarioEditor` pushes the new expectation straight back into `step.expectation`,
+     * so the composable recomposes with a NEW `expectation` value on every click. All four of ReconcileView's
+     * `remember`s were keyed on it, so history, draft and original were destroyed each time — the footer read
+     * "0 fixes staged" for ever, Undo was permanently dead, Discard did nothing, and no row ever showed as
+     * staged. The author could not walk back a wrong click on the one surface where a wrong click manufactures
+     * a false green.
+     *
+     * A whole suite of green tests said nothing about it, because none of them wired the loop the app wires.
+     * This one does.
+     */
+    @Test
+    fun `fixes stay staged when the editor feeds the change back, as the real app does`() {
+        val actual = wire(35 to "8", 39 to "8", 58 to "rejected")
+        val initial =
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(39, Matcher.Exact("2")), // the venue now says 8 — a value change
+                ),
+                messageType = "8",
+            )
+
+        composeTestRule.setContent {
+            // THE POINT: the expectation is state, and onChange writes to it — exactly what ScenarioEditor does.
+            var expectation by remember { mutableStateOf(initial) }
+            view(expectation, actual) { expectation = it }
+        }
+
+        composeTestRule.onAllNodesWithText("Accept actual").onFirst().performClick()
+
+        composeTestRule.onNodeWithTag("reconcile-staged").assertTextEquals("1")
     }
 }

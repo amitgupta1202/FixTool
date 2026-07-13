@@ -80,7 +80,9 @@ object McpTools {
             ),
             tool(
                 "fixtool_load_template",
-                "Load a saved template into the message editor (and open the editor panel).",
+                "Load a saved template into the message editor (and open the editor panel). May switch the active " +
+                    "session to the best of the template's profiles; the active session stays put when it already " +
+                    "belongs to one of them.",
                 props("id" to string("template id")),
                 required = listOf("id"),
             ),

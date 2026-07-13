@@ -69,7 +69,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /templates`     | query: `profile`?                      | list saved templates (name, type, userTags, isFavorite, fields) |
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
-| `POST /templates/load` | `{"id"}`                             | load a template into the editor (opens the editor panel) |
+| `POST /templates/load` | `{"id"}`                             | load a template into the editor (opens the editor panel; may switch the active session — see [Message templates](#message-templates)) |
 | `POST /demo`         | `{"action":"start"\|"stop"}`           | `{status, action, running}`                          |
 | `POST /connect`      | `{"profile":"<name or id>"}`           | `{status, profile}` (logon is async)                 |
 | `POST /disconnect`   | `{"profile":"<name or id>"}`           | `{status, profile}`                                  |
@@ -266,8 +266,22 @@ Templates are reusable saved messages (`SavedFixMessage`), stored per profile an
 message editor so it can be reviewed, screenshotted, or sent.
 
 > Note: in FixTool, a template's `userTags` double as its **profile associations** (which
-> profiles see it and which session auto-selects when loaded). They default to the saving
+> profiles see it, and which session it is loaded against). They default to the saving
 > profile's id — include that id if you also add free-form labels.
+
+Loading a template can change which session is active, so `/templates/load` followed by a
+`/send` without an explicit `session` may not go where you expect:
+
+- the active session stays put if it belongs to one of the template's profiles — a template
+  that fits the session you are on never moves you off it;
+- otherwise the best of the template's profiles is selected (connected first, then ones that
+  own a session, then alphabetically) and its session becomes active;
+- if that profile has never been connected it owns no session, so no session becomes active
+  and the editor reports that the profile is not connected.
+
+A template with no `userTags` (or whose profiles no longer exist) never touches the session
+selection. `/templates/send` is unaffected by all of this: it sends to the `session` you name,
+or to the active one.
 
 ```bash
 # create a NewOrderSingle template, list, load into the editor

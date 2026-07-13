@@ -684,18 +684,26 @@ class FixMessageViewModel(
      * Sets the selected profile for the message editor.
      * This can be a connected or disconnected profile.
      * If the profile has a session, that session will also be made active.
+     * A profile that has never been connected owns no session: nothing can be sent, so no
+     * session is made active, but the editor keeps naming the profile that was chosen.
      */
     fun setSelectedEditorProfile(profile: FixConnectionProfile?) {
         logger.info("setSelectedEditorProfile: ${profile?.name} (ID: ${profile?.id})")
         _selectedEditorProfile.value = profile
 
-        // If profile has a session, make it active
-        if (profile != null) {
-            val session = getProfileSession(profile.id)
-            setActiveSessionByObject(session)
-        } else {
+        if (profile == null) {
             // No profile selected, clear active session
             setActiveSessionByObject(null)
+            return
+        }
+
+        val session = getProfileSession(profile.id)
+        setActiveSessionByObject(session)
+        if (session == null) {
+            // setActiveSessionByObject(null) cleared the editor profile via auto-sync; the
+            // dropdown must still name the profile that was picked, or the choice vanishes.
+            _selectedEditorProfile.value = profile
+            showNotification("${profile.name} has no session - connect it to send", NotificationType.WARNING)
         }
     }
 
@@ -2012,11 +2020,13 @@ class FixMessageViewModel(
 
     /**
      * Auto-selects the appropriate profile/session when a template is loaded.
-     * Algorithm:
-     * 1. Get associated profile IDs from template's userTags
-     * 2. Filter to only associated profiles
-     * 3. Sort by connection status (CONNECTED/LOGGED_ON first, CONNECTING second, DISCONNECTED/ERROR third), then alphabetically
-     * 4. Select the first profile's session from the sorted list (if any)
+     *
+     * A template's userTags are the ids of the profiles it belongs to. The rules are:
+     * 1. A template that belongs to no known profile leaves the session selection alone.
+     * 2. If the active session already belongs to one of those profiles, it stays active -
+     *    a template that fits where you are working never moves you somewhere else.
+     * 3. Otherwise the best candidate wins: connected first, then profiles that own a
+     *    session, then alphabetically.
      */
     private fun autoSelectProfileForMessage(savedMessage: SavedFixMessage) {
         val associatedProfileIds = savedMessage.getAllUserTags()
@@ -2036,11 +2046,21 @@ class FixMessageViewModel(
             return
         }
 
-        // Sort profiles by connection state priority (connected first) then alphabetically
+        val activeProfileId = profileIdForSessionIndex(_activeSessionIndex.value)
+        if (activeProfileId in associatedProfileIds) {
+            logger.info(
+                "loadEditorMessage: Active session already belongs to message '${savedMessage.name}', keeping current session",
+            )
+            return
+        }
+
+        // Connected profiles first, then ones that own a session (a profile that has never
+        // been connected has no session to switch to), then alphabetically.
         val sortedProfiles =
             associatedProfiles.sortedWith(
                 compareBy(
                     { profile -> getConnectionPriority(getProfileConnectionState(profile.id)) },
+                    { profile -> if (getProfileSessions(profile.id).isEmpty()) 1 else 0 },
                     { profile -> profile.name.lowercase() },
                 ),
             )
@@ -2165,6 +2185,39 @@ class FixMessageViewModel(
      * @return Pair of the created profile and session
      */
     fun createSessionWithProfileForTest(profileName: String): Pair<FixConnectionProfile, FixMessageSession> {
+        val profile = createProfileWithoutSessionForTest(profileName)
+
+        val session = createNewSession(profileName)
+        val sessionIndex = _sessions.size - 1
+        profileToSessionMap[profile.id] = mutableListOf(sessionIndex)
+
+        return Pair(profile, session)
+    }
+
+    /**
+     * Adds another session to an existing profile for testing purposes, as a profile with a
+     * sessionCount above one owns after connecting.
+     *
+     * @param profile Profile that owns the session
+     * @param title Title for the session
+     * @return The created session
+     */
+    fun addSessionToProfileForTest(profile: FixConnectionProfile, title: String): FixMessageSession {
+        val session = createNewSession(title)
+        profileToSessionMap.getOrPut(profile.id) { mutableListOf() }.add(_sessions.size - 1)
+        return session
+    }
+
+    /**
+     * Creates a profile with no session for testing purposes, as if it had never been connected.
+     *
+     * Registers the profile in memory only: saveConnectionProfile() would reload the profile list
+     * from disk and drop the profiles its sibling helper added.
+     *
+     * @param profileName Name for the profile
+     * @return The created profile
+     */
+    fun createProfileWithoutSessionForTest(profileName: String): FixConnectionProfile {
         val profile =
             FixConnectionProfile(
                 name = profileName,
@@ -2178,12 +2231,7 @@ class FixMessageViewModel(
                     ),
             )
         _connectionProfiles.add(profile)
-
-        val session = createNewSession(profileName)
-        val sessionIndex = _sessions.size - 1
-        profileToSessionMap[profile.id] = mutableListOf(sessionIndex)
-
-        return Pair(profile, session)
+        return profile
     }
 
     override fun onCleared() {

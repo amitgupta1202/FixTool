@@ -507,10 +507,12 @@ private fun ExpectDetail(
         // sides — so it is the only one that can show the row the venue stopped sending, or the entry it
         // moved. The builder below stays for authoring an expectation that has not been run.
         if (failedView != null) {
+            val typeName = dictionary?.getFieldEnumValues(35)?.firstOrNull { it.first == messageType }?.second
             ReconcileView(
                 expectation = step.expectation,
                 actual = failedView,
                 dictionary = dictionary,
+                crumb = "Expect · ${typeName?.let { "$it ($messageType)" } ?: messageType} · session ${step.session ?: "(active)"}",
                 // The golden follows the reconciliation. An expectation reconciled against *this* message
                 // describes *this* message, so keeping the old golden left the two contradicting each other:
                 // reopen the step later, without a failure, and the builder previews the new assertions

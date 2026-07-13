@@ -376,11 +376,40 @@ class ScenarioReconcileTest {
     @Test
     fun `re-seed replaces the step from the message that actually arrived, keeping the mode`() {
         val reply = wireView(35 to "8", 11 to "ORD-9", 39 to "2")
+        val draft = expectation(FieldExpectation(35, Matcher.Exact("8"))).copy(mode = MatchMode.STRICT)
 
-        val fresh = ScenarioReconcile.reseed(reply, dictionary, MatchMode.STRICT)
+        val fresh = ScenarioReconcile.reseed(draft, reply, dictionary)
 
         assertEquals(listOf(35, 11, 39), fresh.fields.map { it.tag })
         assertEquals(MatchMode.STRICT, fresh.mode)
         assertTrue(ExpectationEvaluator.evaluate(reply, fresh).all { it.passed })
+    }
+
+    /**
+     * Re-seed must keep the echo assertions. The seeder knows nothing of scenario variables, so a fresh seed
+     * turned `Reference("${id0}")` — "the reply's ClOrdID must echo the id this run minted" — into
+     * `Exact("ORD-9")`, this run's literal id. The Send step mints a fresh one next run, so the row could
+     * never match again: a permanent red the author can only silence by loosening or dropping it, and the
+     * cross-step correlation the scenario existed to verify is gone.
+     *
+     * `canAcceptActual` already refuses exactly this rewrite one row at a time. The bulk button had no guard —
+     * two deciders on one rule.
+     */
+    @Test
+    fun `re-seed keeps a reference row rather than pinning it to this run's id`() {
+        val reply = wireView(35 to "8", 11 to "ORD-9", 39 to "2")
+        val draft =
+            expectation(
+                FieldExpectation(35, Matcher.Exact("8")),
+                FieldExpectation(11, Matcher.Reference("\${id0}")),
+            )
+
+        val fresh = ScenarioReconcile.reseed(draft, reply, dictionary)
+
+        assertEquals(
+            Matcher.Reference("\${id0}"),
+            fresh.fields.single { it.tag == 11 }.matcher,
+            "re-seeding must not pin the echo assertion to the uuid this one run happened to mint",
+        )
     }
 }

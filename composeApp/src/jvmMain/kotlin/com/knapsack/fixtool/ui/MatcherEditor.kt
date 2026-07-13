@@ -82,11 +82,28 @@ fun defaultMatcherForType(type: String, value: String): Matcher =
  * captured value. Emits the new matcher via [onChange].
  */
 @Composable
-fun MatcherEditor(matcher: Matcher, capturedValue: String, onChange: (Matcher) -> Unit, modifier: Modifier = Modifier) {
+fun MatcherEditor(
+    matcher: Matcher,
+    capturedValue: String,
+    onChange: (Matcher) -> Unit,
+    modifier: Modifier = Modifier,
+    /**
+     * The types this editor may switch to. The reconcile view passes a **narrowed** list.
+     *
+     * `reference` is not a loosening — it is a *correlation the author writes*, naming a scenario variable
+     * the editor cannot know. Offering it from a dropdown meant `defaultMatcherForType` had to invent one, so
+     * it seeded a hardcoded `${out.D.11}` onto whatever row was clicked: one click on a failing OrdStatus row
+     * asserted that OrdStatus equals the last NewOrderSingle's ClOrdID. Worse, a reference cannot be judged
+     * offline, so the row stopped being red, dropped out of the verdict counts, and the bar announced "every
+     * assertion would now pass". A one-click manufactured green, in the surface the model names as the
+     * likeliest place to manufacture one.
+     */
+    types: List<String> = MATCHER_TYPES,
+) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         SlimDropdown(
             value = matcherTypeName(matcher),
-            options = MATCHER_TYPES,
+            options = types,
             onValueChange = { type -> type?.let { onChange(defaultMatcherForType(it, capturedValue)) } },
             displayText = { it },
             itemText = { type -> MATCHER_HELP[type]?.let { "$type — $it" } ?: type },

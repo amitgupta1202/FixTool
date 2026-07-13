@@ -37,6 +37,7 @@ import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
+import java.time.Instant
 
 /**
  * The reconcile view: a failed Expect step as **a diff you can fix**.
@@ -63,14 +64,24 @@ fun ReconcileView(
     modifier: Modifier = Modifier,
     /** "Step 2 · Expect · ExecutionReport (8) · session CLI" — the breadcrumb over the diff. */
     crumb: String = "",
+    /** When the message arrived. Temporal rows are judged against THIS, never against "now" — see below. */
+    actualAt: Instant? = null,
 ) {
-    val original = remember(expectation) { expectation }
+    // Keyed on the STEP, not on the expectation.
+    //
+    // Every fix calls onChange, the editor pushes that into step.expectation, and this composable recomposes
+    // with a new `expectation` value — so keying the staging state on `expectation` destroyed it on every
+    // click. In the running app the footer read "0 fixes staged" for ever, Undo was permanently dead, Discard
+    // did nothing, and no row ever showed as staged: the author could not walk back a wrong click on the one
+    // surface where a wrong click manufactures a false green. The tests never fed onChange back into the
+    // composable, so the whole suite was blind to it.
+    val original = remember(crumb) { expectation }
     // Every fix is staged: the scenario file is not touched until the workbench saves, and Undo walks back
     // one fix at a time. The draft is pushed to the step as it changes so that navigating away — to look at
     // what the step before it sent — cannot silently destroy a session's worth of repairs.
-    val history = remember(expectation) { mutableStateListOf<StagedFix>() }
-    var draft by remember(expectation) { mutableStateOf(expectation) }
-    var loosening by remember(expectation) { mutableStateOf<Int?>(null) }
+    val history = remember(crumb) { mutableStateListOf<StagedFix>() }
+    var draft by remember(crumb) { mutableStateOf(expectation) }
+    var loosening by remember(crumb) { mutableStateOf<Int?>(null) }
 
     fun stage(label: String, next: Expectation?) {
         if (next == null || next == draft) return
@@ -91,7 +102,16 @@ fun ReconcileView(
         onChange(original)
     }
 
-    val rows = ScenarioReconcile.rows(draft, actual, dictionary)
+    // Judged at the instant the message ARRIVED, not the instant this view was opened.
+    //
+    // A capture seeds TransactTime as "~now ±60s". The run passes. Two minutes later the engineer clicks
+    // "Reconcile assertions…", the view re-evaluates that row against Instant.now(), and a timestamp that was
+    // fine during the run is now hours outside its window — so the view reports a value change the venue never
+    // made, tells the engineer it is a behaviour regression, and offers only Loosen and Drop. The scenario
+    // permanently stops checking TransactTime. That is exactly the "a red that leads to a deleted assertion is
+    // a green by a longer route" failure canAcceptActual's own doc warns about, manufactured by the view.
+    val judgedAt = actualAt ?: Instant.now()
+    val rows = ScenarioReconcile.rows(draft, actual, dictionary, now = { judgedAt })
     val reorder = ScenarioReconcile.acceptNewOrder(draft, actual)
     // A row is "moved" exactly when Accept-new-order would put it somewhere else — defined by the fix
     // itself, so there is no second opinion about it to disagree with the first. That is what lets a party
@@ -105,9 +125,17 @@ fun ReconcileView(
             strict = draft.mode == MatchMode.STRICT,
             failing = rows.any { !it.passed },
             staged = history.size,
-            canAcceptShape = rows.any { ScenarioReconcile.isShapeChange(it) || (it.unasserted && it.wireIndex != null) },
+            // Only offer the bulk button when there is a shape FAILURE to accept. Counting every unasserted
+            // field as "a tag the venue added" made it live on a fully-passing OPEN step — where an unmentioned
+            // tag is not a failure, it is the whole point of OPEN — and clicking it then asserted every field
+            // the author had deliberately left alone.
+            canAcceptShape =
+                rows.any { ScenarioReconcile.isShapeChange(it) } ||
+                    (draft.mode == MatchMode.STRICT && rows.any { it.unasserted && it.wireIndex != null }),
             onAcceptShape = { stage("Accepted every shape change", ScenarioReconcile.acceptEveryShapeChange(draft, actual, dictionary)) },
-            onReseed = { stage("Re-seeded the step", ScenarioReconcile.reseed(actual, dictionary, draft.mode).copy(golden = draft.golden)) },
+            onReseed = {
+                stage("Re-seeded the step", ScenarioReconcile.reseed(draft, actual, dictionary))
+            },
             onDiscard = ::discard,
             onStrictChange = { stage(if (it) "Switched to STRICT" else "Switched to OPEN", draft.copy(mode = if (it) MatchMode.STRICT else MatchMode.OPEN)) },
         )
@@ -202,6 +230,10 @@ private fun Chip(label: String, color: Color, tinted: Boolean = false, onClick: 
  * "1 value changed · 1 tag added · 1 tag missing · 1 entry moved — only the value change alters what this
  * scenario checks."
  */
+
+/** What "Loosen" may turn a row into: weaker checks, never a different assertion. See MatcherEditor.types. */
+private val LOOSENINGS = listOf("presence", "oneOf", "regex", "numeric", "temporal", "absent")
+
 @Composable
 private fun VerdictBar(rows: List<ScenarioReconcile.Row>, movedRows: Set<Int?>, movedEntries: Int) {
     fun isMoved(r: ScenarioReconcile.Row) = r.index != null && r.index in movedRows
@@ -212,13 +244,27 @@ private fun VerdictBar(rows: List<ScenarioReconcile.Row>, movedRows: Set<Int?>, 
     val added = rows.count { it.unasserted && it.wireIndex != null }
     val missing = rows.count { !it.passed && !isMoved(it) && it.status == TagStatus.MISSING }
     val moved = movedEntries
-    val attention = values + added + missing + moved
+
+    // Rows that cannot be judged here at all — a reference resolves against a live run's scope, and there is
+    // none offline. They are not failures, but a headline that ignores them is a lie: one click of
+    // "Loosen → reference" made a red row unjudgeable, dropped it out of every count, and the bar announced
+    // "✓ every assertion would now pass" over an expectation that asserts a ClOrdID equals an OrdStatus.
+    val unknown = rows.count { it.unknown }
+
+    // ...and any failing row none of the buckets above caught. A row reported MOVED for which there is no
+    // safe re-ordering has no block bracket, no Accept-new-order and no per-row fix — it fell out of the
+    // count entirely, and the bar declared success over a step that fails.
+    val bucketed = setOf(TagStatus.VALUE, TagStatus.INVALID, TagStatus.MISSING)
+    val unresolved = rows.count { !it.passed && !it.unasserted && !it.unknown && !isMoved(it) && it.status !in bucketed }
+    val attention = values + added + missing + moved + unresolved
 
     val parts = buildList {
         if (values > 0) add("$values value${plural(values)} changed")
         if (added > 0) add("$added tag${plural(added)} added")
         if (missing > 0) add("$missing tag${plural(missing)} missing")
         if (moved > 0) add("$moved entr${if (moved == 1) "y" else "ies"} moved")
+        if (unresolved > 0) add("$unresolved out of order")
+        if (unknown > 0) add("$unknown not checkable here")
     }
 
     Row(
@@ -226,7 +272,7 @@ private fun VerdictBar(rows: List<ScenarioReconcile.Row>, movedRows: Set<Int?>, 
         modifier = Modifier.fillMaxWidth().background(if (attention > 0) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
-            text = headline(judged, attention, added),
+            text = headline(judged, attention, added, unknown),
             color = if (attention > 0 || added > 0) AppTheme.Colors.error else if (judged == 0) AppTheme.Colors.warning else AppTheme.Colors.success,
             fontWeight = FontWeight.Bold,
             fontSize = 11.sp,
@@ -246,12 +292,17 @@ private fun VerdictBar(rows: List<ScenarioReconcile.Row>, movedRows: Set<Int?>, 
     }
 }
 
-private fun headline(judged: Int, attention: Int, added: Int): String {
+private fun headline(judged: Int, attention: Int, added: Int, unknown: Int): String {
     // A step that asserts nothing passes every run for ever while checking nothing. It is one Drop away from
     // any failing expectation, and it is never allowed to read as a success.
     if (judged == 0) return "⚠ nothing is asserted — this step would pass every run without checking anything"
     val needing = attention + added
-    return if (needing == 0) "✓ every assertion would now pass ($judged checked)" else "$needing of $judged rows need attention"
+    if (needing > 0) return "$needing of $judged rows need attention"
+    // Green, but only about what was actually checked. A row this view cannot judge is not a row that passed.
+    if (unknown > 0) {
+        return "✓ every checked assertion would now pass ($judged checked · $unknown only verifiable on a run)"
+    }
+    return "✓ every assertion would now pass ($judged checked)"
 }
 
 private fun shapeVersusBehaviour(behaviour: Int): String =
@@ -379,7 +430,14 @@ private fun DiffRowView(
         }
         if (loosening && row.matcher != null) {
             Row(modifier = Modifier.fillMaxWidth().padding(start = GUT + 4.dp, top = 3.dp, bottom = 3.dp)) {
-                MatcherEditor(matcher = row.matcher, capturedValue = row.actual ?: "", onChange = onMatcherChange)
+                // Loosen offers loosenings. Not `exact` — that is what "Accept actual" is, and it re-seeds
+                // rather than flattening. Not `reference` — see MatcherEditor.types.
+                MatcherEditor(
+                    matcher = row.matcher,
+                    capturedValue = row.actual ?: "",
+                    onChange = onMatcherChange,
+                    types = LOOSENINGS,
+                )
             }
         }
     }

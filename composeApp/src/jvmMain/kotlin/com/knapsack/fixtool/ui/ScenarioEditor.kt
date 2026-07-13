@@ -101,6 +101,8 @@ fun EditStep.toStep(): ScenarioStep =
 data class RunFailureContext(
     val failedTags: List<com.knapsack.fixtool.model.scenario.TagResult>,
     val actualRaw: String?,
+    /** When the message arrived — the instant temporal rows are judged against. See ReconcileView. */
+    val actualAt: java.time.Instant? = null,
 )
 
 /**
@@ -513,6 +515,7 @@ private fun ExpectDetail(
                 actual = failedView,
                 dictionary = dictionary,
                 crumb = "Expect · ${typeName?.let { "$it ($messageType)" } ?: messageType} · session ${step.session ?: "(active)"}",
+                actualAt = runFailure?.actualAt,
                 // The golden follows the reconciliation. An expectation reconciled against *this* message
                 // describes *this* message, so keeping the old golden left the two contradicting each other:
                 // reopen the step later, without a failure, and the builder previews the new assertions

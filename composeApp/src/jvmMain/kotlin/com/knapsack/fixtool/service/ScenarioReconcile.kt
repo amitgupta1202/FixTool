@@ -213,19 +213,72 @@ object ScenarioReconcile {
         dictionary: FixDictionaryAdapter?,
     ): Expectation {
         val wire = message.fields()
-        val (tag, value) = wire[wireIndex]
-        val seeded =
-            ExpectationSeeder
+
+        fun seed(at: Int): FieldExpectation {
+            val (tag, value) = wire[at]
+            return ExpectationSeeder
                 .seedDetailed(listOf(tag to value), dictionary)
                 .firstOrNull()
                 ?.field
                 ?: FieldExpectation(tag, Matcher.Exact(value))
+        }
 
-        val claims = ExpectationEvaluator.align(draft, wire).mapNotNull { a -> a.index?.let { it to a.wireIndex } }
-        val insertAt =
-            claims.filter { (_, at) -> at != null && at < wireIndex }.maxOfOrNull { (rowIndex, _) -> rowIndex + 1 }
-                ?: 0
-        return draft.copy(fields = draft.fields.toMutableList().apply { add(insertAt, seeded) })
+        // Ask the engine where the row would land, rather than guessing from the claimed positions.
+        //
+        // The guess was: insert after the last row claiming an earlier field. That is right until an earlier
+        // occurrence of the same tag is *unclaimed* — and then the engine's greedy cursor gives the new row
+        // THAT occurrence instead of the one the author clicked. Click "Assert it" on the second 448 of a
+        // two-party group whose first 448 is unasserted, and you assert the first. Both being FIRMA, the row
+        // goes green immediately, while the entry you actually clicked stays unasserted for ever: a false
+        // green and a silent coverage hole from one click, on the surface that exists to close them.
+        //
+        // One decider: the engine says where a row pairs, and this tries positions until the engine agrees
+        // the new row is checking the field that was clicked.
+        fun insertPairingWith(target: Expectation, at: Int): Expectation? {
+            val before =
+                ExpectationEvaluator.align(target, wire)
+                    .filter { it.row != null }
+                    .mapNotNull { a -> a.index?.let { it to a.wireIndex } }
+
+            for (position in 0..target.fields.size) {
+                val candidate =
+                    target.copy(fields = target.fields.toMutableList().apply { add(position, seed(at)) })
+                val after = ExpectationEvaluator.align(candidate, wire)
+                if (after.firstOrNull { it.index == position }?.wireIndex != at) continue
+
+                // ...and nothing that was already pairing may be knocked off its field. Inserting a row too
+                // early pairs it with the clicked field just as well, and pushes the engine's cursor past the
+                // field the NEXT row was checking — which then reports itself missing. The engine is asked
+                // both questions; neither is guessed.
+                val intact =
+                    before.all { (oldIndex, oldAt) ->
+                        val shifted = if (oldIndex >= position) oldIndex + 1 else oldIndex
+                        after.firstOrNull { it.index == shifted }?.wireIndex == oldAt
+                    }
+                if (intact) return candidate
+            }
+            return null
+        }
+
+        insertPairingWith(draft, wireIndex)?.let { return it }
+
+        // No single row can reach that field: the engine's cursor cannot get past the earlier occurrences of
+        // the same tag that nothing is asserting. Assert those first, in order — the clicked field then
+        // becomes addressable. Asserting more than was asked for is visible and correctable; asserting a
+        // field the author did not pick is neither.
+        // Claimed by a ROW. align() also emits the reply's unasserted extras, and they carry a wireIndex —
+        // counting those made every field look claimed, so nothing was ever added.
+        val claimed =
+            ExpectationEvaluator.align(draft, wire)
+                .filter { it.row != null }
+                .mapNotNull { it.wireIndex }
+                .toSet()
+        val tag = wire[wireIndex].first
+        var next = draft
+        for (at in (0..wireIndex).filter { wire[it].first == tag && it !in claimed }) {
+            next = insertPairingWith(next, at) ?: next.copy(fields = next.fields + seed(at))
+        }
+        return next
     }
 
     /**
@@ -347,9 +400,13 @@ object ScenarioReconcile {
             if (row.matcher is Matcher.Absent) continue // takes no part in ordering
             val k = seen.merge(row.tag, 1, Int::plus)!! - 1
             val field = byTag[row.tag]?.getOrNull(k) ?: return null // the venue sends fewer: missing, not moved
-            if (row.matcher !is Matcher.Reference &&
-                !ExpectationEvaluator.satisfies(row.matcher, field.value.second)
-            ) {
+            // A reference and a temporal row have no fixed value to compare — one resolves against a live
+            // run's scope, the other against the clock — so asking "did this value change?" of them answers
+            // nothing about the message's *shape*. They are placed, not value-checked. Placement is
+            // occurrence-preserving, so each keeps checking exactly the field it always did, and both are
+            // still judged for real at replay.
+            val hasFixedValue = row.matcher !is Matcher.Reference && row.matcher !is Matcher.Temporal
+            if (hasFixedValue && !ExpectationEvaluator.satisfies(row.matcher, field.value.second)) {
                 return null // the value at this row's own occurrence changed: behaviour, not shape
             }
             place[index] = field.index
@@ -489,14 +546,37 @@ object ScenarioReconcile {
         var next = draft
 
         // Tags the venue stopped sending: assert them absent where that is meaningful, drop them otherwise.
+        //
+        // ...but NEVER at the cost of a value change. `drop` on a repeated tag takes *every* row for that tag
+        // — it must, or the surviving rows would silently change which occurrence they check — so dropping a
+        // missing 448 also deletes the 448 row that is failing because the venue sent a *different firm*. The
+        // next loop then re-seeded that tag fresh from the reply, and the button that promises "it will not
+        // touch a value mismatch" quietly accepted the regression it promised to leave alone. A row like that
+        // is left exactly where it is, for the author to decide about one at a time, deliberately.
+        val handled = mutableSetOf<Int>()
         var progressed = true
         while (progressed) {
             progressed = false
-            val missing = rows(next, message, dictionary).firstOrNull { it.status == TagStatus.MISSING && it.index != null }
-            if (missing != null) {
-                val index = missing.index!!
-                next = if (canAssertAbsent(next, message, index)) assertAbsent(next, index) else drop(next, index)
-                progressed = true
+            val current = rows(next, message, dictionary)
+            val missing =
+                current.firstOrNull { it.status == TagStatus.MISSING && it.index != null && it.tag !in handled }
+                    ?: continue
+            val index = missing.index!!
+            when {
+                canAssertAbsent(next, message, index) -> {
+                    next = assertAbsent(next, index)
+                    progressed = true
+                }
+                dropTakesWholeTag(next, index) &&
+                    current.any { it.tag == missing.tag && isBehaviourChange(it) } -> {
+                    // Dropping would delete a row that is failing on its VALUE. Leave the whole tag alone.
+                    handled += missing.tag
+                    progressed = true
+                }
+                else -> {
+                    next = drop(next, index)
+                    progressed = true
+                }
             }
         }
 
@@ -516,10 +596,43 @@ object ScenarioReconcile {
         return acceptNewOrder(next, message) ?: next
     }
 
-    /** Throw the step's expectation away and seed a fresh one from the message that actually arrived. */
-    fun reseed(message: MessageView, dictionary: FixDictionaryAdapter?, mode: com.knapsack.fixtool.model.scenario.MatchMode): Expectation {
+    /**
+     * Throw the step's expectation away and seed a fresh one from the message that actually arrived —
+     * **keeping the echo assertions**, which the seeder cannot know about.
+     *
+     * `ExpectationSeeder` knows nothing of scenario variables, so a fresh seed turned
+     * `Reference("${id0}")` — "the reply's ClOrdID must echo the id this run minted" — into
+     * `Exact("ORD-9f3a-…")`, this run's literal uuid. The Send step mints a fresh one next run, so the row
+     * could never match again: a permanent red the author can only silence by loosening or dropping it, and
+     * the cross-step correlation the scenario existed to verify is gone.
+     *
+     * [canAcceptActual] already refuses that rewrite one row at a time; the bulk button had no such guard,
+     * which is two deciders on one rule. The rule lives here now, and both go through it.
+     */
+    fun reseed(
+        draft: Expectation,
+        message: MessageView,
+        dictionary: FixDictionaryAdapter?,
+    ): Expectation {
         val wire = message.fields()
-        return ExpectationSeeder.seed(wire, dictionary).copy(mode = mode)
+        val fresh = ExpectationSeeder.seed(wire, dictionary).copy(mode = draft.mode, golden = draft.golden)
+
+        // Carry every reference row across onto the same occurrence of the same tag it was asserting.
+        val keep = mutableMapOf<Pair<Int, Int>, Matcher>()
+        val seen = mutableMapOf<Int, Int>()
+        for (row in draft.fields) {
+            val k = seen.merge(row.tag, 1, Int::plus)!! - 1
+            if (row.matcher is Matcher.Reference) keep[row.tag to k] = row.matcher
+        }
+        if (keep.isEmpty()) return fresh
+
+        val counter = mutableMapOf<Int, Int>()
+        return fresh.copy(
+            fields = fresh.fields.map { row ->
+                val k = counter.merge(row.tag, 1, Int::plus)!! - 1
+                keep[row.tag to k]?.let { row.copy(matcher = it) } ?: row
+            },
+        )
     }
 
     /**

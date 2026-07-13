@@ -82,6 +82,7 @@ private sealed interface Mode {
         val failedTags: kotlin.collections.List<com.knapsack.fixtool.model.scenario.TagResult> = emptyList(),
         /** Raw message that failed the assertions — feeds the builder's would-now-pass preview. */
         val actualRaw: String? = null,
+        val actualAt: java.time.Instant? = null,
     ) : Mode
 }
 
@@ -93,7 +94,7 @@ fun ScenarioWorkbench(viewModel: FixMessageViewModel, modifier: Modifier = Modif
     val editRequest by viewModel.workbenchEditRequest.collectAsState()
     androidx.compose.runtime.LaunchedEffect(editRequest) {
         editRequest?.let { req ->
-            mode = Mode.Edit(req.scenario, req.focusStep, req.failedTags, req.actualRaw)
+            mode = Mode.Edit(req.scenario, req.focusStep, req.failedTags, req.actualRaw, req.actualAt)
             viewModel.consumeWorkbenchEditRequest()
         }
     }
@@ -137,7 +138,12 @@ private fun ScenarioWorkbenchBody(viewModel: FixMessageViewModel, mode: Mode, on
                     sessionOptions = (mode.scenario.sessionsInvolved() + viewModel.sessions.map { it.title }).distinct(),
                     secondInstance = { session, messageType, golden -> viewModel.liveSecondInstance(session, messageType, golden) },
                     focusStep = mode.focusStep,
-                    runFailure = if (mode.focusStep != null) RunFailureContext(mode.failedTags, mode.actualRaw) else null,
+                    runFailure =
+                        if (mode.focusStep != null) {
+                            RunFailureContext(mode.failedTags, mode.actualRaw, mode.actualAt)
+                        } else {
+                            null
+                        },
                     onSave = { edited ->
                         viewModel.scenarioService.save(edited)
                         onMode(Mode.List)

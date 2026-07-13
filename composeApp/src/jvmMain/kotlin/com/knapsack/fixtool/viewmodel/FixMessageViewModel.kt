@@ -172,6 +172,12 @@ class FixMessageViewModel(
         val focusStep: Int?,
         val failedTags: List<TagResult> = emptyList(),
         val actualRaw: String? = null,
+        /**
+         * When the message arrived. Temporal rows are judged against THIS in the reconcile view, never
+         * against "now" — a `~now ±60s` row that passed during the run must not read as a venue regression
+         * because the engineer took two minutes to click Reconcile.
+         */
+        val actualAt: java.time.Instant? = null,
     )
 
     private val _workbenchEditRequest = MutableStateFlow<WorkbenchEditRequest?>(null)
@@ -219,6 +225,7 @@ class FixMessageViewModel(
                 // venue's `58=Rejected|insufficient margin`) reaching it as the display string would have
                 // the view offer, and then save, a truncated value the venue never sent.
                 actualRaw = message.wireRaw ?: message.rawMessage,
+                actualAt = message.timestamp.atZone(java.time.ZoneId.systemDefault()).toInstant(),
             )
         if (!_showScenariosDialog.value) _showScenariosDialog.value = true
     }

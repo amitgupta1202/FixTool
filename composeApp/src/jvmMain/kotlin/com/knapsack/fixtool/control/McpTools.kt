@@ -222,9 +222,14 @@ object McpTools {
             tool(
                 "fixtool_capture_expectation",
                 "Build an auto-seeded expectation from a received message: matchers pre-seeded from dictionary field " +
-                    "types (timestamps -> temporal, prices/quantities -> numeric, OrderID/ExecID -> presence, else " +
-                    "exact; header volatiles 9/10/34/52 omitted). Selects by messageType/direction/index like " +
-                    "fixtool_select. Returns {messageType, mode, fields:[...]} ready to edit and pass to fixtool_assert.",
+                    "types (timestamps -> temporal, prices/quantities -> numeric, else exact). Asserted for PRESENCE " +
+                    "only, never value, because the value is this environment's or this moment's: OrderID(37), " +
+                    "ExecID(17), the routing addresses SenderSubID(50)/TargetSubID(57)/OnBehalfOfCompID(115)/" +
+                    "DeliverToCompID(128)/SenderLocationID(142)/TargetLocationID(143)/OnBehalfOfLocationID(144)/" +
+                    "DeliverToLocationID(145), and OrigSendingTime(122) — tighten one to exact if the scenario is " +
+                    "about routing. NOT asserted at all, and reported in notAsserted: the session envelope " +
+                    "8/9/10/34/49/52/56/369. Selects by messageType/direction/index like fixtool_select. " +
+                    "Returns {messageType, mode, fields:[...], notAsserted:[...]} ready to edit and pass to fixtool_assert.",
                 props(
                     "session" to string("session id/title/index; default active"),
                     "messageType" to string("FIX msg type to select, e.g. 8"),

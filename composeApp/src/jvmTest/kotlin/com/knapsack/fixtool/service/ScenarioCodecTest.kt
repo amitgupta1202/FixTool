@@ -13,11 +13,14 @@ import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TemporalKind
+import com.knapsack.fixtool.model.scenario.validationError
 import org.junit.Test
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ScenarioCodecTest {
@@ -82,16 +85,68 @@ class ScenarioCodecTest {
     }
 
     /**
-     * A regex matcher is only usable if it compiles. Accepted unchecked, a bad pattern from
-     * `fixtool_assert` or a hand-edited scenario file blew up at run time as "scenario run failed",
-     * with nothing to say which assertion was at fault.
+     * An uncompilable pattern is a **bad assertion**, not a corrupt file.
+     *
+     * The codec used to refuse it on both sides, and the symmetry was the trap: refusing on encode
+     * meant one half-typed pattern in one row failed the save of the entire scenario — every other
+     * step, every other assertion, the author's whole session's work — while they were still typing.
+     * Refusing on read-only was the bug that symmetry was introduced to fix (a file written that
+     * could never be loaded back). Both are the same mistake: treating an editable value as a
+     * structural invariant.
+     *
+     * So neither side rejects. The pattern round-trips verbatim, the row fails the assertion with a
+     * reason attached, and the editor says so live while it is being typed. Nobody loses work, and
+     * nothing silently passes.
      */
     @Test
-    fun `a regex matcher with an uncompilable pattern is rejected at parse`() {
-        val bad = Json.parseToJsonElement("""{"type":"regex","pattern":"EXEC-["}""").jsonObject
+    fun `an uncompilable pattern does not fail the save of the whole scenario`() {
+        val expectation =
+            Expectation(
+                fields = listOf(
+                    FieldExpectation(11, Matcher.Exact("ORD-1")),
+                    FieldExpectation(37, Matcher.Regex("EXEC-[")), // half-typed character class
+                    FieldExpectation(39, Matcher.Exact("2")),
+                ),
+                messageType = "8",
+            )
 
-        val error = assertFailsWith<IllegalArgumentException> { MatcherCodec.parseMatcher(bad) }
-        assertTrue(error.message!!.contains("EXEC-["), "the error should quote the pattern: ${error.message}")
+        val json = expectation.fields.map { MatcherCodec.fieldExpectationToJson(it) }
+
+        assertEquals(3, json.size, "one bad pattern must not take the other assertions down with it")
+        assertEquals("EXEC-[", json[1]["matcher"]!!.jsonObject["pattern"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `and it loads back as exactly what was written`() {
+        val bad = Json.parseToJsonElement("""{"type":"regex","pattern":"EXEC-["}""").jsonObject
+        assertEquals(Matcher.Regex("EXEC-["), MatcherCodec.parseMatcher(bad))
+    }
+
+    @Test
+    fun `and the row it is on fails, saying why`() {
+        val view = object : MessageView {
+            override fun valueOfTag(tag: Int): String? = if (tag == 37) "EXEC-9" else null
+
+            override fun presentTags(): Set<Int> = setOf(37)
+
+            override fun groupEntries(groupTag: Int): List<MessageView> = emptyList()
+        }
+
+        val result =
+            ExpectationEvaluator.evaluate(view, Expectation(listOf(FieldExpectation(37, Matcher.Regex("EXEC-["))))).single()
+
+        assertFalse(result.passed)
+        // Not merely "invalid" — *why*. The reader who most needs the reason is the one who cannot open
+        // the editor: an agent reading a failed fixtool_assert, or an engineer reading a red CI step.
+        assertTrue(result.expected.contains("invalid regex"), "the row should say what is wrong with it: ${result.expected}")
+        assertTrue(result.expected.contains("Unclosed character class"), "and why: ${result.expected}")
+    }
+
+    @Test
+    fun `the editor can name the problem before the author saves`() {
+        assertNull(Matcher.Regex("EXEC-\\d+").validationError())
+        assertTrue(Matcher.Regex("EXEC-[").validationError()!!.contains("EXEC-["))
+        assertNull(Matcher.Exact("EXEC-[").validationError(), "only a regex matcher compiles its value")
     }
 
     @Test

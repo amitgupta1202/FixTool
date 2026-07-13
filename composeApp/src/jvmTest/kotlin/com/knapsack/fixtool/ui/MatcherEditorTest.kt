@@ -15,10 +15,14 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.validationError
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import javax.imageio.ImageIO
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Evidence for 3.1 (matcher chips): the editor switches matcher type and emits the new matcher. */
@@ -49,6 +53,36 @@ class MatcherEditorTest {
         composeTestRule.waitForIdle()
         assertTrue(last is Matcher.OneOf, "expected OneOf, got $last")
         snapshot("matcher_editor_oneof.png")
+    }
+
+    /**
+     * Switching a row to "regex" seeds the pattern from the captured value — and seeded raw, that value
+     * is a pattern, not a literal. A Price captured as `1.5` became `1.5`, where `.` matches any
+     * character, so an actual price of `125` satisfied the assertion and the step passed. The author
+     * asked to loosen the row; the tool loosened it in the direction of passing, and said nothing.
+     */
+    @Test
+    fun `a regex seeded from a captured value matches only that value`() {
+        val seeded = defaultMatcherForType("regex", "1.5") as Matcher.Regex
+
+        assertTrue(Regex(seeded.pattern).matches("1.5"), "the captured value must still match: ${seeded.pattern}")
+        assertFalse(Regex(seeded.pattern).matches("125"), "'.' must be a literal dot, not any-character: ${seeded.pattern}")
+    }
+
+    @Test
+    fun `a seeded regex survives the metacharacters a FIX value really carries`() {
+        // Text(58) values are free-form and routinely carry brackets, parens and pluses.
+        val value = "Rejected (band +1.5) [MKT]"
+        val seeded = defaultMatcherForType("regex", value) as Matcher.Regex
+
+        assertNull(seeded.validationError(), "a seeded pattern must always compile: ${seeded.pattern}")
+        assertTrue(Regex(seeded.pattern).matches(value))
+        assertFalse(Regex(seeded.pattern).matches("Rejected (band +1X5) [MKT]"))
+    }
+
+    @Test
+    fun `an empty captured value still seeds a usable pattern`() {
+        assertEquals(Matcher.Regex(".*"), defaultMatcherForType("regex", ""))
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")

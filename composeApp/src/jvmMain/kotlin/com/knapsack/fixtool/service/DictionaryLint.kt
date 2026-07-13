@@ -42,6 +42,23 @@ object DictionaryLint {
             }
     }
 
+    /** The tag numbers a QuickFIX complaint names, e.g. "…, field=200" → {200}. */
+    private val FIELD_IN_PROBLEM = Regex("""field=(\d+)""")
+
+    /**
+     * True when [problem] complains about nothing but tags [unknownTags] has already named — in which
+     * case saying it again reads as two problems where there is one.
+     *
+     * Whole tag numbers, not substrings. `problem.contains("field=$tag")` looks equivalent and is not:
+     * an unknown tag **20** matches a complaint about `field=200`, so the one real thing wrong with
+     * the message was suppressed by a lint about an entirely different field, and the send reported
+     * no problem at all. A complaint survives unless *every* tag it names is one we already named.
+     */
+    fun alreadyNamed(problem: String, unknownTags: List<Int>): Boolean {
+        val named = FIELD_IN_PROBLEM.findAll(problem).mapNotNull { it.groupValues[1].toIntOrNull() }.toList()
+        return named.isNotEmpty() && named.all { it in unknownTags }
+    }
+
     /** Human warning, e.g. "tags not defined for QuoteRequest (R) in the loaded dictionary: 146 NoRelatedSym". */
     fun describe(tags: List<Int>, fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): String {
         val msgType = fields.firstOrNull { it.first == 35 }?.second ?: "?"

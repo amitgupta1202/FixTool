@@ -28,6 +28,7 @@ import com.knapsack.fixtool.service.ScenarioHost
 import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.SendResult
+import com.knapsack.fixtool.service.SessionTags
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.knapsack.fixtool.viewmodel.ViewModelScenarioHost
 import com.sun.net.httpserver.Headers
@@ -569,11 +570,28 @@ class ControlServer(
             )
             // What this capture does NOT assert, and why. An agent that cannot see the gap will assume
             // the expectation covers the whole message — the same trap the UI's capture-review avoids
-            // by saying so out loud.
-            if (seed.unassertable.isNotEmpty()) {
+            // by saying so out loud. Both kinds of gap belong here: the group whose entries we cannot
+            // tell apart, and the tag we deliberately left out. The second used to go unsaid, so a
+            // caller reading only fields[] had no way to learn that a tag it can see on the wire is
+            // absent from its expectation on purpose.
+            val omitted = fields.map { it.first }.distinct().filter { it in SessionTags.NEVER_ASSERTED }
+            if (seed.unassertable.isNotEmpty() || omitted.isNotEmpty()) {
                 put(
                     "notAsserted",
                     buildJsonArray {
+                        if (omitted.isNotEmpty()) {
+                            add(
+                                buildJsonObject {
+                                    put("tags", buildJsonArray { omitted.sorted().forEach { add(it) } })
+                                    put(
+                                        "reason",
+                                        "the session envelope — these identify the connection and the moment, not the " +
+                                            "venue's behaviour, so asserting them would tie this scenario to the " +
+                                            "environment it was captured on",
+                                    )
+                                },
+                            )
+                        }
                         seed.unassertable.forEach { group ->
                             add(
                                 buildJsonObject {

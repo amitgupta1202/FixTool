@@ -7,12 +7,13 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TemporalKind
+import com.knapsack.fixtool.model.scenario.compiled
+import com.knapsack.fixtool.model.scenario.validationError
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.util.regex.PatternSyntaxException
 
 /**
  * A minimal, side-effect-free view of a parsed FIX message that the [ExpectationEvaluator]
@@ -195,15 +196,18 @@ object ExpectationEvaluator {
      * The expectation builder re-evaluates on every keystroke, so compiling unguarded took the
      * workbench down (with the author's unsaved edits) the moment they typed a lone `[` — and a bad
      * pattern arriving in a saved scenario or over `fixtool_assert` surfaced as a 500 rather than a
-     * red row. The row now says what is wrong with it.
+     * red row.
+     *
+     * The row says **why**, not just that it is invalid. The reader who most needs the reason is the
+     * one who cannot open the editor to see it: an agent reading a failed `fixtool_assert`, or an
+     * engineer reading a red step in a CI report. Told only "(invalid regex)", they cannot tell a
+     * typo'd assertion from a venue that genuinely broke.
      */
-    @Suppress("SwallowedException")
-    private fun matchRegex(matcher: Matcher.Regex, actual: String?): Pair<Boolean, String> =
-        try {
-            (actual != null && Regex(matcher.pattern).matches(actual)) to "~/${matcher.pattern}/"
-        } catch (e: PatternSyntaxException) {
-            false to "~/${matcher.pattern}/ (invalid regex)"
-        }
+    private fun matchRegex(matcher: Matcher.Regex, actual: String?): Pair<Boolean, String> {
+        val compiled = matcher.compiled()
+            ?: return false to "~/${matcher.pattern}/ — invalid regex: ${matcher.validationError()}"
+        return (actual != null && compiled.matches(actual)) to "~/${matcher.pattern}/"
+    }
 
     private fun matchNumeric(matcher: Matcher.Numeric, actual: String?): Boolean {
         val a = actual?.toDoubleOrNull() ?: return false

@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixVersion
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -49,5 +50,36 @@ class DictionaryLintTest {
         val fields = listOf(35 to "ZZ", 9999 to "x")
         assertEquals(emptyList(), DictionaryLint.unknownTags(fields, null))
         assertEquals(emptyList(), DictionaryLint.unknownTags(fields, dictionary))
+    }
+
+    // ------------------------------------------------------- suppressing the validator's echo
+
+    @Test
+    fun `a complaint about the tags the lint already named is not repeated`() {
+        val problem = "Validation error: Tag not defined for this message type, field=150"
+        assertTrue(DictionaryLint.alreadyNamed(problem, listOf(150)))
+    }
+
+    @Test
+    fun `an unknown tag does not swallow a complaint about a tag whose number starts with it`() {
+        // The lint named tag 20. The validator is complaining about tag 200 — a different tag, and
+        // the only thing wrong with the message that the send would have told anyone about.
+        val problem = "Validation error: Tag not defined for this message type, field=200"
+        assertFalse(
+            DictionaryLint.alreadyNamed(problem, listOf(20)),
+            "tag 20 swallowed a complaint about tag 200 — the send reported no problem at all",
+        )
+    }
+
+    @Test
+    fun `a complaint naming a tag the lint did not name survives`() {
+        val problem = "Validation error: Required tag missing, field=44"
+        assertFalse(DictionaryLint.alreadyNamed(problem, listOf(150, 20)))
+    }
+
+    @Test
+    fun `a complaint naming no tag at all survives`() {
+        val problem = "Validation error: Invalid message type"
+        assertFalse(DictionaryLint.alreadyNamed(problem, listOf(150)))
     }
 }

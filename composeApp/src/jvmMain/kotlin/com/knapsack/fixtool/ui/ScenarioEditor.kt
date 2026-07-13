@@ -104,6 +104,18 @@ data class RunFailureContext(
 )
 
 /**
+ * Where the selection lands after the step at [removed] is deleted: on the *same* step it was on.
+ * Deleting a step above the selection shifts it down by one; deleting the selected step (or the last
+ * one) falls back to the step now occupying that slot.
+ */
+internal fun selectionAfterRemoval(removed: Int, selected: Int, remaining: Int): Int =
+    when {
+        remaining == 0 -> -1
+        removed < selected -> selected - 1
+        else -> selected.coerceAtMost(remaining - 1)
+    }
+
+/**
  * The scenario editor: the same chronological, session-badged flow list as capture-review on the
  * left; the selected step's detail on the right (Send = a message-editor-style field grid with
  * dictionary names + enum dropdowns, Expect = bind-predicate + the matcher-chip expectation builder
@@ -125,6 +137,12 @@ fun ScenarioEditor(
 ) {
     var name by remember { mutableStateOf(initial.name) }
     val steps = remember { mutableStateListOf<EditStep>().apply { addAll(initial.steps.map { it.toEditStep() }) } }
+    // A stable id per step. The detail editor seeds its drafts once per step and must not re-seed on
+    // every keystroke, so it is keyed — but an index is not an identity: delete a step above the
+    // selection and a *different* step slides under the same index, and the stale drafts would then
+    // be written onto it, silently overwriting assertions the user never opened.
+    val stepIds = remember { mutableStateListOf<Long>().apply { addAll(initial.steps.indices.map { it.toLong() }) } }
+    var nextStepId by remember { mutableStateOf(initial.steps.size.toLong()) }
     var selectedIdx by remember { mutableStateOf(focusStep ?: if (initial.steps.isEmpty()) -1 else 0) }
 
     val builtSteps = steps.map { it.toStep() }
@@ -136,6 +154,7 @@ fun ScenarioEditor(
         val newStep = if (kind == StepKind.SEND) EditStep(kind, fields = listOf(35 to "")) else EditStep(kind)
         val at = if (selectedIdx in steps.indices) selectedIdx + 1 else steps.size
         steps.add(at, newStep)
+        stepIds.add(at, nextStepId++)
         selectedIdx = at
     }
 
@@ -203,12 +222,16 @@ fun ScenarioEditor(
                                     val tmp = steps[i]
                                     steps[i] = steps[to]
                                     steps[to] = tmp
+                                    val tmpId = stepIds[i]
+                                    stepIds[i] = stepIds[to]
+                                    stepIds[to] = tmpId
                                     if (selectedIdx == i) selectedIdx = to else if (selectedIdx == to) selectedIdx = i
                                 }
                             },
                             onRemove = {
                                 steps.removeAt(i)
-                                if (selectedIdx >= steps.size) selectedIdx = steps.size - 1
+                                stepIds.removeAt(i)
+                                selectedIdx = selectionAfterRemoval(removed = i, selected = selectedIdx, remaining = steps.size)
                             },
                         )
                     }
@@ -218,8 +241,9 @@ fun ScenarioEditor(
             Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(AppTheme.Colors.border))
             Column(modifier = Modifier.weight(0.54f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 12.dp)) {
                 if (selectedIdx in steps.indices) {
-                    // key() so switching steps re-seeds the detail editors' internal state.
-                    key(selectedIdx) {
+                    // Keyed on the step's identity, not its index, so the detail editors re-seed when
+                    // a different step comes under the selection — and only then.
+                    key(stepIds[selectedIdx]) {
                         StepDetail(
                             index = selectedIdx,
                             step = steps[selectedIdx],

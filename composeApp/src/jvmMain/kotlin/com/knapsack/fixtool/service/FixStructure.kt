@@ -63,22 +63,31 @@ object FixStructure {
         // keeps such entries distinct instead of collapsing them onto one path.
         val repeats = mutableMapOf<String, Int>()
         var entry: GroupPath? = null
+        // The spec puts the delimiter first in an entry; venues do not always oblige. Fields seen
+        // ahead of the first delimiter are held here rather than dropped — they belong to the entry
+        // that delimiter opens, and dropping them left them unasserted *and* unflagged.
+        val beforeFirstDelimiter = mutableListOf<Pair<Int, String>>()
         var i = start
         while (i < fields.size) {
             val (tag, value) = fields[i]
-            if (!belongsTo(groupDD, msgType, tag)) return i
+            if (!belongsTo(groupDD, msgType, tag)) break
             if (tag == delimiter) { // a recurring delimiter starts the next entry
                 val occurrence = repeats.getOrDefault(value, 0)
                 repeats[value] = occurrence + 1
                 entry = GroupPath(groupTag, delimiter, value, occurrence)
+                beforeFirstDelimiter.forEach { (t, v) -> out += StructuredField(t, v, entry) }
+                beforeFirstDelimiter.clear()
             }
             if (isGroup(groupDD, msgType, tag)) {
                 i = consumeNested(fields, i + 1, groupDD, msgType, tag)
             } else {
-                entry?.let { out += StructuredField(tag, value, it) }
+                if (entry != null) out += StructuredField(tag, value, entry) else beforeFirstDelimiter += tag to value
                 i++
             }
         }
+        // A group that never sent its delimiter is malformed. Surface those fields at top level so the
+        // lint names them, rather than swallowing them into a group entry that does not exist.
+        beforeFirstDelimiter.forEach { (t, v) -> out += StructuredField(t, v, null) }
         return i
     }
 

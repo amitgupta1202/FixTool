@@ -96,8 +96,14 @@ object ExpectationEvaluator {
         return TagResult(field.tag, matcherDesc, expected, actual, passed, path = field.path)
     }
 
+    /**
+     * The entry with this identity — the [GroupPath.occurrence]-th of them when the identity repeats,
+     * so entries sharing a delimiter value stay distinct rather than all binding to the first.
+     */
     private fun resolveGroupEntry(message: MessageView, path: GroupPath): MessageView? =
-        message.groupEntries(path.groupTag).firstOrNull { it.valueOfTag(path.identityTag) == path.identityValue }
+        message.groupEntries(path.groupTag)
+            .filter { it.valueOfTag(path.identityTag) == path.identityValue }
+            .getOrNull(path.occurrence)
 
     /** Returns (passed, human-readable expected text). */
     private fun applyMatcher(

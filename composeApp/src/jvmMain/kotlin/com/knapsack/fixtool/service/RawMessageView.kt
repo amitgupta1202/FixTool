@@ -21,7 +21,9 @@ class RawMessageView(raw: String, dictionary: FixDictionaryAdapter? = null) : Me
     override fun groupEntries(groupTag: Int): List<MessageView> =
         structured
             .filter { it.path?.groupTag == groupTag }
-            .groupBy { it.path!!.identityValue } // insertion-ordered: entries keep wire order
+            // Keyed by the whole path, not just the identity value: entries that share an identity
+            // (two MDEntries of the same type) are separate entries, and merging them would hide one.
+            .groupBy { it.path!! } // insertion-ordered: entries keep wire order
             .map { (_, entryFields) -> EntryView(entryFields.associate { it.tag to it.value }) }
 
     private class EntryView(private val tags: Map<Int, String>) : MessageView {

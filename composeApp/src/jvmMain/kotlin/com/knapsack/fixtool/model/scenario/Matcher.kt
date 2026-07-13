@@ -63,11 +63,18 @@ enum class MatchMode {
  * (group entry order is not guaranteed). Mirrors `fixtool_detail_search` mode `identity`.
  *
  * Example: `GroupPath(453, 452, "1")` → "the entry whose PartyRole(452) = 1".
+ *
+ * [occurrence] disambiguates entries whose identity is *not* unique — a market-data snapshot sends
+ * several NoMDEntries with the same MDEntryType, two legs can share a LegSymbol. Identity alone
+ * cannot tell those apart, so the entries would collapse into one and every entry after the first
+ * would go unasserted. It counts, in wire order, among entries sharing this identity value only:
+ * with a unique identity it is always 0, which is what makes it absent from existing scenario JSON.
  */
 data class GroupPath(
     val groupTag: Int,
     val identityTag: Int,
     val identityValue: String,
+    val occurrence: Int = 0,
 )
 
 /** One tag's expectation: which tag, where to find it (optional group path), and how to compare. */

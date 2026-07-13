@@ -48,6 +48,7 @@ object MatcherCodec {
             groupTag = requireInt(obj, "groupTag"),
             identityTag = requireInt(obj, "identityTag"),
             identityValue = requireStr(obj, "identityValue"),
+            occurrence = obj["occurrence"]?.jsonPrimitive?.intOrNull ?: 0,
         )
 
     private fun requireInt(obj: JsonObject, key: String): Int =
@@ -100,6 +101,9 @@ object MatcherCodec {
                         put("groupTag", p.groupTag)
                         put("identityTag", p.identityTag)
                         put("identityValue", p.identityValue)
+                        // Omitted when the identity is unique, which is the common case — keeps
+                        // scenario JSON stable and readable, and old files parse as occurrence 0.
+                        if (p.occurrence != 0) put("occurrence", p.occurrence)
                     },
                 )
             }

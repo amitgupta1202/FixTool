@@ -58,16 +58,24 @@ object FixStructure {
         } ?: return start
         val delimiter = info.delimiterField
         val groupDD = info.dataDictionary
-        var identity: String? = null
+        // Entries are located by identity, but an identity need not be unique (two MDEntries of the
+        // same MDEntryType, two legs on the same symbol). Counting repeats of each identity value
+        // keeps such entries distinct instead of collapsing them onto one path.
+        val repeats = mutableMapOf<String, Int>()
+        var entry: GroupPath? = null
         var i = start
         while (i < fields.size) {
             val (tag, value) = fields[i]
             if (!belongsTo(groupDD, msgType, tag)) return i
-            if (tag == delimiter) identity = value // a recurring delimiter starts the next entry
+            if (tag == delimiter) { // a recurring delimiter starts the next entry
+                val occurrence = repeats.getOrDefault(value, 0)
+                repeats[value] = occurrence + 1
+                entry = GroupPath(groupTag, delimiter, value, occurrence)
+            }
             if (isGroup(groupDD, msgType, tag)) {
                 i = consumeNested(fields, i + 1, groupDD, msgType, tag)
             } else {
-                identity?.let { out += StructuredField(tag, value, GroupPath(groupTag, delimiter, it)) }
+                entry?.let { out += StructuredField(tag, value, it) }
                 i++
             }
         }

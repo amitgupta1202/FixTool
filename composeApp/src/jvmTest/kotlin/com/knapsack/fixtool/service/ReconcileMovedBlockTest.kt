@@ -120,4 +120,39 @@ class ReconcileMovedBlockTest {
         assertTrue(reordered != null, "a relocated field is a move")
         assertTrue(ExpectationEvaluator.evaluate(reply, reordered!!).all { it.passed })
     }
+
+    /**
+     * "Assert it" must assert the field the author clicked.
+     *
+     * A two-party group where nothing is asserted yet. The author clicks "Assert it" on the **second** 448 —
+     * the clearing firm. The old insertion point was computed from the *claimed* wire positions, so with the
+     * first 448 unclaimed the engine's greedy cursor handed the new row THAT one instead. Both entries carry
+     * `448=FIRMA`, so the row went green immediately while the entry the author actually clicked stayed
+     * unasserted for ever, no matter how many times they clicked it. A false green and a silent coverage hole,
+     * from one click, on the surface that exists to close them.
+     */
+    @Test
+    fun `assert-it asserts the occurrence that was clicked, not an earlier one`() {
+        val reply =
+            FixMessageView.ofFields(
+                listOf(35 to "8", 448 to "FIRMA", 452 to "1", 448 to "FIRMA", 452 to "4"),
+            )
+        val draft = exp(FieldExpectation(35, Matcher.Exact("8")))
+
+        val secondPartyId = 3 // the wire index of the clearing firm's 448
+        val fixed = ScenarioReconcile.addAssertion(draft, reply, secondPartyId, null)
+
+        // The clicked field is now asserted by *some* row — and that row checks THAT field.
+        val aligned = ExpectationEvaluator.align(fixed, reply.fields())
+        val landed = aligned.filter { it.row != null }.map { it.wireIndex }
+        assertTrue(
+            secondPartyId in landed,
+            "the field the author clicked must end up asserted; rows landed on $landed",
+        )
+        // And the expectation still passes the message it was built from.
+        assertTrue(
+            ExpectationEvaluator.evaluate(reply, fixed).all { it.passed },
+            "a row added from the message must not stop the expectation matching that message",
+        )
+    }
 }

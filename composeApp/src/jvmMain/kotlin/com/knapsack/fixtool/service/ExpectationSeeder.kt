@@ -22,8 +22,12 @@ import com.knapsack.fixtool.model.scenario.TemporalKind
  * - everything else               → `Exact(captured)`
  */
 object ExpectationSeeder {
-    /** Header volatiles that should never be asserted; omitted from the seed entirely. */
-    private val OMITTED_TAGS = setOf(9, 10, 34, 52)
+    /**
+     * Session/transport tags are never asserted: they identify the connection, not the behaviour.
+     * Seeding SenderCompID(49) or BeginString(8) as Exact made a captured scenario fail on every
+     * other environment — the same list capture already strips from Send steps ([SessionTags]).
+     */
+    private val OMITTED_TAGS = SessionTags.TRANSPORT
 
     /** Well-known venue-assigned identifiers whose presence matters but whose value is random. */
     private val PRESENCE_TAGS = setOf(37, 17) // OrderID, ExecID

@@ -74,6 +74,53 @@ class ScenarioCaptureTest {
         )
     }
 
+    /**
+     * A scenario is captured on one environment, committed, and replayed on another. Session identity
+     * belongs to the connection, not to the behaviour under test, so it must not be asserted: seeding
+     * SenderCompID(49)/TargetCompID(56)/BeginString(8) as Exact sent every step red on a teammate's
+     * session — CompIDs differ, the business content does not — which defeats the whole point of a
+     * scenario being portable.
+     */
+    @Test
+    fun `a scenario captured on one environment replays on another`() {
+        val dev = ScenarioCapture.CapturedSession(
+            "TRADE",
+            listOf(
+                msg(
+                    "8=FIX.4.4|35=8|34=2|49=SERVER_DEV1|56=CLIENT_A|52=20260630-10:00:03|11=ORD-1|17=EXEC-1|" +
+                        "150=2|39=2|55=EUR/USD|31=1.0851|32=1000000|60=20260630-10:00:03.000|10=004|",
+                    FixMessage.Direction.INCOMING,
+                    3,
+                ),
+            ),
+        )
+        val scenario =
+            ScenarioCapture.capture("sc-port", "fill", profile = null, sessions = listOf(dev), dictionary = dictionary)
+        val expectation = scenario.steps.filterIsInstance<ScenarioStep.Expect>().single().expectation
+
+        assertTrue(
+            expectation.fields.none { it.tag in setOf(8, 49, 56, 34, 52) },
+            "session identity must not be asserted: ${expectation.fields.filter { it.tag in setOf(8, 49, 56) }}",
+        )
+
+        // The same fill from a different environment: other CompIDs, other seq/time, same business content.
+        val onQa =
+            "8=FIX.4.4|35=8|34=57|49=SERVER_QA1|56=CLIENT_B|52=20260701-08:12:44|11=ORD-1|17=EXEC-9|" +
+                "150=2|39=2|55=EUR/USD|31=1.0851|32=1000000|60=20260701-08:12:44.000|10=123|"
+        // ...evaluated at the moment that fill arrived, so the seeded "~now" TransactTime is current.
+        val results =
+            ExpectationEvaluator.evaluate(
+                RawMessageView(onQa, dictionary),
+                expectation,
+                now = { Instant.parse("2026-07-01T08:12:44Z") },
+            )
+
+        assertTrue(
+            results.all { it.passed },
+            "a portable scenario must pass on another environment; failed: ${results.filter { !it.passed }}",
+        )
+    }
+
     @Test
     fun `captures a multi-session rfq with parameterization and cross-session correlation`() {
         val quote = ScenarioCapture.CapturedSession(

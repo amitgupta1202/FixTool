@@ -42,8 +42,12 @@ interface MessageView {
  */
 @Suppress("TooManyFunctions")
 object ExpectationEvaluator {
-    /** Header/trailer tags whose values are volatile and never asserted in STRICT mode. */
-    val VOLATILE_HEADER_TRAILER: Set<Int> = setOf(8, 9, 10, 34, 52)
+    /**
+     * Session/transport tags: never asserted, so never an "extra" either. Same list the seeder omits
+     * ([SessionTags]) — if STRICT used a shorter one it would fail on the very tags the seeder
+     * deliberately left out (SenderCompID and friends).
+     */
+    val VOLATILE_HEADER_TRAILER: Set<Int> = SessionTags.TRANSPORT
 
     /**
      * @param referenceResolver resolves a `${...}` expression (for [Matcher.Reference]) against

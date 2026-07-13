@@ -29,7 +29,7 @@ object ScenarioCapture {
     private val ADMIN_MSG_TYPES = setOf("0", "1", "2", "3", "4", "5", "A")
 
     /** Transport/session header+trailer tags the framework re-stamps on send; dropped from Send raw. */
-    private val TRANSPORT_TAGS = setOf(8, 9, 34, 49, 50, 52, 56, 57, 115, 128, 142, 143, 144, 145, 10, 43, 97, 122, 369)
+    private val TRANSPORT_TAGS = SessionTags.TRANSPORT
 
     /** Client-originated correlation id tags: parameterized on send, echo-matched on responses. */
     private val ID_TAGS = setOf(11, 41, 131, 526, 583)

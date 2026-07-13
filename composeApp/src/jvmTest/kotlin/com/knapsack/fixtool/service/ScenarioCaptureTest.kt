@@ -7,7 +7,12 @@ import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import org.junit.Test
 import quickfix.Message
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.TimeZone
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -26,6 +31,48 @@ class ScenarioCaptureTest {
             rawMessage = raw,
             quickfixMessage = Message(),
         )
+
+    /**
+     * A UTCTimestamp is UTC by definition, and a replay stamps it fresh at send time. Capture used to
+     * emit LocalDateTime.now() — the system clock — so a replay from London in summer sent a
+     * TransactTime an hour ahead of UTC: a value the counterparty may reject, and one that fails any
+     * temporal assertion on the field echoed back. The same bug 5d165e2 fixed in the demo server.
+     */
+    @Test
+    fun `a captured timestamp replays as UTC, not the machine's local time`() {
+        val order = ScenarioCapture.CapturedSession(
+            "TRADE",
+            listOf(
+                msg(
+                    "8=FIX.4.4|35=D|34=2|49=CLI|52=20260630-10:00:02|56=TV|11=ORD-1|55=EUR/USD|54=1|" +
+                        "38=1000000|40=2|60=20260630-10:00:02.000|10=003|",
+                    FixMessage.Direction.OUTGOING,
+                    2,
+                ),
+            ),
+        )
+        val scenario =
+            ScenarioCapture.capture("sc-utc", "order", profile = null, sessions = listOf(order), dictionary = dictionary)
+        val send = scenario.steps.filterIsInstance<ScenarioStep.Send>().single()
+        val expr = send.raw.split("|").first { it.startsWith("60=") }.removePrefix("60=")
+
+        // Evaluate the expression the way the runner does, from a machine that is nowhere near UTC.
+        val original = TimeZone.getDefault()
+        val stamped =
+            try {
+                TimeZone.setDefault(TimeZone.getTimeZone("Asia/Tokyo")) // +09:00, no DST
+                FixMessageTemplate.evaluate(expr)
+            } finally {
+                TimeZone.setDefault(original)
+            }
+
+        val sent = LocalDateTime.parse(stamped, DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS")).toInstant(ZoneOffset.UTC)
+        val driftSeconds = abs(sent.epochSecond - Instant.now().epochSecond)
+        assertTrue(
+            driftSeconds < 60,
+            "TransactTime must be stamped in UTC; it is off by ${driftSeconds}s (a local-time stamp in +09:00 lands ~9h out): $stamped",
+        )
+    }
 
     @Test
     fun `captures a multi-session rfq with parameterization and cross-session correlation`() {
@@ -81,7 +128,10 @@ class ScenarioCaptureTest {
         // (cross-session correlation), plus a templated TransactTime.
         assertTrue(sendD.raw.contains("11=\${id1 = UUID.randomUUID()}"), "ClOrdID should mint a variable; got ${sendD.raw}")
         assertTrue(sendD.raw.contains("131=\${id0}"), "QuoteReqID should re-reference the quote variable across sessions; got ${sendD.raw}")
-        assertTrue(sendD.raw.contains("60=\${LocalDateTime.now()"), "TransactTime should be templated")
+        assertTrue(
+            sendD.raw.contains("60=\${LocalDateTime.now(ZoneOffset.UTC)"),
+            "TransactTime should be templated, and in UTC; got ${sendD.raw}",
+        )
 
         // ExecutionReport echoes both ids -> reference matchers (cross-session for QR-1).
         assertEquals(Matcher.Reference("\${id1}"), matcher(expect8, 11))

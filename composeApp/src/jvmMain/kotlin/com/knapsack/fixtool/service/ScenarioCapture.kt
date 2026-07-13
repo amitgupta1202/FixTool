@@ -159,6 +159,11 @@ object ScenarioCapture {
     }
 
     private const val DEFAULT_TIMEOUT_MS = 10_000L
+    /**
+     * UTCTimestamp fields are UTC by definition, and a replay stamps them fresh at send time. Taking
+     * the system clock's local time put a London capture an hour ahead in summer — a TransactTime the
+     * counterparty may reject, and one that fails any temporal assertion echoing it back.
+     */
     private const val NOW_EXPR =
-        "\${LocalDateTime.now().format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"
+        "\${LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"
 }

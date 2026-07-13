@@ -56,6 +56,7 @@ object FixMessageTemplate {
         import java.time.LocalDateTime
         import java.time.format.DateTimeFormatter
         import java.time.Instant
+        import java.time.ZoneOffset
         import com.knapsack.fixtool.service.MessageAccessor
         import com.knapsack.fixtool.service.MessageMap
         """.trimIndent()

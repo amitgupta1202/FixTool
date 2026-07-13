@@ -558,15 +558,34 @@ class ControlServer(
                 ?: return errorObject("no matching message to capture")
 
         val fields = FixMessageHelper.parseFixMessage(target.rawMessage)
-        val expectation = ExpectationSeeder.seed(fields, onEdt { viewModel.dictionary })
+        val seed = ExpectationSeeder.seedAll(fields, onEdt { viewModel.dictionary })
         return buildJsonObject {
             put("messageType", target.messageType)
             put("direction", target.direction.name)
             put("mode", "open")
             put(
                 "fields",
-                buildJsonArray { expectation.fields.forEach { add(MatcherCodec.fieldExpectationToJson(it)) } },
+                buildJsonArray { seed.fields.forEach { add(MatcherCodec.fieldExpectationToJson(it.field)) } },
             )
+            // What this capture does NOT assert, and why. An agent that cannot see the gap will assume
+            // the expectation covers the whole message — the same trap the UI's capture-review avoids
+            // by saying so out loud.
+            if (seed.unassertable.isNotEmpty()) {
+                put(
+                    "notAsserted",
+                    buildJsonArray {
+                        seed.unassertable.forEach { group ->
+                            add(
+                                buildJsonObject {
+                                    put("groupTag", group.groupTag)
+                                    put("identityTag", group.identityTag)
+                                    put("reason", group.reason)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
         }
     }
 

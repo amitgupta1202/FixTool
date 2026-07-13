@@ -90,7 +90,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 `test-request` (`id`), `resend-request` (`begin`/`end`), `sequence-reset` (`newSeq`/`gapFill`),
 `logout` (`reason`), `disconnect` (`reason`, ungraceful). Used for session-recovery / gap-fill QA.
 | `POST /select`       | `{"session"?, "index"?, "messageType"?, "direction"?}` | selects a message in the browser → opens the detail panel |
-| `POST /assert`       | `{"session"?, "messageType"?, "direction"?, "index"?, "timeoutMs"?, "mode"?, "fields":[{tag, matcher, path?}]}` | machine-checks a received message tag-by-tag → `{passed, tags:[{tag, matcher, expected, actual, passed, path?}]}` (`path` echoes a group-entry assertion's locator, omitted for top-level tags) |
+| `POST /assert`       | `{"session"?, "messageType"?, "direction"?, "index"?, "timeoutMs"?, "mode"?, "fields":[{tag, matcher}]}` | machine-checks a received message tag-by-tag → `{passed, tags:[{tag, matcher, expected, actual, passed, index, occurrence, status}]}`. `fields` is an **ordered** list: the *k*-th row for a tag asserts the *k*-th occurrence of it, and the rows must be a subsequence of the reply — do not sort or de-duplicate. A top-level `status` of `timeout` or `no-wire-bytes` means nothing was judged (`no-wire-bytes` is a FixTool limitation, not a venue failure). |
 | `POST /expectation/capture` | `{"session"?, "messageType"?, "direction"?, "index"?}` | builds an auto-seeded expectation from a message → `{messageType, mode, fields:[…]}` |
 | `GET /scenarios`     | query: `profile`?                      | list saved scenarios (id, name, profile, step counts, userTags) |
 | `GET /scenarios?id=` | query: `id`                            | one scenario's **full JSON definition** — the exact shape `POST /scenarios` accepts, for read → edit → save round-trips |
@@ -135,9 +135,11 @@ as literal text rather than raising an error.
 `/assert` (MCP: `fixtool_assert`) machine-checks a received message against an **expectation** —
 a list of per-tag matchers — instead of eyeballing it. It selects the message (by
 `messageType`/`direction`/`index`) or awaits one for up to `timeoutMs`, then returns a tag-by-tag
-report. `mode` is `open` (default — only the listed tags are checked; extras ignored) or `strict`
-(any unexpected tag, besides volatile header/trailer tags, fails). Each field is
-`{tag, matcher:{type, …}, path?}`, where `matcher.type` is one of:
+report. `mode` is `open` (default — only the listed rows are checked, **in the order they are listed**:
+they must be a subsequence of the reply; unmentioned tags are ignored) or `strict` (additionally: the same
+tags, the same number of times, in the same order, and any unexpected tag — besides the session envelope —
+fails). Each field is `{tag, matcher:{type, …}}` — there is **no** `path`; the *k*-th row for a tag asserts
+the *k*-th occurrence of it. `matcher.type` is one of:
 
 | type | extra fields | checks |
 | --- | --- | --- |

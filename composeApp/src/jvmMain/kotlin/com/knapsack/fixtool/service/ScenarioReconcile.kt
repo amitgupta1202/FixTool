@@ -110,9 +110,55 @@ object ScenarioReconcile {
 
     // ------------------------------------------------------------------ the per-row actions
 
-    /** Re-baseline: the value that actually arrived becomes the expected one. An absent actual → `absent`. */
-    fun acceptActual(draft: Expectation, index: Int, actual: String?): Expectation =
-        replace(draft, index, actual?.let { Matcher.Exact(it) } ?: Matcher.Absent)
+    /**
+     * Re-baseline the row against the value that actually arrived — **keeping the kind of matcher it is**.
+     * An absent actual → `absent`.
+     *
+     * This is the answer to "is a per-row re-seed worth having, or does Accept-actual cover it?". It did not
+     * cover it: it wrote `Exact(actual)` over *whatever the row was*, so one click on a numeric row threw
+     * away its tolerance and its format-robustness. `Numeric(500000, ±0)` and `Exact("500000")` are not the
+     * same assertion — the first parses both sides as numbers and survives a venue that starts sending
+     * `500000.00`, which is a formatting change and not a behaviour change; the second goes red on it. The
+     * seeder chose numeric for that field on purpose, and the reconcile view was quietly un-choosing it
+     * every time an author accepted a fill quantity.
+     *
+     * So Accept-actual re-seeds rather than flattens, and there is no separate per-row re-seed to add.
+     * [canAcceptActual] says where the offer makes no sense at all.
+     */
+    fun acceptActual(draft: Expectation, index: Int, actual: String?): Expectation {
+        if (actual == null) return replace(draft, index, Matcher.Absent)
+        val current = draft.fields[index].matcher
+        if (!canAcceptActual(current)) return draft
+        // Keep it numeric, keep its tolerance: only the baseline moves.
+        val asNumber = if (current is Matcher.Numeric) actual.toDoubleOrNull() else null
+        val reseeded =
+            if (asNumber != null && current is Matcher.Numeric) {
+                Matcher.Numeric(asNumber, current.tolerance)
+            } else {
+                Matcher.Exact(actual)
+            }
+        return replace(draft, index, reseeded)
+    }
+
+    /**
+     * Is there anything to *accept* on this row?
+     *
+     * For two matcher kinds there is not, and offering the button anyway hands the author a one-click way to
+     * write an assertion that can never pass again:
+     *
+     * - **Temporal.** `~now ±60s` failing is a statement about a *moment*, not a value. Accepting the actual
+     *   pins the row to `20260713-11:02:44` — a timestamp that will not recur — so the step is red on every
+     *   run from then on. The author does the only thing left, loosens it to `presence` or drops it, and the
+     *   scenario silently stops checking the timestamp at all. A red that leads to a deleted assertion is a
+     *   green by a longer route.
+     * - **Reference.** Accepting an echoed id pins the assertion to *this run's* ClOrdID and destroys the
+     *   cross-step binding the row exists to express. (The view already refused this one; the rule lives here
+     *   now, where the engine can enforce it, rather than only in the button that happens to draw it.)
+     *
+     * The honest offers on those rows are Loosen and Drop, and the view shows exactly those.
+     */
+    fun canAcceptActual(matcher: Matcher): Boolean =
+        matcher !is Matcher.Temporal && matcher !is Matcher.Reference
 
     /** Keep the row, weaken the matcher — presence, a set, a tolerance, a pattern. */
     fun loosen(draft: Expectation, index: Int, matcher: Matcher): Expectation = replace(draft, index, matcher)

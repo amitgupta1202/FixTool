@@ -139,6 +139,20 @@ So if the venue sends `37` before `11` and you list `11` before `37`, **the step
 entries. List your rows in the order the venue sends them, or let
 `fixtool_capture_expectation` do it for you.
 
+### When FixTool refuses to judge
+
+An expectation asserts an **order** as well as a set of values, so a message whose bytes FixTool could not
+read cannot be evaluated at all — the order would have to be invented, and QuickFIX's re-serialisation is
+not the venue's order (it sorts the body by tag and moves repeating groups to the end).
+
+So `fixtool_assert` returns a **top-level** `status` of `no-wire-bytes`, with `passed: false` and an empty
+`tags[]`, and `fixtool_capture_expectation` returns an error. **This is a FixTool limitation, not a venue
+failure** — the message itself may be perfectly correct. Do not report it as a regression.
+
+(In practice you will not see it: QuickFIX/J retains the bytes it parses. The one deliberate exception is an
+*outgoing* Logon carrying `ResetSeqNumFlag=Y`, where QuickFIX rewrites `MsgSeqNum` after FixTool has seen the
+message — so FixTool records no bytes rather than a sequence number the venue never received.)
+
 ### `mode`
 
 | `mode` | Checks |
@@ -146,9 +160,14 @@ entries. List your rows in the order the venue sends them, or let
 | `open` (default) | only the listed rows, in the listed order. A tag you do not mention is ignored, so a venue adding an optional field does not break you. |
 | `strict` | additionally asserts the message's **shape**: the same tags, the same number of times, in the same order. Any unexpected tag fails. |
 
-Neither mode asserts the session envelope — `8`, `9`, `10`, `34`, `49`, `52`, `56`, `369` — which
-identifies the connection and the moment, not the venue's behaviour. Capture reports these under
-`notAsserted`.
+Neither mode **auto-seeds** the session envelope — `8`, `9`, `10`, `34`, `49`, `52`, `56`, `369` — and
+`strict` never calls one an unexpected extra. They identify the connection and the moment, not the venue's
+behaviour, so a scenario captured on DEV would otherwise go red on QA on every step. Capture reports them
+under `notAsserted`.
+
+A row you write **explicitly** on one of them is evaluated like any other, though: `{"tag": 34, "matcher":
+{"type": "exact", "value": "5"}}` is a legitimate check on a gap-fill test, and it is judged normally. The
+envelope is invisible to *seeding*, not to *you*.
 
 An `absent` row takes no part in the ordering: it asserts the tag appears nowhere in the message.
 
@@ -199,13 +218,24 @@ partial-fill sequence is just successive `expect` steps. Each step may target a 
      "raw": "35=D|11=${clOrdId = uuid}|55=EUR/USD|54=1|38=100|40=1|60=${now}|"},
     {"type": "expect", "session": "CLI", "direction": "in", "timeoutMs": 8000,
      "expectation": {"messageType": "8", "fields": [
-       {"tag": 150, "matcher": {"type": "exact", "value": "0"}},
+       {"tag": 11, "matcher": {"type": "reference", "expression": "${clOrdId}"}},
        {"tag": 37, "matcher": {"type": "presence"}},
-       {"tag": 11, "matcher": {"type": "reference", "expression": "${clOrdId}"}}
+       {"tag": 150, "matcher": {"type": "exact", "value": "0"}}
      ]}}
   ]
 }
 ```
+
+**The rows above are in the order the venue sends them, and that is not a stylistic choice.** They read
+`11, 37, 150` because that is the order the built-in demo acceptor emits. List them `150, 37, 11` — the
+order you might naturally think of them in, most-important-first — and the step **fails** with
+`status: moved` on two rows, because an expectation must be a subsequence of the reply (§3).
+
+A different venue may well send `37` before `11`, in which case *this* example would fail against *it*.
+There is no ordering that is right for every venue, and there does not need to be: **`fixtool_capture_expectation`
+and `fixtool_capture_scenario` seed rows in the venue's real wire order**, so a captured scenario is a
+subsequence of its own golden by construction. Hand-write an expectation only when you know the order, and
+reach for capture when you do not.
 
 Tip: `fixtool_capture_scenario` records a live message flow into a scenario — it auto-parameterizes
 TransactTime and correlation IDs and auto-wires echoed ids to `reference` matchers, which is the

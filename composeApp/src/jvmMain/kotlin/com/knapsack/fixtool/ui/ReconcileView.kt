@@ -421,7 +421,14 @@ private fun RowFixes(
             row.passed -> Unit
 
             row.status == TagStatus.VALUE || row.status == TagStatus.INVALID -> {
-                if (row.actual != null) SlimButton("Accept actual", onClick = onAcceptActual, color = AppTheme.Colors.success)
+                // Not every failing row has something to *accept*. A temporal row's failure is about a moment,
+                // not a value, so accepting it pins the scenario to a timestamp that will never come again —
+                // red on every run, until the author deletes the assertion to make it stop. ScenarioReconcile
+                // owns that rule (canAcceptActual) so the button and the engine cannot come to differ about it.
+                val matcher = row.matcher
+                if (row.actual != null && (matcher == null || ScenarioReconcile.canAcceptActual(matcher))) {
+                    SlimButton("Accept actual", onClick = onAcceptActual, color = AppTheme.Colors.success)
+                }
                 SlimButton(if (loosening) "Loosen ▴" else "Loosen ▾", onClick = onLoosen, color = AppTheme.Colors.textSecondary)
                 DropButton(onDrop, dropTakesWholeTag)
             }

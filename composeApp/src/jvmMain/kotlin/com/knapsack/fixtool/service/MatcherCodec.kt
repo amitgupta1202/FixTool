@@ -21,7 +21,7 @@ import kotlinx.serialization.json.put
 
 /**
  * Converts between the JSON encodings used on the control surface (see
- * `docs/fixtool-assert-spec.md`) and the typed [Matcher] / [FieldExpectation] / [Expectation]
+ * `docs/scenario-assertion-model.md`) and the typed [Matcher] / [FieldExpectation] / [Expectation]
  * model. Parsing throws [IllegalArgumentException] on malformed input so the caller can return a
  * clean error.
  */

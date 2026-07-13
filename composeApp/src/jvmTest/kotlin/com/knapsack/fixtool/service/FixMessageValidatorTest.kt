@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import org.junit.After
@@ -12,13 +13,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Tests for FixMessageValidator to ensure validation consistency between
- * Validate button and Send button.
+ * Tests for FixMessageValidator: the editor's linter judges a message's **content** against the
+ * dictionary, not its wire framing.
  *
- * This test ensures that:
- * 1. FixMessageValidator uses validate=true (same as sendMessage)
- * 2. If Validate button shows green, Send will not show manual construction warning
- * 3. If Validate button shows errors, Send will also fail validation
+ * It used to parse the draft as a wire frame, which requires 8, 9, 35 as the first three tags and a
+ * BodyLength and CheckSum that agree with the bytes — none of which an editor draft has, because
+ * FixTool computes them at send time. Every draft failed, always, on framing rather than on anything
+ * the author wrote.
  */
 class FixMessageValidatorTest {
     private lateinit var testDictionaryFile: File
@@ -119,42 +120,28 @@ class FixMessageValidatorTest {
         }
     }
 
+    /**
+     * The same body validates with or without framing. The wire-frame variant here carries a
+     * deliberately wrong BodyLength and CheckSum — the values FixTool recomputes at send time — and
+     * that must not be what the editor's linter reports on.
+     */
     @Test
-    fun testValidatorUsesStrictValidation() {
-        // Given: A FIX dictionary loaded from test file
+    fun `framing does not decide validity - only content does`() {
         val dictionary = FixDictionaryAdapter.fromFile(testDictionaryFile)
+        if (!dictionary.isLoaded()) return
 
-        // Skip test if dictionary didn't load (QuickFIX may reject our test XML)
-        if (!dictionary.isLoaded()) {
-            return
-        }
-
-        val dataDictionary = dictionary.getDataDictionary() ?: return
-
-        // Given: A valid FIX message that should pass validation
-        val validMessage =
+        val body = "35=D|11=ORD123|55=EUR/USD|54=1|38=1000000|40=2|"
+        val framedWithBogusLengthAndChecksum =
             "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
                 "11=ORD123|55=EUR/USD|54=1|38=1000000|40=2|10=000|"
 
-        // When: We validate using FixMessageValidator (Validate button behavior)
-        val validatorResult = FixMessageValidator.validate(validMessage, dictionary)
-
-        // When: We validate using the same approach as sendMessage (Send button behavior)
-        var sendValidationPassed = false
-        try {
-            validMessage.toQuickFixMessage(dataDictionary, validate = true)
-            sendValidationPassed = true
-        } catch (e: Exception) {
-            sendValidationPassed = false
-        }
-
-        // Then: Both validation approaches should give consistent results
-        assertEquals(
-            validatorResult.isValid,
-            sendValidationPassed,
-            "FixMessageValidator should use the same validation as sendMessage. " +
-                "Validator passed: ${validatorResult.isValid}, Send validation passed: $sendValidationPassed. " +
-                "Errors: ${validatorResult.errors}",
+        assertTrue(
+            FixMessageValidator.validate(body, dictionary).isValid,
+            "a bare body should validate: ${FixMessageValidator.validate(body, dictionary).errors}",
+        )
+        assertTrue(
+            FixMessageValidator.validate(framedWithBogusLengthAndChecksum, dictionary).isValid,
+            "framing noise should not fail a valid body",
         )
     }
 
@@ -208,54 +195,6 @@ class FixMessageValidatorTest {
     }
 
     @Test
-    fun testValidatorAndSendConsistencyForValidMessage() {
-        // Given: A FIX dictionary
-        val dictionary = FixDictionaryAdapter.fromFile(testDictionaryFile)
-
-        if (!dictionary.isLoaded()) {
-            return
-        }
-
-        val dataDictionary = dictionary.getDataDictionary() ?: return
-
-        // Given: A properly formed message
-        val message =
-            "8=FIX.4.4|9=100|35=D|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|" +
-                "11=ORDER123|55=EUR/USD|54=1|38=1000000|40=2|10=000|"
-
-        // When: Validate button is pressed (using FixMessageValidator)
-        val validateButtonResult = FixMessageValidator.validate(message, dictionary)
-
-        // When: Send button is pressed (using QuickFIX with validate=true)
-        var needsManualConstruction = false
-        try {
-            message.toQuickFixMessage(dataDictionary, validate = true)
-            needsManualConstruction = false
-        } catch (e: Exception) {
-            // If validated construction fails, sendMessage would use manual construction
-            needsManualConstruction = true
-        }
-
-        // Then: If Validate shows green (isValid=true), Send should not need manual construction
-        if (validateButtonResult.isValid) {
-            assertFalse(
-                needsManualConstruction,
-                "If Validate button shows green, Send should not trigger manual construction warning. " +
-                    "This indicates validation inconsistency.",
-            )
-        }
-
-        // And: If Validate shows errors (isValid=false), Send should also fail validation
-        if (!validateButtonResult.isValid) {
-            assertTrue(
-                needsManualConstruction,
-                "If Validate button shows errors, Send should also fail validation. " +
-                    "This indicates validation inconsistency.",
-            )
-        }
-    }
-
-    @Test
     fun testValidatorWithNoDictionary() {
         // Given: No dictionary configured
         val noDictionary = FixDictionaryAdapter.createDefault()
@@ -288,6 +227,56 @@ class FixMessageValidatorTest {
             result.errors.any { it.contains("dictionary") },
             "Error should mention missing dictionary. Actual errors: ${result.errors}",
         )
+    }
+
+    /**
+     * What the message editor holds is a body, not a framed message — FixTool computes BodyLength(9)
+     * and CheckSum(10) at send time. Validating it as a wire frame rejected every draft with "Header
+     * fields out of order", which kept the editor's linter permanently lit. It validates content now.
+     */
+    @Test
+    fun `an editor draft with no wire framing is judged on its content`() {
+        val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
+        val draft = "35=D|11=ORD-1|55=EUR/USD|54=1|38=100|40=2|44=1.05|59=0|60=20250101-12:00:00|"
+
+        val result = FixMessageValidator.validate(draft, dictionary)
+
+        assertTrue(result.isValid, "a well-formed draft should validate. Errors: ${result.errors}")
+        assertEquals(emptyList(), result.errors)
+    }
+
+    @Test
+    fun `a draft missing a required field names the tag`() {
+        val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
+        val missingTransactTime = "35=D|11=ORD-1|55=EUR/USD|54=1|38=100|40=2|"
+
+        val result = FixMessageValidator.validate(missingTransactTime, dictionary)
+
+        assertFalse(result.isValid)
+        assertTrue(result.errors.single().contains("60"), "should name TransactTime(60): ${result.errors}")
+    }
+
+    @Test
+    fun `a draft carrying a tag the message type does not define is reported`() {
+        val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
+        // ExecType(150) belongs to ExecutionReport, not NewOrderSingle.
+        val draft = "35=D|11=ORD-1|55=EUR/USD|54=1|38=100|40=1|60=20250101-12:00:00|150=2|"
+
+        val result = FixMessageValidator.validate(draft, dictionary)
+
+        assertFalse(result.isValid)
+        assertTrue(result.errors.single().contains("150"), "should name ExecType(150): ${result.errors}")
+    }
+
+    @Test
+    fun `a draft with a value outside the dictionary's enum is reported`() {
+        val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
+        val badSide = "35=D|11=ORD-1|55=EUR/USD|54=Z|38=100|40=1|60=20250101-12:00:00|"
+
+        val result = FixMessageValidator.validate(badSide, dictionary)
+
+        assertFalse(result.isValid)
+        assertTrue(result.errors.single().contains("54"), "should name Side(54): ${result.errors}")
     }
 
     @Test

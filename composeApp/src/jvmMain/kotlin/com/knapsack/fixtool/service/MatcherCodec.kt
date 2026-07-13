@@ -49,19 +49,22 @@ object MatcherCodec {
             groupTag = requireInt(obj, "groupTag"),
             identityTag = requireInt(obj, "identityTag"),
             identityValue = requireStr(obj, "identityValue"),
-            occurrence = obj["occurrence"]?.jsonPrimitive?.intOrNull ?: 0,
         )
 
     private fun requireInt(obj: JsonObject, key: String): Int =
         obj[key]?.jsonPrimitive?.intOrNull ?: throw IllegalArgumentException("missing integer '$key'")
 
     /**
-     * A regex matcher is only usable if the pattern compiles. Rejecting it here names the mistake in
-     * the caller's own request (or in the scenario file being loaded); accepting it deferred the
-     * failure to run time, where it read as "scenario run failed" with no hint as to why.
+     * A regex matcher is only usable if the pattern compiles.
+     *
+     * Enforced on **both** sides, and that symmetry is the point: rejecting only on read let the UI
+     * write a scenario file it could never load back — on the next start the scenario simply vanished
+     * from the list, with the load error swallowed, and the author's work looked lost. What we can
+     * write, we can read; a pattern that does not compile is refused at the point it is offered.
      */
-    private fun requirePattern(obj: JsonObject): String {
-        val pattern = requireStr(obj, "pattern")
+    private fun requirePattern(obj: JsonObject): String = validPattern(requireStr(obj, "pattern"))
+
+    private fun validPattern(pattern: String): String {
         try {
             Regex(pattern)
         } catch (e: PatternSyntaxException) {
@@ -117,9 +120,6 @@ object MatcherCodec {
                         put("groupTag", p.groupTag)
                         put("identityTag", p.identityTag)
                         put("identityValue", p.identityValue)
-                        // Omitted when the identity is unique, which is the common case — keeps
-                        // scenario JSON stable and readable, and old files parse as occurrence 0.
-                        if (p.occurrence != 0) put("occurrence", p.occurrence)
                     },
                 )
             }
@@ -134,7 +134,7 @@ object MatcherCodec {
                 is Matcher.Presence -> put("type", "presence")
                 is Matcher.Absent -> put("type", "absent")
                 is Matcher.Regex -> {
-                    put("type", "regex"); put("pattern", matcher.pattern)
+                    put("type", "regex"); put("pattern", validPattern(matcher.pattern))
                 }
                 is Matcher.OneOf -> {
                     put("type", "oneOf"); put("values", buildJsonArray { matcher.values.forEach { add(it) } })

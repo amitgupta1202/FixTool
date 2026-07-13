@@ -64,17 +64,16 @@ enum class MatchMode {
  *
  * Example: `GroupPath(453, 452, "1")` → "the entry whose PartyRole(452) = 1".
  *
- * [occurrence] disambiguates entries whose identity is *not* unique — a market-data snapshot sends
- * several NoMDEntries with the same MDEntryType, two legs can share a LegSymbol. Identity alone
- * cannot tell those apart, so the entries would collapse into one and every entry after the first
- * would go unasserted. It counts, in wire order, among entries sharing this identity value only:
- * with a unique identity it is always 0, which is what makes it absent from existing scenario JSON.
+ * This locates an entry only while the identity is **unique** within its group. Where it is not — a
+ * market-data snapshot with two MDEntries of the same MDEntryType, two legs on the same symbol —
+ * FixTool does not guess: the seeder refuses to assert that group and says so, and the evaluator
+ * fails such an assertion as ambiguous rather than binding it to whichever entry came first. A
+ * scenario that asserts the wrong entry and passes is worse than one that admits it cannot check.
  */
 data class GroupPath(
     val groupTag: Int,
     val identityTag: Int,
     val identityValue: String,
-    val occurrence: Int = 0,
 )
 
 /** One tag's expectation: which tag, where to find it (optional group path), and how to compare. */

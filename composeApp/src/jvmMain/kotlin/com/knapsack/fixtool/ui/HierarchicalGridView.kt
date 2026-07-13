@@ -531,79 +531,6 @@ fun HierarchicalGridView(
         }
     }
 
-    // Function to calculate optimal widths for expanded grid columns based on message content
-    fun calculateExpandedGridWidths(message: quickfix.Message): Map<String, androidx.compose.ui.unit.Dp> {
-        val minWidth = 50.dp
-        val maxWidth = 500.dp
-        val charWidth = 7 // pixels per character approximately
-
-        val samples =
-            mutableMapOf(
-                "Tag" to mutableListOf<String>(),
-                "TagDescription" to mutableListOf<String>(),
-                "Value" to mutableListOf<String>(),
-                "ValueDescription" to mutableListOf<String>(),
-            )
-
-        // Helper function to collect field samples
-        fun collectFieldSamples(fieldMap: FieldMap) {
-            val iterator = fieldMap.iterator()
-            while (iterator.hasNext()) {
-                @Suppress("UNCHECKED_CAST")
-                val field = iterator.next() as Field<*>
-                val tag = field.tag
-                val value = field.getObject().toString()
-
-                samples["Tag"]?.add(tag.toString())
-
-                val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
-                samples["TagDescription"]?.add(fieldName)
-
-                samples["Value"]?.add(value)
-
-                val valueDesc = dictionary.getFieldValueDescription(tag, value)
-                if (valueDesc != null && valueDesc != value) {
-                    samples["ValueDescription"]?.add(valueDesc)
-                }
-
-                // Process groups recursively
-                try {
-                    val groupCount = fieldMap.getGroupCount(tag)
-                    if (groupCount > 0) {
-                        for (i in 1..groupCount) {
-                            try {
-                                val group = fieldMap.getGroup(i, tag)
-                                collectFieldSamples(group)
-                            } catch (e: Exception) {
-                                // Skip invalid groups
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Not a group
-                }
-            }
-        }
-
-        // Collect samples from all sections
-        collectFieldSamples(message.header)
-        collectFieldSamples(message)
-        collectFieldSamples(message.trailer)
-
-        // Calculate widths based on samples
-        val result = mutableMapOf<String, androidx.compose.ui.unit.Dp>()
-
-        result["IconColumn"] = 40.dp // Fixed size
-
-        samples.forEach { (columnKey, sampleList) ->
-            val maxLength = sampleList.maxOfOrNull { it.length } ?: 10
-            val calculatedWidth = (maxLength * charWidth + 16).dp
-            result[columnKey] = calculatedWidth.coerceIn(minWidth, maxWidth)
-        }
-
-        return result
-    }
-
     // Scroll to selected message when it changes
     LaunchedEffect(selectedMessage) {
         if (selectedMessage != null) {
@@ -1059,7 +986,8 @@ fun HierarchicalGridView(
 
                                                 // Auto-fit columns when expanding for the first time
                                                 if (!wasExpanded) {
-                                                    val optimalWidths = calculateExpandedGridWidths(message.quickfixMessage)
+                                                    val optimalWidths =
+                                                        calculateExpandedGridWidths(message.quickfixMessage, dictionary)
                                                     expandedGridColumnWidths.putAll(optimalWidths)
                                                 }
                                             },
@@ -1503,6 +1431,93 @@ fun MessageSummaryRow(
     }
 }
 
+/** Horizontal offset the expanded grid adds to a row's Tag cell for each level of group nesting. */
+internal const val EXPANDED_GRID_INDENT_STEP = 16
+
+private const val EXPANDED_GRID_CHAR_WIDTH = 7 // pixels per character approximately
+private const val EXPANDED_GRID_CELL_PADDING = 16
+private const val EXPANDED_GRID_MIN_COLUMN_WIDTH = 50
+private const val EXPANDED_GRID_MAX_COLUMN_WIDTH = 500
+
+/**
+ * Optimal widths for the expanded grid's columns, auto-fitted to one message's content.
+ *
+ * A row's tag number is drawn inside the fixed-width Tag cell, offset by
+ * [EXPANDED_GRID_INDENT_STEP] per level of group nesting, so how much room a tag needs depends on
+ * how deep its group sits. Sizing the column on text alone clips the numbers of deeply nested
+ * fields — at three levels down, 671 renders as "67" (issue #37).
+ */
+internal fun calculateExpandedGridWidths(
+    message: quickfix.Message,
+    dictionary: FixDictionary,
+): Map<String, androidx.compose.ui.unit.Dp> {
+    val required = mutableMapOf("Tag" to 0, "TagDescription" to 0, "Value" to 0, "ValueDescription" to 0)
+
+    fun fit(
+        columnKey: String,
+        text: String,
+        indent: Int = 0,
+    ) {
+        val width = indent + text.length * EXPANDED_GRID_CHAR_WIDTH + EXPANDED_GRID_CELL_PADDING
+        required[columnKey] = maxOf(required.getValue(columnKey), width)
+    }
+
+    fun collectFieldWidths(
+        fieldMap: FieldMap,
+        indentLevel: Int,
+    ) {
+        val indent = indentLevel * EXPANDED_GRID_INDENT_STEP
+        val iterator = fieldMap.iterator()
+        while (iterator.hasNext()) {
+            @Suppress("UNCHECKED_CAST")
+            val field = iterator.next() as Field<*>
+            val tag = field.tag
+            val value = field.getObject().toString()
+            val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
+
+            fit("Tag", tag.toString(), indent)
+            fit("Value", value)
+
+            val valueDesc = dictionary.getFieldValueDescription(tag, value)
+            if (valueDesc != null && valueDesc != value) {
+                fit("ValueDescription", valueDesc)
+            }
+
+            val groupCount =
+                try {
+                    fieldMap.getGroupCount(tag)
+                } catch (e: Exception) {
+                    0 // Not a group
+                }
+
+            if (groupCount > 0) {
+                // A group header spells out its instance count, and its fields sit one level deeper.
+                fit("TagDescription", "$fieldName ($groupCount instances)")
+                for (i in 1..groupCount) {
+                    try {
+                        collectFieldWidths(fieldMap.getGroup(i, tag), indentLevel + 1)
+                    } catch (e: Exception) {
+                        // Skip invalid groups
+                    }
+                }
+            } else {
+                fit("TagDescription", fieldName)
+            }
+        }
+    }
+
+    collectFieldWidths(message.header, 0)
+    collectFieldWidths(message, 0)
+    collectFieldWidths(message.trailer, 0)
+
+    val result = mutableMapOf<String, androidx.compose.ui.unit.Dp>()
+    result["IconColumn"] = 40.dp // Fixed size
+    required.forEach { (columnKey, width) ->
+        result[columnKey] = width.dp.coerceIn(EXPANDED_GRID_MIN_COLUMN_WIDTH.dp, EXPANDED_GRID_MAX_COLUMN_WIDTH.dp)
+    }
+    return result
+}
+
 /**
  * Renders a QuickFIX Message in the LazyColumn
  */
@@ -1680,7 +1695,7 @@ private fun HierarchicalFieldRow(
     val rawValueDesc = dictionary.getFieldValueDescription(tag, value)
     // Only show value description if it differs from the value
     val valueDesc = if (rawValueDesc != null && rawValueDesc != value) rawValueDesc else ""
-    val indent = (indentLevel * 16).dp
+    val indent = (indentLevel * EXPANDED_GRID_INDENT_STEP).dp
 
     val totalWidth =
         (columnWidths["IconColumn"] ?: 40.dp) +
@@ -1721,6 +1736,12 @@ private fun HierarchicalFieldRow(
                         color = tagNumberColor,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
+                        // A wrapped tag number loses its tail to the row's fixed height, and the
+                        // stub left behind still reads as a valid tag (671 -> 67). If the cell is
+                        // ever too narrow — the user can drag it — say so with an ellipsis.
+                        softWrap = false,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1875,7 +1896,7 @@ private fun HierarchicalGroupHeaderRow(
     columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
-    val indent = (indentLevel * 16).dp
+    val indent = (indentLevel * EXPANDED_GRID_INDENT_STEP).dp
 
     val totalWidth =
         (columnWidths["IconColumn"] ?: 40.dp) +
@@ -1926,6 +1947,9 @@ private fun HierarchicalGroupHeaderRow(
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
+                        softWrap = false,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -2018,7 +2042,7 @@ private fun HierarchicalGroupInstanceHeader(
     indentLevel: Int,
     columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
 ) {
-    val indent = (indentLevel * 16).dp
+    val indent = (indentLevel * EXPANDED_GRID_INDENT_STEP).dp
 
     val totalWidth =
         (columnWidths["IconColumn"] ?: 40.dp) +

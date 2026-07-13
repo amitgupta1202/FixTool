@@ -95,6 +95,37 @@ class RepeatedGroupIdentityTest {
         )
     }
 
+    /**
+     * The spec puts the delimiter first in each entry; venues do not always oblige. A field sent
+     * ahead of it used to be consumed and emitted nowhere — no assertion was ever seeded for it and
+     * the dictionary lint never saw it, so a scenario replayed green while that tag went unchecked.
+     */
+    @Test
+    fun `a field sent before its entry's delimiter still belongs to that entry`() {
+        val priceBeforeType =
+            listOf(
+                35 to "W",
+                262 to "MDREQ-1",
+                55 to "EUR/USD",
+                268 to "1",
+                270 to "1.1010", // MDEntryPx ahead of the delimiter
+                269 to "0", // NoMDEntries delimiter
+                271 to "1000000",
+            )
+
+        val walked = FixStructure.walk(priceBeforeType, dictionary)
+        val price = walked.single { it.tag == 270 }
+
+        assertEquals(GroupPath(268, 269, "0", occurrence = 0), price.path, "the price belongs to the entry")
+
+        // And it must reach the author as an assertion, which is the point.
+        val seeded = ExpectationSeeder.seed(priceBeforeType, dictionary)
+        assertEquals(Matcher.Numeric(1.1010, 0.0), seeded.fields.single { it.tag == 270 }.matcher)
+        assertTrue(
+            ExpectationEvaluator.evaluate(RawMessageView(raw(priceBeforeType), dictionary), seeded).all { it.passed },
+        )
+    }
+
     @Test
     fun `matchers on the same tag under different entries are not confused`() {
         val expectation = ExpectationSeeder.seed(twoLevelBook, dictionary)

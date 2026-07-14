@@ -256,7 +256,7 @@ class ControlServer(
                         "editor" -> viewModel.showMessageEditor.value to viewModel::toggleMessageEditor
                         "detail" -> viewModel.showDetailPanel.value to viewModel::toggleDetailPanel
                         "settings" -> viewModel.showSettingsDialog.value to viewModel::toggleSettingsDialog
-                        "scenarios" -> viewModel.showScenariosDialog.value to viewModel::toggleScenariosDialog
+                        "scenarios" -> viewModel.showScenariosRail.value to viewModel::toggleScenariosRail
                         else -> return@onEdt null
                     }
                 if (state != show) toggle()

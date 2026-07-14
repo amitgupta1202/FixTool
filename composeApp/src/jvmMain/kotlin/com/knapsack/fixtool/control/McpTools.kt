@@ -48,7 +48,8 @@ object McpTools {
             ),
             tool(
                 "fixtool_panel",
-                "Show or hide a UI panel for verification screenshots: connection, editor, detail, settings or scenarios.",
+                "Show or hide a UI pane for verification screenshots: connection, editor, detail, settings or " +
+                    "scenarios (the Scenarios rail, docked in the main window).",
                 props("panel" to enumStr("connection", "editor", "detail", "settings", "scenarios"), "show" to boolean("default true")),
                 required = listOf("panel"),
             ),

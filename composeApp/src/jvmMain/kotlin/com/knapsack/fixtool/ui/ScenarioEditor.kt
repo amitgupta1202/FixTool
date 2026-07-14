@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
@@ -109,6 +110,18 @@ fun EditStep.toStep(): ScenarioStep =
     }
 
 /**
+ * The scenario as this editor would emit it having changed nothing — the seed a document's *dirty* flag is
+ * measured against.
+ *
+ * It is not the file. `EditStep` re-writes a Send's raw on the way through (`parseFixMessage` → re-join with
+ * `|`), so a scenario read from disk and not touched can already differ from itself as the editor holds it.
+ * Compare a draft against the file and every tab opens dirty; compare it against this and a tab is dirty
+ * exactly when the author has changed something. One function, so the editor and its host cannot come to
+ * disagree about what "untouched" means.
+ */
+fun Scenario.asEditorSeed(): Scenario = copy(steps = steps.map { it.toEditStep().toStep() })
+
+/**
  * The failing-run context handed from the session window by the failure → editor deep-link:
  * which tags failed (highlighted in the builder) and the raw message that failed them (a second
  * live preview target, so a matcher edit shows "would now pass" against the real failure).
@@ -146,10 +159,21 @@ fun ScenarioEditor(
     onSave: (Scenario) -> Unit,
     onBack: () -> Unit,
     secondInstance: (String?, String?, String?) -> MessageView? = { _, _, _ -> null },
-    /** Step index to open on (failure → editor deep-link); null opens on the first step. */
+    /** Step index the deep-link landed on (the step a run failed at); null outside one. Not the selection. */
     focusStep: Int? = null,
     /** Failed-run context for [focusStep]'s builder; null outside a deep-link. */
     runFailure: RunFailureContext? = null,
+    /**
+     * The scenario as it now stands, emitted on every change.
+     *
+     * The host is a *tab*, and only the active tab is composed — so an edit that lived only in this
+     * composable's `remember`s would be destroyed by a glance at the session grid. The host holds the draft;
+     * this is how it gets it. See [ScenarioDoc].
+     */
+    onChange: (Scenario) -> Unit = {},
+    /** Where the cursor sits, hoisted for the same reason. Seeded from here; reported through [onSelectStep]. */
+    selectedStep: Int? = null,
+    onSelectStep: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var name by remember { mutableStateOf(initial.name) }
@@ -160,19 +184,30 @@ fun ScenarioEditor(
     // be written onto it, silently overwriting assertions the user never opened.
     val stepIds = remember { mutableStateListOf<Long>().apply { addAll(initial.steps.indices.map { it.toLong() }) } }
     var nextStepId by remember { mutableStateOf(initial.steps.size.toLong()) }
-    var selectedIdx by remember { mutableStateOf(focusStep ?: if (initial.steps.isEmpty()) -1 else 0) }
+    var selectedIdx by remember {
+        mutableStateOf(selectedStep ?: focusStep ?: if (initial.steps.isEmpty()) -1 else 0)
+    }
 
     val builtSteps = steps.map { it.toStep() }
+    val built = initial.copy(name = name, steps = builtSteps)
+    // By value, not by every recomposition: an untouched editor emits its seed once and then stays quiet.
+    LaunchedEffect(built) { onChange(built) }
+
     val stepVars = ScenarioAnnotations.annotate(builtSteps)
     val varColors = varColorMap(stepVars.flatMap { it.minted })
     val sessionColors = sessionColorMap(steps.mapNotNull { it.session } + sessionOptions)
+
+    fun select(index: Int) {
+        selectedIdx = index
+        onSelectStep(index)
+    }
 
     fun insertStep(kind: StepKind) {
         val newStep = if (kind == StepKind.SEND) EditStep(kind, fields = listOf(35 to "")) else EditStep(kind)
         val at = if (selectedIdx in steps.indices) selectedIdx + 1 else steps.size
         steps.add(at, newStep)
         stepIds.add(at, nextStepId++)
-        selectedIdx = at
+        select(at)
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -187,7 +222,7 @@ fun ScenarioEditor(
             Row(modifier = Modifier.weight(1f)) {}
             SlimButton(
                 text = "Save scenario",
-                onClick = { onSave(initial.copy(name = name, steps = steps.map { it.toStep() })) },
+                onClick = { onSave(built) },
                 enabled = name.isNotBlank() && steps.isNotEmpty(),
                 color = AppTheme.Colors.success,
                 modifier = Modifier.testTag("editor-save"),
@@ -237,7 +272,7 @@ fun ScenarioEditor(
                             varColors = varColors,
                             canMoveUp = i > 0,
                             canMoveDown = i < steps.size - 1,
-                            onSelect = { selectedIdx = i },
+                            onSelect = { select(i) },
                             onMove = { delta ->
                                 val to = i + delta
                                 if (to in steps.indices) {
@@ -247,13 +282,13 @@ fun ScenarioEditor(
                                     val tmpId = stepIds[i]
                                     stepIds[i] = stepIds[to]
                                     stepIds[to] = tmpId
-                                    if (selectedIdx == i) selectedIdx = to else if (selectedIdx == to) selectedIdx = i
+                                    if (selectedIdx == i) select(to) else if (selectedIdx == to) select(i)
                                 }
                             },
                             onRemove = {
                                 steps.removeAt(i)
                                 stepIds.removeAt(i)
-                                selectedIdx = selectionAfterRemoval(removed = i, selected = selectedIdx, remaining = steps.size)
+                                select(selectionAfterRemoval(removed = i, selected = selectedIdx, remaining = steps.size))
                             },
                         )
                     }

@@ -29,6 +29,7 @@ import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ExpectationEvaluator
+import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
@@ -42,9 +43,13 @@ import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.SessionIdentityResolver
 import com.knapsack.fixtool.service.demo.DemoServerManager
+import com.knapsack.fixtool.ui.CaptureReviewState
 import com.knapsack.fixtool.ui.FixField
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
+import com.knapsack.fixtool.ui.RunFailureContext
+import com.knapsack.fixtool.ui.ScenarioDoc
+import com.knapsack.fixtool.ui.asEditorSeed
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +66,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import java.io.File
+import java.util.UUID
 
 class FixMessageViewModel(
     private val testSettingsDir: String? = null,
@@ -132,9 +138,24 @@ class FixMessageViewModel(
     private val _showHelpDialog = MutableStateFlow(false)
     val showHelpDialog: StateFlow<Boolean> = _showHelpDialog.asStateFlow()
 
-    // Scenarios dialog visibility
-    private val _showScenariosDialog = MutableStateFlow(false)
-    val showScenariosDialog: StateFlow<Boolean> = _showScenariosDialog.asStateFlow()
+    // The Scenarios rail — a docked pane in the main window, not a dialog and no longer a window.
+    private val _showScenariosRail = MutableStateFlow(false)
+    val showScenariosRail: StateFlow<Boolean> = _showScenariosRail.asStateFlow()
+
+    /**
+     * The scenarios on disk. The rail cannot own this list any more.
+     *
+     * `ScenarioListPane` held it in a `remember` and refreshed itself after every write, which worked only
+     * because every write happened inside it. The writes now happen in a *document tab* — Save in the editor,
+     * Save in capture review — and a list that only refreshes itself would never hear about them: the author
+     * saves, and the rail goes on showing the old step count. One owner, refreshed at every door.
+     */
+    private val _scenarios = MutableStateFlow<List<Scenario>>(emptyList())
+    val scenarios: StateFlow<List<Scenario>> = _scenarios.asStateFlow()
+
+    fun refreshScenarios() {
+        _scenarios.value = scenarioService.list()
+    }
 
     // Last scenario run result (drives the in-app red/green report) and the running flag
     private val _scenarioResult = MutableStateFlow<ScenarioResult?>(null)
@@ -169,12 +190,14 @@ class FixMessageViewModel(
     }
 
     /**
-     * A one-shot navigation request for the Scenarios workbench: open the editor on [scenario] at
-     * [focusStep] (an index into its `steps`, null = unfocused), with the last run's [failedTags]
-     * highlighted and [actualRaw] (the message that failed the assertions) wired into the builder's
-     * live preview. The workbench consumes it via [consumeWorkbenchEditRequest].
+     * Where a failed step is to be opened: the editor on [scenario] at [focusStep] (an index into its
+     * `steps`, null = unfocused), with the last run's [failedTags] highlighted and [actualRaw] (the message
+     * that failed the assertions) wired into the live preview.
+     *
+     * It used to be a one-shot flow, because a second *window* had to observe it and could not be told
+     * anything directly. There is no second window: the ViewModel opens the document itself.
      */
-    data class WorkbenchEditRequest(
+    data class ScenarioEditRequest(
         val scenario: Scenario,
         val focusStep: Int?,
         val failedTags: List<TagResult> = emptyList(),
@@ -187,11 +210,186 @@ class FixMessageViewModel(
         val actualAt: java.time.Instant? = null,
     )
 
-    private val _workbenchEditRequest = MutableStateFlow<WorkbenchEditRequest?>(null)
-    val workbenchEditRequest: StateFlow<WorkbenchEditRequest?> = _workbenchEditRequest.asStateFlow()
+    // ---- Scenario documents: the centre pane's tabs, beside the session tabs -------------------------
 
-    fun consumeWorkbenchEditRequest() {
-        _workbenchEditRequest.value = null
+    private val _openDocuments = MutableStateFlow<List<ScenarioDoc>>(emptyList())
+    val openDocuments: StateFlow<List<ScenarioDoc>> = _openDocuments.asStateFlow()
+
+    /**
+     * Which document the centre pane is showing — and **null *is* the session view.**
+     *
+     * The centre's selection is not [activeSessionIndex] and must never become it. A document tab is not a
+     * session: if focusing one moved the active session, the message editor's target, `fixtool_send`, the
+     * grid's tint and every control-surface call that means "the active session" would follow the author
+     * into a scenario document.
+     */
+    private val _activeDocumentId = MutableStateFlow<String?>(null)
+    val activeDocumentId: StateFlow<String?> = _activeDocumentId.asStateFlow()
+
+    val activeDocument: ScenarioDoc?
+        get() = _openDocuments.value.firstOrNull { it.id == _activeDocumentId.value }
+
+    /** Back to the sessions — what clicking a session tab means. Leaves the documents open. */
+    fun showSessions() {
+        _activeDocumentId.value = null
+    }
+
+    fun focusDocument(id: String) {
+        if (_openDocuments.value.any { it.id == id }) _activeDocumentId.value = id
+    }
+
+    /** The document's own state, coming back from the composable that is editing it. See [ScenarioDoc]. */
+    fun updateDocument(doc: ScenarioDoc) {
+        _openDocuments.value = _openDocuments.value.map { if (it.id == doc.id) doc else it }
+    }
+
+    /**
+     * Both mirror-backs go through a *transform*, never through a `doc.copy()` taken in the composable.
+     *
+     * The draft arrives from a `LaunchedEffect` and the cursor from a click handler, so the two can be
+     * carrying different snapshots of the same document in the same frame — and a `copy()` off the stale one
+     * silently puts the other field back the way it was. A transform reads whatever is there when it lands.
+     */
+    fun updateEditorDocument(id: String, transform: (ScenarioDoc.Editor) -> ScenarioDoc.Editor) {
+        _openDocuments.value =
+            _openDocuments.value.map { if (it.id == id && it is ScenarioDoc.Editor) transform(it) else it }
+    }
+
+    fun updateCaptureDocument(transform: (ScenarioDoc.Capture) -> ScenarioDoc.Capture) {
+        _openDocuments.value = _openDocuments.value.map { if (it is ScenarioDoc.Capture) transform(it) else it }
+    }
+
+    /**
+     * A second live occurrence of the same response type (different bytes than the golden), for the editor's
+     * verify-generalizes check: a matcher that only passes against its own capture — an `exact` timestamp,
+     * say — goes red against a genuine second instance.
+     */
+    fun liveSecondInstance(session: String?, messageType: String?, golden: String?): MessageView? {
+        if (messageType.isNullOrBlank()) return null
+        return sessions
+            .filter { session == null || it.title == session }
+            .flatMap { it.messages.value.filterIsInstance<FixMessage>() }
+            // Compared and read as wire bytes, because that is what the golden now stores. Comparing the
+            // display string against an SOH golden never matches, so the golden message itself would come back
+            // as its own "second instance" — and "Verify generalizes", whose entire job is to re-check the
+            // expectation against a *different* message, would have been checking it against the same one and
+            // reporting that everything generalizes.
+            .lastOrNull { candidate ->
+                candidate.direction == FixMessage.Direction.INCOMING &&
+                    candidate.messageType == messageType &&
+                    candidate.wireRaw != golden
+            }?.wireRaw
+            ?.let { RawMessageView(it) }
+    }
+
+    fun closeDocument(id: String) {
+        val remaining = _openDocuments.value.filterNot { it.id == id }
+        _openDocuments.value = remaining
+        if (_activeDocumentId.value == id) _activeDocumentId.value = remaining.lastOrNull()?.id
+        if (_confirmingCloseId.value == id) _confirmingCloseId.value = null
+    }
+
+    /**
+     * The document whose close is waiting on a *"discard edits?"*, and the reason that state is here rather
+     * than in the tab strip: `esc` closes the focused document too, and a confirmation only the strip knew
+     * about would mean two answers to "is it safe to close this" — one of which never asks.
+     */
+    private val _confirmingCloseId = MutableStateFlow<String?>(null)
+    val confirmingCloseId: StateFlow<String?> = _confirmingCloseId.asStateFlow()
+
+    fun requestCloseDocument(id: String) {
+        val doc = _openDocuments.value.firstOrNull { it.id == id } ?: return
+        if (doc.dirty) _confirmingCloseId.value = id else closeDocument(id)
+    }
+
+    fun cancelCloseDocument() {
+        _confirmingCloseId.value = null
+    }
+
+    private fun openDocument(doc: ScenarioDoc) {
+        val existing = _openDocuments.value.any { it.id == doc.id }
+        _openDocuments.value =
+            if (existing) {
+                _openDocuments.value.map { if (it.id == doc.id) doc else it }
+            } else {
+                _openDocuments.value + doc
+            }
+        _activeDocumentId.value = doc.id
+    }
+
+    /**
+     * Open the flow editor on [scenario] — or **focus the tab already holding it**, re-aimed at [focusStep].
+     *
+     * Never re-seeded: that tab may be carrying edits the author has not saved, and a second failure in the
+     * same scenario is not a reason to throw them away. Only the aim moves — which is what [focusEpoch] is
+     * for, since the composable's cursor is seeded once and would otherwise ignore a new one.
+     */
+    fun openScenarioEditor(scenario: Scenario, focusStep: Int? = null, failure: RunFailureContext? = null) {
+        val id = ScenarioDoc.editorId(scenario.id)
+        val open = _openDocuments.value.firstOrNull { it.id == id } as? ScenarioDoc.Editor
+        val doc =
+            if (open != null) {
+                open.copy(
+                    focusStep = focusStep ?: open.focusStep,
+                    failure = failure ?: open.failure,
+                    selectedStep = focusStep ?: open.selectedStep,
+                    focusEpoch = if (focusStep != null) open.focusEpoch + 1 else open.focusEpoch,
+                )
+            } else {
+                val seed = scenario.asEditorSeed()
+                ScenarioDoc.Editor(
+                    draft = seed,
+                    seed = seed,
+                    focusStep = focusStep,
+                    failure = failure,
+                    selectedStep = focusStep,
+                )
+            }
+        openDocument(doc)
+    }
+
+    /** Open capture review on a fresh scan of the sessions — or focus the review already open. */
+    fun openCaptureReview() {
+        if (_openDocuments.value.any { it.id == ScenarioDoc.CAPTURE_ID }) {
+            focusDocument(ScenarioDoc.CAPTURE_ID)
+            return
+        }
+        val scan = captureScan()
+        openDocument(ScenarioDoc.Capture(scan, CaptureReviewState.of(scan.candidates.size)))
+    }
+
+    /**
+     * Write the editor's draft to disk, and leave the tab open on it.
+     *
+     * A tab is a document, not a modal: Save writes and the document becomes clean. It is re-seeded from what
+     * is now *on disk*, so the draft carries the ids [Scenario.withIds] minted for any step the author added
+     * — and the tab's dirty flag is measured against the file it actually wrote.
+     */
+    fun saveScenarioDocument(edited: Scenario): Boolean {
+        if (!scenarioService.save(edited)) return false
+        val onDisk = (scenarioService.load(edited.id) ?: edited).asEditorSeed()
+        (_openDocuments.value.firstOrNull { it.id == ScenarioDoc.editorId(edited.id) } as? ScenarioDoc.Editor)
+            ?.let { updateDocument(it.copy(draft = onDisk, seed = onDisk)) }
+        return true
+    }
+
+    /** Capture review's Save: its document has done its job, so it closes — and the rail has a new scenario. */
+    fun saveCaptureDocument(name: String, selection: List<ScenarioCapture.Candidate>): Boolean {
+        val id = saveCapturedSelection(name, selection) ?: return false
+        closeDocument(ScenarioDoc.CAPTURE_ID)
+        scenarioService.load(id)?.let { openScenarioEditor(it) }
+        return true
+    }
+
+    /** Delete a scenario, and close the tab that was editing it — a document with no file is a trap. */
+    fun deleteScenario(id: String) {
+        scenarioService.delete(id)
+        closeDocument(ScenarioDoc.editorId(id))
+    }
+
+    fun duplicateScenario(scenario: Scenario) {
+        val copyId = UUID.randomUUID().toString()
+        scenarioService.save(scenario.copy(id = copyId, name = "${scenario.name} (copy)"))
     }
 
     /**
@@ -202,7 +400,7 @@ class FixMessageViewModel(
     sealed interface ReconcileRoute {
         /** The failure can be reconciled: [request] opens the workbench on its diff. */
         data class Open(
-            val request: WorkbenchEditRequest,
+            val request: ScenarioEditRequest,
         ) : ReconcileRoute
 
         /** The failure cannot be reconciled, and [why] is the sentence the author gets. */
@@ -303,7 +501,7 @@ class FixMessageViewModel(
             )
         }
         return ReconcileRoute.Open(
-            WorkbenchEditRequest(
+            ScenarioEditRequest(
                 scenario = saved,
                 // Where the step is NOW, which is not where it ran if the author has been rearranging.
                 focusStep = savedIndex,
@@ -314,13 +512,26 @@ class FixMessageViewModel(
         )
     }
 
-    /** Opens the reconcile view for [step], or says why it will not. See [reconcileRoute]. */
+    /**
+     * Opens the reconcile view for [step], or says why it will not. See [reconcileRoute].
+     *
+     * The destination is a **document tab** — open-or-focus, scrolled to the failing step. Three doors (the
+     * rail, the run line, the message viewer's "Reconcile assertions…") and one destination, because two
+     * destinations would eventually be two answers to "which step failed".
+     */
     fun openReconcile(step: StepResult) {
         when (val route = reconcileRoute(step)) {
-            is ReconcileRoute.Open -> {
-                _workbenchEditRequest.value = route.request
-                if (!_showScenariosDialog.value) _showScenariosDialog.value = true
-            }
+            is ReconcileRoute.Open ->
+                openScenarioEditor(
+                    scenario = route.request.scenario,
+                    focusStep = route.request.focusStep,
+                    failure =
+                        RunFailureContext(
+                            route.request.failedTags,
+                            route.request.actualRaw,
+                            route.request.actualAt,
+                        ),
+                )
             is ReconcileRoute.Refused -> showNotification(route.why, NotificationType.WARNING)
         }
     }
@@ -505,6 +716,12 @@ class FixMessageViewModel(
     init {
         // Load app settings first (this also loads the data dictionary)
         loadAppSettings()
+
+        // The rail renders this list; nothing else may hold a copy of it — and it is refreshed by the service,
+        // not by each caller, because two of the four doors that write a scenario (the control surface and
+        // fixtool_save_scenario) do not come through here at all.
+        scenarioService.onChanged = { refreshScenarios() }
+        refreshScenarios()
 
         // Initialize global view mode from settings
         _viewMode.value =
@@ -913,8 +1130,8 @@ class FixMessageViewModel(
         _showHelpDialog.value = !_showHelpDialog.value
     }
 
-    fun toggleScenariosDialog() {
-        _showScenariosDialog.value = !_showScenariosDialog.value
+    fun toggleScenariosRail() {
+        _showScenariosRail.value = !_showScenariosRail.value
     }
 
     /**

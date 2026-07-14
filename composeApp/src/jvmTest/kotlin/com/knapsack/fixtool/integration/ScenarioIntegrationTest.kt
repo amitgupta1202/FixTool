@@ -180,11 +180,11 @@ class ScenarioIntegrationTest {
 
         // Deep-link lands on the failing expect step (steps index 1: send=0, expect=1).
         viewModel.openScenarioEditorForFailure(failedMessage)
-        val request = viewModel.workbenchEditRequest.value!!
-        assertEquals(id, request.scenario.id)
-        assertEquals(1, request.focusStep)
-        assertEquals(listOf(150), request.failedTags.map { it.tag })
-        viewModel.consumeWorkbenchEditRequest()
+        val doc = viewModel.activeDocument as com.knapsack.fixtool.ui.ScenarioDoc.Editor
+        assertEquals(id, doc.draft.id)
+        assertEquals(1, doc.focusStep)
+        assertEquals(listOf(150), doc.failure!!.failedTags.map { it.tag })
+        viewModel.closeDocument(doc.id)
 
         // Rebaseline the step to what the venue actually sends, save it back, and re-run for real.
         assertEquals("updated", obj(post("/scenarios", scenarioJson("fixloop", "0", id = id)))["status"]!!.jsonPrimitive.content)

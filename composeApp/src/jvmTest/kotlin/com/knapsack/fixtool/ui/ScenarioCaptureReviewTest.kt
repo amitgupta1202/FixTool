@@ -4,6 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
@@ -63,9 +68,33 @@ class ScenarioCaptureReviewTest {
     private fun render(onSave: (String, List<ScenarioCapture.Candidate>) -> Boolean) {
         composeTestRule.setContent {
             Box(modifier = Modifier.size(1200.dp, 700.dp).background(AppTheme.Colors.background).padding(10.dp)) {
-                ScenarioCaptureReview(candidates = candidates, dictionary = null, onSave = onSave, onBack = {})
+                StatefulCaptureReview(candidates = candidates, onSave = onSave)
             }
         }
+    }
+
+    /**
+     * The harness **feeds `onStateChange` back**, the way the document host does — and that is not a detail.
+     *
+     * Capture review's curation lives in its document now (a tab, unlike the window it replaced, is disposed
+     * the moment you look at something else). A harness that takes the state and drops the callback on the
+     * floor renders a review whose checkboxes do nothing — and every assertion about *what got saved* would
+     * then be an assertion about the default selection, passing over a surface that had stopped working.
+     */
+    @Composable
+    private fun StatefulCaptureReview(
+        candidates: List<ScenarioCapture.Candidate>,
+        onSave: (String, List<ScenarioCapture.Candidate>) -> Boolean,
+    ) {
+        var state by remember { mutableStateOf(CaptureReviewState.of(candidates.size)) }
+        ScenarioCaptureReview(
+            candidates = candidates,
+            dictionary = null,
+            state = state,
+            onStateChange = { state = it },
+            onSave = onSave,
+            onBack = {},
+        )
     }
 
     @Test
@@ -163,7 +192,7 @@ class ScenarioCaptureReviewTest {
             )
         composeTestRule.setContent {
             Box(modifier = Modifier.size(1200.dp, 700.dp).background(AppTheme.Colors.background).padding(10.dp)) {
-                ScenarioCaptureReview(candidates = twoParties, dictionary = null, onSave = { _, _ -> true }, onBack = {})
+                StatefulCaptureReview(candidates = twoParties, onSave = { _, _ -> true })
             }
         }
         composeTestRule.onNodeWithTag("candidate-0").performClick()

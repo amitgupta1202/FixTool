@@ -47,6 +47,17 @@ class ScenarioService(
     fun load(id: String): Scenario? = synchronized(lock) { loadFile(fileFor(id)) }
 
     /**
+     * Notified after any write, so that the thing rendering the scenario list cannot go stale behind a door it
+     * does not own.
+     *
+     * The Scenarios rail shows what is on disk, and there are four ways for that to change: the editor tab,
+     * capture review, the control surface's `POST /scenarios`, and `fixtool_save_scenario`. Only the first two
+     * go through the ViewModel. Ask each caller to remember to refresh and the two that do not will be found
+     * by a user, saving a scenario over MCP and watching the rail go on showing the old one.
+     */
+    var onChanged: (() -> Unit)? = null
+
+    /**
      * Saving is what makes a step's identity permanent. A blank id never reaches disk: [withIds] assigns
      * one to anything the author added by hand since the file was read, so the next run can address it.
      */
@@ -61,13 +72,13 @@ class ScenarioService(
                 logger.error("Failed to save scenario ${scenario.id}: ${e.message}", e, notifyUser = true)
                 false
             }
-        }
+        }.also { if (it) onChanged?.invoke() }
 
     fun delete(id: String): Boolean =
         synchronized(lock) {
             val file = fileFor(id)
             if (file.exists()) file.delete() else false
-        }
+        }.also { if (it) onChanged?.invoke() }
 
     @Suppress("TooGenericExceptionCaught")
     /**

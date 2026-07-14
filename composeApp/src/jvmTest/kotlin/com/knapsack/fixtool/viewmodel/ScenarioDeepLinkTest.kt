@@ -9,13 +9,14 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
+import com.knapsack.fixtool.ui.ScenarioDoc
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -116,7 +117,7 @@ class ScenarioDeepLinkTest {
         return route.why
     }
 
-    private fun opened(step: StepResult): FixMessageViewModel.WorkbenchEditRequest {
+    private fun opened(step: StepResult): FixMessageViewModel.ScenarioEditRequest {
         val route = viewModel.reconcileRoute(step)
         assertTrue(route is FixMessageViewModel.ReconcileRoute.Open, "expected an open route, got: $route")
         return route.request
@@ -125,7 +126,7 @@ class ScenarioDeepLinkTest {
     // ----- the happy path ------------------------------------------------------------------------------
 
     @Test
-    fun `failure opens the workbench focused on the failing expect step`() {
+    fun `failure opens a document tab focused on the failing expect step`() {
         val scenario = scenarioWithExpect()
         assertTrue(viewModel.scenarioService.save(scenario))
         val msg = failedMessage()
@@ -134,16 +135,45 @@ class ScenarioDeepLinkTest {
 
         viewModel.openScenarioEditorForFailure(msg)
 
-        val request = viewModel.workbenchEditRequest.value
-        assertNotNull(request)
-        assertEquals(scenario.id, request.scenario.id)
-        assertEquals(1, request.focusStep)
+        // The destination is a tab in the main window. There is no second window to raise, and no one-shot
+        // flow for one to consume: the ViewModel opens the document itself.
+        val doc = viewModel.activeDocument as ScenarioDoc.Editor
+        assertEquals(ScenarioDoc.editorId(scenario.id), viewModel.activeDocumentId.value)
+        assertEquals(scenario.id, doc.draft.id)
+        assertEquals(1, doc.focusStep)
+        assertEquals(1, doc.selectedStep, "and the cursor is on it, not on step 1")
         // Only the failed tags travel, each still naming the occurrence it checked.
-        assertEquals(listOf(150 to 0, 448 to 1), request.failedTags.map { it.tag to it.occurrence })
-        assertTrue(viewModel.showScenariosDialog.value)
+        assertEquals(listOf(150 to 0, 448 to 1), doc.failure!!.failedTags.map { it.tag to it.occurrence })
+        // It opens clean: nothing has been edited, so closing it must not stop to ask.
+        assertFalse(doc.dirty)
+    }
 
-        viewModel.consumeWorkbenchEditRequest()
-        assertNull(viewModel.workbenchEditRequest.value)
+    /**
+     * A second failure in a scenario whose tab is already open, and **carrying unsaved edits**, must land on
+     * that tab — re-aimed, not re-seeded. Throwing the author's work away to show them a diff would be a
+     * strange way to help them fix it.
+     */
+    @Test
+    fun `a second deep-link re-aims the open tab instead of re-seeding it`() {
+        val scenario = scenarioWithExpect()
+        assertTrue(viewModel.scenarioService.save(scenario))
+        val msg = failedMessage()
+        viewModel.noteScenarioRun(scenario)
+        viewModel.setAssertionResults(mapOf(msg to failedStepResult()))
+
+        viewModel.openScenarioEditor(scenario)
+        val edited = (viewModel.activeDocument as ScenarioDoc.Editor).draft.copy(name = "renamed, unsaved")
+        viewModel.updateEditorDocument(ScenarioDoc.editorId(scenario.id)) { it.copy(draft = edited) }
+        val epochBefore = (viewModel.activeDocument as ScenarioDoc.Editor).focusEpoch
+
+        viewModel.openScenarioEditorForFailure(msg)
+
+        val doc = viewModel.activeDocument as ScenarioDoc.Editor
+        assertEquals(1, viewModel.openDocuments.value.size, "one tab, not two")
+        assertEquals("renamed, unsaved", doc.draft.name, "the unsaved edit survived the deep-link")
+        assertTrue(doc.dirty)
+        assertEquals(1, doc.focusStep, "and it re-aimed at the step that failed")
+        assertEquals(epochBefore + 1, doc.focusEpoch, "which the composable can only see as a new epoch")
     }
 
     /**
@@ -226,7 +256,7 @@ class ScenarioDeepLinkTest {
 
         viewModel.openScenarioEditorForFailure(msg)
         assertNull(
-            viewModel.workbenchEditRequest.value,
+            viewModel.activeDocumentId.value,
             "reconciling here would diff an expectation the author has since rewritten",
         )
     }
@@ -359,7 +389,7 @@ class ScenarioDeepLinkTest {
         assertTrue("no wire bytes" in why && "FixTool limitation" in why, why)
 
         viewModel.openScenarioEditorForFailure(msg)
-        assertNull(viewModel.workbenchEditRequest.value)
+        assertNull(viewModel.activeDocumentId.value)
         assertTrue(viewModel.notifications.any { "no wire bytes" in it.message })
     }
 
@@ -386,7 +416,7 @@ class ScenarioDeepLinkTest {
         assertTrue("not saved" in refusal(step))
 
         viewModel.openScenarioEditorForFailure(msg)
-        assertNull(viewModel.workbenchEditRequest.value)
+        assertNull(viewModel.activeDocumentId.value)
         assertTrue(viewModel.notifications.any { "not saved" in it.message })
     }
 
@@ -422,7 +452,7 @@ class ScenarioDeepLinkTest {
 
         viewModel.openScenarioEditorForFailure(msg)
 
-        assertNull(viewModel.workbenchEditRequest.value, "the session-window door must honour the same rule")
+        assertNull(viewModel.activeDocumentId.value, "the message viewer's door must honour the same rule")
         assertTrue(viewModel.notifications.any { "setup" in it.message })
     }
 

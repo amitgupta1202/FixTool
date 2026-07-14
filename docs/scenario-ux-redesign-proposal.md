@@ -177,6 +177,13 @@ into entries *for presentation and for bounding moves*:
 
 ### Moving tags and groups
 
+Order is asserted in both modes — STRICT absolutely, OPEN for the rows it lists — so an
+out-of-order tag is a real failure. The drags exist to make the fix as cheap as the red.
+
+- **Every row carries a drag handle** (visible on hover; `alt+↑/↓` moves the selected
+  row from the keyboard). Entries carry one on their band. While dragging, the insertion
+  line previews the landing and a tooltip answers the only question that matters —
+  *would every row pass here?* — before the mouse is released.
 - **Entries move as units** — drag the entry band (or ↑/↓ on it), within their group.
   Legal moves apply instantly and re-judge; illegal ones snap back with the withheld-move
   reason shown inline (the existing hand-written sentences — a role swap explains that
@@ -184,8 +191,10 @@ into entries *for presentation and for bounding moves*:
 - **Scalar rows move freely** — a hand-authored expectation whose rows are out of wire
   order (the OPEN `moved` false red) is fixed by dragging the row or accepting the order.
 - **The refusal rule generalises cleanly:** a move is offered iff it preserves every
-  repeated tag's occurrence mapping — single rows of a repeated tag never cross their
-  siblings; everything else is free. Same invariant, one sentence, no special cases.
+  repeated tag's occurrence mapping — a single row of a repeated tag never crosses its
+  same-tag siblings (that drop would silently swap *which occurrence* each row asserts);
+  everything else is free. The refusal is per-drop, not per-row, and the reason renders
+  at the cursor. Same invariant, one sentence, no special cases.
 
 ### Live re-judging
 

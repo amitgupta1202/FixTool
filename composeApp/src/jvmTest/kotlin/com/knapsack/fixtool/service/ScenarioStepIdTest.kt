@@ -153,6 +153,67 @@ class ScenarioStepIdTest {
         assertEquals(once, once.withIds().withIds())
     }
 
+    /**
+     * **THE ONE THAT MAKES THE ID AN ID.** A minted id is a hash of (scenario, phase, index) — so the id a
+     * *new* step is minted with at index 1 is the id the *existing* step at index 1 is already carrying.
+     *
+     * Mint before that step has claimed it, and the newcomer takes its identity. The displaced step is then
+     * re-minted onto its own successor's id, and every step below the insertion point slides one place down
+     * the id list: an id that names step B before the edit names step A after it. `reconcileRoute` would then
+     * look up the failing step, find a different one, and — where the two are alike, two Expects awaiting two
+     * fills of the same shape — open the reconcile view on it, so that "Accept actual" writes the failing
+     * message's bytes into an assertion that never saw them. The id would be an index with a hash on top, and
+     * the index is what it was introduced to replace.
+     */
+    @Test
+    fun `inserting a step steals no other step's id`() {
+        val saved = legacyScenario().withIds()
+        val before = saved.steps.map { it.stepId }
+
+        val edited = saved.copy(steps = listOf(ScenarioStep.Send("35=D|11=NEW|", session = "CLI")) + saved.steps)
+
+        val identified = edited.withIds()
+
+        assertEquals(
+            before,
+            identified.steps.drop(1).map { it.stepId },
+            "every step that already had an id must still have it — an id that moves is an index in disguise",
+        )
+        assertTrue(identified.steps[0].stepId.isNotBlank(), "and the new step is identified too")
+        val after = identified.steps.map { it.stepId }
+        assertEquals(
+            after.size,
+            after.toSet().size,
+            "the newcomer must have salted past the id it collided with, not taken it",
+        )
+    }
+
+    /** The same, for the phases that index independently — a setup insert must not disturb the steps. */
+    @Test
+    fun `inserting into one phase leaves the other phases' ids alone`() {
+        val saved = legacyScenario().withIds()
+
+        val identified =
+            saved.copy(setup = listOf(ScenarioStep.ClearMessages("CLI")) + saved.setup).withIds()
+
+        assertEquals(saved.setup.map { it.stepId }, identified.setup.drop(1).map { it.stepId })
+        assertEquals(saved.steps.map { it.stepId }, identified.steps.map { it.stepId })
+        assertEquals(saved.teardown.map { it.stepId }, identified.teardown.map { it.stepId })
+    }
+
+    /** Deleting and reordering were always safe, and must stay so: an id travels with its step. */
+    @Test
+    fun `an id survives a delete and a reorder of the steps around it`() {
+        val saved = legacyScenario().withIds()
+        val expect = saved.steps[1]
+
+        val reordered = saved.copy(steps = listOf(expect, saved.steps[0])).withIds()
+        val deleted = saved.copy(steps = listOf(expect)).withIds()
+
+        assertEquals(expect.stepId, reordered.steps[0].stepId)
+        assertEquals(expect.stepId, deleted.steps[0].stepId)
+    }
+
     // ----- the wire format ------------------------------------------------------------------------------
 
     /**

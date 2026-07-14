@@ -107,17 +107,31 @@ fun ScenarioStep.withStepId(id: String): ScenarioStep =
  */
 fun Scenario.withIds(): Scenario {
     val used = mutableSetOf<String>()
+    val phases = listOf("setup" to setup, "steps" to steps, "teardown" to teardown)
 
-    fun assign(phase: String, list: List<ScenarioStep>): List<ScenarioStep> =
+    // FIRST every step that already has an id claims it, and only THEN is anything minted.
+    //
+    // One pass would not do, and the difference is the whole point of the id. A minted id is a hash of
+    // (scenario, phase, index) — so the id a *new* step is minted with at index 2 is precisely the id the
+    // *existing* step at index 2 is already carrying. Mint before that step has claimed it, and the newcomer
+    // takes its identity: the displaced step is then re-minted onto its own successor's id, and every step
+    // below the insertion slides one place down the id list. The failing step's id would then name a
+    // different step, `reconcileRoute` would find that one, and — where the two are alike, two Expects
+    // awaiting two fills of the same shape — it would open the reconcile view on it and let "Accept actual"
+    // write the failing message's bytes into an assertion that never saw them. That is the exact corruption
+    // the id was introduced to prevent, so an existing step's id is never available to be minted into.
+    val keeps = phases.map { (_, list) -> list.map { it.stepId.isNotBlank() && used.add(it.stepId) } }
+
+    fun assign(phase: String, list: List<ScenarioStep>, kept: List<Boolean>): List<ScenarioStep> =
         list.mapIndexed { index, step ->
-            // `used.add` is the duplicate check *and* the claim: the first step to carry an id keeps it.
-            if (step.stepId.isNotBlank() && used.add(step.stepId)) step else step.withStepId(mint(id, phase, index, used))
+            // A blank id, or a duplicate of one another step claimed first: either way, this step needs one.
+            if (kept[index]) step else step.withStepId(mint(id, phase, index, used))
         }
 
     return copy(
-        setup = assign("setup", setup),
-        steps = assign("steps", steps),
-        teardown = assign("teardown", teardown),
+        setup = assign("setup", setup, keeps[0]),
+        steps = assign("steps", steps, keeps[1]),
+        teardown = assign("teardown", teardown, keeps[2]),
     )
 }
 

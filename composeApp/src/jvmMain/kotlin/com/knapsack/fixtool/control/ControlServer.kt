@@ -24,13 +24,10 @@ import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
-import com.knapsack.fixtool.service.ScenarioHost
 import com.knapsack.fixtool.service.ScenarioReport
-import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.service.SessionTags
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
-import com.knapsack.fixtool.viewmodel.ViewModelScenarioHost
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpContext
 import com.sun.net.httpserver.HttpExchange
@@ -870,25 +867,14 @@ class ControlServer(
                     return errorObject("invalid scenario: ${e.message}")
                 }
             }
-        // One run at a time — a UI run and a control run would consume each other's messages.
-        if (!viewModel.beginScenarioRun()) {
-            return errorObject("a scenario run is already in progress")
-        }
-        val matched = linkedMapOf<FixMessage, com.knapsack.fixtool.model.scenario.StepResult>()
-        viewModel.noteScenarioRun(scenario)
-        viewModel.setAssertionResults(emptyMap())
+        // The same run the Run button performs — one run slot, one choreography, one verdict published the
+        // same way. This endpoint used to keep its own copy of that sequence and had quietly dropped the
+        // last step of it, so an agent-driven run left the workbench's run report (and the only route to the
+        // reconcile view) blank. Null = the slot is taken; a UI run and a control run would otherwise
+        // consume each other's messages.
         val result =
-            try {
-                ScenarioRunner(
-                    scenarioHost(),
-                    onExpectMatched = { message, stepResult ->
-                        matched[message] = stepResult
-                        viewModel.setAssertionResults(matched.toMap())
-                    },
-                ).run(scenario)
-            } finally {
-                viewModel.endScenarioRun()
-            }
+            viewModel.runScenarioBlocking(scenario)
+                ?: return errorObject("a scenario run is already in progress")
         return if (body["format"]?.jsonPrimitive?.content?.lowercase() == "junit") {
             buildJsonObject {
                 put("passed", result.passed)
@@ -898,9 +884,6 @@ class ControlServer(
             ScenarioReport.toJson(result)
         }
     }
-
-    /** The [ScenarioHost] backing the runner — shared with the in-app "Run scenario" action. */
-    private fun scenarioHost(): ScenarioHost = ViewModelScenarioHost(viewModel)
 
     /**
      * Drives the message detail panel's tag search: sets the search `query` and/or the

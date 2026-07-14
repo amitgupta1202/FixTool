@@ -24,7 +24,9 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TemporalKind
 
 /**
@@ -168,6 +170,13 @@ fun VarBadges(minted: List<String>, referenced: List<String>, colors: Map<String
         referenced.forEach { VarBadge(it, colors[it] ?: AppTheme.Colors.primary, minted = false, modifier = Modifier.padding(end = 3.dp)) }
     }
 }
+
+/**
+ * The failure a run report speaks for: the first step that did not pass. The runner stops the `steps`
+ * phase there, so it is *the* failure — and the one the report's reconcile route must lead to. One
+ * definition, so the sentence and the button can never be about different steps.
+ */
+fun ScenarioResult.firstFailure(): StepResult? = steps.firstOrNull { !it.passed }
 
 /** Small width-stable index cell for flow rows. */
 @Composable

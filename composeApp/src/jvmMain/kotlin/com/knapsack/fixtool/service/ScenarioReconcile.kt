@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
+import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
 import java.time.Instant
@@ -340,12 +341,27 @@ object ScenarioReconcile {
         val passes = before.mapNotNull { d -> d.alignment.index?.let { it to d.result.passed } }.toMap()
 
         val placement =
-            placeByOccurrence(draft, wire)
+            placeByOccurrence(draft, wire, passes, paired)
                 ?: placeByMovedEntry(draft, wire, passes, paired)
                 ?: return null
 
         val moved = placement.filter { (index, at) -> paired[index] != at }.keys
         if (moved.isEmpty()) return null // nothing is out of place; a button here would do nothing at all
+
+        // THE MOVED ROWS MUST FORM A SOLID SPAN. No stationary row may be stranded inside it.
+        //
+        // This is what stops an entry being torn in half, and it is the difference between a reorder and a
+        // regression on the one shape that matters. Two firms swap roles: the venue's 448 and 447 now match
+        // the *other* entry's, while both 452 rows still pass exactly where they are. A block rule alone
+        // happily moves `448 447` across to the other entry and leaves the `452` sitting where it was — and
+        // the expectation then reads "FIRMA, D, role 4", which is the regression, wearing the words "entry
+        // moved · same values, different position". One click and "FIRMA holds role 1" is gone.
+        //
+        // An entry that really moved takes ALL of itself. So if row 3 sits between two rows that moved, and
+        // row 3 did not, nothing coherent moved and the offer is withdrawn. The rows then say what they are:
+        // values that changed.
+        val span = moved.min()..moved.max()
+        if (span.any { it !in moved && draft.fields[it].matcher !is Matcher.Absent }) return null
 
         // Rows that take no part in ordering (absent) park beside the row they already follow.
         val key = mutableMapOf<Int, Double>()
@@ -370,7 +386,13 @@ object ScenarioReconcile {
         val passesNow = after.mapNotNull { d -> d.alignment.index?.let { it to d.result.passed } }.toMap()
         permutation.forEachIndexed { newIndex, originalIndex ->
             if (passes[originalIndex] == true && passesNow[newIndex] != true) return null
-            if (originalIndex in moved && passesNow[newIndex] == false) return null
+            // A reference resolves against a live run's scope and a temporal against the clock; neither can
+            // pass HERE, offline. Demanding that every moved row "now passes" therefore refused any legitimate
+            // re-order that carried one — and a captured scenario's ClOrdID row is a reference, so that was
+            // most of them. They are placed by the rules above, which never re-aim, and judged for real on the
+            // next run.
+            val unjudgeable = draft.fields[originalIndex].matcher.let { it is Matcher.Reference || it is Matcher.Temporal }
+            if (originalIndex in moved && !unjudgeable && passesNow[newIndex] == false) return null
         }
         return Plan(reordered, moved)
     }
@@ -392,7 +414,12 @@ object ScenarioReconcile {
      * be judged offline, so it is placed but not value-checked; placement is occurrence-preserving, so it
      * keeps checking exactly the field it always did and the reference is still verified at replay.
      */
-    private fun placeByOccurrence(draft: Expectation, wire: List<Pair<Int, String>>): Map<Int, Int>? {
+    private fun placeByOccurrence(
+        draft: Expectation,
+        wire: List<Pair<Int, String>>,
+        passes: Map<Int, Boolean>,
+        paired: Map<Int, Int?>,
+    ): Map<Int, Int>? {
         val byTag = wire.withIndex().groupBy { it.value.first }
         val seen = mutableMapOf<Int, Int>()
         val place = mutableMapOf<Int, Int>()
@@ -400,6 +427,18 @@ object ScenarioReconcile {
             if (row.matcher is Matcher.Absent) continue // takes no part in ordering
             val k = seen.merge(row.tag, 1, Int::plus)!! - 1
             val field = byTag[row.tag]?.getOrNull(k) ?: return null // the venue sends fewer: missing, not moved
+
+            // A row that ALREADY PASSES keeps the field the engine has it checking — and here is why this
+            // rule is not redundant with the occurrence rule that produced the placement.
+            //
+            // The engine's greedy cursor and "the k-th row for a tag → the k-th occurrence of it" can
+            // disagree. An earlier row can push the cursor past the first 452, so the engine has a lone 452
+            // row checking the SECOND party entry — and passing there. This placement calls it occurrence 0
+            // and moves it onto the FIRST entry, where `presence` passes just as well. Both green, and the
+            // assertion now describes a party the author never chose while the one they did choose silently
+            // stops being asserted. A second decider for "which field does this row assert", which is the one
+            // thing this model exists to make impossible.
+            if (passes[index] == true && paired[index] != field.index) return null
             // A reference and a temporal row have no fixed value to compare — one resolves against a live
             // run's scope, the other against the clock — so asking "did this value change?" of them answers
             // nothing about the message's *shape*. They are placed, not value-checked. Placement is
@@ -545,14 +584,17 @@ object ScenarioReconcile {
     ): Expectation {
         var next = draft
 
-        // Tags the venue stopped sending: assert them absent where that is meaningful, drop them otherwise.
+        // Tags the venue stopped sending: assert them absent where that is meaningful.
         //
-        // ...but NEVER at the cost of a value change. `drop` on a repeated tag takes *every* row for that tag
-        // — it must, or the surviving rows would silently change which occurrence they check — so dropping a
-        // missing 448 also deletes the 448 row that is failing because the venue sent a *different firm*. The
-        // next loop then re-seeded that tag fresh from the reply, and the button that promises "it will not
-        // touch a value mismatch" quietly accepted the regression it promised to leave alone. A row like that
-        // is left exactly where it is, for the author to decide about one at a time, deliberately.
+        // What it must NEVER do is DROP a repeated tag. `drop` takes every row for that tag — it must, or the
+        // survivors would silently change which occurrence they check — so dropping one missing 448 also
+        // deletes the 448 that is failing because the venue sent a different firm, and every matcher the
+        // author deliberately loosened or wired to a scenario variable along with it. The next loop then
+        // re-seeded the whole tag `Exact` from the reply. A button whose contract is "it will not touch a
+        // value mismatch" was quietly accepting the regression AND throwing away the author's work.
+        //
+        // A repeated tag with a missing occurrence is left exactly as it is, for the author to decide about
+        // one row at a time, deliberately.
         val handled = mutableSetOf<Int>()
         var progressed = true
         while (progressed) {
@@ -563,31 +605,28 @@ object ScenarioReconcile {
                     ?: continue
             val index = missing.index!!
             when {
-                canAssertAbsent(next, message, index) -> {
-                    next = assertAbsent(next, index)
-                    progressed = true
-                }
-                dropTakesWholeTag(next, index) &&
-                    current.any { it.tag == missing.tag && isBehaviourChange(it) } -> {
-                    // Dropping would delete a row that is failing on its VALUE. Leave the whole tag alone.
-                    handled += missing.tag
-                    progressed = true
-                }
-                else -> {
-                    next = drop(next, index)
-                    progressed = true
-                }
+                canAssertAbsent(next, message, index) -> next = assertAbsent(next, index)
+                dropTakesWholeTag(next, index) -> handled += missing.tag // never in bulk
+                else -> next = drop(next, index)
             }
+            progressed = true
         }
 
         // Tags the venue added: assert them, seeded from the dictionary, at the position they arrive in.
-        progressed = true
-        while (progressed) {
-            progressed = false
-            val added = rows(next, message, dictionary).firstOrNull { it.unasserted && it.wireIndex != null }
-            if (added != null) {
-                next = addAssertion(next, message, added.wireIndex!!, dictionary)
-                progressed = true
+        //
+        // Only in STRICT. In OPEN an unmentioned tag is not a failure — it is the entire point of OPEN — so
+        // asserting every one of them is not "accepting a shape change", it is rewriting the author's
+        // decision about what this step is for. The button was guarded against this and the action was not,
+        // which is two deciders and one of them wrong.
+        if (next.mode == MatchMode.STRICT) {
+            progressed = true
+            while (progressed) {
+                progressed = false
+                val added = rows(next, message, dictionary).firstOrNull { it.unasserted && it.wireIndex != null }
+                if (added != null) {
+                    next = addAssertion(next, message, added.wireIndex!!, dictionary)
+                    progressed = true
+                }
             }
         }
 
@@ -627,12 +666,21 @@ object ScenarioReconcile {
         if (keep.isEmpty()) return fresh
 
         val counter = mutableMapOf<Int, Int>()
-        return fresh.copy(
-            fields = fresh.fields.map { row ->
+        val carried = mutableSetOf<Pair<Int, Int>>()
+        val rebuilt =
+            fresh.fields.map { row ->
                 val k = counter.merge(row.tag, 1, Int::plus)!! - 1
-                keep[row.tag to k]?.let { row.copy(matcher = it) } ?: row
-            },
-        )
+                keep[row.tag to k]?.let {
+                    carried += row.tag to k
+                    row.copy(matcher = it)
+                } ?: row
+            }
+
+        // An echo the reply no longer carries is not a row to delete — it is the venue having STOPPED echoing
+        // the id, which is the regression the assertion exists to catch. Dropping it silently would re-seed
+        // the step green over the top of it. It is kept, and it reports itself missing.
+        val lost = keep.entries.filter { it.key !in carried }.map { FieldExpectation(it.key.first, it.value) }
+        return fresh.copy(fields = rebuilt + lost)
     }
 
     /**

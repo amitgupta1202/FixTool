@@ -404,6 +404,18 @@ object ExpectationEvaluator {
                 // try next pattern
             }
         }
+        // TZTIMEONLY: a time of day carrying an offset, and no date. The seeder seeds it temporal, so it has
+        // to parse here or the row is hard-wired to fail.
+        for (pattern in OFFSET_TIME_ONLY_PATTERNS) {
+            try {
+                val parsed = DateTimeFormatter.ofPattern(pattern).parse(value)
+                val time = LocalTime.from(parsed)
+                val offset = ZoneOffset.from(parsed)
+                return LocalDate.ofInstant(now(), offset).atTime(time).toInstant(offset)
+            } catch (e: Exception) {
+                // try next pattern
+            }
+        }
         return null
     }
 
@@ -461,7 +473,14 @@ object ExpectationEvaluator {
             "yyyyMMdd-HH:mm:ssXXX",
         )
 
-    /** UTCTIMEONLY / TZTIMEONLY / TIME — a time of day, read as that time TODAY. */
+    /** TZTIMEONLY — a time of day with an offset, and no date at all. */
+    private val OFFSET_TIME_ONLY_PATTERNS =
+        listOf(
+            "HH:mm:ss.SSSXXX",
+            "HH:mm:ssXXX",
+        )
+
+    /** UTCTIMEONLY / TIME — a time of day, read as that time TODAY. */
     private val TIME_ONLY_PATTERNS =
         listOf(
             "HH:mm:ss.SSSSSSSSS",

@@ -155,4 +155,169 @@ class ReconcileMovedBlockTest {
             "a row added from the message must not stop the expectation matching that message",
         )
     }
+
+    /**
+     * The real thing, at full size: a captured party block of `448/447/452` twice, and the two venues the
+     * reconcile view has to tell apart. This is the shape the live demo stages.
+     */
+    @Test
+    fun `the full party block — entries reordered is a move, roles swapped is not`() {
+        val draft =
+            exp(
+                FieldExpectation(453, Matcher.Exact("2")),
+                FieldExpectation(448, Matcher.Exact("FIRMA")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("1")),
+                FieldExpectation(448, Matcher.Exact("FIRMB")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("4")),
+            )
+
+        // (a) The ENTRIES swap places. FIRMA still holds role 1. Shape — one click.
+        val reordered =
+            FixMessageView.ofFields(
+                listOf(
+                    453 to "2",
+                    448 to "FIRMB",
+                    447 to "D",
+                    452 to "4",
+                    448 to "FIRMA",
+                    447 to "D",
+                    452 to "1",
+                ),
+            )
+        val fixed = ScenarioReconcile.acceptNewOrder(draft, reordered)
+        assertTrue(fixed != null, "a genuine entry reorder must still be one click")
+        assertTrue(
+            ExpectationEvaluator.evaluate(reordered, fixed!!).all { it.passed },
+            "and it must repair the step",
+        )
+        assertEquals(
+            listOf("2", "FIRMB", "D", "4", "FIRMA", "D", "1"),
+            fixed.fields.map { (it.matcher as Matcher.Exact).value },
+            "every assertion survives — FIRMA still holds role 1, it is just listed second now",
+        )
+
+        // (b) The FIRMS swap ROLES. Nothing moved; FIRMB now holds role 1. Behaviour — never a move.
+        val swapped =
+            FixMessageView.ofFields(
+                listOf(
+                    453 to "2",
+                    448 to "FIRMB",
+                    447 to "D",
+                    452 to "1",
+                    448 to "FIRMA",
+                    447 to "D",
+                    452 to "4",
+                ),
+            )
+        assertNull(
+            ScenarioReconcile.acceptNewOrder(draft, swapped),
+            "a role swap must never be offered as a reorder — accepting it deletes 'FIRMA holds role 1'",
+        )
+        assertTrue(ScenarioReconcile.movedRows(draft, swapped).isEmpty(), "and no row may be bracketed as moved")
+
+        val behaviour = ScenarioReconcile.rows(draft, swapped, null).filter { ScenarioReconcile.isBehaviourChange(it) }
+        assertEquals(2, behaviour.size, "it reads as what it is: the two PartyIDs changed")
+        assertTrue(behaviour.all { it.tag == 448 })
+    }
+
+    /**
+     * The reviewer's variant, which is NOT the one I found myself — and that is the point of the review.
+     *
+     * Here the FIRMS stay put (FIRMA first, FIRMB second) and only the ROLES swap. So the two `448` rows
+     * still pass, and the failing rows are the two `452`s. A block rule that may move any contiguous sub-run
+     * finds `(447=D, 452=1)` matching the OTHER entry's `(447=D, 452=1)` verbatim — because `447=D` is
+     * identical in both entries, a two-row fragment can span two different parties. The `448` rows stay put,
+     * the fragments cross over, and the regression is greened.
+     *
+     * The span rule kills it: the moved rows would be {1,2,4,5}, and row 3 — the `448=FIRMB` sitting between
+     * them — does not move. An entry that really moved takes all of itself.
+     */
+    @Test
+    fun `a fragment that spans two entries is not an entry, and may not move`() {
+        val draft = exp(*(party("FIRMA", "1") + party("FIRMB", "4")).toTypedArray())
+        // Same firms, same positions. The ROLES swapped. Pure behaviour regression.
+        val reply =
+            FixMessageView.ofFields(
+                listOf(448 to "FIRMA", 452 to "4", 448 to "FIRMB", 452 to "1"),
+            )
+
+        assertNull(
+            ScenarioReconcile.acceptNewOrder(draft, reply),
+            "the roles swapped; nothing moved. Accepting this deletes 'FIRMA holds role 1'",
+        )
+    }
+
+    /**
+     * The same, with the 447 delimiter that makes the fragment possible — the reviewer's exact shape.
+     */
+    @Test
+    fun `a fragment that spans two entries is not an entry, with the delimiter that enables it`() {
+        val draft =
+            exp(
+                FieldExpectation(448, Matcher.Exact("FIRMA")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("1")),
+                FieldExpectation(448, Matcher.Exact("FIRMB")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("4")),
+            )
+        // 447=D is identical in both entries, so (447=D, 452=1) matches the other party's tail verbatim.
+        val reply =
+            FixMessageView.ofFields(
+                listOf(
+                    448 to "FIRMA",
+                    447 to "D",
+                    452 to "4",
+                    448 to "FIRMB",
+                    447 to "D",
+                    452 to "1",
+                ),
+            )
+
+        assertNull(
+            ScenarioReconcile.acceptNewOrder(draft, reply),
+            "a two-row fragment spanning two parties is not a party; the roles swapped and it is a regression",
+        )
+        assertTrue(ScenarioReconcile.movedRows(draft, reply).isEmpty())
+    }
+
+    /**
+     * A row that is ALREADY PASSING must keep the field the engine has it checking. Even under the
+     * occurrence rule.
+     *
+     * The engine's greedy cursor and the k-th-row/k-th-occurrence rule can disagree, and where they do, the
+     * occurrence rule silently re-aims. Here an earlier row (`55`) pushes the cursor past the first `452`, so
+     * the engine has the `452 presence` row checking the SECOND party entry — and it passes there.
+     * `placeByOccurrence` says the one `452` row is the *first* occurrence, moves it onto the first entry,
+     * and `presence` passes there too. Both green, and the assertion now describes a party the author never
+     * chose while the one they did choose stops being asserted. Two deciders for "which field does this row
+     * assert", exactly the class of defect this model exists to remove.
+     */
+    @Test
+    fun `an already-passing row is never re-aimed onto a different occurrence`() {
+        val reply = FixMessageView.ofFields(listOf(452 to "1", 55 to "EUR/USD", 452 to "4"))
+        // The 55 row pushes the cursor past the first 452, so the 452 row checks the SECOND entry, and passes.
+        val draft =
+            exp(
+                FieldExpectation(55, Matcher.Exact("EUR/USD")),
+                FieldExpectation(452, Matcher.Presence),
+            )
+        val before = ScenarioReconcile.rows(draft, reply, null).single { it.tag == 452 && !it.unasserted }
+        assertTrue(before.passed, "precondition: it is green, checking the second entry")
+        assertEquals("4", before.actual, "precondition: on the SECOND 452")
+
+        val plan = ScenarioReconcile.acceptNewOrder(draft, reply)
+
+        if (plan != null) {
+            val after = ScenarioReconcile.rows(plan, reply, null).single { it.tag == 452 && !it.unasserted }
+            assertEquals(
+                "4",
+                after.actual,
+                "re-ordering may not move a green row onto a different party entry — it was checking the " +
+                    "second, and it must still be checking the second",
+            )
+        }
+    }
 }

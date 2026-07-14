@@ -23,7 +23,6 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
-import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.service.AppSettingsService
@@ -188,46 +187,118 @@ class FixMessageViewModel(
     }
 
     /**
-     * Failure → editor deep-link: opens the Scenarios workbench on the expect step whose assertions
-     * failed on [message], failed tags highlighted, the actual message feeding the builder preview.
-     * Degenerate cases fall back gracefully: scenario deleted → error notification; scenario
-     * reshaped since the run (step index no longer an expect) → editor opens unfocused with a note.
+     * Where a failed step can be taken, and — when it cannot be taken to the reconcile view — *why not*,
+     * in words meant for the author. A refusal that does not say why is how the run report became a dead
+     * end in the first place: the tool knew exactly what it was withholding and said nothing.
+     */
+    sealed interface ReconcileRoute {
+        /** The failure can be reconciled: [request] opens the workbench on its diff. */
+        data class Open(
+            val request: WorkbenchEditRequest,
+        ) : ReconcileRoute
+
+        /** The failure cannot be reconciled, and [why] is the sentence the author gets. */
+        data class Refused(
+            val why: String,
+        ) : ReconcileRoute
+    }
+
+    /**
+     * Can the editor open *on* this run result's step at all? The editor edits `steps` only (run indices
+     * are per-phase), and only an Expect carries assertions to reconcile.
+     */
+    private fun StepResult.isEditableExpect(): Boolean = phase == "steps" && kind == "expect"
+
+    /**
+     * **The one decider behind both doors into the reconcile view** — the run report's button and the
+     * session window's "Reconcile assertions…". Two deciders would eventually disagree, and the way they
+     * disagree here is that one of them offers a route into a diff the other would have refused.
+     *
+     * A failure is reconcilable only if *all* of this holds:
+     *
+     * - it is an **Expect in the `steps` phase** — the only thing the editor can focus;
+     * - the run **matched a message**: an Expect that timed out has no actual to diff against;
+     * - FixTool has that message's **wire bytes**. The venue's field order is otherwise unknown, and the
+     *   expectation's row order is half of what it asserts. The engine refuses to judge such a step
+     *   ([ScenarioRunner]) and capture refuses to seed from one ([ScenarioCapture.scan]); reconciling one
+     *   would diff against `toString()`'s re-sorted body — showing entries the venue never moved, offering
+     *   "Accept new order" on them, and saving an order nobody sent;
+     * - the scenario is **still saved** (a run of an inline, never-persisted scenario has nothing to edit);
+     * - and the step at that index is **still the step that ran**. This last one is not pedantry: the run
+     *   result addresses its step by *index*, and nothing invalidates a run when the scenario is edited. So
+     *   delete a step above the failure, save, and index 1 now holds a *different* Expect — one whose
+     *   assertions would be diffed against the failing step's message, and which "Accept actual" would then
+     *   overwrite with bytes the venue never sent *for it*. Checking only that `saved.steps[i]` is *an*
+     *   Expect cannot see that; comparing it against the step the run actually executed can.
+     */
+    @Suppress("ReturnCount") // One guard per reason, each with its own sentence. Nesting them reads far worse.
+    fun reconcileRoute(step: StepResult): ReconcileRoute {
+        if (!step.isEditableExpect()) {
+            return ReconcileRoute.Refused(
+                "Only an Expect in the scenario's main steps can be reconciled — this failure is a " +
+                    "${step.kind} in ${step.phase}. Open the message in the session window for expected-vs-actual.",
+            )
+        }
+        val message =
+            assertionResults.entries
+                .firstOrNull { (_, result) -> result.phase == step.phase && result.stepIndex == step.stepIndex }
+                ?.key
+                ?: return ReconcileRoute.Refused(
+                    "No message matched this step, so there is nothing to diff its expectation against. " +
+                        "Fix the bind predicate, or the venue, and run it again.",
+                )
+        val wire =
+            message.wireRaw
+                ?: return ReconcileRoute.Refused(
+                    "FixTool has no wire bytes for this ${message.messageType}, so the venue's field order is " +
+                        "unknown and its assertions cannot be reconciled against it. This is a FixTool " +
+                        "limitation, not a venue failure.",
+                )
+        val ranScenario =
+            _lastRunScenario.value
+                ?: return ReconcileRoute.Refused("This run is no longer attributed to a scenario — run it again.")
+        val saved =
+            scenarioService.load(ranScenario.id)
+                ?: return ReconcileRoute.Refused(
+                    "Scenario '${ranScenario.name}' is not saved — there are no assertions on disk to reconcile.",
+                )
+        // The saved step must be the step that RAN, not merely an Expect that now sits at its index.
+        if (saved.steps.getOrNull(step.stepIndex) != ranScenario.steps.getOrNull(step.stepIndex)) {
+            return ReconcileRoute.Refused(
+                "Scenario '${saved.name}' has changed since this run, so step ${step.stepIndex + 1} is no " +
+                    "longer the step that failed. Run it again and reconcile the new failure.",
+            )
+        }
+        return ReconcileRoute.Open(
+            WorkbenchEditRequest(
+                scenario = saved,
+                focusStep = step.stepIndex,
+                failedTags = step.tags.filterNot { it.passed },
+                actualRaw = wire,
+                actualAt = message.timestamp.atZone(java.time.ZoneId.systemDefault()).toInstant(),
+            ),
+        )
+    }
+
+    /** Opens the reconcile view for [step], or says why it will not. See [reconcileRoute]. */
+    fun openReconcile(step: StepResult) {
+        when (val route = reconcileRoute(step)) {
+            is ReconcileRoute.Open -> {
+                _workbenchEditRequest.value = route.request
+                if (!_showScenariosDialog.value) _showScenariosDialog.value = true
+            }
+            is ReconcileRoute.Refused -> showNotification(route.why, NotificationType.WARNING)
+        }
+    }
+
+    /**
+     * The session window's door into the reconcile view: "Reconcile assertions…" on a message whose
+     * assertions failed. Routes through [reconcileRoute], so it can never offer what the run report's
+     * button refuses, nor refuse what it offers.
      */
     fun openScenarioEditorForFailure(message: FixMessage) {
         val step = assertionResults[message] ?: return
-        val ranScenario = _lastRunScenario.value ?: return
-        val saved = scenarioService.load(ranScenario.id)
-        if (saved == null) {
-            showNotification(
-                "Scenario '${ranScenario.name}' is no longer saved — cannot edit its assertions",
-                NotificationType.ERROR,
-            )
-            return
-        }
-        // The editor edits `steps` only and run indices are per-phase, so focus needs both to line
-        // up — otherwise open unfocused rather than land on the wrong step.
-        val focus = step.stepIndex.takeIf {
-            step.phase == "steps" && it in saved.steps.indices && saved.steps[it] is ScenarioStep.Expect
-        }
-        if (focus == null) {
-            showNotification(
-                "Scenario '${saved.name}' changed since this run — pick the step manually",
-                NotificationType.INFO,
-            )
-        }
-        _workbenchEditRequest.value =
-            WorkbenchEditRequest(
-                scenario = saved,
-                focusStep = focus,
-                failedTags = step.tags.filterNot { it.passed },
-                // The bytes, not the display string. This is what the reconcile view diffs the expectation
-                // against and what "Accept actual" writes into the scenario — so a '|' inside a value (a
-                // venue's `58=Rejected|insufficient margin`) reaching it as the display string would have
-                // the view offer, and then save, a truncated value the venue never sent.
-                actualRaw = message.wireRaw ?: message.rawMessage,
-                actualAt = message.timestamp.atZone(java.time.ZoneId.systemDefault()).toInstant(),
-            )
-        if (!_showScenariosDialog.value) _showScenariosDialog.value = true
+        openReconcile(step)
     }
 
     // The quick-fix chips that used to live here are gone, and with them the map that backed them.
@@ -826,29 +897,66 @@ class FixMessageViewModel(
         _scenarioRunning.value = false
     }
 
+    /**
+     * Publish the last run's verdict. The workbench's run report — and the route from a failed step to the
+     * reconcile view, which hangs off it — reads this. Production code publishes only through
+     * [runScenarioBlocking]; it is open for tests that stage a run's aftermath without running one.
+     */
+    fun publishScenarioResult(result: ScenarioResult?) {
+        _scenarioResult.value = result
+    }
+
+    /**
+     * **The** scenario run: claims the single run slot, clears the last verdict, runs [scenario] on the
+     * calling thread, and publishes everything the UI hangs off a run (per-message assertion results, then
+     * the verdict) **before** releasing the slot. Returns null if a run is already in progress.
+     *
+     * Both callers use this — the UI's [runScenario] and the control surface's `/scenarios/run`. They used
+     * to keep their own copies of this sequence, and the copies drifted: the control surface published the
+     * per-message results but never the verdict, so an agent- or curl-driven run tinted the session grid red
+     * and left the run report — and with it the only route to the reconcile view — completely blank. A
+     * sequence that must happen identically in two places will eventually happen differently in two places.
+     *
+     * A throw is re-raised (the control surface answers HTTP 500, the UI logs) but is *notified* first,
+     * because the alternative is a wiped report with no explanation next to a grid full of red rows.
+     */
     @Suppress("TooGenericExceptionCaught")
-    fun runScenario(scenario: Scenario) {
-        if (!beginScenarioRun()) return
+    fun runScenarioBlocking(scenario: Scenario): ScenarioResult? {
+        if (!beginScenarioRun()) return null
         noteScenarioRun(scenario)
-        _scenarioResult.value = null
+        publishScenarioResult(null)
         setAssertionResults(emptyMap())
         val matched = linkedMapOf<FixMessage, StepResult>()
-        viewModelScope.launch(Dispatchers.IO) {
+        try {
             val result =
-                try {
-                    ScenarioRunner(
-                        ViewModelScenarioHost(this@FixMessageViewModel),
-                        onExpectMatched = { message, stepResult ->
-                            matched[message] = stepResult
-                            _assertionResults.value = matched.toMap()
-                        },
-                    ).run(scenario)
-                } catch (e: Exception) {
-                    showNotification("Scenario run failed: ${e.message}", NotificationType.ERROR)
-                    null
-                }
-            _scenarioResult.value = result
+                ScenarioRunner(
+                    ViewModelScenarioHost(this),
+                    onExpectMatched = { message, stepResult ->
+                        matched[message] = stepResult
+                        _assertionResults.value = matched.toMap()
+                    },
+                ).run(scenario)
+            // Published while the run slot is still held: a verdict that lands after the slot is free can
+            // land on top of the *next* run's freshly-cleared state, and the report would then name one
+            // run while the assertion results underneath it belong to another.
+            publishScenarioResult(result)
+            return result
+        } catch (e: Exception) {
+            showNotification("Scenario run failed: ${e.message}", NotificationType.ERROR)
+            throw e
+        } finally {
             endScenarioRun()
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    fun runScenario(scenario: Scenario) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                runScenarioBlocking(scenario)
+            } catch (e: Exception) {
+                logger.error("Scenario run failed: ${e.message}", e, notifyUser = false) // already notified
+            }
         }
     }
 

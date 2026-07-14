@@ -25,6 +25,7 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -189,6 +190,39 @@ class ScenarioIntegrationTest {
         assertEquals("updated", obj(post("/scenarios", scenarioJson("fixloop", "0", id = id)))["status"]!!.jsonPrimitive.content)
         val secondRun = obj(post("/scenarios/run", """{"id":"$id"}"""))
         assertTrue(secondRun["passed"]!!.jsonPrimitive.boolean, "rebaselined scenario should pass: $secondRun")
+        delete("/scenarios", """{"id":"$id"}""")
+    }
+
+    /**
+     * An agent-driven run must leave the workbench in the same state the Run button does — verdict published,
+     * failure attributed, reconcile route open.
+     *
+     * It did not. The control endpoint kept its own copy of the run choreography and had quietly dropped the
+     * last step of it: it published the per-message assertion results (so the session grid went red) but never
+     * the verdict, so the run report — and the only route to the reconcile view, which hangs off it — stayed
+     * blank. The scenarios are staged by MCP and curl in practice, so this was the path a human actually used.
+     */
+    @Test
+    fun `a control-surface run publishes the same verdict the Run button does`() {
+        val created = obj(post("/scenarios", scenarioJson("published", "8"))) // expects Rejected, gets New
+        val id = created["id"]!!.jsonPrimitive.content
+
+        val ran = obj(post("/scenarios/run", """{"id":"$id"}"""))
+        assertFalse(ran["passed"]!!.jsonPrimitive.boolean)
+
+        val published = viewModel.scenarioResult.value
+        assertNotNull(published, "the run report reads scenarioResult — an unpublished verdict is a blank report")
+        assertFalse(published.passed)
+        assertEquals("published", published.scenario)
+
+        // And the report's route to the diff is open on the failing step, exactly as after a UI run.
+        val failure = published.steps.first { !it.passed }
+        val route = viewModel.reconcileRoute(failure)
+        assertTrue(
+            route is FixMessageViewModel.ReconcileRoute.Open,
+            "an agent-driven failure must be reconcilable from the report, got: $route",
+        )
+        assertEquals(1, route.request.focusStep)
         delete("/scenarios", """{"id":"$id"}""")
     }
 

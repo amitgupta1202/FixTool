@@ -178,7 +178,6 @@ private fun ScenarioListPane(viewModel: FixMessageViewModel, onCapture: () -> Un
     var scenarios by remember { mutableStateOf(viewModel.scenarioService.list()) }
     var confirmingDeleteId by remember { mutableStateOf<String?>(null) }
     val running by viewModel.scenarioRunning.collectAsState()
-    val lastResult by viewModel.scenarioResult.collectAsState()
 
     fun refresh() {
         scenarios = viewModel.scenarioService.list()
@@ -198,7 +197,7 @@ private fun ScenarioListPane(viewModel: FixMessageViewModel, onCapture: () -> Un
             fontSize = 11.sp,
             modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
         )
-        RunStatusLine(running = running, result = lastResult, dictionary = viewModel.dictionary)
+        RunReport(viewModel, running)
         if (scenarios.isEmpty()) {
             Text(
                 "No scenarios yet. Drive a flow in the main window (manually or via the MCP tools), then Capture from sessions.",
@@ -235,8 +234,44 @@ private fun ScenarioListPane(viewModel: FixMessageViewModel, onCapture: () -> Un
     }
 }
 
+/**
+ * The last run's verdict, and the route from its failure to the reconcile view. The workbench is already
+ * open and already observing `workbenchEditRequest`, so the click lands the editor on the failing step's
+ * diff *in place* — no second window, no hunting for the message in the session grid.
+ */
 @Composable
-private fun RunStatusLine(running: Boolean, result: com.knapsack.fixtool.model.scenario.ScenarioResult?, dictionary: com.knapsack.fixtool.model.FixDictionary?) {
+private fun RunReport(viewModel: FixMessageViewModel, running: Boolean) {
+    val lastResult by viewModel.scenarioResult.collectAsState()
+    val failure = lastResult?.firstFailure()
+    // Recomputed only when the verdict changes: the route reads the saved scenario off disk.
+    val route = remember(lastResult) { failure?.let { viewModel.reconcileRoute(it) } }
+    RunStatusLine(
+        running = running,
+        result = lastResult,
+        dictionary = viewModel.dictionary,
+        route = route,
+        onReconcile = { failure?.let { viewModel.openReconcile(it) } },
+    )
+}
+
+/**
+ * The last run's verdict, and — when the failing step can be reconciled — the route to the diff that fixes
+ * it. That route is the whole point of the feature, so it belongs *on the failure*, where the failure is
+ * announced. Without it the report was a dead end: it named the failed tags and then left the author to go
+ * back to the main window and hunt for the message themselves.
+ *
+ * When there is **no** route, the report says why rather than simply omitting the button. Silently
+ * withholding what the tool has already decided is the same mistake in a smaller costume: the author cannot
+ * tell "this cannot be reconciled, and here is the reason" from "this feature does not exist".
+ */
+@Composable
+private fun RunStatusLine(
+    running: Boolean,
+    result: com.knapsack.fixtool.model.scenario.ScenarioResult?,
+    dictionary: com.knapsack.fixtool.model.FixDictionary?,
+    route: FixMessageViewModel.ReconcileRoute?,
+    onReconcile: () -> Unit,
+) {
     when {
         running -> Text("Running…", color = AppTheme.Colors.info, fontSize = 12.sp)
         result != null -> {
@@ -248,8 +283,8 @@ private fun RunStatusLine(running: Boolean, result: com.knapsack.fixtool.model.s
                 color = color,
                 fontSize = 12.sp,
             )
-            // Say WHAT failed, not just that something did — the session window has the full detail.
-            val firstFailure = result.steps.firstOrNull { !it.passed }
+            // Say WHAT failed, not just that something did — and then offer the way to fix it.
+            val firstFailure = result.firstFailure()
             if (firstFailure != null) {
                 val failedTags = firstFailure.tags.filterNot { it.passed }
                 val tagText = failedTags.take(4).joinToString(", ") { t ->
@@ -258,13 +293,31 @@ private fun RunStatusLine(running: Boolean, result: com.knapsack.fixtool.model.s
                 } + (if (failedTags.size > 4) " +${failedTags.size - 4} more" else "")
                 val where = if (firstFailure.stepIndex < 0) firstFailure.kind else "step ${firstFailure.stepIndex + 1} ${firstFailure.kind}"
                 val detail = firstFailure.detail?.let { " ($it)" } ?: ""
-                Text(
-                    text = "First failure: $where$detail" +
-                        (if (failedTags.isNotEmpty()) " — failed tags: $tagText" else "") +
-                        (if (firstFailure.stepIndex >= 0) ". Open the message in the session window for expected-vs-actual." else ""),
-                    color = AppTheme.Colors.textSecondary,
-                    fontSize = 11.sp,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                    Text(
+                        text = "First failure: $where$detail" +
+                            (if (failedTags.isNotEmpty()) " — failed tags: $tagText" else ""),
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f).testTag("run-failure-line"),
+                    )
+                    if (route is FixMessageViewModel.ReconcileRoute.Open) {
+                        SlimButton(
+                            text = "Reconcile assertions →",
+                            onClick = onReconcile,
+                            color = AppTheme.Colors.error,
+                            modifier = Modifier.padding(start = 8.dp).testTag("reconcile-failure"),
+                        )
+                    }
+                }
+                if (route is FixMessageViewModel.ReconcileRoute.Refused) {
+                    Text(
+                        text = route.why,
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 2.dp).testTag("reconcile-refused"),
+                    )
+                }
             }
         }
         else -> Unit

@@ -34,14 +34,26 @@ order QuickFIX would never produce:
 |---|---|
 | **`37` before `11`** | A real venue's order. QuickFIX's `toString()` sorts ascending, so it would emit `6, 11, 14, 37…`. If FixTool shows `11` before `37`, it read the re-serialisation and the wire-order fix is broken. |
 | **The party group mid-body** | `toString()` relocates every repeating group to the **end** of the body, after `58`. If FixTool shows `453…` after `58`, same conclusion. |
-| **`58=filled\|in full`** | A pipe **inside a value**. Legal FIX — `\|` is an ordinary character. Anything that establishes a message's delimiter by looking for a pipe shreds this field. It is what caught `GET /messages` reporting `58 = "filled"`, silently dropping the tail. |
-| **The same firm twice** | Both party entries carry `448=FIRMA` under different `452` roles. This is the case the sequence model exists for and the one identity-based matching could never address — the identity does not identify. |
+| **`58=filled\|in full`** | A pipe **inside a value**. Legal FIX — `\|` is an ordinary character. Anything that establishes a message's delimiter by looking for a pipe shreds this field. It is what caught `GET /messages` reporting `58 = "filled"`, silently dropping the tail. **It was silently dropped from this venue by `088251c`** (the commit that added the modes) and restored in Phase 5: for three phases the trap this table describes was not armed, and every live run was against a venue sending a space where the pipe should be. |
+| **Two different firms** | The entries carry `448=FIRMA` and `448=FIRMB`. They have to: with the same firm twice, an entry reorder and a role swap produce **byte-identical wire**, and the `shape` and `swap` modes below would be indistinguishable — which is the one distinction this venue exists to make live. (The same-firm-twice case, where the identity does not identify, is covered by the unit fixtures; a live venue cannot carry both traps at once.) |
 
-## Running it
+## The message log — and why the venue has two outputs
 
 ```bash
 python3 tools/fake-venue/fake_venue.py          # listens on 127.0.0.1:19999
 ```
+
+It writes **two** renderings of every message, and the difference between them is the pipe trap:
+
+| output | delimiter | can it be read back? |
+|---|---|---|
+| **stdout** (`<<` / `>>`) | SOH rendered as `\|`, for a human | **No.** `58=filled\|in full` now contains a pipe that is not a delimiter, and nothing in the line says which pipe is which. FixTool's paste box **refuses** it and quotes the message's own `CheckSum(10)` as the evidence. |
+| **the message log** (`$FAKE_VENUE_LOG`, default `/tmp/fake_venue.log`) | **SOH**, as a real venue's log stores them | **Yes** — SOH cannot occur inside a value, so `58` comes back whole, pipe and all. This is what W2 pastes. |
+
+Each log line is `<timestamp> <IN|OUT> <bytes>`, so it also exercises the other half of the paste
+reader: the **log prefix**, which is skipped and *reported*, never silently eaten. The `IN`/`OUT`
+words are the **venue's** point of view — FixTool derives a pasted message's direction from
+`SenderCompID(49)` against the session's own CompIDs, never from a word in someone else's log.
 
 Then point a FixTool session at it (`SenderCompID=FIXTOOL`, `TargetCompID=FAKE_VENUE`,
 `localhost:19999`, FIX.4.4) and send a `NewOrderSingle`. Over the control surface:

@@ -21,9 +21,15 @@ END, after 58. So:
   * if FixTool shows 37 before 11, and the 453 group before 58  -> it read the wire. Correct.
   * if FixTool shows 6 before 11 and the group after 58         -> it read toString(). Broken.
 
-The same firm appears twice under different PartyRoles, so both entries carry 448=FIRMA —
-the case the whole sequence model exists for, and the case identity-based matching could
-never address.
+Text carries a PIPE — 58=filled|in full. '|' is an ordinary character inside a FIX value, and
+anything that establishes a message's delimiter by looking for one shreds this field. It is what
+caught GET /messages reporting 58 = "filled" and silently dropping the tail, and it is what a
+'|'-rendered log line of this message cannot be read back through.
+
+The two party entries carry DIFFERENT firms (FIRMA, FIRMB). They have to: with the same firm twice,
+an entry reorder and a role swap produce byte-identical wire, and the `shape` and `swap` modes below
+would be indistinguishable — which is the one distinction this venue exists to make live. The
+same-firm-twice case (where the identity does not identify) is covered by the unit fixtures.
 """
 import os
 import socket
@@ -38,6 +44,12 @@ from datetime import datetime, timezone
 #   swap   : the two firms swap ROLES. Same tags, same positions, same everything else. This is a
 #            behaviour regression and must NEVER be offered as "entry moved".
 MODE_FILE = os.environ.get("FAKE_VENUE_MODE_FILE", "/tmp/fake_venue_mode")
+
+# The message log — SOH-delimited, both directions, the way a real venue's log stores them. stdout renders
+# SOH as '|' so a human can read it, and that rendering is LOSSY: 58=filled|in full contains a pipe, so a
+# '|'-rendered line cannot be read back unambiguously. FixTool's paste box refuses that line, quoting the
+# checksum; it reads THIS one. Both halves of the trap, from one message.
+LOG_FILE = os.environ.get("FAKE_VENUE_LOG", "/tmp/fake_venue.log")
 
 
 def mode():
@@ -66,6 +78,20 @@ def frame(msgtype, body_fields, seqnum):
     return f"{msg}10={cks:03d}{SOH}".encode()
 
 
+def log_wire(direction, raw):
+    """One message per line: a log prefix, then the venue's bytes, SOH and all."""
+    try:
+        with open(LOG_FILE, "ab") as f:
+            f.write(f"{now()} {direction} ".encode() + raw.rstrip(b"\n") + b"\n")
+    except OSError as e:
+        print(f"!! could not write {LOG_FILE}: {e}", flush=True)
+
+
+def send(conn, raw):
+    conn.sendall(raw)
+    log_wire("OUT", raw)
+
+
 def parse(raw):
     out = {}
     order = []
@@ -83,6 +109,7 @@ def main():
     srv.bind((HOST, PORT))
     srv.listen(1)
     print(f"fake venue listening on {HOST}:{PORT}", flush=True)
+    print(f"message log (SOH bytes, both directions): {LOG_FILE}", flush=True)
 
     conn, addr = srv.accept()
     print(f"connected: {addr}", flush=True)
@@ -104,10 +131,11 @@ def main():
             msg, buf = buf, b""
             fields, _ = parse(msg)
             mt = fields.get("35")
+            log_wire("IN", msg)
             print(f"<< {mt}: {msg.decode(errors='replace').replace(SOH, '|')}", flush=True)
 
             if mt == "A":  # Logon -> reply Logon
-                conn.sendall(frame("A", [("98", "0"), ("108", "30"), ("141", "Y")], seq))
+                send(conn, frame("A", [("98", "0"), ("108", "30"), ("141", "Y")], seq))
                 print(f">> A (logon ack) seq={seq}", flush=True)
                 seq += 1
 
@@ -148,7 +176,7 @@ def main():
                         ("453", "2"),
                         ("448", "FIRMB"), ("447", "D"), ("452", "1"),       # <- FIRMB now holds role 1
                         ("448", "FIRMA"), ("447", "D"), ("452", "4"),       # <- FIRMA now holds role 4
-                        ("58", "filled in full"),
+                        ("58", "filled|in full"),   # NOTE THE PIPE: a legal FIX value, and the trap this venue exists for
                         ("60", now()),
                     ]
                 else:  # golden
@@ -157,19 +185,19 @@ def main():
                         ("453", "2"),
                         ("448", "FIRMA"), ("447", "D"), ("452", "1"),       # executing firm
                         ("448", "FIRMB"), ("447", "D"), ("452", "4"),       # clearing firm
-                        ("58", "filled in full"),
+                        ("58", "filled|in full"),   # NOTE THE PIPE: a legal FIX value, and the trap this venue exists for
                         ("60", now()),
                     ]
-                conn.sendall(frame("8", er, seq))
+                send(conn, frame("8", er, seq))
                 print(f">> 8 (ExecutionReport, mode={m}) seq={seq}", flush=True)
                 seq += 1
 
             elif mt == "1":  # TestRequest -> Heartbeat
-                conn.sendall(frame("0", [("112", fields.get("112", "x"))], seq))
+                send(conn, frame("0", [("112", fields.get("112", "x"))], seq))
                 seq += 1
 
             elif mt == "5":  # Logout
-                conn.sendall(frame("5", [], seq))
+                send(conn, frame("5", [], seq))
                 seq += 1
                 print("logged out", flush=True)
                 conn.close()

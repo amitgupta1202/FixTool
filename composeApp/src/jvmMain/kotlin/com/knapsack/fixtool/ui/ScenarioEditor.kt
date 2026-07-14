@@ -53,8 +53,6 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.service.FixMessageHelper
-import com.knapsack.fixtool.service.MessageView
-import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.ScenarioAnnotations
 
 /** Label used in session dropdowns for "no explicit session" (the runner uses the active one). */
@@ -95,7 +93,15 @@ fun ScenarioStep.toEditStep(): EditStep =
         is ScenarioStep.Send -> EditStep(StepKind.SEND, session, fields = FixMessageHelper.parseFixMessage(raw), stepId = stepId)
         is ScenarioStep.Wait -> EditStep(StepKind.WAIT, session, state = state ?: "", match = match, timeoutMs = timeoutMs, stepId = stepId)
         is ScenarioStep.Expect ->
-            EditStep(StepKind.EXPECT, session, match = match, direction = direction, timeoutMs = timeoutMs, expectation = expectation, stepId = stepId)
+            EditStep(
+                StepKind.EXPECT,
+                session,
+                match = match,
+                direction = direction,
+                timeoutMs = timeoutMs,
+                expectation = expectation,
+                stepId = stepId,
+            )
         is ScenarioStep.ClearMessages -> EditStep(StepKind.CLEAR, session, stepId = stepId)
         is ScenarioStep.ResetSeqNum -> EditStep(StepKind.RESET, session, sender = sender, target = target, stepId = stepId)
     }
@@ -158,11 +164,10 @@ fun ScenarioEditor(
     sessionOptions: List<String>,
     onSave: (Scenario) -> Unit,
     onBack: () -> Unit,
-    secondInstance: (String?, String?, String?) -> MessageView? = { _, _, _ -> null },
     /** Step index the deep-link landed on (the step a run failed at); null outside one. Not the selection. */
     focusStep: Int? = null,
-    /** Failed-run context for [focusStep]'s builder; null outside a deep-link. */
-    runFailure: RunFailureContext? = null,
+    /** Opens the diff for a step, by its id — the one surface that authors or repairs an assertion. */
+    onOpenDiff: ((String) -> Unit)? = null,
     /**
      * The scenario as it now stands, emitted on every change.
      *
@@ -230,28 +235,27 @@ fun ScenarioEditor(
         }
         if (initial.setup.isNotEmpty()) {
             Text(
-                "Setup (runs first): " + initial.setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") },
+                "Setup (runs first): " +
+                    initial.setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") },
                 color = AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 6.dp),
             )
         }
-        // Deep-link orientation: say why the editor opened here and which tags to look at.
-        if (focusStep != null && runFailure != null && runFailure.failedTags.isNotEmpty()) {
-            val tagText = runFailure.failedTags.take(4).joinToString(", ") { t ->
-                val n = dictionary?.getFieldName(t.tag)?.let { " $it" } ?: ""
-                "${t.tag}$n"
-            } + (if (runFailure.failedTags.size > 4) " +${runFailure.failedTags.size - 4} more" else "")
+        // Deep-link orientation: say why the editor opened where it did. The failure itself is repaired in the
+        // diff, which is its own tab — this list is the scenario's *shape*, not its assertions.
+        if (focusStep != null) {
             Text(
-                "Opened at step ${focusStep + 1} — the last run failed here on: $tagText. Failed rows are tinted below; the ▶ dot previews against that run's actual message.",
+                "Opened at step ${focusStep + 1} — the last run failed here. Its assertions are repaired in the diff.",
                 color = AppTheme.Colors.error,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 6.dp),
             )
         }
-        val stepListState = androidx.compose.foundation.lazy.rememberLazyListState(
-            initialFirstVisibleItemIndex = (focusStep ?: 0).coerceAtLeast(0),
-        )
+        val stepListState =
+            androidx.compose.foundation.lazy.rememberLazyListState(
+                initialFirstVisibleItemIndex = (focusStep ?: 0).coerceAtLeast(0),
+            )
         // The split is draggable, and it starts narrow on the left. The step list is a column of short labels;
         // the right-hand pane holds the reconcile diff, which is a six-column table and wants every dp it can
         // get. A fixed 46/54 gave the diff less room than the list and no way to take any back.
@@ -282,7 +286,11 @@ fun ScenarioEditor(
                                     val tmpId = stepIds[i]
                                     stepIds[i] = stepIds[to]
                                     stepIds[to] = tmpId
-                                    if (selectedIdx == i) select(to) else if (selectedIdx == to) select(i)
+                                    if (selectedIdx == i) {
+                                        select(to)
+                                    } else if (selectedIdx == to) {
+                                        select(i)
+                                    }
                                 }
                             },
                             onRemove = {
@@ -313,11 +321,8 @@ fun ScenarioEditor(
                             step = steps[selectedIdx],
                             dictionary = dictionary,
                             sessionOptions = sessionOptions,
-                            secondInstance = secondInstance,
-                            // The failed-run context belongs to the focused step only — other steps
-                            // matched different messages (or none).
-                            runFailure = if (selectedIdx == focusStep) runFailure else null,
                             onChange = { steps[selectedIdx] = it },
+                            onOpenDiff = onOpenDiff?.let { open -> { open(steps[selectedIdx].stepId) } },
                         )
                     }
                 } else {
@@ -347,7 +352,14 @@ private fun StepRow(
     val bg = if (selected) AppTheme.Colors.selectionPrimary else AppTheme.Colors.surfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().background(bg).clickable(onClick = onSelect).padding(start = 8.dp, top = 2.dp, bottom = 2.dp).testTag("step-row-$index"),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    bg,
+                ).clickable(onClick = onSelect)
+                .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
+                .testTag("step-row-$index"),
     ) {
         RowIndex(index)
         SessionBadge(step.session, sessionColor, modifier = Modifier.width(120.dp))
@@ -392,9 +404,9 @@ private fun StepDetail(
     step: EditStep,
     dictionary: FixDictionary?,
     sessionOptions: List<String>,
-    secondInstance: (String?, String?, String?) -> MessageView?,
     onChange: (EditStep) -> Unit,
-    runFailure: RunFailureContext? = null,
+    /** Opens this step's diff, when it is an Expect. See [AssertionsDoor]. */
+    onOpenDiff: (() -> Unit)? = null,
 ) {
     Text("Step ${index + 1} — ${step.kind.name.lowercase()}", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)) {
@@ -410,14 +422,16 @@ private fun StepDetail(
     }
     when (step.kind) {
         StepKind.SEND -> SendDetail(step, dictionary, onChange)
-        StepKind.EXPECT -> ExpectDetail(step, dictionary, secondInstance, onChange, runFailure, stepIndex = index)
+        StepKind.EXPECT -> ExpectDetail(step, dictionary, onChange, onOpenDiff)
         StepKind.WAIT ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 SlimLabeled("State") {
                     SlimField(step.state, { onChange(step.copy(state = it)) }, monospace = true, modifier = Modifier.width(160.dp))
                 }
                 SlimLabeled("Timeout ms") {
-                    SlimField(step.timeoutMs.toString(), { onChange(step.copy(timeoutMs = it.toLongOrNull() ?: step.timeoutMs)) }, monospace = true, modifier = Modifier.width(80.dp))
+                    SlimField(step.timeoutMs.toString(), {
+                        onChange(step.copy(timeoutMs = it.toLongOrNull() ?: step.timeoutMs))
+                    }, monospace = true, modifier = Modifier.width(80.dp))
                 }
                 Text("e.g. LOGGED_ON", color = AppTheme.Colors.textDisabled, fontSize = 10.sp)
             }
@@ -426,10 +440,20 @@ private fun StepDetail(
         StepKind.RESET ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 SlimLabeled("Sender seq") {
-                    SlimField(step.sender?.toString() ?: "", { onChange(step.copy(sender = it.toIntOrNull())) }, monospace = true, modifier = Modifier.width(70.dp))
+                    SlimField(
+                        step.sender?.toString() ?: "",
+                        { onChange(step.copy(sender = it.toIntOrNull())) },
+                        monospace = true,
+                        modifier = Modifier.width(70.dp),
+                    )
                 }
                 SlimLabeled("Target seq") {
-                    SlimField(step.target?.toString() ?: "", { onChange(step.copy(target = it.toIntOrNull())) }, monospace = true, modifier = Modifier.width(70.dp))
+                    SlimField(
+                        step.target?.toString() ?: "",
+                        { onChange(step.copy(target = it.toIntOrNull())) },
+                        monospace = true,
+                        modifier = Modifier.width(70.dp),
+                    )
                 }
             }
     }
@@ -448,10 +472,14 @@ private fun SendDetail(step: EditStep, dictionary: FixDictionary?, onChange: (Ed
         fontSize = 10.sp,
         modifier = Modifier.padding(bottom = 6.dp),
     )
-    val unknownTags = com.knapsack.fixtool.service.DictionaryLint.unknownTags(step.fields, dictionary)
+    val unknownTags =
+        com.knapsack.fixtool.service.DictionaryLint
+            .unknownTags(step.fields, dictionary)
     if (unknownTags.isNotEmpty()) {
         Text(
-            "⚠ " + com.knapsack.fixtool.service.DictionaryLint.describe(unknownTags, step.fields, dictionary),
+            "⚠ " +
+                com.knapsack.fixtool.service.DictionaryLint
+                    .describe(unknownTags, step.fields, dictionary),
             color = AppTheme.Colors.warning,
             fontSize = 10.sp,
             modifier = Modifier.padding(bottom = 6.dp),
@@ -527,7 +555,13 @@ private fun ValueHelpCell(tag: Int, value: String, dictionary: FixDictionary?, o
             )
         else -> {
             val description = dictionary?.getFieldValueDescription(tag, value)?.takeIf { it != value } ?: ""
-            Text(description, color = AppTheme.Colors.textSecondary, fontSize = 10.sp, maxLines = 1, modifier = Modifier.width(150.dp).padding(start = 4.dp))
+            Text(
+                description,
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 10.sp,
+                maxLines = 1,
+                modifier = Modifier.width(150.dp).padding(start = 4.dp),
+            )
         }
     }
 }
@@ -536,11 +570,9 @@ private fun ValueHelpCell(tag: Int, value: String, dictionary: FixDictionary?, o
 private fun ExpectDetail(
     step: EditStep,
     dictionary: FixDictionary?,
-    secondInstance: (String?, String?, String?) -> MessageView?,
     onChange: (EditStep) -> Unit,
-    runFailure: RunFailureContext? = null,
-    /** The step's position in the scenario — stable across every edit to its contents. See ReconcileView. */
-    stepIndex: Int = 0,
+    /** Opens this step's diff — the one surface that can author or repair an assertion. */
+    onOpenDiff: (() -> Unit)? = null,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         SlimLabeled("Direction") {
@@ -553,57 +585,52 @@ private fun ExpectDetail(
             )
         }
         SlimLabeled("Timeout ms") {
-            SlimField(step.timeoutMs.toString(), { onChange(step.copy(timeoutMs = it.toLongOrNull() ?: step.timeoutMs)) }, monospace = true, modifier = Modifier.width(80.dp))
+            SlimField(
+                step.timeoutMs.toString(),
+                { onChange(step.copy(timeoutMs = it.toLongOrNull() ?: step.timeoutMs)) },
+                monospace = true,
+                modifier = Modifier.width(80.dp).testTag("expect-timeout"),
+            )
         }
     }
     MatchEditor(step.match, dictionary, onChange = { onChange(step.copy(match = it)) })
-    val messageType = step.expectation.messageType ?: step.match?.messageType ?: ""
-    if (step.expectation.fields.isEmpty() && step.expectation.golden == null) {
-        Text(
-            "No asserted tags yet. Assertions are normally captured from a live response; this step will only check that a matching message arrives.",
-            color = AppTheme.Colors.textDisabled,
-            fontSize = 10.sp,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-    } else {
-        val golden = step.expectation.golden
-        val failedView = remember(runFailure) { runFailure?.actualRaw?.let { RawMessageView(it) } }
+    AssertionsDoor(step, onOpenDiff)
+}
 
-        // A step that failed a run is reconciled, not re-authored. This is the surface that can see both
-        // sides — so it is the only one that can show the row the venue stopped sending, or the entry it
-        // moved. The builder below stays for authoring an expectation that has not been run.
-        if (failedView != null) {
-            val typeName = dictionary?.getFieldEnumValues(35)?.firstOrNull { it.first == messageType }?.second
-            ReconcileView(
-                expectation = step.expectation,
-                actual = failedView,
-                dictionary = dictionary,
-                crumb = "Expect · ${typeName?.let { "$it ($messageType)" } ?: messageType} · session ${step.session ?: "(active)"}",
-                actualAt = runFailure?.actualAt,
-                // The step's position in the scenario: stable across every edit to its contents.
-                stepKey = stepIndex,
-                // The golden follows the reconciliation. An expectation reconciled against *this* message
-                // describes *this* message, so keeping the old golden left the two contradicting each other:
-                // reopen the step later, without a failure, and the builder previews the new assertions
-                // against the message they were deliberately changed away from — showing red rows for edits
-                // that are correct, and offering to "fix" them back.
-                onChange = { updated ->
-                    onChange(step.copy(expectation = updated.copy(golden = runFailure?.actualRaw ?: golden)))
+/**
+ * **The step editor does not edit assertions. It says where they are edited.**
+ *
+ * There is exactly one surface in the app that can author or repair an assertion — the diff — and exactly one
+ * host that composes it: its own document tab. Two hosts would be two sets of props, two lifetimes and two
+ * answers to *"which reference is bound"*, and two chances to rewrite the wrong assertion. That is the defect
+ * the assertion model doc names, and it has been paid for once already.
+ *
+ * So this is the door. *Reconcile* when the step has failed a run; *Edit assertions* otherwise — the same tab,
+ * the same surface, a different message in the slot, which is the whole argument of the reference slot made
+ * where it costs nothing.
+ */
+@Composable
+private fun AssertionsDoor(step: EditStep, onOpenDiff: (() -> Unit)?) {
+    val rows = step.expectation.fields.size
+    Column(modifier = Modifier.padding(top = 10.dp)) {
+        Text(
+            text =
+                when {
+                    rows > 0 -> "$rows asserted ${if (rows == 1) "row" else "rows"}."
+                    step.expectation.golden != null -> "No asserted rows — this step checks only that a matching message arrives."
+                    else ->
+                        "No asserted rows, and no captured message. This step checks only that a matching " +
+                            "message arrives; run the scenario, or bind a message, to start asserting on it."
                 },
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        } else {
-            val drafts = remember { ExpectationDrafts.fromExpectation(step.expectation, dictionary) }
-            val goldenView = remember { step.expectation.golden?.let { RawMessageView(it) } }
-            val second = remember { secondInstance(step.session, messageType.ifBlank { null }, step.expectation.golden) }
-            ExpectationBuilder(
-                messageType = messageType,
-                initialFields = drafts,
-                goldenView = goldenView,
-                secondView = second,
-                initialMode = step.expectation.mode,
-                onChange = { updated -> onChange(step.copy(expectation = updated.copy(golden = golden))) },
-                modifier = Modifier.padding(top = 8.dp),
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 11.sp,
+        )
+        if (onOpenDiff != null) {
+            SlimButton(
+                text = "Edit assertions →",
+                onClick = onOpenDiff,
+                color = AppTheme.Colors.primary,
+                modifier = Modifier.padding(top = 6.dp).testTag("open-diff"),
             )
         }
     }
@@ -626,7 +653,11 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
             color = AppTheme.Colors.textSecondary,
             fontSize = 10.sp,
         )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
             SlimLabeled("Msg type") {
                 MsgTypePicker(match?.messageType, dictionary) { picked -> push(picked, match?.fields ?: emptyList()) }
             }
@@ -651,8 +682,16 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
                 ConstraintValueCell(tv, dictionary) { newValue ->
                     push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = TagValue(tv.tag, newValue) })
                 }
-                IconButton(onClick = { push(match?.messageType, match!!.fields.toMutableList().apply { removeAt(i) }) }, modifier = Modifier.size(22.dp)) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove constraint", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
+                IconButton(
+                    onClick = { push(match?.messageType, match!!.fields.toMutableList().apply { removeAt(i) }) },
+                    modifier = Modifier.size(22.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Remove constraint",
+                        tint = AppTheme.Colors.error,
+                        modifier = Modifier.size(12.dp),
+                    )
                 }
             }
         }
@@ -677,8 +716,7 @@ private fun PaneDivider(onDrag: (Float) -> Unit) {
                         change.consume()
                         onDrag(dragAmount.x)
                     }
-                }
-                .testTag("editor-pane-divider"),
+                }.testTag("editor-pane-divider"),
     )
 }
 

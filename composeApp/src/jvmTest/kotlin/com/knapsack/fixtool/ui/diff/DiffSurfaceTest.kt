@@ -34,6 +34,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.MessageView
+import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.wireView
 import com.knapsack.fixtool.ui.AppTheme
@@ -116,6 +117,24 @@ class DiffSurfaceTest {
         )
     private val rolesSwapped =
         wireView(453 to "2", 448 to "FIRMA", 447 to "D", 452 to "4", 448 to "FIRMB", 447 to "D", 452 to "1")
+
+    /** Three parties — the rotation trap's own shape, and the one an entry-aligned fixture would dodge. */
+    private val threeParties =
+        Expectation(
+            listOf(
+                FieldExpectation(448, Matcher.Exact("FIRMA")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("1")),
+                FieldExpectation(448, Matcher.Exact("FIRMB")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("4")),
+                FieldExpectation(448, Matcher.Exact("FIRMC")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("7")),
+            ),
+            messageType = "8",
+            mode = MatchMode.STRICT,
+        )
 
     /**
      * **The change is fed back**, as `ScenarioEditor` feeds it — a fresh `Expectation` arrives on the next
@@ -387,6 +406,110 @@ class DiffSurfaceTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("diff-summary").assertTextContains("attention", substring = true)
+    }
+
+    /**
+     * **The arrow moves the entry the AUTHOR picked, not the one the engine planned.** (Ported from
+     * `ReconcileViewTest`, which is deleted with the view it tested.)
+     *
+     * Three parties: B and C swapped, A did not move. Accept-new-order would put B and C back. The author
+     * instead moves **B up past A** — an entry the engine never touched and never proposed touching. The arrow
+     * has to reach a placement the engine's own plan does not, or it is not a hand move at all; and every party
+     * must come out whole, each firm still beside its own role.
+     */
+    @Test
+    fun `the arrow moves the entry the author picked, not the one the engine planned`() {
+        val actual =
+            wireView(
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
+                448 to "FIRMC",
+                447 to "D",
+                452 to "7",
+                448 to "FIRMB",
+                447 to "D",
+                452 to "4",
+            )
+        var edited: Expectation? = null
+        composeTestRule.surface(threeParties, actual) { edited = it }
+
+        // A's ↑ is disabled (nothing above it), so the first *enabled* one belongs to B — the second entry.
+        composeTestRule.onAllNodesWithTag("entry-up")[1].performClick()
+        composeTestRule.waitForIdle()
+
+        val fields = edited!!.fields.map { it.tag to (it.matcher as Matcher.Exact).value }
+        assertEquals(
+            listOf(
+                448 to "FIRMB",
+                447 to "D",
+                452 to "4",
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
+                448 to "FIRMC",
+                447 to "D",
+                452 to "7",
+            ),
+            fields,
+            "B swapped with A — and every party is still whole, firm still beside its own role",
+        )
+        val plan =
+            ScenarioReconcile
+                .acceptNewOrder(threeParties, actual)
+                ?.fields
+                ?.map { row -> row.tag to (row.matcher as Matcher.Exact).value }
+        assertTrue(
+            fields != plan,
+            "the arrow must reach a placement the engine's plan does not — otherwise it proves nothing: $plan",
+        )
+    }
+
+    /**
+     * **A bracketed entry moves as a whole, from its band.** (Ported from `ReconcileViewTest`.) The author
+     * looking at a bracket they disagree with has a way to fix it that never drags a single row past its
+     * sibling — which is the move that silently re-aims an assertion.
+     */
+    @Test
+    fun `a bracketed entry can be moved by hand, as a whole, from its band`() {
+        val actual = wireView(448 to "FIRMB", 447 to "D", 452 to "4", 448 to "FIRMA", 447 to "D", 452 to "1")
+        var edited: Expectation? = null
+        composeTestRule.surface(roleSwapExpectation, actual) { edited = it }
+
+        composeTestRule.onAllNodesWithTag("entry-down")[0].performClick()
+        composeTestRule.waitForIdle()
+
+        val fields =
+            edited!!.fields.filter { it.tag != 453 }.map { it.tag to (it.matcher as Matcher.Exact).value }
+        assertEquals(
+            listOf(448 to "FIRMB", 447 to "D", 452 to "4", 448 to "FIRMA", 447 to "D", 452 to "1"),
+            fields,
+            "the whole entry travelled — all three of its rows, in their order",
+        )
+    }
+
+    /**
+     * **Repairs stay staged when the host feeds the change back, as the app does.** (Ported from
+     * `ReconcileViewTest`, and it matters more now than it did then.)
+     *
+     * Every edit goes out through `onChange` and comes back as the expectation the surface re-renders from —
+     * and in the app that round trip now runs through the *scenario workspace*, which is a longer wire than the
+     * one that broke last time. A surface that rebuilt its session on the way back would drop the undo stack on
+     * the very click that filled it, and the footer would go on promising to save edits it had forgotten.
+     */
+    @Test
+    fun `repairs stay staged through the feedback loop the app really uses`() {
+        composeTestRule.surface(captured, reply)
+
+        composeTestRule.onNodeWithTag("accept_actual-151-0").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("drop-58-0").performClick()
+        composeTestRule.waitForIdle()
+
+        // Two edits, both still staged, in the order they were made — and undo still has somewhere to go.
+        composeTestRule.onNodeWithTag("diff-staged").assertTextEquals("2")
+        composeTestRule.onNodeWithTag("diff-staged-labels").assertTextContains("Accepted 151", substring = true)
+        composeTestRule.onNodeWithTag("diff-staged-labels").assertTextContains("Dropped 58", substring = true)
     }
 
     // ----- the group bands --------------------------------------------------------------------------------

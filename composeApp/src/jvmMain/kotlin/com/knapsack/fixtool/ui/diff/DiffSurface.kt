@@ -31,6 +31,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.service.compare.ChunkKind
 import com.knapsack.fixtool.service.compare.EntryNode
 import com.knapsack.fixtool.service.compare.EntrySource
+import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.ui.AppTheme
 import com.knapsack.fixtool.ui.MATCHER_TYPES
 import com.knapsack.fixtool.ui.MatcherEditor
@@ -67,7 +68,7 @@ fun DiffSurface(
 
     Column(modifier = modifier.fillMaxWidth().border(1.dp, AppTheme.Colors.border).testTag("diff-surface")) {
         DiffHeader(session, model, crumb, onSave, onCancel)
-        VerdictLine(model)
+        VerdictLine(model, session.reference.provenance)
         // The engine knows exactly why it is not offering a move, and it used to keep that to itself. An
         // author looking at a group full of red rows with no re-order on offer concludes — reasonably — that
         // re-ordering was never built. That is what happened. Now it says.
@@ -172,7 +173,7 @@ private fun Chip(label: String, color: Color, tinted: Boolean = false, testTag: 
  * replaces, so the two can never come to disagree about how many rows are red.
  */
 @Composable
-private fun VerdictLine(model: DiffModel) {
+private fun VerdictLine(model: DiffModel, provenance: ReferenceMessage.Provenance) {
     val v = model.verdict
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -184,7 +185,9 @@ private fun VerdictLine(model: DiffModel) {
                 ).padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
-            text = v.headline,
+            // Against a SECOND_INSTANCE a red row is an over-specified assertion, not a venue regression —
+            // and the sentence has to say which, or the author goes hunting a bug that does not exist.
+            text = v.headlineAgainst(provenance),
             color =
                 when {
                     v.needsAttention -> AppTheme.Colors.error

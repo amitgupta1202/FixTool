@@ -63,3 +63,43 @@ curl -s "$B/messages?session=Venue&direction=incoming"
 - Editing the **second** `452` row to assert `1` — the venue sends `4` there, and `1` on the *first* entry — fails **exactly one row, at occurrence 1**. If it passes, pairing has re-aimed onto the entry that happens to satisfy the matcher, and that is the false green the whole model exists to make impossible.
 
 See `docs/scenario-assertion-model.md`.
+
+## The three modes, and staging the reconcile demo
+
+The venue's behaviour is switchable at runtime by writing one word to its mode file
+(`/tmp/fake_venue_mode`, or `$FAKE_VENUE_MODE_FILE`):
+
+| mode | what the reply does | what it is for |
+|---|---|---|
+| `golden` | the reply a scenario is captured from | capture |
+| `shape` | the party **entries swap places** (benign — FIRMA still holds role 1), plus a real `151` regression, a tag added and a tag dropped | the four kinds of failure the reconcile view is organised around. A re-order **should** be offered here. |
+| `swap` | the two firms **swap ROLES**. Same tags, same positions, same everything else. | a behaviour regression that must **never** be offered as "entry moved". If a move is offered here, a false green is back. |
+
+Staging the demo end to end, against a FixTool with the control surface enabled
+(`FIXTOOL_CONTROL_PORT=8799`):
+
+```bash
+echo golden > /tmp/fake_venue_mode
+python3 tools/fake-venue/fake_venue.py &          # 127.0.0.1:19999
+
+B=http://127.0.0.1:8799
+curl -s -XPOST $B/profiles -d '{"name":"Venue","config":{"senderCompID":"FIXTOOL","targetCompID":"FAKE_VENUE","host":"127.0.0.1","port":"19999","beginString":"FIX.4.4","heartBtInt":"30","resetOnLogon":true}}'
+curl -s -XPOST $B/connect  -d '{"profile":"Venue"}'
+curl -s -XPOST $B/send     -d '{"session":"Venue","raw":"8=FIX.4.4|35=D|11=DEMO-1|55=EUR/USD|54=1|38=1000000|40=1|60=20260101-00:00:00|"}'
+
+# capture the scenario from the golden reply, then break it two different ways
+ID=$(curl -s -XPOST $B/scenarios/capture -d '{"name":"DEMO","sessions":["Venue"]}' | sed 's/.*"id":"\([^"]*\)".*/\1/' | head -c 36)
+
+echo shape > /tmp/fake_venue_mode ; curl -s -XPOST $B/scenarios/run -d "{\"id\":\"$ID\"}"   # entries moved
+echo swap  > /tmp/fake_venue_mode ; curl -s -XPOST $B/scenarios/run -d "{\"id\":\"$ID\"}"   # roles swapped
+
+curl -s -XPOST $B/panel -d '{"panel":"scenarios"}'   # the run report → "Reconcile assertions →"
+```
+
+In `shape` the reconcile view brackets each party as **⇅ Entry moved** and offers **Accept new order**.
+In `swap` it offers no move at all, and says why — *"these rows did not move… the values changed in
+place"* — while still giving the author a `move entry ↑ ↓` handle on each entry. That difference is the
+whole point of this venue.
+
+**Two instances of FixTool can share one venue**, but not one mode file: pass a different
+`FAKE_VENUE_MODE_FILE` (and edit the hard-coded port) if you need an isolated copy.

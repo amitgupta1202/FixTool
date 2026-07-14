@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
+import com.knapsack.fixtool.service.compare.EntrySource
 import com.knapsack.fixtool.service.compare.GroupOverlay
 import com.knapsack.fixtool.service.compare.NO_ANCHOR
 import com.knapsack.fixtool.service.compare.ReferenceMessage
@@ -736,17 +737,34 @@ object ScenarioReconcile {
                         "why it looks so much like the rows above it. Only an entry may move.",
                 )
 
-        // A single-row entry of a repeated tag is not an entry at all: nothing travels with it, so swapping
-        // it past its sibling re-aims two assertions and is the per-row arrow wearing a block's clothes.
-        if (entry.count() == 1 && draft.fields.count { it.tag == draft.fields[entry.first].tag } > 1) {
+        // A single-row "entry" of a repeated tag, where the DICTIONARY DID NOT SAY SO, is not an entry at all:
+        // it is a bare run of the same tag — `448, 448, 448` — that the row-order heuristic bracketed because
+        // a run of period 1 repeats like anything else does. Nothing travels with such a row, so swapping it
+        // past its sibling re-aims two assertions, and it is the per-row arrow wearing a block's clothes.
+        //
+        // Where the dictionary DOES say so, it is a real entry that happens to hold one field —
+        // `NoMDEntryTypes` is delimited by `MDEntryType` and contains nothing else — and moving it is the
+        // ordinary entry move. Yes, the occurrence mapping changes: that is what an entry move IS. The rule
+        // permits it because *the whole entry crosses*, and the danger it guards against — a row arriving
+        // beside another entry's rows and being silently re-aimed onto them — cannot arise where the entry has
+        // no other rows to be separated from. Refusing it, with a sentence about re-aiming assertions, took
+        // the entry drag away from every one-field group and blamed the move for something it does not do.
+        if (entry.count() == 1 &&
+            draft.fields.count { it.tag == draft.fields[entry.first].tag } > 1 &&
+            !dictated(overlay, entry)
+        ) {
             return MoveResult.Refused(occurrenceSwap(draft, entry.first))
         }
 
         val at = siblings.indexOf(entry)
         if (toSlot !in siblings.indices) {
+            // Say where the entry actually is, not "first or last" — an entry dragged past the end of a group
+            // of three from the MIDDLE was told it "is already last in its group", which it plainly is not, and
+            // a refusal that describes the wrong situation is worse than one that says nothing.
             return MoveResult.Refused(
-                "This entry is already ${if (at == 0) "first" else "last"} in its group, so there is nowhere " +
-                    "for it to go.",
+                "This group has ${siblings.size} ${if (siblings.size == 1) "entry" else "entries"} and this one " +
+                    "is number ${at + 1}, so there is nowhere for it to go at slot ${toSlot + 1}. An entry may " +
+                    "only change places with its own siblings.",
             )
         }
         if (toSlot == at) return MoveResult.Applied(draft)
@@ -797,6 +815,17 @@ object ScenarioReconcile {
     /** Each group's whole footprint — nothing from outside it may be dropped in. */
     private fun spansOf(draft: Expectation, overlay: GroupOverlay?): List<IntRange> =
         overlay?.spans ?: entryRegions(draft).map { it.first().first..it.last().last }
+
+    /**
+     * Did the **dictionary** say these rows are an entry, or did the row order merely suggest it?
+     *
+     * It is the difference between `NoMDEntryTypes` — a real group whose entries hold one field each — and a
+     * bare run of the same tag that the period-detection bracketed because a period of 1 repeats like any
+     * other. The first may move as an entry; the second is not an entry, and the row inside it moves alone or
+     * not at all. Nothing else in here needs to tell them apart, and this is the only thing that can.
+     */
+    private fun dictated(overlay: GroupOverlay?, entry: IntRange): Boolean =
+        overlay?.entries?.any { it.rows == entry && it.source == EntrySource.DICTIONARY } == true
 
     /** The innermost entry containing [row] — the one a move of it is bounded by. */
     private fun innermost(entries: List<IntRange>, row: Int): IntRange? =

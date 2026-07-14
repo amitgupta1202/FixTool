@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.ScenarioReconcile.MoveResult
+import com.knapsack.fixtool.service.compare.EntrySource
 import com.knapsack.fixtool.service.compare.GroupOverlay
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -212,14 +213,60 @@ class MoveRuleTest {
         assertTrue("welded to the head of the next" in why, why)
     }
 
-    /** Nothing travels with a single-row entry of a repeated tag, so its "entry move" is the per-row arrow. */
+    /**
+     * A run of the same tag that only the ROW HEURISTIC brackets is not a group, and its "entries" are not
+     * entries — a period of 1 repeats like any other period, so `455, 455` looks exactly like a group of two
+     * one-field entries and is nothing of the kind. Nothing travels with such a row, so its "entry move" is
+     * the per-row arrow in a block's clothes. (The bundled dictionary does not define `NoSecurityAltID`, which
+     * is what makes this fixture a heuristic one — assert that, or the test is pinning the wrong rule.)
+     */
     @Test
-    fun `a single-row entry of a repeated tag is the per-row arrow in a block's clothes`() {
+    fun `a single-row heuristic entry of a repeated tag is the per-row arrow in a block's clothes`() {
         val draft = exp(454 to "2", 455 to "ALT-1", 455 to "ALT-2")
+        assertEquals(
+            listOf(EntrySource.HEURISTIC, EntrySource.HEURISTIC),
+            overlayFor(draft).entries.map { it.source },
+            "if the dictionary has learned this group, this fixture no longer tests the heuristic",
+        )
 
         val why = why(ScenarioReconcile.moveEntry(draft, overlayFor(draft), entry = 1..1, toSlot = 1))
 
         assertTrue("swap which occurrence" in why, why)
+    }
+
+    /**
+     * **And the same shape, where the DICTIONARY says it is a group, moves.** `NoMDEntryTypes` is delimited by
+     * `MDEntryType` and holds nothing else, so each of its entries is one row — a real entry that happens to
+     * be one field wide, and the entry drag belongs to it like any other.
+     *
+     * The occurrence mapping changes, and that is not the objection it looks like: *that is what an entry move
+     * is*. FIRMA's `448` becomes the second `448` too. The danger the per-row arrow carries — a row arriving
+     * beside another entry's rows and being silently re-aimed onto them — cannot arise where the entry has no
+     * other rows to be separated from. This was refused, with a sentence about re-aiming assertions, which
+     * took the entry drag away from every one-field group and blamed the move for something it does not do.
+     */
+    @Test
+    fun `a single-row entry the dictionary defines is a real entry, and it moves`() {
+        val draft =
+            Expectation(
+                fields =
+                    listOf(
+                        FieldExpectation(267, Matcher.Exact("2")),
+                        FieldExpectation(269, Matcher.Exact("0")),
+                        FieldExpectation(269, Matcher.Exact("1")),
+                    ),
+                messageType = "V",
+            )
+        val overlay = overlayFor(draft)
+        assertEquals(
+            listOf(EntrySource.DICTIONARY, EntrySource.DICTIONARY),
+            overlay.entries.map { it.source },
+            "the dictionary must be the one bracketing these, or this test is about the heuristic instead",
+        )
+
+        val moved = ScenarioReconcile.moveEntry(draft, overlay, entry = 1..1, toSlot = 1)
+
+        assertEquals(listOf("2", "1", "0"), values(moved), "the venue sends the entries the other way round now")
     }
 
     /** A refusal always says something. An entry at the end of its group has nowhere to go, and says so. */
@@ -230,6 +277,20 @@ class MoveRuleTest {
         val why = why(ScenarioReconcile.moveEntry(draft, overlayFor(draft), entry = 4..6, toSlot = 2))
 
         assertTrue("nowhere" in why, why)
+    }
+
+    /**
+     * ...and it says where the entry actually *is*. A middle entry dropped past the end of its group was told
+     * it "is already last in its group", which it plainly is not: a refusal that describes the wrong situation
+     * is worse than one that says nothing, because the author believes it.
+     */
+    @Test
+    fun `an entry refused a slot outside its group is told where it really sits`() {
+        val draft = threeParties()
+
+        val why = why(ScenarioReconcile.moveEntry(draft, overlayFor(draft), entry = 4..6, toSlot = 3))
+
+        assertTrue("3 entries" in why && "number 2" in why, "the middle entry is neither first nor last: $why")
     }
 
     // ----- the properties -------------------------------------------------------------------------------

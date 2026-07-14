@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.compare.SemanticsRegistry
@@ -75,6 +76,10 @@ object ScenarioCodec {
             // Additive, and written only once assigned: a file that never had ids is not given them by the
             // act of reading it, only by the act of saving it.
             step.stepId.takeIf { it.isNotBlank() }?.let { put("stepId", it) }
+            // The same bargain: written only when it is not the default, so a file that never carried an
+            // origin does not grow the key by being read. Invariant 5 — the wire format is frozen except
+            // additively, and a file that loads today loads identically after every phase.
+            step.origin.takeIf { it != StepOrigin.LIVE }?.let { put("origin", it.name.lowercase()) }
             when (step) {
                 is ScenarioStep.Send -> {
                     put("type", "send"); put("raw", step.raw); step.session?.let { put("session", it) }
@@ -110,14 +115,18 @@ object ScenarioCodec {
     fun stepFromJson(obj: JsonObject): ScenarioStep {
         val session = obj["session"]?.jsonPrimitive?.contentOrNull
         val stepId = obj["stepId"]?.jsonPrimitive?.contentOrNull ?: ""
+        // NOT a refusal, unlike an unknown `mode` (which changes what is checked, and so fails the load).
+        // An origin this build does not recognise degrades toward LESS trust: see StepOrigin.from.
+        val origin = StepOrigin.from(obj["origin"]?.jsonPrimitive?.contentOrNull)
         return when (val type = obj["type"]?.jsonPrimitive?.contentOrNull?.lowercase()) {
-            "send" -> ScenarioStep.Send(raw = str(obj, "raw"), session = session, stepId = stepId)
+            "send" -> ScenarioStep.Send(raw = str(obj, "raw"), session = session, stepId = stepId, origin = origin)
             "wait" -> ScenarioStep.Wait(
                 session = session,
                 state = obj["state"]?.jsonPrimitive?.contentOrNull,
                 match = obj["match"]?.jsonObject?.let { predicateFromJson(it) },
                 timeoutMs = obj["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 10_000,
                 stepId = stepId,
+                origin = origin,
             )
             "expect" -> ScenarioStep.Expect(
                 session = session,
@@ -126,13 +135,15 @@ object ScenarioCodec {
                 timeoutMs = obj["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 10_000,
                 expectation = expectationFromJson(reqObj(obj, "expectation")),
                 stepId = stepId,
+                origin = origin,
             )
-            "clearmessages" -> ScenarioStep.ClearMessages(session, stepId)
+            "clearmessages" -> ScenarioStep.ClearMessages(session, stepId, origin)
             "resetseqnum" -> ScenarioStep.ResetSeqNum(
                 session = session,
                 sender = obj["sender"]?.jsonPrimitive?.intOrNull,
                 target = obj["target"]?.jsonPrimitive?.intOrNull,
                 stepId = stepId,
+                origin = origin,
             )
             else -> throw IllegalArgumentException("unknown step type '$type'")
         }

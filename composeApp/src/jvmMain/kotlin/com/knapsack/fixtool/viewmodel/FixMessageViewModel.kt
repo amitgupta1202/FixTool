@@ -23,6 +23,7 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
@@ -41,6 +42,8 @@ import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.SessionIdentityResolver
 import com.knapsack.fixtool.service.compare.ReferenceMessage
+import com.knapsack.fixtool.service.compare.ReferenceOption
+import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.ui.CaptureReviewState
 import com.knapsack.fixtool.ui.FixField
@@ -528,15 +531,32 @@ class FixMessageViewModel(
             _openDocuments.value
                 .filterIsInstance<ScenarioDoc.Reconcile>()
                 .firstOrNull { it.scenarioId == scenarioId && it.stepId == stepId }
-        val againstThisRun = doc?.session?.reference?.provenance == ReferenceMessage.Provenance.THIS_RUN
+        val session = doc?.session
+        val againstThisRun = session?.reference?.provenance == ReferenceMessage.Provenance.THIS_RUN
         val golden = if (againstThisRun) doc?.thisRunWire ?: edited.golden else edited.golden
+        // **The badge follows the bytes.** Rows tightened against a paste were tightened against bytes FixTool
+        // cannot vouch for, and — because the golden is NOT re-pointed at them (V4) — the step will open red
+        // against its own canonical example ever after. The badge is the sentence that explains that.
+        //
+        // It is computed against what is on DISK, not against the draft, and it only ever escalates:
+        //   · edit against a paste            -> pasted
+        //   · undo back to where you started  -> whatever the file says, so the badge clears with the edit
+        //   · saved pasted, then edit live    -> still pasted, because those rows may still be the paste's,
+        //                                        and clearing it would be a claim FixTool cannot make.
+        val pastedSlot = session?.reference?.provenance == ReferenceMessage.Provenance.PASTED
+        val editedAgainstPaste = pastedSlot && session != null && edited != session.original
         updateScenarioDraft(scenarioId) { workspace ->
+            val onDisk =
+                workspace.seed.steps
+                    .firstOrNull { it.stepId == stepId }
+                    ?.origin ?: StepOrigin.LIVE
+            val origin = if (editedAgainstPaste) StepOrigin.PASTED else onDisk
             val steps =
                 workspace.draft.steps.map { step ->
                     if (step.stepId != stepId || step !is ScenarioStep.Expect) {
                         step
                     } else {
-                        step.copy(expectation = edited.copy(golden = golden))
+                        step.copy(expectation = edited.copy(golden = golden), origin = origin)
                     }
                 }
             workspace.copy(draft = workspace.draft.copy(steps = steps))
@@ -548,23 +568,204 @@ class FixMessageViewModel(
      * its cheapest honest form. Phase 5's armed slot widens it; the *provenance* is already right.
      */
     fun bindPickedReference(doc: ScenarioDoc.Reconcile, wire: String, arrivedAt: java.time.LocalDateTime?) {
-        val expectation =
-            (scenarioDraft(doc.scenarioId)?.draft?.steps?.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect)
-                ?.expectation ?: return
         val at = arrivedAt?.atZone(java.time.ZoneId.systemDefault())?.toInstant() ?: java.time.Instant.now()
-        val reference =
+        bind(
+            doc,
             ReferenceMessage.live(
                 view = RawMessageView(wire),
                 provenance = ReferenceMessage.Provenance.PICKED,
                 label = "picked — ${clockOf(at)}",
                 arrivedAt = at,
-            )
+            ),
+        )
+    }
+
+    /**
+     * Bind, or build the session if the slot was empty. The one door every reference goes through, so a
+     * reference cannot arrive by a route that forgets to re-judge.
+     */
+    /** The step this diff is a view onto — or null, if the author has deleted it out from under the tab. */
+    private fun expectStep(doc: ScenarioDoc.Reconcile): ScenarioStep.Expect? =
+        scenarioDraft(doc.scenarioId)
+            ?.draft
+            ?.steps
+            ?.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect
+
+    private fun bind(doc: ScenarioDoc.Reconcile, reference: ReferenceMessage): Boolean {
+        val expectation = expectStep(doc)?.expectation ?: return false
         val existing = doc.session
         if (existing != null) {
             existing.swapReference(reference)
-            return
+            return true
         }
         updateDocument(doc.copy(session = newReconcileSession(doc.scenarioId, doc.stepId, expectation, reference)))
+        return true
+    }
+
+    // ---- The reference slot: what the swap menu may offer, and why it may not (S8, S11) ------------------
+
+    /** The five entries of the swap menu, in the mockup's order, each one honest about whether it can be taken. */
+    fun referenceOptions(doc: ScenarioDoc.Reconcile): List<ReferenceOption> {
+        val bound = doc.session?.reference?.provenance
+        val step = expectStep(doc)
+        val golden = step?.expectation?.golden
+        val second = secondInstanceFor(step)
+        return listOf(
+            ReferenceOption(
+                kind = ReferenceOption.Kind.THIS_RUN,
+                label = doc.thisRunWire?.let { "received — this run" } ?: "received — this run",
+                detail = if (doc.thisRunWire != null) "the message this run matched" else "this step has not run",
+                enabled = doc.thisRunWire != null,
+                selected = bound == ReferenceMessage.Provenance.THIS_RUN,
+            ),
+            ReferenceOption(
+                kind = ReferenceOption.Kind.GOLDEN,
+                label = "golden",
+                detail = if (golden != null) "the message it was captured from" else "this step was never captured",
+                enabled = golden != null,
+                selected = bound == ReferenceMessage.Provenance.GOLDEN,
+            ),
+            ReferenceOption(
+                kind = ReferenceOption.Kind.SECOND_INSTANCE,
+                label = "second instance",
+                detail =
+                    if (second != null) {
+                        "does it generalize?"
+                    } else {
+                        "no later live message of this type — connect a session and run the flow"
+                    },
+                enabled = second != null,
+                selected = bound == ReferenceMessage.Provenance.SECOND_INSTANCE,
+            ),
+            ReferenceOption(
+                kind = ReferenceOption.Kind.PICK,
+                label = "pick from session…",
+                detail = "click any grid row",
+                enabled = true,
+                selected = bound == ReferenceMessage.Provenance.PICKED,
+            ),
+            ReferenceOption(
+                kind = ReferenceOption.Kind.PASTE,
+                label = "paste wire…",
+                detail = "a reply from a real server",
+                enabled = true,
+                selected = bound == ReferenceMessage.Provenance.PASTED,
+            ),
+        )
+    }
+
+    /** A later live message of the same type whose bytes differ from the golden — what "generalizes" compares to. */
+    private fun secondInstanceFor(step: ScenarioStep.Expect?): String? {
+        if (step == null) return null
+        val type = step.expectation.messageType ?: step.match?.messageType ?: return null
+        return sessions
+            .filter { step.session == null || it.title == step.session }
+            .flatMap { it.messages.value.filterIsInstance<FixMessage>() }
+            .lastOrNull { candidate ->
+                candidate.direction == FixMessage.Direction.INCOMING &&
+                    candidate.messageType == type &&
+                    candidate.wireRaw != null &&
+                    candidate.wireRaw != step.expectation.golden
+            }?.wireRaw
+    }
+
+    /**
+     * Take one of [referenceOptions]. PICK arms the slot; PASTE opens the sheet, and its bytes come back
+     * through [bindPastedReference] once they have been **read**.
+     */
+    fun selectReference(doc: ScenarioDoc.Reconcile, kind: ReferenceOption.Kind): Boolean {
+        val step = expectStep(doc)
+        return when (kind) {
+            ReferenceOption.Kind.THIS_RUN -> doc.thisRunWire?.let { bind(doc, referenceOf(it, null)) } ?: false
+            ReferenceOption.Kind.GOLDEN ->
+                step?.expectation?.golden?.let { bind(doc, ReferenceMessage.golden(RawMessageView(it))) } ?: false
+            ReferenceOption.Kind.SECOND_INSTANCE ->
+                secondInstanceFor(step)?.let { wire ->
+                    bind(
+                        doc,
+                        ReferenceMessage.live(
+                            view = RawMessageView(wire),
+                            provenance = ReferenceMessage.Provenance.SECOND_INSTANCE,
+                            label = "second instance",
+                            arrivedAt = java.time.Instant.now(),
+                        ),
+                    )
+                } ?: false
+            ReferenceOption.Kind.PICK -> {
+                armReferenceSlot(doc.id)
+                true
+            }
+            // The sheet opens in the surface; the bytes come back through bindPastedReference once they are READ.
+            ReferenceOption.Kind.PASTE -> true
+        }
+    }
+
+    /**
+     * **The armed slot** — the diff is waiting for the next grid row the author clicks.
+     *
+     * It lives here, and not in the diff, because the author must **leave the diff** to click a grid row: only
+     * the active document is composed today (trap 5), and after Phase 6 the grid is in another *window*. The
+     * grid, the detail panel and the diff must all agree about what the next click means, and two of them
+     * cannot see the document. Same reason `activeDocumentId` is here (T3): three surfaces, one fact.
+     */
+    private val _armedReferenceSlot = MutableStateFlow<String?>(null)
+    val armedReferenceSlot: StateFlow<String?> = _armedReferenceSlot.asStateFlow()
+
+    fun armReferenceSlot(documentId: String) {
+        _armedReferenceSlot.value = documentId
+    }
+
+    fun disarmReferenceSlot() {
+        _armedReferenceSlot.value = null
+    }
+
+    /**
+     * **A click in a session grid.** It selects the message, as it always has — *unless a reference slot is
+     * armed*, in which case that click is the one the diff has been waiting for, and it means bind.
+     *
+     * It is a separate door from [selectMessage] deliberately: capture review also selects messages (that is
+     * how a candidate highlights its source row), and an armed slot must not swallow *that* click. Only the
+     * grid arms it, and only the grid answers it.
+     */
+    fun selectMessageFromGrid(message: FixMessage?) {
+        if (message != null && _armedReferenceSlot.value != null && bindArmedReference(message)) return
+        selectMessage(message)
+    }
+
+    /**
+     * A grid row was clicked while a slot was armed. Binds it, and disarms.
+     *
+     * **A message whose wire bytes FixTool does not have cannot be a reference** (invariant 3: only `wireRaw`
+     * feeds a diff, never the `|`-substituted display string). That is refused *at the click*, in words — not
+     * by a click that quietly does nothing.
+     */
+    fun bindArmedReference(message: FixMessage): Boolean {
+        val armed = _armedReferenceSlot.value ?: return false
+        val doc = _openDocuments.value.firstOrNull { it.id == armed } as? ScenarioDoc.Reconcile ?: return false
+        val wire = message.wireRaw
+        if (wire != null) {
+            bindPickedReference(doc, wire, message.timestamp)
+            disarmReferenceSlot()
+            focusDocument(armed)
+        } else {
+            showNotification(
+                "FixTool does not have this message's wire bytes, so it cannot be diffed against. Only the bytes " +
+                    "the venue actually sent can be a reference — the display string is not them.",
+                NotificationType.ERROR,
+            )
+        }
+        return wire != null
+    }
+
+    /**
+     * Bind bytes the author pasted. The paste has already been **read** ([WirePaste]) — a reading the bytes
+     * themselves disprove never reaches this far, because the value it guessed wrong would be written into an
+     * assertion.
+     */
+    fun bindPastedReference(doc: ScenarioDoc.Reconcile, paste: WirePaste): Boolean {
+        val wire = paste.wire?.takeIf { paste.usable } ?: return false
+        val label = paste.sendingTime?.let { "pasted · ${it.takeLast(TIME_OF_DAY)}" } ?: "pasted"
+        return bind(doc, ReferenceMessage.pasted(RawMessageView(wire), label))
     }
 
     /** Save the scenario a document is a view onto — the diff tab's Save, and the editor's, are one Save. */
@@ -2958,6 +3159,9 @@ class FixMessageViewModel(
         DemoServerManager.stop()
     }
 }
+
+/** `08:12:31` from `20260714-08:12:31.017` — the tail of a FIX timestamp, which is the part a reader matches on. */
+private const val TIME_OF_DAY = 12
 
 /** `09:35:44` — the clock the reference chip and the grid row are both read against. */
 private val CLOCK_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")

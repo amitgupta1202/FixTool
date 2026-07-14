@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.ui.diff.DiffSurface
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 
@@ -209,6 +210,7 @@ private fun ReconcileDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.R
     }
 
     val running by viewModel.scenarioRunning.collectAsState()
+    val armedSlot by viewModel.armedReferenceSlot.collectAsState()
     val messageType = step.expectation.messageType ?: step.match?.messageType ?: ""
     val typeName =
         viewModel.dictionary
@@ -224,6 +226,14 @@ private fun ReconcileDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.R
         onSaveAndRerun = { viewModel.saveAndRerun(doc.scenarioId) },
         runInFlight = running,
         focusTag = doc.focusTag,
+        // The slot: what may be in it is the host's to decide (it is the only thing that knows whether the step
+        // has run, was ever captured, or has a second instance on a session) — the surface only draws it.
+        referenceOptions = viewModel.referenceOptions(doc),
+        onSelectReference = { kind -> viewModel.selectReference(doc, kind) },
+        onPasteWire = { paste -> viewModel.bindPastedReference(doc, paste) },
+        armed = armedSlot == doc.id,
+        onDisarm = { viewModel.disarmReferenceSlot() },
+        pastedOrigin = step.origin == StepOrigin.PASTED,
         onCancel = {
             // Cancel puts the expectation back exactly as it was found — in the *draft*, which is where the
             // session has been writing all along — and then the tab has nothing left to say.

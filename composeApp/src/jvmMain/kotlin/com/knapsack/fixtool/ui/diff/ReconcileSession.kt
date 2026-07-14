@@ -41,6 +41,15 @@ import java.time.Instant
  */
 class EditOp(
     val label: String,
+    /**
+     * **Consecutive edits that share a key are one edit.**
+     *
+     * The matcher chip's value field fires on every keystroke — that is the point, it is what makes the row
+     * go green *as you type*. But a snapshot per character is an undo stack six deep for the word `500000`,
+     * and `⌘Z` then walks back through `50000`, `5000`, `500`… which is not what anybody means by undoing a
+     * value. The old view did exactly that. Typing is one edit; the key is what says so.
+     */
+    val coalesceKey: String? = null,
     private val apply: (Expectation) -> Expectation?,
 ) {
     fun applyTo(draft: Expectation): Expectation? = apply(draft)?.takeIf { it != draft }
@@ -55,8 +64,11 @@ class EditOp(
         fun loosen(index: Int, tag: Int, matcher: Matcher) =
             EditOp("Loosened $tag to ${describe(matcher)}") { ScenarioReconcile.loosen(it, index, matcher) }
 
+        /** The chip and its value field. Consecutive edits to the same row coalesce — see [coalesceKey]. */
         fun setMatcher(index: Int, tag: Int, matcher: Matcher) =
-            EditOp("Set $tag to ${describe(matcher)}") { ScenarioReconcile.loosen(it, index, matcher) }
+            EditOp("Set $tag to ${describe(matcher)}", coalesceKey = "matcher:$index") {
+                ScenarioReconcile.loosen(it, index, matcher)
+            }
 
         fun assertAbsent(index: Int, tag: Int) =
             EditOp("Asserting $tag absent") { ScenarioReconcile.assertAbsent(it, index) }
@@ -150,6 +162,11 @@ data class DiffModel(
     val chunks: List<Chunk>,
     val verdict: Verdict,
     val overlay: GroupOverlay,
+    /**
+     * The **reference's** entries, from the same dictionary — so the two sides of the diff cannot come to
+     * disagree about where an entry starts. It is what the right-hand band is labelled from.
+     */
+    val referenceOverlay: GroupOverlay,
     /** The one-click re-order, when the engine proved one — or null, in which case [withheldMove] says why. */
     val acceptOrder: EditOp?,
     /** The engine's own sentence for the move it declined to offer. Never silence. */
@@ -177,12 +194,12 @@ data class DiffModel(
 class ReconcileSession(
     val original: Expectation,
     initialReference: ReferenceMessage,
-    private val dictionary: FixDictionaryAdapter?,
+    val dictionary: FixDictionaryAdapter?,
     private val resolver: (String) -> String? = { null },
     private val onChange: (Expectation) -> Unit = {},
 ) {
     /** `(label, expectation)`. The first is the original, under a label nothing ever shows. */
-    private val snapshots = mutableStateListOf(Snapshot("", original))
+    private val snapshots = mutableStateListOf(Snapshot("", original, null))
 
     /** Which snapshot is current. Undo walks it back; a fresh edit truncates everything after it. */
     private var cursor by mutableStateOf(0)
@@ -217,8 +234,18 @@ class ReconcileSession(
         val next = op.applyTo(draft) ?: return false
         // A fresh edit after an undo abandons the redo branch — the ordinary editor contract.
         while (snapshots.lastIndex > cursor) snapshots.removeAt(snapshots.lastIndex)
-        snapshots.add(Snapshot(op.label, next))
-        cursor = snapshots.lastIndex
+
+        // Typing into one row's value is ONE edit, however many keystrokes it took — see EditOp.coalesceKey.
+        // The snapshot it replaces still holds the state from *before* the first keystroke, so undo lands
+        // where the author started typing rather than one character back into a word they were mid-way
+        // through. That is what "undo the value I just set" means to everyone who has ever meant it.
+        val coalesces = op.coalesceKey != null && cursor > 0 && snapshots[cursor].coalesceKey == op.coalesceKey
+        if (coalesces) {
+            snapshots[cursor] = Snapshot(op.label, next, op.coalesceKey)
+        } else {
+            snapshots.add(Snapshot(op.label, next, op.coalesceKey))
+            cursor = snapshots.lastIndex
+        }
         onChange(next)
         return true
     }
@@ -271,6 +298,8 @@ class ReconcileSession(
     private data class Snapshot(
         val label: String,
         val expectation: Expectation,
+        /** What made it. Two consecutive edits with the same key are one edit — see [EditOp.coalesceKey]. */
+        val coalesceKey: String?,
     )
 
     private var memo: Pair<Key, DiffModel>? = null
@@ -301,6 +330,7 @@ class ReconcileSession(
         val overlay = GroupOverlay.of(draft, dictionary)
         val reorder = ScenarioReconcile.reorder(draft, message, now, resolver)
         val possible = reorder as? ScenarioReconcile.Reorder.Possible
+        val moved = possible?.moved.orEmpty()
 
         val lines =
             alignment.chunks.flatMap { chunk ->
@@ -312,7 +342,7 @@ class ReconcileSession(
                         right = field,
                         entry = row.index?.let { overlay.entryAt(it) },
                         moveLink = chunk.moveLink,
-                        offers = offersFor(row, message),
+                        offers = offersFor(row, message, moved),
                     )
                 }
             }
@@ -331,8 +361,9 @@ class ReconcileSession(
         return DiffModel(
             lines = lines,
             chunks = alignment.chunks,
-            verdict = Verdict.of(rows, possible?.moved.orEmpty(), movedEntries),
+            verdict = Verdict.of(rows, moved, movedEntries),
             overlay = overlay,
+            referenceOverlay = GroupOverlay.of(message, dictionary),
             acceptOrder = possible?.let { EditOp.acceptOrder(it.reordered) },
             withheldMove = (reorder as? ScenarioReconcile.Reorder.Refused)?.why,
             canAcceptShape = Verdict.canAcceptShape(rows, draft.mode),
@@ -350,10 +381,19 @@ class ReconcileSession(
      * scoped to one occurrence and the row could then never pass. `dropTakesWholeTag` changes what `×` even
      * means. The surface asks; it does not decide.
      */
-    private fun offersFor(row: ScenarioReconcile.Row, message: MessageView): List<Offer> {
+    private fun offersFor(row: ScenarioReconcile.Row, message: MessageView, moved: Set<Int>): List<Offer> {
         // A row the diff cannot read has nothing to accept and nothing to drop that would mean anything: its
         // honest repairs are to loosen it or leave it, and both live on the matcher chip.
         if (row.unknown || row.passed && !row.unasserted) return emptyList()
+
+        // **A ROW THAT MOVED IS OFFERED NOTHING.** Its status is VALUE — FIRMA's `448` now faces FIRMB, so it
+        // *looks* exactly like a value mismatch, and a gutter keyed on status alone would put an Accept-actual
+        // under it. One click and FIRMA's row asserts FIRMB, while the `452` rows stay where they are: the
+        // expectation now reads FIRMB/role-1 and FIRMB/role-4, "FIRMA holds role 1" is gone, and the step is
+        // green. That is the false green this whole model exists to make impossible, walked back in through
+        // the gutter. The entry moved as a unit and it is repaired as one — by Accept-new-order, and by
+        // nothing else. (Screenshots caught this; no assertion did, which is the argument for looking.)
+        if (row.index in moved) return emptyList()
 
         val index = row.index
         return buildList {

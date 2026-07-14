@@ -376,14 +376,35 @@ class ReconcileSessionTest {
         assertTrue(OfferKind.ASSERT_ABSENT in text.offers.map { it.kind }, "but 58 really is gone from the reply")
     }
 
-    /** Dropping a row of a repeated tag takes the tag's rows with it — and the gutter says so first. */
+    /**
+     * Dropping a row of a repeated tag takes the tag's rows with it — and the gutter says so first.
+     *
+     * The fixture is the **role swap**, deliberately: there the `448` rows genuinely are value mismatches (the
+     * firms changed roles in place, nothing moved), so they carry a Drop. In the entries-swapped fixture those
+     * same rows have *moved*, and a moved row is offered nothing at all — which is the point of the test above
+     * this one, and the reason this one cannot use that fixture.
+     */
     @Test
     fun `the whole-tag drop announces itself before it happens`() {
-        val model = session(captured, reply).model
+        val roleSwap =
+            Expectation(
+                listOf(
+                    FieldExpectation(448, Matcher.Exact("FIRMA")),
+                    FieldExpectation(452, Matcher.Exact("1")),
+                    FieldExpectation(448, Matcher.Exact("FIRMB")),
+                    FieldExpectation(452, Matcher.Exact("4")),
+                    FieldExpectation(58, Matcher.Exact("filled")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val model =
+            session(roleSwap, wireView(448 to "FIRMA", 452 to "4", 448 to "FIRMB", 452 to "1")).model
 
+        // The ROLES changed, not the firms — so 448 still passes and 452 is the mismatch that carries a Drop.
         val party =
             model.lines
-                .first { it.row.tag == 448 }
+                .first { it.row.tag == 452 }
                 .offers
                 .single { it.kind == OfferKind.DROP }
         val text =
@@ -392,8 +413,34 @@ class ReconcileSessionTest {
                 .offers
                 .single { it.kind == OfferKind.DROP }
 
-        assertTrue("every row for 448 goes" in party.tooltip, party.tooltip)
+        assertTrue("every row for 452 goes" in party.tooltip, party.tooltip)
         assertTrue("stops checking 58" in text.tooltip, text.tooltip)
+    }
+
+    /**
+     * **A ROW THAT MOVED IS OFFERED NOTHING — and this is the one that nearly shipped.**
+     *
+     * A moved row's *status* is `VALUE`: FIRMA's `448` now faces FIRMB, which is indistinguishable, row by
+     * row, from the venue having changed the value. A gutter keyed on status alone therefore drew an
+     * Accept-actual under it — and one click would rebase FIRMA's assertion onto FIRMB while the two `452`
+     * rows stayed exactly where they were. The expectation would read FIRMB/role-1 and FIRMB/role-4, "FIRMA
+     * holds role 1" would be gone, and the step would be green.
+     *
+     * That is the false green the entire sequence model exists to make impossible, walked back in through the
+     * gutter. The entry moved as a unit and it is repaired as one — by Accept-new-order, and by nothing else.
+     */
+    @Test
+    fun `a row the engine proved moved is offered no per-row fix`() {
+        val model = session(captured, reply).model
+
+        val moved = model.lines.filter { it.kind == ChunkKind.MOVED }
+        assertTrue(moved.size == 6, "two party entries, three rows each: ${moved.size}")
+        assertTrue(
+            moved.all { it.offers.isEmpty() },
+            "Accept-actual on a row that merely moved rebases it onto another party's value and deletes the " +
+                "assertion the author wrote: ${moved.filter { it.offers.isNotEmpty() }.map { it.row.tag to it.offers.map { o -> o.kind } }}",
+        )
+        assertNotNull(model.acceptOrder, "the honest repair is the one the engine proved, and it is on offer")
     }
 
     /** A passing row has nothing to fix, and a row nobody can read has nothing to fix *here*. */

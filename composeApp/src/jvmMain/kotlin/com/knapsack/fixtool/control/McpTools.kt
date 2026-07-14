@@ -305,6 +305,24 @@ object McpTools {
                 required = listOf("name"),
             ),
             tool(
+                "fixtool_capture_paste",
+                "Capture a scenario from PASTED WIRE — a server log fragment, one message per line — with no live " +
+                    "session at all. The same reader the paste sheet uses: a line whose reading the bytes disprove " +
+                    "(a '|' inside a value, a checksum that disagrees) is REFUSED and reported, never guessed. " +
+                    "Direction is read from SenderCompID(49) against the given CompIDs; a message whose direction " +
+                    "nothing settles blocks the save (a reply saved as a Send asserts nothing). Every step is " +
+                    "badged 'pasted'. Returns {status, id, steps, pasted, refused[]} or {status:refused, undirected[]}.",
+                props(
+                    "name" to string("scenario name"),
+                    "wire" to string("the pasted bytes — one FIX message per line (SOH or '|' delimited)"),
+                    "session" to string("session id/title to assign, and whose CompIDs settle direction"),
+                    "senderCompId" to string("our CompID (overrides the session's) — 49 equal to this means outgoing"),
+                    "targetCompId" to string("the venue's CompID (overrides the session's) — 49 equal to this means incoming"),
+                    "profile" to string("connection profile id/name to tag the scenario with"),
+                ),
+                required = listOf("name", "wire"),
+            ),
+            tool(
                 "fixtool_list_scenarios",
                 "List saved scenarios (id, name, profile, step counts, userTags), optionally filtered by profile.",
                 props("profile" to string("profile id, name, or tag to filter by")),

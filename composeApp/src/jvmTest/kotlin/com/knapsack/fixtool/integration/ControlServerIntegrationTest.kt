@@ -8,6 +8,9 @@ import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -417,10 +420,14 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(38, tools.size)
+        assertEquals(39, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_reconcile" },
             "the diff is reachable without a hand on the mouse, or an agent can never open the surface that repairs",
+        )
+        assertTrue(
+            tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_capture_paste" },
+            "and the paste box too, or W2 could never be driven without a hand",
         )
         tools.forEach {
             val t = it.jsonObject
@@ -639,6 +646,77 @@ class ControlServerIntegrationTest {
         assertEquals("matched", status(reply), "client should receive the acceptor's templated ExecutionReport")
         val raw = obj(reply)["message"]!!.jsonObject["raw"]!!.jsonPrimitive.content
         assertTrue(raw.contains("11=ORD-ACC"), "response should echo the request ClOrdID; got $raw")
+    }
+
+    /**
+     * **W2, without a hand on the mouse.** The paste box is click-only, so the control surface grew a door to
+     * it (as it grew one to reconcile in Phase 4) — and this drives it: a fake-venue log fragment, pasted, read
+     * by the same reader the sheet uses, becomes a saved, badged, runnable scenario.
+     *
+     * The pipe is present on purpose: `58=filled|in full`, in the SOH bytes, comes through whole.
+     */
+    @Test
+    fun `capture-paste turns a pasted log into a saved, badged scenario`() {
+        val soh = "\u0001"
+        fun frame(vararg body: String): String {
+            val fields = body.joinToString(soh, postfix = soh)
+            val head = "8=FIX.4.4${soh}9=${fields.length}$soh"
+            val checksum = (head + fields).toByteArray(Charsets.ISO_8859_1).sumOf { it.toInt() and 0xFF } % 256
+            return head + fields + "10=%03d".format(checksum) + soh
+        }
+        val order =
+            frame("35=D", "49=CLIENT", "56=VENUE", "11=ORD-1", "55=EUR/USD", "54=1", "38=1000000", "40=1", "60=20260714-08:12:31")
+        val execution =
+            frame("35=8", "49=VENUE", "56=CLIENT", "37=V-9", "11=ORD-1", "17=E-1", "150=2", "39=2", "58=filled|in full", "60=20260714-08:12:31")
+        val wire = "08:12:31.500 OUT $order" + "\n" + "08:12:31.517 IN $execution"
+
+        val body =
+            buildJsonObject {
+                put("name", "PASTED")
+                put("wire", wire)
+                put("senderCompId", "CLIENT")
+                put("targetCompId", "VENUE")
+            }
+        val resp = obj(post("/scenarios/capture-paste", Json.encodeToString(JsonObject.serializer(), body)))
+
+        assertEquals("created", resp["status"]!!.jsonPrimitive.content, resp.toString())
+        assertEquals(2, resp["steps"]!!.jsonPrimitive.int, "the send and the reply")
+        assertTrue(resp["pasted"]!!.jsonPrimitive.boolean, "and every step of it is badged pasted")
+        assertTrue(resp["refused"]!!.jsonArray.isEmpty(), "both lines read")
+
+        // The scenario is real, and the pipe survived into the golden it will re-judge against.
+        val scenario = resp["scenario"]!!.jsonObject
+        val steps = scenario["steps"]!!.jsonArray
+        assertEquals("send", steps[0].jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("expect", steps[1].jsonObject["type"]!!.jsonPrimitive.content)
+        val golden = steps[1].jsonObject["expectation"]!!.jsonObject["golden"]!!.jsonPrimitive.content
+        assertTrue(golden.contains("58=filled|in full"), "the trap survived: 58 is one field, pipe and all")
+    }
+
+    /**
+     * **The false green by omission, refused at the door.** With no CompIDs to settle direction, a reply saved
+     * as a Send would assert nothing — so the endpoint refuses the save and names the undirected messages
+     * rather than handing an agent a scenario that checks less than it says.
+     */
+    @Test
+    fun `capture-paste refuses a save when a message's direction cannot be settled`() {
+        val soh = "\u0001"
+        fun frame(vararg body: String): String {
+            val fields = body.joinToString(soh, postfix = soh)
+            val head = "8=FIX.4.4${soh}9=${fields.length}$soh"
+            val checksum = (head + fields).toByteArray(Charsets.ISO_8859_1).sumOf { it.toInt() and 0xFF } % 256
+            return head + fields + "10=%03d".format(checksum) + soh
+        }
+        val reply = frame("35=8", "49=SOMEONE", "56=ELSE", "150=2", "39=2")
+        val body = buildJsonObject { put("name", "NODIR"); put("wire", reply) }
+        val resp = obj(post("/scenarios/capture-paste", Json.encodeToString(JsonObject.serializer(), body)))
+
+        assertEquals("refused", resp["status"]!!.jsonPrimitive.content, resp.toString())
+        assertTrue(resp["undirected"]!!.jsonArray.isNotEmpty(), "the direction nobody could settle is named")
+        assertTrue(
+            "asserts nothing" in resp["reason"]!!.jsonPrimitive.content,
+            "and it says WHY a guess is refused: ${resp["reason"]!!.jsonPrimitive.content}",
+        )
     }
 
     // ----------------------------------------------------------------- helpers

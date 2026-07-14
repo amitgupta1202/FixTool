@@ -175,6 +175,11 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                         onSelectSource = { message -> viewModel.selectMessage(message) },
                         onSave = { name, selection -> viewModel.saveCaptureDocument(name, selection) },
                         onBack = { viewModel.showSessions() },
+                        // Capture's second source (S9). Null for a live scan; the paste box otherwise.
+                        paste = doc.paste,
+                        onPasteChange = { text, session -> viewModel.updateCapturePaste(text, session) },
+                        onSetDirection = { index, direction -> viewModel.setCandidateDirection(index, direction) },
+                        sessionOptions = viewModel.sessions.map { it.title },
                     )
             }
         }

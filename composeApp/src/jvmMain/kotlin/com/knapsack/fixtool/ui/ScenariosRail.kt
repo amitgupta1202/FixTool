@@ -80,6 +80,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             RailHeader(
                 running = running,
                 onCapture = { viewModel.openCaptureReview() },
+                onPasteCapture = { viewModel.openPasteCapture() },
                 onNew = { viewModel.openScenarioEditor(newScenario()) },
                 onOpenFolder = { openScenarioFolder(viewModel) },
                 onClose = { viewModel.toggleScenariosRail() },
@@ -241,7 +242,14 @@ internal fun resultFor(result: ScenarioResult?, scenario: Scenario, index: Int):
 }
 
 @Composable
-private fun RailHeader(running: Boolean, onCapture: () -> Unit, onNew: () -> Unit, onOpenFolder: () -> Unit, onClose: () -> Unit) {
+private fun RailHeader(
+    running: Boolean,
+    onCapture: () -> Unit,
+    onPasteCapture: () -> Unit,
+    onNew: () -> Unit,
+    onOpenFolder: () -> Unit,
+    onClose: () -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text(
@@ -268,6 +276,8 @@ private fun RailHeader(running: Boolean, onCapture: () -> Unit, onNew: () -> Uni
                 color = AppTheme.Colors.success,
                 modifier = Modifier.testTag("rail-capture"),
             )
+            // W2's front door: a server log fragment, pasted, becomes a scenario without a live session at all.
+            SlimButton("Paste wire…", onClick = onPasteCapture, modifier = Modifier.testTag("rail-paste"))
             SlimButton("New", onClick = onNew, modifier = Modifier.testTag("rail-new"))
             SlimButton("Folder", onClick = onOpenFolder)
         }

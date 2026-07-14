@@ -136,13 +136,28 @@ sealed interface ScenarioDoc {
         /** A snapshot, not a live feed — the review curates a stable list (see [ScenarioCapture.scan]). */
         val scan: ScenarioCapture.Scan,
         val state: CaptureReviewState,
+        /**
+         * **Capture's second source.** Null = the live sessions. Non-null = the author is pasting wire, one
+         * message per line, and [scan] is what that paste read to — recomputed by the ViewModel whenever the
+         * text or the assigned session changes, because the direction is read off the *session's* CompIDs.
+         */
+        val paste: Paste? = null,
     ) : ScenarioDoc {
         override val id: String get() = CAPTURE_ID
         override val glyph: String get() = "⧉"
         override val scenarioId: String? get() = null
 
         val title: String get() = state.name.ifBlank { "capture" }.let { "capture: $it" }
-        val dirty: Boolean get() = state != CaptureReviewState.of(scan.candidates.size)
+        val dirty: Boolean
+            get() = state != CaptureReviewState.of(scan.candidates.size) || paste?.text?.isNotBlank() == true
+
+        /** The pasted text, the session it is assigned to, and what could not be read out of it. */
+        data class Paste(
+            val text: String = "",
+            val session: String = "",
+            /** The lines the reader refused, in its own words. Reported — never dropped on the floor. */
+            val refused: List<String> = emptyList(),
+        )
     }
 
     companion object {

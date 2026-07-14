@@ -429,9 +429,31 @@ object ExpectationEvaluator {
      * looks at the tag and the position and never at whether the matcher would pass, because a pairing that
      * preferred the occurrence which satisfies a matcher would silently re-aim an assertion onto whichever
      * field makes it green.
+     *
+     * **[now] and [referenceResolver] are not optional extras.** This hard-coded `Instant.now()` and a null
+     * resolver, and the caller that needed them most was `ScenarioReconcile.verbatimWindow` — which asks
+     * whether a *whole entry* appears in the reply intact. An entry carrying an `MDEntryTime` (every
+     * market-data snapshot has one) therefore never matched, because one row of it was judged against the
+     * reader's wall clock instead of the instant the message arrived; and an entry carrying an echoed id
+     * never matched either, because the resolver said nothing resolves. The re-order was withheld, and the
+     * author was told — in the tool's own words — that *"these rows did not move; the values changed in
+     * place"*, which was false about a message whose entries had plainly swapped.
      */
-    fun satisfies(matcher: Matcher, value: String): Boolean =
-        applyMatcher(matcher, value, { null }, { Instant.now() }).first
+    fun satisfies(
+        matcher: Matcher,
+        value: String,
+        referenceResolver: (String) -> String? = { null },
+        now: () -> Instant = { Instant.now() },
+    ): Boolean = applyMatcher(matcher, value, referenceResolver, now).first
+
+    /**
+     * The instant a FIX timestamp names — the same parse the evaluator judges temporals with, exposed so a
+     * pasted message can be anchored to its own `SendingTime(52)`.
+     *
+     * One parser, deliberately. A second one would eventually disagree with this one about what a timestamp
+     * is, and the row would then be judged against a moment the anchor never meant.
+     */
+    fun parseTimestamp(value: String, now: () -> Instant = { Instant.now() }): Instant? = parseFixTimestamp(value, now)
 
     /** Short matcher description for a [TagResult] / report row. */
     fun describe(matcher: Matcher): String =

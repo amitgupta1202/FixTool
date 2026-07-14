@@ -7,6 +7,8 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.compare.GroupOverlay
+import com.knapsack.fixtool.service.compare.NO_ANCHOR
+import com.knapsack.fixtool.service.compare.ReferenceMessage
 import java.time.Instant
 
 /**
@@ -107,6 +109,29 @@ object ScenarioReconcile {
                 wireIndex = d.alignment.wireIndex,
                 unknown = d.alignment.row?.matcher is Matcher.Reference && !resolves,
             )
+        }
+    }
+
+    /**
+     * The diff against a [ReferenceMessage] — the same rows, judged at **the reference's own moment**.
+     *
+     * And where the reference has no moment (a paste with no `SendingTime`), a temporal row is *unjudged*
+     * rather than failed. Judging it against the clock would produce a red that describes nothing but how
+     * long ago the paste happened; the author's only repairs on a temporal row are to loosen it or drop it,
+     * so that phantom red leads directly to deleted coverage. The tool does not know what moment that
+     * message was sent at, and it says so.
+     */
+    fun rows(
+        draft: Expectation,
+        reference: ReferenceMessage,
+        dictionary: FixDictionaryAdapter?,
+        referenceResolver: (String) -> String? = { null },
+    ): List<Row> {
+        val anchor = reference.anchorInstant
+        val judged = rows(draft, reference.view, dictionary, referenceResolver, now = { anchor ?: Instant.now() })
+        if (anchor != null) return judged
+        return judged.map { row ->
+            if (row.matcher is Matcher.Temporal) row.copy(unknown = true, reason = NO_ANCHOR) else row
         }
     }
 
@@ -309,8 +334,12 @@ object ScenarioReconcile {
      * row reading "the clearing firm's role is 4" quietly becomes "the executing firm's role is 4" while
      * still saying `452 exact 4` on screen.
      */
-    fun acceptNewOrder(draft: Expectation, message: MessageView): Expectation? =
-        (reorder(draft, message) as? Reorder.Possible)?.reordered
+    fun acceptNewOrder(
+        draft: Expectation,
+        message: MessageView,
+        referenceResolver: (String) -> String? = { null },
+        now: () -> Instant = { Instant.now() },
+    ): Expectation? = (reorder(draft, message, now, referenceResolver) as? Reorder.Possible)?.reordered
 
     /**
      * The rows a re-order would move — what the view brackets as "this entry moved", and the reason it can
@@ -319,8 +348,12 @@ object ScenarioReconcile {
      * Defined by the fix itself: a row is moved exactly when Accept-new-order would put it somewhere else.
      * There is no second opinion about it to disagree with the first.
      */
-    fun movedRows(draft: Expectation, message: MessageView): Set<Int> =
-        (reorder(draft, message) as? Reorder.Possible)?.moved ?: emptySet()
+    fun movedRows(
+        draft: Expectation,
+        message: MessageView,
+        referenceResolver: (String) -> String? = { null },
+        now: () -> Instant = { Instant.now() },
+    ): Set<Int> = (reorder(draft, message, now, referenceResolver) as? Reorder.Possible)?.moved ?: emptySet()
 
     /**
      * What the engine decided about re-ordering — **including, when it decided against, the reason**.
@@ -355,8 +388,12 @@ object ScenarioReconcile {
     }
 
     /** The reason no re-order is on offer, or null when one is (or when there was never one to consider). */
-    fun whyNoReorder(draft: Expectation, message: MessageView): String? =
-        (reorder(draft, message) as? Reorder.Refused)?.why
+    fun whyNoReorder(
+        draft: Expectation,
+        message: MessageView,
+        referenceResolver: (String) -> String? = { null },
+        now: () -> Instant = { Instant.now() },
+    ): String? = (reorder(draft, message, now, referenceResolver) as? Reorder.Refused)?.why
 
     /**
      * A re-ordering that is safe, complete and verified — or nothing at all.
@@ -382,18 +419,26 @@ object ScenarioReconcile {
          * prints underneath a diff in which every row is green.
          */
         now: () -> Instant = { Instant.now() },
+        /**
+         * The scope a `reference` row resolves against. Without it, an echoed id inside a party entry can
+         * never be recognised as part of an entry that moved — see [ExpectationEvaluator.satisfies].
+         */
+        referenceResolver: (String) -> String? = { null },
     ): Reorder {
         val wire = message.fields()
-        val before = ExpectationEvaluator.diff(message, draft, now = now)
+        val before = ExpectationEvaluator.diff(message, draft, referenceResolver, now)
         val paired = before.mapNotNull { d -> d.alignment.index?.let { it to d.alignment.wireIndex } }.toMap()
         val passes = before.mapNotNull { d -> d.alignment.index?.let { it to d.result.passed } }.toMap()
+        val holds = { matcher: Matcher, value: String ->
+            ExpectationEvaluator.satisfies(matcher, value, referenceResolver, now)
+        }
 
         // Which strategy produced the placement decides what a refusal is allowed to SAY. placeByOccurrence is
         // structurally occurrence-preserving — it exists to cover a venue reshaping an entry internally — so a
         // refusal on top of it is a conservative withholding, not evidence that anything swapped.
-        val byEntry = placeByMovedEntry(draft, wire, passes, paired)
+        val byEntry = placeByMovedEntry(draft, wire, passes, paired, holds)
         val placement =
-            placeByOccurrence(draft, wire, passes, paired)
+            placeByOccurrence(draft, wire, passes, paired, holds)
                 ?: byEntry
                 ?: return noPlacement(draft, before)
         val fromMovedEntry = placement === byEntry
@@ -443,7 +488,7 @@ object ScenarioReconcile {
 
         // Verify against the engine itself, never against our own reasoning about it. Every row this was
         // offered for must actually be repaired, and nothing that already worked may break.
-        val after = ExpectationEvaluator.diff(message, reordered)
+        val after = ExpectationEvaluator.diff(message, reordered, referenceResolver, now)
         val passesNow = after.mapNotNull { d -> d.alignment.index?.let { it to d.result.passed } }.toMap()
         permutation.forEachIndexed { newIndex, originalIndex ->
             if (passes[originalIndex] == true && passesNow[newIndex] != true) {
@@ -828,6 +873,7 @@ object ScenarioReconcile {
         wire: List<Pair<Int, String>>,
         passes: Map<Int, Boolean>,
         paired: Map<Int, Int?>,
+        holds: (Matcher, String) -> Boolean,
     ): Map<Int, Int>? {
         val byTag = wire.withIndex().groupBy { it.value.first }
         val seen = mutableMapOf<Int, Int>()
@@ -854,7 +900,7 @@ object ScenarioReconcile {
             // occurrence-preserving, so each keeps checking exactly the field it always did, and both are
             // still judged for real at replay.
             val hasFixedValue = row.matcher !is Matcher.Reference && row.matcher !is Matcher.Temporal
-            if (hasFixedValue && !ExpectationEvaluator.satisfies(row.matcher, field.value.second)) {
+            if (hasFixedValue && !holds(row.matcher, field.value.second)) {
                 return null // the value at this row's own occurrence changed: behaviour, not shape
             }
             place[index] = field.index
@@ -882,6 +928,7 @@ object ScenarioReconcile {
         wire: List<Pair<Int, String>>,
         passes: Map<Int, Boolean>,
         paired: Map<Int, Int?>,
+        holds: (Matcher, String) -> Boolean,
     ): Map<Int, Int>? {
         val occurrences = draft.fields.groupingBy { it.tag }.eachCount()
 
@@ -903,7 +950,7 @@ object ScenarioReconcile {
         val used = mutableSetOf<Int>()
         for (block in blocks) {
             if (block.any { it in place }) continue
-            val at = verbatimWindow(draft, block, wire, used) ?: continue
+            val at = verbatimWindow(draft, block, wire, used, holds) ?: continue
             block.forEachIndexed { offset, index ->
                 place[index] = at + offset
                 used += at + offset
@@ -940,6 +987,7 @@ object ScenarioReconcile {
         block: List<Int>,
         wire: List<Pair<Int, String>>,
         used: Set<Int>,
+        holds: (Matcher, String) -> Boolean,
     ): Int? {
         if (block.isEmpty() || wire.size < block.size) return null
         for (at in 0..wire.size - block.size) {
@@ -948,7 +996,7 @@ object ScenarioReconcile {
                 block.withIndex().all { (offset, index) ->
                     val row = draft.fields[index]
                     val field = wire[at + offset]
-                    field.first == row.tag && ExpectationEvaluator.satisfies(row.matcher, field.second)
+                    field.first == row.tag && holds(row.matcher, field.second)
                 }
             if (fits) return at
         }

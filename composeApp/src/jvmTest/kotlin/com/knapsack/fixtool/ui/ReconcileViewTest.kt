@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.FixDictionaryAdapter
@@ -57,6 +58,32 @@ class ReconcileViewTest {
                 java.time.format.DateTimeFormatter
                     .ofPattern("yyyyMMdd-HH:mm:ss"),
             )
+
+    /**
+     * Renders the view **the way the app wires it**: `onChange` writes the expectation back, so the composable
+     * recomposes with a new value on every click.
+     *
+     * `ScenarioEditor` does exactly this. The tests did not — they handed `onChange` a lambda that recorded
+     * into a local var and stopped there — and that is the whole reason a completely dead staging mechanism
+     * survived seven passing tests. In the running app the footer read "0 fixes staged" for ever, Undo did
+     * nothing and Discard did nothing, because all four of the view's `remember`s were keyed on the value each
+     * fix replaced. Nothing in this file could see it.
+     *
+     * Every test here goes through this now, so the loop under test is the loop that ships.
+     */
+    private fun ComposeContentTestRule.reconcile(
+        initial: Expectation,
+        actual: MessageView,
+        onEdit: (Expectation) -> Unit = {},
+    ) {
+        setContent {
+            var expectation by remember { mutableStateOf(initial) }
+            view(expectation, actual) {
+                expectation = it
+                onEdit(it)
+            }
+        }
+    }
 
     @Composable
     private fun view(expectation: Expectation, actual: MessageView, onChange: (Expectation) -> Unit) {
@@ -128,7 +155,7 @@ class ReconcileViewTest {
 
     @Test
     fun `the diff separates shape from behaviour, and says which is which`() {
-        composeTestRule.setContent { view(captured, reply) {} }
+        composeTestRule.reconcile(captured, reply)
 
         // The line that stops a reader having to work it out: the venue reshaped the message in three ways,
         // and behaved differently in exactly one.
@@ -141,7 +168,7 @@ class ReconcileViewTest {
     @Test
     fun `accept every shape change leaves the value change alone`() {
         var edited: Expectation? = null
-        composeTestRule.setContent { view(captured, reply) { edited = it } }
+        composeTestRule.reconcile(captured, reply) { edited = it }
 
         composeTestRule.onNodeWithText("Accept every shape change").performClick()
         composeTestRule.waitForIdle()
@@ -174,7 +201,7 @@ class ReconcileViewTest {
     @Test
     fun `a moved row is fixed in one click, and the edit reaches the step immediately`() {
         var edited: Expectation? = null
-        composeTestRule.setContent { view(outOfOrder, outOfOrderReply) { edited = it } }
+        composeTestRule.reconcile(outOfOrder, outOfOrderReply) { edited = it }
 
         composeTestRule.onNodeWithTag("reconcile-summary").assertTextContains("need attention", substring = true)
 
@@ -194,7 +221,7 @@ class ReconcileViewTest {
     @Test
     fun `Undo last walks the fix back`() {
         var edited: Expectation? = null
-        composeTestRule.setContent { view(outOfOrder, outOfOrderReply) { edited = it } }
+        composeTestRule.reconcile(outOfOrder, outOfOrderReply) { edited = it }
 
         composeTestRule.onAllNodesWithText("Accept new order").onFirst().performClick()
         composeTestRule.waitForIdle()
@@ -235,7 +262,7 @@ class ReconcileViewTest {
                 messageType = "8",
             )
         var edited: Expectation? = null
-        composeTestRule.setContent { view(expectation, swapped) { edited = it } }
+        composeTestRule.reconcile(expectation, swapped) { edited = it }
 
         composeTestRule
             .onNodeWithTag("reconcile-shape-or-behaviour")
@@ -273,7 +300,7 @@ class ReconcileViewTest {
                 messageType = "8",
             )
         var edited: Expectation? = null
-        composeTestRule.setContent { view(allWrong, outOfOrderReply) { edited = it } }
+        composeTestRule.reconcile(allWrong, outOfOrderReply) { edited = it }
 
         repeat(allWrong.fields.size) {
             composeTestRule.onAllNodesWithText("Drop", substring = true).onFirst().performClick()
@@ -321,11 +348,7 @@ class ReconcileViewTest {
                 messageType = "8",
             )
 
-        composeTestRule.setContent {
-            // THE POINT: the expectation is state, and onChange writes to it — exactly what ScenarioEditor does.
-            var expectation by remember { mutableStateOf(initial) }
-            view(expectation, actual) { expectation = it }
-        }
+        composeTestRule.reconcile(initial, actual)
 
         composeTestRule.onAllNodesWithText("Accept actual").onFirst().performClick()
 

@@ -71,8 +71,11 @@ The reconcile view was the epicentre of both. See "What keeps going wrong" below
 
 ## OPEN — WHAT AMIT FOUND (fill this in — it is the top of the queue)
 
-Amit drove the reconcile view by hand (first time any human has) using the staged demo below, and found
-issues. **They have not been captured, diagnosed or fixed.** Get them from him and start here.
+Amit drove the reconcile view by hand — the first time any human has — using the staged demo below.
+**None of these were reachable by any test or by either multi-agent review**: they are about whether the
+thing is USABLE, not whether it is correct. The correctness work is done; this is what is left.
+
+Nothing here is fixed. Start at the top.
 
 ### 1. Running a scenario is a dead end — no route from the failure to the reconcile view
 
@@ -128,10 +131,52 @@ re-baselining to the venue's new behaviour. If that was not obvious from the UI,
 usability finding: **the view tells you what is wrong but not what to do about it when no move is
 offered.**
 
-**UNVERIFIED — check this first:** it is not known whether DEMO A actually rendered a bracketed party
-block with `Accept new order`. If it did not, that is a **bug** (the block detection failing in the
-real app), not a missing feature. `plan()` should offer a move for DEMO A — the entries genuinely
-swapped. Reproduce and confirm before building anything.
+**VERIFIED IN THE LIVE APP (screenshot, 2026-07-14 06:29):** Amit opened DEMO A while the venue was
+in **`swap`** mode (not `shape` — `151` and `58` both read `ok`), so what he was looking at was **the
+role swap**. And the tool got it right:
+
+    448   exact FIRMA   FIRMB    value
+    447   exact D       D        ok
+    452   exact 1       1        ok
+    448#2 exact FIRMB   FIRMA    value
+    447#2 exact D       D        ok
+    452#2 exact 4       4        ok
+
+    "2 of 21 rows need attention | 2 values changed | 2 value changes ALTER WHAT THIS SCENARIO CHECKS"
+
+**No block bracket. No Accept-new-order offered.** That is the false-green fix working in production —
+before today this screen would have shown `⇅ Party entry moved — same values, different position`,
+called it "all shape", and deleted "FIRMA holds role 1" in one click.
+
+So on THAT screen there is correctly nothing to move, and the right fix is **Accept actual** on the two
+`448` rows. Block detection is NOT broken.
+
+**Which splits Amit's complaint into two real, separate defects:**
+
+**(4a) The manual block `↑ ↓` arrows were never built.** Real, still missing. They belong on the block
+header (`MovedBlockHeader`, `ReconcileView.kt:533`), for the case the diff aligns wrongly. Reproduce
+with the venue in **`shape`** mode, where the entries genuinely swap and a bracket SHOULD appear.
+
+**(4b) THE VIEW IS SILENT WHEN A MOVE IS WITHHELD.** This is why Amit concluded the feature was
+missing. The view says "2 values changed" and leaves the author to work out for themselves that a
+re-order is deliberately not on offer, and why. It must say so: *"these entries did not move — the
+values changed, so this is the venue behaving differently, not re-ordering. Accept actual if that is
+the new truth."* The tool knows exactly why it refused; it just does not say.
+
+### 5. Panes are not resizable
+
+The editor's left (step list) / right (detail) split is fixed. It should be draggable.
+
+### 6. The workbench window sits BEHIND the parent
+
+Clicking "reconcile" from the main window changes the workbench's content but leaves the workbench
+window **in the background** — so nothing appears to happen. The parent/child window relationship needs
+looking at as a whole (see also #3: opening the workbench moves the parent window).
+
+### 7. The reconcile view opens too small
+
+It has to be resized by hand every time before the diff is readable. It should open large enough to
+show the step, or the window should size to content.
 
 ---
 

@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.withIds
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
@@ -39,6 +40,14 @@ object ScenarioCodec {
             put("version", scenario.version)
         }
 
+    /**
+     * Loading is where a step gets its identity, if the file did not give it one.
+     *
+     * [withIds] is deterministic, so a scenario written before ids existed reads back with the *same*
+     * ids every time — which is what lets `reconcileRoute` compare the step that ran against the step on
+     * disk after loading each of them separately. A random id here would make those two loads disagree
+     * about every step of every pre-id file.
+     */
     fun fromJson(obj: JsonObject): Scenario =
         Scenario(
             id = str(obj, "id"),
@@ -49,7 +58,7 @@ object ScenarioCodec {
             teardown = obj["teardown"]?.jsonArray?.map { stepFromJson(it.jsonObject) } ?: emptyList(),
             userTags = obj["userTags"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
             version = obj["version"]?.jsonPrimitive?.intOrNull ?: 1,
-        )
+        ).withIds()
 
     // ----------------------------------------------------------------- steps
 
@@ -62,6 +71,9 @@ object ScenarioCodec {
     @Suppress("CyclomaticComplexMethod")
     fun stepToJson(step: ScenarioStep): JsonObject =
         buildJsonObject {
+            // Additive, and written only once assigned: a file that never had ids is not given them by the
+            // act of reading it, only by the act of saving it.
+            step.stepId.takeIf { it.isNotBlank() }?.let { put("stepId", it) }
             when (step) {
                 is ScenarioStep.Send -> {
                     put("type", "send"); put("raw", step.raw); step.session?.let { put("session", it) }
@@ -96,13 +108,15 @@ object ScenarioCodec {
     @Suppress("ThrowsCount")
     fun stepFromJson(obj: JsonObject): ScenarioStep {
         val session = obj["session"]?.jsonPrimitive?.contentOrNull
+        val stepId = obj["stepId"]?.jsonPrimitive?.contentOrNull ?: ""
         return when (val type = obj["type"]?.jsonPrimitive?.contentOrNull?.lowercase()) {
-            "send" -> ScenarioStep.Send(raw = str(obj, "raw"), session = session)
+            "send" -> ScenarioStep.Send(raw = str(obj, "raw"), session = session, stepId = stepId)
             "wait" -> ScenarioStep.Wait(
                 session = session,
                 state = obj["state"]?.jsonPrimitive?.contentOrNull,
                 match = obj["match"]?.jsonObject?.let { predicateFromJson(it) },
                 timeoutMs = obj["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 10_000,
+                stepId = stepId,
             )
             "expect" -> ScenarioStep.Expect(
                 session = session,
@@ -110,12 +124,14 @@ object ScenarioCodec {
                 match = obj["match"]?.jsonObject?.let { predicateFromJson(it) },
                 timeoutMs = obj["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 10_000,
                 expectation = expectationFromJson(reqObj(obj, "expectation")),
+                stepId = stepId,
             )
-            "clearmessages" -> ScenarioStep.ClearMessages(session)
+            "clearmessages" -> ScenarioStep.ClearMessages(session, stepId)
             "resetseqnum" -> ScenarioStep.ResetSeqNum(
                 session = session,
                 sender = obj["sender"]?.jsonPrimitive?.intOrNull,
                 target = obj["target"]?.jsonPrimitive?.intOrNull,
+                stepId = stepId,
             )
             else -> throw IllegalArgumentException("unknown step type '$type'")
         }

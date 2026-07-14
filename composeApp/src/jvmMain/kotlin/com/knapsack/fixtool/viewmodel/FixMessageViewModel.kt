@@ -23,8 +23,10 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
+import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.RawMessageView
@@ -155,9 +157,15 @@ class FixMessageViewModel(
     private val _lastRunScenario = MutableStateFlow<Scenario?>(null)
     val lastRunScenario: StateFlow<Scenario?> = _lastRunScenario.asStateFlow()
 
-    /** Record which scenario the upcoming run's results belong to (UI and control-surface runs). */
+    /**
+     * Record which scenario the upcoming run's results belong to (UI and control-surface runs).
+     *
+     * Identified on the way in, with the same deterministic assignment the runner and the codec use, so
+     * the snapshot of what ran can be compared step-for-step against what is on disk. An un-identified
+     * snapshot would have no way to say *which* step failed once the author moved it.
+     */
     fun noteScenarioRun(scenario: Scenario) {
-        _lastRunScenario.value = scenario
+        _lastRunScenario.value = scenario.withIds()
     }
 
     /**
@@ -224,12 +232,17 @@ class FixMessageViewModel(
      *   would diff against `toString()`'s re-sorted body — showing entries the venue never moved, offering
      *   "Accept new order" on them, and saving an order nobody sent;
      * - the scenario is **still saved** (a run of an inline, never-persisted scenario has nothing to edit);
-     * - and the step at that index is **still the step that ran**. This last one is not pedantry: the run
-     *   result addresses its step by *index*, and nothing invalidates a run when the scenario is edited. So
-     *   delete a step above the failure, save, and index 1 now holds a *different* Expect — one whose
-     *   assertions would be diffed against the failing step's message, and which "Accept actual" would then
-     *   overwrite with bytes the venue never sent *for it*. Checking only that `saved.steps[i]` is *an*
-     *   Expect cannot see that; comparing it against the step the run actually executed can.
+     * - the step that failed is **still in the scenario** — found by [ScenarioStep.stepId], not by index;
+     * - and **that step has not itself been edited** since it ran. This last one is not pedantry: the run
+     *   result used to address its step by *index*, and nothing invalidates a run when the scenario is
+     *   edited. So delete a step above the failure, save, and index 1 now holds a *different* Expect — one
+     *   whose assertions would be diffed against the failing step's message, and which "Accept actual"
+     *   would then overwrite with bytes the venue never sent *for it*.
+     *
+     * The old guard caught that by refusing whenever `saved.steps[i] != ran.steps[i]` — correct, and far
+     * too wide: it withdrew the fix for the step that failed because the author had renamed a *different*
+     * step. Now the step is looked up by identity, so an edit elsewhere in the scenario is what it always
+     * was — irrelevant — and the failure still routes, to wherever that step now sits.
      */
     @Suppress("ReturnCount") // One guard per reason, each with its own sentence. Nesting them reads far worse.
     fun reconcileRoute(step: StepResult): ReconcileRoute {
@@ -262,17 +275,38 @@ class FixMessageViewModel(
                 ?: return ReconcileRoute.Refused(
                     "Scenario '${ranScenario.name}' is not saved — there are no assertions on disk to reconcile.",
                 )
-        // The saved step must be the step that RAN, not merely an Expect that now sits at its index.
-        if (saved.steps.getOrNull(step.stepIndex) != ranScenario.steps.getOrNull(step.stepIndex)) {
+        // Which step ran here — by identity. The result's own id where it has one; otherwise the id of the
+        // step that sat at its index in the scenario that ran, which is the same thing by construction
+        // (both sides go through the same deterministic assignment).
+        val ranStep =
+            ranScenario.steps.getOrNull(step.stepIndex)
+                ?: return ReconcileRoute.Refused(
+                    "This run's step ${step.stepIndex + 1} is not in the scenario it was attributed to — " +
+                        "run it again and reconcile the new failure.",
+                )
+        val stepId = step.stepId?.takeIf { it.isNotBlank() } ?: ranStep.stepId
+
+        // The step that failed must still exist...
+        val savedIndex = saved.steps.indexOfFirst { it.stepId == stepId }
+        if (savedIndex < 0) {
             return ReconcileRoute.Refused(
-                "Scenario '${saved.name}' has changed since this run, so step ${step.stepIndex + 1} is no " +
-                    "longer the step that failed. Run it again and reconcile the new failure.",
+                "The step that failed is no longer in scenario '${saved.name}' — it has been deleted since " +
+                    "this run, so there is nothing to reconcile. Run it again and reconcile the new failure.",
+            )
+        }
+        // ...and it must be the step that ran, not an edited descendant of it. An edit to any OTHER step is
+        // none of this decision's business — that is the whole point of asking by id.
+        if (saved.steps[savedIndex] != ranStep) {
+            return ReconcileRoute.Refused(
+                "Step ${savedIndex + 1} of '${saved.name}' has changed since this run, so it is no longer " +
+                    "the step that failed. Run it again and reconcile the new failure.",
             )
         }
         return ReconcileRoute.Open(
             WorkbenchEditRequest(
                 scenario = saved,
-                focusStep = step.stepIndex,
+                // Where the step is NOW, which is not where it ran if the author has been rearranging.
+                focusStep = savedIndex,
                 failedTags = step.tags.filterNot { it.passed },
                 actualRaw = wire,
                 actualAt = message.timestamp.atZone(java.time.ZoneId.systemDefault()).toInstant(),

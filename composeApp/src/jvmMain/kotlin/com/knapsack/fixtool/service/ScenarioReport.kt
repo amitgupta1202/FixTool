@@ -24,6 +24,9 @@ object ScenarioReport {
     fun stepToJson(step: StepResult): JsonObject =
         buildJsonObject {
             put("stepIndex", step.stepIndex)
+            // Which step, as opposed to which slot. The index is where it sat during *this* run; the id is
+            // what a consumer can still resolve after the scenario has been edited underneath it.
+            step.stepId?.let { put("stepId", it) }
             put("kind", step.kind)
             put("phase", step.phase)
             put("passed", step.passed)

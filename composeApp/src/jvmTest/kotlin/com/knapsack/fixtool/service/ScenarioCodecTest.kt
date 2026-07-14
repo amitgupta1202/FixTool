@@ -13,6 +13,7 @@ import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.model.scenario.validationError
+import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.Test
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -57,8 +58,11 @@ class ScenarioCodecTest {
                 teardown = listOf(ScenarioStep.Send("35=5|", session = "CLI")),
                 userTags = listOf("demo"),
             )
+        // Reading is what assigns a step its id, so the fixture's blanks are filled on the way back — and by
+        // the same deterministic rule, which is why this compares against the identified original rather than
+        // ignoring the ids. See ScenarioStepIdTest for what that guarantee is load-bearing for.
         val restored = ScenarioCodec.fromJson(ScenarioCodec.toJson(scenario))
-        assertEquals(scenario, restored)
+        assertEquals(scenario.withIds(), restored)
     }
 
     @Test

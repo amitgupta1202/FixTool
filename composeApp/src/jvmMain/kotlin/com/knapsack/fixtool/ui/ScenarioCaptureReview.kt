@@ -99,7 +99,9 @@ fun ScenarioCaptureReview(
 
     fun select(index: Int) {
         onStateChange(state.copy(selectedIdx = index))
-        candidates.getOrNull(index)?.let { onSelectSource(it.message) }
+        // A pasted candidate has no source row to highlight — and inventing one would put a message in
+        // the grid that never arrived on any wire.
+        candidates.getOrNull(index)?.source?.let { onSelectSource(it) }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -226,7 +228,7 @@ private fun CandidateRow(
     onToggle: (Boolean) -> Unit,
     onSelect: () -> Unit,
 ) {
-    val outgoing = candidate.message.direction == FixMessage.Direction.OUTGOING
+    val outgoing = candidate.outgoing
     val bg = if (selected) AppTheme.Colors.selectionPrimary else AppTheme.Colors.surfaceVariant
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -237,7 +239,7 @@ private fun CandidateRow(
         SessionBadge(candidate.session, sessionColor, modifier = Modifier.width(130.dp))
         DirectionGlyph(outgoing, modifier = Modifier.padding(end = 6.dp))
         Text(
-            text = if (outgoing) "Send ${msgTypeLabel(dictionary, candidate.message.messageType)}" else "Expect ${msgTypeLabel(dictionary, candidate.message.messageType)}",
+            text = if (outgoing) "Send ${msgTypeLabel(dictionary, candidate.messageType)}" else "Expect ${msgTypeLabel(dictionary, candidate.messageType)}",
             color = if (included) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
             fontSize = 12.sp,
             maxLines = 1,
@@ -246,7 +248,7 @@ private fun CandidateRow(
             VarBadges(vars.minted, vars.referenced, varColors, modifier = Modifier.padding(start = 8.dp))
         }
         Row(modifier = Modifier.weight(1f)) {}
-        Text(candidate.message.timestamp.format(TIME_FMT), color = AppTheme.Colors.textDisabled, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        Text(candidate.timestamp.format(TIME_FMT), color = AppTheme.Colors.textDisabled, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
     }
 }
 
@@ -286,8 +288,8 @@ private fun RangeSelectors(
     if (candidates.isEmpty()) return
     fun label(i: Int): String {
         val c = candidates[i]
-        val glyph = if (c.message.direction == FixMessage.Direction.OUTGOING) "▶" else "◀"
-        return "#${i + 1} $glyph ${msgTypeLabel(dictionary, c.message.messageType)} · ${c.session}"
+        val glyph = if (c.outgoing) "▶" else "◀"
+        return "#${i + 1} $glyph ${msgTypeLabel(dictionary, c.messageType)} · ${c.session}"
     }
     val first = included.indexOfFirst { it }.takeIf { it >= 0 }
     val last = included.indexOfLast { it }.takeIf { it >= 0 }
@@ -326,11 +328,11 @@ private fun CandidateDetail(
     sessionColor: androidx.compose.ui.graphics.Color,
     onToggle: (Boolean) -> Unit,
 ) {
-    val outgoing = candidate.message.direction == FixMessage.Direction.OUTGOING
+    val outgoing = candidate.outgoing
     Row(verticalAlignment = Alignment.CenterVertically) {
         DirectionGlyph(outgoing)
         Text(
-            text = "  #${index + 1}  ${msgTypeLabel(dictionary, candidate.message.messageType)}",
+            text = "  #${index + 1}  ${msgTypeLabel(dictionary, candidate.messageType)}",
             color = AppTheme.Colors.text,
             fontWeight = FontWeight.SemiBold,
             fontSize = 12.sp,

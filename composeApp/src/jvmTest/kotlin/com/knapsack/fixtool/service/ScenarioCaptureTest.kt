@@ -214,7 +214,7 @@ class ScenarioCaptureTest {
 
         val candidates = ScenarioCapture.candidates(listOf(b, a))
 
-        assertEquals(listOf("A" to "D", "B" to "8"), candidates.map { it.session to it.message.messageType })
+        assertEquals(listOf("A" to "D", "B" to "8"), candidates.map { it.session to it.messageType })
     }
 
     @Test

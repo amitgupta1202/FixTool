@@ -117,7 +117,7 @@ class ScenarioCaptureReviewTest {
         val selection = savedSelection
         assertTrue(selection != null, "save should fire")
         assertEquals(3, selection!!.size)
-        assertTrue(selection.none { it.message.rawMessage.contains("STALE-1") }, "unticked noise is excluded")
+        assertTrue(selection.none { it.wire.contains("STALE-1") }, "unticked noise is excluded")
     }
 
     @Test
@@ -135,7 +135,7 @@ class ScenarioCaptureReviewTest {
         val selection = savedSelection
         assertTrue(selection != null)
         assertEquals(3, selection!!.size)
-        assertEquals("R", selection.first().message.messageType, "flow starts at the picked row")
+        assertEquals("R", selection.first().messageType, "flow starts at the picked row")
     }
 
     @Test

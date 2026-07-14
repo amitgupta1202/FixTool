@@ -211,6 +211,35 @@ genuinely swapped *and* changed a value can be ambiguous to align). They move an
 loose tag. And every hand edit is checked live against the failing message — the row shows whether
 it *would now pass* — so a user cannot save an expectation they have quietly broken.
 
+#### What an "entry" is, and what it is not — read this before touching the arrows
+
+The model has no groups. It is not getting any. So the arrows need their own answer to *"which rows
+must travel together?"*, and that answer is `ScenarioReconcile.entries`: **the maximal repeating runs
+of the expectation's own row order, cut into period-sized chunks counted from where the run starts.**
+
+Nothing about assertion consults it. `ExpectationEvaluator` still pairs by tag and occurrence and
+knows nothing else. "Entry" exists only to bound what one click of an arrow may rewrite, and if the
+arrows were ever removed it would go with them.
+
+**The trap, which has been fallen into once.** The obvious rule — *"a block may swap with the run next
+door if it carries the same tags in the same order"* — is necessary and **not sufficient**. In a group
+of three parties, rows `1..3` are `447, 452, 448` and so are rows `4..6`. Same tags, same order — and
+neither is a party. Each is a *rotation*: the tail of one entry welded to the head of the next.
+Swapping them asserts FIRMA alongside FIRMC's role while every row still reads `452 exact 4` on
+screen, and the expectation's tag sequence comes out **byte-identical**, so a test that checks tag
+order sees nothing wrong. A window is not an entry. Only an entry may move, and only `entries` may say
+where one begins.
+
+A **single row of a repeated tag** is refused too: that is the per-row arrow of point 3 above, wearing
+a block's clothes.
+
+Arrows are offered on every entry of a repeating group on a failing step — not only on the entries the
+engine bracketed as moved — because the case they exist for is precisely the one where the engine
+refuses to align and draws no bracket. A bracket with no proven move behind it carries the arrows and
+nothing else: no `⇅`, no *"entry moved"*, no **Accept new order**, because none of those would be true
+of it. This is safe because the diff re-judges every row after every move: a move that does not
+describe what the venue did goes **red**, not green.
+
 ---
 
 ### Where fixing happens — and where it does not
@@ -409,3 +438,40 @@ this whole exercise exists to remove.
 
    The order of the fields the engine reads is half of what an expectation asserts. It is not something to be
    reconstructed on a best-effort basis.
+
+---
+
+## Testing this model — and how a green suite lies to you
+
+Every serious defect in this area has been found *after* a green test suite, and the cause has been
+the same each time: **the fixture dodged the hard case.** Not a missing test — a present test, passing,
+against data with the difficulty removed. The list, all real:
+
+- no fixture had a **pipe inside a FIX value**, so a truncated `58=Rejected|insufficient margin` went unseen;
+- no fixture set **`wireRaw`**, so a whole code path was never exercised;
+- no fixture had **two different firms** in a party group, so a role swap was undetectable;
+- no fixture fed **`onChange` back** the way the editor feeds it, so a completely dead staging mechanism
+  survived seven passing tests;
+- a party fixture had **four rows** where the real message has six, so an entry could be torn in half
+  without any test noticing;
+- an entry-move fixture only ever moved **entry-aligned spans**, so a rule that happily tore parties apart
+  in a three-party group passed every assertion — including an invariant test that checked the very
+  property the defect preserved (see *"What an entry is, and what it is not"*).
+
+Two habits are worth more than any amount of coverage here:
+
+1. **Reproduce the bug on the old code before claiming a fix.** If the failing test does not fail without
+   the fix, it is testing something else.
+2. **Mutation-check every guard: delete it, watch the test fail.** A guard nothing pins is a comment.
+
+`AlignmentPropertiesTest` is the model for the pairing rules — it enumerates ~465k (message, expectation)
+pairs against an independently written oracle. Making `align()` matcher-aware, the forbidden false green, is
+caught by 3 of its 6 tests and **not** by the two "passes its own golden" tests: a matcher-aware pairing
+still passes its own golden. That is the blind spot every example-based test on this had.
+
+### Driving a venue that can actually break it
+
+`tools/fake-venue/` exists because **the built-in demo acceptor cannot test wire order or reordering at
+all** — it is QuickFIX-based, so its bytes already come out ascending-with-groups-at-the-end, byte-identical
+to `toString()`. Against it the broken code and the fixed code are indistinguishable. See that README for
+the three venue modes (`golden`, `shape`, `swap`) and how to stage a scenario against them.

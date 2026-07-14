@@ -20,7 +20,7 @@ dodged the hard case.
 |---|---|---|
 | 0 | Engine seams (no UI) | **complete** |
 | 1 | The diff surface, standalone | **complete** |
-| 2 | Rail + document tabs; the window dies | **in progress** |
+| 2 | Rail + document tabs; the window dies | **complete** |
 | 3 | The diff surface becomes the only expectation editor | not started |
 | 4 | Drag moves, undo/redo, keyboard | not started |
 | 5 | Reference slot: paste, pick, provenance | not started |
@@ -29,10 +29,13 @@ dodged the hard case.
 
 ---
 
-## Start here — the state of play (updated at the end of Phase 1)
+## Start here — the state of play (updated at the end of Phase 2)
 
-**Phases 0 and 1 are complete and on `main`.** The engine seams exist and the diff surface is
-built and screenshot-tested; nothing routes to it yet. Phase 2 is next.
+**Phases 0, 1 and 2 are complete and on `main`.** The engine seams exist; the diff surface is
+built and screenshot-tested but **nothing routes to it yet**; and the scenarios workbench now
+lives in the main window as a docked rail and a set of document tabs — there is no second window.
+Phase 3 is next, and it is the one that puts `DiffSurface` on screen: the reconcile document tab
+hosts it, and `ReconcileView` and `ExpectationBuilder` die.
 
 **What exists now, and where:**
 
@@ -44,30 +47,47 @@ built and screenshot-tested; nothing routes to it yet. Phase 2 is next.
 | **The verdict — counted once, for both surfaces** | `service/compare/Verdict.kt` |
 | Draft + snapshot undo/redo + the gutter's offers + memoized `DiffModel` | `ui/diff/ReconcileSession.kt` |
 | The two-column diff, the gutter, the group bands | `ui/diff/DiffSurface.kt`, `DiffPalette.kt` |
-| **Dev bench — DELETE IN 2.2 with the window** | `ui/diff/DiffHarness.kt` + `Mode.Diff` in `ui/ScenarioWorkbench.kt` |
+| The docked rail: the run tree, the routes, the actions | `ui/ScenariosRail.kt` |
+| A document and its state (the tab owns the draft — see T2) | `ui/ScenarioDocuments.kt` |
+| The document tab strip + the host that composes the active one | `ui/ScenarioDocumentPane.kt` |
+| Documents, the centre's selection, the close-confirm, the scenario list | `FixMessageViewModel` |
+| ~~Dev bench~~ | deleted in 2.2 with the window, as planned |
 
 Steps carry a stable `stepId` (Phase 0); `reconcileRoute` addresses a failure by it, and the
 `ReconcileSession` must be `remember(stepId)`-keyed for the same reason (P3).
 
-**Commands.** `./gradlew :composeApp:jvmTest` — **1195 tests, 0 failures** is the current bar.
-Lint baseline is **1684** findings (`ktlintCheck` + `detekt`, `--continue`); the rule is only
-that your files add none. The bench: `FIXTOOL_DIFF_HARNESS=1 ./gradlew :composeApp:run`.
+**Commands.** `./gradlew :composeApp:jvmTest` — **1204 tests, 0 failures** is the current bar.
+The lint rule is that **your files add none**; measure it by counting findings *per file* on the
+pre-phase tree and again after (`ktlintCheck` + `detekt`, `--continue`), because a bare total moves
+whenever a file is added or deleted. The tree is currently 2084 by that count. The diff bench is
+gone: it rode in the workbench window, and 2.2 deleted both.
 
-**Four traps, all of which cost time in Phases 0–1:**
+**Five traps, all of which cost time in Phases 0–2:**
 
 1. **Never run `ktlintFormat`.** It reformats all 64 files of the module and buries the work in
-   a style diff. Fix your own lines by hand, or format-then-revert-everything-else.
+   a style diff. Fix your own lines by hand, or commit first and then
+   format-and-revert-everything-except-the-files-you-wrote-whole.
 2. **A UI phase is gated by its screenshots, not its tests.** The worst defect in Phase 1 —
    a gutter offering Accept-actual on a *moved* row, one click from deleting "FIRMA holds role
-   1" — was found by looking at the picture, with fourteen tests green.
-3. **A test harness must feed `onChange` back**, the way `ScenarioEditor` does. A harness that
-   merely records it once let a completely dead staging mechanism survive seven passing tests.
-4. **The control surface's `/screenshot` captures the MAIN window.** Point it at second-window
-   content and it grabs the user's desktop instead. Do not.
+   1" — was found by looking at the picture, with fourteen tests green. Phase 2's rail shipped a
+   tree whose expand chevron was clipped to nothing by `Modifier.size(10.dp)`, so it read as a
+   flat list. Also found by looking at the picture. Also with every test green.
+3. **A test harness must feed the callback back**, the way the app does. A harness that merely
+   records `onChange` once let a completely dead staging mechanism survive seven passing tests —
+   and in Phase 2, three capture-review tests went red the moment its state was hoisted, because
+   the harness was still dropping `onStateChange` on the floor.
+4. **The control surface can toggle panes and run scenarios, but it cannot click.** Everything
+   reachable only by a click — opening a document, the gutter, a drag — needs a Compose UI test
+   that clicks, and writes its screenshot to `composeApp/build/scenario-screenshots/`. The
+   `/screenshot` endpoint captures the main window, which is now the whole app.
+5. **Only the active document is composed.** A tab is not the window it replaced: switch away and
+   its subtree is *disposed*. Anything the author has typed must live in the document
+   (`ScenarioDoc`), not in the composable — and the same goes for whatever Phase 3 puts in a
+   reconcile tab, whose `ReconcileSession` holds an undo stack that must not evaporate.
 
-**Phase 2's `### Decisions taken before implementation` is written** (below, T1–T8), and it holds:
-T1 is a live defect — the editor drops every `stepId` on Save, so the id is a hash of the position
-again — and T2 says a document tab, unlike the window it replaces, is *disposed* when you look away.
+**Phase 2's `### Decisions taken before implementation` is written** (below, T1–T8), and it held:
+T1 was a live defect — the editor dropped every `stepId` on Save, so the id was a hash of the
+position again — and T2 caught the regression the phase would otherwise have shipped.
 
 ---
 
@@ -816,45 +836,101 @@ The two exceptions are honest ones: capture review's Save *creates* a scenario, 
 served its purpose and closes; and `esc` / `×` on a **dirty** document confirms first, inline on the
 tab, in the app's own delete-confirm idiom (`ScenarioRow`) rather than a new dialog.
 
-### 2.1 The Scenarios rail
-- [ ] New left-docked pane in `ui/App.kt` following the exact existing idiom
+### 2.1 The Scenarios rail — **complete**
+- [x] New left-docked pane in `ui/App.kt` following the exact existing idiom
       (`if (show) { Box(width = maxWidthPx * ratio) { … }; draggable divider }`, ratio
       state + clamp like `editorPanelSplitRatio`), in **both** TABS and SPLIT layouts.
       Content: scenario list → expandable step tree with live ✓/✗/▸/– from
       `scenarioResult`, per-scenario Run/Edit/Duplicate/Delete (port from
       `ScenarioListPane`), Capture from sessions…, New, Open folder, last-run line.
-- [ ] Failing step rows carry **Reconcile →** or the `reconcileRoute` refusal sentence —
-      never silence (port `RunStatusLine` semantics).
-- [ ] `showScenariosDialog` flow is renamed/retargeted to toggle the rail;
-      `ControlServer.panel("scenarios")` and the toolbar button work unchanged from the
-      caller's view (`McpTools` descriptions updated to say "pane").
-- [ ] Tests: rail renders run tree states; refusal renders; `fixtool_panel scenarios`
-      toggles it (control-surface test).
+      (`ui/ScenariosRail.kt`; the scenario list itself is owned by the ViewModel — T5.)
+- [x] Failing step rows carry **Reconcile →** or the `reconcileRoute` refusal sentence —
+      never silence (port `RunStatusLine` semantics). Steps below a failure say
+      *"— not reached"* (T7), because the runner stops there and a bare `–` reads as
+      *"it ran, and there was nothing to say"*.
+- [x] `showScenariosDialog` → `showScenariosRail`; `ControlServer.panel("scenarios")` and
+      the toolbar button work unchanged from the caller's view (`McpTools` says "pane").
+- [x] Tests: rail renders run tree states; refusal renders; `fixtool_panel scenarios`
+      toggles the rail (`ControlServerIntegrationTest`).
 
-### 2.2 Scenario documents as tabs
-- [ ] `TabBar` gains document tabs alongside session tabs: distinct glyph + accent,
-      closable (`×`), `esc` closes focused doc tab, dirty tabs confirm. Document kinds:
-      scenario editor, capture review, reconcile diff (Phase 3 routes into it; until
-      then the editor/capture docs host the existing `ScenarioEditor` /
-      `ScenarioCaptureReview` composables, which are already window-agnostic).
-- [ ] `WorkbenchEditRequest` deep-links land on (open-or-focus) the right tab, scrolled
-      to the failing step — from the rail, the run line, and
-      `openScenarioEditorForFailure` (the message-viewer door). Same single decider,
-      three doors, one destination.
-- [ ] SPLIT view modes: document tabs occupy the centre pane like a session tab does;
-      verify both split orientations render.
-- [ ] **Delete** `ScenarioWorkbenchWindow` and the `Mode` switcher from
-      `ui/ScenarioWorkbench.kt`; delete the second-window block in `main.kt` (lines
-      around the `viewModelRef` plumbing stay only if still needed — prefer deleting).
-      `WindowChrome.kt` stays (used by the main window).
-- [ ] Tests: deep-link from a failed run lands on the editor tab focused on the step
-      (port `ScenarioRunReportTest` / `ScenarioDeepLinkTest` expectations); closing a
-      dirty editor tab confirms; capture tab ↔ grid source highlighting
-      (`selectMessage` fires on candidate selection).
+### 2.2 Scenario documents as tabs — **complete**
+- [x] `TabBar` gains document tabs alongside session tabs: distinct glyph + violet accent,
+      closable (`×`), `esc` closes the focused doc tab, dirty tabs confirm **inline on the
+      tab** in the app's own confirm idiom. Document kinds: scenario editor, capture review
+      (Phase 3 adds the reconcile diff). The confirm state lives on the ViewModel, because
+      `esc` and the `×` must not be two answers to *"is it safe to close this"*.
+- [x] `ScenarioEditRequest` deep-links land on (open-or-focus) the right tab, scrolled to
+      the failing step — from the rail, the run line, and `openScenarioEditorForFailure`
+      (the message-viewer door). Same single decider, three doors, one destination. A
+      second failure in a scenario already open **re-aims** the tab (`focusEpoch`) rather
+      than re-seeding it, so unsaved edits survive the deep-link.
+- [x] SPLIT view modes: the document takes one split and the sessions keep the other,
+      along the axis the author already chose (T4); with no document open, SPLIT composes
+      exactly what it composed before.
+- [x] **Deleted** `ScenarioWorkbenchWindow`, the `Mode` switcher (`ui/ScenarioWorkbench.kt`
+      is gone entirely), `ui/diff/DiffHarness.kt`, and the second-window block in `main.kt`
+      — `viewModelRef` is a plain `var` again, because nothing composable reads it.
+      `WindowChrome.kt` stays (the main window uses it).
+- [x] Tests: deep-link from a failed run lands on the editor tab focused on the step
+      (`ScenarioRunReportTest`, `ScenarioDeepLinkTest`, both ported); closing a dirty editor
+      tab confirms; capture tab ↔ grid source highlighting (`selectMessage` fires on
+      candidate selection — mutation-checked).
 
-**Phase 2 gate:** the app has no second window; every workbench capability reachable via
-rail + tabs; live verification: capture → save → run → fail → deep-link → edit → save,
-entirely in the main window, with screenshots.
+**Phase 2 gate — met.** The app has no second window. Full suite green (**1204 tests, 0
+failures**); every file at or below its lint baseline (total 2084 vs the 2121 the same
+command reports on the pre-phase tree). Live-verified against the demo acceptor: the rail
+docked in the main window, a real scenario run, a real failure, the tree auto-expanded on it
+with ✓/✗/*not reached* and **Reconcile →** on the failing step, and the grid tinting the
+message beside it. The click-only half of the loop — Reconcile → document tab → edit → the
+`×` that asks → Save — is driven and photographed by `ScenarioDocumentsScreenshotTest`,
+because the control surface has no hook for a click.
+
+### Phase 2 outcome — what actually happened
+
+**T1 was real, and it was live.** `EditStep` carried no `stepId`, so every Save through the
+editor handed `ScenarioService` a scenario with no ids and `withIds()` minted all of them from
+`(scenario, phase, index)` — R1's defect at a different address, with `withIds`' two-pass
+claim-before-mint defeated by a caller that hands it a clean slate. Reproduced on the old code
+first (both new tests fail without the round-trip). In-place edits survived by luck of the
+determinism; a **move** slid every id below it onto the next step down.
+`ScenarioEditorStepIdentityTest` is *named* for step identity and had never moved a step or
+looked at a `stepId` — the fixture dodging the hard case, again.
+
+**T2 was the phase's real work.** A tab, unlike the window it replaces, is disposed when you
+look away from it. Both document composables now hold their state in the document
+(`ScenarioEditor` gains `onChange`; `ScenarioCaptureReview` becomes a controlled component over
+`CaptureReviewState`), and both test harnesses had to be taught to **feed the callback back** —
+three `ScenarioCaptureReviewTest` cases went red the moment the state was hoisted and the
+harness kept dropping it on the floor, which is exactly ground rule 3 catching itself.
+
+**And the screenshot found two defects that no assertion did.** The expand chevron was drawn
+inside `Modifier.size(10.dp)`, which clips a 9sp glyph away to nothing: the tree rendered as a
+flat list with the one affordance that says *these rows open* invisible. And scenario names
+truncated with no ellipsis, so a name simply appeared to end early. Every test was green. The
+rule holds: **a UI phase is gated by its screenshots.**
+
+**One defect found outside the checklist, and fixed:** the rail cannot own the scenario list
+(T5), and neither can the ViewModel own the *refreshing* of it — two of the four doors that
+write a scenario (`POST /scenarios` and `fixtool_save_scenario`) never come through the
+ViewModel. `ScenarioService` notifies on write now. Without it, an agent saving a scenario over
+MCP watched the rail go on showing the old one. Found by a test failing for the right reason.
+
+**Deviations from the plan, and things deliberately left:**
+
+- The rail does **not** open itself when a deep-link fires. The destination is a tab; forcing a
+  pane open because the author clicked *Reconcile* in the message viewer would be a second
+  thing happening that they did not ask for.
+- `ScenarioEditor` gained a hoisted **selection** (`selectedStep`/`onSelectStep`) as well as a
+  draft, so a glance at the session grid does not move the author's cursor. The decisions
+  section only called for the draft; the inconsistency with capture review (whose `selectedIdx`
+  *is* in its state) was not worth keeping.
+- **The reconcile view is narrower here than the workbench window gave it.** That window opened
+  at 90% of the screen precisely because the six-column table needed the width; the centre pane
+  with the rail open gives it roughly 90px less. It is not worth fixing: Phase 3 deletes
+  `ReconcileView` and puts `DiffSurface` — a two-column layout built for this — in its place.
+- `ScenarioService.load()` of an id that does not exist fires a **user-facing error toast** (it
+  cannot tell "missing" from "corrupt"). Pre-existing, surfaced by a bad request during
+  verification, and left alone — but it is a Phase 7 cleanup candidate.
 
 ---
 
@@ -998,9 +1074,11 @@ message → diff → seed → step added to a scenario → run.
 | `ui/diff/ReconcileSession.kt`, `ui/diff/DiffSurface.kt` | new (Phase 1) |
 | `ui/ReconcileView.kt` | deleted (Phase 3.1) after test porting |
 | `ui/ExpectationBuilder.kt` | deleted (Phase 3.2) after test porting |
-| `ui/ScenarioWorkbench.kt` window + `Mode` | deleted (Phase 2.2); list content → rail |
-| `ui/ScenarioEditor.kt`, `ui/ScenarioCaptureReview.kt` | kept, re-homed into tabs; `ExpectDetail` shrinks (3.2); capture gains paste source (5) |
+| `ui/ScenarioWorkbench.kt` window + `Mode` | **deleted (Phase 2.2)** — whole file; list content → `ui/ScenariosRail.kt` |
+| `ui/diff/DiffHarness.kt` | **deleted (Phase 2.2)** with its host, as planned |
+| `ui/ScenarioDocuments.kt`, `ui/ScenarioDocumentPane.kt`, `ui/ScenariosRail.kt` | new (Phase 2) |
+| `ui/ScenarioEditor.kt`, `ui/ScenarioCaptureReview.kt` | kept, re-homed into tabs (Phase 2) and now **state-hoisted** (T2); `ExpectDetail` shrinks (3.2); capture gains paste source (5) |
 | `ui/MatcherEditor.kt`, `ui/ScenarioUi.kt`, `ui/WindowChrome.kt` | kept |
-| `main.kt` second-window block | deleted (Phase 2.2) |
-| `ui/App.kt`, `ui/TabBar.kt`, `ui/Toolbar.kt` | modified: rail pane, document tabs, toolbar wording |
-| `control/ControlServer.kt` `panel("scenarios")` | retargeted to the rail, endpoint unchanged |
+| `main.kt` second-window block | **deleted (Phase 2.2)** |
+| `ui/App.kt`, `ui/TabBar.kt`, `ui/Toolbar.kt` | modified (Phase 2): rail dock, document tabs, SPLIT document area |
+| `control/ControlServer.kt` `panel("scenarios")` | retargeted to the rail (Phase 2), endpoint unchanged |

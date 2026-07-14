@@ -223,6 +223,21 @@ class ControlServerIntegrationTest {
         assertFalse(viewModel.showConnectionPanel.value)
     }
 
+    /**
+     * `fixtool_panel "scenarios"` used to open a **window**. It opens the docked rail now, and the endpoint is
+     * unchanged — that is the whole contract: every agent and script driving this tool over MCP keeps working,
+     * and simply gets a pane where it used to get a window (which the `/screenshot` of the main window could
+     * never see into anyway).
+     */
+    @Test
+    fun `panel scenarios toggles the rail, not a window`() {
+        assertFalse(viewModel.showScenariosRail.value)
+        assertEquals("ok", status(post("/panel", """{"panel":"scenarios","show":true}""")))
+        assertTrue(viewModel.showScenariosRail.value)
+        post("/panel", """{"panel":"scenarios","show":false}""")
+        assertFalse(viewModel.showScenariosRail.value)
+    }
+
     @Test
     fun `select with no sessions returns an error`() {
         assertEquals("error", status(post("/select", """{"session":"0"}""")))

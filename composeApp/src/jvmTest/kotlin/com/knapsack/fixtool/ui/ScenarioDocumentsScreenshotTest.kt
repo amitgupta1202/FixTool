@@ -294,6 +294,14 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.waitForIdle()
         assertTrue(viewModel.activeDocument is ScenarioDoc.Capture, "capture opened as a document")
         composeTestRule.onNodeWithTag("capture-name").performTextReplacement("rfq")
+
+        // Selecting a candidate selects the message it was scanned FROM, in its session grid and the detail
+        // panel. That link is the reason capture is a tab and not a window: in a window there was nothing on
+        // the other end of it.
+        composeTestRule.onNodeWithTag("candidate-1").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue(viewModel.selectedMessage.value?.messageType == "8", "the ExecutionReport is selected in the grid")
+
         composeTestRule.onNodeWithTag("candidate-check-0").performClick() // untick the send
         composeTestRule.waitForIdle()
         snapshot("phase2_document_tab_capture.png")

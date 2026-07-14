@@ -119,19 +119,35 @@ data class Chunk(
     val id: Int,
     val kind: ChunkKind,
     /**
-     * The engine's rows for this chunk, **verbatim** — the very rows the runner judged. A [RIGHT_ONLY]
-     * chunk's rows are the reply's extras (`matcher == null`), which is what "assert it" acts on; they
-     * are rows of the diff without being rows of the expectation, which is why [left] is not simply this.
+     * **Each row, and the field it faces** — the pairing itself, decided here and nowhere else.
+     *
+     * It used to be two parallel lists, `rows` and `right`, and they are *not* one-to-one. A [SAME] chunk
+     * holding an `absent` row that passes has a row with no wire field at all, so `right` came out shorter
+     * than `rows` — and any renderer that zipped them slid every field below it up a line. The two sides of
+     * the diff would then disagree about what faces what: exactly the seam [GroupOverlay] exists to close,
+     * re-opened in the one place nobody would think to look for it.
+     *
+     * So the correspondence is computed where the things that decide it already live — `wireIndex`, the
+     * reorder's `placement`, and the `absent`-row fallback — and everything downstream reads it. A row that
+     * faces a gap says so with a null; there is nothing left to infer.
      */
-    val rows: List<ScenarioReconcile.Row>,
-    /** The message fields on the right. Empty for [LEFT_ONLY] — the venue sent nothing here. */
-    val right: List<MessageField>,
+    val pairs: List<Pair<ScenarioReconcile.Row, MessageField?>>,
     /**
      * The chunk this one traded places with. Two party entries that swapped are two [MOVED] chunks
      * pointing at each other, which is the crossing connector the mockup draws between them.
      */
     val moveLink: Int? = null,
 ) {
+    /**
+     * The engine's rows for this chunk, **verbatim** — the very rows the runner judged. A [RIGHT_ONLY]
+     * chunk's rows are the reply's extras (`matcher == null`), which is what "assert it" acts on; they
+     * are rows of the diff without being rows of the expectation, which is why [left] is not simply this.
+     */
+    val rows: List<ScenarioReconcile.Row> get() = pairs.map { it.first }
+
+    /** The message fields on the right, in wire order. Empty for [LEFT_ONLY] — the venue sent nothing here. */
+    val right: List<MessageField> get() = pairs.mapNotNull { it.second }.sortedBy { it.wireIndex }
+
     /** The expectation rows — the editable left column. Empty for [RIGHT_ONLY]. */
     val left: List<ScenarioReconcile.Row> get() = rows.filter { it.matcher != null }
 }
@@ -228,13 +244,20 @@ private open class SequenceSemantics(
             var j = i + 1
             while (j < rows.size && continues(rows, j, kind, movedRows, placement)) j++
             val run = rows.subList(i, j).toList()
-            val right =
-                when (kind) {
-                    ChunkKind.MOVED -> run.mapNotNull { it.index?.let(placement::get) }.sorted()
-                    else -> run.mapNotNull { rightOf(it, wire) }
+
+            // Row by row, so the correspondence survives — see Chunk.pairs. A moved row pairs with nothing,
+            // so its field comes from the placement the engine already decided; everything else faces the
+            // field it claims, and a row that claims none faces a gap.
+            val pairs =
+                run.map { row ->
+                    val at =
+                        when (kind) {
+                            ChunkKind.MOVED -> row.index?.let(placement::get)
+                            else -> rightOf(row, wire)
+                        }
+                    row to at?.let { field(it, wire, dictionary) }
                 }
-            val fields = right.map { field(it, wire, dictionary) }
-            chunks += Chunk(id = chunks.size, kind = kind, rows = run, right = fields)
+            chunks += Chunk(id = chunks.size, kind = kind, pairs = pairs)
             i = j
         }
         return chunks

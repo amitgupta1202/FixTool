@@ -1,0 +1,469 @@
+package com.knapsack.fixtool.ui.diff
+
+import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.FieldExpectation
+import com.knapsack.fixtool.model.scenario.MatchMode
+import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.TemporalKind
+import com.knapsack.fixtool.service.RawMessageView
+import com.knapsack.fixtool.service.compare.ChunkKind
+import com.knapsack.fixtool.service.compare.ReferenceMessage
+import com.knapsack.fixtool.service.wireView
+import org.junit.Test
+import java.time.Instant
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * **The draft, the stack, and the offers.**
+ *
+ * The two properties that carry the surface's whole safety promise, and both are pinned here:
+ *
+ * - **Nothing is written until Save, and undo restores *exactly* what was there.** The stack is snapshots,
+ *   not command inverses, precisely so that this can be asserted byte-for-byte rather than argued about.
+ * - **The surface cannot offer what the engine would refuse.** Every gutter control comes from `offersFor`,
+ *   which is a pure function of the engine's own `can*` predicates — so a temporal row has no Accept-actual,
+ *   an `absent` the reply contradicts is never proposed, and a whole-tag drop announces itself.
+ */
+class ReconcileSessionTest {
+    private val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
+    private val arrival = Instant.parse("2025-01-01T00:00:00Z")
+
+    private fun ref(view: com.knapsack.fixtool.service.MessageView) =
+        ReferenceMessage.live(view, ReferenceMessage.Provenance.THIS_RUN, "this run", arrival)
+
+    private fun session(
+        expectation: Expectation,
+        message: com.knapsack.fixtool.service.MessageView,
+        onChange: (Expectation) -> Unit = {},
+    ) = ReconcileSession(expectation, ref(message), dictionary, onChange = onChange)
+
+    /** The venue filled where it left nothing, added a tag, dropped a tag, and swapped its two parties. */
+    private val reply =
+        wireView(
+            35 to "8",
+            11 to "ORD-1",
+            150 to "2",
+            151 to "500000",
+            453 to "2",
+            448 to "FIRMB",
+            447 to "D",
+            452 to "4",
+            448 to "FIRMA",
+            447 to "D",
+            452 to "1",
+            2376 to "Y",
+        )
+
+    private val captured =
+        Expectation(
+            listOf(
+                FieldExpectation(35, Matcher.Exact("8")),
+                FieldExpectation(11, Matcher.Exact("ORD-1")),
+                FieldExpectation(150, Matcher.Exact("2")),
+                FieldExpectation(151, Matcher.Numeric(0.0)),
+                FieldExpectation(453, Matcher.Exact("2")),
+                FieldExpectation(448, Matcher.Exact("FIRMA")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("1")),
+                FieldExpectation(448, Matcher.Exact("FIRMB")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("4")),
+                FieldExpectation(58, Matcher.Exact("filled")),
+            ),
+            messageType = "8",
+            mode = MatchMode.STRICT,
+        )
+
+    // ----- the stack --------------------------------------------------------------------------------------
+
+    /**
+     * **THE PROPERTY THE SNAPSHOT STACK EXISTS FOR.** Apply anything the surface can apply, undo it, and the
+     * expectation is byte-equal to what was there before. Not *equivalent* — equal. A command-inverse stack
+     * would have had to earn this operation by operation, and `drop` (which takes the whole tag) and `reseed`
+     * (which rebuilds and re-attaches the echoes) are exactly the ones an inverse gets subtly wrong.
+     */
+    @Test
+    fun `every op undoes to a byte-equal expectation`() {
+        val s = session(captured, reply)
+        val ops =
+            listOf(
+                EditOp.acceptActual(3, 151, "500000"),
+                EditOp.drop(5, 448),
+                EditOp.assertAbsent(11, 58),
+                EditOp.loosen(3, 151, Matcher.Presence),
+                EditOp.setMode(MatchMode.OPEN),
+                EditOp.reseed(reply, dictionary),
+                EditOp.acceptAllShape(reply, dictionary),
+                EditOp.assertIt(11, 2376, "Y", reply, dictionary),
+            )
+
+        for (op in ops) {
+            val before = s.draft
+            assertTrue(s.apply(op), "${op.label} must actually change the draft, or this proves nothing")
+            assertTrue(s.draft != before)
+            s.undo()
+            assertEquals(before, s.draft, "undo after '${op.label}' did not restore the expectation exactly")
+        }
+    }
+
+    @Test
+    fun `redo walks forward again, and a fresh edit abandons the redo branch`() {
+        val s = session(captured, reply)
+        s.apply(EditOp.acceptActual(3, 151, "500000"))
+        val accepted = s.draft
+
+        s.undo()
+        assertEquals(captured, s.draft)
+        assertTrue(s.canRedo)
+
+        s.redo()
+        assertEquals(accepted, s.draft, "redo must reach the very state undo left")
+
+        s.undo()
+        s.apply(EditOp.drop(11, 58))
+        assertFalse(s.canRedo, "an edit after an undo abandons the branch — the ordinary editor contract")
+    }
+
+    @Test
+    fun `discard restores the original after an arbitrary sequence, and leaves no redo behind`() {
+        val s = session(captured, reply)
+        s.apply(EditOp.acceptActual(3, 151, "500000"))
+        s.apply(EditOp.drop(11, 58))
+        s.apply(EditOp.setMode(MatchMode.OPEN))
+        s.undo()
+        assertTrue(s.isDirty)
+
+        s.discard()
+
+        assertEquals(captured, s.draft, "cancel must leave no trace at all")
+        assertFalse(s.isDirty)
+        assertFalse(s.canUndo)
+        assertFalse(s.canRedo)
+        assertEquals(0, s.staged)
+    }
+
+    /** The footer counts edits, and names them. The original is not an edit. */
+    @Test
+    fun `the staged count and its labels are the edits, and nothing else`() {
+        val s = session(captured, reply)
+        assertEquals(0, s.staged)
+        assertEquals(emptyList(), s.stagedLabels)
+
+        s.apply(EditOp.acceptActual(3, 151, "500000"))
+        s.apply(EditOp.drop(11, 58))
+
+        assertEquals(2, s.staged)
+        assertEquals(listOf("Accepted 151 = 500000", "Dropped 58"), s.stagedLabels)
+    }
+
+    /** A refused or no-op edit is not an edit: it must not stack, dirty, or make Undo light up. */
+    @Test
+    fun `an operation that changes nothing is never staged`() {
+        val s = session(captured, reply)
+
+        // Accept-actual on a row whose matcher already holds: the engine returns the same expectation.
+        assertFalse(s.apply(EditOp.acceptActual(0, 35, "8")))
+        // A move the engine refuses (a lone row of a repeated tag crossing its sibling).
+        assertFalse(s.apply(EditOp.moveRow(null, from = 10, to = 7)))
+
+        assertEquals(0, s.staged)
+        assertFalse(s.canUndo)
+        assertFalse(s.isDirty)
+    }
+
+    /** The host is told every time the draft moves — that is the loop the editor lives on. */
+    @Test
+    fun `the host hears every change, including undo and discard`() {
+        val heard = mutableListOf<Expectation>()
+        val s = session(captured, reply) { heard += it }
+
+        s.apply(EditOp.drop(11, 58))
+        s.undo()
+        s.redo()
+        s.discard()
+
+        assertEquals(4, heard.size)
+        assertEquals(captured, heard.last(), "the last thing the host hears about a cancel is the original")
+    }
+
+    // ----- the reference slot is not an edit --------------------------------------------------------------
+
+    /**
+     * Swapping the reference changes what you are comparing *against*, not what you are *asserting*. It
+     * re-judges, and that is all — offering to "undo" it would be offering to undo looking at something.
+     */
+    @Test
+    fun `swapping the reference re-judges without staging, dirtying, or pushing undo`() {
+        val s = session(captured, reply)
+        val failing = s.model.verdict.attention
+        assertTrue(failing > 0)
+
+        s.swapReference(ref(wireView(35 to "8", 11 to "ORD-1", 150 to "2", 151 to "0")))
+
+        assertEquals(0, s.staged)
+        assertFalse(s.canUndo)
+        assertFalse(s.isDirty)
+        assertTrue(s.model.verdict.attention != failing, "the rows must have been re-judged against the new bytes")
+    }
+
+    // ----- the memo ---------------------------------------------------------------------------------------
+
+    /**
+     * **THE MEMO KEY IS BY VALUE, AND THAT IS THE WHOLE TRICK.**
+     *
+     * `RawMessageView` has no `equals`, so a key holding the `ReferenceMessage` would compare its view by
+     * *identity*. Rebuild the reference inside the composable — the natural way to write it — and the key
+     * would change on every recomposition: the memo would never hit, and every frame would re-run `reorder`,
+     * which enumerates every contiguous block of the expectation. Nothing fails. It is merely slow, for a
+     * reason nobody would ever find. So this asserts the failure mode directly.
+     */
+    @Test
+    fun `an equal-but-distinct reference does not invalidate the memo`() {
+        val soh = ''
+        val bytes = listOf("35=8", "11=ORD-1", "150=2", "151=0").joinToString("$soh", postfix = "$soh")
+        val s = ReconcileSession(captured, ref(RawMessageView(bytes)), dictionary)
+
+        s.model
+        val after = s.rebuilds
+        assertEquals(1, after)
+
+        // A different object, the same message — exactly what a recomposition would hand it.
+        s.swapReference(ref(RawMessageView(bytes)))
+        s.model
+        s.model
+
+        assertEquals(after, s.rebuilds, "the model was rebuilt for a reference that had not changed at all")
+    }
+
+    @Test
+    fun `the model rebuilds when the draft changes, and when the reference really changes`() {
+        val s = session(captured, reply)
+        s.model
+        val start = s.rebuilds
+
+        s.apply(EditOp.drop(11, 58))
+        s.model
+        assertEquals(start + 1, s.rebuilds, "an edit must re-judge")
+
+        s.swapReference(ref(wireView(35 to "8", 151 to "999")))
+        s.model
+        assertEquals(start + 2, s.rebuilds, "different bytes must re-judge")
+
+        s.model
+        s.model
+        assertEquals(start + 2, s.rebuilds, "and nothing else may")
+    }
+
+    // ----- the display model ------------------------------------------------------------------------------
+
+    /**
+     * **Every row of the diff is a line, and every line's field is the field that row faces.** The two sides
+     * are paired once, in the engine's own terms; nothing downstream re-zips two lists of different lengths.
+     */
+    @Test
+    fun `the lines are the rows, and a row that faces nothing says so`() {
+        val model = session(captured, reply).model
+
+        assertEquals(
+            model.chunks.sumOf { it.rows.size },
+            model.lines.size,
+            "every row of every chunk is exactly one line",
+        )
+        val missing = model.lines.single { it.row.tag == 58 }
+        assertTrue(missing.rightIsGap, "the venue stopped sending 58 — there is nothing to face")
+        val added = model.lines.single { it.row.tag == 2376 }
+        assertTrue(added.leftIsGap, "nothing asserts 2376 — the left column is a gap")
+        assertNotNull(added.right)
+    }
+
+    /** A moved row pairs with nothing, so its field can only come from the placement the engine decided. */
+    @Test
+    fun `a moved row faces the field it landed on`() {
+        val model = session(captured, reply).model
+        val moved = model.lines.filter { it.kind == ChunkKind.MOVED }
+
+        assertTrue(moved.isNotEmpty(), "the two party entries swapped — the engine must see it")
+        assertTrue(
+            moved.all { it.right != null },
+            "a moved row with no field opposite it would draw a crossing to nowhere",
+        )
+        val firma = moved.single { it.row.tag == 448 && (it.row.matcher as Matcher.Exact).value == "FIRMA" }
+        assertEquals("FIRMA", firma.right!!.value, "FIRMA's row must face the FIRMA the venue moved, not FIRMB's")
+    }
+
+    /** The entry bands come off the overlay, and both sides of a line agree about which entry it is in. */
+    @Test
+    fun `lines inside a party entry carry that entry`() {
+        val model = session(captured, reply).model
+
+        val party = model.lines.filter { it.row.tag in listOf(448, 447, 452) }
+        assertEquals(6, party.size)
+        assertTrue(party.all { it.entry != null }, "every party row belongs to an entry the overlay named")
+        assertEquals(2, party.mapNotNull { it.entry }.distinct().size, "two parties, two entries")
+        assertTrue(model.lines.single { it.row.tag == 35 }.entry == null, "MsgType is in no group")
+    }
+
+    // ----- the offers -------------------------------------------------------------------------------------
+
+    /**
+     * **The gutter cannot offer what the engine refuses.** A temporal row's Accept-actual would pin it to a
+     * timestamp that will not recur, so the step is red on every run from then on and the author's only way
+     * out is to delete the assertion — a red that leads to a deleted assertion is a green by a longer route.
+     * A reference row's would destroy the cross-step binding it exists to express.
+     */
+    @Test
+    fun `a temporal and a reference row are never offered Accept actual`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)),
+                    FieldExpectation(11, Matcher.Reference("\${id0}")),
+                    FieldExpectation(151, Matcher.Exact("0")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        // An hour off its window, so the temporal genuinely fails and an offer would be drawn if one existed.
+        val message = wireView(60 to "20200101-00:00:00", 11 to "ORD-1", 151 to "500000")
+
+        val model = ReconcileSession(draft, ref(message), dictionary).model
+
+        fun kinds(tag: Int) =
+            model.lines
+                .single { it.row.tag == tag }
+                .offers
+                .map { it.kind }
+
+        assertFalse(OfferKind.ACCEPT_ACTUAL in kinds(60), "a temporal has nothing honest to accept")
+        assertFalse(OfferKind.ACCEPT_ACTUAL in kinds(11), "a reference has nothing honest to accept")
+        assertTrue(OfferKind.ACCEPT_ACTUAL in kinds(151), "and an ordinary value mismatch does")
+    }
+
+    /**
+     * `absent` asserts the tag appears **nowhere** — it is not scoped to one occurrence. Offer it on the row
+     * for a third party the venue stopped sending, while it still sends two, and the author gets an assertion
+     * that can never pass. Dropping is the honest repair there, and it is the only one offered.
+     */
+    @Test
+    fun `assert-absent is withheld where the reply still carries the tag`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(452, Matcher.Exact("1")),
+                    FieldExpectation(452, Matcher.Exact("4")),
+                    FieldExpectation(452, Matcher.Exact("7")),
+                    FieldExpectation(58, Matcher.Exact("filled")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val message = wireView(452 to "1", 452 to "4") // the third party is gone; 58 is gone entirely
+
+        val model = ReconcileSession(draft, ref(message), dictionary).model
+        val third = model.lines.last { it.row.tag == 452 }
+        val text = model.lines.single { it.row.tag == 58 }
+
+        assertFalse(
+            OfferKind.ASSERT_ABSENT in third.offers.map { it.kind },
+            "the reply still carries 452 twice — 'absent' there could never pass",
+        )
+        assertTrue(OfferKind.ASSERT_ABSENT in text.offers.map { it.kind }, "but 58 really is gone from the reply")
+    }
+
+    /** Dropping a row of a repeated tag takes the tag's rows with it — and the gutter says so first. */
+    @Test
+    fun `the whole-tag drop announces itself before it happens`() {
+        val model = session(captured, reply).model
+
+        val party =
+            model.lines
+                .first { it.row.tag == 448 }
+                .offers
+                .single { it.kind == OfferKind.DROP }
+        val text =
+            model.lines
+                .single { it.row.tag == 58 }
+                .offers
+                .single { it.kind == OfferKind.DROP }
+
+        assertTrue("every row for 448 goes" in party.tooltip, party.tooltip)
+        assertTrue("stops checking 58" in text.tooltip, text.tooltip)
+    }
+
+    /** A passing row has nothing to fix, and a row nobody can read has nothing to fix *here*. */
+    @Test
+    fun `passing and unjudgeable rows are offered nothing`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(11, Matcher.Reference("\${id0}")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val model = ReconcileSession(draft, ref(wireView(35 to "8", 11 to "ORD-1")), dictionary).model
+
+        assertTrue(
+            model.lines
+                .single { it.row.tag == 35 }
+                .offers
+                .isEmpty(),
+        )
+        val echo = model.lines.single { it.row.tag == 11 }
+        assertTrue(echo.unjudged, "a reference has no scope outside a run — amber, not red")
+        assertTrue(echo.offers.isEmpty(), "and an unreadable row must not be handed a one-click way to be wrong")
+    }
+
+    // ----- the move, and the reason it is withheld --------------------------------------------------------
+
+    /** The engine proved these entries swapped, so the one-click order is on offer. */
+    @Test
+    fun `a proven move is offered once, and applying it repairs the step`() {
+        val s = session(captured, reply)
+        val op = s.model.acceptOrder
+
+        assertNotNull(op, "the two parties plainly swapped: ${s.model.withheldMove}")
+        assertNull(s.model.withheldMove)
+        assertTrue(s.apply(op))
+        assertTrue(
+            s.model.lines.none { it.kind == ChunkKind.MOVED },
+            "after accepting the order nothing is out of place any more",
+        )
+    }
+
+    /**
+     * And the role swap: the firms exchanged roles in place, which looks identical and is a regression. No
+     * move is offered — and the reason is *carried*, because an author who is shown a group of red rows and
+     * no button concludes the feature does not exist. That is exactly what happened.
+     */
+    @Test
+    fun `a role swap offers no move, and says why not`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(453, Matcher.Exact("2")),
+                    FieldExpectation(448, Matcher.Exact("FIRMA")),
+                    FieldExpectation(452, Matcher.Exact("1")),
+                    FieldExpectation(448, Matcher.Exact("FIRMB")),
+                    FieldExpectation(452, Matcher.Exact("4")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val rolesSwapped = wireView(453 to "2", 448 to "FIRMA", 452 to "4", 448 to "FIRMB", 452 to "1")
+
+        val model = ReconcileSession(draft, ref(rolesSwapped), dictionary).model
+
+        assertNull(model.acceptOrder, "offering a move here would fake a pass over a real regression")
+        assertNotNull(model.withheldMove)
+        assertTrue("did not move" in model.withheldMove, model.withheldMove)
+        assertTrue(model.lines.none { it.kind == ChunkKind.MOVED }, "and nothing is banded as moved")
+    }
+}

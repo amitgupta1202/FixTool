@@ -23,7 +23,7 @@ dodged the hard case.
 | 2 | Rail + document tabs; the window dies | **complete** |
 | 3 | The diff surface becomes the only expectation editor | **complete** |
 | 4 | Drag moves, undo/redo, keyboard | **complete** |
-| 5 | Reference slot: paste, pick, provenance | **in progress** — decisions written (S1–S11) |
+| 5 | Reference slot: paste, pick, provenance | **complete** |
 | 6 | The diff gets its own window (direction change 2026-07-14) | not started |
 | 7 | The plain diff viewer | not started |
 | 8 | Cleanup, docs, final verification | not started |
@@ -45,7 +45,15 @@ Two of its decisions were not input-layer work at all: the move validator's refu
 reply's fields **in an order the reply does not have** (M2) — which is also why the connector had nothing to
 cross. Both are fixed; read M1–M9 before touching a move.
 
-Phase 5 is next: the reference slot (paste · pick · provenance).
+**Phase 5 is done.** The right-hand side is a swappable **slot** with a five-source menu (this run · golden ·
+second instance · pick · paste), and swapping it re-judges without staging (P8). The **paste reader**
+(`WirePaste`) reads a message to READ / UNVERIFIED / REFUSED and **never guesses** — a `|` inside a value is
+refused with the message's own checksum as evidence. A step repaired or authored against pasted bytes carries
+a `pasted` **origin** that survives the save (the golden is still re-pointed only for THIS_RUN, V4). Capture
+gained a **second source** — pasted wire, one message per line, direction read off `SenderCompID(49)` and
+refused a save where nothing settles it. Three of the phase's decisions were **live defects** (S1 the verdict
+sentence and FAILED chip, S2 a run stealing a hand-bound reference, S10 the fake venue's disarmed pipe);
+read S1–S11 before touching the slot.
 
 > **Direction change (2026-07-14), decided by Amit during review: the diff surface moves into a
 > dedicated window** — reconcile, authoring, and the future viewer — the way an IDE opens a diff.
@@ -69,12 +77,16 @@ Phase 5 is next: the reference slot (paste · pick · provenance).
 |---|---|
 | Comparison seam + `AlignmentModel`/`Chunk` (`Chunk.pairs` = row → the field it faces) | `service/compare/ComparisonSemantics.kt` |
 | Dictionary-derived entry boundaries + labels; `EntrySource.DICTIONARY\|HEURISTIC` | `service/compare/GroupOverlay.kt` |
-| The right-hand slot: provenance + the instant temporals judge at | `service/compare/ReferenceMessage.kt` |
-| **The verdict — counted once, for both surfaces** | `service/compare/Verdict.kt` |
+| The right-hand slot: provenance + the instant temporals judge at; **the swap menu's five options** | `service/compare/ReferenceMessage.kt` |
+| **The paste reader — READ / UNVERIFIED / REFUSED, and never a guess** (Phase 5) | `service/compare/WirePaste.kt` |
+| **The verdict — counted once; the sentence and chip chosen by provenance** | `service/compare/Verdict.kt` |
 | Draft + snapshot undo/redo + the gutter's offers + memoized `DiffModel` + **the selection and the display list** | `ui/diff/ReconcileSession.kt` |
 | The two-column diff, the gutter, the group bands | `ui/diff/DiffSurface.kt`, `DiffPalette.kt` |
 | **The drag, the keys, the crossing connector, the would-pass tooltip** | `ui/diff/DiffMoves.kt` (Phase 4) |
 | **Opening the diff without a hand** — the same route the rail's button takes | `POST /scenarios/reconcile` · `fixtool_reconcile` |
+| **Capturing a paste without a hand** — the same reader the sheet uses (Phase 5) | `POST /scenarios/capture-paste` · `fixtool_capture_paste` |
+| **The step's provenance on disk** — `LIVE\|PASTED`, additive, written only when not the default (Phase 5) | `StepOrigin` in `model/scenario/Scenario.kt` |
+| **Capture's second source — pasted wire, direction read off `49`** (Phase 5) | `ScenarioCapture.fromPaste`; the paste box in `ui/ScenarioCaptureReview.kt` |
 | The docked rail: the run tree, the routes, the actions | `ui/ScenariosRail.kt` |
 | A document and its state (the tab owns the draft — see T2) | `ui/ScenarioDocuments.kt` |
 | The document tab strip + the host that composes the active one | `ui/ScenarioDocumentPane.kt` |
@@ -87,7 +99,7 @@ Phase 5 is next: the reference slot (paste · pick · provenance).
 Steps carry a stable `stepId` (Phase 0); `reconcileRoute` addresses a failure by it, and the
 `ReconcileSession` must be `remember(stepId)`-keyed for the same reason (P3).
 
-**Commands.** `./gradlew :composeApp:jvmTest` — **1227 tests, 0 failures** is the current bar.
+**Commands.** `./gradlew :composeApp:jvmTest` — **1274 tests, 0 failures** is the current bar.
 The lint rule is that **your files add none**; measure it by counting findings *per file* on the
 pre-phase tree and again after (`ktlintCheck` + `detekt`, `--continue`), because a bare total moves
 whenever a file is added or deleted. The tree is currently **1769** by that count, against the 2121 the
@@ -1828,25 +1840,25 @@ available, because both are ways of *getting* a message rather than uses of one 
 
 ### 5.0 The sentences the slot changes (S1) — and the run that must not steal it (S2)
 
-- [ ] `Verdict.headlineAgainst` gains PICKED and PASTED: *"N rows do not hold against the
+- [x] `Verdict.headlineAgainst` gains PICKED and PASTED: *"N rows do not hold against the
       pasted message"* — never *"need attention"*, which in this surface means the venue
       regressed. `Verdict.chipAgainst(provenance)` replaces the header's unconditional
       `FAILED` chip, which today calls a step FAILED because a **second instance** has two
       over-specified rows. Reproduce that on the current code first. Both in `Verdict`,
       tested there, mutation-checked; the verdict line's error tint follows the chip, and
       the right column stops saying **RECEIVED** over a message that was not received.
-- [ ] `rebindReconcileDocuments` re-binds only THIS_RUN and GOLDEN (S2). A slot the author
+- [x] `rebindReconcileDocuments` re-binds only THIS_RUN and GOLDEN (S2). A slot the author
       bound by hand survives the run, `thisRunWire` is updated anyway (so the menu offers
       the new bytes), and the surface **says** a newer run has landed. Test: bind a paste,
       Save & re-run, the paste is still on the right.
 
 ### 5.1 The reference chip and the swap menu
 
-- [ ] Reference chip + swap menu in the `DiffSurface` header: this run · golden ·
+- [x] Reference chip + swap menu in the `DiffSurface` header: this run · golden ·
       second instance · pick from session… · paste wire…. Swapping re-judges instantly
       (session already supports it; this is the UI). Entries with nothing behind them are
       **disabled with the reason**, never hidden (S11).
-- [ ] Pick from session: arming the slot lets the next grid row click bind the
+- [x] Pick from session: arming the slot lets the next grid row click bind the
       reference (and highlights bidirectionally while bound). **The armed state and the
       binding must live on the ViewModel, not in the diff document's composable** —
       Phase 6 moves the diff into its own window, and this interaction must survive the
@@ -1855,26 +1867,26 @@ available, because both are ways of *getting* a message rather than uses of one 
 
 ### 5.2 The paste sheet and its lint line (S5, S6)
 
-- [ ] `service/compare/WirePaste.kt` — one reader, two hosts (the slot and capture).
+- [x] `service/compare/WirePaste.kt` — one reader, two hosts (the slot and capture).
       Multi-format parse (SOH preferred, `|` accepted — through `parseFixMessage`'s
       detection, which stays the one delimiter decider); **the lint line reports what was
       read**: field count, delimiter, the log prefix it ignored, the segments it could not
       read, and the message's own arithmetic (`BodyLength(9)`, `CheckSum(10)`) where the
       paste carries it.
-- [ ] Three verdicts (S5): **READ** (SOH, or `|` with the checksum agreeing) · **UNVERIFIED**
+- [x] Three verdicts (S5): **READ** (SOH, or `|` with the checksum agreeing) · **UNVERIFIED**
       (clean, but no checksum to confirm the delimiter — bound, and said) · **REFUSED** (an
       unreadable segment at or after the first field, or a checksum that disagrees — the
       reading is disproved, nothing is bound, and nothing is repaired by search).
-- [ ] The temporal anchor is shown: *"temporals anchor to SendingTime(52) 08:12:31"*, or
+- [x] The temporal anchor is shown: *"temporals anchor to SendingTime(52) 08:12:31"*, or
       *"no SendingTime(52) — `~now` rows are left unjudged, not failed"* (S6). Use as reference.
 
 ### 5.3 Provenance that survives a save (S3, S4)
 
-- [ ] `ScenarioStep.origin: StepOrigin = LIVE | PASTED` on the interface, beside `stepId`:
+- [x] `ScenarioStep.origin: StepOrigin = LIVE | PASTED` on the interface, beside `stepId`:
       additive codec key, **written only when it is not the default** (invariant 5). An
       unrecognised value loads as PASTED — *less* trust, never more — and that is
       mutation-checked.
-- [ ] The chip always names the source; the `pasted` badge follows anything saved while a
+- [x] The chip always names the source; the `pasted` badge follows anything saved while a
       pasted reference was bound, and it renders on the step in the editor and on the diff
       header — because it is the explanation for why a `pasted`-repaired step's rows
       disagree with its own golden (S3). The golden is still re-pointed **only** for
@@ -1882,47 +1894,121 @@ available, because both are ways of *getting* a message rather than uses of one 
 
 ### 5.4 Capture's second source (S9)
 
-- [ ] Capture review gains `source: live sessions | pasted wire`; pasted mode = one message
+- [x] Capture review gains `source: live sessions | pasted wire`; pasted mode = one message
       per line → candidates with per-row direction toggle + session dropdown; sends
       parameterize, replies seed, exactly as live capture (reuse
       `ScenarioCapture.captureFrom`, which needs `Candidate` to carry its own `direction`,
       `messageType` and wire bytes — and `source: FixMessage?`, **null for a paste**).
-- [ ] Direction is read from the bytes where they decide it (`SenderCompID(49)` against the
+- [x] Direction is read from the bytes where they decide it (`SenderCompID(49)` against the
       assigned session's CompIDs) and is **undetermined** where they do not; an *included*
       row with an undetermined direction **blocks Save**, naming the rows. A reply
       mis-marked as a Send is a step that asserts nothing (S9).
-- [ ] A line the reader refuses is not a candidate, and it is **reported** where the
+- [x] A line the reader refuses is not a candidate, and it is **reported** where the
       unreadable live messages already are (`Scan.unreadable`) — with its reason.
 
 ### 5.5 The fake venue sends the pipe again (S10)
 
-- [ ] Restore `58=filled|in full` in all three modes of `tools/fake-venue/fake_venue.py` —
+- [x] Restore `58=filled|in full` in all three modes of `tools/fake-venue/fake_venue.py` —
       `088251c` dropped the pipe the README's own table of traps is built on, and every
       live run since has been against a venue with its headline trap disarmed.
-- [ ] The venue writes a **message log with the bytes in it** (SOH, both directions), so
+- [x] The venue writes a **message log with the bytes in it** (SOH, both directions), so
       W2's *"paste a log fragment"* has a fragment to paste — and its `|`-rendered stdout
       is the ambiguous form S5 refuses, from the same message, live.
 
 ### 5.6 Tests
 
-- [ ] Paste with a pipe inside a value: the SOH form **reads** and keeps `58` whole; the
+- [x] Paste with a pipe inside a value: the SOH form **reads** and keeps `58` whole; the
       `|` form is **refused**, and the sentence names the segment and the checksum (the
       historical bug case as the fixture — written with ``, never a literal SOH).
-- [ ] Pasted temporals anchor to 52, and render unjudged when 52 is absent; provenance
+- [x] Pasted temporals anchor to 52, and render unjudged when 52 is absent; provenance
       survives a save/load round-trip; a pasted capture round-trips to a **runnable**
       scenario; swap-reference re-judges (golden green → this-run red without any edit).
-- [ ] `SemanticsContractTest` widened to the `ReferenceMessage` overload (S7), given the
+- [x] `SemanticsContractTest` widened to the `ReferenceMessage` overload (S7), given the
       resolver a reconcile view actually has — **none**: pairing is identical to the
       `MessageView` overload over the same bytes, and an unreadable row is `unknown`,
       never `false`. Both mutation-checked. (Phase 0's review asked for this and named R2
       as the reason.)
-- [ ] Compose UI tests + screenshots to `composeApp/build/scenario-screenshots/` for
+- [x] Compose UI tests + screenshots to `composeApp/build/scenario-screenshots/` for
       everything the control surface cannot click: the swap menu, the paste sheet with each
       of its three verdicts, the armed slot binding from a grid click, and the provenance
       badge on a saved step.
 
-**Phase 5 gate:** W2 verified live end-to-end: paste a fake-venue log fragment → capture
-review → save → run against the live fake venue → reconcile the differences.
+**Phase 5 gate — met.** Full suite green (**1274 tests, 0 failures**); every touched file at or below
+its lint baseline, and the new files (`WirePaste`, its tests, `ReferenceSlotTest`, `ScenarioOriginTest`,
+`CaptureFromPasteTest`, `ReferenceSlotScreenshotTest`) carry none. W2 is proven **live end-to-end against
+the fake venue**: a `NewOrderSingle` sent, the venue's hostile ExecutionReport logged **with the pipe
+inside `58`**, its two log lines pasted through `POST /scenarios/capture-paste`, a two-step scenario saved
+**both steps badged `pasted`** with `58=filled|in full` whole in the golden and in the row seeded from it,
+replayed **green** against the live venue in `golden` mode, **failed** in `shape` mode (151 regressed, the
+party entries swapped as `448`/`452` value mismatches, `58` missing), and the reconcile route opened the
+diff on the failing step — no exceptions in the run log.
+
+### Phase 5 outcome — what actually happened
+
+**Three of the eleven decisions were live defects, and all three were reproduced on the old code first.**
+
+**S1 was live on the one hand-binding path that already shipped.** `bindPickedReference` is reachable from
+V6's no-reference prompt — *"Use the message selected in the grid"* — and that prompt is shown **precisely
+when the step has never run and has no golden**. So an author binding a grid message to a never-run step
+was told *"3 rows need attention"* (which in this surface has always meant *the venue did something new*)
+under a red **FAILED** chip, about a step that cannot have failed and is being *authored*. Both sentences
+false, and both the two a reader takes first. The word is now licensed by the slot, from one function —
+`headlineAgainst` and `chipAgainst` — so the two can never disagree; red is reserved for the message the
+step is actually about (`Provenance.chosenByTheAuthor` is the one predicate under all of it), and the right
+column stops saying **RECEIVED** over a golden and a paste.
+
+**S2 was live too, for PICKED.** V9 re-binds every open diff when a run lands, unconditionally — so a
+reference the author bound **by hand** was silently replaced by the run's bytes: the thing they were
+comparing against, gone, at the moment they were using it. A run now re-binds only the slots it owns
+(THIS_RUN, and a GOLDEN that was standing in for a run that had not happened). `thisRunWire` is still
+updated, so the swap menu offers the new bytes — the run offers, it does not impose.
+
+**S10: the fake venue's headline trap had been disarmed for three phases.** `tools/fake-venue` exists to
+send `58=filled|in full` — a pipe inside a value, the exact bug this codebase has shipped twice — and
+`088251c` (the commit that added the three modes) had quietly rewritten it to `58=filled in full`, a space.
+Every live run since had been against a venue that could not spring its own headline trap, and the README
+had been describing a message nobody sent. **The fixture dodged the hard case, in the tool built to stop
+that.** Restored, and the venue gained a message log with the SOH bytes in it — which is what W2 pastes,
+and whose `|`-rendered stdout is the very form the reader refuses.
+
+**The paste reader is the phase, and it never guesses.** `WirePaste` reads a paste to one of three verdicts
+— READ (SOH, or `|` with the message's own `BodyLength(9)`/`CheckSum(10)` agreeing), UNVERIFIED (clean, but
+no arithmetic to confirm the delimiter), REFUSED (a segment that is not `tag=value`, or arithmetic that
+disagrees) — and it **never repairs**: the checksum says *how many* pipes were misread, never *which*, and
+searching for the subset that balances is guessing with extra steps. *The engine reads the venue's bytes,
+or it refuses to judge* — the model doc's own words for open question 5.
+
+**And the tests caught things, twice over.** A log prefix and the BeginString live in the same segment
+(`…08:12:31 OUT 8=FIX.4.4`), so the reader's first cut dropped `8=` with the prefix and the paste silently
+downgraded from *verified* to *unverifiable* — the message begins where the first *field* begins, not at a
+segment boundary. And the reader refused the tests' own **dishonest fixtures**: they carried `10=000`, and
+a message whose arithmetic disagrees with its bytes is a message nobody sent, so they compute real checksums
+now. The SOH also got eaten out of two fixtures and a handover paragraph as they were typed (trap 7); every
+one is the `` escape now.
+
+**S7 closed R2 at the seam.** `SemanticsContractTest` had never exercised the `ReferenceMessage` overload —
+the one carrying the anchoring rule — and the example test that did handed the engine a `referenceResolver`
+**the app can never supply**. Widened now, and given what a reconcile view actually has (no resolver, and
+for a paste no moment): an unreadable row is `unknown`, never `false`. Deleting the anchor guard turns the
+new property red.
+
+**Deviations, and things deliberately left:**
+
+- **The control surface grew a paste door** — `POST /scenarios/capture-paste` / `fixtool_capture_paste` —
+  exactly as Phase 4 grew `POST /scenarios/reconcile`, and for the same reason: the paste box is click-only,
+  so W2's gate could not be driven without a hand. It is the same reader and the same rules (a disproved
+  line refused, an undirected message blocking the save), so a route it refuses is one the review refuses in
+  the same words. The proposal puts the control surface out of scope; this is the third deliberate deviation
+  from that (after Phase 2's `panel` retarget and Phase 4's reconcile route), and it made this gate provable.
+- **Live pixels are still black.** `GET /screenshot` returned an all-black frame throughout — the display in
+  this environment is asleep, as Phase 4 recorded — so the picture evidence is the Compose screenshot set
+  (`diff_reference_menu`, `diff_paste_refused`, `diff_paste_unverified`, `diff_armed_slot`), driven by a real
+  cursor. The live pass proved the route, the bytes, the badging, and the absence of exceptions.
+- **S8's armed slot lives on the ViewModel**, which is the one load-bearing dependency on Phase 6: the diff
+  moves into its own window, so the arming must survive a focus hop between windows. Written there now, so
+  Phase 6 inherits it rather than re-deciding it mid-feature.
+- `ScenarioService.load()` of a missing id still fires a user-facing error toast. Pre-existing; still a
+  Phase 8 cleanup candidate.
 
 ---
 

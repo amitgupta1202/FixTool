@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -134,5 +135,34 @@ class ScenarioEditorTest {
         } catch (e: Exception) {
             println("[ScenarioEditorTest] snapshot '$name' skipped: ${e.message}")
         }
+    }
+
+    /**
+     * The split between the flow list and the step detail is draggable — item 5 of the Phase 4 queue.
+     *
+     * The reconcile diff lives in the right-hand pane and is a six-column table; the left pane is a column of
+     * short labels. A fixed split gave the diff less room than the list and no way to take any back, which is
+     * why the window had to be resized by hand to read a failure.
+     */
+    private fun dividerX(): Float =
+        composeTestRule
+            .onNodeWithTag("editor-pane-divider")
+            .fetchSemanticsNode()
+            .positionInRoot
+            .x
+
+    @Test
+    fun `the pane divider drags, and the split follows it`() {
+        render {}
+
+        val before = dividerX()
+
+        composeTestRule.onNodeWithTag("editor-pane-divider").performMouseInput {
+            dragAndDrop(center, center + Offset(180f, 0f))
+        }
+        composeTestRule.waitForIdle()
+
+        val after = dividerX()
+        assertTrue(after > before + 100f, "dragging the divider right must widen the left pane: $before -> $after")
     }
 }

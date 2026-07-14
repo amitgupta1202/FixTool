@@ -13,8 +13,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.ui.App
 import com.knapsack.fixtool.ui.ScenarioWorkbenchWindow
@@ -81,7 +81,13 @@ fun main() {
                 exitApplication()
             },
             title = "FixTool - FiX Message Viewer",
-            state = WindowState(size = DpSize(1920.dp, 1080.dp)),
+            // rememberWindowState, not WindowState. A bare WindowState is a NEW state object on every
+            // recomposition of the application scope — and opening the Scenarios workbench recomposes it,
+            // because `showScenarios` lives here. Compose then applied that fresh state to the live window:
+            // size snapped back to exactly 1920x1080 and the position re-cascaded. That is the whole of
+            // "opening the Scenarios workbench moves the main window", and it took the user's own resize
+            // with it every time.
+            state = rememberWindowState(size = DpSize(1920.dp, 1080.dp)),
             resizable = true,
         ) {
             val focusRequester = remember { FocusRequester() }

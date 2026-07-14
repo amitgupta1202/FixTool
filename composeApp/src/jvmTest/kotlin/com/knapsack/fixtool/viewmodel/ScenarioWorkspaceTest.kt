@@ -1,18 +1,25 @@
 package com.knapsack.fixtool.viewmodel
 
+import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.ui.ScenarioDoc
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import quickfix.Message
 import java.io.File
+import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -132,6 +139,73 @@ class ScenarioWorkspaceTest {
         assertNull(viewModel.scenarioDraft("sc-1"))
         assertNull(viewModel.activeDocumentId.value)
     }
+
+    /**
+     * **A run lands, and every open diff re-binds to the message it just produced.**
+     *
+     * Without this, the daily loop ends in a lie. The author repairs the step, hits Save & re-run, the rail goes
+     * green — and the diff they are looking at is still bound to the **old** run's failing bytes: still red,
+     * still offering to fix what is already fixed. The one surface that is supposed to prove the fix would be
+     * the one contradicting it.
+     */
+    @Test
+    fun `a new run re-binds the open diff to what it actually produced`() {
+        val onDisk = saved()
+        val stepId = onDisk.withIds().steps[1].stepId
+        val failing = message(wire("150=0"))
+        viewModel.openScenarioEditor(onDisk)
+        viewModel.noteScenarioRun(onDisk)
+        viewModel.setAssertionResults(mapOf(failing to StepResult(1, "expect", "steps", false, stepId = stepId)))
+        viewModel.openReconcileDocument(onDisk, stepId, thisRunWire = failing.wireRaw)
+
+        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
+        assertEquals(failing.wireRaw, doc.thisRunWire)
+        val session = doc.session!!
+        assertEquals(
+            "0",
+            session.model.lines
+                .single { it.row.tag == 150 }
+                .right
+                ?.value,
+            "bound to the failure",
+        )
+
+        // The next run: same step, a different reply — the one the repair was meant to produce.
+        val passing = message(wire("150=F"))
+        viewModel.noteScenarioRun(onDisk)
+        viewModel.setAssertionResults(mapOf(passing to StepResult(1, "expect", "steps", true, stepId = stepId)))
+        viewModel.publishScenarioResult(ScenarioResult(onDisk.name, passed = true, steps = emptyList()))
+
+        val rebound =
+            viewModel.openDocuments.value
+                .filterIsInstance<ScenarioDoc.Reconcile>()
+                .single()
+        assertSame(session, rebound.session, "the same session — the undo stack is not a casualty of a re-run")
+        assertEquals(passing.wireRaw, rebound.thisRunWire, "and it is looking at the new run's bytes")
+        assertEquals(
+            "F",
+            session.model.lines
+                .single { it.row.tag == 150 }
+                .right
+                ?.value,
+            "the diff shows what the venue sent THIS time, not what it sent last time",
+        )
+        assertEquals(0, session.model.verdict.attention, "so the step it just fixed reads as fixed")
+    }
+
+    /** The venue's bytes, SOH-delimited — never the `|` display string, which is not what the engine reads. */
+    private fun wire(execType: String): String =
+        listOf("8=FIX.4.4", "35=8", "11=X", execType, "10=000")
+            .joinToString("\u0001", postfix = "\u0001")
+
+    private fun message(raw: String): FixMessage =
+        FixMessage(
+            timestamp = LocalDateTime.of(2026, 7, 14, 9, 35, 44),
+            direction = FixMessage.Direction.INCOMING,
+            rawMessage = raw.replace('\u0001', '|'),
+            quickfixMessage = Message(),
+            wireRaw = raw,
+        )
 
     /** A clean tab closes without a word; a dirty one stops to ask, because closing it would discard the draft. */
     @Test

@@ -34,6 +34,12 @@ import kotlin.test.assertTrue
 class DiffAuthoringTest {
     private val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
 
+    private companion object {
+        /** Generous, and deliberately so: this is a floor under a cliff, not a benchmark to be tuned. */
+        const val REJUDGE_CEILING_MS = 25.0
+        const val REJUDGE_SAMPLES = 20
+    }
+
     /**
      * The venue's own bytes, SOH-delimited, **with a pipe inside a value**. A golden is stored as the wire, and
      * a reader that establishes its delimiter by looking for `|` first shreds this one into fields the venue
@@ -178,6 +184,46 @@ class DiffAuthoringTest {
         assertTrue(
             verdict.headline.contains("need"),
             "and against a failure the very same count still reads as a failure: ${verdict.headline}",
+        )
+    }
+
+    /**
+     * **The re-judge budget** — deferred from 1.2 to 1.3, and dropped by 1.3. This is where it lands, because
+     * this is the phase where the surface it protects goes in front of a user.
+     *
+     * Every keystroke in a matcher's value field re-runs the whole model: the alignment, the rows, the overlay,
+     * and `reorder` — which enumerates every contiguous block of the expectation and scans each one across the
+     * wire. Nothing about that *fails* as it gets slower. It would merely become sluggish, one commit at a
+     * time, for a reason nobody would ever go looking for. So: a 40-row expectation against a 60-field message,
+     * rebuilt from scratch, under a ceiling.
+     */
+    @Test
+    fun `a forty-row expectation re-judges against a sixty-field message under a fixed ceiling`() {
+        val rows = (1..40).map { FieldExpectation(1000 + it, Matcher.Exact("v$it")) }
+        val draft = Expectation(rows, messageType = "8", mode = MatchMode.OPEN)
+        val wire =
+            (1..60).joinToString("", postfix = "") { "${1000 + it}=v$it" }
+        val session =
+            ReconcileSession(
+                original = draft,
+                initialReference = ReferenceMessage.golden(RawMessageView("8=FIX.4.435=8$wire")),
+                dictionary = dictionary,
+            )
+
+        // Warm the JIT, then measure a rebuild — the memo is invalidated by every edit, so this is what an
+        // author pays per keystroke.
+        repeat(20) { session.model }
+        val started = System.nanoTime()
+        repeat(REJUDGE_SAMPLES) {
+            session.swapReference(session.reference.copy(label = "run $it"))
+            session.model
+        }
+        val perRebuild = (System.nanoTime() - started) / REJUDGE_SAMPLES / 1_000_000.0
+
+        assertTrue(
+            perRebuild < REJUDGE_CEILING_MS,
+            "a re-judge costs ${"%.1f".format(perRebuild)}ms — over the ${REJUDGE_CEILING_MS}ms ceiling, and " +
+                "an author types faster than that",
         )
     }
 

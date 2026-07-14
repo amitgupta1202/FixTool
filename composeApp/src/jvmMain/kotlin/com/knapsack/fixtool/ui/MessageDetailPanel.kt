@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -75,7 +76,7 @@ fun MessageDetailPanel(
     // results. Shown on the failure banner only when provided. This panel diagnoses a failure; it is
     // not where one is repaired — that is the reconcile view, the only surface that can see both the
     // expectation and the message that arrived.
-    onEditAssertion: (() -> Unit)? = null,
+    onEditAssertion: ((Int?) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -513,7 +514,7 @@ private const val LONG_VALUE_THRESHOLD = 50
 private fun AssertionSummaryBanner(
     results: List<TagResult>,
     dictionary: FixDictionary,
-    onEditAssertion: (() -> Unit)? = null,
+    onEditAssertion: ((Int?) -> Unit)? = null,
 ) {
     val failed = results.filterNot { it.passed }
     val background = if (failed.isEmpty()) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
@@ -538,7 +539,11 @@ private fun AssertionSummaryBanner(
                 // reconcile view there shows the expectation against the message side by side, which is
                 // the only place a missing tag or a moved entry can even be seen, let alone fixed.
                 if (onEditAssertion != null) {
-                    SlimButton("Reconcile assertions…", onClick = onEditAssertion, color = AppTheme.Colors.error)
+                    SlimButton(
+                        "Reconcile assertions…",
+                        onClick = { onEditAssertion(null) },
+                        color = AppTheme.Colors.error,
+                    )
                 }
             }
             failed.take(5).forEach { tr ->
@@ -550,6 +555,15 @@ private fun AssertionSummaryBanner(
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    // Each failing tag is its own door, and it lands on its own row. "Reconcile assertions →,
+                    // scrolled to the row that was clicked" was the promise; a diff that opens at the top of a
+                    // forty-row expectation and leaves the author to find the tag again has not kept it.
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .let { m ->
+                                if (onEditAssertion == null) m else m.clickable { onEditAssertion(tr.tag) }
+                            }.testTag("failed-tag-${tr.tag}"),
                 )
             }
             if (failed.size > 5) {

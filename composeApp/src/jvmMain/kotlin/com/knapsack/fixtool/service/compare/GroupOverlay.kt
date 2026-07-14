@@ -40,6 +40,18 @@ data class GroupOverlay(
     /** Every entry at every depth, outermost first — what the diff surface bands. */
     val entries: List<EntryNode> get() = groups.flatMap { it.allEntries }
 
+    /**
+     * Every sibling list, at every depth — the lists an entry is allowed to move *within*.
+     *
+     * An entry's siblings are the other entries of its own group, and nothing else: a party may change
+     * places with another party, never with a sub-id of itself and never with a leg. This is what bounds
+     * a drag, so it is the overlay's most consequential answer.
+     */
+    val siblingGroups: List<List<EntryNode>> get() = groups.flatMap { it.siblingGroups }
+
+    /** Each group's whole footprint — its count row through its last entry. Nothing may be dropped inside it. */
+    val spans: List<IntRange> get() = groups.flatMap { it.spans }
+
     /** The innermost entry containing [row], or null when the row is not inside a group at all. */
     fun entryAt(row: Int): EntryNode? =
         entries.filter { row in it.rows }.minByOrNull { it.rows.last - it.rows.first }
@@ -100,6 +112,15 @@ data class GroupNode(
     val source: EntrySource,
 ) {
     val allEntries: List<EntryNode> get() = entries.flatMap { listOf(it) + it.children.flatMap { c -> c.allEntries } }
+
+    /** This group's entries, and every nested group's, as the sibling lists a move may travel within. */
+    val siblingGroups: List<List<EntryNode>> get() =
+        listOf(entries) + entries.flatMap { e -> e.children.flatMap { it.siblingGroups } }
+
+    /** The count row through the last entry — the region no field from outside the group may be dropped into. */
+    val spans: List<IntRange> get() =
+        listOf((countRow ?: entries.first().rows.first)..entries.last().rows.last) +
+            entries.flatMap { e -> e.children.flatMap { it.spans } }
 
     /** The sibling list [entry] belongs to, searching this group and everything nested in it. */
     fun find(entry: EntryNode): List<EntryNode>? =

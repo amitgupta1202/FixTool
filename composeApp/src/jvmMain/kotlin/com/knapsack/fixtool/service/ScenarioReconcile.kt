@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
+import com.knapsack.fixtool.service.compare.GroupOverlay
 import java.time.Instant
 
 /**
@@ -553,7 +554,6 @@ object ScenarioReconcile {
      * a **lone row of a repeated tag**, which is a per-row move wearing a block's clothes and is refused as
      * one.
      */
-    @Suppress("ReturnCount")
     fun moveBlock(draft: Expectation, block: IntRange, up: Boolean): Expectation? {
         // The block must BE an entry — not merely a window with an identically-tagged neighbour.
         //
@@ -563,23 +563,190 @@ object ScenarioReconcile {
         // FIRMA's PartyID to FIRMC's role while every row still reads `452 exact 4` on screen. The tag order
         // survives, which is why the invariant test did not notice; the *entries* do not. Alignment to a real
         // entry boundary is the guard, and [entries] is the only thing allowed to say where one is.
+        //
+        // Now a caller of [moveEntry], which is the same rule generalised: swapping with the neighbour is
+        // moving to the adjacent slot, and on entries of identical shape — which is all the row-order
+        // heuristic can produce — the two are the same rearrangement. Passing no overlay keeps the entry
+        // boundaries exactly where this has always taken them from.
         val siblings = entryRegions(draft).firstOrNull { region -> block in region } ?: return null
         val at = siblings.indexOf(block)
-        val neighbour = siblings.getOrNull(if (up) at - 1 else at + 1) ?: return null
-
-        // A single-row entry of a repeated tag is not an entry at all — swapping it past its sibling is the
-        // per-row arrow, and it re-aims both rows while both still read the same on screen.
-        if (block.count() == 1 && draft.fields.count { it.tag == draft.fields[block.first].tag } > 1) return null
-
-        val fields = draft.fields.toMutableList()
-        block.forEachIndexed { offset, index -> fields[index] = draft.fields[neighbour.first + offset] }
-        neighbour.forEachIndexed { offset, index -> fields[index] = draft.fields[block.first + offset] }
-        return draft.copy(fields = fields)
+        return (moveEntry(draft, null, block, if (up) at - 1 else at + 1) as? MoveResult.Applied)?.expectation
     }
 
     /** True when [moveBlock] would do something — what the block header's ↑/↓ are enabled by. */
     fun canMoveBlock(draft: Expectation, block: IntRange, up: Boolean): Boolean =
         moveBlock(draft, block, up) != null
+
+    // ------------------------------------------------------------------ moving, by one rule
+
+    /** A hand move either happened, or it did not and the author is told why. Never a silent nothing. */
+    sealed interface MoveResult {
+        data class Applied(val expectation: Expectation) : MoveResult
+
+        data class Refused(val why: String) : MoveResult
+    }
+
+    /**
+     * **The rule, entire**, and everything below is an expression of it:
+     *
+     * > *No row is ever separated from the entry it belongs to; a row of a repeated tag may cross a
+     * > same-tag sibling only if its whole entry crosses with it; and no move may land strictly inside
+     * > another entry.*
+     *
+     * Every case falls out of that one sentence. A top-level scalar is an entry of one — it has no same-tag
+     * siblings, so it moves freely, which is what fixes a hand-authored expectation whose rows are not in
+     * the venue's order. A lone row of a repeated tag crossing its sibling is the per-row arrow, and it is
+     * refused: move the second `452` above the first and the two rows swap *which occurrence* each checks,
+     * so the row reading "the clearing firm's role is 4" quietly comes to mean "the executing firm's" while
+     * still saying `452 exact 4` on screen. An entry crossing an entry carries all of itself, and that is
+     * the same-tag crossing made safe — FIRMA's `448` becomes the second `448` *and* FIRMA's `452` becomes
+     * the second `452`, in the same step, so the two rows that jointly say "FIRMA holds role 1" still say
+     * it. And nothing may be dropped into the middle of a group, because no venue sends a message shaped
+     * like that.
+     *
+     * [overlay] is what says where an entry begins. Given none, this falls back to [entries] — the row-order
+     * heuristic — which is exactly what [moveBlock] has always used, and is why its behaviour is unchanged.
+     */
+    @Suppress("ReturnCount") // One guard per reason, each with its own sentence. Nesting them reads far worse.
+    fun moveRow(draft: Expectation, overlay: GroupOverlay?, from: Int, to: Int): MoveResult {
+        if (from == to) return MoveResult.Applied(draft)
+        val moved = draft.fields.toMutableList().apply { add(to, removeAt(from)) }
+
+        // The occurrence mapping is asked first, because when it is what breaks, it is what the author needs
+        // to be told: not "that row belongs somewhere else" but *this move would silently re-aim two
+        // assertions*. It is also the only guard that catches a repeated tag no entry brackets — a flat
+        // expectation of `448, 11, 448` has no repeating run for the heuristic to find, and no group for the
+        // dictionary to name, so nothing else here stops the two 448s from crossing.
+        if (!occurrencesPreserved(draft.fields, moved)) {
+            return MoveResult.Refused(occurrenceSwap(draft, from))
+        }
+
+        val entries = entryRangesOf(draft, overlay)
+        val home = innermost(entries, from)
+        val gap = if (to <= from) to else to + 1 // where the row lands, between two of the original rows
+
+        homeRefusal(draft, entries, home, from, gap)?.let { return it }
+        if (home == null) {
+            spansOf(draft, overlay)
+                .firstOrNull { gap > it.first && gap <= it.last }
+                ?.let { return MoveResult.Refused(NOT_INSIDE_A_GROUP) }
+        }
+        return MoveResult.Applied(draft.copy(fields = moved))
+    }
+
+    /** Why this row may not leave where it is — or null when it may. */
+    @Suppress("ReturnCount") // One guard per reason, each with its own sentence.
+    private fun homeRefusal(
+        draft: Expectation,
+        entries: List<IntRange>,
+        home: IntRange?,
+        from: Int,
+        gap: Int,
+    ): MoveResult.Refused? {
+        if (home == null) return null
+        if (from == home.first) {
+            return MoveResult.Refused(
+                "An entry begins at tag ${draft.fields[from].tag}, so this row cannot move within it — the " +
+                    "entry would start somewhere else, and a message shaped like that is one no venue sends. " +
+                    "To move the entry, move the entry.",
+            )
+        }
+        if (gap <= home.first || gap > home.last + 1) {
+            return MoveResult.Refused(
+                "This row belongs to the entry at rows ${home.first + 1}–${home.last + 1}. A row that leaves " +
+                    "its entry starts asserting a field in a different one while still reading the same on " +
+                    "screen — so entries move as units, and a row moves within its own. Move the entry instead.",
+            )
+        }
+        // ...and not into a group nested inside its own entry, for the same reason.
+        val nested = entries.filter { it != home && it.first >= home.first && it.last <= home.last }
+        if (nested.any { gap > it.first && gap <= it.last }) return MoveResult.Refused(NOT_INSIDE_A_GROUP)
+        return null
+    }
+
+    /**
+     * Move a whole entry to another slot among its siblings — the entry drag, and the generalisation of
+     * [moveBlock], which could only ever swap with the neighbour next door.
+     *
+     * Safe because the unit is an *entry*: every row travels, in order, so no row is separated from the
+     * rows that give it its meaning. [overlay] is what says where an entry begins, and a window that begins
+     * one row late is not an entry, whatever its tags look like.
+     */
+    @Suppress("ReturnCount") // One guard per reason, each with its own sentence.
+    fun moveEntry(draft: Expectation, overlay: GroupOverlay?, entry: IntRange, toSlot: Int): MoveResult {
+        val siblings =
+            siblingRunsOf(draft, overlay).firstOrNull { entry in it }
+                ?: return MoveResult.Refused(
+                    "These rows are not an entry. An entry begins where its first field does — a run that " +
+                        "begins one row late is the tail of one entry welded to the head of the next, which is " +
+                        "why it looks so much like the rows above it. Only an entry may move.",
+                )
+
+        // A single-row entry of a repeated tag is not an entry at all: nothing travels with it, so swapping
+        // it past its sibling re-aims two assertions and is the per-row arrow wearing a block's clothes.
+        if (entry.count() == 1 && draft.fields.count { it.tag == draft.fields[entry.first].tag } > 1) {
+            return MoveResult.Refused(occurrenceSwap(draft, entry.first))
+        }
+
+        val at = siblings.indexOf(entry)
+        if (toSlot !in siblings.indices) {
+            return MoveResult.Refused(
+                "This entry is already ${if (at == 0) "first" else "last"} in its group, so there is nowhere " +
+                    "for it to go.",
+            )
+        }
+        if (toSlot == at) return MoveResult.Applied(draft)
+
+        val reordered = siblings.toMutableList().apply { add(toSlot, removeAt(at)) }
+        val region = siblings.first().first..siblings.last().last
+        val rows =
+            draft.fields.subList(0, region.first) +
+                reordered.flatMap { range -> range.map { draft.fields[it] } } +
+                draft.fields.subList(region.last + 1, draft.fields.size)
+        return MoveResult.Applied(draft.copy(fields = rows))
+    }
+
+    /**
+     * **Every row still asserts the occurrence it asserted before.** The one thing a per-row move may never
+     * change, and the reason an entry move is allowed to change it: there, the whole entry crosses, so the
+     * rows that jointly describe one party keep describing it.
+     */
+    private fun occurrencesPreserved(before: List<FieldExpectation>, after: List<FieldExpectation>): Boolean =
+        before.map { it.tag }.distinct().all { tag ->
+            val was = before.withIndex().filter { it.value.tag == tag }.map { it.value }
+            val now = after.filter { it.tag == tag }
+            was.size == now.size && was.indices.all { was[it] === now[it] }
+        }
+
+    private fun occurrenceSwap(draft: Expectation, index: Int): String {
+        val row = draft.fields[index]
+        return "Moving this row past another tag ${row.tag} would swap which occurrence each of them checks. " +
+            "The row reading '${ExpectationEvaluator.describe(row.matcher)}' would quietly begin asserting the " +
+            "other entry's field " +
+            "while still saying exactly the same thing on screen — which is the assert-the-wrong-field failure " +
+            "this model exists to make impossible. Move the whole entry, and every row of it travels together."
+    }
+
+    private const val NOT_INSIDE_A_GROUP =
+        "A field cannot sit inside a repeating group's entries — no venue sends a message shaped like that, " +
+            "so the expectation would stop being a subsequence of any reply it could ever be judged against. " +
+            "Drop it before or after the group."
+
+    /** Every entry, at every depth: the dictionary's answer where there is one, the row order's where there is not. */
+    private fun entryRangesOf(draft: Expectation, overlay: GroupOverlay?): List<IntRange> =
+        overlay?.entries?.map { it.rows } ?: entries(draft)
+
+    /** The sibling lists an entry may move within. */
+    private fun siblingRunsOf(draft: Expectation, overlay: GroupOverlay?): List<List<IntRange>> =
+        overlay?.siblingGroups?.map { group -> group.map { it.rows } } ?: entryRegions(draft)
+
+    /** Each group's whole footprint — nothing from outside it may be dropped in. */
+    private fun spansOf(draft: Expectation, overlay: GroupOverlay?): List<IntRange> =
+        overlay?.spans ?: entryRegions(draft).map { it.first().first..it.last().last }
+
+    /** The innermost entry containing [row] — the one a move of it is bounded by. */
+    private fun innermost(entries: List<IntRange>, row: Int): IntRange? =
+        entries.filter { row in it }.minByOrNull { it.last - it.first }
 
     /**
      * **Where the entries are** — the only thing permitted to say where a move may cut.

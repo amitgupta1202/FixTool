@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
@@ -140,6 +142,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
         ScenarioRailRow(
             scenario = scenario,
             verdict = scenarioVerdict(scenario, run.ran, run.result, run.running),
+            // The mockup's "1/3": how many of this scenario's steps passed, once it has run. Counted over the
+            // `steps` phase only — setup and teardown are not what the author is asking about.
+            stepCount =
+                if (ranThis && run.result != null) {
+                    "${run.result.steps.count { it.passed && it.phase == "steps" }}/${scenario.steps.size}"
+                } else {
+                    "${scenario.steps.size}"
+                },
             expanded = expanded,
             runEnabled = !run.running,
             confirmingDelete = confirmingDelete,
@@ -268,6 +278,7 @@ private fun RailHeader(running: Boolean, onCapture: () -> Unit, onNew: () -> Uni
 private fun ScenarioRailRow(
     scenario: Scenario,
     verdict: RailVerdict,
+    stepCount: String,
     expanded: Boolean,
     runEnabled: Boolean,
     confirmingDelete: Boolean,
@@ -291,14 +302,25 @@ private fun ScenarioRailRow(
                 .padding(start = 6.dp, end = 2.dp, top = 1.dp, bottom = 1.dp)
                 .testTag("scenario-row-${scenario.id}"),
     ) {
-        Text(if (expanded) "▾" else "▸", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, modifier = Modifier.size(10.dp))
+        // Not Modifier.size(): a 10dp box clips a 9sp glyph away to nothing, and the tree then looks like a
+        // flat list — the one affordance that says these rows open, invisible. Found by looking at it.
+        Text(if (expanded) "▾" else "▸", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, modifier = Modifier.width(10.dp))
         VerdictGlyph(verdict, modifier = Modifier.padding(horizontal = 4.dp))
-        Text(scenario.name, color = AppTheme.Colors.text, fontSize = 12.sp, maxLines = 1, modifier = Modifier.weight(1f))
+        Text(
+            text = scenario.name,
+            color = AppTheme.Colors.text,
+            fontSize = 12.sp,
+            maxLines = 1,
+            // The rail is narrow and scenario names are sentences. Truncating without saying so reads as a
+            // name that simply ends there.
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
         if (confirmingDelete) {
             SlimButton("Delete", onClick = onConfirmDelete, color = AppTheme.Colors.error, modifier = Modifier.testTag("confirm-delete"))
             SlimButton("Cancel", onClick = onCancelDelete, color = AppTheme.Colors.textSecondary)
         } else {
-            Text("${scenario.steps.size}", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
+            Text(stepCount, color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
             RailIcon(
                 Icons.Default.PlayArrow,
                 "Run",

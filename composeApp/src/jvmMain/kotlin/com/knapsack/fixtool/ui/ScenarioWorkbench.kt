@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Scenario
@@ -50,11 +51,30 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
  */
 @Composable
 fun ScenarioWorkbenchWindow(viewModel: FixMessageViewModel, onClose: () -> Unit) {
+    // Big enough to read the diff, and placed deliberately.
+    //
+    // The reconcile view is a six-column table inside the right-hand pane of this window, so a window that
+    // opens at 1280dp gives it about 700 — less than the table needs, which is why it had to be resized by
+    // hand every single time. It now opens at nine tenths of the screen (capped), centred: an explicit
+    // position, so the platform cannot cascade this window onto the main one's corner and shove the main
+    // window aside to make room, which is what "opening Scenarios moves my window" was.
+    val state = rememberWindowState(size = workbenchSize(), position = WindowPosition(Alignment.Center))
     Window(
         onCloseRequest = onClose,
         title = "Scenarios — FixTool",
-        state = rememberWindowState(size = DpSize(1280.dp, 820.dp)),
+        state = state,
     ) {
+        // A deep-link that lands behind the window you are looking at has not gone anywhere. Clicking
+        // "Reconcile assertions" changed this window's content and left it in the background, so nothing
+        // appeared to happen at all — the fix was on screen, underneath the window that sent you to it.
+        val editRequest by viewModel.workbenchEditRequest.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(editRequest) {
+            if (editRequest != null) {
+                if (state.isMinimized) state.isMinimized = false
+                window.toFront()
+                window.requestFocus()
+            }
+        }
         FixToolWindowChrome {
             Box(modifier = Modifier.fillMaxSize()) {
                 ScenarioWorkbench(viewModel)
@@ -68,6 +88,23 @@ fun ScenarioWorkbenchWindow(viewModel: FixMessageViewModel, onClose: () -> Unit)
         }
     }
 }
+
+/** Nine tenths of the usable screen, capped — the diff needs width, and a window taller than the screen is a bug. */
+private fun workbenchSize(): DpSize {
+    val screen = runCatching {
+        java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
+    }.getOrNull()
+    val width = ((screen?.width ?: DEFAULT_WORKBENCH_WIDTH) * 0.9).coerceIn(MIN_WORKBENCH_WIDTH, MAX_WORKBENCH_WIDTH)
+    val height = ((screen?.height ?: DEFAULT_WORKBENCH_HEIGHT) * 0.9).coerceIn(MIN_WORKBENCH_HEIGHT, MAX_WORKBENCH_HEIGHT)
+    return DpSize(width.dp, height.dp)
+}
+
+private const val DEFAULT_WORKBENCH_WIDTH = 1600
+private const val DEFAULT_WORKBENCH_HEIGHT = 1000
+private const val MIN_WORKBENCH_WIDTH = 1100.0
+private const val MAX_WORKBENCH_WIDTH = 1900.0
+private const val MIN_WORKBENCH_HEIGHT = 700.0
+private const val MAX_WORKBENCH_HEIGHT = 1200.0
 
 private sealed interface Mode {
     object List : Mode

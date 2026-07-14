@@ -5,6 +5,7 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -202,8 +207,13 @@ fun ScenarioEditor(
         val stepListState = androidx.compose.foundation.lazy.rememberLazyListState(
             initialFirstVisibleItemIndex = (focusStep ?: 0).coerceAtLeast(0),
         )
-        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            Column(modifier = Modifier.weight(0.46f).fillMaxHeight()) {
+        // The split is draggable, and it starts narrow on the left. The step list is a column of short labels;
+        // the right-hand pane holds the reconcile diff, which is a six-column table and wants every dp it can
+        // get. A fixed 46/54 gave the diff less room than the list and no way to take any back.
+        var split by remember { mutableStateOf(0.34f) }
+        var paneWidth by remember { mutableStateOf(0) }
+        Row(modifier = Modifier.weight(1f).fillMaxWidth().onSizeChanged { paneWidth = it.width }) {
+            Column(modifier = Modifier.weight(split).fillMaxHeight()) {
                 LazyColumn(state = stepListState, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                     itemsIndexed(steps) { i, step ->
                         StepRow(
@@ -240,8 +250,15 @@ fun ScenarioEditor(
                 }
                 AddStepBar(onAdd = ::insertStep)
             }
-            Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(AppTheme.Colors.border))
-            Column(modifier = Modifier.weight(0.54f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 12.dp)) {
+            PaneDivider(onDrag = { dx -> if (paneWidth > 0) split = (split + dx / paneWidth).coerceIn(0.18f, 0.70f) })
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f - split)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 12.dp),
+            ) {
                 if (selectedIdx in steps.indices) {
                     // Keyed on the step's identity, not its index, so the detail editors re-seed when
                     // a different step comes under the selection — and only then.
@@ -571,8 +588,14 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
             SlimButton("+ constraint", onClick = { push(match?.messageType, (match?.fields ?: emptyList()) + TagValue(0, "")) })
         }
         val allFields = remember(dictionary) { dictionary?.getAllFields() ?: emptyList() }
+        // Vertical rhythm, and gaps between the cells. These rows were flush against each other and against
+        // their own contents — tag, name and value ran together into one grey smear.
         (match?.fields ?: emptyList()).forEachIndexed { i, tv ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 6.dp),
+            ) {
                 SlimTagPicker(
                     tag = tv.tag,
                     fields = allFields,
@@ -589,6 +612,29 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
             }
         }
     }
+}
+
+/**
+ * The draggable split between the flow list and the step detail. Same grab-and-drag divider the session view
+ * uses, so it feels like the rest of the app rather than like a second, stranger app inside it.
+ */
+@Composable
+private fun PaneDivider(onDrag: (Float) -> Unit) {
+    Box(
+        modifier =
+            Modifier
+                .width(5.dp)
+                .fillMaxHeight()
+                .background(AppTheme.Colors.border)
+                .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.E_RESIZE_CURSOR)))
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        onDrag(dragAmount.x)
+                    }
+                }
+                .testTag("editor-pane-divider"),
+    )
 }
 
 /** Enum-aware constraint value: a named dropdown when the dictionary knows the values. */

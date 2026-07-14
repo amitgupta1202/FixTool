@@ -308,7 +308,8 @@ object ScenarioReconcile {
      * row reading "the clearing firm's role is 4" quietly becomes "the executing firm's role is 4" while
      * still saying `452 exact 4` on screen.
      */
-    fun acceptNewOrder(draft: Expectation, message: MessageView): Expectation? = plan(draft, message)?.reordered
+    fun acceptNewOrder(draft: Expectation, message: MessageView): Expectation? =
+        (reorder(draft, message) as? Reorder.Possible)?.reordered
 
     /**
      * The rows a re-order would move — what the view brackets as "this entry moved", and the reason it can
@@ -317,9 +318,36 @@ object ScenarioReconcile {
      * Defined by the fix itself: a row is moved exactly when Accept-new-order would put it somewhere else.
      * There is no second opinion about it to disagree with the first.
      */
-    fun movedRows(draft: Expectation, message: MessageView): Set<Int> = plan(draft, message)?.moved ?: emptySet()
+    fun movedRows(draft: Expectation, message: MessageView): Set<Int> =
+        (reorder(draft, message) as? Reorder.Possible)?.moved ?: emptySet()
 
-    private data class Plan(val reordered: Expectation, val moved: Set<Int>)
+    /**
+     * What the engine decided about re-ordering — **including, when it decided against, the reason**.
+     *
+     * The reason is not a nicety. A view that quietly declines to offer a move tells the author nothing, and
+     * an author who is looking at six red rows in a party group and is offered no re-order concludes that
+     * re-ordering is not implemented — which is precisely what happened. The engine knows exactly why it
+     * withheld the move; it simply never said. Now it says.
+     */
+    sealed interface Reorder {
+        /** A safe, verified re-order: [reordered] is what Accept-new-order applies, [moved] the rows it moves. */
+        data class Possible(
+            val reordered: Expectation,
+            val moved: Set<Int>,
+        ) : Reorder
+
+        /** No move is offered, and [why] is the sentence the author gets instead of silence. */
+        data class Refused(
+            val why: String,
+        ) : Reorder
+
+        /** Nothing is out of place. There was never a move to offer, and nothing to say about it. */
+        object None : Reorder
+    }
+
+    /** The reason no re-order is on offer, or null when one is (or when there was never one to consider). */
+    fun whyNoReorder(draft: Expectation, message: MessageView): String? =
+        (reorder(draft, message) as? Reorder.Refused)?.why
 
     /**
      * A re-ordering that is safe, complete and verified — or nothing at all.
@@ -334,19 +362,35 @@ object ScenarioReconcile {
      * model exists to make impossible, walked back in through the editor.
      */
     @Suppress("ReturnCount")
-    private fun plan(draft: Expectation, message: MessageView): Plan? {
+    fun reorder(
+        draft: Expectation,
+        message: MessageView,
+        /**
+         * The instant the rows are judged at — the instant the message ARRIVED, not the instant the view was
+         * opened. It must be the same clock the view renders the diff with, or the engine and the view judge
+         * the same rows differently: a `~now ±60s` row that passed during the run fails against the wall clock
+         * an hour later, no placement is found, and a note explaining that "the values changed in place"
+         * prints underneath a diff in which every row is green.
+         */
+        now: () -> Instant = { Instant.now() },
+    ): Reorder {
         val wire = message.fields()
-        val before = ExpectationEvaluator.diff(message, draft)
+        val before = ExpectationEvaluator.diff(message, draft, now = now)
         val paired = before.mapNotNull { d -> d.alignment.index?.let { it to d.alignment.wireIndex } }.toMap()
         val passes = before.mapNotNull { d -> d.alignment.index?.let { it to d.result.passed } }.toMap()
 
+        // Which strategy produced the placement decides what a refusal is allowed to SAY. placeByOccurrence is
+        // structurally occurrence-preserving — it exists to cover a venue reshaping an entry internally — so a
+        // refusal on top of it is a conservative withholding, not evidence that anything swapped.
+        val byEntry = placeByMovedEntry(draft, wire, passes, paired)
         val placement =
             placeByOccurrence(draft, wire, passes, paired)
-                ?: placeByMovedEntry(draft, wire, passes, paired)
-                ?: return null
+                ?: byEntry
+                ?: return noPlacement(draft, before)
+        val fromMovedEntry = placement === byEntry
 
         val moved = placement.filter { (index, at) -> paired[index] != at }.keys
-        if (moved.isEmpty()) return null // nothing is out of place; a button here would do nothing at all
+        if (moved.isEmpty()) return Reorder.None // nothing is out of place; a button here would do nothing
 
         // THE MOVED ROWS MUST FORM A SOLID SPAN. No stationary row may be stranded inside it.
         //
@@ -361,7 +405,15 @@ object ScenarioReconcile {
         // row 3 did not, nothing coherent moved and the offer is withdrawn. The rows then say what they are:
         // values that changed.
         val span = moved.min()..moved.max()
-        if (span.any { it !in moved && draft.fields[it].matcher !is Matcher.Absent }) return null
+        val stranded = span.filter { it !in moved && draft.fields[it].matcher !is Matcher.Absent }
+        if (stranded.isNotEmpty()) {
+            // Only the block rule's refusal is a torn entry. The occurrence rule can be withheld here too —
+            // a venue that swaps 447 and 452 *inside* each party is a pure shape change, and the greedy cursor
+            // can leave a row stranded in the span — but "the values changed in place" is then simply false,
+            // and it would point the author at an Accept actual that re-aims their assertion onto another
+            // party's field. When the tool is not certain what happened, it says nothing.
+            return if (fromMovedEntry) tornEntry(draft, moved, stranded) else Reorder.None
+        }
 
         // Rows that take no part in ordering (absent) park beside the row they already follow.
         val key = mutableMapOf<Int, Double>()
@@ -385,16 +437,190 @@ object ScenarioReconcile {
         val after = ExpectationEvaluator.diff(message, reordered)
         val passesNow = after.mapNotNull { d -> d.alignment.index?.let { it to d.result.passed } }.toMap()
         permutation.forEachIndexed { newIndex, originalIndex ->
-            if (passes[originalIndex] == true && passesNow[newIndex] != true) return null
+            if (passes[originalIndex] == true && passesNow[newIndex] != true) {
+                return Reorder.Refused(
+                    "The only re-ordering that would explain these rows would stop a row that passes today " +
+                        "(${draft.fields[originalIndex].tag}) from passing. A move that breaks a working " +
+                        "assertion is not a move — so this is a value change, not a re-order.",
+                )
+            }
             // A reference resolves against a live run's scope and a temporal against the clock; neither can
             // pass HERE, offline. Demanding that every moved row "now passes" therefore refused any legitimate
             // re-order that carried one — and a captured scenario's ClOrdID row is a reference, so that was
             // most of them. They are placed by the rules above, which never re-aim, and judged for real on the
             // next run.
             val unjudgeable = draft.fields[originalIndex].matcher.let { it is Matcher.Reference || it is Matcher.Temporal }
-            if (originalIndex in moved && !unjudgeable && passesNow[newIndex] == false) return null
+            if (originalIndex in moved && !unjudgeable && passesNow[newIndex] == false) {
+                return Reorder.Refused(
+                    "The re-ordering that would put these rows where the reply has them does not actually " +
+                        "repair them — tag ${draft.fields[originalIndex].tag} still would not match there. " +
+                        "A button that claims to fix and does not is worse than no button, so none is offered.",
+                )
+            }
         }
-        return Plan(reordered, moved)
+        return Reorder.Possible(reordered, moved)
+    }
+
+    /**
+     * No placement at all: every row is already where the reply has it, and what changed is what the fields
+     * *say*.
+     *
+     * Said only when a re-order was ever plausible — that is, when a failing row's tag appears more than once,
+     * so there are entries that *could* have swapped. On a lone `151` that went from 0 to 500000 there is no
+     * re-order to withhold and nothing to explain; announcing "no move is offered" there would be noise.
+     */
+    private fun noPlacement(draft: Expectation, before: List<ExpectationEvaluator.DiffRow>): Reorder {
+        val counts = draft.fields.groupingBy { it.tag }.eachCount()
+        val failing = before.filter { !it.result.passed && it.alignment.row != null }
+
+        // Only a VALUE change may be described as one.
+        //
+        // This sentence used to fire on any failing row of a repeated tag, which includes the commonest shape
+        // change there is: the venue stopped sending the third party. It then told the author, over a verdict
+        // bar reading "3 tags missing · it is all shape", that the values had changed in place and the venue
+        // was behaving differently — and advised an Accept actual that missing rows do not even offer. It also
+        // fired on a `~now ±60s` row that only "fails" because it is being judged outside its run.
+        //
+        // A row this view cannot judge offline is not a row that changed, and a row that never arrived did not
+        // change its value either. Neither is evidence of anything, and the tool does not speculate.
+        val valueChanged =
+            failing.any { d ->
+                val repeated = (counts[d.alignment.tag] ?: 0) > 1
+                val judgeable = d.alignment.row?.matcher.let { it !is Matcher.Reference && it !is Matcher.Temporal }
+                repeated && judgeable &&
+                    (d.result.status == TagStatus.VALUE || d.result.status == TagStatus.INVALID)
+            }
+        if (!valueChanged) return Reorder.None
+        return Reorder.Refused(
+            "These entries did not move. Every row is already paired with the field the reply has at that " +
+                "position — it is the values there that changed, so this is the venue behaving differently, " +
+                "not re-arranging its message. That is why no re-order is offered. Accept actual on the rows " +
+                "that are now correct, if that is the new truth.",
+        )
+    }
+
+    /**
+     * A placement existed, and it would have torn an entry in half — the role swap.
+     *
+     * This is the refusal that matters most, and the one that read as a missing feature: two firms exchange
+     * roles, the `448` rows fail, the `452` rows still pass exactly where they are, and a block rule alone
+     * would happily carry `448` and `447` across to the other entry and leave the `452` behind. The
+     * expectation would then read "FIRMA, D, role 4" under the words "entry moved · same values, different
+     * position", and one click would delete "FIRMA holds role 1".
+     */
+    private fun tornEntry(draft: Expectation, moved: Set<Int>, stranded: List<Int>): Reorder {
+        fun tags(indices: Collection<Int>) =
+            indices
+                .map { draft.fields[it].tag }
+                .distinct()
+                .sorted()
+                .joinToString(", ")
+        return Reorder.Refused(
+            "These rows did not move. A re-order here would have to carry ${tags(moved)} across to the other " +
+                "entry while ${tags(stranded)} stayed exactly where it is — and an entry that really moved " +
+                "takes all of itself. So the entries did not swap places; the values changed in place. That " +
+                "is the venue behaving differently, not re-arranging its message. Accept actual on the rows " +
+                "that are now correct, if that is the new truth.",
+        )
+    }
+
+    /**
+     * Move a bracketed block of rows, as **one unit**, past its sibling — the manual override for when the
+     * diff's own alignment is not the one the author knows to be true.
+     *
+     * The block swaps with the adjacent run of the same length whose **tag sequence is identical**: its
+     * sibling entry. Two properties follow, and together they are the whole safety argument.
+     *
+     * - **The expectation's tag order does not change at all.** Swapping two adjacent runs that carry the
+     *   same tags in the same order leaves the sequence of tags exactly as it was; only the matchers travel.
+     *   So this cannot build the order no real message has — `448, 447, 448, 452, 452` — which is one of the
+     *   two things a per-row arrow does.
+     * - **No row travels alone.** Each row keeps its place *within its run*, and both runs stay contiguous, so
+     *   the row asserting FIRMA stays adjacent to the row asserting role 1. The entry still describes one
+     *   party; it describes it at a different position. That is the other thing a per-row arrow breaks: move
+     *   the second `452` above the first and it silently begins checking the other firm's role while still
+     *   reading `452 exact 4` on screen.
+     *
+     * Null when there is no such sibling — at the ends of a group, against a run of a different shape, or for
+     * a **lone row of a repeated tag**, which is a per-row move wearing a block's clothes and is refused as
+     * one.
+     */
+    @Suppress("ReturnCount")
+    fun moveBlock(draft: Expectation, block: IntRange, up: Boolean): Expectation? {
+        // The block must BE an entry — not merely a window with an identically-tagged neighbour.
+        //
+        // Requiring only that the neighbouring run carry the same tags in the same order is necessary and
+        // *not sufficient*, and the gap is not academic. In a group of three parties the window `447,452,448`
+        // (rows 1..3) has exactly that neighbour in rows 4..6, so the swap would be accepted — and it welds
+        // FIRMA's PartyID to FIRMC's role while every row still reads `452 exact 4` on screen. The tag order
+        // survives, which is why the invariant test did not notice; the *entries* do not. Alignment to a real
+        // entry boundary is the guard, and [entries] is the only thing allowed to say where one is.
+        val siblings = entryRegions(draft).firstOrNull { region -> block in region } ?: return null
+        val at = siblings.indexOf(block)
+        val neighbour = siblings.getOrNull(if (up) at - 1 else at + 1) ?: return null
+
+        // A single-row entry of a repeated tag is not an entry at all — swapping it past its sibling is the
+        // per-row arrow, and it re-aims both rows while both still read the same on screen.
+        if (block.count() == 1 && draft.fields.count { it.tag == draft.fields[block.first].tag } > 1) return null
+
+        val fields = draft.fields.toMutableList()
+        block.forEachIndexed { offset, index -> fields[index] = draft.fields[neighbour.first + offset] }
+        neighbour.forEachIndexed { offset, index -> fields[index] = draft.fields[block.first + offset] }
+        return draft.copy(fields = fields)
+    }
+
+    /** True when [moveBlock] would do something — what the block header's ↑/↓ are enabled by. */
+    fun canMoveBlock(draft: Expectation, block: IntRange, up: Boolean): Boolean =
+        moveBlock(draft, block, up) != null
+
+    /**
+     * **Where the entries are** — the only thing permitted to say where a move may cut.
+     *
+     * The model has no groups, and it is not getting any: position is the address, and there is no path, no
+     * group, no entry in an [Expectation]. But a repeating group still leaves a *footprint* in the row order —
+     * a maximal run of rows whose tag sequence repeats, `448,447,452,448,447,452` — and that footprint is
+     * structural, derivable from the rows alone, and enough to say where one party ends and the next begins.
+     *
+     * Anchoring matters more than it looks. Entries are the period-sized chunks of the run **counted from the
+     * run's start**, never from wherever a diff happened to begin bracketing: a window that starts one row
+     * late is `447,452,448`, which is the same three tags in a rotation, has an identically-shaped neighbour,
+     * and is exactly the fragment that tears a party in half.
+     */
+    fun entries(draft: Expectation): List<IntRange> = entryRegions(draft).flatten()
+
+    /** The entries, grouped by the repeating run they belong to — siblings may only swap within their own run. */
+    private fun entryRegions(draft: Expectation): List<List<IntRange>> {
+        val tags = draft.fields.map { it.tag }
+        val regions = mutableListOf<List<IntRange>>()
+        var i = 0
+        while (i < tags.size) {
+            val best = longestRepeat(tags, i)
+            if (best == null) {
+                i++
+                continue
+            }
+            val (period, repeats) = best
+            regions += (0 until repeats).map { k -> (i + k * period)..(i + (k + 1) * period - 1) }
+            i += period * repeats
+        }
+        return regions
+    }
+
+    /** The longest run of repeats starting at [from]: its period and how many times it repeats (≥ 2), or null. */
+    private fun longestRepeat(tags: List<Int>, from: Int): Pair<Int, Int>? {
+        var best: Pair<Int, Int>? = null
+        for (period in 1..(tags.size - from) / 2) {
+            var repeats = 1
+            while (from + (repeats + 1) * period <= tags.size &&
+                (0 until period).all { tags[from + repeats * period + it] == tags[from + it] }
+            ) {
+                repeats++
+            }
+            if (repeats >= 2 && (best == null || period * repeats > best.first * best.second)) {
+                best = period to repeats
+            }
+        }
+        return best
     }
 
     /**

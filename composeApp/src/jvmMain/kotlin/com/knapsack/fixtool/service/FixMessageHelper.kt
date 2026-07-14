@@ -97,7 +97,18 @@ object FixMessageHelper {
      * truncated value into the scenario as the thing to assert from then on.
      */
     internal fun parseFixMessage(raw: String): List<Pair<Int, String>> =
-        parseFixMessage(raw, delimiter = if (raw.contains(SOH)) SOH else '|')
+        parseFixMessage(raw, delimiter = delimiterOf(raw))
+
+    /**
+     * **The one delimiter decider**, exposed because the paste box has to report what it read — and a second
+     * copy of this rule would be a second answer to the only question that matters about a pasted message.
+     *
+     * It is not a guess: a wire string always contains SOH, and a display or editor string never does, because
+     * producing one replaces every SOH with `|`. What it *cannot* tell you is whether a `|` in a pipe-rendered
+     * string was a delimiter or a character inside a value — nothing can, from the string alone. That is not
+     * this function's business to guess at either; see `WirePaste`, which asks the message's own arithmetic.
+     */
+    fun delimiterOf(raw: String): Char = if (raw.contains(SOH)) SOH else '|'
 
     /** Parses with a **known** delimiter — no guessing, so a `|` inside a value stays inside it. */
     internal fun parseFixMessage(raw: String, delimiter: Char): List<Pair<Int, String>> =

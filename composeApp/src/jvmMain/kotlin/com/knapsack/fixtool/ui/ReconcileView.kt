@@ -37,6 +37,7 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
+import com.knapsack.fixtool.service.compare.Verdict
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
 import java.time.Instant
@@ -134,19 +135,17 @@ fun ReconcileView(
             failing = rows.any { !it.passed },
         )
 
+    // One verdict, counted once, in the engine's own package — see Verdict. The diff surface that replaces
+    // this view renders the same object rather than counting these rows a second time.
+    val verdict = Verdict.of(rows, movedRows, movedEntries = blocks.count { it.moved })
+
     Column(modifier = modifier.fillMaxWidth().border(1.dp, AppTheme.Colors.border).testTag("reconcile-view")) {
         StepHeader(
             crumb = crumb,
             strict = draft.mode == MatchMode.STRICT,
             failing = rows.any { !it.passed },
             staged = history.size,
-            // Only offer the bulk button when there is a shape FAILURE to accept. Counting every unasserted
-            // field as "a tag the venue added" made it live on a fully-passing OPEN step — where an unmentioned
-            // tag is not a failure, it is the whole point of OPEN — and clicking it then asserted every field
-            // the author had deliberately left alone.
-            canAcceptShape =
-                rows.any { ScenarioReconcile.isShapeChange(it) } ||
-                    (draft.mode == MatchMode.STRICT && rows.any { it.unasserted && it.wireIndex != null }),
+            canAcceptShape = Verdict.canAcceptShape(rows, draft.mode),
             onAcceptShape = { stage("Accepted every shape change", ScenarioReconcile.acceptEveryShapeChange(draft, actual, dictionary)) },
             onReseed = {
                 stage("Re-seeded the step", ScenarioReconcile.reseed(draft, actual, dictionary))
@@ -154,7 +153,7 @@ fun ReconcileView(
             onDiscard = ::discard,
             onStrictChange = { stage(if (it) "Switched to STRICT" else "Switched to OPEN", draft.copy(mode = if (it) MatchMode.STRICT else MatchMode.OPEN)) },
         )
-        VerdictBar(rows, movedRows, movedEntries = blocks.count { it.moved })
+        VerdictBar(verdict)
         // The engine knows exactly why it is not offering a move. It used to keep that to itself, and an
         // author looking at a group full of red rows with no re-order on offer concluded — reasonably — that
         // re-ordering had never been built. See ScenarioReconcile.Reorder.
@@ -288,107 +287,52 @@ private fun Chip(label: String, color: Color, tinted: Boolean = false, onClick: 
     }
 }
 
-/**
- * The line that separates **shape** from **behaviour**.
- *
- * Four red rows say nothing about whether the venue regressed or merely reshaped its message. This says it:
- * "1 value changed · 1 tag added · 1 tag missing · 1 entry moved — only the value change alters what this
- * scenario checks."
- */
-
 /** What "Loosen" may turn a row into: weaker checks, never a different assertion. See MatcherEditor.types. */
 private val LOOSENINGS = listOf("presence", "oneOf", "regex", "numeric", "temporal", "absent")
 
+/**
+ * The line that separates **shape** from **behaviour** — now only the *drawing* of it.
+ *
+ * The counting and the sentences moved to [Verdict], because the surface that replaces this view has to say
+ * the same thing and must not arrive at it by counting its own rows. Every counter in there carries the scar
+ * of a defect that shipped here; a second implementation would collect them again, and its tests would be
+ * written from the same misunderstanding that produced them.
+ */
 @Composable
-private fun VerdictBar(rows: List<ScenarioReconcile.Row>, movedRows: Set<Int?>, movedEntries: Int) {
-    fun isMoved(r: ScenarioReconcile.Row) = r.index != null && r.index in movedRows
-    val judged = rows.count { it.judged }
-    // A moved row is the message's SHAPE changing, not the venue's behaviour — that is the whole split.
-    val values = rows.count { !it.passed && !it.unknown && !isMoved(it) && (it.status == TagStatus.VALUE || it.status == TagStatus.INVALID) }
-    val behaviour = values
-    val added = rows.count { it.unasserted && it.wireIndex != null }
-    val missing = rows.count { !it.passed && !isMoved(it) && it.status == TagStatus.MISSING }
-    // Two different units, and they must not be confused. `attention` is a count of ROWS — the headline says
-    // "N of M rows need attention" — while the phrase beside it counts ENTRIES. Feeding the entry count into
-    // the row count made the headline read "2 of 21 rows need attention" over six rows that had all moved, and
-    // on a moved field that belongs to no repeating group it counted zero and the bar announced that every
-    // assertion would now pass.
-    val movedRowCount = rows.count { isMoved(it) }
-    val moved = movedEntries
-
-    // Rows that cannot be judged here at all — a reference resolves against a live run's scope, and there is
-    // none offline. They are not failures, but a headline that ignores them is a lie: one click of
-    // "Loosen → reference" made a red row unjudgeable, dropped it out of every count, and the bar announced
-    // "✓ every assertion would now pass" over an expectation that asserts a ClOrdID equals an OrdStatus.
-    val unknown = rows.count { it.unknown }
-
-    // ...and any failing row none of the buckets above caught. A row reported MOVED for which there is no
-    // safe re-ordering has no block bracket, no Accept-new-order and no per-row fix — it fell out of the
-    // count entirely, and the bar declared success over a step that fails.
-    val bucketed = setOf(TagStatus.VALUE, TagStatus.INVALID, TagStatus.MISSING)
-    val unresolved = rows.count { !it.passed && !it.unasserted && !it.unknown && !isMoved(it) && it.status !in bucketed }
-    val attention = values + added + missing + movedRowCount + unresolved
-
-    val parts = buildList {
-        if (values > 0) add("$values value${plural(values)} changed")
-        if (added > 0) add("$added tag${plural(added)} added")
-        if (missing > 0) add("$missing tag${plural(missing)} missing")
-        if (moved > 0) add("$moved entr${if (moved == 1) "y" else "ies"} moved")
-        else if (movedRowCount > 0) add("$movedRowCount field${plural(movedRowCount)} moved")
-        if (unresolved > 0) add("$unresolved out of order")
-        if (unknown > 0) add("$unknown not checkable here")
-    }
-
+private fun VerdictBar(verdict: Verdict) {
     // FlowRow, not Row. The verdict is the one line a reader must not have to work for, and in a Row its last
     // phrase — the shape-versus-behaviour verdict, the whole point of the bar — was the one that got squeezed:
     // at the workbench's own default width it collapsed to a column one character wide and several hundred dp
     // tall, which pushed the entire diff below the fold. The pane was a red rectangle with no rows in it.
     FlowRow(
         itemVerticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().background(if (attention > 0) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().background(if (verdict.needsAttention) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
-            text = headline(judged, attention, added, unknown),
-            color = if (attention > 0 || added > 0) AppTheme.Colors.error else if (judged == 0) AppTheme.Colors.warning else AppTheme.Colors.success,
+            text = verdict.headline,
+            color = when {
+                verdict.needsAttention -> AppTheme.Colors.error
+                verdict.assertsNothing -> AppTheme.Colors.warning
+                else -> AppTheme.Colors.success
+            },
             fontWeight = FontWeight.Bold,
             fontSize = 11.sp,
             modifier = Modifier.testTag("reconcile-summary"),
         )
+        val parts = verdict.parts
         if (parts.isNotEmpty()) {
             Text(" │ ", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
             Text(parts.joinToString(" · "), color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
             Text(" │ ", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
             Text(
-                text = shapeVersusBehaviour(behaviour),
-                color = if (behaviour > 0) AppTheme.Colors.error else AppTheme.Colors.textSecondary,
+                text = verdict.shapeVersusBehaviour,
+                color = if (verdict.values > 0) AppTheme.Colors.error else AppTheme.Colors.textSecondary,
                 fontSize = 11.sp,
                 modifier = Modifier.testTag("reconcile-shape-or-behaviour"),
             )
         }
     }
 }
-
-private fun headline(judged: Int, attention: Int, added: Int, unknown: Int): String {
-    // A step that asserts nothing passes every run for ever while checking nothing. It is one Drop away from
-    // any failing expectation, and it is never allowed to read as a success.
-    if (judged == 0) return "⚠ nothing is asserted — this step would pass every run without checking anything"
-    val needing = attention + added
-    if (needing > 0) return "$needing of $judged rows need attention"
-    // Green, but only about what was actually checked. A row this view cannot judge is not a row that passed.
-    if (unknown > 0) {
-        return "✓ every checked assertion would now pass ($judged checked · $unknown only verifiable on a run)"
-    }
-    return "✓ every assertion would now pass ($judged checked)"
-}
-
-private fun shapeVersusBehaviour(behaviour: Int): String =
-    when (behaviour) {
-        0 -> "nothing here changes what this scenario checks — it is all shape"
-        1 -> "only the value change alters what this scenario checks"
-        else -> "$behaviour value changes alter what this scenario checks"
-    }
-
-private fun plural(n: Int) = if (n == 1) "" else "s"
 
 // ---------------------------------------------------------------------------------- the table
 

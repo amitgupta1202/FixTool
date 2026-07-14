@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.withIds
+import com.knapsack.fixtool.service.compare.SemanticsRegistry
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
@@ -164,20 +165,43 @@ object ScenarioCodec {
     fun expectationToJson(e: Expectation): JsonObject =
         buildJsonObject {
             e.messageType?.let { put("messageType", it) }
-            put("mode", if (e.mode == MatchMode.STRICT) "strict" else "open")
+            put("mode", SemanticsRegistry.semanticsId(e.mode))
             e.golden?.let { put("golden", it) }
             put("fields", buildJsonArray { e.fields.forEach { add(MatcherCodec.fieldExpectationToJson(it)) } })
         }
 
     fun expectationFromJson(obj: JsonObject): Expectation {
-        val strict = obj["mode"]?.jsonPrimitive?.contentOrNull?.lowercase() == "strict"
-        val mode = if (strict) MatchMode.STRICT else MatchMode.OPEN
         val fields = obj["fields"]?.jsonArray ?: JsonArray(emptyList())
         return Expectation(
             fields = fields.map { MatcherCodec.parseFieldExpectation(it.jsonObject) },
             messageType = obj["messageType"]?.jsonPrimitive?.contentOrNull,
-            mode = mode,
+            mode = modeFrom(obj["mode"]?.jsonPrimitive?.contentOrNull),
             golden = obj["golden"]?.jsonPrimitive?.contentOrNull,
         )
     }
+
+    /**
+     * **A mode this codec does not know is a refusal, not a default.**
+     *
+     * It used to read `strict = (mode == "strict")` and take everything else — a typo, a mode from a
+     * future build, a hand-edited file — as OPEN. That is the quietest possible way to weaken an
+     * assertion: STRICT becomes OPEN, every tag the venue adds stops being reported, and the scenario goes
+     * on passing while checking less than it says. A scenario that means something different after an
+     * upgrade is the exact failure this whole area exists to prevent, so an unknown mode fails the load,
+     * loudly, by name.
+     *
+     * An *absent* mode is not unknown: it is the model's default, and files written before the key existed
+     * are entitled to it.
+     */
+    private fun modeFrom(raw: String?): MatchMode =
+        when (raw?.lowercase()) {
+            null -> MatchMode.OPEN
+            "strict" -> MatchMode.STRICT
+            "open" -> MatchMode.OPEN
+            else -> throw IllegalArgumentException(
+                "unknown match mode '$raw' — this scenario was written by something that knows a comparison " +
+                    "this build does not, and guessing at it would silently change what the scenario checks. " +
+                    "Known modes: strict, open.",
+            )
+        }
 }

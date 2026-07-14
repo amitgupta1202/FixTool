@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -151,5 +152,36 @@ class ScenarioCodecTest {
     fun `a valid regex matcher still round-trips`() {
         val ok = Json.parseToJsonElement("""{"type":"regex","pattern":"EXEC-\\d+"}""").jsonObject
         assertEquals(Matcher.Regex("EXEC-\\d+"), MatcherCodec.parseMatcher(ok))
+    }
+
+    // ----- the mode ----------------------------------------------------------------------------------
+
+    /**
+     * **A mode this build does not know is a refusal, not a default.**
+     *
+     * The codec read `strict = (mode == "strict")` and took everything else as OPEN — so a typo, or a mode
+     * written by a later build, silently *loosened* the expectation: STRICT became OPEN, every tag the venue
+     * added stopped being reported, and the scenario went on passing while checking less than it said. That
+     * is the quietest possible way to lose coverage, and it is exactly the "silently degrade" this format
+     * refuses to do anywhere else.
+     */
+    @Test
+    fun `a mode the build does not know fails the load, by name`() {
+        val strict = ScenarioCodec.expectationToJson(Expectation(emptyList(), mode = MatchMode.STRICT))
+        assertEquals("strict", strict["mode"]!!.jsonPrimitive.content)
+
+        val typo = Json.parseToJsonElement("""{"mode":"stict","fields":[]}""").jsonObject
+        val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.expectationFromJson(typo) }
+        assertTrue("stict" in why.message!!, "the refusal must name the mode it could not read: ${why.message}")
+
+        val future = Json.parseToJsonElement("""{"mode":"gumtree","fields":[]}""").jsonObject
+        assertFailsWith<IllegalArgumentException> { ScenarioCodec.expectationFromJson(future) }
+    }
+
+    /** An absent mode is not an unknown one: it is the model's default, and old files are entitled to it. */
+    @Test
+    fun `an expectation with no mode at all is OPEN, as it always was`() {
+        val noMode = Json.parseToJsonElement("""{"fields":[]}""").jsonObject
+        assertEquals(MatchMode.OPEN, ScenarioCodec.expectationFromJson(noMode).mode)
     }
 }

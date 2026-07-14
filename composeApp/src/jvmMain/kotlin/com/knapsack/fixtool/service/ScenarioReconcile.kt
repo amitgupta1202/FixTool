@@ -334,6 +334,14 @@ object ScenarioReconcile {
         data class Possible(
             val reordered: Expectation,
             val moved: Set<Int>,
+            /**
+             * Row index → the field of the reply it lands on. **Where the moved rows actually are**, which
+             * nothing else in here can answer: a moved row pairs with nothing, so its own alignment has no
+             * wire position to show, and a diff that draws the entry crossing to the other side has to get
+             * the other side from somewhere. It is what the engine already decided, published rather than
+             * discarded.
+             */
+            val placement: Map<Int, Int> = emptyMap(),
         ) : Reorder
 
         /** No move is offered, and [why] is the sentence the author gets instead of silence. */
@@ -458,7 +466,7 @@ object ScenarioReconcile {
                 )
             }
         }
-        return Reorder.Possible(reordered, moved)
+        return Reorder.Possible(reordered, moved, placement)
     }
 
     /**

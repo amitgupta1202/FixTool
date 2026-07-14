@@ -469,6 +469,16 @@ class FixMessageViewModel(
         )
     }
 
+    /**
+     * The editor's door into the diff — **authoring is the same surface**, with the golden in the slot instead
+     * of a failure. A step that has failed still opens on its failure, because the tab is keyed on the step and
+     * the one already holding this run's bytes is the one it finds.
+     */
+    fun openDiffForStep(scenarioId: String, stepId: String) {
+        val draft = scenarioDraft(scenarioId)?.draft ?: return
+        openReconcileDocument(scenario = draft, stepId = stepId)
+    }
+
     private fun referenceOf(wire: String, arrivedAt: java.time.Instant?): ReferenceMessage =
         ReferenceMessage.live(
             view = RawMessageView(wire),

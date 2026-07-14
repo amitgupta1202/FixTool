@@ -94,6 +94,27 @@ data class Verdict(
             else -> "✓ every assertion would now pass ($judged checked)"
         }
 
+    /**
+     * **The headline, read against the message that is actually in the slot.**
+     *
+     * A red row does not always mean the same thing, and the sentence has to say which. Against this run's
+     * failure — or the golden — it means *the venue did something new*. Against a **second instance**, a live
+     * message of the same shape, it means the opposite: the expectation only passes against its own capture, so
+     * it is **over-specified**, and that is the author's doing and the author's to loosen. "Verify generalizes"
+     * has always answered `✓ generalizes` / `⚠ 2 over-specified`, and swapping the reference is what that check
+     * *is* now — so those are the words it still answers in. Telling an author their venue has regressed when
+     * what they have actually done is pin a timestamp would send them hunting a bug that does not exist.
+     */
+    fun headlineAgainst(provenance: ReferenceMessage.Provenance): String =
+        when {
+            provenance != ReferenceMessage.Provenance.SECOND_INSTANCE -> headline
+            assertsNothing -> headline
+            attention == 0 ->
+                "✓ generalizes — every assertion holds against a different message of the same shape"
+            attention == 1 -> "⚠ 1 row is over-specified — it only passes against the message it was captured from"
+            else -> "⚠ $attention rows are over-specified — they only pass against the message they were captured from"
+        }
+
     /** `1 value changed · 1 tag added · 1 tag missing · 2 entries moved` — what happened, in its own units. */
     val parts: List<String> get() =
         buildList {

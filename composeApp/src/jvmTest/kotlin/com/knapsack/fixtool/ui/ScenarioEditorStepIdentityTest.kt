@@ -1,9 +1,10 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -62,17 +63,28 @@ class ScenarioEditorStepIdentityTest {
 
         composeTestRule.onNodeWithTag("step-row-2").performClick() // select step C
         composeTestRule.onAllNodesWithContentDescription("Remove")[0].performClick() // delete step A
-        // Steps are now [B, C, D]; the selection must still be on C, and an edit must land on C.
-        composeTestRule.onNodeWithTag("strict-mode").performClick()
+        // Steps are now [B, C, D]; the selection must still be on C, and an edit must land on C. (The edit
+        // used to be the STRICT toggle, which lived in the expectation builder — deleted, along with the
+        // builder. The step editor no longer edits assertions at all; it edits the step, and so does this.)
+        composeTestRule.onNodeWithTag("expect-timeout").performTextReplacement("777")
         composeTestRule.onNodeWithTag("editor-save").performClick()
 
         val steps = saved!!.steps.map { it as ScenarioStep.Expect }
         assertEquals(3, steps.size)
-        assertEquals(listOf("B", "C", "D"), steps.map { (it.expectation.fields.single().matcher as Matcher.Exact).value })
+        assertEquals(
+            listOf("B", "C", "D"),
+            steps.map {
+                (
+                    it.expectation.fields
+                        .single()
+                        .matcher as Matcher.Exact
+                ).value
+            },
+        )
         // The edit landed on C — the step that was actually selected.
-        assertEquals(MatchMode.STRICT, steps[1].expectation.mode)
+        assertEquals(777L, steps[1].timeoutMs)
         // ...and D, which the user never opened, is untouched.
-        assertEquals(MatchMode.OPEN, steps[2].expectation.mode)
+        assertEquals(10_000L, steps[2].timeoutMs)
     }
 
     /**
@@ -109,7 +121,16 @@ class ScenarioEditorStepIdentityTest {
         composeTestRule.onNodeWithTag("editor-save").performClick()
 
         val out = saved!!.steps.map { it as ScenarioStep.Expect }
-        assertEquals(listOf("B", "A", "C", "D"), out.map { (it.expectation.fields.single().matcher as Matcher.Exact).value })
+        assertEquals(
+            listOf("B", "A", "C", "D"),
+            out.map {
+                (
+                    it.expectation.fields
+                        .single()
+                        .matcher as Matcher.Exact
+                ).value
+            },
+        )
         assertEquals(idB, out[0].stepId, "B kept its id")
         assertEquals(idA, out[1].stepId, "A carried its id down with it")
         // And the service's own `withIds()` — which mints for every blank — has nothing left to mint.

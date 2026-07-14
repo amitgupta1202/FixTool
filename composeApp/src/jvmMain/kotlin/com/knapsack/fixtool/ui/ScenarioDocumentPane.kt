@@ -149,10 +149,11 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                             initial = draft,
                             dictionary = viewModel.dictionary,
                             sessionOptions = (draft.sessionsInvolved() + viewModel.sessions.map { it.title }).distinct(),
-                            secondInstance = { session, messageType, golden -> viewModel.liveSecondInstance(session, messageType, golden) },
                             focusStep = doc.focusStep,
-                            runFailure = doc.failure,
                             selectedStep = doc.selectedStep,
+                            // The editor's door to the one surface that authors an assertion. Same tab, same
+                            // surface, whichever message the slot happens to hold.
+                            onOpenDiff = { stepId -> viewModel.openDiffForStep(doc.scenarioId, stepId) },
                             onSelectStep = { index -> viewModel.updateEditorDocument(doc.id) { it.copy(selectedStep = index) } },
                             onChange = { edited -> viewModel.updateScenarioDraft(doc.scenarioId) { it.copy(draft = edited) } },
                             onSave = { edited -> viewModel.saveScenarioDocument(edited) },

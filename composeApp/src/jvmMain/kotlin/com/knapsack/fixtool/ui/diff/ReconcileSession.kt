@@ -23,6 +23,31 @@ import com.knapsack.fixtool.service.compare.Verdict
 import java.time.Instant
 
 /**
+ * **What an edit did** — and a refusal is one of the three answers, not a silence.
+ *
+ * [EditOp.apply] used to be `(Expectation) -> Expectation?`, where `null` meant *both* "the engine refused"
+ * and "nothing would change". So `MoveResult.Refused(why)` — every word of it hand-written, naming the exact
+ * assertion the move would have re-aimed — was computed by the validator and **dropped on the floor** by the
+ * op that called it. Invisible while the only movers were the ↑/↓ arrows, which are *disabled* where a move
+ * is illegal: the sentence was never needed. A drag has no disabled state. The author is already holding the
+ * row over the forbidden gap, and the drop either lands or it does not — and ground rule 6 says *a refused
+ * action says why, where the user is looking*.
+ *
+ * [Unchanged] is kept apart from [Refused] deliberately: a drop that landed where the row already was must
+ * say **nothing at all**, and folding the two together would put a refusal sentence under a drag that simply
+ * did not go anywhere.
+ */
+sealed interface EditResult {
+    data class Applied(val expectation: Expectation) : EditResult
+
+    /** The engine said no, in its own words. The surface shows [why] at the cursor, verbatim. */
+    data class Refused(val why: String) : EditResult
+
+    /** It would have changed nothing. Not an error, and not worth a sentence. */
+    object Unchanged : EditResult
+}
+
+/**
  * **One edit.** A label, and the operation it applies — nothing more.
  *
  * The plan asked for commands *with inverses*, and that would have been every operation written twice.
@@ -36,8 +61,6 @@ import java.time.Instant
  * So undo is a **snapshot stack** ([ReconcileSession.snapshots]), which cannot be wrong, and an [EditOp] is
  * only the thing that produced the next snapshot. That is also exactly the shape a future auto-fix `FixPlan`
  * produces — a list of these — and the shape the footer reads to say *"loosen 151 · accept order"*.
- *
- * [apply] returns null when the operation declines (the engine refused, or nothing would change).
  */
 class EditOp(
     val label: String,
@@ -48,32 +71,57 @@ class EditOp(
      * go green *as you type*. But a snapshot per character is an undo stack six deep for the word `500000`,
      * and `⌘Z` then walks back through `50000`, `5000`, `500`… which is not what anybody means by undoing a
      * value. The old view did exactly that. Typing is one edit; the key is what says so.
+     *
+     * Moves never coalesce — with each other or with anything else. Each one is a discrete fact about where
+     * a row belongs, and `⌘Z` after two of them must walk back one.
      */
     val coalesceKey: String? = null,
-    private val apply: (Expectation) -> Expectation?,
+    private val apply: (Expectation) -> EditResult,
 ) {
-    fun applyTo(draft: Expectation): Expectation? = apply(draft)?.takeIf { it != draft }
+    fun applyTo(draft: Expectation): EditResult =
+        when (val result = apply(draft)) {
+            is EditResult.Applied -> if (result.expectation == draft) EditResult.Unchanged else result
+            else -> result
+        }
 
     companion object {
         private fun describe(matcher: Matcher) = ExpectationEvaluator.describe(matcher)
 
+        /**
+         * An op that cannot be refused — every one of them except the two moves. It either produces a new
+         * expectation or it produces nothing, and "nothing" here has only ever meant *nothing changed*.
+         */
+        private fun pure(label: String, coalesceKey: String? = null, apply: (Expectation) -> Expectation?) =
+            EditOp(label, coalesceKey) { draft ->
+                apply(draft)?.let { EditResult.Applied(it) } ?: EditResult.Unchanged
+            }
+
+        /** The engine's own answer, carried whole — including the sentence it gives when it says no. */
+        private fun moving(label: String, move: (Expectation) -> ScenarioReconcile.MoveResult) =
+            EditOp(label) { draft ->
+                when (val result = move(draft)) {
+                    is ScenarioReconcile.MoveResult.Applied -> EditResult.Applied(result.expectation)
+                    is ScenarioReconcile.MoveResult.Refused -> EditResult.Refused(result.why)
+                }
+            }
+
         // The labels are the ones the old view staged under, verbatim — they are what the footer will list.
         fun acceptActual(index: Int, tag: Int, actual: String?) =
-            EditOp("Accepted $tag = $actual") { ScenarioReconcile.acceptActual(it, index, actual) }
+            pure("Accepted $tag = $actual") { ScenarioReconcile.acceptActual(it, index, actual) }
 
         fun loosen(index: Int, tag: Int, matcher: Matcher) =
-            EditOp("Loosened $tag to ${describe(matcher)}") { ScenarioReconcile.loosen(it, index, matcher) }
+            pure("Loosened $tag to ${describe(matcher)}") { ScenarioReconcile.loosen(it, index, matcher) }
 
         /** The chip and its value field. Consecutive edits to the same row coalesce — see [coalesceKey]. */
         fun setMatcher(index: Int, tag: Int, matcher: Matcher) =
-            EditOp("Set $tag to ${describe(matcher)}", coalesceKey = "matcher:$index") {
+            pure("Set $tag to ${describe(matcher)}", coalesceKey = "matcher:$index") {
                 ScenarioReconcile.loosen(it, index, matcher)
             }
 
         fun assertAbsent(index: Int, tag: Int) =
-            EditOp("Asserting $tag absent") { ScenarioReconcile.assertAbsent(it, index) }
+            pure("Asserting $tag absent") { ScenarioReconcile.assertAbsent(it, index) }
 
-        fun drop(index: Int, tag: Int) = EditOp("Dropped $tag") { ScenarioReconcile.drop(it, index) }
+        fun drop(index: Int, tag: Int) = pure("Dropped $tag") { ScenarioReconcile.drop(it, index) }
 
         fun assertIt(
             wireIndex: Int,
@@ -81,37 +129,32 @@ class EditOp(
             actual: String?,
             message: MessageView,
             dictionary: FixDictionaryAdapter?,
-        ) = EditOp("Now asserted: $tag = $actual") {
+        ) = pure("Now asserted: $tag = $actual") {
             ScenarioReconcile.addAssertion(it, message, wireIndex, dictionary)
         }
 
-        fun acceptOrder(reordered: Expectation) = EditOp("Accepted the new order") { reordered }
+        fun acceptOrder(reordered: Expectation) = pure("Accepted the new order") { reordered }
 
         fun acceptAllShape(message: MessageView, dictionary: FixDictionaryAdapter?) =
-            EditOp("Accepted every shape change") {
+            pure("Accepted every shape change") {
                 ScenarioReconcile.acceptEveryShapeChange(it, message, dictionary)
             }
 
         fun reseed(message: MessageView, dictionary: FixDictionaryAdapter?) =
-            EditOp("Re-seeded the step") { ScenarioReconcile.reseed(it, message, dictionary) }
+            pure("Re-seeded the step") { ScenarioReconcile.reseed(it, message, dictionary) }
 
         fun setMode(mode: MatchMode) =
-            EditOp(if (mode == MatchMode.STRICT) "Switched to STRICT" else "Switched to OPEN") {
+            pure(if (mode == MatchMode.STRICT) "Switched to STRICT" else "Switched to OPEN") {
                 it.copy(mode = mode)
             }
 
-        /** The per-row drag. Refusals carry their sentence, which the surface shows at the cursor. */
+        /** The per-row drag, and `alt+↑/↓`. A refusal carries its sentence out to the cursor. */
         fun moveRow(overlay: GroupOverlay?, from: Int, to: Int) =
-            EditOp("Moved a row") {
-                (ScenarioReconcile.moveRow(it, overlay, from, to) as? ScenarioReconcile.MoveResult.Applied)
-                    ?.expectation
-            }
+            moving("Moved a row") { ScenarioReconcile.moveRow(it, overlay, from, to) }
 
+        /** The entry drag, and the band's ↑/↓. Same validator, larger unit. */
         fun moveEntry(overlay: GroupOverlay?, entry: IntRange, toSlot: Int) =
-            EditOp("Moved the entry") {
-                (ScenarioReconcile.moveEntry(it, overlay, entry, toSlot) as? ScenarioReconcile.MoveResult.Applied)
-                    ?.expectation
-            }
+            moving("Moved the entry") { ScenarioReconcile.moveEntry(it, overlay, entry, toSlot) }
     }
 }
 
@@ -154,11 +197,81 @@ data class DiffLine(
 
     /** Neither passing nor failing — a `reference` has no scope here, a temporal no moment. Amber, `◌`. */
     val unjudged: Boolean get() = row.unknown
+
+    /** What selecting this line means. Null for a line with no stable identity to hold on to. */
+    val selection: DiffSelection?
+        get() =
+            when {
+                row.unasserted -> row.wireIndex?.let(DiffSelection::Added)
+                else -> row.index?.let(DiffSelection::Row)
+            }
+}
+
+/**
+ * **What is selected** — and it is an *index*, which is the whole of why it needs care.
+ *
+ * A move is precisely the thing that changes indices. Select row 3, press `alt+↓`: the row is now at 4, and
+ * a selection still reading 3 points at whatever slid up into its place. Press `alt+↓` again and the author
+ * has moved a **different row**, having pressed the same key twice while watching the same highlight. So
+ * [ReconcileSession.moveSelection] re-anchors this from the move it just applied.
+ */
+sealed interface DiffSelection {
+    /** A row of the expectation, by its index in the draft — the thing `alt+↑/↓` moves. */
+    data class Row(val index: Int) : DiffSelection
+
+    /**
+     * A field the reply carries that no row mentions. It can be selected (the gutter's `«` is on it) but it
+     * is **not a row of the expectation**, so there is nothing about it to move — and nothing to refuse.
+     */
+    data class Added(val wireIndex: Int) : DiffSelection
+
+    /** A group entry, by the rows it spans — what `alt+↑/↓` moves as a unit. */
+    data class Entry(val rows: IntRange) : DiffSelection
+}
+
+/**
+ * **What the body draws, in order** — a band opens an entry, and the lines inside it are indented under it.
+ *
+ * It lives here rather than in the composable because three things that are not drawing need it: `↑/↓` walks
+ * it, `n`/`p` walks the chunks in it, and the crossing connector needs the *item indices* of its two ends to
+ * ask `LazyListState.layoutInfo` where they are on screen. Left in `DiffSurface`, all three would have been
+ * reachable only from a Compose test, which is where this project's defects go to hide.
+ */
+sealed interface DiffItem {
+    val selection: DiffSelection?
+
+    data class Band(
+        val entry: EntryNode,
+        val hue: Int,
+        val depth: Int,
+        val moved: Boolean,
+        val rightLabel: String?,
+        /**
+         * The one-click re-order goes on the **first** moved band and nowhere else: `acceptNewOrder` rewrites
+         * the whole expectation atomically, so a second button would be the same button pretending to be
+         * about a different entry. Which band that is cannot be counted while *drawing* — a lazy list
+         * composes what it likes, in whatever order it likes — so it is decided once, here.
+         */
+        val first: Boolean,
+        /** The chunk the band's rows belong to — the connector's near end. */
+        val chunkId: Int,
+    ) : DiffItem {
+        override val selection: DiffSelection get() = DiffSelection.Entry(entry.rows)
+    }
+
+    data class Line(
+        val line: DiffLine,
+        val depth: Int,
+    ) : DiffItem {
+        override val selection: DiffSelection? get() = line.selection
+    }
 }
 
 /** Everything the surface draws, computed once per (draft, reference) and cached. */
 data class DiffModel(
     val lines: List<DiffLine>,
+    /** The display list — bands and lines, in reading order. See [DiffItem]. */
+    val items: List<DiffItem>,
     val chunks: List<Chunk>,
     val verdict: Verdict,
     val overlay: GroupOverlay,
@@ -172,7 +285,52 @@ data class DiffModel(
     /** The engine's own sentence for the move it declined to offer. Never silence. */
     val withheldMove: String?,
     val canAcceptShape: Boolean,
-)
+) {
+    /** Where [selection] sits in [items] — what the list scrolls to, and what `↑/↓` walks from. */
+    fun indexOf(selection: DiffSelection?): Int? =
+        selection?.let { wanted -> items.indexOfFirst { it.selection == wanted }.takeIf { it >= 0 } }
+
+    /**
+     * The chunks `n`/`p` stop at: the ones that are a **difference**. A [ChunkKind.SAME] chunk is what the
+     * author is navigating *past* — that is what "next diff" means — and a moved entry is a difference, so
+     * it is one of them.
+     */
+    val diffChunks: List<Int> get() = chunks.filter { it.kind != ChunkKind.SAME }.map { it.id }
+
+    /** The first item of a chunk — where `n` lands, band included, so an entry is selected as an entry. */
+    fun firstItemOf(chunkId: Int): Int? =
+        items
+            .indexOfFirst { item ->
+                when (item) {
+                    is DiffItem.Band -> item.chunkId == chunkId
+                    is DiffItem.Line -> item.line.chunkId == chunkId
+                }
+            }.takeIf { it >= 0 }
+
+    /** Every item of a chunk — the block the crossing connector is drawn from the middle of. */
+    fun itemsOfChunk(chunkId: Int): List<Int> =
+        items.indices.filter { i ->
+            when (val item = items[i]) {
+                is DiffItem.Band -> item.chunkId == chunkId
+                is DiffItem.Line -> item.line.chunkId == chunkId
+            }
+        }
+
+    /** Every item an entry occupies — its band, and the lines under it. What an entry drag picks up. */
+    fun itemsOfEntry(rows: IntRange): List<Int> =
+        items.indices.filter { i ->
+            when (val item = items[i]) {
+                is DiffItem.Band -> item.entry.rows == rows
+                is DiffItem.Line -> item.line.entry?.rows == rows
+            }
+        }
+
+    /** The line whose **right-hand** cell holds this field of the reply — the connector's far end. */
+    fun itemFacingWire(wireIndex: Int): Int? =
+        items
+            .indexOfFirst { it is DiffItem.Line && it.line.right?.wireIndex == wireIndex }
+            .takeIf { it >= 0 }
+}
 
 /**
  * **The draft, the reference, and the stack** — the state behind the diff surface, and not a composable.
@@ -240,9 +398,42 @@ class ReconcileSession(
 
     // ---------------------------------------------------------------------------- the stack
 
-    /** Stage an edit. A refused or no-op operation changes nothing and is not stacked. */
-    fun apply(op: EditOp): Boolean {
-        val next = op.applyTo(draft) ?: return false
+    /**
+     * **The last thing the engine refused, in the engine's words** — or null.
+     *
+     * A drag shows it at the cursor; `alt+↑/↓` has no cursor, so the surface renders it inline instead. It is
+     * cleared by anything that means the author has moved on: a successful edit, an undo, a redo, a discard,
+     * or the start of the next drag. A refusal that outlives its cause is a sentence about a situation that
+     * no longer exists, which is the failure mode this area keeps producing in the other direction.
+     */
+    var refusal: String? by mutableStateOf(null)
+        private set
+
+    fun clearRefusal() {
+        refusal = null
+    }
+
+    /**
+     * **What this op would do, without doing it** — the drag tooltip's answer, and the drop's, from one
+     * function, so the two cannot come to disagree about whether a landing is legal.
+     *
+     * Stages nothing, dirties nothing, pushes no undo, sets no [refusal]. The caller decides what to say.
+     */
+    fun preview(op: EditOp): EditResult = op.applyTo(draft)
+
+    /** Stage an edit. A refused or no-op operation changes the draft in no way and is not stacked. */
+    fun apply(op: EditOp): EditResult {
+        val result = op.applyTo(draft)
+        val next =
+            when (result) {
+                is EditResult.Applied -> result.expectation
+                is EditResult.Refused -> {
+                    refusal = result.why
+                    return result
+                }
+                EditResult.Unchanged -> return result
+            }
+        refusal = null
         // A fresh edit after an undo abandons the redo branch — the ordinary editor contract.
         while (snapshots.lastIndex > cursor) snapshots.removeAt(snapshots.lastIndex)
 
@@ -258,18 +449,20 @@ class ReconcileSession(
             cursor = snapshots.lastIndex
         }
         onChange(next)
-        return true
+        return result
     }
 
     fun undo() {
         if (!canUndo) return
         cursor -= 1
+        refusal = null
         onChange(draft)
     }
 
     fun redo() {
         if (!canRedo) return
         cursor += 1
+        refusal = null
         onChange(draft)
     }
 
@@ -277,6 +470,7 @@ class ReconcileSession(
     fun discard() {
         if (snapshots.size > 1) snapshots.removeRange(1, snapshots.size)
         cursor = 0
+        refusal = null
         onChange(original)
     }
 
@@ -338,20 +532,36 @@ class ReconcileSession(
         get() {
             val key = Key(draft, reference.view.fields(), reference.anchorInstant, reference.provenance)
             memo?.let { (cached, model) -> if (cached == key) return model }
-            val built = build()
+            val built = build(draft)
             rebuilds += 1
             memo = key to built
             return built
         }
 
-    private fun build(): DiffModel {
+    /**
+     * **What the step would look like if this were the draft** — the drag tooltip's *"would every row pass
+     * here?"*, answered by building the model that landing would produce.
+     *
+     * It is the same [build] the surface renders, so the tooltip and the drop cannot come to disagree, and
+     * the verdict is not counted a second way. That is not free — the build enumerates every contiguous
+     * block of the expectation and scans each across the wire — so the caller must ask it **once per
+     * landing**, not once per pointer event. A drag fires sixty times a second, and nothing would fail if it
+     * were asked that often: it would merely be slow, for a reason nobody would ever find (P4).
+     */
+    fun verdictOf(candidate: Expectation): Verdict = build(candidate).verdict
+
+    /** [draft] shadows the property on purpose: [verdictOf] builds this for a candidate that is not staged. */
+    private fun build(draft: Expectation): DiffModel {
         // Every judgement below is made against the **reference**, and never against a clock this class chose:
         // it carries the moment a `~now ±60s` row is judged at — the instant the message arrived, not the
         // instant the engineer got round to clicking — and it carries the fact that some references have no
         // moment at all, which is a thing both `rows` and `reorder` have to be told in the same words.
         val message = reference.view
 
-        val alignment = semantics.align(draft, reference, dictionary, resolver)
+        // From the PARAMETER's mode, never the session's: this also builds candidates that are not staged
+        // (see [verdictOf]), and a candidate judged under the draft's semantics instead of its own would be
+        // a preview of something the author is not about to get.
+        val alignment = SemanticsRegistry.forMode(draft.mode).align(draft, reference, dictionary, resolver)
         val rows = ScenarioReconcile.rows(draft, reference, dictionary, resolver)
         val overlay = GroupOverlay.of(draft, dictionary)
         // The reference, not the bare view: it carries whether there is a moment to judge a `~now` row by at
@@ -388,17 +598,84 @@ class ReconcileSession(
                         ?.let { overlay.entryAt(it) } != null
             }
 
+        val referenceOverlay = GroupOverlay.of(message, dictionary)
         return DiffModel(
             lines = lines,
+            items = itemsOf(lines, overlay, referenceOverlay),
             chunks = alignment.chunks,
             verdict = Verdict.of(rows, moved, movedEntries, draft.mode),
             overlay = overlay,
-            referenceOverlay = GroupOverlay.of(message, dictionary),
+            referenceOverlay = referenceOverlay,
             acceptOrder = possible?.let { EditOp.acceptOrder(it.reordered) },
             withheldMove = (reorder as? ScenarioReconcile.Reorder.Refused)?.why,
             canAcceptShape = Verdict.canAcceptShape(rows, draft.mode),
         )
     }
+
+    // ------------------------------------------------------------------------- selection and navigation
+
+    /**
+     * Where the author's cursor is. It lives in the **session**, not in a `remember`, because only the active
+     * document is composed: left in the composable, a glance at the session grid would destroy it and `n`
+     * would start again from the top of a diff the author was halfway down.
+     */
+    var selection: DiffSelection? by mutableStateOf(null)
+
+    /** `↑`/`↓`: the next item of the body, bands included, so an entry can be selected as an entry. */
+    fun selectNext() = step(+1)
+
+    fun selectPrev() = step(-1)
+
+    private fun step(by: Int) {
+        val items = model.items
+        if (items.isEmpty()) return
+        val at = model.indexOf(selection)
+        val next = if (at == null) (if (by > 0) 0 else items.lastIndex) else (at + by).coerceIn(0, items.lastIndex)
+        selection = items[next].selection
+    }
+
+    /** `n`/`p`: the next chunk that is a **difference**, never wrapping — a wrap silently teleports the reader. */
+    fun nextChunk() = chunk(+1)
+
+    fun prevChunk() = chunk(-1)
+
+    private fun chunk(by: Int) {
+        val model = model
+        val diffs = model.diffChunks
+        if (diffs.isEmpty()) return
+        val here = model.indexOf(selection)
+        val ranked = diffs.mapNotNull { id -> model.firstItemOf(id)?.let { id to it } }
+        val next =
+            when {
+                here == null -> ranked.firstOrNull()
+                by > 0 -> ranked.firstOrNull { it.second > here }
+                else -> ranked.lastOrNull { it.second < here }
+            } ?: return
+        selection = model.items[next.second].selection
+    }
+
+    /**
+     * `alt+↑`/`alt+↓` — and the selection **follows what it moved**.
+     *
+     * Off the end of the list (the first row pressing `alt+↑`) is [EditResult.Unchanged] and silent: that is
+     * not a *forbidden* move, it is no move, and the author can see the row is first. A move the engine
+     * refuses is a different thing entirely, and it says so.
+     */
+    fun moveSelection(down: Boolean): EditResult {
+        val model = model
+        return when (val sel = selection) {
+            is DiffSelection.Row -> {
+                val to = if (down) sel.index + 1 else sel.index - 1
+                if (to !in draft.fields.indices) return EditResult.Unchanged
+                // `add(to, removeAt(from))` puts the row AT `to`, so that is where the selection now is.
+                apply(EditOp.moveRow(model.overlay, sel.index, to))
+                    .also { if (it is EditResult.Applied) selection = DiffSelection.Row(to) }
+            }
+            is DiffSelection.Entry -> moveEntrySelection(model, sel, down)
+            else -> EditResult.Unchanged // an added field is not a row of the expectation: nothing to move
+        }
+    }
+
 
     /**
      * **What the gutter may offer on this row — asked of the engine, never inferred from the chunk kind.**
@@ -488,5 +765,63 @@ class ReconcileSession(
             },
             EditOp.drop(index, tag),
         )
+    }
+}
+
+/**
+ * **The display list**: a band wherever the entry under the lines changes, then the lines themselves.
+ *
+ * Top-level, and pure, because nothing about it is a fact about the *session* — it is a fact about a list of
+ * lines and an overlay. `↑/↓` walks it, `n`/`p` walks the chunks in it, and the crossing connector asks it
+ * for the item indices of its two ends. See [DiffItem].
+ */
+private fun itemsOf(lines: List<DiffLine>, overlay: GroupOverlay, referenceOverlay: GroupOverlay): List<DiffItem> {
+    val hues = overlay.entries.withIndex().associate { (i, e) -> e to i }
+    val depths = overlay.entries.associateWith { e -> overlay.entries.count { e.rows.first in it.rows } }
+    val out = mutableListOf<DiffItem>()
+    var open: EntryNode? = null
+    var movedSeen = false
+
+    lines.forEach { line ->
+        val entry = line.entry
+        if (entry != null && entry != open) {
+            val moved = line.kind == ChunkKind.MOVED
+            out +=
+                DiffItem.Band(
+                    entry = entry,
+                    hue = hues[entry] ?: 0,
+                    depth = (depths[entry] ?: 1) - 1,
+                    moved = moved,
+                    rightLabel = line.right?.let { referenceOverlay.entryAt(it.wireIndex)?.label },
+                    // The one-click re-order goes on the FIRST moved band and nowhere else — decided here,
+                    // once, because a lazy list composes what it likes in whatever order it likes.
+                    first = moved && !movedSeen,
+                    chunkId = line.chunkId,
+                )
+            movedSeen = movedSeen || moved
+        }
+        open = entry
+        out += DiffItem.Line(line, if (entry == null) 0 else depths[entry] ?: 1)
+    }
+    return out
+}
+
+/**
+ * Where an entry ends up when it changes places with a sibling — the same arithmetic `moveEntry` uses to
+ * rewrite the rows, which is the only honest way to keep the highlight on the thing that travelled.
+ */
+private fun ReconcileSession.moveEntrySelection(model: DiffModel, sel: DiffSelection.Entry, down: Boolean): EditResult {
+    val entry = model.overlay.entries.firstOrNull { it.rows == sel.rows } ?: return EditResult.Unchanged
+    val siblings = model.overlay.siblingsOf(entry)
+    val at = siblings.indexOf(entry)
+    val toSlot = if (down) at + 1 else at - 1
+    if (at < 0 || toSlot !in siblings.indices) return EditResult.Unchanged
+    return apply(EditOp.moveEntry(model.overlay, sel.rows, toSlot)).also { result ->
+        if (result !is EditResult.Applied) return@also
+        // Where the entry ended up — the same arithmetic `moveEntry` used to rewrite the rows, which is
+        // the only honest way to keep the highlight on the thing that travelled.
+        val ranges = siblings.map { it.rows }.toMutableList().apply { add(toSlot, removeAt(at)) }
+        val start = siblings.first().rows.first + ranges.take(toSlot).sumOf { it.count() }
+        selection = DiffSelection.Entry(start until start + sel.rows.count())
     }
 }

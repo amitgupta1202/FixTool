@@ -12,12 +12,14 @@ import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.ui.ScenarioDoc
 import com.knapsack.fixtool.ui.diff.EditOp
+import com.knapsack.fixtool.ui.diff.EditResult
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -194,7 +196,7 @@ class ScenarioDeepLinkTest {
 
         // An edit made in the diff lands in the same draft the editor is looking at.
         val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
-        assertTrue(doc.session!!.apply(EditOp.drop(0, 150)), "a repair, staged in the diff")
+        assertIs<EditResult.Applied>(doc.session!!.apply(EditOp.drop(0, 150)), "a repair, staged in the diff")
         val expectation = (viewModel.scenarioDraft(scenario.id)!!.draft.steps[1] as ScenarioStep.Expect).expectation
         assertTrue(expectation.fields.none { it.tag == 150 }, "and the editor's draft has it too")
         assertEquals("renamed, unsaved", viewModel.scenarioDraft(scenario.id)!!.draft.name, "without losing the rename")
@@ -215,7 +217,7 @@ class ScenarioDeepLinkTest {
 
         viewModel.openScenarioEditorForFailure(msg)
         val first = viewModel.activeDocument as ScenarioDoc.Reconcile
-        assertTrue(first.session!!.apply(EditOp.drop(0, 150)))
+        assertIs<EditResult.Applied>(first.session!!.apply(EditOp.drop(0, 150)))
         val epochBefore = first.focusEpoch
 
         viewModel.openScenarioEditorForFailure(msg)

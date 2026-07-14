@@ -15,6 +15,7 @@ import org.junit.Test
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -105,7 +106,7 @@ class ReconcileSessionTest {
 
         for (op in ops) {
             val before = s.draft
-            assertTrue(s.apply(op), "${op.label} must actually change the draft, or this proves nothing")
+            assertIs<EditResult.Applied>(s.apply(op), "${op.label} must actually change the draft, or this proves nothing")
             assertTrue(s.draft != before)
             s.undo()
             assertEquals(before, s.draft, "undo after '${op.label}' did not restore the expectation exactly")
@@ -168,13 +169,73 @@ class ReconcileSessionTest {
         val s = session(captured, reply)
 
         // Accept-actual on a row whose matcher already holds: the engine returns the same expectation.
-        assertFalse(s.apply(EditOp.acceptActual(0, 35, "8")))
+        assertEquals(EditResult.Unchanged, s.apply(EditOp.acceptActual(0, 35, "8")))
         // A move the engine refuses (a lone row of a repeated tag crossing its sibling).
-        assertFalse(s.apply(EditOp.moveRow(null, from = 10, to = 7)))
+        assertIs<EditResult.Refused>(s.apply(EditOp.moveRow(null, from = 10, to = 7)))
 
         assertEquals(0, s.staged)
         assertFalse(s.canUndo)
         assertFalse(s.isDirty)
+    }
+
+    /**
+     * **The sentence the engine writes is the sentence the author reads.**
+     *
+     * `EditOp` used to be `(Expectation) -> Expectation?`, where `null` meant *both* "the engine refused" and
+     * "nothing changed" — so `MoveResult.Refused(why)` was computed by the validator on every call and thrown
+     * away by the op that called it. Invisible while the only movers were the ↑/↓ arrows, which are *disabled*
+     * where a move is illegal. A drag has no disabled state.
+     */
+    @Test
+    fun `a refused move leaves the draft byte-identical and says why, in the engine's own words`() {
+        val s = session(captured, reply)
+        val before = s.draft
+
+        // The forbidden drag: the second 452 crossing the first. Both rows still read `452 exact …`; only
+        // which occurrence each of them checks would change.
+        val result = s.apply(EditOp.moveRow(null, from = 10, to = 7))
+
+        val refused = assertIs<EditResult.Refused>(result)
+        assertEquals(before, s.draft, "a refused move changes nothing at all")
+        assertEquals(0, s.staged)
+        assertEquals(refused.why, s.refusal, "and the surface can read it — which is the whole point")
+        assertTrue(
+            "swap which occurrence" in refused.why,
+            "the refusal names the thing that would have gone wrong, verbatim from the engine: ${refused.why}",
+        )
+
+        // It is not a modal, and it does not outlive its cause: the next real edit clears it.
+        s.apply(EditOp.drop(11, 58))
+        assertNull(s.refusal)
+    }
+
+    /** A no-op is not a refusal, and must not be dressed as one: a drop that lands where the row was says nothing. */
+    @Test
+    fun `a move that goes nowhere is unchanged, not refused`() {
+        val s = session(captured, reply)
+
+        assertEquals(EditResult.Unchanged, s.apply(EditOp.moveRow(null, from = 3, to = 3)))
+
+        assertNull(s.refusal, "a drag that did not go anywhere has nothing to apologise for")
+        assertEquals(0, s.staged)
+    }
+
+    /** The tooltip asks the same question the drop will, and asking must not answer it. */
+    @Test
+    fun `preview stages nothing, dirties nothing, and pushes no undo`() {
+        val s = session(captured, reply)
+        val before = s.draft
+
+        val legal = s.preview(EditOp.moveRow(null, from = 3, to = 2))
+        val refused = s.preview(EditOp.moveRow(null, from = 10, to = 7))
+
+        assertIs<EditResult.Applied>(legal)
+        assertIs<EditResult.Refused>(refused)
+        assertEquals(before, s.draft)
+        assertEquals(0, s.staged)
+        assertFalse(s.canUndo)
+        assertFalse(s.isDirty)
+        assertNull(s.refusal, "a question is not an action, and must not leave a refusal on screen")
     }
 
     /** The host is told every time the draft moves — that is the loop the editor lives on. */
@@ -282,19 +343,41 @@ class ReconcileSessionTest {
         assertNotNull(added.right)
     }
 
-    /** A moved row pairs with nothing, so its field can only come from the placement the engine decided. */
+    /**
+     * **The right-hand column is the reply, in the reply's order — including across a move.**
+     *
+     * It used to pair a moved row with the field it *landed on*, so FIRMA's row faced FIRMA and the two sides
+     * agreed. Two things were wrong with that, and the second is the one that matters:
+     *
+     * - Read the right column top to bottom across the swapped parties and it came out as wire `3,4,5,0,1,2`
+     *   — **a message no venue sent**, which is the one thing `wireRaw` exists to prevent, committed in the
+     *   renderer instead of the codec.
+     * - It left the crossing connector with nothing to cross. FIRMA opposite FIRMA is a straight line.
+     *
+     * Where the rows went is `Chunk.landing`, published beside the pairing rather than instead of it, and the
+     * violet curve is what says it.
+     */
     @Test
-    fun `a moved row faces the field it landed on`() {
+    fun `a moved row faces the field the venue sent there, and the chunk says where it went`() {
         val model = session(captured, reply).model
         val moved = model.lines.filter { it.kind == ChunkKind.MOVED }
 
         assertTrue(moved.isNotEmpty(), "the two party entries swapped — the engine must see it")
-        assertTrue(
-            moved.all { it.right != null },
-            "a moved row with no field opposite it would draw a crossing to nowhere",
-        )
+        assertTrue(moved.all { it.right != null }, "a moved row facing nothing has no crossing to draw")
+
         val firma = moved.single { it.row.tag == 448 && (it.row.matcher as Matcher.Exact).value == "FIRMA" }
-        assertEquals("FIRMA", firma.right!!.value, "FIRMA's row must face the FIRMA the venue moved, not FIRMB's")
+        assertEquals(
+            "FIRMB",
+            firma.right!!.value,
+            "FIRMA's row faces what the venue actually sent in that position, which is FIRMB — that IS the move",
+        )
+
+        // And the right column, read as the author reads it, is the message.
+        val wire = model.lines.mapNotNull { it.right?.wireIndex }
+        assertEquals(wire.sorted(), wire, "the right column must never show the reply's fields out of the reply's order")
+
+        val chunk = model.chunks.single { it.id == firma.chunkId }
+        assertEquals(listOf(8, 9, 10), chunk.landing, "FIRMA's entry went to the second party's place on the wire")
     }
 
     /** The entry bands come off the overlay, and both sides of a line agree about which entry it is in. */
@@ -478,7 +561,7 @@ class ReconcileSessionTest {
 
         assertNotNull(op, "the two parties plainly swapped: ${s.model.withheldMove}")
         assertNull(s.model.withheldMove)
-        assertTrue(s.apply(op))
+        assertIs<EditResult.Applied>(s.apply(op))
         assertTrue(
             s.model.lines.none { it.kind == ChunkKind.MOVED },
             "after accepting the order nothing is out of place any more",

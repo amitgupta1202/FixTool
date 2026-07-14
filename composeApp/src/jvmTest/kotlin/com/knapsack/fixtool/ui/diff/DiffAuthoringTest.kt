@@ -11,6 +11,7 @@ import com.knapsack.fixtool.service.compare.ReferenceMessage
 import org.junit.Test
 import java.time.Instant
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -110,7 +111,7 @@ class DiffAuthoringTest {
         assertEquals("1.2345", line.right?.value, "and the golden's value is right there")
         val assertIt = line.offers.single { it.kind == OfferKind.ASSERT_IT }
 
-        assertTrue(session.apply(assertIt.op), "one click puts it back")
+        assertIs<EditResult.Applied>(session.apply(assertIt.op), "one click puts it back")
         assertTrue(
             session.draft.fields.any { it.tag == 31 },
             "un-asserting a field was never meant to be irreversible, and it still is not",

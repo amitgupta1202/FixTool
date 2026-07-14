@@ -3,14 +3,17 @@
 
 package com.knapsack.fixtool.ui.diff
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -19,9 +22,19 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -29,8 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.MatchMode
+import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.compare.ChunkKind
-import com.knapsack.fixtool.service.compare.EntryNode
 import com.knapsack.fixtool.service.compare.EntrySource
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.ui.AppTheme
@@ -72,16 +85,40 @@ fun DiffSurface(
     focusTag: Int? = null,
 ) {
     val model = session.model
+    val focusRequester = remember { FocusRequester() }
+    var dragging by remember { mutableStateOf<Dragging?>(null) }
+    // Whether the SURFACE holds the focus, or a value field has taken it. The bare keys hang on this: see
+    // `onBareKey`, where the mechanism that looked sufficient turned out not to be.
+    var focused by remember { mutableStateOf(false) }
 
-    Column(modifier = modifier.fillMaxWidth().border(1.dp, AppTheme.Colors.border).testTag("diff-surface")) {
+    // The surface holds focus so the bare keys work at all; a click on any row takes it back from a value
+    // field, which is what makes ↑/↓ and n/p work again the moment the author stops typing.
+    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .border(1.dp, AppTheme.Colors.border)
+                .focusRequester(focusRequester)
+                .onFocusChanged { focused = it.isFocused }
+                .focusable()
+                .onPreviewKeyEvent { session.onModifiedKey(it) }
+                .onKeyEvent { session.onBareKey(it, focused, dragging != null) { dragging = null } }
+                .testTag("diff-surface"),
+    ) {
         DiffHeader(session, model, crumb, onSave, onCancel, onSaveAndRerun, runInFlight)
         VerdictLine(model, session.reference.provenance)
         // The engine knows exactly why it is not offering a move, and it used to keep that to itself. An
         // author looking at a group full of red rows with no re-order on offer concludes — reasonably — that
         // re-ordering was never built. That is what happened. Now it says.
         model.withheldMove?.let { WhyNoMove(it) }
+        // A move the engine refused. The drag says it at the cursor; `alt+↑/↓` has no cursor, so it says it
+        // here — and either way it is the engine's sentence, which names the assertion the move would have
+        // quietly re-aimed. A refused action says why. It does not simply fail to happen.
+        session.refusal?.let { RefusedMove(it) { session.clearRefusal() } }
         ColumnHeaders(session.reference.label)
-        DiffBody(session, model, focusTag)
+        DiffBody(session, model, focusTag, dragging, focusRequester) { dragging = it }
         DiffFooter(session)
     }
 }
@@ -122,6 +159,22 @@ private fun DiffHeader(
         }
         Spacer(Modifier.width(0.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            // The visible half of `n`/`p`. A keystroke nothing on screen mentions is a keystroke nobody finds,
+            // and these call exactly the functions the keys call — one decider, two doors.
+            SlimButton(
+                "↑ prev",
+                onClick = session::prevChunk,
+                color = AppTheme.Colors.textSecondary,
+                enabled = model.diffChunks.isNotEmpty(),
+                modifier = Modifier.padding(end = 6.dp).testTag("diff-prev-chunk"),
+            )
+            SlimButton(
+                "↓ next diff",
+                onClick = session::nextChunk,
+                color = AppTheme.Colors.textSecondary,
+                enabled = model.diffChunks.isNotEmpty(),
+                modifier = Modifier.padding(end = 6.dp).testTag("diff-next-chunk"),
+            )
             SlimButton(
                 "⟲ undo",
                 onClick = session::undo,
@@ -252,6 +305,26 @@ private fun WhyNoMove(why: String) {
     }
 }
 
+/**
+ * A move the engine refused, in the engine's own words — the sentence `EditOp` used to compute and throw
+ * away, because its apply returned `null` for *"refused"* and *"nothing changed"* alike (M1).
+ */
+@Composable
+private fun RefusedMove(why: String, onDismiss: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.notificationErrorBackground)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text("✕  ", color = AppTheme.Colors.error, fontSize = 11.sp)
+        Text(why, color = AppTheme.Colors.error, fontSize = 11.sp, modifier = Modifier.weight(1f).testTag("diff-refused-move"))
+        SlimButton("esc", onClick = onDismiss, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
 @Composable
 private fun ColumnHeaders(referenceLabel: String) {
     Row(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 3.dp)) {
@@ -268,102 +341,104 @@ private fun Header(text: String, modifier: Modifier) {
 
 // --------------------------------------------------------------------------------------------- the body
 
-private val GUTTER = 56.dp
+internal val GUTTER = 56.dp
+internal val ROW_PADDING = 12.dp
 private val TAG_COL = 46.dp
 
 // The left column is the EDITABLE one — a chip, a value field, sometimes a tolerance — and the right is read-
 // only text that can be ellipsized without losing anything. Splitting the width evenly starved the side that
 // has controls in it, and at a narrow window the matcher editor's own labels wrapped one character per line.
 private val NAME_COL = 96.dp
-private const val LEFT_WEIGHT = 1.25f
-
-/** What the body draws, in order: a band opens an entry, and the lines inside it are indented under it. */
-private sealed interface Item {
-    data class Band(
-        val entry: EntryNode,
-        val hue: Int,
-        val depth: Int,
-        val moved: Boolean,
-        val rightLabel: String?,
-        val first: Boolean,
-    ) : Item
-
-    data class Line(
-        val line: DiffLine,
-        val depth: Int,
-    ) : Item
-}
+internal const val LEFT_WEIGHT = 1.25f
 
 /**
  * A **lazy** list, and it has to be: the row-level deep link scrolls to the row the author clicked in the
  * message viewer, and a `Column(verticalScroll)` has no idea where its rows are. It is also what makes a
- * 200-field market-data snapshot cheap to draw, and what Phase 4's next/previous-chunk keys will steer.
+ * 200-field market-data snapshot cheap to draw, and what `n`/`p` steer.
  *
  * (It is only *possible* because the diff is a document of its own. Inside the step editor's detail pane —
  * itself a `verticalScroll` — a lazy list is measured with infinite height, which is not a layout, it is a
  * crash waiting for a long message.)
+ *
+ * The list is overlaid, in one `Box`, by the three things that cannot live inside a lazy item because they
+ * span several of them: the **violet crossing connector** between moved entries, the insertion line a drag
+ * previews its landing with, and the tooltip that answers *would every row pass here?* before the mouse is
+ * released.
  */
 @Composable
-private fun androidx.compose.foundation.layout.ColumnScope.DiffBody(session: ReconcileSession, model: DiffModel, focusTag: Int?) {
-    val items = itemsOf(model)
+private fun androidx.compose.foundation.layout.ColumnScope.DiffBody(
+    session: ReconcileSession,
+    model: DiffModel,
+    focusTag: Int?,
+    dragging: Dragging?,
+    focusRequester: FocusRequester,
+    onDrag: (Dragging?) -> Unit,
+) {
+    val items = model.items
     val listState = rememberLazyListState()
+    val density = LocalDensity.current
 
     // The tag the author clicked, in the viewer, on the message that failed. Land on it.
     LaunchedEffect(focusTag, items.size) {
         if (focusTag == null) return@LaunchedEffect
-        val at = items.indexOfFirst { it is Item.Line && it.line.row.tag == focusTag }
+        val at = items.indexOfFirst { it is DiffItem.Line && it.line.row.tag == focusTag }
         if (at >= 0) listState.scrollToItem(at)
     }
 
-    LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
-        items(items.size) { index ->
-            when (val item = items[index]) {
-                is Item.Band -> {
-                    // The one-click order goes on the FIRST moved band and nowhere else: `acceptNewOrder`
-                    // rewrites the whole expectation atomically, so a second button would be the same button
-                    // pretending to be about a different entry. Which band that is cannot be counted *while*
-                    // drawing any more — a lazy list composes what it likes, in whatever order it likes — so
-                    // `Item.Band.first` says, decided once, where the items were built.
-                    val offerOrder = item.first
-                    EntryBand(session, model, item, offerOrder)
+    // Keep the selection on screen when the KEYBOARD moved it — and only then. Scrolling because the author
+    // clicked a row they can already see would yank the page out from under them.
+    LaunchedEffect(session.selection) {
+        val at = model.indexOf(session.selection) ?: return@LaunchedEffect
+        if (listState.layoutInfo.visibleItemsInfo.none { it.index == at }) listState.scrollToItem(at)
+    }
+
+    Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            items(items.size) { index ->
+                val item = items[index]
+                val selected = session.selection != null && item.selection == session.selection
+                val select = {
+                    session.selection = item.selection
+                    runCatching { focusRequester.requestFocus() } // back from a value field: the bare keys work again
+                    Unit
                 }
-                is Item.Line -> DiffRow(session, item.line, item.depth)
-            }
-        }
-    }
-}
-
-private fun itemsOf(model: DiffModel): List<Item> {
-    val hues =
-        model.overlay.entries
-            .withIndex()
-            .associate { (i, e) -> e to i }
-    val depths = model.overlay.entries.associateWith { e -> model.overlay.entries.count { e.rows.first in it.rows } }
-    val out = mutableListOf<Item>()
-    var open: EntryNode? = null
-    var movedSeen = false
-
-    model.lines.forEach { line ->
-        val entry = line.entry
-        if (entry != open) {
-            open = entry
-            if (entry != null) {
-                val moved = line.kind == ChunkKind.MOVED
-                out +=
-                    Item.Band(
-                        entry = entry,
-                        hue = hues[entry] ?: 0,
-                        depth = (depths[entry] ?: 1) - 1,
-                        moved = moved,
-                        rightLabel = line.right?.let { model.referenceOverlay.entryAt(it.wireIndex)?.label },
-                        first = moved && !movedSeen,
+                // Rebuilt on every recomposition, and read through `rememberUpdatedState` inside the handle —
+                // a `pointerInput` block captures its lambdas once, and a captured `dragging` would be the one
+                // from the frame the gesture started on, for the whole of the gesture.
+                val handlers =
+                    DragHandlers(
+                        start = {
+                            val origin = item.selection
+                            val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+                            if (origin != null && info != null) {
+                                session.clearRefusal()
+                                val y = info.offset + info.size / 2f
+                                onDrag(Dragging(origin, y).aimedAt(session, model, listState, y))
+                            }
+                        },
+                        by = { dy -> dragging?.let { onDrag(it.aimedAt(session, model, listState, it.pointerY + dy)) } },
+                        // **The drop is the only thing that applies, and it applies what the engine approved.**
+                        // The tooltip already asked; this is the same op, put to the same validator. A refusal
+                        // sets `session.refusal`, the draft is untouched, and the row snaps back — which is
+                        // simply what happens when nothing changed.
+                        drop = {
+                            dragging?.landing?.let { session.apply(it.op) }
+                            onDrag(null)
+                        },
+                        cancel = { onDrag(null) },
                     )
-                if (moved) movedSeen = true
+                when (item) {
+                    is DiffItem.Band -> EntryBand(session, model, item, selected, select, handlers)
+                    is DiffItem.Line -> DiffRow(session, item.line, item.depth, selected, select, handlers)
+                }
             }
         }
-        out += Item.Line(line, if (entry == null) 0 else depths[entry] ?: 1)
+        Canvas(modifier = Modifier.matchParentSize()) {
+            drawMoveConnectors(model, listState, density)
+            dragging?.let { drawDropLine(it, density) }
+        }
+        dragging?.let { DragTooltip(it, density) }
     }
-    return out
 }
 
 /**
@@ -374,9 +449,22 @@ private fun itemsOf(model: DiffModel): List<Item> {
  * same entry differently, which is the seam that produced the defect the sequence model was built to end.
  */
 @Composable
-private fun EntryBand(session: ReconcileSession, model: DiffModel, band: Item.Band, offerOrder: Boolean) {
+private fun EntryBand(
+    session: ReconcileSession,
+    model: DiffModel,
+    band: DiffItem.Band,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    handlers: DragHandlers,
+) {
+    val offerOrder = band.first
     val border = if (band.moved) DiffPalette.movedBorder else DiffPalette.entryBorder(band.hue)
-    val fill = if (band.moved) DiffPalette.movedBand else DiffPalette.entryBand(band.hue)
+    val fill =
+        when {
+            selected -> DiffPalette.selectedRow
+            band.moved -> DiffPalette.movedBand
+            else -> DiffPalette.entryBand(band.hue)
+        }
     val siblings = model.overlay.siblingsOf(band.entry)
     val slot = siblings.indexOf(band.entry)
 
@@ -387,11 +475,15 @@ private fun EntryBand(session: ReconcileSession, model: DiffModel, band: Item.Ba
                 .fillMaxWidth()
                 .background(
                     fill,
-                ).padding(start = (band.depth * 10).dp)
-                .padding(horizontal = 12.dp, vertical = 2.dp)
+                ).selectable(onSelect)
+                .padding(start = (band.depth * 10).dp)
+                .padding(horizontal = ROW_PADDING, vertical = 2.dp)
                 .testTag(if (band.moved) "moved-band" else "entry-band"),
     ) {
         Row(modifier = Modifier.weight(LEFT_WEIGHT), verticalAlignment = Alignment.CenterVertically) {
+            // The band's grip drags the whole entry — the unit a venue actually moves. Every row of it
+            // travels, which is what makes the occurrence mapping survive the crossing (D1).
+            DragHandle(handlers, testTag = "entry-handle-${band.entry.rows.first}", modifier = Modifier.padding(end = 3.dp))
             Text("▏", color = border, fontSize = 11.sp)
             Text(
                 band.entry.label.ifBlank {
@@ -466,17 +558,25 @@ private fun EntryArrow(glyph: String, enabled: Boolean, testTag: String, onClick
 // ---------------------------------------------------------------------------------------------- a row
 
 @Composable
-private fun DiffRow(session: ReconcileSession, line: DiffLine, depth: Int) {
+private fun DiffRow(
+    session: ReconcileSession,
+    line: DiffLine,
+    depth: Int,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    handlers: DragHandlers,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(rowTint(line))
-                .padding(horizontal = 12.dp, vertical = 2.dp)
+                .background(if (selected) DiffPalette.selectedRow else rowTint(line))
+                .selectable(onSelect)
+                .padding(horizontal = ROW_PADDING, vertical = 2.dp)
                 .testTag("diff-row"),
     ) {
-        Box(modifier = Modifier.weight(LEFT_WEIGHT)) { LeftCell(session, line, depth) }
+        Box(modifier = Modifier.weight(LEFT_WEIGHT)) { LeftCell(session, line, depth, handlers) }
         Box(modifier = Modifier.width(GUTTER), contentAlignment = Alignment.Center) { Gutter(session, line) }
         Box(modifier = Modifier.weight(1f)) { RightCell(line) }
     }
@@ -494,7 +594,7 @@ private fun rowTint(line: DiffLine): Color =
 
 /** The expectation. The matcher chip **is** the value column — there is no separate value cell to disagree. */
 @Composable
-private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int) {
+private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, handlers: DragHandlers) {
     if (line.leftIsGap) {
         Row(modifier = Modifier.fillMaxWidth().background(DiffPalette.gap).padding(start = (depth * 10).dp)) {
             Text("not asserted", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, fontStyle = FontStyle.Italic)
@@ -504,6 +604,12 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int) {
     val row = line.row
     val index = row.index
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = (depth * 10).dp)) {
+        // Every row of the expectation is draggable, and every drop is put to the engine. A row that may not
+        // go where it was dropped is refused *there*, with the reason at the cursor — not by a handle that
+        // was never drawn, which would leave the author to work out for themselves that it could not be done.
+        if (index != null) {
+            DragHandle(handlers, testTag = "row-handle-$index", modifier = Modifier.padding(end = 3.dp))
+        }
         TagCell(row.tag, row.occurrence, line.kind)
         Text(row.name, color = AppTheme.Colors.fieldName, fontSize = 10.sp, modifier = Modifier.width(NAME_COL))
         if (index != null && row.matcher != null) {
@@ -526,13 +632,19 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int) {
 private fun RightCell(line: DiffLine) {
     val field = line.right
     if (field == null) {
+        // **"not sent" is a claim about the venue, and it has to be true.** A row the reply carries in
+        // *another position* is TagStatus.MOVED — the engine says so, in those words — and rendering its gap
+        // as "not sent" accuses the venue of dropping a field that is sitting two lines away on the same
+        // screen. The author then goes hunting a regression that does not exist, which is the failure this
+        // area keeps producing. (Found by looking at the picture. No assertion had a word to say about it.)
+        val elsewhere = line.row.status == TagStatus.MOVED
         Row(modifier = Modifier.fillMaxWidth().background(DiffPalette.gap)) {
             Text(
-                "not sent",
-                color = AppTheme.Colors.textDisabled,
+                if (elsewhere) "present in the reply — but not in this position" else "not sent",
+                color = if (elsewhere) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
                 fontSize = 10.sp,
                 fontStyle = FontStyle.Italic,
-                modifier = Modifier.testTag("not-sent"),
+                modifier = Modifier.testTag(if (elsewhere) "present-elsewhere" else "not-sent"),
             )
         }
         return

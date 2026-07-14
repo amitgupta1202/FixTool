@@ -119,7 +119,8 @@ data class Chunk(
     val id: Int,
     val kind: ChunkKind,
     /**
-     * **Each row, and the field it faces** — the pairing itself, decided here and nowhere else.
+     * **Each row, and the field the venue sent opposite it** — the pairing itself, decided here and nowhere
+     * else.
      *
      * It used to be two parallel lists, `rows` and `right`, and they are *not* one-to-one. A [SAME] chunk
      * holding an `absent` row that passes has a row with no wire field at all, so `right` came out shorter
@@ -127,14 +128,36 @@ data class Chunk(
      * the diff would then disagree about what faces what: exactly the seam [GroupOverlay] exists to close,
      * re-opened in the one place nobody would think to look for it.
      *
-     * So the correspondence is computed where the things that decide it already live — `wireIndex`, the
-     * reorder's `placement`, and the `absent`-row fallback — and everything downstream reads it. A row that
-     * faces a gap says so with a null; there is nothing left to infer.
+     * So the correspondence is computed where the things that decide it already live — `wireIndex` and the
+     * `absent`-row fallback — and everything downstream reads it. A row that faces a gap says so with a
+     * null; there is nothing left to infer.
+     *
+     * **A moved row is paired like every other row: positionally.** It used to be special-cased onto the
+     * field it *landed* on, and that was wrong twice over. It made the right-hand column, read top to
+     * bottom across two swapped party entries, come out as wire `3,4,5,0,1,2` — **a message no venue sent**,
+     * which is the one thing `wireRaw` exists to prevent, committed in the renderer instead of the codec.
+     * And it left the crossing connector with nothing to cross: FIRMA's row faced FIRMA, so the two sides
+     * agreed, and a straight line is not a crossing. The right column is the reply, in the reply's order;
+     * where the rows went is [landing], and the violet curve is what says it.
      */
     val pairs: List<Pair<ScenarioReconcile.Row, MessageField?>>,
     /**
+     * **Where this chunk's rows actually are in the reply** — the wire indices its rows landed on, in the
+     * order the rows are listed. Empty unless the chunk is [MOVED].
+     *
+     * The connector's other end, and the reason [ScenarioReconcile.Reorder.Possible.placement] is published
+     * rather than discarded. It is a *function*, not a pairing — chunk *k*'s rows went to span *L(k)* — and
+     * that matters: for two entries that traded places, [moveLink] happens to describe the same fact, but
+     * for a three-way rotation it is the **inverse** edge, and a surface that drew from it would draw the
+     * rotation backwards.
+     */
+    val landing: List<Int> = emptyList(),
+    /**
      * The chunk this one traded places with. Two party entries that swapped are two [MOVED] chunks
-     * pointing at each other, which is the crossing connector the mockup draws between them.
+     * pointing at each other.
+     *
+     * **Not what the crossing connector is drawn from** — see [landing]. It is kept because it is the cheap
+     * answer to "is this one of a pair?", and it is honest for a pair.
      */
     val moveLink: Int? = null,
 ) {
@@ -245,19 +268,24 @@ private open class SequenceSemantics(
             while (j < rows.size && continues(rows, j, kind, movedRows, placement)) j++
             val run = rows.subList(i, j).toList()
 
-            // Row by row, so the correspondence survives — see Chunk.pairs. A moved row pairs with nothing,
-            // so its field comes from the placement the engine already decided; everything else faces the
-            // field it claims, and a row that claims none faces a gap.
-            val pairs =
-                run.map { row ->
-                    val at =
-                        when (kind) {
-                            ChunkKind.MOVED -> row.index?.let(placement::get)
-                            else -> rightOf(row, wire)
-                        }
-                    row to at?.let { field(it, wire, dictionary) }
-                }
-            chunks += Chunk(id = chunks.size, kind = kind, pairs = pairs)
+            // Row by row, so the correspondence survives — see Chunk.pairs. Every row faces the field the
+            // venue sent at its position, and a row that claims none faces a gap. A MOVED row is NOT
+            // special-cased onto the field it landed on: that permuted the right-hand column into an order
+            // the reply does not have, and left the crossing connector with nothing to cross. Where the rows
+            // went is published as `landing`, beside the pairing rather than instead of it.
+            val pairs = run.map { row -> row to rightOf(row, wire)?.let { field(it, wire, dictionary) } }
+            chunks +=
+                Chunk(
+                    id = chunks.size,
+                    kind = kind,
+                    pairs = pairs,
+                    landing =
+                        if (kind == ChunkKind.MOVED) {
+                            run.mapNotNull { it.index?.let(placement::get) }
+                        } else {
+                            emptyList()
+                        },
+                )
             i = j
         }
         return chunks
@@ -342,11 +370,16 @@ private open class SequenceSemantics(
      * landed on — so for the two party entries that traded places, chunk 1 points at chunk 2 and chunk 2
      * points back. A single entry that moved among fields nobody asserted has no counterpart, and says so
      * with a null.
+     *
+     * It ranks by **[Chunk.landing]**, which is where the rows went. It used to rank by `right.first()`,
+     * which was the same thing only because a moved row was paired onto its landing place — and that pairing
+     * is gone (see [Chunk.pairs]). Left alone, this would have ranked the chunks by *where they already
+     * were*, which is the order they are already in: every chunk would have pointed at itself.
      */
     private fun linkMoves(chunks: List<Chunk>): List<Chunk> {
-        val moved = chunks.filter { it.kind == ChunkKind.MOVED && it.right.isNotEmpty() }
+        val moved = chunks.filter { it.kind == ChunkKind.MOVED && it.landing.isNotEmpty() }
         if (moved.size < 2) return chunks
-        val byLandingPlace = moved.sortedBy { it.right.first().wireIndex }
+        val byLandingPlace = moved.sortedBy { it.landing.first() }
         val link = moved.mapIndexed { rank, chunk -> chunk.id to byLandingPlace[rank].id }.toMap()
         return chunks.map { if (it.id in link) it.copy(moveLink = link[it.id]) else it }
     }

@@ -24,7 +24,7 @@ dodged the hard case.
 | 3 | The diff surface becomes the only expectation editor | **complete** |
 | 4 | Drag moves, undo/redo, keyboard | **complete** |
 | 5 | Reference slot: paste, pick, provenance | **complete** |
-| 6 | The diff gets its own window (direction change 2026-07-14) | not started |
+| 6 | The diff gets its own window (direction change 2026-07-14) | **planned** — decisions written (F1–F11) |
 | 7 | The plain diff viewer | not started |
 | 8 | Cleanup, docs, final verification | not started |
 
@@ -2023,6 +2023,196 @@ window the grid, rail, and detail panel stay visible beside it. This is not the 
 window returning: that window was a persistent *place*; this is a disposable *tool*, and
 the Phase-3 workspace (one draft per scenario, whatever views it) guarantees a diff window
 never holds the only copy of unsaved state.
+
+### Decisions taken before implementation — read these first
+
+Eleven things the checklist under-specifies or gets wrong, settled here with the reasoning, so the next
+reader does not re-derive them. The **direction is settled** (Amit decided it, proposal §1c) and these are
+about executing it without shipping a defect — and three of them are stop-the-line: **F2** (two window states,
+and merging them re-arms the trap the main window already learned), **F3** (`Window.getWindows().firstOrNull()`
+is already the wrong window the moment a second one exists — so *every* screenshot goes nondeterministic, not
+just the diff's), and **F4** (the scenario draft's lifecycle now spans two collections, and getting it wrong
+drops an author's unsaved work out from under a live window).
+
+**F1 — The phase is not "add a window." It is "move a document kind, and re-point every caller Phase 5 keyed
+to it." That is the shape of the phase, and the window is the small part.**
+
+`ScenarioDoc.Reconcile` is one document kind among `Editor`/`Capture`, held in `_openDocuments` and selected by
+`activeDocumentId`. Phase 5 wired the entire reference slot to it: **twelve** ViewModel members take a
+`ScenarioDoc.Reconcile` or reach into `_openDocuments` for one — `openReconcileDocument`, `bind`,
+`bindPickedReference`, `bindPastedReference`, `referenceOptions`, `selectReference`, `expectStep`,
+`applyExpectation`'s doc lookup, `rebindReconcileDocuments`, `saveScenario`'s rebase loop, `bindArmedReference`
+(`_openDocuments.firstOrNull { it.id == armed } as? ScenarioDoc.Reconcile`), and the arming resolution itself.
+
+> **The migration is the work.** A new `DiffWindowState` replaces `ScenarioDoc.Reconcile` as the thing all
+> twelve hold, and they move **together** — because the slot (arm → click → bind → re-judge) and Save & re-run
+> (rebind by `stepId`) are one mechanism, and half-moving it leaves the menu talking to a document that no
+> longer exists. Do this first, with the diff still hosted where it is (a document tab), prove the slot and the
+> S1/S2 tests still green against the new type, and only *then* stand the window up. The window is a host swap
+> on a state holder that already left the composable in Phase 3.
+
+**F2 — There are TWO window states, and 6.1 names both in one breath. Merging them re-arms the 8f93596 trap —
+this time on the diff window.**
+
+`8f93596` fixed the main window: a **bare** `WindowState` is a new object on every recomposition of the scope
+that composes it, and Compose re-applies it to the live window — size snaps to `1920×1080`, position
+re-cascades, the user's own resize is thrown away (main.kt:79-85 preserves the warning verbatim). The fix was
+`rememberWindowState`.
+
+So the diff window has two distinct states, and they live in two distinct places:
+
+- **`DiffWindowState`** — the *content*: the `ReconcileSession`, the reference slot, `thisRunWire`, `focusTag`,
+  `focusEpoch`. This is exactly what `ScenarioDoc.Reconcile` carries today, it is **ViewModel-owned** (a list on
+  a `StateFlow`, as documents are), and F5 says why it may not retreat into the composable.
+- **The Compose `WindowState`** — the *frame*: size and position. This is **composable-owned**, via
+  `rememberWindowState` keyed by the window's id, inside each window's own composition. Put it on the
+  ViewModel, or construct a bare `WindowState`, and it is re-created and re-applied on every recomposition of
+  the application scope — which is the 8f93596 bug, now moving the diff window (or, worse, the main one, since
+  they share that scope). The gate's regression check — *open/close/reopen a diff window, main window's size
+  and position untouched* — is really the assertion that these two states were never conflated.
+
+And a documented reversal: `viewModelRef` is a plain `var` today, made so by `271b34f` with the comment *"There
+is no second window"* (main.kt:54-57). Phase 6 brings the second window back, so the diff windows compose at
+**application scope** — siblings of the main `Window`, iterating `viewModel.openDiffWindows.collectAsState()`,
+the shape the deleted `ScenarioWorkbenchWindow` had at `271b34f~1` — and `viewModelRef` returns to
+`by remember { mutableStateOf(...) }` so that scope can react. Reverse the comment; do not delete it.
+
+**F3 — `Window.getWindows().firstOrNull()` is already the wrong window the moment a second one exists — so the
+screenshot selector is a *prerequisite*, and it protects the MAIN window's screenshot, not the diff's.**
+
+`/screenshot` grabs `windowProvider()` = `{ java.awt.Window.getWindows().firstOrNull() }` (main.kt:120), and
+the main window's own focus workaround grabs the same `firstOrNull()` (main.kt:94). `getWindows()` returns AWT's
+windows in **no defined order** — today it is right only because there is one window. Stand up a diff window and
+`/screenshot` may photograph the diff when asked for the main, or the reverse, from run to run; the focus
+listener may attach to the wrong window. (It may already be fragile: a Compose `DropdownMenu`/tooltip can be a
+heavyweight popup window, so `firstOrNull()` is only accidentally the main window even now — worth checking
+during the phase.)
+
+> So 6.3 is not "make the diff visible to the gate." It is *"make any screenshot deterministic again,"* and
+> without it Phase 6 ships a regression in the main window's own automation. The fix: windows are addressable
+> **by title** — the main window sets `title = "FixTool - FiX Message Viewer"` (main.kt:78) and each diff sets
+> its subject title (6.1). `windowProvider` becomes `(selector) -> Window?` that filters `getWindows()` by a
+> stable marker (title prefix, or a registered id), `/screenshot` grows `?window=main|diff[:subject]`, and the
+> main window's focus workaround stops trusting `firstOrNull()` too.
+
+**F4 — The scenario draft's lifecycle now spans two collections, and the checklist's close-semantics bullet
+states only half of it. Both halves are drop-your-work hazards.**
+
+Today `closeDocument` drops a scenario's draft when `remaining.none { it.scenarioId == scenarioId }` — counted
+over `_openDocuments` only — and `requestCloseDocument`'s discard test counts `documentsOf(scenarioId)`, also
+`_openDocuments` only. The diff was a document, so it was counted. As a window it is not, and both tests go
+blind to it:
+
+- **Closing the last *editor* tab while a diff window is still open would drop the draft** — out from under a
+  live window that is still editing it. The window's next `onChange` writes into a workspace that no longer
+  exists. `closeDocument`'s draft-drop test must count open diff windows as views.
+- **Closing a diff window that is the only remaining view of a dirty scenario must confirm** (6.1 says this) —
+  *and* must run the same draft-drop on discard. The window needs `requestCloseDocument`'s logic, spanning both
+  collections.
+- **The false positive:** closing a diff window while the editor tab is open must **not** confirm and must
+  **not** drop the draft — nothing is discarded. Same predicate, other direction.
+
+> One predicate — **"the open views of this scenario" = editor/capture documents *plus* diff windows** — feeds
+> the draft-drop in `closeDocument`, the discard test in `requestCloseDocument`, and the window's own close. It
+> is the Phase-3 workspace invariant (a draft nothing is looking at is unreachable) restated across two lists
+> instead of one; write it once and call it from three places.
+
+**F5 — A window is not disposed when you look away, so trap 5's pressure is gone — and a careless reader
+concludes the session can move into the window's `remember`. It cannot, for three reasons, one of them new.**
+
+V3 put the `ReconcileSession` in the document because *only the active document is composed* (trap 5): a glance
+at the session grid disposed a `remember`ed session and the footer came back lying. A top-level window stays
+composed regardless of where focus is, so that specific pressure disappears — which is exactly the reasoning
+that would talk someone into a `remember { ReconcileSession(...) }` inside `DiffWindow`. Three reasons it stays
+ViewModel-owned survive the window, and the third is created by the window:
+
+1. **Save & re-run (V9)** rebases and re-binds *every* open diff's session from the **rail**, which is in the
+   main window. A session the main window cannot reach is a Save & re-run that cannot refresh it.
+2. **Cross-window arming (S8)** binds a reference from the main window's **grid** into the diff window's slot.
+   S8 already put the armed-slot *flag* on the ViewModel for this; the slot it fills must be reachable from
+   there too.
+3. **The close/reopen lifecycle (new):** re-opening the same `(scenarioId, stepId)` must find the existing
+   window's session — not build a fresh one over a draft three edits from disk. A composable-local session dies
+   on close and cannot be rebased on reopen.
+
+The genuinely-per-composition state stays in the composable, as M9 already established: the `FocusRequester`,
+and the drag's ephemeral `DragState`. A window has exactly one composition, so those need no key.
+
+**F6 — The deep-link now has to *raise* a window, which a tab never did — and `focusEpoch` already carries the
+signal.**
+
+A tab deep-link set `activeDocumentId` and it was on screen. A diff window that already exists may be **behind**
+the main window that sent the author to it — *"the fix was on screen, underneath the window that sent you
+there,"* which is the exact complaint `271b34f`'s `toFront()` pattern was written for. `ScenarioDoc.Reconcile`
+already carries `focusEpoch`, bumped by every re-open (Phase 2/3); it moves to `DiffWindowState`, and a
+`LaunchedEffect(focusEpoch)` inside the window content does what the workbench did: `state.isMinimized = false;
+window.toFront(); window.requestFocus()`. `focusTag` (scroll-to-row) rides the same bump. Re-opening a subject
+that has a window **focuses it**; it does not mint a second (6.1 — one window per subject, keyed on the id
+`reconcileId(scenarioId, stepId)` already computes).
+
+**F7 — `esc` moves off `App.kt` and into the window, and M7's stack keeps its meaning there.**
+
+M7 made `esc` a stack in the diff: cancel a live drag, else dismiss a refusal, else fall through to `App.kt`,
+which closed the focused *document* (App.kt:139-146). With the diff in its own window, the fall-through has
+nowhere to go — there is no diff document to close — so the last rung becomes **close the window**, handled by
+the window's own key path, and the main window's `esc` handler narrows to editor/capture documents only (it
+must stop calling `requestCloseDocument` for a diff, which is no longer in `_openDocuments`). The contract —
+*esc dismisses what is in flight, then closes the view* — is preserved; only the code that owns the last rung
+moves, and a dirty last-view close still confirms (F4).
+
+**F8 — Authoring's door already exists. 6.2 describes work that is largely done; the change is one glyph and one
+call site.**
+
+`ScenarioEditor.ExpectDetail` is *already* direction + timeout + bind predicate + `AssertionsDoor` — and
+`AssertionsDoor` is already the "*Edit assertions →*" / reconcile door, hosting nothing itself. 6.2's *"shrinks
+to bind-predicate + summary + Edit expectation ⧉"* is a description of the current file. The real changes:
+`onOpenDiff` opens a **window** (`openDiffForStep` re-points to the window path), and the button's glyph becomes
+the window glyph (**⧉**) so it reads as *opens elsewhere*, not *switches tab*. Recorded so the phase does not
+re-shrink a pane that is already shrunk — and so the "two hosts" escape hatch 6.2 offers is seen for what it
+is: there was never a second host to keep, `AssertionsDoor` is a door and not an editor.
+
+**F9 — SPLIT loses one of its two reasons, and the document area's `when(doc)` must drop an arm that is now
+unreachable — `rg` proves the diff document is dead.**
+
+T4 built SPLIT so *"the document takes one split and the sessions keep the other,"* and the diff was the
+document that most needed the centre width (proposal §1b). With the diff in a window, the width argument is
+served by the window; SPLIT still earns its place (the **editor** beside a live session) but no longer for the
+diff. So `ScenarioDocumentArea`/`ScenarioDocumentPane`'s `when(doc)` drops the `is ScenarioDoc.Reconcile` arm,
+`documentTabsOf` stops minting a reconcile tab, and `ReconcileDocument` (the host composable) is deleted.
+Dead-code gate: `rg ScenarioDoc.Reconcile` and `rg ReconcileDocument` find only the deletions, and no path mints
+a reconcile *document*.
+
+**F10 — What dies, and what has to exist before it does. Every test that pins the reconcile *document* migrates
+to the window — it is the regression net, not scaffolding.**
+
+The `ScenarioDoc.Reconcile` kind, the `ReconcileDocument` host, and the reconcile tab wiring are deleted — after
+the window hosts every behaviour they carried (F1 slot, V9 rebind over windows, F4 lifecycle, F6 raise). Three
+existing tests assert on the *document* and are the S1/S2/route regression nets; they **move** to assert on the
+window, and are not dropped:
+
+| test | today | after |
+|---|---|---|
+| `ScenarioWorkspaceTest` *"a new run re-binds the open diff"* (V9) | `activeDocument as ScenarioDoc.Reconcile` | the diff **window** for the subject re-binds |
+| `ScenarioWorkspaceTest` *"a run does not take away the reference the author bound by hand"* (S2) | same cast | same, against the window's session |
+| `ControlServerIntegrationTest` *"reconcile opens the diff on the failing step…"* | `activeDocument is ScenarioDoc.Reconcile` | a diff **window** opened for that `stepId`, its session bound to the failing bytes |
+| all of `ReferenceSlotTest` (S1/S3/S4/S8/S11) | `activeDocument as ScenarioDoc.Reconcile` | the window's `DiffWindowState` |
+
+New tests the phase owes (none of these have a predecessor): open/close/**reopen** focuses the existing window
+rather than duplicating; the **main window's size and position are untouched** across a diff window's whole
+lifecycle (F2's regression check); closing the last editor tab **keeps** the draft while a diff window is open,
+and closing the last *view* (window included) drops it (F4); cross-window arming — arm in the window, click in
+the main grid, the bind lands and the highlight is bidirectional (F5·2, and the one live thing Phase 5 could
+only assert through the ViewModel).
+
+**F11 — `fixtool_reconcile` still returns `open`; the automation can now *drive* the window but cannot *see* it
+until F3 lands — and that ordering is the phase's own trap.**
+
+`POST /scenarios/reconcile` opens the diff through the same `reconcileRoute` decider (Phase 4); after Phase 6 it
+opens a **window**, and the return stays `{status: open, step, stepId}`. But the gate is *screenshots* (trap 2)
+and the only hand is the control surface (trap 4) — so a diff window that F3 has not yet made addressable is a
+window the machine opened and cannot photograph, which is the invisible-gate failure 6.3 names. Sequence F3
+**before** the live gate, or the phase's own W1 screenshot proof (both windows on screen) cannot be taken —
+the same lesson Phase 4 learned when live pixels came back black, one layer up.
 
 ### 6.1 The window host
 - [ ] `ui/diff/DiffWindow.kt`: application-scope `Window`s driven by

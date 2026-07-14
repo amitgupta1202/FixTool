@@ -8,7 +8,9 @@ import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.service.compare.WirePaste
 
 /**
  * Records a live session flow into a replayable [Scenario]. The flow can span **multiple sessions**
@@ -39,10 +41,37 @@ object ScenarioCapture {
     data class CapturedSession(val title: String, val messages: List<FixMessage>)
 
     /**
-     * One business message that capture *would* turn into a step: the row unit of the capture-review
-     * screen, where the author curates the selection before anything is saved.
+     * One business message that capture *would* turn into a step: the row unit of the capture-review screen,
+     * where the author curates the selection before anything is saved.
+     *
+     * **It carries its own direction, type and bytes** rather than reading them off a [FixMessage], because
+     * capture has a second source now and a paste has no `FixMessage` behind it. Synthesising one to fill the
+     * field would put a message in the grid's selection that never arrived on any wire — the same lie in a
+     * smaller font — so [source] is simply **null for a paste**, and a pasted row has no source to highlight.
      */
-    data class Candidate(val session: String, val message: FixMessage, val fields: List<Pair<Int, String>>)
+    data class Candidate(
+        val session: String,
+        /**
+         * **Null means the bytes do not say, and nobody has said either.**
+         *
+         * A live capture knows: it arrived on a wire, in a direction. A paste does not, and it may not be
+         * *guessed* — a reply mis-marked as a Send becomes a step that **asserts nothing**, the scenario sends
+         * the venue's own ExecutionReport back at it, and the step "passes" (a Send always does). That is a
+         * false green by omission. So an undirected row is refused a save, by name. See [directionFrom].
+         */
+        val direction: FixMessage.Direction?,
+        val messageType: String,
+        /** The bytes, SOH-delimited: a live message's `wireRaw`, or a paste's, **as read** (never guessed). */
+        val wire: String,
+        val timestamp: java.time.LocalDateTime,
+        val fields: List<Pair<Int, String>>,
+        /** The grid row this came from. **Null for a paste**, which has no source message to highlight. */
+        val source: FixMessage? = null,
+    ) {
+        val pasted: Boolean get() = source == null
+
+        val outgoing: Boolean get() = direction == FixMessage.Direction.OUTGOING
+    }
 
     /**
      * What a capture found: the rows it can offer, and the messages it had to leave out.
@@ -74,10 +103,74 @@ object ScenarioCapture {
         val unreadable = mutableListOf<FixMessage>()
         for ((title, message) in business) {
             val fields = FixMessageHelper.wireFields(message)
-            if (fields == null) unreadable += message else candidates += Candidate(title, message, fields)
+            if (fields == null) {
+                unreadable += message
+            } else {
+                candidates +=
+                    Candidate(
+                        session = title,
+                        direction = message.direction,
+                        messageType = message.messageType,
+                        wire = message.wireRaw ?: message.rawMessage,
+                        timestamp = message.timestamp,
+                        fields = fields,
+                        source = message,
+                    )
+            }
         }
         return Scan(candidates, unreadable)
     }
+
+    /**
+     * **Capture's second source: pasted wire.** One message per line — a server log fragment, an email — read
+     * by the same reader the paste sheet uses, so the two cannot come to disagree about what a message is.
+     *
+     * A line whose reading the bytes themselves **disprove** is not a candidate. It is *reported*, in the same
+     * place the unreadable live messages already are ([Scan.unreadable] is a list of sentences here), because
+     * leaving a message out has to be a thing the author is told rather than a thing that happens.
+     *
+     * Direction is **not** guessed: [directionFrom] reads it off `SenderCompID(49)` where the assigned session
+     * settles it, and leaves it null where nothing does. See [Candidate.direction] for what a guess costs.
+     */
+    fun fromPaste(
+        text: String,
+        session: String,
+        senderCompId: String? = null,
+        targetCompId: String? = null,
+        at: java.time.LocalDateTime = java.time.LocalDateTime.now(),
+    ): PastedScan {
+        val candidates = mutableListOf<Candidate>()
+        val refused = mutableListOf<String>()
+        text.lines().map { it.trim() }.filter { it.isNotBlank() }.forEachIndexed { index, line ->
+            val read = WirePaste.read(line)
+            val wire = read.wire
+            if (!read.usable || wire == null) {
+                refused += "line ${index + 1}: ${read.why ?: read.lint}"
+                return@forEachIndexed
+            }
+            val type = read.fields.firstOrNull { it.first == 35 }?.second
+            if (type == null) {
+                refused += "line ${index + 1}: no MsgType(35) — this is not a message FixTool can replay"
+                return@forEachIndexed
+            }
+            candidates +=
+                Candidate(
+                    session = session,
+                    direction = directionFrom(read.fields, senderCompId, targetCompId),
+                    messageType = type,
+                    wire = wire,
+                    // A paste's own moment where it has one: its SendingTime(52). The order of the lines is
+                    // what a scenario replays, and it is the order they were pasted in.
+                    timestamp = at.plusNanos(index.toLong()),
+                    fields = read.fields,
+                    source = null,
+                )
+        }
+        return PastedScan(candidates, refused)
+    }
+
+    /** What a paste produced, and what it could not — the sentences the review prints. */
+    data class PastedScan(val candidates: List<Candidate>, val refused: List<String>)
 
     /** The rows only. Callers that must report what was left out use [scan]. */
     fun candidates(sessions: List<CapturedSession>): List<Candidate> = scan(sessions).candidates
@@ -108,7 +201,10 @@ object ScenarioCapture {
         val steps = mutableListOf<ScenarioStep>()
 
         for (candidate in selection) {
-            if (candidate.message.direction == FixMessage.Direction.OUTGOING) {
+            // An undirected row cannot become a step: it would become a Send that asserts nothing, silently.
+            // The review refuses the save before this, by name; this is the engine keeping the same rule.
+            if (candidate.direction == null) continue
+            if (candidate.outgoing) {
                 steps += sendStep(candidate, dictionary, refByValue)
             } else {
                 steps += expectStep(candidate, dictionary, refByValue)
@@ -118,6 +214,30 @@ object ScenarioCapture {
         val setup = selection.map { it.session }.distinct().map { ScenarioStep.ClearMessages(it) }
         return Scenario(id = id, name = name, profile = profile, setup = setup, steps = steps)
     }
+
+    /**
+     * **The direction, read off the bytes where the bytes decide it.**
+     *
+     * Once a session is assigned, `SenderCompID(49)` equal to that session's own sender means the message went
+     * **out**; equal to its target means it came **in**. Where the bytes do not decide — no session config, no
+     * `49`, a log from a third party — the answer is **null**, and the author is asked. It is never guessed:
+     * see [Candidate.direction] for what a guess costs.
+     */
+    fun directionFrom(
+        fields: List<Pair<Int, String>>,
+        senderCompId: String?,
+        targetCompId: String?,
+    ): FixMessage.Direction? {
+        val sender = fields.firstOrNull { it.first == 49 }?.second ?: return null
+        return when (sender) {
+            senderCompId?.takeIf { it.isNotBlank() } -> FixMessage.Direction.OUTGOING
+            targetCompId?.takeIf { it.isNotBlank() } -> FixMessage.Direction.INCOMING
+            else -> null
+        }
+    }
+
+    /** The included rows whose direction nobody has settled. A save is refused while there are any. */
+    fun undirected(selection: List<Candidate>): List<Candidate> = selection.filter { it.direction == null }
 
     private fun sendStep(
         entry: Candidate,
@@ -135,7 +255,7 @@ object ScenarioCapture {
             }
             raw.append(tag).append('=').append(out).append('|')
         }
-        return ScenarioStep.Send(raw.toString(), entry.session)
+        return ScenarioStep.Send(raw.toString(), entry.session, origin = entry.originOfStep())
     }
 
     /** First send of a value mints a fresh scenario variable; a re-send references the same one. */
@@ -177,13 +297,14 @@ object ScenarioCapture {
             .map { (tag, value) -> TagValue(tag, refByValue.getValue(value)) }
             .distinctBy { it.tag }
         return ScenarioStep.Expect(
+            origin = entry.originOfStep(),
             session = entry.session,
             direction = "in",
-            match = MatchPredicate(messageType = entry.message.messageType, fields = bindConstraints),
+            match = MatchPredicate(messageType = entry.messageType, fields = bindConstraints),
             timeoutMs = DEFAULT_TIMEOUT_MS,
             expectation = Expectation(
                 fields = correlated,
-                messageType = entry.message.messageType,
+                messageType = entry.messageType,
                 mode = MatchMode.OPEN,
                 // The venue's bytes, not the display string. The rows above were seeded from `wireFields`
                 // (SOH, unsubstituted) while the golden used to be stored as the '|'-substituted string —
@@ -193,10 +314,13 @@ object ScenarioCapture {
                 // `58=Rejected` plus a phantom. The row went red against the very message it was captured
                 // from, and the author was invited to "fix" a matcher that was already right.
                 // Non-null by construction: `scan` does not offer a candidate whose wire bytes are missing.
-                golden = entry.message.wireRaw ?: entry.message.rawMessage,
+                golden = entry.wire,
             ),
         )
     }
+
+    /** Everything a paste makes is badged, because FixTool did not watch these bytes arrive (S4). */
+    private fun Candidate.originOfStep(): StepOrigin = if (pasted) StepOrigin.PASTED else StepOrigin.LIVE
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun isTimestamp(tag: Int, dictionary: FixDictionaryAdapter?): Boolean {

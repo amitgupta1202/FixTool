@@ -24,8 +24,9 @@ dodged the hard case.
 | 3 | The diff surface becomes the only expectation editor | **complete** |
 | 4 | Drag moves, undo/redo, keyboard | **complete** |
 | 5 | Reference slot: paste, pick, provenance | not started |
-| 6 | The plain diff viewer | not started |
-| 7 | Cleanup, docs, final verification | not started |
+| 6 | The diff gets its own window (direction change 2026-07-14) | not started |
+| 7 | The plain diff viewer | not started |
+| 8 | Cleanup, docs, final verification | not started |
 
 ---
 
@@ -45,6 +46,16 @@ reply's fields **in an order the reply does not have** (M2) — which is also wh
 cross. Both are fixed; read M1–M9 before touching a move.
 
 Phase 5 is next: the reference slot (paste · pick · provenance).
+
+> **Direction change (2026-07-14), decided by Amit during review: the diff surface moves into a
+> dedicated window** — reconcile, authoring, and the future viewer — the way an IDE opens a diff.
+> The rail, the flow editor, and capture review stay in the main window exactly as built. This is
+> the new **Phase 6**; the viewer and cleanup phases renumber to 7 and 8. Phase 5 is unaffected in
+> scope, with one caveat written into it (the pick-from-session arming state must live on the
+> ViewModel, because the grid and the diff will soon be in different windows). Rationale and rules:
+> proposal §1c. Do not resurrect the workbench-window pattern wholesale — the thing that makes this
+> window safe where that one was not is the Phase-3 workspace: a diff window never holds the only
+> copy of unsaved state.
 
 > **The control surface can now open the diff** — `POST /scenarios/reconcile` / `fixtool_reconcile`, through
 > the same `reconcileRoute` decider the rail's *Reconcile →* button uses. It is the one thing the automation
@@ -1558,7 +1569,10 @@ gates provable too.
       second instance · pick from session… · paste wire…. Swapping re-judges instantly
       (session already supports it; this is the UI).
 - [ ] Pick from session: arming the slot lets the next grid row click bind the
-      reference (and highlights bidirectionally while bound).
+      reference (and highlights bidirectionally while bound). **The armed state and the
+      binding must live on the ViewModel, not in the diff document's composable** —
+      Phase 6 moves the diff into its own window, and this interaction must survive the
+      focus hop to the main window unchanged.
 - [ ] Paste sheet: multi-format parse (SOH preferred, `|` accepted — reuse
       `parseFixMessage`'s detection), **lint line reports** delimiter, field count, and
       ambiguity (possible pipe-in-value truncation flagged, never guessed); temporal
@@ -1581,32 +1595,108 @@ review → save → run against the live fake venue → reconcile the difference
 
 ---
 
-## Phase 6 — The plain diff viewer
+## Phase 6 — The diff gets its own window (direction change, 2026-07-14)
+
+**What changed and why.** Amit revised part of Decision 1 during review: the diff surface —
+reconcile, authoring-against-golden, and the Phase 7 viewer — opens in a **dedicated,
+task-scoped window**, IntelliJ-style, instead of a document tab. The rail and the
+editor/capture tabs stay in the main window as built. The reasoning (proposal §1c): a diff
+is consulted *against* context — in a tab it hides the very grid the failure lives in; in a
+window the grid, rail, and detail panel stay visible beside it. This is not the workbench
+window returning: that window was a persistent *place*; this is a disposable *tool*, and
+the Phase-3 workspace (one draft per scenario, whatever views it) guarantees a diff window
+never holds the only copy of unsaved state.
+
+### 6.1 The window host
+- [ ] `ui/diff/DiffWindow.kt`: application-scope `Window`s driven by
+      `viewModel.openDiffWindows: SnapshotStateList<DiffWindowState>`; the per-diff state
+      that today lives in `ScenarioDoc.Reconcile` (its `ReconcileSession`, reference slot,
+      undo stack) moves into `DiffWindowState`. Trap 5 (only the active document is
+      composed) stops applying to the diff — but keep the state in the window-state object
+      anyway; a composable-local session is still wrong.
+- [ ] **The 8f93596 trap, by name:** each window's state is `rememberWindowState` keyed by
+      the window's id. A bare `WindowState` constructed in application scope is re-created
+      on any recomposition of that scope and re-applies size/position — this exact bug
+      moved the *main* window last time. Regression check in the gate: open/close/reopen a
+      diff window and assert the main window's position and size are untouched.
+- [ ] `FixToolWindowChrome` wraps the content (a second `Window` inherits no
+      CompositionLocals — learned in redesign 2) and the window gets its own
+      `NotificationPopupContainer`. The `toFront()`/`requestFocus()` deep-link pattern can
+      be resurrected from `ScenarioWorkbenchWindow` in git history (pre-`271b34f`).
+- [ ] **One window per subject:** opening the same `(scenarioId, stepId)` focuses the
+      existing window; different subjects may hold windows simultaneously (two diffs side
+      by side is a real workflow). Title names the subject:
+      `rfq flow v2 · Step 2 · Expect ExecutionReport(8) — FixTool`.
+- [ ] Close semantics: `esc` and the close button close the *view*. **A closing diff
+      window never silently discards the workspace draft** — the draft is scenario-scoped
+      and stays visible (dirty) in the rail and editor tab. The undo stack may die with
+      the window; the draft may not. No dirty-confirm on window close *unless* the window
+      holds the only open view of a dirty scenario — then the same confirm the editor tab
+      uses.
+
+### 6.2 Re-route the hosts
+- [ ] Every reconcile door — rail **Reconcile →**, run line, `MessageDetailPanel` deep
+      link, `POST /scenarios/reconcile` / `fixtool_reconcile` — opens-or-focuses the
+      window through the same `reconcileRoute` decider. The `ScenarioDoc.Reconcile`
+      document kind and `ReconcileDocument` host are **deleted**; the tab strip no longer
+      offers a diff document.
+- [ ] Authoring moves with it: the editor tab's `ExpectDetail` shrinks to bind-predicate
+      editing + a read-only expectation summary + **"Edit expectation ⧉"**, which opens
+      the diff window bound to the golden. One surface, one host, in both repair and
+      authoring. (If review during the phase finds embedded authoring worth keeping, that
+      is a recorded decision with the cost named: two hosts that must stay consistent
+      forever.)
+- [ ] Save & re-run works from the window; the rail verdict and the window header update
+      together. Pick-from-session arming (Phase 5) verified across the window boundary:
+      arm in the diff window, click in the main window's grid, binding and bidirectional
+      highlight work, armed state survives the focus hop.
+
+### 6.3 The automation eye
+- [ ] `/screenshot` gains a window selector (`window=main|diff` or an index) and
+      `fixtool_screenshot` exposes it (`McpTools`, `index.mjs`, `AUTOMATION.md`). Trap 2
+      gates UI phases on screenshots and trap 4 says the control surface is the only
+      hand — without this the diff window is invisible to every gate that follows.
+
+### 6.4 Tests and gate
+- [ ] Tests: each door opens the window (route parity with the old document tests);
+      same-subject focus instead of duplicate; close semantics (draft survives, dirty
+      state still visible in main window); main-window state untouched across the
+      lifecycle; cross-window pick-from-session; screenshots of the window via the new
+      endpoint parameter.
+
+**Phase 6 gate:** W1 live, both windows on screen: run → fail → **Reconcile →** → the
+window opens *beside* the grid with the failing row visible in both → fix → **Save &
+re-run** → green in the rail; screenshot evidence captures main and diff windows.
+
+---
+
+## Phase 7 — The plain diff viewer
 
 - [ ] `DiffSurface` left side generalizes to `Expectation | Message`; message-left mode
       renders read-only (no matcher chips, no gutter applies, no save), statuses
       reduce to same/value/only-A/only-B/moved, footer states it is read-only.
-- [ ] Entry points: grid multi-select (2) → "Diff selected" (context/toolbar);
-      `MessageDetailPanel` → "Diff against…"; rail/toolbar → "Diff messages…" with two
-      empty slots (pick/paste each).
-- [ ] "Seed expectation from A/B ▾" seeds via `ExpectationSeeder` and flips the tab
+- [ ] Entry points — each opens a **diff window** (Phase 6 host): grid multi-select (2)
+      → "Diff selected" (context/toolbar); `MessageDetailPanel` → "Diff against…";
+      rail/toolbar → "Diff messages…" with two empty slots (pick/paste each). Subject
+      key for focus-not-duplicate: the message pair.
+- [ ] "Seed expectation from A/B ▾" seeds via `ExpectationSeeder` and flips the window
       into editor mode with the other side as reference; "add to scenario…" files it as
       an Expect step (scenario/step picker; new scenario allowed).
 - [ ] Tests: viewer mode cannot mutate anything (architecture-level: no `EditOp` except
       `SwapReference`/`SetMode` accepted); two-message alignment on the fixture corpus;
       seed-then-edit produces a valid step that round-trips and runs.
 
-**Phase 6 gate:** W3 verified live: two grid rows → diff; UAT-style paste vs live
-message → diff → seed → step added to a scenario → run.
+**Phase 7 gate:** W3 verified live: two grid rows → diff window beside the grid;
+UAT-style paste vs live message → diff → seed → step added to a scenario → run.
 
 ---
 
-## Phase 7 — Cleanup, docs, final verification
+## Phase 8 — Cleanup, docs, final verification
 
 - [ ] Demote `entryRegions`/`longestRepeat` to the documented fallback path (only
       caller: `GroupOverlay`); delete anything now uncalled (`bracketsFor` UI plumbing,
       old workbench-only helpers). `rg` for dead references to the deleted composables.
-- [ ] `resources/help.html` §12 rewritten for rail/tabs/diff surface/paste/diff viewer;
+- [ ] `resources/help.html` §12 rewritten for rail/tabs/the diff window/paste/diff viewer;
       `docs/AUTOMATION.md` + `McpTools`/`index.mjs` descriptions updated where they
       mention the workbench window; `syntax.md` untouched (semantics unchanged —
       verify by diff).
@@ -1638,4 +1728,7 @@ message → diff → seed → step added to a scenario → run.
 | `ui/MatcherEditor.kt`, `ui/ScenarioUi.kt`, `ui/WindowChrome.kt` | kept |
 | `main.kt` second-window block | **deleted (Phase 2.2)** |
 | `ui/App.kt`, `ui/TabBar.kt`, `ui/Toolbar.kt` | modified (Phase 2): rail dock, document tabs, SPLIT document area |
+| `ui/diff/DiffWindow.kt` | new (Phase 6) — the dedicated, task-scoped diff window host |
+| `ScenarioDoc.Reconcile` + `ReconcileDocument` host | **deleted (Phase 6.2)** — per-diff state moves to `DiffWindowState` |
+| `control/ControlServer.kt` `/screenshot` | modified (Phase 6.3): window selector, so the diff window stays visible to the gates |
 | `control/ControlServer.kt` `panel("scenarios")` | retargeted to the rail (Phase 2), endpoint unchanged |

@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.model.scenario.withIds
 
 /**
  * The primitives the [ScenarioRunner] needs from its environment. Kept behind an interface so the
@@ -62,7 +63,15 @@ class ScenarioRunner(
     /** Called when an Expect step binds to a live message, so the UI can tint that row green/red. */
     private val onExpectMatched: (FixMessage, StepResult) -> Unit = { _, _ -> },
 ) {
-    fun run(scenario: Scenario): ScenarioResult {
+    /**
+     * [withIds] first, so every [StepResult] can name the step that produced it. It is deterministic, so
+     * the ids the runner sees are the ids the same scenario has everywhere else — an un-normalized
+     * scenario handed straight to the runner (a test, an inline scenario from the control surface) still
+     * reports the ids its saved counterpart would carry.
+     */
+    fun run(scenario: Scenario): ScenarioResult = runIdentified(scenario.withIds())
+
+    private fun runIdentified(scenario: Scenario): ScenarioResult {
         // Fail fast, by name, before touching anything: a missing/unconnected session otherwise
         // surfaces minutes later as a misleading Expect timeout.
         preflight(scenario)?.let { return ScenarioResult(scenario.name, false, listOf(it)) }
@@ -118,7 +127,16 @@ class ScenarioRunner(
     private fun preflightFailure(detail: String): StepResult =
         StepResult(-1, "preflight", "setup", passed = false, detail = detail)
 
+    /** Every verdict names its step. The index says where it sat; the id says which step it was. */
     private fun runStep(
+        step: ScenarioStep,
+        index: Int,
+        phase: String,
+        scope: MutableMap<String, String>,
+        consumed: MutableSet<FixMessage>,
+    ): StepResult = execute(step, index, phase, scope, consumed).copy(stepId = step.stepId.ifBlank { null })
+
+    private fun execute(
         step: ScenarioStep,
         index: Int,
         phase: String,
@@ -211,7 +229,7 @@ class ScenarioRunner(
                 "FixTool has no wire bytes for the matched ${target.messageType} on '${label(step.session)}', " +
                     "so the order of its fields is unknown and this expectation cannot be evaluated. This is a " +
                     "FixTool limitation, not a venue failure — the message itself may be perfectly correct."
-            val failed = StepResult(index, "expect", phase, false, detail = why)
+            val failed = StepResult(index, "expect", phase, false, detail = why, stepId = step.stepId.ifBlank { null })
             // Reported through the same channel as every other verdict, and that is the whole point of not
             // returning early here. onExpectMatched is what tints the matched message red in the grid and
             // hands the reconcile deep-link the message to show. Skipping it would have left the one step
@@ -229,6 +247,9 @@ class ScenarioRunner(
             tags.all { it.passed },
             detail = "messageType=${target.messageType}",
             tags = tags,
+            // The grid's tint and the reconcile deep-link both come off this map, so the entry has to know
+            // which step it belongs to — not merely which slot that step occupied during this run.
+            stepId = step.stepId.ifBlank { null },
         )
         onExpectMatched(target, result)
         return result

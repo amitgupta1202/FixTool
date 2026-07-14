@@ -8,6 +8,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -169,51 +170,113 @@ class ScenarioDeepLinkTest {
 
     // ----- the refusals. Each one is a false green that did not happen. ---------------------------------
 
+    /** The two-Expect scenario the index-versus-identity cases are argued on, already identified. */
+    private fun partialFills(): Scenario =
+        Scenario(
+            id = "sc-edit",
+            name = "partial fills",
+            steps =
+                listOf(
+                    ScenarioStep.Send("35=D|11=X|"),
+                    ScenarioStep.Expect(
+                        expectation =
+                            Expectation(fields = listOf(FieldExpectation(151, Matcher.Exact("750000"))), messageType = "8"),
+                    ),
+                    ScenarioStep.Expect(
+                        expectation =
+                            Expectation(fields = listOf(FieldExpectation(151, Matcher.Exact("0"))), messageType = "8"),
+                    ),
+                ),
+        ).withIds()
+
     /**
-     * THE FALSE GREEN THE REVIEW FOUND. A run addresses its step by *index*, and nothing invalidates a run
+     * THE FALSE GREEN THE REVIEW FOUND. A run addressed its step by *index*, and nothing invalidates a run
      * when the scenario is edited. Delete a step above the failure and index 1 holds a **different** Expect —
      * so the reconcile view would diff *that* step's expectation against the failing step's message, and
      * "Accept actual" would overwrite its matchers and golden with bytes the venue never sent for it. The
      * scenario goes green while asserting a response it was never supposed to get.
      *
-     * Checking that `saved.steps[1]` is *an* Expect cannot see this. Checking that it is *the step that ran*
-     * can.
+     * The step now carries an id, so the route does not have to reason about indices at all: it asks for the
+     * step that ran, by name. Here the author has *edited that very step*, so there is nothing to reconcile
+     * against — the failure describes an expectation that no longer exists.
      */
     @Test
-    fun `a scenario edited since the run is refused - that index is no longer the step that failed`() {
-        val scenario =
-            Scenario(
-                id = "sc-edit",
-                name = "partial fills",
-                steps =
-                    listOf(
-                        ScenarioStep.Send("35=D|11=X|"),
-                        ScenarioStep.Expect(
-                            expectation =
-                                Expectation(fields = listOf(FieldExpectation(151, Matcher.Exact("750000"))), messageType = "8"),
-                        ),
-                        ScenarioStep.Expect(
-                            expectation =
-                                Expectation(fields = listOf(FieldExpectation(151, Matcher.Exact("0"))), messageType = "8"),
-                        ),
-                    ),
-            )
+    fun `the step that failed, edited since the run, is refused`() {
+        val scenario = partialFills()
         assertTrue(viewModel.scenarioService.save(scenario))
         val msg = failedMessage()
         val step = failedStepResult(stepIndex = 1) // the 25%-fill Expect is what failed
         viewModel.noteScenarioRun(scenario)
         viewModel.setAssertionResults(mapOf(msg to step))
-        // The author deletes the Send and saves. Index 1 now holds the *100%-fill* Expect: still an Expect,
-        // still at index 1, and emphatically not the step that failed.
-        assertTrue(viewModel.scenarioService.save(scenario.copy(steps = scenario.steps.drop(1))))
 
-        assertTrue("changed since this run" in refusal(step), "the refusal must say the scenario moved under the run")
+        // The author retunes the 25%-fill assertion and saves. Same step, same id, different assertion.
+        val edited =
+            scenario.copy(
+                steps =
+                    scenario.steps.mapIndexed { i, s ->
+                        if (i != 1) s
+                        else (s as ScenarioStep.Expect).copy(
+                            expectation = Expectation(fields = listOf(FieldExpectation(151, Matcher.Exact("500000"))), messageType = "8"),
+                        )
+                    },
+            )
+        assertTrue(viewModel.scenarioService.save(edited))
+
+        assertTrue("changed since this run" in refusal(step), "the refusal must say the step moved under the run")
 
         viewModel.openScenarioEditorForFailure(msg)
         assertNull(
             viewModel.workbenchEditRequest.value,
-            "reconciling here would diff the 100%-fill expectation against the 25%-fill message",
+            "reconciling here would diff an expectation the author has since rewritten",
         )
+    }
+
+    /**
+     * **And the half the old rule got wrong.** It refused the route whenever *anything* in the scenario had
+     * changed — so renaming step 1, or deleting a Send above the failure, withdrew the fix for step 2. The
+     * author's only way back was to run the whole scenario again, which on a slow venue is minutes, and the
+     * refusal did not even hint that the edit they had made was harmless.
+     *
+     * An edit to another step is exactly as relevant as it sounds: not at all. The failing step is unchanged,
+     * so it still reconciles — and the route lands on it **where it is now**, not where it ran.
+     */
+    @Test
+    fun `an edit to a different step still routes, focused where that step now sits`() {
+        val scenario = partialFills()
+        assertTrue(viewModel.scenarioService.save(scenario))
+        val msg = failedMessage()
+        val step = failedStepResult(stepIndex = 1) // the 25%-fill Expect, at index 1 when it ran
+        viewModel.noteScenarioRun(scenario)
+        viewModel.setAssertionResults(mapOf(msg to step))
+
+        // The author deletes the Send above it and saves. The failing Expect is untouched — and is now at
+        // index 0, which is precisely the case an index-keyed route could not survive.
+        assertTrue(viewModel.scenarioService.save(scenario.copy(steps = scenario.steps.drop(1))))
+
+        val request = opened(step)
+
+        assertEquals(0, request.focusStep, "the route follows the step, not the slot it used to occupy")
+        assertEquals(
+            scenario.steps[1],
+            request.scenario.steps[0],
+            "and it is the same step — same id, same assertion — that failed",
+        )
+    }
+
+    /** A step that is gone is gone: there is no expectation left to reconcile the failure against. */
+    @Test
+    fun `the step that failed, deleted since the run, is refused`() {
+        val scenario = partialFills()
+        assertTrue(viewModel.scenarioService.save(scenario))
+        val msg = failedMessage()
+        val step = failedStepResult(stepIndex = 1)
+        viewModel.noteScenarioRun(scenario)
+        viewModel.setAssertionResults(mapOf(msg to step))
+
+        assertTrue(viewModel.scenarioService.save(scenario.copy(steps = scenario.steps.filterIndexed { i, _ -> i != 1 })))
+
+        val why = refusal(step)
+        assertTrue("no longer in scenario" in why && "deleted" in why, why)
     }
 
     /**

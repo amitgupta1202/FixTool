@@ -1,5 +1,7 @@
 package com.knapsack.fixtool.model.scenario
 
+import java.util.UUID
+
 /**
  * A saved, parameterized sequence of FIX sends and assertions that a deterministic runner replays
  * identically — the "author once, repeat forever, no LLM in the hot path" artifact from the
@@ -23,8 +25,28 @@ data class Scenario(
 sealed interface ScenarioStep {
     val session: String?
 
+    /**
+     * **Who this step is**, as opposed to where it currently sits.
+     *
+     * A run result addresses its step by *index*, and nothing invalidates a run when the scenario is
+     * edited — so deleting a step above a failure silently re-pointed the reconcile route at a different
+     * Expect, and the only defence available was to refuse the route whenever *anything* in the scenario
+     * had changed. That refusal is correct and far too wide: it withdraws the fix for step 5 because the
+     * author renamed step 1.
+     *
+     * With an id, the run says which step it means, and the refusal narrows to the step that actually
+     * changed. Blank means *not yet assigned* — [withIds] fills it, deterministically, at every door a
+     * scenario comes through (load, capture, save, run), so a file written before ids existed gets the
+     * same ids on every load and the two sides of that comparison can never disagree.
+     */
+    val stepId: String
+
     /** Send a (parameterized) message; `${...}` is resolved against the scenario scope at run time. */
-    data class Send(val raw: String, override val session: String? = null) : ScenarioStep
+    data class Send(
+        val raw: String,
+        override val session: String? = null,
+        override val stepId: String = "",
+    ) : ScenarioStep
 
     /** Block until a connection state is reached or a matching message arrives (no consume). */
     data class Wait(
@@ -32,6 +54,7 @@ sealed interface ScenarioStep {
         val state: String? = null,
         val match: MatchPredicate? = null,
         val timeoutMs: Long = 10_000,
+        override val stepId: String = "",
     ) : ScenarioStep
 
     /** Await the next not-yet-consumed matching message and assert it against an expectation. */
@@ -41,17 +64,72 @@ sealed interface ScenarioStep {
         val match: MatchPredicate? = null,
         val timeoutMs: Long = 10_000,
         val expectation: Expectation,
+        override val stepId: String = "",
     ) : ScenarioStep
 
     /** Clear a session's observable message log (typical setup step). */
-    data class ClearMessages(override val session: String? = null) : ScenarioStep
+    data class ClearMessages(
+        override val session: String? = null,
+        override val stepId: String = "",
+    ) : ScenarioStep
 
     /** Reset a session's FIX sequence numbers (typical setup step). */
     data class ResetSeqNum(
         override val session: String? = null,
         val sender: Int? = null,
         val target: Int? = null,
+        override val stepId: String = "",
     ) : ScenarioStep
+}
+
+/** The same step under a new identity. A sealed interface has no `copy`, and the id has to be assignable. */
+fun ScenarioStep.withStepId(id: String): ScenarioStep =
+    when (this) {
+        is ScenarioStep.Send -> copy(stepId = id)
+        is ScenarioStep.Wait -> copy(stepId = id)
+        is ScenarioStep.Expect -> copy(stepId = id)
+        is ScenarioStep.ClearMessages -> copy(stepId = id)
+        is ScenarioStep.ResetSeqNum -> copy(stepId = id)
+    }
+
+/**
+ * Every step carries an id — and a step that has none gets one **deterministically**.
+ *
+ * That word is the whole design. [com.knapsack.fixtool.viewmodel.FixMessageViewModel.reconcileRoute]
+ * compares the step that *ran* against the step now *on disk*, and it reads the disk copy with a second,
+ * independent load. Mint a random id for an id-less file and those two loads would agree about nothing:
+ * every failure on a scenario written before ids existed would be refused — by the very mechanism added
+ * to stop refusing so much. So an unassigned step is identified by where it sits in the file it was read
+ * from, and two loads of that file produce the same ids, for ever, until someone saves it with them.
+ *
+ * Ids duplicated inside one scenario (a hand-copied step, a file edited by hand) are re-minted: an id
+ * that addresses two steps addresses neither.
+ */
+fun Scenario.withIds(): Scenario {
+    val used = mutableSetOf<String>()
+
+    fun assign(phase: String, list: List<ScenarioStep>): List<ScenarioStep> =
+        list.mapIndexed { index, step ->
+            // `used.add` is the duplicate check *and* the claim: the first step to carry an id keeps it.
+            if (step.stepId.isNotBlank() && used.add(step.stepId)) step else step.withStepId(mint(id, phase, index, used))
+        }
+
+    return copy(
+        setup = assign("setup", setup),
+        steps = assign("steps", steps),
+        teardown = assign("teardown", teardown),
+    )
+}
+
+/** A stable id for the step at (scenario, phase, index) — salted only if that id is somehow already taken. */
+private fun mint(scenarioId: String, phase: String, index: Int, used: MutableSet<String>): String {
+    var salt = 0
+    while (true) {
+        val seed = if (salt == 0) "$scenarioId/$phase/$index" else "$scenarioId/$phase/$index#$salt"
+        val id = UUID.nameUUIDFromBytes(seed.toByteArray()).toString()
+        if (used.add(id)) return id
+        salt++
+    }
 }
 
 /**
@@ -77,6 +155,11 @@ data class StepResult(
     val passed: Boolean,
     val detail: String? = null,
     val tags: List<TagResult> = emptyList(),
+    /**
+     * Which step this is a result *of* — the index says only where it sat when it ran. Null for the
+     * preflight failure, which is a verdict on the scenario rather than on any step of it.
+     */
+    val stepId: String? = null,
 )
 
 /** The result of a whole scenario run — drives both CI (exit code) and the in-app red/green overlay. */

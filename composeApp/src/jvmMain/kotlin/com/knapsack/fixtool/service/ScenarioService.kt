@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.util.AtomicFiles
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.serialization.json.Json
@@ -45,11 +46,15 @@ class ScenarioService(
 
     fun load(id: String): Scenario? = synchronized(lock) { loadFile(fileFor(id)) }
 
+    /**
+     * Saving is what makes a step's identity permanent. A blank id never reaches disk: [withIds] assigns
+     * one to anything the author added by hand since the file was read, so the next run can address it.
+     */
     @Suppress("TooGenericExceptionCaught")
     fun save(scenario: Scenario): Boolean =
         synchronized(lock) {
             try {
-                val content = prettyJson.encodeToString(JsonObject.serializer(), ScenarioCodec.toJson(scenario))
+                val content = prettyJson.encodeToString(JsonObject.serializer(), ScenarioCodec.toJson(scenario.withIds()))
                 AtomicFiles.writeAtomically(fileFor(scenario.id), content)
                 true
             } catch (e: Exception) {

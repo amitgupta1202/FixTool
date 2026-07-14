@@ -23,7 +23,7 @@ dodged the hard case.
 | 2 | Rail + document tabs; the window dies | **complete** |
 | 3 | The diff surface becomes the only expectation editor | **complete** |
 | 4 | Drag moves, undo/redo, keyboard | **complete** |
-| 5 | Reference slot: paste, pick, provenance | not started |
+| 5 | Reference slot: paste, pick, provenance | **in progress** — decisions written (S1–S11) |
 | 6 | The diff gets its own window (direction change 2026-07-14) | not started |
 | 7 | The plain diff viewer | not started |
 | 8 | Cleanup, docs, final verification | not started |
@@ -1565,30 +1565,361 @@ gates provable too.
 
 ## Phase 5 — Reference slot: paste, pick, provenance
 
+### Decisions taken before implementation — read these first
+
+Eleven things the checklist under-specifies or gets wrong, settled here with the reasoning, so the next
+reader does not re-derive them. **Three are live defects**: the header calls a step FAILED that did not fail
+(S1), a run silently takes away the message the author chose to compare against (S2), and the fake venue
+stopped sending the pipe that is the entire reason it exists (S10).
+
+**S1 — The verdict's sentence is chosen by the provenance, PICKED and PASTED have none — and the FAILED
+chip is a sentence too, which is where this is already lying.**
+
+`Verdict.headlineAgainst` (V5) knows one special case: against a SECOND_INSTANCE a red row is the author's
+assertion being **over-specified**, not the venue regressing. PICKED and PASTED fall through to *"N rows need
+attention"*, which in this surface has always meant **the venue did something new**. Against a message from
+another environment — which is the whole point of a paste — that is not what it means, and it sends an
+engineer hunting a regression that does not exist. That is the failure this area keeps producing, and it is
+the one V5 was written to stop.
+
+What a red row means is decided by *what licensed the comparison*:
+
+| slot | a red row means | the sentence |
+|---|---|---|
+| THIS_RUN | the venue did something new | *"N rows need attention"* |
+| GOLDEN | the expectation and the step's own capture disagree | *"N rows need attention"* |
+| SECOND_INSTANCE | the author asked *does this generalize?* and it does not | *"⚠ N rows are over-specified"* |
+| PICKED · PASTED | **FixTool does not know** | *"N rows do not hold against the pasted message"* |
+
+> **Against a slot the author bound by hand, the tool reports and does not diagnose.** It cannot know why the
+> author bound that message: it may be UAT's reply to the same order, a rejection where a fill was captured,
+> or another venue entirely. *"Does not hold"* is the whole of what is true, and the split (`1 value changed ·
+> 1 tag missing`) says the rest.
+
+**And the header's `FAILED` chip is the same claim in five letters, drawn from `verdict.needsAttention` with no
+idea what is in the slot.** V5 fixed the headline and left the chip, and the chip is read first. The verdict
+line's error tint is the same bug in colour.
+
+**This is live, on the one path that already exists.** `bindPickedReference` is reachable today from V6's
+prompt — *"Use the message selected in the grid"* — and that prompt is shown **precisely when the step has
+never run and has no golden**. So an author binds a message from the grid, three rows do not hold against it,
+and the surface answers *"3 rows need attention"* under a red **FAILED** chip — about a step that **has not
+run**, cannot have failed, and is being *authored*. Both sentences are false, and they are the two a reader
+takes first. (SECOND_INSTANCE is worse in kind but reachable only from `DiffAuthoringTest` until this phase's
+menu ships — which is exactly why the menu must not ship before the sentence does.)
+
+So the chip's word comes from the same function the headline does — `Verdict.chipAgainst(provenance)`:
+`failed` (THIS_RUN) · `would fail` (GOLDEN — the step has not run; this is a prediction and says so) ·
+`over-specified` (SECOND_INSTANCE) · `does not hold` (PICKED, PASTED) — the first two in error, the rest in
+warning. One decider, in `Verdict`, tested there. And the right column's heading stops saying **RECEIVED** over
+a message that was not received.
+
+**S2 — A run must not take away the message the author chose to compare against. V9 meets the slot, and the
+slot loses.**
+
+V9 re-binds **every** open diff of the scenario that ran, so that *Save & re-run* cannot leave the author
+looking at the failure they have already fixed. It is right, and it is unconditional: `rebindReconcileDocuments`
+calls `swapReference` on every reconcile document of the ran scenario, whatever is in its slot.
+
+Phase 5 is what makes that a defect at scale — and, like S1, **it is already live on the one hand-binding path
+that exists.** Bind a message from the grid through V6's prompt (provenance PICKED), let any run of that
+scenario land, and the picked message is **silently replaced** by the run's bytes. With the swap menu it
+becomes the ordinary case: an author binds a PASTED reference — UAT's reply, the reason they opened the diff —
+tightens two rows against it, presses **Save & re-run** (the button is in the same header), and the thing they
+were comparing against is gone, at the moment they were using it, and nothing says so.
+
+> **A run re-binds the slots it owns, and only those.** THIS_RUN, and GOLDEN — a step that had never run now
+> has a run, and that is the answer the author asked for by pressing the button. SECOND_INSTANCE, PICKED and
+> PASTED were bound *by hand*, and they are **kept**.
+
+`thisRunWire` is still updated in every case, so the swap menu's *received — this run* entry offers the **new**
+run's bytes; and a document whose slot was kept says a newer run has landed, with the one click that goes to
+it. Ground rule 6 in both directions: not silently replaced, and not silently withheld either.
+
+**S3 — The golden still follows THIS_RUN and nothing else (V4) — and the `pasted` badge is not decoration, it
+is the explanation for what that leaves behind.**
+
+V4 stands exactly as written: `applyExpectation` re-points `expectation.golden` **only** when the reference is
+THIS_RUN. A hand-doctored paste must never become the scenario's canonical example, because every future
+authoring session is judged against the golden and would then be judged against bytes no venue sent.
+
+The consequence Phase 5 creates, and which nothing in the plan mentions: an author who repairs a step against a
+PASTED reference and saves has an expectation whose **rows describe the paste** and whose **golden still
+describes the old capture**. Re-open the authoring diff — reference GOLDEN — and rows go red against the step's
+own canonical example. Correctly. And inexplicably, unless the surface says why.
+
+> So the badge is load-bearing: **`pasted` is the sentence that explains why a step's rows and its own golden
+> disagree.** It is on the step in the editor, on the diff header, and it survives the save (S4). A badge that
+> only appeared while the paste was bound would vanish exactly when the explanation was needed.
+
+**S4 — Provenance on disk is a step-level additive key, and an unknown value degrades toward *less* trust,
+never more.**
+
+**On the step**, as the checklist says, and not on the `Expectation` — because capture's second source (S9)
+makes **Send** steps out of pasted bytes too, and a Send has no expectation to hang it on. `ScenarioStep` gains
+`origin: StepOrigin` beside `stepId`, on the interface, with the same defaulting and the same codec rule:
+**written only when it is not the default**, so a file that never had the key does not grow one (invariant 5 —
+a file that loads today loads identically after every phase).
+
+Two values, not five. The *reference* has five provenances because the slot has five sources; the **step**
+records only whether what was written was vouched for:
+
+- `LIVE` — the bytes came off a wire FixTool was connected to. THIS_RUN, GOLDEN, SECOND_INSTANCE and PICKED are
+  all this: FixTool watched them arrive.
+- `PASTED` — bytes FixTool cannot vouch for: a log, an email, another environment.
+
+So the question *"which provenance taints a save?"* has one answer — **PASTED** — and it is the only one the
+badge has to carry.
+
+**An unrecognised value on load reads as `PASTED`, not as `LIVE`.** Unlike `mode` — where an unknown value
+changes *what is checked*, and so fails the load loudly (D4) — an unknown origin changes nothing that is
+checked. But defaulting it to LIVE would let a file claim **more** trust than it carries, and the badge exists
+precisely to stop that. Mutation-checked.
+
+**S5 — The paste is read, and where the reading is *disproved* it is refused. This is the phase, and the pipe
+is the reason.**
+
+`58=filled|in full` is legal FIX. `|` is an ordinary character inside a value, `tools/fake-venue` sends one on
+purpose (S10), and this codebase has shipped the bug twice: `GET /messages` reporting `58 = "filled"` and
+silently dropping the tail, and the reconcile view diffing against the `|`-substituted display string. The
+right-hand column of this surface is what **Accept actual** writes into the scenario — so a paste read wrongly
+is a value **no venue sent**, written into an assertion, for ever.
+
+`FixMessageHelper.parseFixMessage` already has the delimiter precedence right — **SOH wins, and a `|` is a
+delimiter only when there is no SOH** — and it stays the one decider. What it does not do is *say* anything: a
+segment it cannot read (`in full`) is **silently dropped**, which is precisely what makes the pipe invisible.
+The paste box reads the segments itself, keeps what would have been dropped, and reports.
+
+Three verdicts, and *Use as reference* follows from them:
+
+1. **READ** — the bytes carry SOH (unambiguous by construction: SOH cannot occur inside a FIX value*), **or**
+   they are `|`-rendered and **the message's own arithmetic agrees** — `BodyLength(9)` and `CheckSum(10)`,
+   recomputed over the bytes as read. The message verifies its own reading, and nothing is guessed.
+2. **UNVERIFIED** — every segment read cleanly, but there is no `8=`/`10=` pair to check it against (a log
+   *fragment*). Bound, and **said**: *"no CheckSum(10) — nothing in these bytes can confirm that every `|` was a
+   delimiter. If a value here contains one, it has been split, and there is no way to tell."* `PASTED`
+   provenance is what carries that doubt forward, to the badge and to disk.
+3. **REFUSED** — the reading is **disproved**: a segment at or after the first field that is not `tag=value`
+   (which is exactly what a pipe inside a value looks like — `58=filled`, then `in full`), or a `CheckSum` that
+   disagrees with the bytes as read. Nothing is bound. The lint quotes the evidence and names the fix — *paste
+   the raw bytes; a `|`-rendered log cannot be read back where a value contains a `|`.*
+
+**And it must not repair.** The checksum says **how many** pipes were read wrongly — each costs
+`0x7C - 0x01 = 123`, mod 256 — and never **which**. Searching for the subset of pipes that makes the sum come
+out is guessing with extra steps, and it would eventually produce a message no venue sent wearing a checksum
+that agrees with it. *The engine reads the venue's bytes, or it refuses to judge* — the model doc's own words
+for open question 5, and a paste is not an exception to them.
+
+Two rules fall out, and both are needed or the box is unusable:
+
+- **A log prefix is skipped and reported; it is not a refusal.** Real lines look like
+  `08:12:31.412 INFO [pool-1] IN: 8=FIX.4.4|9=196|…`. Everything before the **first readable field** is ignored
+  and the lint says what was ignored. Only an unreadable segment *at or after* the first field is proof of a
+  mangled value. Without this the box refuses every log line ever pasted into it.
+- **More than one message in the slot is a refusal, not a choice.** A second `8=FIX…` after a `10=` means the
+  author pasted two messages; the slot takes one, and which one is not FixTool's to pick. (Capture's paste box
+  takes one message per line — that is *its* contract, and it is the same reader.)
+
+> \* the exception, stated because it will be met: a **length-prefixed data field** (`RawDataLength(95)` /
+> `RawData(96)`, `XmlDataLen(212)`, …) may legally contain SOH. FixTool's parser has never honoured the length
+> prefix. Such a message reads as junk segments and is refused by the rule above — which is the honest outcome,
+> and better than the silent misread it replaces. Noted for Phase 8, not fixed here.
+
+**S6 — The anchor is *said*, and an anchorless paste is not a broken paste.**
+
+Everything is already built: `ReferenceMessage.pasted` anchors on the message's own `SendingTime(52)` and leaves
+`anchorInstant = null` where there is none (0.5); `rows` and `reorder` both carry the unjudgeable set and the
+`NO_ANCHOR` sentence (0.5, V7). Phase 5 owes it one thing — the lint line **says which**: *"temporals anchor to
+SendingTime(52) 08:12:31"*, or *"no SendingTime(52) — `~now` rows are left unjudged, not failed."*
+
+A fragment with no `52` is perfectly usable. It simply cannot judge a moment, and the row says so, in amber,
+rather than manufacturing a red about how long ago the message was pasted.
+
+**S7 — `SemanticsContractTest` is widened to the `ReferenceMessage` overload — and it is given what the
+reconcile view actually has, which is *no resolver*.**
+
+Phase 0's review recorded this and left it: the harness exercises only the `MessageView` overload, which is the
+one that does **not** carry the anchoring rule. **R2 is why it matters.** `ReconcileAnchorTest`'s *"an entry
+carrying a reference is still recognised as having moved"* passed — because the fixture handed the engine a
+working `referenceResolver` **the app can never supply**. A reconcile view has no run scope; there is nothing to
+pass. The fixture dodged the hard case, and a row nobody could read hid an entry that had plainly moved.
+
+Two properties on top of the five that exist, both run against every registered semantics, both
+mutation-checked:
+
+6. **The reference overload pairs exactly as the message overload does** over the same bytes. Pairing is blind
+   to provenance and to the anchor, as it is already blind to the matcher — or the diff and the runner would
+   come to disagree about what faces what.
+7. **A row nobody can read is `unknown`, never `false`.** With the resolver a reconcile view actually has
+   (none), a `reference` row is unjudged; with an unanchored reference, a `temporal` row is unjudged. Not
+   failed, not passed, and not counted.
+
+**S8 — The armed slot lives on the ViewModel, because the grid it is waiting for is somewhere else — and after
+Phase 6 it is in another *window*.**
+
+V6 shipped pick-from-grid in its cheapest honest form: a button that binds *whatever is selected right now*. The
+mockup's is the other way round — **arm the slot, and the next grid row click binds it.**
+
+Arming cannot live in the diff composable, and not in `ScenarioDoc.Reconcile` either. The author must **leave
+the diff** to click a grid row, and only the active document is composed (trap 5) — so the state that says *"the
+next click means this"* must be visible to the grid, the detail panel and the diff at once, and two of them
+cannot see the document. It is `armedReferenceSlot: String?` (the diff's subject id) on the ViewModel, for the
+same reason `activeDocumentId` is (T3): three surfaces, one fact, one decider.
+
+The direction change of 2026-07-14 makes this the phase's one load-bearing dependency on Phase 6, and the plan
+says so in the checklist: the diff moves into its **own window**, so the arming must survive a *focus hop
+between windows*. State held anywhere else does not, and a re-write in Phase 6 would be a second decider
+arriving in the middle of a feature whose whole promise is that one click means one thing.
+
+Clicking a grid row while armed binds it and disarms; `esc` disarms; and a message whose `wireRaw` FixTool does
+not have **cannot be bound at all** — invariant 3 — which is refused at the click, in words, rather than by a
+click that does nothing.
+
+**S9 — A pasted capture candidate has no direction, and it may not be given one by a guess.**
+
+A live candidate carries its session and its direction from the wire it arrived on. A paste carries neither.
+The session is the author's (dropdown, required). The direction is the trap:
+
+**Default it to `in` and a reply mis-marked as a Send becomes a step that asserts nothing.** The scenario sends
+the venue's own ExecutionReport back at it, the step "passes" — a Send always does — and the coverage the author
+thought they were capturing is silently gone. That is a false green by omission, and it is the one outcome this
+project does not accept.
+
+> **The bytes decide it where they can, and the author decides it where they cannot.** Once a session is
+> assigned, `SenderCompID(49)` equal to that session's `senderCompID` is **outgoing**; equal to its
+> `targetCompID` is **incoming**. Where the bytes do not decide — no session config, no `49`, a log from a third
+> party — the row's direction is **undetermined**, and an *included* row with an undetermined direction
+> **blocks Save**, naming the rows.
+
+And it is the same capturer, not a second one. `ScenarioCapture.captureFrom` reads only `direction`,
+`messageType` and the golden bytes off `Candidate.message` — so `Candidate` carries those three **itself**, and
+its `FixMessage` becomes `source: FixMessage?`: **null for a paste**, which has no source row to highlight.
+Synthesising a `FixMessage` to fill the field would put a message in the grid's selection that never arrived on
+any wire, which is the same lie in a smaller font.
+
+**S10 — The fake venue stopped sending the pipe. The trap the whole file exists for has been disarmed since the
+modes landed, and this phase's gate pastes its log.**
+
+`tools/fake-venue/README.md` gives the pipe its own row in the table of traps: *"`58=filled|in full` — a pipe
+**inside a value**. Legal FIX… Anything that establishes a message's delimiter by looking for a pipe shreds this
+field. It is what caught `GET /messages` reporting `58 = "filled"`, silently dropping the tail."*
+
+The venue sends `58=filled in full`. **A space.** The pipe was there in `9e6427d`, with the comment *"NOTE the
+pipe: a legal FIX value"* — and `088251c`, the commit that added the three modes, rewrote those lines without
+it. Every live run against `golden`, `shape` and `swap` since then has been run against a venue whose headline
+trap is not armed, and the README has been describing bytes nobody sends. **The fixture dodged the hard case** —
+in the tool that exists to stop exactly that.
+
+Restored, in all three modes. And the venue gains the one thing a real venue has and this one does not: **a
+message log with the bytes in it** (SOH-delimited, both directions), because W2 is *paste a log fragment* and
+the venue's stdout renders SOH as `|`. With the pipe back, that stdout line is precisely the ambiguous form S5
+refuses — so **both halves of S5 are demonstrable against the same venue, live**: the SOH log line reads, and
+keeps the pipe inside `58`; the `|`-rendered stdout line is refused, with the message's own checksum as the
+evidence.
+
+**S11 — The menu shows what it cannot offer, and why. A missing entry is a feature the author concludes was
+never built.**
+
+Three of the five entries have nothing behind them some of the time: *received — this run* (no run), *golden*
+(never captured), *second instance* (no later live message of the type — `liveSecondInstance` already answers
+this). They are **drawn, disabled, with the reason**, exactly as the mockup's semantics menu draws its
+tree/GumTree slots. Ground rule 6: no silently missing button. *Pick from session…* and *paste wire…* are always
+available, because both are ways of *getting* a message rather than uses of one FixTool already has.
+
+### 5.0 The sentences the slot changes (S1) — and the run that must not steal it (S2)
+
+- [ ] `Verdict.headlineAgainst` gains PICKED and PASTED: *"N rows do not hold against the
+      pasted message"* — never *"need attention"*, which in this surface means the venue
+      regressed. `Verdict.chipAgainst(provenance)` replaces the header's unconditional
+      `FAILED` chip, which today calls a step FAILED because a **second instance** has two
+      over-specified rows. Reproduce that on the current code first. Both in `Verdict`,
+      tested there, mutation-checked; the verdict line's error tint follows the chip, and
+      the right column stops saying **RECEIVED** over a message that was not received.
+- [ ] `rebindReconcileDocuments` re-binds only THIS_RUN and GOLDEN (S2). A slot the author
+      bound by hand survives the run, `thisRunWire` is updated anyway (so the menu offers
+      the new bytes), and the surface **says** a newer run has landed. Test: bind a paste,
+      Save & re-run, the paste is still on the right.
+
+### 5.1 The reference chip and the swap menu
+
 - [ ] Reference chip + swap menu in the `DiffSurface` header: this run · golden ·
       second instance · pick from session… · paste wire…. Swapping re-judges instantly
-      (session already supports it; this is the UI).
+      (session already supports it; this is the UI). Entries with nothing behind them are
+      **disabled with the reason**, never hidden (S11).
 - [ ] Pick from session: arming the slot lets the next grid row click bind the
       reference (and highlights bidirectionally while bound). **The armed state and the
       binding must live on the ViewModel, not in the diff document's composable** —
       Phase 6 moves the diff into its own window, and this interaction must survive the
-      focus hop to the main window unchanged.
-- [ ] Paste sheet: multi-format parse (SOH preferred, `|` accepted — reuse
-      `parseFixMessage`'s detection), **lint line reports** delimiter, field count, and
-      ambiguity (possible pipe-in-value truncation flagged, never guessed); temporal
-      anchor from tag 52 shown; Use as reference.
-- [ ] Provenance: chip always names the source; `pasted` badge follows anything saved
-      while a pasted reference was bound (persisted as an annotation on the step —
-      additive codec key, same freeze rules as 0.1).
-- [ ] Capture's second source: capture review gains `source: live sessions | pasted
-      wire`; pasted mode = one message per line → candidates with per-row direction
-      toggle + session dropdown; sends parameterize, replies seed, exactly as live
-      capture (reuse `ScenarioCapture.captureFrom` on synthesized candidates).
-- [ ] Tests: paste with pipe-inside-value flags the lint (the historical bug case as a
-      fixture); pasted temporals anchor to 52 (and render unjudged when 52 absent);
-      provenance survives save/load round-trip; pasted capture round-trips to a
-      runnable scenario; swap-reference re-judges (golden green → this-run red without
-      any edit).
+      focus hop to the main window unchanged. A message with no `wireRaw` is refused at
+      the click, in words (S8).
+
+### 5.2 The paste sheet and its lint line (S5, S6)
+
+- [ ] `service/compare/WirePaste.kt` — one reader, two hosts (the slot and capture).
+      Multi-format parse (SOH preferred, `|` accepted — through `parseFixMessage`'s
+      detection, which stays the one delimiter decider); **the lint line reports what was
+      read**: field count, delimiter, the log prefix it ignored, the segments it could not
+      read, and the message's own arithmetic (`BodyLength(9)`, `CheckSum(10)`) where the
+      paste carries it.
+- [ ] Three verdicts (S5): **READ** (SOH, or `|` with the checksum agreeing) · **UNVERIFIED**
+      (clean, but no checksum to confirm the delimiter — bound, and said) · **REFUSED** (an
+      unreadable segment at or after the first field, or a checksum that disagrees — the
+      reading is disproved, nothing is bound, and nothing is repaired by search).
+- [ ] The temporal anchor is shown: *"temporals anchor to SendingTime(52) 08:12:31"*, or
+      *"no SendingTime(52) — `~now` rows are left unjudged, not failed"* (S6). Use as reference.
+
+### 5.3 Provenance that survives a save (S3, S4)
+
+- [ ] `ScenarioStep.origin: StepOrigin = LIVE | PASTED` on the interface, beside `stepId`:
+      additive codec key, **written only when it is not the default** (invariant 5). An
+      unrecognised value loads as PASTED — *less* trust, never more — and that is
+      mutation-checked.
+- [ ] The chip always names the source; the `pasted` badge follows anything saved while a
+      pasted reference was bound, and it renders on the step in the editor and on the diff
+      header — because it is the explanation for why a `pasted`-repaired step's rows
+      disagree with its own golden (S3). The golden is still re-pointed **only** for
+      THIS_RUN (V4, unchanged).
+
+### 5.4 Capture's second source (S9)
+
+- [ ] Capture review gains `source: live sessions | pasted wire`; pasted mode = one message
+      per line → candidates with per-row direction toggle + session dropdown; sends
+      parameterize, replies seed, exactly as live capture (reuse
+      `ScenarioCapture.captureFrom`, which needs `Candidate` to carry its own `direction`,
+      `messageType` and wire bytes — and `source: FixMessage?`, **null for a paste**).
+- [ ] Direction is read from the bytes where they decide it (`SenderCompID(49)` against the
+      assigned session's CompIDs) and is **undetermined** where they do not; an *included*
+      row with an undetermined direction **blocks Save**, naming the rows. A reply
+      mis-marked as a Send is a step that asserts nothing (S9).
+- [ ] A line the reader refuses is not a candidate, and it is **reported** where the
+      unreadable live messages already are (`Scan.unreadable`) — with its reason.
+
+### 5.5 The fake venue sends the pipe again (S10)
+
+- [ ] Restore `58=filled|in full` in all three modes of `tools/fake-venue/fake_venue.py` —
+      `088251c` dropped the pipe the README's own table of traps is built on, and every
+      live run since has been against a venue with its headline trap disarmed.
+- [ ] The venue writes a **message log with the bytes in it** (SOH, both directions), so
+      W2's *"paste a log fragment"* has a fragment to paste — and its `|`-rendered stdout
+      is the ambiguous form S5 refuses, from the same message, live.
+
+### 5.6 Tests
+
+- [ ] Paste with a pipe inside a value: the SOH form **reads** and keeps `58` whole; the
+      `|` form is **refused**, and the sentence names the segment and the checksum (the
+      historical bug case as the fixture — written with ``, never a literal SOH).
+- [ ] Pasted temporals anchor to 52, and render unjudged when 52 is absent; provenance
+      survives a save/load round-trip; a pasted capture round-trips to a **runnable**
+      scenario; swap-reference re-judges (golden green → this-run red without any edit).
+- [ ] `SemanticsContractTest` widened to the `ReferenceMessage` overload (S7), given the
+      resolver a reconcile view actually has — **none**: pairing is identical to the
+      `MessageView` overload over the same bytes, and an unreadable row is `unknown`,
+      never `false`. Both mutation-checked. (Phase 0's review asked for this and named R2
+      as the reason.)
+- [ ] Compose UI tests + screenshots to `composeApp/build/scenario-screenshots/` for
+      everything the control surface cannot click: the swap menu, the paste sheet with each
+      of its three verdicts, the armed slot binding from a grid click, and the provenance
+      badge on a saved step.
 
 **Phase 5 gate:** W2 verified live end-to-end: paste a fake-venue log fragment → capture
 review → save → run against the live fake venue → reconcile the differences.

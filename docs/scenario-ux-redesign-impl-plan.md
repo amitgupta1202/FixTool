@@ -21,7 +21,7 @@ dodged the hard case.
 | 0 | Engine seams (no UI) | **complete** |
 | 1 | The diff surface, standalone | **complete** |
 | 2 | Rail + document tabs; the window dies | **complete** |
-| 3 | The diff surface becomes the only expectation editor | not started |
+| 3 | The diff surface becomes the only expectation editor | **planned** (decisions written; V1 changes its shape) |
 | 4 | Drag moves, undo/redo, keyboard | not started |
 | 5 | Reference slot: paste, pick, provenance | not started |
 | 6 | The plain diff viewer | not started |
@@ -936,40 +936,231 @@ MCP watched the rail go on showing the old one. Found by a test failing for the 
 
 ## Phase 3 — The diff surface becomes the only expectation editor
 
+### Decisions taken before implementation — read these first
+
+Ten things the checklist under-specifies or gets wrong. **V1 changes the shape of the phase, and it
+is settled by the checklist contradicting itself.**
+
+**V1 — 3.1 and 3.2 disagree about where `DiffSurface` lives, and 3.1 is right — but only if the
+scenario's draft stops living in the editor document.**
+
+3.1 says *"the reconcile document tab hosts `DiffSurface`"*. 3.2 says *"`ExpectDetail` shrinks to:
+bind-predicate editing + `DiffSurface`"* — which puts it inside the **editor** document. Both cannot
+be the primary host, and the difference is not cosmetic: it decides how many unsaved drafts of one
+expectation can exist at once.
+
+Take the checklist literally and they can both be open. Scenario X's editor tab holds a draft (the
+author renamed it and edited step 1); its reconcile tab holds a `ReconcileSession` over step 2. Save
+from the reconcile tab and it must write *a whole scenario* — so whose? Off disk, and the editor's
+next Save writes step 2's **old** expectation straight back over the repair. Off the editor's draft,
+and saving a diff quietly commits a rename the author never asked to commit. That is the
+two-editing-surfaces defect from the model doc, re-created between two tabs.
+
+So: **the reconcile diff is its own document (3.1), and the scenario's draft is hoisted out of the
+editor document into a per-scenario workspace that every document of that scenario is a view onto.**
+
+> `openScenarios: Map<scenarioId, ScenarioDraft(draft, seed)>` on the ViewModel. `ScenarioDoc.Editor`
+> and `ScenarioDoc.Reconcile` both carry a `scenarioId` and no draft of their own. Dirty is the
+> workspace's. **Closing the *last* document of a dirty scenario confirms; closing one of several does
+> not**, because the draft is not in the tab.
+
+Three things fall out that argue for it independently:
+
+- The diff gets the **whole centre**. That was one of the two stated reasons documents are tabs at all
+  (*"a two-sided diff and the step editor need the centre"*), and hosting it inside `ExpectDetail`
+  gives it whatever is left after the step list — which is how the workbench window came to be opened
+  at 90% of the screen in the first place.
+- `DiffBody` can become a `LazyColumn` (V8). Inside `ExpectDetail` it cannot: that pane is already a
+  `verticalScroll`, and a lazy list inside one is measured with infinite height.
+- Phase 6's plain diff viewer is a document that belongs to **no scenario at all**. A document that
+  is a *view* and a draft that is *per-scenario* is the shape that survives it.
+
+**V2 — There is exactly one host for `DiffSurface`, and `ExpectDetail` is not it.**
+
+3.2's *"`ExpectDetail` shrinks to bind-predicate + `DiffSurface`"* becomes: **bind-predicate + the door
+to the step's diff tab.** One composable that authors assertions (the phase gate), and one place that
+composes it. Two hosts would be two sets of props, two lifetimes, and two answers to "which reference
+is bound" — and this document has already recorded what happens when one behaviour has two deciders.
+
+The door is *Edit assertions →* when the step has never failed (reference: GOLDEN) and *Reconcile →*
+when it has (reference: THIS_RUN). Same tab, same surface, different slot — which is the proposal's
+whole argument, made where it costs nothing.
+
+**V3 — The `ReconcileSession` lives in the document, or the footer lies.**
+
+Only the active document is composed (Phase 2, T2). A session held in `remember(stepId)` inside the
+composable is **disposed the moment the author glances at the session grid** — and it holds the undo
+stack, the redo branch, the reference slot, and the staged count.
+
+The edits themselves would survive (they flow out through `onChange` into the draft). Everything that
+*describes* them would not: come back to the tab and the footer says **"0 edits staged · nothing is
+written to the scenario until you save"** over a draft that is three edits from disk, and `⌘Z` does
+nothing. A footer that miscounts the thing it exists to promise is worse than a lost undo stack.
+
+So the session is a field of `ScenarioDoc.Reconcile`, keyed by `(scenarioId, stepId)` — P3's
+`remember(stepId)` rule, moved to where the lifetime actually is. Two consequences:
+
+- `ReconcileSession.original` must become **rebasable**. After a Save, "3 edits staged" is a lie in the
+  other direction — they *are* written now. Save rebases the session on the saved expectation and
+  clears the stack; `isDirty` and `staged` go to zero because they have become zero.
+- A step deleted in the editor takes its session with it.
+
+**V4 — The golden follows the reference only when the reference is THIS_RUN.**
+
+`ExpectDetail` re-points `expectation.golden` at the failing message when it reconciles
+(`ScenarioEditor.kt:590`), and the comment there records why: an expectation reconciled against *this*
+message describes *this* message, and leaving the old golden makes the authoring view show red rows
+for edits that are correct, and offer to "fix" them back.
+
+Generalise that to a **slot** without thinking and it becomes a defect. Swap the reference to a
+SECOND_INSTANCE — the whole point of which is that it is a *different* message — and the golden would
+be rewritten to it, destroying the very thing verify-generalizes was checking against. Bind a PASTED
+reference (Phase 5) and a hand-doctored paste silently becomes the scenario's canonical example.
+
+> **The golden is re-pointed when, and only when, the reference is `THIS_RUN`.** GOLDEN has nothing to
+> do; SECOND_INSTANCE is deliberately not canonical; PICKED and PASTED are not FixTool's to vouch for.
+
+**V5 — A red row against a SECOND_INSTANCE is not a venue regression, and the verdict must not say it
+is.**
+
+3.2 says *"'Verify generalizes' = swapping the reference to SECOND_INSTANCE"*, and as a mechanism that
+is exactly right — the same rows, re-judged. But the *sentences* are wrong: the old builder answered
+`✓ generalizes` / `⚠ 2 over-specified`, and the verdict bar answers **"2 rows need attention"**, which
+in this surface has always meant *the venue did something new*. Against a second instance it means the
+opposite: **the expectation is over-specified** — it only passes against its own capture, which is the
+author's fault and the author's to loosen.
+
+`Verdict` already carries the counts. The headline sentence is chosen from the reference's provenance,
+and against SECOND_INSTANCE it says so. (`ExpectationBuilderTest`'s over-specified case is the test
+that must survive this, and it is the one that will catch it if the sentence is merely inherited.)
+
+**V6 — A step with no reference gets a prompt, not a diff against nothing.**
+
+`ReconcileSession` requires a `ReferenceMessage`. Hand one an empty `MessageView` — the natural reading
+of 3.2's *"an empty reference"* — and every asserted row comes back `missing`: a wall of red, a verdict
+announcing a catastrophe, and a gutter offering to drop every row of a step that has simply never run.
+
+So the reference slot is `ReferenceMessage?`, no session is built until it is bound, and the tab shows a
+prompt instead. What the prompt offers, in order: the **golden** where the step has one; otherwise the
+**message currently selected in a session grid** (pick-from-grid in its cheapest honest form — the armed
+slot arrives in Phase 5); otherwise the sentence saying why there is nothing to diff against yet.
+
+**V7 — `reorder` must be given the same unjudgeable rows the diff has — R2's defect, at the anchor
+seam.**
+
+`ScenarioReconcile.rows(draft, reference, …)` already does the right thing with an **unanchored**
+reference (no `SendingTime(52)`): a temporal row becomes `unknown`, with `NO_ANCHOR` as its reason,
+rather than being judged against the wall clock. `ReconcileSession.build()` then calls
+`reorder(draft, message, now = { anchor ?: Instant.now() }, …)` — and **`reorder` is not told.** For a
+golden or a paste with no `52`, a temporal row inside a moved entry is value-checked against *now*,
+fails, the block does not fit, and the entry that plainly moved is refused a re-order — and told, in
+the torn-entry refusal, that *"the values there changed in place"*.
+
+That is R2 exactly: *a row nobody could read was enough to hide an entry that had plainly moved.* R2
+fixed `verbatimWindow` for `reference` rows and the anchor seam re-opens it for `temporal` ones. Phase 3
+is where it starts firing, because GOLDEN references are where anchorless references become routine.
+Reproduce it first (a golden with no `52`, a swapped party entry, one `TransactTime` row), then give
+`reorder` a `ReferenceMessage` overload that carries the same unjudgeable set. Mutation-check it.
+
+**V8 — `DiffBody` becomes a `LazyColumn`.**
+
+The row-level deep link (3.1) has to *scroll to a row*, and today the body is a
+`Column(verticalScroll)` whose row offsets nobody knows. Its items are already a flat `List<Item>`
+(bands and lines), and Phase 1 drew no cross-item canvas — the moved connector is band styling, not a
+`Canvas` — so nothing is in the way. It also buys Phase 4's `n`/`p` chunk navigation and keeps a
+200-row message cheap to draw. It is only possible because of V1: a lazy list inside `ExpectDetail`'s
+`verticalScroll` is measured with infinite height.
+
+The tag has to travel with the deep link: `MessageDetailPanel`'s door is
+`onEditAssertion: (() -> Unit)?` today and becomes `(Int?) -> Unit`, fired from the **failing tag row
+the author clicked**, through `ScenarioEditRequest.focusTag`, into the document.
+
+**V9 — Save & re-run must re-bind the reference, or the surface goes on showing the failure it just
+fixed.**
+
+Nothing refreshes a document's `RunFailureContext` when a new run lands — Phase 2 never needed it.
+So: Save & re-run, the step goes green, the rail says PASSED — and the diff tab is still bound to the
+**old** run's failing bytes, still red, still offering to fix what is already fixed. The author's own
+verification loop would be lying to them at the exact moment it mattered.
+
+When a run completes, every open reconcile document re-binds by `stepId`: to the new run's matched
+message where the step failed again, and — where the step passed — to the message that passed it, so
+the surface goes green in front of the author. A step the new run never reached falls back to its
+golden and says so. Disabled while a run is in flight (the shared run slot already enforces one run).
+
+**V10 — What dies, and what has to exist before it does.**
+
+Every behavioural assertion in the two doomed files needs a successor *first*. The map, checked
+against the current suites:
+
+| `ReconcileViewTest` (11) | successor |
+|---|---|
+| separates shape from behaviour · accept-all-shape leaves the value alone · accept-new-order in one click · dropping every row is never a pass · role swap offers no move and says why · a hand move on a role swap cannot fake a pass | already in `DiffSurfaceTest` |
+| Undo last walks the fix back | `ReconcileSessionTest` + `DiffSurfaceTest` undo/redo |
+| **fixes stay staged when the editor feeds the change back** | **none — write it.** The feedback loop now runs through the *workspace* (V1), which is a longer wire than the one that broke last time |
+| **the arrow moves the entry the author picked, not the one the engine planned** | **none — write it** |
+| **a bracketed entry can be moved by hand from the block header** | **none — write it** |
+| `ExpectationBuilderTest` (2) | successor |
+| renders seeded chips with live preview, and saves | **none — write it**: `DiffSurface` against a GOLDEN reference *is* the authoring surface |
+| verify generalizes flags the over-specified field | **none — write it**, and it is V5's test |
+| `ExpectationDraftsTest` (3) | successor |
+| occurrence numbering · a lone row ticks the first occurrence · a row the golden cannot account for keeps its place | the pairing rule itself (`AlignmentPropertiesTest`) plus `ReconcileSessionTest`'s *"the lines are the rows, and a row that faces nothing says so"*. **Read them before deleting; do not assume.** |
+
+And **the budget test that fell between the phases**: 1.2 deferred *"a 40-row expectation against a
+60-field message re-judges under a fixed ceiling"* to 1.3, and 1.3 shipped without it. Its box is still
+open. Phase 3 is where the surface it protects goes live in front of a user, and where it gets written.
+
+### 3.0 The scenario workspace (V1 — do this first; nothing else is safe without it)
+- [ ] `openScenarios: Map<String, ScenarioDraft(draft, seed)>` on the ViewModel. The draft moves
+      **out** of `ScenarioDoc.Editor`; `Editor` and the new `Reconcile` doc both carry a
+      `scenarioId` and are *views* onto it. **One unsaved draft per scenario, by construction.**
+- [ ] Dirty is the workspace's. Closing the **last** document of a dirty scenario confirms;
+      closing one of several does not. Discard drops the workspace entry.
+- [ ] Save writes the workspace draft (from either tab) and re-seeds it from disk, as 2.2 does.
+- [ ] Tests: two documents on one scenario share one draft — an edit in the diff tab is visible in
+      the editor tab and is saved exactly once; the Phase 2 document tests move onto the workspace
+      unchanged in meaning.
+
 ### 3.1 Reconcile routes into `DiffSurface`
-- [ ] The reconcile document tab hosts `DiffSurface` bound to the failing step
-      (`ReferenceMessage(THIS_RUN)` from the `WorkbenchEditRequest` — wire bytes +
-      arrival instant). `onChange` feeds the editor's step exactly as today
-      (`ScenarioEditor` golden-repointing behaviour preserved).
-- [ ] Row-level deep link: opening from a clicked failing tag in `MessageDetailPanel`
-      scrolls to that row.
+- [ ] New `ScenarioDoc.Reconcile(scenarioId, stepId, session, reference)` — the **only** host of
+      `DiffSurface` (V2). Bound to the failing step with `ReferenceMessage(THIS_RUN)` from the
+      `ScenarioEditRequest` (wire bytes + arrival instant). `onChange` writes the expectation into
+      the workspace draft's step **by `stepId`**; the golden is re-pointed **only** for THIS_RUN
+      (V4 — not for SECOND_INSTANCE, not for a paste).
+- [ ] The `ReconcileSession` is a field of that document, not a `remember` (V3), and is
+      **rebased** on Save — or the footer goes on counting edits that are already on disk.
+- [ ] An unbound reference is a **prompt**, never a diff against an empty message (V6).
+- [ ] Row-level deep link: `MessageDetailPanel`'s failing tag rows carry the door
+      (`onEditAssertion(tag)`), it travels as `ScenarioEditRequest.focusTag`, and `DiffBody` —
+      now a `LazyColumn` (V8) — scrolls to that row.
+- [ ] `reorder` gets the reference's unjudgeable rows (V7). Reproduce the withheld move on an
+      unanchored golden first; mutation-check the guard.
 - [ ] **Delete `ui/ReconcileView.kt`** and its private pieces (`VerdictBar`, `RowFixes`,
-      `EntryArrows`, `MovedBlockHeader`, `NoMoveNote`). Port `ReconcileViewTest`'s
-      cases onto `DiffSurface` first — every behavioural assertion in that file must
-      have a successor test before the file goes.
-- [ ] Save & re-run in the header: saves the scenario, triggers the run
-      (`runScenario`), rail verdict updates; disabled while a run is in flight (the
-      shared run slot already enforces one run).
-- [ ] Guard tests carried over: dropping every row is never a pass; fixes stay staged
-      through the feedback loop; a hand move on a role swap cannot fake a pass; the
-      arrows/moves land on the entry the author picked.
+      `EntryArrows`, `MovedBlockHeader`, `NoMoveNote`) — after the three missing successors in
+      V10's map exist and are green.
+- [ ] Save & re-run in the header: saves, runs, and **re-binds every open reconcile document by
+      `stepId`** when the result lands (V9); disabled while a run is in flight.
+- [ ] The re-judge budget test 1.2 deferred and 1.3 dropped: a 40-row expectation against a
+      60-field message re-judges under a fixed ceiling.
 
 ### 3.2 Authoring is the same surface
-- [ ] A never-run Expect step opens `DiffSurface` with `ReferenceMessage(GOLDEN)`;
-      no-golden steps (hand-added Expect) open with an empty reference and a prompt to
-      bind one (pick/paste — full slot arrives Phase 5; pick-from-grid can land here if
-      trivial, otherwise the prompt offers golden only and Phase 5 widens it).
-- [ ] "Verify generalizes" = swapping the reference to `SECOND_INSTANCE` (live message
-      of the same shape, the existing selection logic ported).
-- [ ] **Delete `ui/ExpectationBuilder.kt`** (and `ExpectationDrafts`) after porting its
-      test assertions; `MatcherEditor.kt` stays (it is the chip editor inside
-      `DiffSurface`).
-- [ ] `ScenarioEditor.ExpectDetail` shrinks to: bind-predicate editing + `DiffSurface`.
+- [ ] A never-run Expect step opens the same document with `ReferenceMessage(GOLDEN)`; a step with
+      no golden gets V6's prompt (golden → the selected grid message → the reason why not).
+- [ ] "Verify generalizes" = swapping the reference to `SECOND_INSTANCE`
+      (`viewModel.liveSecondInstance`, already ported in Phase 2) — **and the verdict says
+      *over-specified*, not "needs attention"** (V5). A red row there is the author's fault, not
+      the venue's, and the sentence is the whole difference.
+- [ ] **Delete `ui/ExpectationBuilder.kt`** (and `ExpectationDrafts`) after porting its test
+      assertions; `MatcherEditor.kt` stays (it is the chip editor inside `DiffSurface`).
+- [ ] `ScenarioEditor.ExpectDetail` shrinks to: **bind-predicate editing + the door to the step's
+      diff tab** (V2 — *not* `DiffSurface` itself, which this checklist used to say and which
+      would have given one surface two hosts and one expectation two drafts).
 
 **Phase 3 gate:** there is exactly one surface in the app that can author or repair an
-assertion; the full fail→fix→save→re-run→green loop verified live against fake-venue
-`swap` (a reorder: one-click Accept new order) and `shape` (added/missing tags), with
-screenshots; all ported tests green.
+assertion — **and exactly one host composing it**; the full fail→fix→save→re-run→green loop
+verified live against fake-venue `swap` (a reorder: one-click Accept new order) and `shape`
+(added/missing tags), with screenshots; all ported tests green. And the screenshots, not the
+tests, are the gate: three phases running, the picture has found what the suite could not.
 
 ---
 

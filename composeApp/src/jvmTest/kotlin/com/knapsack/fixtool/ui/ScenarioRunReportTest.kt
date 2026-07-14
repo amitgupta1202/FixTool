@@ -12,7 +12,6 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextReplacement
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
@@ -134,7 +133,7 @@ class ScenarioRunReportTest {
      * Before this, the report ended at "go and find the message yourself".
      */
     @Test
-    fun `a failed run offers the route to the reconcile view, and it lands there`() {
+    fun `a failed run offers the route to the diff, and it lands there`() {
         stageFailedRun(failedMessage())
         composeTestRule.setContent { RailAndDocuments(viewModel) }
 
@@ -142,12 +141,20 @@ class ScenarioRunReportTest {
         composeTestRule.onNodeWithTag("reconcile-failure").performClick()
         composeTestRule.waitForIdle()
 
-        // Landed on the failing step's diff — in a document tab, in the main window, not an unfocused editor
-        // and not a second window.
-        composeTestRule.onNodeWithTag("reconcile-view").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("reconcile-summary").assertIsDisplayed()
-        assertEquals(ScenarioDoc.editorId(scenario.id), viewModel.activeDocumentId.value)
+        // Landed on the failing step's diff — the one surface that can repair an assertion — in a document tab
+        // in the main window, not an unfocused editor and not a second window.
+        composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-summary").assertIsDisplayed()
+        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
+        assertEquals(stepId(), doc.stepId)
     }
+
+    /** The step this scenario's run failed at, by identity. */
+    private fun stepId(): String =
+        viewModel
+            .scenarioDraft(scenario.id)!!
+            .draft.steps[1]
+            .stepId
 
     /**
      * The rail's own door. The run line answers "what failed"; the tree answers "where", and the step that
@@ -164,9 +171,9 @@ class ScenarioRunReportTest {
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("reconcile-view").assertIsDisplayed()
-        val doc = viewModel.activeDocument as ScenarioDoc.Editor
-        assertEquals(1, doc.focusStep, "the step the rail named, not the first one")
+        composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
+        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
+        assertEquals(stepId(), doc.stepId, "the step the rail named, not the first one")
     }
 
     /**
@@ -175,26 +182,33 @@ class ScenarioRunReportTest {
      * have shipped — a document tab is *worse* than the window it replaced unless the document owns its state.
      */
     @Test
-    fun `an unsaved edit survives a trip to the session view and back`() {
+    fun `an unsaved repair, and its undo stack, survive a trip to the session view and back`() {
         stageFailedRun(failedMessage())
         composeTestRule.setContent { RailAndDocuments(viewModel) }
         composeTestRule.onNodeWithTag("reconcile-failure").performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("scenario-name").performTextReplacement("renamed but not saved")
+        // Accept the actual on the failing row: one staged repair.
+        composeTestRule.onNodeWithTag("accept_actual-150-0").performClick()
         composeTestRule.waitForIdle()
         val id = viewModel.activeDocumentId.value!!
+        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        assertEquals(1, session.staged)
         assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty, "the scenario knows it is holding an edit")
 
         viewModel.showSessions() // the author glances at the session grid — the document is disposed
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("scenario-name").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("diff-surface").assertDoesNotExist()
 
         viewModel.focusDocument(id)
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("scenario-name").assertTextContains("renamed but not saved")
-        assertEquals("renamed but not saved", viewModel.scenarioDraft(scenario.id)!!.draft.name)
+        // The repair is still staged, the footer still counts it, and ⌘Z still has somewhere to go. A session
+        // left in the composable would have taken all three with it — and the footer would then have promised
+        // that nothing was written, over a draft that is one edit from disk.
+        composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
+        assertEquals(1, (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!.staged)
+        assertTrue((viewModel.activeDocument as ScenarioDoc.Reconcile).session!!.canUndo)
     }
 
     /**

@@ -7,7 +7,6 @@ import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -46,7 +45,11 @@ class ScenarioIntegrationTest {
 
     @Before
     fun setup() {
-        testDir = File.createTempFile("fixtool-scenario-test", "").apply { delete(); mkdirs() }
+        testDir =
+            File.createTempFile("fixtool-scenario-test", "").apply {
+                delete()
+                mkdirs()
+            }
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
         port = freePort()
         server = ControlServer(port, viewModel, windowProvider = { null }, token = null)
@@ -180,10 +183,17 @@ class ScenarioIntegrationTest {
 
         // Deep-link lands on the failing expect step (steps index 1: send=0, expect=1).
         viewModel.openScenarioEditorForFailure(failedMessage)
-        val doc = viewModel.activeDocument as com.knapsack.fixtool.ui.ScenarioDoc.Editor
+        val doc = viewModel.activeDocument as com.knapsack.fixtool.ui.ScenarioDoc.Reconcile
         assertEquals(id, doc.scenarioId)
-        assertEquals(1, doc.focusStep)
-        assertEquals(listOf(150), doc.failure!!.failedTags.map { it.tag })
+        assertEquals(
+            viewModel
+                .scenarioDraft(id)!!
+                .draft.steps[1]
+                .stepId,
+            doc.stepId,
+            "the diff opened on the step that failed, by its identity",
+        )
+        assertNotNull(doc.session, "and it is bound to this run's bytes, so there is a diff to look at")
         viewModel.closeDocument(doc.id)
 
         // Rebaseline the step to what the venue actually sends, save it back, and re-run for real.
@@ -238,34 +248,36 @@ class ScenarioIntegrationTest {
         val acceptor =
             FixConnectionProfile(
                 name = "ACC",
-                config = FixConnectionConfig(
-                    connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
-                    senderCompID = "ACC$runId",
-                    targetCompID = "CLI$runId",
-                    port = fixPort.toString(),
-                    socketAcceptPort = fixPort.toString(),
-                    beginString = "FIX.4.4",
-                    fileStorePath = File(testDir, "accstore").absolutePath,
-                    fileLogPath = File(testDir, "acclog").absolutePath,
-                    acceptorResponseRules = listOf(rule),
-                ),
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "ACC$runId",
+                        targetCompID = "CLI$runId",
+                        port = fixPort.toString(),
+                        socketAcceptPort = fixPort.toString(),
+                        beginString = "FIX.4.4",
+                        fileStorePath = File(testDir, "accstore").absolutePath,
+                        fileLogPath = File(testDir, "acclog").absolutePath,
+                        acceptorResponseRules = listOf(rule),
+                    ),
             )
         val cli =
             FixConnectionProfile(
                 name = "CLI",
-                config = FixConnectionConfig(
-                    connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
-                    senderCompID = "CLI$runId",
-                    targetCompID = "ACC$runId",
-                    host = "localhost",
-                    port = fixPort.toString(),
-                    socketConnectHost = "localhost",
-                    beginString = "FIX.4.4",
-                    autoReconnect = false,
-                    resetOnLogon = true,
-                    fileStorePath = File(testDir, "clistore").absolutePath,
-                    fileLogPath = File(testDir, "clilog").absolutePath,
-                ),
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                        senderCompID = "CLI$runId",
+                        targetCompID = "ACC$runId",
+                        host = "localhost",
+                        port = fixPort.toString(),
+                        socketConnectHost = "localhost",
+                        beginString = "FIX.4.4",
+                        autoReconnect = false,
+                        resetOnLogon = true,
+                        fileStorePath = File(testDir, "clistore").absolutePath,
+                        fileLogPath = File(testDir, "clilog").absolutePath,
+                    ),
             )
         listOf(acceptor, cli).forEach {
             viewModel.saveConnectionProfile(it)
@@ -293,7 +305,8 @@ class ScenarioIntegrationTest {
         val publisher =
             if (body == null) HttpRequest.BodyPublishers.noBody() else HttpRequest.BodyPublishers.ofString(body)
         val req =
-            HttpRequest.newBuilder(URI.create(baseUrl + path))
+            HttpRequest
+                .newBuilder(URI.create(baseUrl + path))
                 .timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
                 .method(method, publisher)

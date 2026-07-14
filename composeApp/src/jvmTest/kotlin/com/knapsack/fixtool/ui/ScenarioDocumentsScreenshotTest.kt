@@ -40,6 +40,7 @@ import quickfix.Message
 import java.io.File
 import java.time.LocalDateTime
 import javax.imageio.ImageIO
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -197,9 +198,20 @@ class ScenarioDocumentsScreenshotTest {
         }
     }
 
+    /** The diff tab for the step this scenario's run failed at. */
+    private val diffTabId: String
+        get() =
+            ScenarioDoc.reconcileId(
+                scenario.id,
+                viewModel
+                    .scenarioDraft(scenario.id)!!
+                    .draft.steps[1]
+                    .stepId,
+            )
+
     /**
      * W1, the daily loop, in one test and four pictures: the rail names the failure, one click opens the diff
-     * in a tab, the edit is staged and the tab says so, and the `×` on it stops to ask.
+     * in a tab, the repair is staged and the tab says so, and the `×` on it stops to ask.
      */
     @Test
     fun `the failure, the tab, the edit, and the confirmation`() {
@@ -215,24 +227,27 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.onNodeWithText("not reached", substring = true).assertIsDisplayed()
         snapshot("phase2_rail_failed_run.png")
 
-        // 2 — one click, and the diff is a document tab beside the session tabs. Not a window.
+        // 2 — one click, and the DIFF is a document tab beside the session tabs. Not a window, and not a
+        // six-column table inside the step editor: the one surface that can repair an assertion, given the
+        // whole centre.
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("doc-tab-${ScenarioDoc.editorId(scenario.id)}").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("reconcile-view").assertIsDisplayed()
-        snapshot("phase2_document_tab_reconcile.png")
+        composeTestRule.onNodeWithTag("doc-tab-$diffTabId").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
+        snapshot("phase3_document_tab_diff.png")
 
-        // 3 — an edit, staged in the document and nowhere else. The tab marks itself dirty.
-        composeTestRule.onNodeWithTag("scenario-name").performTextReplacement("rfq flow v2 — edited")
+        // 3 — a repair, staged in the session and written into the scenario's draft. Nothing is on disk.
+        composeTestRule.onNodeWithTag("accept_actual-150-0").performClick()
         composeTestRule.waitForIdle()
         assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty)
-        snapshot("phase2_document_tab_dirty.png")
+        assertEquals(1, (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!.staged)
+        snapshot("phase3_document_tab_staged.png")
 
         // 4 — and the × asks before it throws that away.
-        composeTestRule.onNodeWithTag("doc-close-${ScenarioDoc.editorId(scenario.id)}").performClick()
+        composeTestRule.onNodeWithTag("doc-close-$diffTabId").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("discard edits?").assertIsDisplayed()
-        snapshot("phase2_document_tab_confirm_close.png")
+        snapshot("phase3_document_tab_confirm_close.png")
 
         // Keep, and the document is still there with the edit in it.
         composeTestRule.onNodeWithText("Keep").performClick()
@@ -260,9 +275,9 @@ class ScenarioDocumentsScreenshotTest {
 
         assertTrue(viewModel.activeDocumentId.value == null, "the centre is showing the sessions again")
         assertTrue(viewModel.openDocuments.value.size == 1, "and the document is still open, in its tab")
-        composeTestRule.onNodeWithTag("scenario-name").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("doc-tab-${ScenarioDoc.editorId(scenario.id)}").assertIsDisplayed()
-        snapshot("phase2_session_tab_restores_sessions.png")
+        composeTestRule.onNodeWithTag("diff-surface").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("doc-tab-$diffTabId").assertIsDisplayed()
+        snapshot("phase3_session_tab_restores_sessions.png")
     }
 
     /**
@@ -321,29 +336,38 @@ class ScenarioDocumentsScreenshotTest {
     }
 
     /**
-     * Save writes, and the tab **stays open and goes clean** — a tab is a document, not a modal. The old
-     * workbench's Save meant "and go back to the list", because a list was the only place to go back to.
+     * Save writes, the tab **stays open and goes clean** — a tab is a document, not a modal — and the session
+     * is **rebased**: the footer stops counting edits that are now on disk, because *"nothing is written to the
+     * scenario until you save"* is a promise, and after a Save it has been kept.
      */
     @Test
-    fun `save leaves the tab open and clean`() {
+    fun `save writes the repair, and the footer stops promising to`() {
         stageFailedRun()
         composeTestRule.setContent { MainWindow() }
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("scenario-name").performTextReplacement("rfq flow v3")
+        composeTestRule.onNodeWithTag("accept_actual-150-0").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("editor-save").performClick()
+        assertEquals(1, (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!.staged)
+
+        composeTestRule.onNodeWithTag("diff-save").performClick()
         composeTestRule.waitForIdle()
 
-        assertTrue(!viewModel.scenarioDraft(scenario.id)!!.dirty, "saved, so the tab is clean and its × will not stop to ask")
-        assertTrue(composeTestRule.onNodeWithTag("scenario-name").let { true })
-        // The rail is showing what is on disk, and what is on disk is the new name.
-        assertTrue(
-            viewModel.scenarios.value
-                .single { it.id == scenario.id }
-                .name == "rfq flow v3",
+        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        assertTrue(!viewModel.scenarioDraft(scenario.id)!!.dirty, "saved, so the × will not stop to ask")
+        assertEquals(0, session.staged, "and the footer no longer counts an edit that is already on disk")
+        assertTrue(!session.isDirty)
+        // The repair is on disk: the venue's ExecType is what the step now expects.
+        val onDisk = viewModel.scenarioService.load(scenario.id)!!.steps[1] as ScenarioStep.Expect
+        assertEquals(
+            "0",
+            (
+                onDisk.expectation.fields
+                    .single { it.tag == 150 }
+                    .matcher as Matcher.Exact
+            ).value,
         )
-        snapshot("phase2_document_tab_saved.png")
+        snapshot("phase3_document_tab_saved.png")
     }
 }

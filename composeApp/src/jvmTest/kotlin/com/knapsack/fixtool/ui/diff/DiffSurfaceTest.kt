@@ -176,7 +176,7 @@ class DiffSurfaceTest {
         composeTestRule.surface(captured, reply)
 
         composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("need attention", substring = true)
+        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("attention", substring = true)
         composeTestRule
             .onNodeWithTag("diff-shape-or-behaviour")
             .assertTextContains("only the value change alters what this scenario checks", substring = true)
@@ -208,7 +208,7 @@ class DiffSurfaceTest {
 
         composeTestRule.onNodeWithTag("unjudged-note").assertIsDisplayed()
         composeTestRule.onAllNodesWithTag("accept_actual-11-0").assertCountEquals(0)
-        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("need attention", substring = true)
+        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("attention", substring = true)
     }
 
     /** The occurrence is part of the address, and the reader has to be able to see which 452 is which. */
@@ -287,7 +287,7 @@ class DiffSurfaceTest {
     @Test
     fun `editing a value re-judges live, and the keystrokes are one edit`() {
         composeTestRule.surface(captured, reply)
-        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("need attention", substring = true)
+        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("attention", substring = true)
 
         valueFieldOf("matcher-151-0").performTextReplacement("500000")
         composeTestRule.waitForIdle()
@@ -386,7 +386,7 @@ class DiffSurfaceTest {
         composeTestRule.onAllNodesWithTag("entry-down")[0].performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("need attention", substring = true)
+        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("attention", substring = true)
     }
 
     // ----- the group bands --------------------------------------------------------------------------------

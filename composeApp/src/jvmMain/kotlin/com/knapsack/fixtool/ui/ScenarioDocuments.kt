@@ -1,7 +1,9 @@
 package com.knapsack.fixtool.ui
 
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.ScenarioCapture
+import com.knapsack.fixtool.ui.diff.ReconcileSession
 
 /**
  * **One scenario's unsaved state — and there is exactly one of these per scenario, ever.**
@@ -29,7 +31,18 @@ data class ScenarioDraft(
     val dirty: Boolean get() = draft != seed
 
     companion object {
-        fun of(scenario: Scenario): ScenarioDraft = scenario.asEditorSeed().let { ScenarioDraft(it, it) }
+        /**
+         * **Identified on the way in.** A document addresses a step by its `stepId` — the diff tab *is* a step —
+         * so a draft whose steps have blank ids is a draft whose steps cannot be found. `withIds` is the
+         * normalizer that runs at every door a scenario comes through (load, capture, save, run); the workspace
+         * is a new door, and it needs it too. Deterministic, so opening the same file twice identifies its steps
+         * the same way both times — which is the whole of D3.
+         */
+        fun of(scenario: Scenario): ScenarioDraft =
+            scenario
+                .withIds()
+                .asEditorSeed()
+                .let { ScenarioDraft(it, it) }
     }
 }
 
@@ -82,6 +95,42 @@ sealed interface ScenarioDoc {
         override val glyph: String get() = "⚙"
     }
 
+    /**
+     * **The diff — the one surface in the app that can author or repair an assertion, and its only host.**
+     *
+     * It is a document of its own and not a pane inside the editor, and that is settled by what happens if it
+     * is both: two unsaved drafts of one expectation, and a Save from either one writing the other's over the
+     * top. The draft is the scenario's ([ScenarioDraft]); this document owns only the *session* — the undo
+     * stack, the reference slot, and the staged count — which is exactly the state that has no meaning outside
+     * this tab.
+     *
+     * And it owns it because a tab is disposed when you look away from it. A session left in a `remember` would
+     * take the undo stack with it, and the author would come back to a footer saying **"0 edits staged ·
+     * nothing is written to the scenario until you save"** over a draft that is three edits from disk. A footer
+     * that miscounts the thing it exists to promise is worse than a lost undo stack.
+     */
+    data class Reconcile(
+        override val scenarioId: String,
+        /** By id, never by index: the author can reorder the steps under this tab while it is open. */
+        val stepId: String,
+        /**
+         * Null until a reference is bound — see the prompt in `ScenarioDocumentPane`. A step that never ran and
+         * was never captured has **nothing on the right**, and diffing it against an empty message would mark
+         * every asserted row `missing`: a wall of red, and a gutter offering to drop every row of a step whose
+         * only crime is not having run yet.
+         */
+        val session: ReconcileSession?,
+        /** This run's wire bytes, kept because the golden is re-pointed at them — and at nothing else (V4). */
+        val thisRunWire: String? = null,
+        /** The row the author clicked in the message viewer. The body scrolls to it. */
+        val focusTag: Int? = null,
+        /** Bumped by every deep-link into an already-open tab, so the body re-aims. See [Editor.focusEpoch]. */
+        val focusEpoch: Int = 0,
+    ) : ScenarioDoc {
+        override val id: String get() = reconcileId(scenarioId, stepId)
+        override val glyph: String get() = "⇄"
+    }
+
     /** Capture review: the session scan, curated, before any of it becomes a scenario. */
     data class Capture(
         /** A snapshot, not a live feed — the review curates a stable list (see [ScenarioCapture.scan]). */
@@ -101,6 +150,9 @@ sealed interface ScenarioDoc {
         const val CAPTURE_ID = "capture"
 
         fun editorId(scenarioId: String): String = "editor:$scenarioId"
+
+        /** One diff tab per step, and it is keyed by the step's identity — not by where the step sits today. */
+        fun reconcileId(scenarioId: String, stepId: String): String = "reconcile:$scenarioId:$stepId"
     }
 }
 
@@ -126,6 +178,18 @@ fun documentTabsOf(documents: List<ScenarioDoc>, workspace: Map<String, Scenario
                 DocumentTab(
                     id = doc.id,
                     title = scenario?.draft?.name?.ifBlank { null } ?: "untitled scenario",
+                    glyph = doc.glyph,
+                    dirty = scenario?.dirty == true,
+                )
+            }
+            is ScenarioDoc.Reconcile -> {
+                val scenario = workspace[doc.scenarioId]
+                // Where the step sits *now* — the author may have moved it under this tab, and the tab must
+                // then say where it went rather than where it was opened from.
+                val at = scenario?.draft?.steps?.indexOfFirst { it.stepId == doc.stepId } ?: -1
+                DocumentTab(
+                    id = doc.id,
+                    title = if (at >= 0) "Step ${at + 1} · reconcile" else "reconcile",
                     glyph = doc.glyph,
                     dirty = scenario?.dirty == true,
                 )

@@ -31,6 +31,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.ui.diff.DiffSurface
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 
 /**
@@ -158,6 +160,7 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                         )
                     }
                 }
+                is ScenarioDoc.Reconcile -> ReconcileDocument(viewModel, doc)
                 is ScenarioDoc.Capture ->
                     ScenarioCaptureReview(
                         candidates = doc.scan.candidates,
@@ -172,6 +175,105 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                         onBack = { viewModel.showSessions() },
                     )
             }
+        }
+    }
+}
+
+/**
+ * The diff — **the only surface in the app that can author or repair an assertion, and this is its only host.**
+ *
+ * It edits the expectation of one step of the scenario's draft. Every keystroke lands in the session, the
+ * session writes it into the draft, and nothing reaches disk until Save — which saves the *scenario*, because
+ * there is one draft of it however many tabs are looking at it.
+ */
+@Composable
+private fun ReconcileDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.Reconcile) {
+    val workspace by viewModel.openScenarios.collectAsState()
+    val draft = workspace[doc.scenarioId]?.draft ?: return
+    val at = draft.steps.indexOfFirst { it.stepId == doc.stepId }
+    val step = draft.steps.getOrNull(at) as? ScenarioStep.Expect
+    val session = doc.session
+
+    if (step == null) {
+        Text(
+            "The step this diff was opened on is no longer in the scenario. Close this tab.",
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 12.sp,
+        )
+        return
+    }
+    if (session == null) {
+        NothingToDiffAgainst(viewModel, doc, step)
+        return
+    }
+
+    val messageType = step.expectation.messageType ?: step.match?.messageType ?: ""
+    val typeName =
+        viewModel.dictionary
+            ?.getFieldEnumValues(35)
+            ?.firstOrNull { it.first == messageType }
+            ?.second
+    DiffSurface(
+        session = session,
+        crumb =
+            "${draft.name} › Step ${at + 1} · Expect ${typeName?.let { "$it ($messageType)" } ?: messageType} · " +
+                "session ${step.session ?: "(active)"}",
+        onSave = { viewModel.saveScenario(doc.scenarioId) },
+        onCancel = {
+            // Cancel puts the expectation back exactly as it was found — in the *draft*, which is where the
+            // session has been writing all along — and then the tab has nothing left to say.
+            session.discard()
+            viewModel.closeDocument(doc.id)
+        },
+        modifier = Modifier.fillMaxSize(),
+    )
+}
+
+/**
+ * **A step with no reference is a prompt, not a diff against nothing.**
+ *
+ * A never-run step that was never captured has no message on the right. Hand the surface an empty one and every
+ * asserted row comes back `missing`: a wall of red, a verdict announcing a catastrophe, and a gutter offering to
+ * drop every row of a step whose only crime is not having run yet.
+ */
+@Composable
+private fun NothingToDiffAgainst(viewModel: FixMessageViewModel, doc: ScenarioDoc.Reconcile, step: ScenarioStep.Expect) {
+    val selected by viewModel.selectedMessage.collectAsState()
+    val pickable = selected?.wireRaw
+    Column(modifier = Modifier.padding(16.dp).testTag("diff-no-reference")) {
+        Text(
+            "There is nothing on the right yet.",
+            color = AppTheme.Colors.text,
+            fontSize = 13.sp,
+        )
+        Text(
+            "This step has never run and carries no captured message, so there is no reply to diff its " +
+                "assertions against. Run the scenario — or bind a message from a session and edit against that.",
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
+        )
+        if (pickable != null) {
+            SlimButton(
+                text = "Use the message selected in the grid",
+                onClick = { viewModel.bindPickedReference(doc, pickable, selected?.timestamp) },
+                color = AppTheme.Colors.primary,
+                modifier = Modifier.testTag("diff-bind-picked"),
+            )
+        } else {
+            Text(
+                "Select a message in a session grid and it can be bound here.",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 11.sp,
+            )
+        }
+        if (step.expectation.fields.isEmpty()) {
+            Text(
+                "This step asserts nothing at all yet: it only checks that a matching message arrives.",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 10.dp),
+            )
         }
     }
 }

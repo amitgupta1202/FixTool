@@ -13,8 +13,8 @@ import com.knapsack.fixtool.service.ScenarioReconcile
  * shape; a venue that fills 500,000 where it used to fill nothing has changed its behaviour. Only the second
  * is a regression. This says which just happened:
  *
- * > *"9 of 17 rows need attention │ 1 value changed · 1 tag added · 1 tag missing · 2 entries moved │ only
- * > the value change alters what this scenario checks"*
+ * > *"9 rows need attention │ 1 value changed · 1 tag added · 1 tag missing · 2 entries moved │ only the
+ * > value change alters what this scenario checks"*
  *
  * **Why this is a pure function in the engine's package and not a composable.**
  *
@@ -32,6 +32,14 @@ data class Verdict(
     val values: Int,
     /** Tags the reply carries that no row mentions. */
     val added: Int,
+    /**
+     * **Are those added tags a failure?** Only in STRICT. In OPEN an unmentioned tag is ignored — that is the
+     * entire promise of OPEN — so counting them into [attention] painted a fully passing step FAILED and told
+     * the author to go and fix a step that is not broken. `canAcceptShape` has always known this; the verdict,
+     * which is the sentence read *first*, did not, and the engine and the diff then disagreed about whether the
+     * step passes.
+     */
+    val addedAreFailures: Boolean,
     /** Tags the expectation lists that the reply did not send. */
     val missing: Int,
     /** Rows the engine proved moved — counted as **rows**, which is not the same number as [movedEntries]. */
@@ -51,12 +59,13 @@ data class Verdict(
      * that had all moved; and on a moved field belonging to no repeating group it counted zero, so the bar
      * announced that every assertion would now pass.
      *
-     * [added] is in this sum **exactly once**. The headline used to add it a second time on top of this
-     * total, so every tag the venue added inflated the number the author reads first: the canonical
-     * four-failures ExecutionReport — one value, one added tag, one dropped tag, two swapped parties —
-     * announced *"10 of 17 rows need attention"* over nine rows that need it.
+     * [added] is in this sum **exactly once**, and — see [addedAreFailures] — only when the mode makes it a
+     * failure at all. The headline used to add it a second time on top of this total, so every tag the venue
+     * added inflated the number the author reads first: the canonical four-failures ExecutionReport — one
+     * value, one added tag, one dropped tag, two swapped parties — announced *"10 of 17 rows need attention"*
+     * over nine rows that need it.
      */
-    val attention: Int get() = values + added + missing + movedRows + unresolved
+    val attention: Int get() = values + (if (addedAreFailures) added else 0) + missing + movedRows + unresolved
 
     /** A step that asserts nothing passes every run for ever while checking nothing. It is never a success. */
     val assertsNothing: Boolean get() = judged == 0
@@ -70,7 +79,12 @@ data class Verdict(
     val headline: String get() =
         when {
             assertsNothing -> "⚠ nothing is asserted — this step would pass every run without checking anything"
-            attention > 0 -> "$attention of $judged rows need attention"
+            // No denominator, and there never honestly was one: `attention` counts rows from BOTH sides —
+            // a tag the venue added is a row the expectation does not have — while `judged` counts only the
+            // rows the expectation *does*. On a two-row step against a reply with three extra tags the bar
+            // read "4 of 2 rows need attention". The split below says what the four are; the ratio never could.
+            attention == 1 -> "1 row needs attention"
+            attention > 1 -> "$attention rows need attention"
             // Green, but only about what was actually checked. A row this view cannot judge is not a row that
             // passed. One click of "Loosen → reference" made a red row unjudgeable, dropped it out of every
             // count, and the bar announced "✓ every assertion would now pass" over an expectation asserting
@@ -115,6 +129,11 @@ data class Verdict(
             rows: List<ScenarioReconcile.Row>,
             movedRows: Set<Int>,
             movedEntries: Int,
+            /**
+             * STRICT counts a tag the venue added as a failure. OPEN, by definition, does not — and there is no
+             * default here on purpose: a caller that forgets is a caller that calls a passing OPEN step failed.
+             */
+            mode: MatchMode,
         ): Verdict {
             fun moved(row: ScenarioReconcile.Row) = row.index != null && row.index in movedRows
 
@@ -124,10 +143,13 @@ data class Verdict(
                 judged = rows.count { it.judged },
                 values =
                     rows.count {
-                        !it.passed && !it.unknown && !moved(it) &&
+                        !it.passed &&
+                            !it.unknown &&
+                            !moved(it) &&
                             (it.status == TagStatus.VALUE || it.status == TagStatus.INVALID)
                     },
                 added = rows.count { it.unasserted && it.wireIndex != null },
+                addedAreFailures = mode == MatchMode.STRICT,
                 missing = rows.count { !it.passed && !moved(it) && it.status == TagStatus.MISSING },
                 movedRows = rows.count { moved(it) },
                 movedEntries = movedEntries,

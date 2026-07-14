@@ -137,7 +137,7 @@ fun ReconcileView(
 
     // One verdict, counted once, in the engine's own package — see Verdict. The diff surface that replaces
     // this view renders the same object rather than counting these rows a second time.
-    val verdict = Verdict.of(rows, movedRows, movedEntries = blocks.count { it.moved })
+    val verdict = Verdict.of(rows, movedRows, movedEntries = blocks.count { it.moved }, mode = draft.mode)
 
     Column(modifier = modifier.fillMaxWidth().border(1.dp, AppTheme.Colors.border).testTag("reconcile-view")) {
         StepHeader(

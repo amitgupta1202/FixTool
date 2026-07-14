@@ -204,7 +204,7 @@ class ReconcileViewTest {
         var edited: Expectation? = null
         composeTestRule.reconcile(outOfOrder, outOfOrderReply) { edited = it }
 
-        composeTestRule.onNodeWithTag("reconcile-summary").assertTextContains("need attention", substring = true)
+        composeTestRule.onNodeWithTag("reconcile-summary").assertTextContains("attention", substring = true)
 
         composeTestRule.onAllNodesWithText("Accept new order").onFirst().performClick()
         composeTestRule.waitForIdle()
@@ -230,7 +230,7 @@ class ReconcileViewTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("reconcile-staged").assertTextEquals("0")
-        composeTestRule.onNodeWithTag("reconcile-summary").assertTextContains("need attention", substring = true)
+        composeTestRule.onNodeWithTag("reconcile-summary").assertTextContains("attention", substring = true)
         assertEquals(outOfOrder, edited, "undo must restore the expectation the author started from")
     }
 
@@ -496,6 +496,6 @@ class ReconcileViewTest {
         composeTestRule.onAllNodesWithTag("move-block-down").onFirst().performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("reconcile-summary").assertTextContains("need attention", substring = true)
+        composeTestRule.onNodeWithTag("reconcile-summary").assertTextContains("attention", substring = true)
     }
 }

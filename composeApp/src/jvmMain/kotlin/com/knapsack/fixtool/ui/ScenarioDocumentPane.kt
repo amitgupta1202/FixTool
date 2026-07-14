@@ -208,6 +208,7 @@ private fun ReconcileDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.R
         return
     }
 
+    val running by viewModel.scenarioRunning.collectAsState()
     val messageType = step.expectation.messageType ?: step.match?.messageType ?: ""
     val typeName =
         viewModel.dictionary
@@ -220,6 +221,9 @@ private fun ReconcileDocument(viewModel: FixMessageViewModel, doc: ScenarioDoc.R
             "${draft.name} › Step ${at + 1} · Expect ${typeName?.let { "$it ($messageType)" } ?: messageType} · " +
                 "session ${step.session ?: "(active)"}",
         onSave = { viewModel.saveScenario(doc.scenarioId) },
+        onSaveAndRerun = { viewModel.saveAndRerun(doc.scenarioId) },
+        runInFlight = running,
+        focusTag = doc.focusTag,
         onCancel = {
             // Cancel puts the expectation back exactly as it was found — in the *draft*, which is where the
             // session has been writing all along — and then the tab has nothing left to say.

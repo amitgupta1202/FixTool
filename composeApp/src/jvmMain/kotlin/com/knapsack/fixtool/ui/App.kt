@@ -1249,7 +1249,7 @@ private fun AppMessageDetailPanel(
         externalMatchContextMode = detailMatchContextMode,
         onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
         tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags } ?: emptyList(),
-        onEditAssertion = selectedMessage?.let { msg -> { viewModel.openScenarioEditorForFailure(msg) } },
+        onEditAssertion = selectedMessage?.let { msg -> ({ tag: Int? -> viewModel.openScenarioEditorForFailure(msg, tag) }) },
     )
 }
 

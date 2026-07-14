@@ -14,10 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,18 +64,24 @@ fun DiffSurface(
     crumb: String = "",
     onSave: (() -> Unit)? = null,
     onCancel: (() -> Unit)? = null,
+    /** Save, and run the scenario again — the third click of the daily loop, and the one that proves the fix. */
+    onSaveAndRerun: (() -> Unit)? = null,
+    /** A run is in flight. The shared run slot allows exactly one, so the button says so rather than failing. */
+    runInFlight: Boolean = false,
+    /** The tag the author clicked in the message viewer — the body scrolls to its row. */
+    focusTag: Int? = null,
 ) {
     val model = session.model
 
     Column(modifier = modifier.fillMaxWidth().border(1.dp, AppTheme.Colors.border).testTag("diff-surface")) {
-        DiffHeader(session, model, crumb, onSave, onCancel)
+        DiffHeader(session, model, crumb, onSave, onCancel, onSaveAndRerun, runInFlight)
         VerdictLine(model, session.reference.provenance)
         // The engine knows exactly why it is not offering a move, and it used to keep that to itself. An
         // author looking at a group full of red rows with no re-order on offer concludes — reasonably — that
         // re-ordering was never built. That is what happened. Now it says.
         model.withheldMove?.let { WhyNoMove(it) }
         ColumnHeaders(session.reference.label)
-        DiffBody(session, model)
+        DiffBody(session, model, focusTag)
         DiffFooter(session)
     }
 }
@@ -82,7 +89,15 @@ fun DiffSurface(
 // ------------------------------------------------------------------------------------------- the header
 
 @Composable
-private fun DiffHeader(session: ReconcileSession, model: DiffModel, crumb: String, onSave: (() -> Unit)?, onCancel: (() -> Unit)?) {
+private fun DiffHeader(
+    session: ReconcileSession,
+    model: DiffModel,
+    crumb: String,
+    onSave: (() -> Unit)?,
+    onCancel: (() -> Unit)?,
+    onSaveAndRerun: (() -> Unit)? = null,
+    runInFlight: Boolean = false,
+) {
     Column(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (crumb.isNotBlank()) {
@@ -148,7 +163,24 @@ private fun DiffHeader(session: ReconcileSession, model: DiffModel, crumb: Strin
                 )
             }
             onSave?.let {
-                SlimButton("Save", onClick = it, color = AppTheme.Colors.primary, enabled = session.isDirty, modifier = Modifier.testTag("diff-save"))
+                SlimButton(
+                    "Save",
+                    onClick = it,
+                    color = AppTheme.Colors.primary,
+                    enabled = session.isDirty,
+                    modifier = Modifier.padding(end = 6.dp).testTag("diff-save"),
+                )
+            }
+            onSaveAndRerun?.let {
+                // Enabled on a clean step too: re-running a step you have not touched is how you find out
+                // whether the venue has settled down, and that is a question worth being able to ask.
+                SlimButton(
+                    if (runInFlight) "Running…" else "Save & re-run",
+                    onClick = it,
+                    color = AppTheme.Colors.success,
+                    enabled = !runInFlight,
+                    modifier = Modifier.testTag("diff-save-rerun"),
+                )
             }
         }
     }
@@ -257,20 +289,37 @@ private sealed interface Item {
     ) : Item
 }
 
+/**
+ * A **lazy** list, and it has to be: the row-level deep link scrolls to the row the author clicked in the
+ * message viewer, and a `Column(verticalScroll)` has no idea where its rows are. It is also what makes a
+ * 200-field market-data snapshot cheap to draw, and what Phase 4's next/previous-chunk keys will steer.
+ *
+ * (It is only *possible* because the diff is a document of its own. Inside the step editor's detail pane —
+ * itself a `verticalScroll` — a lazy list is measured with infinite height, which is not a layout, it is a
+ * crash waiting for a long message.)
+ */
 @Composable
-private fun DiffBody(session: ReconcileSession, model: DiffModel) {
+private fun androidx.compose.foundation.layout.ColumnScope.DiffBody(session: ReconcileSession, model: DiffModel, focusTag: Int?) {
     val items = itemsOf(model)
-    var movedBandsDrawn = 0
+    val listState = rememberLazyListState()
 
-    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-        items.forEach { item ->
-            when (item) {
+    // The tag the author clicked, in the viewer, on the message that failed. Land on it.
+    LaunchedEffect(focusTag, items.size) {
+        if (focusTag == null) return@LaunchedEffect
+        val at = items.indexOfFirst { it is Item.Line && it.line.row.tag == focusTag }
+        if (at >= 0) listState.scrollToItem(at)
+    }
+
+    LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f)) {
+        items(items.size) { index ->
+            when (val item = items[index]) {
                 is Item.Band -> {
                     // The one-click order goes on the FIRST moved band and nowhere else: `acceptNewOrder`
                     // rewrites the whole expectation atomically, so a second button would be the same button
-                    // pretending to be about a different entry.
-                    val offerOrder = item.moved && movedBandsDrawn == 0
-                    if (item.moved) movedBandsDrawn += 1
+                    // pretending to be about a different entry. Which band that is cannot be counted *while*
+                    // drawing any more — a lazy list composes what it likes, in whatever order it likes — so
+                    // `Item.Band.first` says, decided once, where the items were built.
+                    val offerOrder = item.first
                     EntryBand(session, model, item, offerOrder)
                 }
                 is Item.Line -> DiffRow(session, item.line, item.depth)

@@ -785,9 +785,9 @@ class FixMessageViewModel(
      * assertions failed. Routes through [reconcileRoute], so it can never offer what the run report's
      * button refuses, nor refuse what it offers.
      */
-    fun openScenarioEditorForFailure(message: FixMessage) {
+    fun openScenarioEditorForFailure(message: FixMessage, focusTag: Int? = null) {
         val step = assertionResults[message] ?: return
-        openReconcile(step)
+        openReconcile(step, focusTag)
     }
 
     // The quick-fix chips that used to live here are gone, and with them the map that backed them.
@@ -1400,6 +1400,63 @@ class FixMessageViewModel(
      */
     fun publishScenarioResult(result: ScenarioResult?) {
         _scenarioResult.value = result
+        if (result != null) rebindReconcileDocuments()
+    }
+
+    /**
+     * **A run has landed, so every open diff re-binds to the message it just produced.**
+     *
+     * Nothing used to do this, and nothing needed to — until the diff grew a *Save & re-run*. Without it the
+     * author saves their repair, re-runs, watches the rail go green… and the diff beside it is still bound to
+     * the **old** run's failing bytes: still red, still offering to fix what is already fixed. The one surface
+     * they are looking at would be lying to them at the exact moment it mattered most.
+     *
+     * By `stepId`, because the step may have moved under the tab. A step the new run never reached matched no
+     * message, and its diff keeps the reference it had rather than inventing one.
+     */
+    private fun rebindReconcileDocuments() {
+        val ran = _lastRunScenario.value ?: return
+        _openDocuments.value
+            .filterIsInstance<ScenarioDoc.Reconcile>()
+            .filter { it.scenarioId == ran.id }
+            .forEach { doc ->
+                val matched =
+                    _assertionResults.value.entries.firstOrNull { (_, result) -> result.stepId == doc.stepId }
+                        ?: return@forEach
+                val wire = matched.key.wireRaw ?: return@forEach
+                val arrivedAt =
+                    matched.key.timestamp
+                        .atZone(java.time.ZoneId.systemDefault())
+                        .toInstant()
+                val reference = referenceOf(wire, arrivedAt)
+                val session = doc.session
+                if (session != null) {
+                    session.swapReference(reference)
+                    updateDocument(doc.copy(thisRunWire = wire))
+                } else {
+                    // It was showing the prompt: there was nothing to diff against, and now there is.
+                    val expectation =
+                        (scenarioDraft(ran.id)?.draft?.steps?.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect)
+                            ?.expectation ?: return@forEach
+                    updateDocument(
+                        doc.copy(
+                            session = newReconcileSession(ran.id, doc.stepId, expectation, reference),
+                            thisRunWire = wire,
+                        ),
+                    )
+                }
+            }
+    }
+
+    /**
+     * **Save & re-run** — the third click of W1, and the one that closes the loop. Saves the scenario the diff
+     * is looking at, runs it, and every open diff re-binds to what comes back (see [rebindReconcileDocuments]).
+     * The shared run slot already enforces one run at a time; the button is disabled while one is in flight.
+     */
+    fun saveAndRerun(scenarioId: String) {
+        if (!saveScenario(scenarioId)) return
+        val saved = scenarioService.load(scenarioId) ?: return
+        runScenario(saved)
     }
 
     /**

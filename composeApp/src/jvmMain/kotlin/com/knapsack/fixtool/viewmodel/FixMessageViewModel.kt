@@ -12,15 +12,14 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
-import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.MessageEditorState
 import com.knapsack.fixtool.model.Notification
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
-import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -28,20 +27,20 @@ import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.AppSettingsService
-import com.knapsack.fixtool.service.ExpectationEvaluator
-import com.knapsack.fixtool.service.MessageView
-import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
+import com.knapsack.fixtool.service.MessageView
+import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.SavedMessagesService
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.SessionIdentityResolver
+import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.ui.CaptureReviewState
 import com.knapsack.fixtool.ui.FixField
@@ -50,7 +49,7 @@ import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.RunFailureContext
 import com.knapsack.fixtool.ui.ScenarioDoc
 import com.knapsack.fixtool.ui.ScenarioDraft
-import com.knapsack.fixtool.ui.asEditorSeed
+import com.knapsack.fixtool.ui.diff.ReconcileSession
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -350,9 +349,10 @@ class FixMessageViewModel(
         val discards =
             when (doc) {
                 is ScenarioDoc.Capture -> doc.dirty
-                is ScenarioDoc.Editor -> {
-                    val last = documentsOf(doc.scenarioId).none { it.id != id }
-                    last && _openScenarios.value[doc.scenarioId]?.dirty == true
+                else -> {
+                    val scenarioId = doc.scenarioId
+                    val last = scenarioId != null && documentsOf(scenarioId).none { it.id != id }
+                    last && _openScenarios.value[scenarioId]?.dirty == true
                 }
             }
         if (discards) _confirmingCloseId.value = id else closeDocument(id)
@@ -414,6 +414,153 @@ class FixMessageViewModel(
                 )
             }
         openDocument(doc)
+    }
+
+    // ---- The diff document: the one surface that authors or repairs an assertion ---------------------
+
+    /**
+     * Open the diff on a step — or focus the tab already holding it, re-aimed at [focusTag].
+     *
+     * The reference is bound here and nowhere else: this run's failing bytes when there are any, the step's
+     * golden when there are not, and **nothing at all** when the step has neither — in which case the tab
+     * shows a prompt rather than diffing an expectation against an empty message and calling every row of it
+     * missing.
+     */
+    fun openReconcileDocument(
+        scenario: Scenario,
+        stepId: String,
+        thisRunWire: String? = null,
+        arrivedAt: java.time.Instant? = null,
+        focusTag: Int? = null,
+    ) {
+        ensureScenarioDraft(scenario)
+        val id = ScenarioDoc.reconcileId(scenario.id, stepId)
+        val open = _openDocuments.value.firstOrNull { it.id == id } as? ScenarioDoc.Reconcile
+        if (open != null) {
+            // Already open, and it may be carrying an undo stack and an hour of staged repairs. Only the aim
+            // moves — and the reference with it, when this is a *new* failure of the same step.
+            val rebound = thisRunWire?.let { wire -> referenceOf(wire, arrivedAt) }
+            rebound?.let { open.session?.swapReference(it) }
+            openDocument(
+                open.copy(
+                    thisRunWire = thisRunWire ?: open.thisRunWire,
+                    focusTag = focusTag ?: open.focusTag,
+                    focusEpoch = open.focusEpoch + 1,
+                ),
+            )
+            return
+        }
+        val step = scenarioDraft(scenario.id)?.draft?.steps?.firstOrNull { it.stepId == stepId }
+        val expectation = (step as? ScenarioStep.Expect)?.expectation
+        val reference =
+            when {
+                thisRunWire != null -> referenceOf(thisRunWire, arrivedAt)
+                expectation?.golden != null -> ReferenceMessage.golden(RawMessageView(expectation.golden!!))
+                else -> null
+            }
+        openDocument(
+            ScenarioDoc.Reconcile(
+                scenarioId = scenario.id,
+                stepId = stepId,
+                session = expectation?.let { reference?.let { ref -> newReconcileSession(scenario.id, stepId, it, ref) } },
+                thisRunWire = thisRunWire,
+                focusTag = focusTag,
+            ),
+        )
+    }
+
+    private fun referenceOf(wire: String, arrivedAt: java.time.Instant?): ReferenceMessage =
+        ReferenceMessage.live(
+            view = RawMessageView(wire),
+            provenance = ReferenceMessage.Provenance.THIS_RUN,
+            label = "this run",
+            arrivedAt = arrivedAt ?: java.time.Instant.now(),
+        )
+
+    private fun newReconcileSession(
+        scenarioId: String,
+        stepId: String,
+        original: Expectation,
+        reference: ReferenceMessage,
+    ): ReconcileSession =
+        ReconcileSession(
+            original = original,
+            initialReference = reference,
+            dictionary = getDictionaryAdapter(),
+            onChange = { edited -> applyExpectation(scenarioId, stepId, edited) },
+        )
+
+    /**
+     * The session's every change, written into the scenario's draft — and **the golden re-pointed only when
+     * the reference is this run's actual.**
+     *
+     * Re-pointing it at all is old behaviour with a hard-won reason: an expectation reconciled against *this*
+     * message describes *this* message, and leaving the old golden behind makes the authoring view show red
+     * rows for edits that are correct, and offer to "fix" them back.
+     *
+     * Generalise that to a **slot** without thinking and it becomes a defect. The whole point of a
+     * SECOND_INSTANCE is that it is a *different* message — re-point the golden at it and verify-generalizes
+     * destroys the very thing it was checking against. A PASTED reference is bytes FixTool cannot vouch for; a
+     * hand-doctored paste must never quietly become the scenario's canonical example.
+     */
+    private fun applyExpectation(scenarioId: String, stepId: String, edited: Expectation) {
+        val doc =
+            _openDocuments.value
+                .filterIsInstance<ScenarioDoc.Reconcile>()
+                .firstOrNull { it.scenarioId == scenarioId && it.stepId == stepId }
+        val againstThisRun = doc?.session?.reference?.provenance == ReferenceMessage.Provenance.THIS_RUN
+        val golden = if (againstThisRun) doc?.thisRunWire ?: edited.golden else edited.golden
+        updateScenarioDraft(scenarioId) { workspace ->
+            val steps =
+                workspace.draft.steps.map { step ->
+                    if (step.stepId != stepId || step !is ScenarioStep.Expect) {
+                        step
+                    } else {
+                        step.copy(expectation = edited.copy(golden = golden))
+                    }
+                }
+            workspace.copy(draft = workspace.draft.copy(steps = steps))
+        }
+    }
+
+    /**
+     * Bind the message the author has selected in a session grid as this diff's reference — pick-from-grid, in
+     * its cheapest honest form. Phase 5's armed slot widens it; the *provenance* is already right.
+     */
+    fun bindPickedReference(doc: ScenarioDoc.Reconcile, wire: String, arrivedAt: java.time.LocalDateTime?) {
+        val expectation =
+            (scenarioDraft(doc.scenarioId)?.draft?.steps?.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect)
+                ?.expectation ?: return
+        val reference =
+            ReferenceMessage.live(
+                view = RawMessageView(wire),
+                provenance = ReferenceMessage.Provenance.PICKED,
+                label = "picked",
+                arrivedAt = arrivedAt?.atZone(java.time.ZoneId.systemDefault())?.toInstant() ?: java.time.Instant.now(),
+            )
+        val existing = doc.session
+        if (existing != null) {
+            existing.swapReference(reference)
+            return
+        }
+        updateDocument(doc.copy(session = newReconcileSession(doc.scenarioId, doc.stepId, expectation, reference)))
+    }
+
+    /** Save the scenario a document is a view onto — the diff tab's Save, and the editor's, are one Save. */
+    fun saveScenario(scenarioId: String): Boolean {
+        val draft = _openScenarios.value[scenarioId]?.draft ?: return false
+        if (!saveScenarioDocument(draft)) return false
+        // Rebased, or the footer goes on counting edits that are already on disk: "3 edits staged · nothing is
+        // written to the scenario until you save" is a promise, and after a Save it has been kept.
+        val saved = _openScenarios.value[scenarioId]?.draft ?: return true
+        _openDocuments.value
+            .filterIsInstance<ScenarioDoc.Reconcile>()
+            .filter { it.scenarioId == scenarioId }
+            .forEach { doc ->
+                val step = saved.steps.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect
+                step?.let { doc.session?.rebase(it.expectation) }
+            }
+        return true
     }
 
     /** Open capture review on a fresh scan of the sessions — or focus the review already open. */
@@ -603,19 +750,22 @@ class FixMessageViewModel(
      * rail, the run line, the message viewer's "Reconcile assertions…") and one destination, because two
      * destinations would eventually be two answers to "which step failed".
      */
-    fun openReconcile(step: StepResult) {
+    fun openReconcile(step: StepResult, focusTag: Int? = null) {
         when (val route = reconcileRoute(step)) {
-            is ReconcileRoute.Open ->
-                openScenarioEditor(
-                    scenario = route.request.scenario,
-                    focusStep = route.request.focusStep,
-                    failure =
-                        RunFailureContext(
-                            route.request.failedTags,
-                            route.request.actualRaw,
-                            route.request.actualAt,
-                        ),
+            is ReconcileRoute.Open -> {
+                val request = route.request
+                val stepId =
+                    request.scenario.steps
+                        .getOrNull(request.focusStep ?: -1)
+                        ?.stepId ?: return
+                openReconcileDocument(
+                    scenario = request.scenario,
+                    stepId = stepId,
+                    thisRunWire = request.actualRaw,
+                    arrivedAt = request.actualAt,
+                    focusTag = focusTag,
                 )
+            }
             is ReconcileRoute.Refused -> showNotification(route.why, NotificationType.WARNING)
         }
     }
@@ -1309,7 +1459,10 @@ class FixMessageViewModel(
         val captured = chosen.map { ScenarioCapture.CapturedSession(it.title, it.messages.value.filterIsInstance<FixMessage>()) }
         val scenario =
             ScenarioCapture.capture(
-                id = java.util.UUID.randomUUID().toString(),
+                id =
+                    java.util.UUID
+                        .randomUUID()
+                        .toString(),
                 name = name,
                 profile = null,
                 sessions = captured,
@@ -1339,7 +1492,10 @@ class FixMessageViewModel(
         }
         val scenario =
             ScenarioCapture.captureFrom(
-                id = java.util.UUID.randomUUID().toString(),
+                id =
+                    java.util.UUID
+                        .randomUUID()
+                        .toString(),
                 name = name,
                 profile = null,
                 selection = selection,
@@ -1357,7 +1513,16 @@ class FixMessageViewModel(
                 if (obj["id"] != null) {
                     obj
                 } else {
-                    JsonObject(obj + ("id" to JsonPrimitive(java.util.UUID.randomUUID().toString())))
+                    JsonObject(
+                        obj + (
+                            "id" to
+                                JsonPrimitive(
+                                    java.util.UUID
+                                        .randomUUID()
+                                        .toString(),
+                                )
+                        ),
+                    )
                 }
             val scenario = ScenarioCodec.fromJson(withId)
             if (scenarioService.save(scenario)) scenario.id else null
@@ -2344,7 +2509,10 @@ class FixMessageViewModel(
     }
 
     /** Result of [saveTemplateDirect]: the persisted message plus whether it was newly created. */
-    data class TemplateSaveResult(val message: SavedFixMessage, val created: Boolean)
+    data class TemplateSaveResult(
+        val message: SavedFixMessage,
+        val created: Boolean,
+    )
 
     /**
      * Saves a template directly, independent of the message editor's current state. Creates a new
@@ -2367,7 +2535,10 @@ class FixMessageViewModel(
         val existing = id?.let { mid -> savedMessagesService.loadMessagesForProfile(profileId).find { it.id == mid } }
         val message =
             SavedFixMessage(
-                id = id ?: java.util.UUID.randomUUID().toString(),
+                id =
+                    id ?: java.util.UUID
+                        .randomUUID()
+                        .toString(),
                 name = name,
                 userTags = userTags,
                 fields = fields,
@@ -2379,8 +2550,10 @@ class FixMessageViewModel(
         var persisted = false
         savedMessagesService
             .saveMessage(profileId, message)
-            .onSuccess { loadSavedMessagesForActiveSession(); persisted = true }
-            .onFailure { error -> logger.error("Failed to save template: ${error.message}", error) }
+            .onSuccess {
+                loadSavedMessagesForActiveSession()
+                persisted = true
+            }.onFailure { error -> logger.error("Failed to save template: ${error.message}", error) }
         return if (persisted) TemplateSaveResult(message, created = existing == null) else null
     }
 

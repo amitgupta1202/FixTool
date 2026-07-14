@@ -38,11 +38,21 @@ class VerdictTest {
     /** The four-failures ExecutionReport the whole design was drawn against — the canonical fixture. */
     private val reply =
         wireView(
-            35 to "8", 11 to "ORD-1", 17 to "EXEC-9", 150 to "2", 39 to "2",
-            151 to "500000", 14 to "1000000", 31 to "1.0851",
+            35 to "8",
+            11 to "ORD-1",
+            17 to "EXEC-9",
+            150 to "2",
+            39 to "2",
+            151 to "500000",
+            14 to "1000000",
+            31 to "1.0851",
             453 to "2",
-            448 to "FIRMB", 447 to "D", 452 to "4",
-            448 to "FIRMA", 447 to "D", 452 to "1",
+            448 to "FIRMB",
+            447 to "D",
+            452 to "4",
+            448 to "FIRMA",
+            447 to "D",
+            452 to "1",
             2376 to "Y",
             60 to transactTime,
         )
@@ -75,7 +85,7 @@ class VerdictTest {
     private fun verdictOf(draft: Expectation, message: MessageView, movedEntries: Int = 0): Verdict {
         val rows = ScenarioReconcile.rows(draft, message, dictionary)
         val moved = ScenarioReconcile.movedRows(draft, message)
-        return Verdict.of(rows, moved, movedEntries)
+        return Verdict.of(rows, moved, movedEntries, draft.mode)
     }
 
     /**
@@ -99,9 +109,12 @@ class VerdictTest {
         assertEquals(6, verdict.movedRows, "two party entries, three rows each")
         assertEquals(0, verdict.unresolved)
         assertEquals(9, verdict.attention, "1 + 1 + 1 + 6 — and the added tag counted once, not twice")
-        assertTrue(
-            verdict.headline.startsWith("9 of "),
-            "the number an author reads first must be the number of rows below it: ${verdict.headline}",
+        assertEquals(
+            "9 rows need attention",
+            verdict.headline,
+            "the number an author reads first must be the number of rows below it — and there is no honest " +
+                "denominator to put it over, because `attention` counts rows from both sides and `judged` " +
+                "counts only the expectation's",
         )
     }
 
@@ -129,7 +142,7 @@ class VerdictTest {
         assertEquals(6, verdict.movedRows)
         assertEquals(2, verdict.movedEntries)
         assertTrue("2 entries moved" in verdict.parts, "the phrase counts entries: ${verdict.parts}")
-        assertTrue("9 of " in verdict.headline, "the headline counts rows: ${verdict.headline}")
+        assertTrue("9 rows" in verdict.headline, "the headline counts rows: ${verdict.headline}")
     }
 
     /**
@@ -206,6 +219,50 @@ class VerdictTest {
     }
 
     // ----- the bulk button's guard -----------------------------------------------------------------------
+
+    /**
+     * **THE SAME RULE, AND THE VERDICT DID NOT KNOW IT.**
+     *
+     * `canAcceptShape` has known since Phase 1 that an unasserted tag is only a failure in STRICT. The verdict
+     * — the sentence an author reads *first* — did not: it counted every tag the venue added into `attention`
+     * whatever the mode. So a **fully passing OPEN step** whose venue sends three optional fields announced
+     * *"3 rows need attention"*, painted itself FAILED in red, and invited the author to go and fix a step that
+     * is not broken. OPEN's entire promise is that an unmentioned tag is ignored, and the one surface that
+     * judges was the one telling them otherwise.
+     *
+     * Worse than the noise: the engine and the diff then disagree about whether the step passes, and the diff
+     * is the one that is wrong. Two deciders, and this is the shape they take.
+     *
+     * The tags are still *shown* — blue, with «assert it» in the gutter, and still counted in [Verdict.parts]
+     * as what they are. What they are not is a reason to call the step failed.
+     */
+    @Test
+    fun `a passing OPEN step is not called failed because the venue added a tag`() {
+        val draft =
+            Expectation(listOf(FieldExpectation(35, Matcher.Exact("8"))), messageType = "8", mode = MatchMode.OPEN)
+        val message = wireView(35 to "8", 39 to "2", 151 to "0")
+
+        val verdict = verdictOf(draft, message)
+
+        assertEquals(2, verdict.added, "the venue did add two tags, and the diff still says so")
+        assertEquals(0, verdict.attention, "but in OPEN they are not a failure — they are the point of OPEN")
+        assertFalse(verdict.needsAttention, "so the FAILED chip must not light, and the bar must not be red")
+        assertTrue(verdict.headline.startsWith("✓"), "the headline agrees with the engine: ${verdict.headline}")
+    }
+
+    /** And in STRICT the very same message is a real failure, counted and announced — in the plural it earns. */
+    @Test
+    fun `the same added tags in STRICT are exactly the failure`() {
+        val draft =
+            Expectation(listOf(FieldExpectation(35, Matcher.Exact("8"))), messageType = "8", mode = MatchMode.STRICT)
+        val message = wireView(35 to "8", 39 to "2", 151 to "0")
+
+        val verdict = verdictOf(draft, message)
+
+        assertEquals(2, verdict.attention)
+        assertTrue(verdict.needsAttention)
+        assertEquals("2 rows need attention", verdict.headline)
+    }
 
     /**
      * **An unasserted tag is only a shape change in STRICT.** In OPEN an unmentioned tag is not a failure — it

@@ -192,12 +192,23 @@ data class DiffModel(
  *   would be a second source of truth, and it would eventually say STRICT over a step that saves OPEN.
  */
 class ReconcileSession(
-    val original: Expectation,
+    original: Expectation,
     initialReference: ReferenceMessage,
     val dictionary: FixDictionaryAdapter?,
     private val resolver: (String) -> String? = { null },
     private val onChange: (Expectation) -> Unit = {},
 ) {
+    /**
+     * What [discard] goes back to, and what [staged] and [isDirty] are measured against.
+     *
+     * A `var`, because **Save moves it.** "3 edits staged · nothing is written to the scenario until you save"
+     * is a promise, and once the author has saved it has been kept — going on counting those three edits would
+     * make the footer describe a danger that no longer exists, and `Cancel` would then offer to throw away work
+     * that is already on disk.
+     */
+    var original: Expectation = original
+        private set
+
     /** `(label, expectation)`. The first is the original, under a label nothing ever shows. */
     private val snapshots = mutableStateListOf(Snapshot("", original, null))
 
@@ -267,6 +278,21 @@ class ReconcileSession(
         if (snapshots.size > 1) snapshots.removeRange(1, snapshots.size)
         cursor = 0
         onChange(original)
+    }
+
+    /**
+     * **Saved.** [saved] is the new [original]: nothing is staged, nothing is dirty, and the stack starts
+     * again from what is now on disk.
+     *
+     * Not `onChange`d — the host is the one telling us, and echoing it back would write the expectation into a
+     * draft that already holds it. The reference slot is untouched: what the author is comparing against is not
+     * a thing a Save has any opinion about.
+     */
+    fun rebase(saved: Expectation) {
+        snapshots.clear()
+        snapshots.add(Snapshot("", saved, null))
+        cursor = 0
+        original = saved
     }
 
     /** Re-judge against something else. See [reference]: not an edit, so nothing here touches the stack. */
@@ -365,7 +391,7 @@ class ReconcileSession(
         return DiffModel(
             lines = lines,
             chunks = alignment.chunks,
-            verdict = Verdict.of(rows, moved, movedEntries),
+            verdict = Verdict.of(rows, moved, movedEntries, draft.mode),
             overlay = overlay,
             referenceOverlay = GroupOverlay.of(message, dictionary),
             acceptOrder = possible?.let { EditOp.acceptOrder(it.reordered) },

@@ -29,6 +29,48 @@ dodged the hard case.
 
 ---
 
+## Start here — the state of play (updated at the end of Phase 1)
+
+**Phases 0 and 1 are complete and on `main`.** The engine seams exist and the diff surface is
+built and screenshot-tested; nothing routes to it yet. Phase 2 is next.
+
+**What exists now, and where:**
+
+| Thing | File |
+|---|---|
+| Comparison seam + `AlignmentModel`/`Chunk` (`Chunk.pairs` = row → the field it faces) | `service/compare/ComparisonSemantics.kt` |
+| Dictionary-derived entry boundaries + labels; `EntrySource.DICTIONARY\|HEURISTIC` | `service/compare/GroupOverlay.kt` |
+| The right-hand slot: provenance + the instant temporals judge at | `service/compare/ReferenceMessage.kt` |
+| **The verdict — counted once, for both surfaces** | `service/compare/Verdict.kt` |
+| Draft + snapshot undo/redo + the gutter's offers + memoized `DiffModel` | `ui/diff/ReconcileSession.kt` |
+| The two-column diff, the gutter, the group bands | `ui/diff/DiffSurface.kt`, `DiffPalette.kt` |
+| **Dev bench — DELETE IN 2.2 with the window** | `ui/diff/DiffHarness.kt` + `Mode.Diff` in `ui/ScenarioWorkbench.kt` |
+
+Steps carry a stable `stepId` (Phase 0); `reconcileRoute` addresses a failure by it, and the
+`ReconcileSession` must be `remember(stepId)`-keyed for the same reason (P3).
+
+**Commands.** `./gradlew :composeApp:jvmTest` — **1195 tests, 0 failures** is the current bar.
+Lint baseline is **1684** findings (`ktlintCheck` + `detekt`, `--continue`); the rule is only
+that your files add none. The bench: `FIXTOOL_DIFF_HARNESS=1 ./gradlew :composeApp:run`.
+
+**Four traps, all of which cost time in Phases 0–1:**
+
+1. **Never run `ktlintFormat`.** It reformats all 64 files of the module and buries the work in
+   a style diff. Fix your own lines by hand, or format-then-revert-everything-else.
+2. **A UI phase is gated by its screenshots, not its tests.** The worst defect in Phase 1 —
+   a gutter offering Accept-actual on a *moved* row, one click from deleting "FIRMA holds role
+   1" — was found by looking at the picture, with fourteen tests green.
+3. **A test harness must feed `onChange` back**, the way `ScenarioEditor` does. A harness that
+   merely records it once let a completely dead staging mechanism survive seven passing tests.
+4. **The control surface's `/screenshot` captures the MAIN window.** Point it at second-window
+   content and it grabs the user's desktop instead. Do not.
+
+**Before writing any of Phase 2, write its `### Decisions taken before implementation` section
+here**, the way Phases 0 and 1 have one. Both times, that section caught something the
+checklist below had wrong — and both times it was the checklist, not the design.
+
+---
+
 ## Ground rules (apply to every phase)
 
 **Invariants that must survive every commit.** Breaking any of these is a stop-the-line

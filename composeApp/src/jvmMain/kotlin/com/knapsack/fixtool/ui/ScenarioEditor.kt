@@ -64,7 +64,16 @@ enum class StepKind { SEND, WAIT, EXPECT, CLEAR, RESET }
 
 /**
  * A step under edit. Unlike the old builder draft, this round-trips **everything** the model holds —
- * the Expect/Wait `match` predicate and the expectation's `golden` survive load → edit → save.
+ * the Expect/Wait `match` predicate, the expectation's `golden`, and the step's [ScenarioStep.stepId]
+ * survive load → edit → save.
+ *
+ * The id is here because it was not, and the omission put the identifier back where Phase 0 took it
+ * from: `toStep()` built every step with a blank id, so Save handed `ScenarioService` a scenario with
+ * none, and `withIds()` — finding nothing to claim — minted all of them from `(scenario, phase, index)`.
+ * A step that had not moved got its own id back by luck of the determinism; a step that *had* moved took
+ * the id of whatever now sat at its old index, and the run that failed on it no longer knew which step
+ * it meant. A step the author adds still carries the blank, which is what `withIds()` mints for — and
+ * only after every existing step has claimed its own.
  */
 data class EditStep(
     val kind: StepKind,
@@ -77,25 +86,26 @@ data class EditStep(
     val expectation: Expectation = Expectation(emptyList()),
     val sender: Int? = null,
     val target: Int? = null,
+    val stepId: String = "",
 )
 
 fun ScenarioStep.toEditStep(): EditStep =
     when (this) {
-        is ScenarioStep.Send -> EditStep(StepKind.SEND, session, fields = FixMessageHelper.parseFixMessage(raw))
-        is ScenarioStep.Wait -> EditStep(StepKind.WAIT, session, state = state ?: "", match = match, timeoutMs = timeoutMs)
+        is ScenarioStep.Send -> EditStep(StepKind.SEND, session, fields = FixMessageHelper.parseFixMessage(raw), stepId = stepId)
+        is ScenarioStep.Wait -> EditStep(StepKind.WAIT, session, state = state ?: "", match = match, timeoutMs = timeoutMs, stepId = stepId)
         is ScenarioStep.Expect ->
-            EditStep(StepKind.EXPECT, session, match = match, direction = direction, timeoutMs = timeoutMs, expectation = expectation)
-        is ScenarioStep.ClearMessages -> EditStep(StepKind.CLEAR, session)
-        is ScenarioStep.ResetSeqNum -> EditStep(StepKind.RESET, session, sender = sender, target = target)
+            EditStep(StepKind.EXPECT, session, match = match, direction = direction, timeoutMs = timeoutMs, expectation = expectation, stepId = stepId)
+        is ScenarioStep.ClearMessages -> EditStep(StepKind.CLEAR, session, stepId = stepId)
+        is ScenarioStep.ResetSeqNum -> EditStep(StepKind.RESET, session, sender = sender, target = target, stepId = stepId)
     }
 
 fun EditStep.toStep(): ScenarioStep =
     when (kind) {
-        StepKind.SEND -> ScenarioStep.Send(fields.joinToString("|", postfix = "|") { "${it.first}=${it.second}" }, session)
-        StepKind.WAIT -> ScenarioStep.Wait(session, state.ifBlank { null }, match, timeoutMs)
-        StepKind.EXPECT -> ScenarioStep.Expect(session, direction, match, timeoutMs, expectation)
-        StepKind.CLEAR -> ScenarioStep.ClearMessages(session)
-        StepKind.RESET -> ScenarioStep.ResetSeqNum(session, sender, target)
+        StepKind.SEND -> ScenarioStep.Send(fields.joinToString("|", postfix = "|") { "${it.first}=${it.second}" }, session, stepId)
+        StepKind.WAIT -> ScenarioStep.Wait(session, state.ifBlank { null }, match, timeoutMs, stepId)
+        StepKind.EXPECT -> ScenarioStep.Expect(session, direction, match, timeoutMs, expectation, stepId)
+        StepKind.CLEAR -> ScenarioStep.ClearMessages(session, stepId)
+        StepKind.RESET -> ScenarioStep.ResetSeqNum(session, sender, target, stepId)
     }
 
 /**

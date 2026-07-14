@@ -19,7 +19,7 @@ dodged the hard case.
 | Phase | Title | Status |
 |---|---|---|
 | 0 | Engine seams (no UI) | **complete** |
-| 1 | The diff surface, standalone | not started |
+| 1 | The diff surface, standalone | 1.1 done · 1.2–1.3 pending |
 | 2 | Rail + document tabs; the window dies | not started |
 | 3 | The diff surface becomes the only expectation editor | not started |
 | 4 | Drag moves, undo/redo, keyboard | not started |
@@ -550,17 +550,25 @@ editor **is** the value column, which is why neither `ExpectationEvaluator.descr
 `ScenarioUi.matcherSummary` renders there. (Those two are a pre-existing duplication; `describe`
 stays, for the footer's staged labels and the engine's refusal sentences. Note it for Phase 7.)
 
-### 1.1 The shared verdict (extract first, build on it after)
-- [ ] `service/compare/Verdict.kt`: `Verdict(judged, attention, values, added, missing,
-      movedRows, movedEntries, unknown, unresolved)` + `headline`, `shapeVersusBehaviour`,
-      `parts` — the arithmetic and the sentences moved out of `VerdictBar` **verbatim**.
-      Pure: `(rows, movedRows, movedEntries) -> Verdict`. `canAcceptShape` moves with it.
-- [ ] `ReconcileView` refactored to render it. `ReconcileViewTest` passes **unmodified** —
-      that is the proof the extraction changed nothing, and it is the whole point of doing
-      it before the new surface exists rather than after.
-- [ ] Unit tests for `Verdict` covering each bug its comments record: the entry-vs-row count,
+### 1.1 The shared verdict (extract first, build on it after) — **complete**
+- [x] `service/compare/Verdict.kt`: `Verdict(judged, values, added, missing, movedRows,
+      movedEntries, unresolved, unknown)` + `attention`, `headline`, `shapeVersusBehaviour`,
+      `parts`, `assertsNothing` — the arithmetic and the sentences moved out of `VerdictBar`.
+      Pure: `Verdict.of(rows, movedRows, movedEntries)`. `canAcceptShape` moved with it.
+- [x] `ReconcileView` refactored to render it. `ReconcileViewTest` passes **unmodified** —
+      the proof the extraction changed nothing, and the reason for doing it before the new
+      surface exists rather than after.
+- [x] Unit tests for `Verdict` covering each bug its comments record: the entry-vs-row count,
       the unjudgeable row that must not read as a pass, the unbracketed `MOVED` row, and
-      `judged == 0`. Mutation-check each.
+      `judged == 0`. Each mutation-checked.
+
+**And it found a seventh bug, which is the argument for the whole decision.** `attention`
+already contained `added`, and the headline added it a *second* time (`val needing = attention
++ added`), so every tag a venue added inflated the first number an author reads — the number
+they use to decide whether a run is worth opening. The canonical four-failures ExecutionReport
+announced *"10 of 17 rows need attention"* over nine rows that need it. No test pinned the
+number, so nothing in the view caught it in the years it was there; it took twenty lines of
+unit test to fall out. Counted once now, and pinned.
 
 ### 1.2 `ReconcileSession` (state holder, not a composable)
 - [ ] `ui/diff/ReconcileSession.kt`: holds `original`, `draft`, the reference slot; derives

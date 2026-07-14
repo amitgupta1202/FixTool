@@ -279,19 +279,31 @@ old `moveBlock` behaviour rather than merely coexisting with it.
    `PartyIDSource` — so every party in every message would have been labelled
    `ProprietaryCustomCode`. It takes the last one (the role), which is what identifies it.
 
-**One pre-existing defect was found and NOT fixed** — it is outside Phase 0's scope, and
-Phase 2 is where it must be repaired:
+**A "defect" was reported here and then withdrawn.** It is left in the record because the
+mistake is more instructive than the finding would have been.
 
-> **`assertionResults` goes stale after the first run.** Run a scenario a second time in the
-> same session and the grid keeps tinting the *first* run's message red, while the message
-> the new run actually failed on gets **no red rows, no failure banner, and no "Reconcile
-> assertions…" button** — so the detail panel's door into the reconcile view is shut for
-> every run after the first. Reproduced identically on `ac99574` (pre-Phase-0), so it is not
-> a regression from this work; verified by building that commit in a worktree and driving the
-> same flow through the control surface. It matters more than it looks: W1 (*run → repair →
-> re-run → repair again*) is the daily loop, and Phase 3's **Save & re-run** depends on the
-> second run's failure being reachable. The rail's live run tree (2.1) and the three doors
-> (2.2) must be built against fresh results, and this should get its own regression test.
+During verification, a scenario run a second time in the same session appeared to leave the
+grid tinting the *first* run's message while the new failure got no banner and no "Reconcile
+assertions…" button. It reproduced on `ac99574` too, so it was written up as a pre-existing
+defect. It is not one. **The fixture was wrong**: the scenario sent a *fixed* `ClOrdID` and
+carried an *empty* bind predicate, so on the second run the Expect had no way to tell the two
+ExecutionReports apart — and `runExpect` correctly took the first unconsumed match in the
+session's history, which was the first run's reply. The tool re-judged *that* message and
+tinted *that* row. Everything on screen was consistent; the reader was not.
+
+Re-verified with the scenario **as capture actually authors one** — `${id0 = UUID.randomUUID()}`
+minted on the Send and an `11=${id0}` bind constraint on the Expect — and the second run binds
+to its own reply, tints its own row, and shows the banner and the reconcile button. No fix
+needed, and none made.
+
+The real lesson, which is worth carrying into Phase 2: **a scenario with no correlation
+constraint re-binds to the oldest matching message in the session log.** That is by design
+(the `consumed` cursor is per-run, and `ClearMessages` exists as a setup step for exactly
+this), and capture emits the constraint automatically — but a *hand-written* scenario, or one
+an agent composes over `fixtool_save_scenario`, can fall into it silently and then present a
+confusing failure against an ancient message. The rail (2.1) shows live per-step status and
+will make this trap more visible, not less; consider whether the run report should say *which
+message* a step bound to.
 
 ---
 

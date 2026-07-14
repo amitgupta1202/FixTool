@@ -25,11 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -67,16 +63,24 @@ fun ScenarioCaptureReview(
     modifier: Modifier = Modifier,
     /** Messages FixTool could not read the wire bytes for — see [UnreadableNotice]. */
     unreadable: List<FixMessage> = emptyList(),
+    /**
+     * The curation, held by the host. This is a *tab* now, and only the active tab is composed — a
+     * `remember`ed checklist would be destroyed by a glance at the session grid it was scanned from, which
+     * is the one thing the capture review is now next to. See [ScenarioDoc].
+     */
+    state: CaptureReviewState = remember(candidates.size) { CaptureReviewState.of(candidates.size) },
+    onStateChange: (CaptureReviewState) -> Unit = {},
+    /** Selecting a candidate selects its source message in the session grid and the detail panel. */
+    onSelectSource: (FixMessage) -> Unit = {},
 ) {
-    var name by remember { mutableStateOf("") }
-    var selectedIdx by remember { mutableStateOf(if (candidates.isEmpty()) -1 else 0) }
-    val included = remember { mutableStateListOf<Boolean>().apply { repeat(candidates.size) { add(true) } } }
+    val name = state.name
+    val selectedIdx = state.selectedIdx
 
-    val selection = candidates.filterIndexed { i, _ -> included.getOrElse(i) { false } }
+    val selection = candidates.filterIndexed { i, _ -> state.includes(i) }
     // Re-run capture over the current selection: cheap, pure, and it keeps badges/preview honest —
     // excluding the send that mints an id visibly downgrades its echoes from reference to exact.
     val previewSteps =
-        remember(included.toList()) {
+        remember(state.included) {
             ScenarioCapture.captureFrom("preview", "preview", null, selection, dictionary).steps
         }
     val stepVars = remember(previewSteps) { ScenarioAnnotations.annotate(previewSteps) }
@@ -84,7 +88,19 @@ fun ScenarioCaptureReview(
     val sessionColors = sessionColorMap(candidates.map { it.session })
 
     /** Index into [previewSteps] for an included candidate row (steps mirror the selection order). */
-    fun stepIndexOf(candidateIdx: Int): Int = (0 until candidateIdx).count { included.getOrElse(it) { false } }
+    fun stepIndexOf(candidateIdx: Int): Int = (0 until candidateIdx).count { state.includes(it) }
+
+    fun include(index: Int, on: Boolean) {
+        val next = state.included.toMutableList()
+        while (next.size <= index) next.add(true)
+        next[index] = on
+        onStateChange(state.copy(included = next))
+    }
+
+    fun select(index: Int) {
+        onStateChange(state.copy(selectedIdx = index))
+        candidates.getOrNull(index)?.let { onSelectSource(it.message) }
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -93,7 +109,7 @@ fun ScenarioCaptureReview(
             }
             Text("Capture scenario", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             SlimLabeled("Name", modifier = Modifier.padding(start = 16.dp)) {
-                SlimField(name, { name = it }, modifier = Modifier.width(240.dp).testTag("capture-name"))
+                SlimField(name, { onStateChange(state.copy(name = it)) }, modifier = Modifier.width(240.dp).testTag("capture-name"))
             }
             Text(
                 "${selection.size} of ${candidates.size} messages selected",
@@ -120,7 +136,8 @@ fun ScenarioCaptureReview(
         RangeSelectors(
             candidates = candidates,
             dictionary = dictionary,
-            included = included,
+            included = state.included,
+            onIncludedChange = { onStateChange(state.copy(included = it)) },
             modifier = Modifier.padding(start = 12.dp, bottom = 8.dp),
         )
         if (candidates.isEmpty()) {
@@ -135,7 +152,7 @@ fun ScenarioCaptureReview(
         Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(0.56f).fillMaxHeight()) {
                 itemsIndexed(candidates) { i, candidate ->
-                    val isIncluded = included.getOrElse(i) { false }
+                    val isIncluded = state.includes(i)
                     CandidateRow(
                         index = i,
                         candidate = candidate,
@@ -145,8 +162,8 @@ fun ScenarioCaptureReview(
                         sessionColor = sessionColors[candidate.session] ?: AppTheme.Colors.primary,
                         vars = if (isIncluded) stepVars.getOrNull(stepIndexOf(i)) else null,
                         varColors = varColors,
-                        onToggle = { included[i] = it },
-                        onSelect = { selectedIdx = i },
+                        onToggle = { include(i, it) },
+                        onSelect = { select(i) },
                     )
                 }
             }
@@ -157,11 +174,11 @@ fun ScenarioCaptureReview(
                         index = selectedIdx,
                         candidate = candidates[selectedIdx],
                         dictionary = dictionary,
-                        included = included.getOrElse(selectedIdx) { false },
-                        previewStep = if (included.getOrElse(selectedIdx) { false }) previewSteps.getOrNull(stepIndexOf(selectedIdx)) else null,
+                        included = state.includes(selectedIdx),
+                        previewStep = if (state.includes(selectedIdx)) previewSteps.getOrNull(stepIndexOf(selectedIdx)) else null,
                         varColors = varColors,
                         sessionColor = sessionColors[candidates[selectedIdx].session] ?: AppTheme.Colors.primary,
-                        onToggle = { included[selectedIdx] = it },
+                        onToggle = { include(selectedIdx, it) },
                     )
                 }
             }
@@ -233,6 +250,26 @@ private fun CandidateRow(
     }
 }
 
+/** Everything before [first] is out; [first] itself is in. What is already ticked below it stays ticked. */
+private fun List<Boolean>.trimmedBefore(first: Int): List<Boolean> =
+    mapIndexed { i, on ->
+        when {
+            i < first -> false
+            i == first -> true
+            else -> on
+        }
+    }
+
+/** The mirror image: everything after [last] is out, and [last] itself is in. */
+private fun List<Boolean>.trimmedAfter(last: Int): List<Boolean> =
+    mapIndexed { i, on ->
+        when {
+            i > last -> false
+            i == last -> true
+            else -> on
+        }
+    }
+
 /**
  * From/To range dropdowns (the message editor's dropdown convention): pick the first and last
  * message of the flow instead of hunting per-row. Rows outside the range are excluded; individual
@@ -242,7 +279,8 @@ private fun CandidateRow(
 private fun RangeSelectors(
     candidates: List<ScenarioCapture.Candidate>,
     dictionary: FixDictionary?,
-    included: MutableList<Boolean>,
+    included: List<Boolean>,
+    onIncludedChange: (List<Boolean>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (candidates.isEmpty()) return
@@ -258,12 +296,7 @@ private fun RangeSelectors(
             SlimDropdown(
                 value = first,
                 options = candidates.indices.toList(),
-                onValueChange = { picked ->
-                    if (picked != null) {
-                        (0 until picked).forEach { included[it] = false }
-                        included[picked] = true
-                    }
-                },
+                onValueChange = { picked -> if (picked != null) onIncludedChange(included.trimmedBefore(picked)) },
                 displayText = ::label,
                 placeholder = "first message",
                 modifier = Modifier.width(280.dp).testTag("capture-from"),
@@ -273,12 +306,7 @@ private fun RangeSelectors(
             SlimDropdown(
                 value = last,
                 options = candidates.indices.toList(),
-                onValueChange = { picked ->
-                    if (picked != null) {
-                        (picked + 1 until candidates.size).forEach { included[it] = false }
-                        included[picked] = true
-                    }
-                },
+                onValueChange = { picked -> if (picked != null) onIncludedChange(included.trimmedAfter(picked)) },
                 displayText = ::label,
                 placeholder = "last message",
                 modifier = Modifier.width(280.dp).testTag("capture-to"),

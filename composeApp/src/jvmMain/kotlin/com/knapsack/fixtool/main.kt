@@ -2,11 +2,7 @@ package com.knapsack.fixtool
 
 import androidx.compose.foundation.focusable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -17,7 +13,6 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.ui.App
-import com.knapsack.fixtool.ui.ScenarioWorkbenchWindow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
@@ -56,12 +51,12 @@ fun main() {
     // close handler keeps one instance across recompositions of the application scope.
     var isClosing = false
 
-    application {
-        // Compose state so secondary windows (the Scenarios workbench) can react to viewmodel flows.
-        var viewModelRef by remember {
-            mutableStateOf<com.knapsack.fixtool.viewmodel.FixMessageViewModel?>(null)
-        }
+    // The close handler needs the ViewModel so it can disconnect the sessions. It used to be Compose state,
+    // because a second window had to recompose off the ViewModel's flows. There is no second window: the
+    // Scenarios workbench is a rail and a set of document tabs inside the one below.
+    var viewModelRef: com.knapsack.fixtool.viewmodel.FixMessageViewModel? = null
 
+    application {
         Window(
             onCloseRequest = {
                 if (!isClosing) {
@@ -82,11 +77,11 @@ fun main() {
             },
             title = "FixTool - FiX Message Viewer",
             // rememberWindowState, not WindowState. A bare WindowState is a NEW state object on every
-            // recomposition of the application scope — and opening the Scenarios workbench recomposes it,
-            // because `showScenarios` lives here. Compose then applied that fresh state to the live window:
-            // size snapped back to exactly 1920x1080 and the position re-cascaded. That is the whole of
-            // "opening the Scenarios workbench moves the main window", and it took the user's own resize
-            // with it every time.
+            // recomposition of the application scope, and Compose then applies it to the live window: the
+            // size snaps back to exactly 1920x1080 and the position re-cascades, taking the user's own resize
+            // with it. What used to recompose this scope was the Scenarios workbench window, which is gone —
+            // but the bug was never really about that window, and the next thing composed out here would
+            // bring it straight back.
             state = rememberWindowState(size = DpSize(1920.dp, 1080.dp)),
             resizable = true,
         ) {
@@ -135,18 +130,6 @@ fun main() {
                     }
                 },
             )
-        }
-
-        // Scenarios workbench: a real (non-modal) window so the live session view stays usable
-        // while capturing/editing. Bound to the same flow the toolbar and fixtool_panel toggle.
-        viewModelRef?.let { viewModel ->
-            val showScenarios by viewModel.showScenariosDialog.collectAsState()
-            if (showScenarios) {
-                ScenarioWorkbenchWindow(
-                    viewModel = viewModel,
-                    onClose = { viewModel.toggleScenariosDialog() },
-                )
-            }
         }
     }
 }

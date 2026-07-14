@@ -30,6 +30,18 @@ fun TabBar(
     onDisconnect: (Int) -> Unit,
     isAtBottom: Boolean = true,
     onScrollToBottom: () -> Unit = {},
+    /**
+     * Scenario documents, in the same strip as the sessions — an IDE mixes editors and diffs with its files.
+     * A document tab does **not** move the active session: [activeDocumentId] is the centre pane's selection
+     * and `null` is the session view. See [ScenarioDoc].
+     */
+    documents: List<ScenarioDoc> = emptyList(),
+    activeDocumentId: String? = null,
+    confirmingCloseId: String? = null,
+    onFocusDocument: (String) -> Unit = {},
+    onRequestCloseDocument: (String) -> Unit = {},
+    onConfirmCloseDocument: (String) -> Unit = {},
+    onCancelCloseDocument: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -51,52 +63,34 @@ fun TabBar(
             sessions.forEachIndexed { index, session ->
                 Tab(
                     session = session,
-                    isActive = index == activeIndex,
+                    isActive = index == activeIndex && activeDocumentId == null,
                     onClick = { onTabClick(index) },
                     onClose = { onCloseTab(index) },
                 )
                 Spacer(modifier = Modifier.width(4.dp))
             }
 
+            DocumentTabs(
+                documents = documents,
+                activeId = activeDocumentId,
+                confirmingCloseId = confirmingCloseId,
+                onFocus = onFocusDocument,
+                onRequestClose = onRequestCloseDocument,
+                onConfirmClose = onConfirmCloseDocument,
+                onCancelClose = onCancelCloseDocument,
+            )
+
             Spacer(modifier = Modifier.weight(1f))
 
             // Toolbar buttons for active session
             if (sessions.isNotEmpty() && activeIndex >= 0 && activeIndex < sessions.size) {
                 val activeSession = sessions[activeIndex]
-                val wrapText by activeSession.wrapText.collectAsState()
                 val connectionState by activeSession.connectionState.collectAsState()
-                val searchVisible by activeSession.searchVisible.collectAsState()
                 val filterVisible by activeSession.filterVisible.collectAsState()
 
                 // RAW mode specific buttons (wrap, search)
                 if (viewMode == FixMessageSession.ViewMode.RAW) {
-                    // Wrap text toggle
-                    TooltipIconButton(
-                        tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
-                        onClick = { onToggleWrapText(activeIndex) },
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
-                            contentDescription = "Toggle Text Wrap",
-                            tint = AppTheme.Colors.textSecondary,
-                            modifier = toolbarIconSize,
-                        )
-                    }
-
-                    // Search button (RAW mode only)
-                    TooltipIconButton(
-                        tooltip = if (searchVisible) "Hide Search" else "Show Search (Ctrl+F)",
-                        onClick = { activeSession.toggleSearch() },
-                        modifier = toolbarButtonSize,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Toggle Search",
-                            tint = if (searchVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                            modifier = toolbarIconSize,
-                        )
-                    }
+                    RawViewActions(activeSession, activeIndex, onToggleWrapText)
                 }
 
                 // Filter button (available for both RAW and PARSED modes - regex, message type, direction filters)
@@ -188,6 +182,39 @@ fun TabBar(
                 }
             }
         }
+    }
+}
+
+/** The RAW-view-only buttons (wrap, search), lifted out so the tab bar itself stays readable. */
+@Composable
+private fun RawViewActions(session: FixMessageSession, index: Int, onToggleWrapText: (Int) -> Unit) {
+    val wrapText by session.wrapText.collectAsState()
+    val searchVisible by session.searchVisible.collectAsState()
+
+    TooltipIconButton(
+        tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
+        onClick = { onToggleWrapText(index) },
+        modifier = toolbarButtonSize,
+    ) {
+        Icon(
+            imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
+            contentDescription = "Toggle Text Wrap",
+            tint = AppTheme.Colors.textSecondary,
+            modifier = toolbarIconSize,
+        )
+    }
+
+    TooltipIconButton(
+        tooltip = if (searchVisible) "Hide Search" else "Show Search (Ctrl+F)",
+        onClick = { session.toggleSearch() },
+        modifier = toolbarButtonSize,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = "Toggle Search",
+            tint = if (searchVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+            modifier = toolbarIconSize,
+        )
     }
 }
 

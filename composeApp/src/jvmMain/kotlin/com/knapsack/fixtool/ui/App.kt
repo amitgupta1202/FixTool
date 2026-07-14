@@ -79,6 +79,10 @@ fun App(
             val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
             val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
             val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
+            val showScenariosRail by viewModel.showScenariosRail.collectAsState()
+            val documents by viewModel.openDocuments.collectAsState()
+            val activeDocumentId by viewModel.activeDocumentId.collectAsState()
+            val activeDocument = documents.firstOrNull { it.id == activeDocumentId }
 
             // Load saved messages when active session changes
             LaunchedEffect(viewModel.activeSessionIndex) {
@@ -106,6 +110,8 @@ fun App(
                 }
             }
 
+            var scenariosRailSplitRatio by remember { mutableStateOf(0.18f) }
+            var documentSplitRatio by remember { mutableStateOf(0.5f) } // SPLIT only: the document's share of the centre
             var detailPanelSplitRatio by remember { mutableStateOf(0.2f) }
             var editorPanelSplitRatio by remember {
                 mutableStateOf(0.28f)
@@ -126,6 +132,14 @@ fun App(
                             ) {
                                 viewModel.toggleGlobalSearchDialog()
                                 true // Consume the event
+                            } else if (event.type == KeyEventType.KeyDown &&
+                                event.key == Key.Escape &&
+                                activeDocumentId != null
+                            ) {
+                                // esc closes the focused document — and a dirty one asks first, in the tab
+                                // strip, because the ViewModel is the only thing that knows it is dirty.
+                                viewModel.requestCloseDocument(activeDocumentId!!)
+                                true
                             } else {
                                 false // Don't consume other events
                             }
@@ -171,7 +185,7 @@ fun App(
                         onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
                         onOpenSettings = { viewModel.toggleSettingsDialog() },
                         onOpenHelp = { viewModel.toggleHelpDialog() },
-                        onOpenScenarios = { viewModel.toggleScenariosDialog() },
+                        onOpenScenarios = { viewModel.toggleScenariosRail() },
                     )
 
                     // Settings Dialog
@@ -205,11 +219,19 @@ fun App(
 
                     when (viewMode) {
                         ViewMode.TABS -> {
-                            // All panels in same row: editor, tabs, detail
+                            // All panels in same row: scenarios rail, editor, tabs, detail
                             BoxWithConstraints(modifier = Modifier.weight(1f)) {
                                 val maxWidthPx = with(density) { maxWidth.toPx() }
 
                                 Row(modifier = Modifier.fillMaxSize()) {
+                                    ScenariosRailDock(
+                                        viewModel = viewModel,
+                                        show = showScenariosRail,
+                                        ratio = scenariosRailSplitRatio,
+                                        onRatioChange = { scenariosRailSplitRatio = it },
+                                        maxWidthPx = maxWidthPx,
+                                    )
+
                                     // Leftmost panel - Message editor (if shown)
                                     if (showMessageEditor) {
                                         Box(
@@ -253,11 +275,18 @@ fun App(
                                         var isAtBottom by remember { mutableStateOf(true) }
                                         var scrollToBottomTrigger by remember { mutableStateOf(0) }
 
+                                        val confirmingCloseId by viewModel.confirmingCloseId.collectAsState()
                                         TabBar(
                                             sessions = viewModel.sessions,
                                             activeIndex = viewModel.activeSessionIndex,
                                             viewMode = globalViewMode,
-                                            onTabClick = { index -> viewModel.setActiveSession(index) },
+                                            // A session tab is the way back to the sessions — it is what
+                                            // clears the centre's document selection, and the only thing that
+                                            // does. It never moves because a document was focused.
+                                            onTabClick = { index ->
+                                                viewModel.setActiveSession(index)
+                                                viewModel.showSessions()
+                                            },
                                             onCloseTab = { index -> viewModel.closeSession(index) },
                                             onToggleWrapText = { index ->
                                                 viewModel.sessions.getOrNull(index)?.toggleWrapText()
@@ -270,8 +299,18 @@ fun App(
                                             },
                                             isAtBottom = isAtBottom,
                                             onScrollToBottom = { scrollToBottomTrigger++ },
+                                            documents = documents,
+                                            activeDocumentId = activeDocumentId,
+                                            confirmingCloseId = confirmingCloseId,
+                                            onFocusDocument = { viewModel.focusDocument(it) },
+                                            onRequestCloseDocument = { viewModel.requestCloseDocument(it) },
+                                            onConfirmCloseDocument = { viewModel.closeDocument(it) },
+                                            onCancelCloseDocument = { viewModel.cancelCloseDocument() },
                                         )
 
+                                        if (activeDocument != null) {
+                                            ScenarioDocumentPane(viewModel, activeDocument, modifier = Modifier.weight(1f))
+                                        } else {
                                         viewModel.activeSession?.let { session ->
                                             val messages by session.messages.collectAsState()
                                             val wrapText by session.wrapText.collectAsState()
@@ -315,6 +354,7 @@ fun App(
                                                 color = Color(0xFF6A6A6A),
                                                 fontSize = 14.sp,
                                             )
+                                        }
                                         }
 
                                         // Search results pane at bottom (if visible)
@@ -522,12 +562,20 @@ fun App(
                                     SplitOrientation.VERTICAL
                                 }
 
-                            // Wrap content in split pane if detail panel, message editor, connection panel, or latency panel is shown
-                            if (showDetailPanel || showMessageEditor || showConnectionPanel || showLatencyPanel) {
+                            // Wrap content in split pane if the rail, detail panel, message editor, connection panel, or latency panel is shown
+                            if (showScenariosRail || showDetailPanel || showMessageEditor || showConnectionPanel || showLatencyPanel) {
                                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                                     val maxWidthPx = with(density) { maxWidth.toPx() }
 
                                     Row(modifier = Modifier.fillMaxSize()) {
+                                        ScenariosRailDock(
+                                            viewModel = viewModel,
+                                            show = showScenariosRail,
+                                            ratio = scenariosRailSplitRatio,
+                                            onRatioChange = { scenariosRailSplitRatio = it },
+                                            maxWidthPx = maxWidthPx,
+                                        )
+
                                         // Leftmost panel - Message editor (if shown)
                                         if (showMessageEditor) {
                                             Box(
@@ -566,24 +614,16 @@ fun App(
                                             )
                                         }
 
-                                        // Center panel - Split view
+                                        // Center panel - Split view (with the document area beside it, if any)
                                         Column(modifier = Modifier.weight(1f)) {
-                                            SplitView(
-                                                sessions = viewModel.sessions,
-                                                dictionary = viewModel.dictionary,
-                                                viewMode = globalViewMode,
-                                                onCloseSession = { index -> viewModel.closeSession(index) },
-                                                onMoveSession = { from, to -> viewModel.moveSession(from, to) },
-                                                selectedMessage = selectedMessage,
-                                                onSelectMessage = { message -> viewModel.selectMessage(message) },
-                                                onPasteMessage = { rawMessage ->
-                                                    viewModel.pasteAndDisplayMessage(rawMessage)
-                                                },
+                                            SplitCentre(
+                                                viewModel = viewModel,
                                                 orientation = splitOrientation,
-                                                gridViewColumns = viewModel.appSettings.gridViewColumns,
-                                                assertionResults = viewModel.assertionResults,
-                                                appSettings = viewModel.appSettings,
-                                                modifier = Modifier.weight(1f),
+                                                globalViewMode = globalViewMode,
+                                                selectedMessage = selectedMessage,
+                                                hasDocuments = documents.isNotEmpty(),
+                                                ratio = documentSplitRatio,
+                                                onRatioChange = { documentSplitRatio = it },
                                             )
 
                                             // Search results pane at bottom (if visible)
@@ -791,20 +831,14 @@ fun App(
                                 }
                             } else {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    SplitView(
-                                        sessions = viewModel.sessions,
-                                        dictionary = viewModel.dictionary,
-                                        viewMode = globalViewMode,
-                                        onCloseSession = { index -> viewModel.closeSession(index) },
-                                        onMoveSession = { from, to -> viewModel.moveSession(from, to) },
-                                        selectedMessage = selectedMessage,
-                                        onSelectMessage = { message -> viewModel.selectMessage(message) },
-                                        onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
+                                    SplitCentre(
+                                        viewModel = viewModel,
                                         orientation = splitOrientation,
-                                        gridViewColumns = viewModel.appSettings.gridViewColumns,
-                                        assertionResults = viewModel.assertionResults,
-                                        appSettings = viewModel.appSettings,
-                                        modifier = Modifier.weight(1f),
+                                        globalViewMode = globalViewMode,
+                                        selectedMessage = selectedMessage,
+                                        hasDocuments = documents.isNotEmpty(),
+                                        ratio = documentSplitRatio,
+                                        onRatioChange = { documentSplitRatio = it },
                                     )
 
                                     // Search results pane at bottom (if visible)
@@ -846,6 +880,126 @@ fun App(
                     onDismiss = { notificationId -> viewModel.dismissNotification(notificationId) },
                 )
             }
+    }
+}
+
+/**
+ * The Scenarios rail, docked left — the message editor's pane idiom, applied to the workbench that used to be
+ * a window. Absent from the layout entirely when hidden, so nothing about the app changes for someone who
+ * never opens it.
+ */
+@Composable
+private fun ScenariosRailDock(
+    viewModel: FixMessageViewModel,
+    show: Boolean,
+    ratio: Float,
+    onRatioChange: (Float) -> Unit,
+    maxWidthPx: Float,
+) {
+    if (!show) return
+    val density = LocalDensity.current
+    Box(modifier = Modifier.width(with(density) { (maxWidthPx * ratio).toDp() })) {
+        ScenariosRail(viewModel, modifier = Modifier.fillMaxSize())
+    }
+    Box(
+        modifier =
+            Modifier
+                .width(AppTheme.Separators.panelSeparatorWidth)
+                .fillMaxHeight()
+                .background(AppTheme.Separators.color)
+                .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                .pointerInput(maxWidthPx) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        onRatioChange((ratio + (dragAmount.x / maxWidthPx)).coerceIn(0.1f, 0.45f))
+                    }
+                },
+    )
+}
+
+/**
+ * The SPLIT layouts' centre: the session grid, and — while any scenario document is open — **the document
+ * beside it**, split along the axis the author already chose. That is the promise SPLIT makes and a document
+ * tab must not break it: SPLIT exists to keep more than one thing on screen, so a document that took the whole
+ * centre would have quietly turned SPLIT back into TABS.
+ *
+ * With no document open this is exactly the SplitView that was here before, and nothing else is composed.
+ */
+@Composable
+private fun ColumnScope.SplitCentre(
+    viewModel: FixMessageViewModel,
+    orientation: SplitOrientation,
+    globalViewMode: com.knapsack.fixtool.model.FixMessageSession.ViewMode,
+    selectedMessage: FixMessage?,
+    hasDocuments: Boolean,
+    ratio: Float,
+    onRatioChange: (Float) -> Unit,
+) {
+    val grid: @Composable (Modifier) -> Unit = { m ->
+        SplitView(
+            sessions = viewModel.sessions,
+            dictionary = viewModel.dictionary,
+            viewMode = globalViewMode,
+            onCloseSession = { index -> viewModel.closeSession(index) },
+            onMoveSession = { from, to -> viewModel.moveSession(from, to) },
+            selectedMessage = selectedMessage,
+            onSelectMessage = { message -> viewModel.selectMessage(message) },
+            onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
+            orientation = orientation,
+            gridViewColumns = viewModel.appSettings.gridViewColumns,
+            assertionResults = viewModel.assertionResults,
+            appSettings = viewModel.appSettings,
+            modifier = m,
+        )
+    }
+    if (!hasDocuments) {
+        grid(Modifier.weight(1f))
+        return
+    }
+    val documentWeight = ratio.coerceIn(0.2f, 0.85f)
+    BoxWithConstraints(modifier = Modifier.weight(1f)) {
+        val density = LocalDensity.current
+        if (orientation == SplitOrientation.HORIZONTAL) {
+            val widthPx = with(density) { maxWidth.toPx() }
+            Row(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.weight(1f - documentWeight)) { grid(Modifier.fillMaxSize()) }
+                Box(
+                    modifier =
+                        Modifier
+                            .width(AppTheme.Separators.panelSeparatorWidth)
+                            .fillMaxHeight()
+                            .background(AppTheme.Separators.color)
+                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
+                            .pointerInput(widthPx) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    onRatioChange((documentWeight - (dragAmount.x / widthPx)).coerceIn(0.2f, 0.85f))
+                                }
+                            },
+                )
+                Box(modifier = Modifier.weight(documentWeight)) { ScenarioDocumentArea(viewModel) }
+            }
+        } else {
+            val heightPx = with(density) { maxHeight.toPx() }
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.weight(1f - documentWeight)) { grid(Modifier.fillMaxSize()) }
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(AppTheme.Separators.panelSeparatorWidth)
+                            .background(AppTheme.Separators.color)
+                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+                            .pointerInput(heightPx) {
+                                detectDragGestures { change, dragAmount ->
+                                    change.consume()
+                                    onRatioChange((documentWeight - (dragAmount.y / heightPx)).coerceIn(0.2f, 0.85f))
+                                }
+                            },
+                )
+                Box(modifier = Modifier.weight(documentWeight)) { ScenarioDocumentArea(viewModel) }
+            }
+        }
     }
 }
 

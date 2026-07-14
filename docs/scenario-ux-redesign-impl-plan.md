@@ -19,7 +19,7 @@ dodged the hard case.
 | Phase | Title | Status |
 |---|---|---|
 | 0 | Engine seams (no UI) | **complete** |
-| 1 | The diff surface, standalone | 1.1–1.2 done · 1.3 (the composable) pending |
+| 1 | The diff surface, standalone | **complete** |
 | 2 | Rail + document tabs; the window dies | not started |
 | 3 | The diff surface becomes the only expectation editor | not started |
 | 4 | Drag moves, undo/redo, keyboard | not started |
@@ -596,38 +596,53 @@ unit test to fall out. Counted once now, and pinned.
 > not the ones you touched, and buries the work in a style diff. The baseline is 1684 findings
 > (`ktlintCheck` + `detekt`, `--continue`); the rule is only that your files add none.
 
-### 1.3 The `DiffSurface` composable
-- [ ] `ui/diff/DiffSurface.kt` renders a `ReconcileSession` per the mockups: header (crumb,
-      semantics chip, reference chip, the `Verdict` from 1.1), two aligned columns, centre
-      gutter, footer (staged count, the *"nothing is written to the scenario until you save"*
-      sentence verbatim, undo/redo/cancel/save). Left rows: tag (with `#2` occurrence
-      suffix) · name · `MatcherEditor` (P9). Right rows: tag · name · value · enum
-      description as a **separate dim span**, per the mockup — not folded into the value
-      string. Gaps get the hatched treatment; `unjudged` rows the amber `◌` third state.
-      Built from `SlimComponents`, never Material3 defaults.
-- [ ] Gutter per the proposal's table, but offered by `offersFor` (P6): `«` accept-actual,
-      `«` assert-it, `×` drop (whole-tag rule in its tooltip), `∅` assert-absent,
-      `⇄ Accept new order` on engine-proven moves. Bulk: Accept all shape changes, Re-seed.
-- [ ] Group bands from `GroupOverlay`: entry headers with the overlay's own labels, per-entry
-      hue, nested indent; hover highlights the aligned counterpart; `HEURISTIC` entries
-      badged as the guess they are. Moved entries: violet band + crossing connector.
-      Entry `↑`/`↓` ship now (they exist today; the surface must not regress against the view
-      it replaces) — drag is Phase 4.
-- [ ] The withheld-move reason renders **on the group it is about** (the mockup moves it off
-      the detached note it is today), verbatim from `Reorder.Refused.why`.
-- [ ] Compose tests + screenshots: value mismatch / added / missing / moved / unjudged; every
-      gutter apply mutating the draft through the session; an edit flipping a row green live;
-      accept-all-shape never touching a value mismatch; the `judged == 0` headline; hover
-      pairing. **The test harness must feed `onChange` back**, as `ScenarioEditor` does — a
-      harness that merely records it let a completely dead staging mechanism survive seven
-      passing tests (`ReconcileViewTest.kt:63-87`, and its docstring says so).
+### 1.3 The `DiffSurface` composable — **complete**
+- [x] `ui/diff/DiffSurface.kt` renders a `ReconcileSession`: header (crumb, semantics chip,
+      reference chip, verdict), two aligned columns, centre gutter, footer (staged count and
+      labels, the *"nothing is written to the scenario until you save"* sentence verbatim,
+      undo/redo/cancel/save). Left rows: tag (with `#2` occurrence suffix) · name ·
+      `MatcherEditor` (P9 — `MATCHER_TYPES` minus `reference`). Right rows: tag · name · value
+      · enum description as a separate dim span. Gaps hatched; `unjudged` rows amber `◌`.
+      Built from `SlimComponents`. `ui/diff/DiffPalette.kt` holds the two things the app-wide
+      theme has no word for: the moved violet, and the alternating entry hues.
+- [x] Gutter offered by `offersFor` (P6): `«` accept-actual, `«` assert-it, `×` drop (whole-tag
+      rule in its tooltip), `∅` assert-absent, `⇄ Accept new order` once, on the first moved
+      band. Bulk: Accept all shape changes, Re-seed from reference.
+- [x] Group bands from `GroupOverlay` with the overlay's own labels on both sides, per-entry
+      hue, `HEURISTIC` entries badged `guessed`. Entry `↑`/`↓` ship now (the surface must not
+      be able to do less than the one it replaces); drag is Phase 4.
+- [x] The withheld-move reason renders on the group, verbatim from `Reorder.Refused.why`.
+- [x] Keystrokes coalesce (`EditOp.coalesceKey`): typing `500000` is **one** edit, not six, so
+      `⌘Z` means *"undo the value I set"* rather than walking back through `50000`, `5000`…
+      The old view did the latter.
+- [x] 14 Compose tests, 7 screenshots. The harness **feeds `onChange` back**, as
+      `ScenarioEditor` does.
 
-**Phase 1 gate:** full suite green; `DiffSurface` driven interactively as a temporary
-`Mode.Diff` inside the **existing** `ScenarioWorkbenchWindow` — no new window, and the host is
-already condemned in 2.2, so nothing is written to be deleted — against fake-venue `shape` (the
-entries swap places; a re-order **must** be offered) and `swap` (the firms swap roles; a
-re-order must **never** be offered, and the refusal must render on the group). Screenshot set
-committed from the Compose tests, not from the harness.
+**And the screenshot caught a defect that no assertion did.** The moved rows were drawn with
+`«` Accept-actual and `×` Drop in their gutter. A moved row's *status* is `VALUE` — FIRMA's
+`448` faces FIRMB, which is indistinguishable, row by row, from the venue having changed the
+value — so a gutter keyed on status alone puts a per-row fix under it. **One click and FIRMA's
+row asserts FIRMB while the two `452` rows stay exactly where they are**: the expectation reads
+FIRMB/role-1 and FIRMB/role-4, "FIRMA holds role 1" is gone, and the step is green. That is the
+false green the entire sequence model exists to make impossible, walked back in through the
+gutter. The entry moved as a unit and it is repaired as one — by Accept-new-order and nothing
+else. Guard added, mutation-checked, pinned at both the session and the surface.
+
+Every test passed before that was found. It was found by *looking at the picture*. The rule
+that follows: **a UI phase is not gated by its tests, it is gated by its screenshots** — the
+tests only pin what you already thought to ask.
+
+**Phase 1 gate — met.** Full suite green (1195 tests, 0 failures); ktlint/detekt exactly at the
+1684-finding baseline. `DiffSurface` is drivable interactively as `Mode.Diff` inside the
+**existing** `ScenarioWorkbenchWindow` (`FIXTOOL_DIFF_HARNESS=1 ./gradlew :composeApp:run`) —
+no new window, and the host is deleted in 2.2 regardless, so nothing was written to be thrown
+away. Fixtures are the fake venue's own `shape` (a re-order **must** be offered) and `swap` (a
+re-order must **never** be offered, and the refusal renders on the group). Screenshot set
+committed from the Compose tests, at `build/scenario-screenshots/diff_surface_*.png`.
+
+*Not done by me:* clicking it. The bench lives in the second window, which the control
+surface's `/screenshot` cannot reach — it captures the main window. The app launches on the
+bench without exception and the control surface answers; the interactive pass is the author's.
 
 ---
 

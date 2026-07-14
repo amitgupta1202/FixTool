@@ -82,48 +82,107 @@ class ReconcileAnchorTest {
         )
     }
 
-    /** The same, for an echo: a reference row inside a moved entry blocked the move just as thoroughly. */
+    /** Two parties, one of them carrying an echoed value the reconcile view has no way to resolve. */
+    private fun partiesWithAnEcho() =
+        Expectation(
+            fields =
+                listOf(
+                    FieldExpectation(453, Matcher.Exact("2")),
+                    FieldExpectation(448, Matcher.Exact("FIRMA")),
+                    FieldExpectation(447, Matcher.Reference("\${src}")),
+                    FieldExpectation(452, Matcher.Exact("1")),
+                    FieldExpectation(448, Matcher.Exact("FIRMB")),
+                    FieldExpectation(447, Matcher.Reference("\${src}")),
+                    FieldExpectation(452, Matcher.Exact("4")),
+                ),
+            messageType = "8",
+        )
+
+    private fun partiesSwapped() =
+        wireView(453 to "2", 448 to "FIRMB", 447 to "D", 452 to "4", 448 to "FIRMA", 447 to "D", 452 to "1")
+
+    private fun asWritten(e: Expectation) =
+        e.fields.map { row ->
+            when (val m = row.matcher) {
+                is Matcher.Exact -> m.value
+                is Matcher.Reference -> m.expression
+                else -> "?"
+            }
+        }
+
+    /**
+     * THE SAME DEFECT, FOR AN ECHO — **and this is the fixture that must not be dodged.** A reference resolves
+     * against a live run's variable scope, and a reconcile view has none: no caller has a resolver to pass,
+     * because there is nothing to pass. So the row is judged with the resolver the app really uses, which is
+     * *none at all*, and `verbatimWindow` has to place it without asking whether its value holds — exactly as
+     * `placeByOccurrence` has always done.
+     *
+     * A test that handed in a working resolver would pass over the code that produced the bug. It passed, and
+     * the app went on telling the author "these entries did not move; the values changed in place" about a
+     * message whose entries had plainly swapped.
+     */
     @Test
-    fun `an entry carrying a reference is still recognised as having moved`() {
+    fun `an entry carrying a reference is still recognised as having moved, with no resolver at all`() {
+        val reordered = ScenarioReconcile.acceptNewOrder(partiesWithAnEcho(), partiesSwapped())
+
+        assertNotNull(reordered, "an echo inside a party entry must not hide the fact that the entry moved")
+        assertEquals(
+            listOf("2", "FIRMB", "\${src}", "4", "FIRMA", "\${src}", "1"),
+            asWritten(reordered),
+            "and FIRMA must still be the party that holds role 1",
+        )
+    }
+
+    /** And it must reach the same answer when the scope IS available — a replay, or a future live re-judge. */
+    @Test
+    fun `and the same entry move is found when the reference does resolve`() {
+        val reordered =
+            ScenarioReconcile.acceptNewOrder(
+                partiesWithAnEcho(),
+                partiesSwapped(),
+                referenceResolver = { if (it == "\${src}") "D" else null },
+            )
+
+        assertNotNull(reordered)
+        assertEquals(listOf("2", "FIRMB", "\${src}", "4", "FIRMA", "\${src}", "1"), asWritten(reordered))
+    }
+
+    /**
+     * **THE LIMIT OF THE LICENCE, AND WHY IT IS NOT OPTIONAL.**
+     *
+     * Placing an unjudgeable row without checking its value is safe only because the *other* rows of the block
+     * still pin the window, value for value. A block with **no** judgeable row in it pins nothing: it is a tag
+     * sequence matching a tag sequence, and tag sequences repeat. That is the rotation trap with the values
+     * taken away.
+     *
+     * Here both party fields are scenario variables, and the row above them fails, so the occurrence rule
+     * stands down and the block rule is all that is left. The engine has the two echo rows checking the
+     * *second* party (its greedy cursor was pushed past the first). Let a block of two unreadable rows "match"
+     * the first party on the strength of its tags — `448, 447`, which is every party ever sent — and the two
+     * rows are silently re-aimed onto a firm the author never chose, and reported as an entry that moved. No
+     * value was compared to reach that conclusion, because there was no value anybody here could read.
+     */
+    @Test
+    fun `a block of nothing but unjudgeable rows is never called a move`() {
         val draft =
             Expectation(
                 fields =
                     listOf(
-                        FieldExpectation(453, Matcher.Exact("2")),
-                        FieldExpectation(448, Matcher.Exact("FIRMA")),
+                        FieldExpectation(452, Matcher.Exact("9")),
+                        FieldExpectation(448, Matcher.Reference("\${firm}")),
                         FieldExpectation(447, Matcher.Reference("\${src}")),
-                        FieldExpectation(452, Matcher.Exact("1")),
-                        FieldExpectation(448, Matcher.Exact("FIRMB")),
-                        FieldExpectation(447, Matcher.Reference("\${src}")),
-                        FieldExpectation(452, Matcher.Exact("4")),
                     ),
                 messageType = "8",
             )
-        val reply =
-            wireView(
-                453 to "2",
-                448 to "FIRMB",
-                447 to "D",
-                452 to "4",
-                448 to "FIRMA",
-                447 to "D",
-                452 to "1",
-            )
+        // Two parties. The echo rows pair with the SECOND one; the first has the same tags and different values.
+        val reply = wireView(448 to "FIRMA", 447 to "D", 452 to "1", 448 to "FIRMB", 447 to "E")
 
-        val reordered =
-            ScenarioReconcile.acceptNewOrder(draft, reply, referenceResolver = { if (it == "\${src}") "D" else null })
+        val reorder = ScenarioReconcile.reorder(draft, reply)
 
-        assertNotNull(reordered, "an echoed id inside a party entry must not hide the fact that the entry moved")
-        assertEquals(
-            listOf("2", "FIRMB", "\${src}", "4", "FIRMA", "\${src}", "1"),
-            reordered.fields.map { row ->
-                when (val m = row.matcher) {
-                    is Matcher.Exact -> m.value
-                    is Matcher.Reference -> m.expression
-                    else -> "?"
-                }
-            },
-            "and FIRMA must still be the party that holds role 1",
+        assertTrue(
+            reorder !is ScenarioReconcile.Reorder.Possible,
+            "two rows nobody can read, 'matching' a party by its tag shape alone, is not evidence of a move — " +
+                "and accepting it would re-aim both onto a firm the author never chose: $reorder",
         )
     }
 

@@ -300,8 +300,13 @@ private open class SequenceSemantics(
     private fun kindOf(row: ScenarioReconcile.Row, moved: Set<Int>): ChunkKind =
         when {
             row.unasserted -> ChunkKind.RIGHT_ONLY
-            row.unknown -> ChunkKind.SAME // paired, and unjudgeable here: there is no difference to act on
+            // Moved is asked BEFORE unjudgeable, because a row the engine proved moved is a row Accept-new-order
+            // is about to relocate — whatever the diff can or cannot say about its value. An echoed id inside a
+            // party entry that travelled is exactly that row, and calling it SAME would have banded the entry's
+            // rows as two moved chunks with a placid one wedged between them: one crossing connector drawn to
+            // the wrong place, and a row silently rewritten by a button whose chunk said there was nothing here.
             row.index in moved -> ChunkKind.MOVED
+            row.unknown -> ChunkKind.SAME // paired, and unjudgeable here: there is no difference to act on
             row.status == TagStatus.MOVED || row.status == TagStatus.MISSING -> ChunkKind.LEFT_ONLY
             row.status == TagStatus.VALUE || row.status == TagStatus.INVALID -> ChunkKind.VALUE
             else -> ChunkKind.SAME

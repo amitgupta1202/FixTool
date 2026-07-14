@@ -432,11 +432,20 @@ object ScenarioReconcile {
         val holds = { matcher: Matcher, value: String ->
             ExpectationEvaluator.satisfies(matcher, value, referenceResolver, now)
         }
+        // A row this diff cannot judge AT ALL: a `reference` whose expression resolves against a live run's
+        // scope, and there is none here. Asking "does its value still hold?" of such a row answers nothing
+        // about the message's shape, and answering "no" — which is what a null resolver must answer — is what
+        // hid an entry that had plainly moved. It is placed, never value-checked; placement is occurrence- or
+        // block-preserving, so it keeps checking exactly the field it always did, and it is judged for real at
+        // replay. [placeByOccurrence] has always known this; [verbatimWindow] did not.
+        val judgeable = { matcher: Matcher ->
+            matcher !is Matcher.Reference || referenceResolver(matcher.expression) != null
+        }
 
         // Which strategy produced the placement decides what a refusal is allowed to SAY. placeByOccurrence is
         // structurally occurrence-preserving — it exists to cover a venue reshaping an entry internally — so a
         // refusal on top of it is a conservative withholding, not evidence that anything swapped.
-        val byEntry = placeByMovedEntry(draft, wire, passes, paired, holds)
+        val byEntry = placeByMovedEntry(draft, wire, passes, paired, holds, judgeable)
         val placement =
             placeByOccurrence(draft, wire, passes, paired, holds)
                 ?: byEntry
@@ -923,12 +932,14 @@ object ScenarioReconcile {
      * occurrence the two rows check — a row reading "the clearing firm's role is 4" comes to mean "the
      * executing firm's", while still saying `452 exact 4` on screen.
      */
+    @Suppress("LongParameterList") // The engine's inputs, threaded whole: dropping one is how a clock gets lost.
     private fun placeByMovedEntry(
         draft: Expectation,
         wire: List<Pair<Int, String>>,
         passes: Map<Int, Boolean>,
         paired: Map<Int, Int?>,
         holds: (Matcher, String) -> Boolean,
+        judgeable: (Matcher) -> Boolean,
     ): Map<Int, Int>? {
         val occurrences = draft.fields.groupingBy { it.tag }.eachCount()
 
@@ -950,7 +961,7 @@ object ScenarioReconcile {
         val used = mutableSetOf<Int>()
         for (block in blocks) {
             if (block.any { it in place }) continue
-            val at = verbatimWindow(draft, block, wire, used, holds) ?: continue
+            val at = verbatimWindow(draft, block, wire, used, holds, judgeable) ?: continue
             block.forEachIndexed { offset, index ->
                 place[index] = at + offset
                 used += at + offset
@@ -981,22 +992,40 @@ object ScenarioReconcile {
      * This is the one place a matcher is asked about *position*, and it is safe precisely because it is asked
      * about the whole run at once. A contiguous run of rows matching a contiguous run of fields, value for
      * value, is an entry that moved. A single row matching some field somewhere is not.
+     *
+     * **A row that cannot be judged here contributes its tag and nothing else.** This asked `holds` of every
+     * row, including a `reference` — which resolves against a live run's variable scope, and there is none in
+     * a reconcile view, so it answered *false* about a row it simply could not read. One echoed id inside a
+     * party entry was therefore enough to hide the fact that the entry had moved: the block never fitted, no
+     * placement was found, and the tool told the author — in its own words — that *"these entries did not
+     * move; it is the values there that changed"* about a message whose entries had plainly swapped. The
+     * anchor threading fixed the same bug for temporals, which have a moment to be judged at once the arrival
+     * instant is passed down; a reference has no such moment, and it needed this instead.
+     *
+     * The proof survives, because the *other* rows still pin the window value for value, and a block with no
+     * judgeable row in it proves nothing at all and is refused outright — a run of rows nobody can read
+     * "matching" a run of fields is just a tag sequence, and tag sequences repeat. That is the rotation trap
+     * with the values taken away.
      */
+    @Suppress("LongParameterList") // The engine's inputs, threaded whole: dropping one is how a clock gets lost.
     private fun verbatimWindow(
         draft: Expectation,
         block: List<Int>,
         wire: List<Pair<Int, String>>,
         used: Set<Int>,
         holds: (Matcher, String) -> Boolean,
+        judgeable: (Matcher) -> Boolean,
     ): Int? {
         if (block.isEmpty() || wire.size < block.size) return null
+        if (block.none { judgeable(draft.fields[it].matcher) }) return null
         for (at in 0..wire.size - block.size) {
             if ((at until at + block.size).any { it in used }) continue
             val fits =
                 block.withIndex().all { (offset, index) ->
                     val row = draft.fields[index]
                     val field = wire[at + offset]
-                    field.first == row.tag && holds(row.matcher, field.second)
+                    field.first == row.tag &&
+                        (!judgeable(row.matcher) || holds(row.matcher, field.second))
                 }
             if (fits) return at
         }

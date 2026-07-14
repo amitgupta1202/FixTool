@@ -110,6 +110,13 @@ allowed. A rotation window is not an entry (§05) and is refused — the overlay
 where an entry begins. `moveRow` and `moveEntry` are two callers of one validator, and
 `moveBlock` becomes a third, keeping its signature.
 
+> **The rule includes the one-row entry, and the first implementation did not — see R3 in the
+> review below.** A group the dictionary defines can have entries one field wide
+> (`NoMDEntryTypes`), and such an entry crossing its sibling *is* the whole entry crossing. It
+> is only the *heuristic* bracket around a bare repeated tag — `448, 448, 448`, a period-1
+> repeat that is not a group at all — whose single rows may not cross. `EntrySource` is what
+> tells them apart, and it is the reason the overlay computes it.
+
 One clause is ours rather than the mockup's: **a row may not leave its entry for another
 one.** Moving a `452` into an entry that carries no `452` crosses no sibling, so the rule
 above would permit it — and it would silently re-aim the row at another party. The live
@@ -131,7 +138,15 @@ that every `MatchMode` resolves to a registered id. Same guarantee, honest mecha
 that ran. If a file with no ids were given fresh random ids on each load, the two loads
 would never agree, and **every failure on a pre-`stepId` file would be refused** — the exact
 opposite of 0.1's purpose. So a step without an id gets `UUID.nameUUIDFromBytes` over
-(scenario id, phase, index): stable across loads. Only genuinely new steps get a random one.
+(scenario id, phase, index): stable across loads.
+
+> **There is no random path, and that makes the ordering of the assignment load-bearing — see
+> R1 in the review below.** Every id is a hash of a *position*, so the id minted for a new step
+> at index 1 is the id the existing step at index 1 already carries. `withIds` therefore claims
+> every id that exists in a **first pass**, and mints for the blanks only in a second: a step
+> that has an id can never lose it to a newcomer, and the newcomer salts past the collision. The
+> first implementation minted in one pass, and an insertion slid every id below it onto the next
+> step down — which is how an id becomes an index with a hash on top.
 
 `stepId` defaults to `""` (unassigned) so the positionally-constructed steps throughout the
 existing tests stay equal to one another; a single `Scenario.withIds()` normalizer runs at
@@ -304,6 +319,85 @@ an agent composes over `fixtool_save_scenario`, can fall into it silently and th
 confusing failure against an ancient message. The rail (2.1) shows live per-step status and
 will make this trap more visible, not less; consider whether the run report should say *which
 message* a step bound to.
+
+### Phase 0 review — three defects the phase shipped, and what they teach
+
+The phase was reviewed after it was declared complete. The gate claims held (full suite green,
+`ReconcileMoveBlockTest` and `ReconcileView.kt` byte-unchanged, the architecture test real).
+**Three defects were found in the phase's own work and are now fixed**, each with a test that
+fails without the fix and a mutation-check on the guard. All three are the same failure at
+different addresses: *a rule was stated correctly in prose and implemented as something
+narrower or wider.* Read them before Phase 1 — they are the shape of the mistake this area
+keeps producing.
+
+**R1 — `withIds` gave a new step the id of an existing one, and the reconcile route opened on
+the wrong step.** D3 says "only genuinely new steps get a random one"; no random path was ever
+written, so *every* id is `UUID.nameUUIDFromBytes(scenario/phase/index)` — a hashed index. The
+assignment minted for the first blank id it met **before the steps below it had claimed theirs**,
+so a step inserted at index 1 was minted with the id the existing step at index 1 was already
+carrying, took it, and pushed that step onto its own successor's id. Every step below an
+insertion slid one place down the id list. The failing step's id then named a *different* step;
+`reconcileRoute` found that one; and where the two were alike — two Expects awaiting two fills
+of the same shape — the "is this still the step that ran?" check passed and the route **opened
+on the wrong Expect**, where one click of Accept actual writes the failing message's bytes into
+an assertion that never saw it. That is the exact false green the id was introduced to close,
+re-created by the id. Fixed by claiming every existing id in a first pass, before anything is
+minted. Deletes, reorders and in-place edits were always safe and are pinned as such now.
+
+*The lesson:* an identifier derived from position is a position. It was never checked against
+the one edit — insertion — that its whole design was a response to.
+
+**R2 — one row nobody could read was enough to hide an entry that had plainly moved.**
+`verbatimWindow` asked `holds` of every row of a candidate block, including a `reference`, which
+resolves against a live run's variable scope — and a reconcile view has none, so **no caller has
+a resolver to pass, because there is nothing to pass**. The row answered "false" about a value it
+simply could not read, the block never fitted, and the tool told the author *"these entries did
+not move; it is the values there that changed"* about a message whose party entries had swapped.
+The engine already knew better in the two adjacent places (`placeByOccurrence`'s `hasFixedValue`
+carve-out, `reorder`'s `unjudgeable` carve-out); `verbatimWindow` was the one that forgot.
+Unjudgeable rows are now placed on their tag and never value-checked — bounded by a new guard,
+mutation-checked: **a block with no judgeable row in it proves nothing** and is refused outright,
+because a tag sequence matching a tag sequence is the rotation trap with the values taken away.
+`ComparisonSemantics.kindOf` had a coupled bug behind it — it asked `unknown` before `moved`, so
+the newly-movable reference row would have rendered as "nothing to do" and split its own entry's
+chunk in two. Fixed with it.
+
+*The lesson, and it is the one the plan already warned about in bold:* `ReconcileAnchorTest`'s
+"an entry carrying a reference is still recognised as having moved" **passed** — because it
+handed the engine a working `referenceResolver` that the app can never supply. The fixture dodged
+the hard case, exactly as §"Testing this model" says every serious defect in this area has. A
+test for a reconcile-time behaviour must be given what the *reconcile view* has, not what the
+runner has.
+
+**R3 — a one-field group entry could not be moved, and the refusal blamed it for something an
+entry move is licensed to do.** `moveEntry` refused any single-row entry of a repeated tag. That
+is right for a *heuristic* bracket — a bare `448, 448, 448` run is a period-1 repeat, not a group
+— and wrong for a *dictionary* one: `NoMDEntryTypes` is delimited by `MDEntryType` and holds
+nothing else, so its entries really are one row wide. Yes, moving one changes the occurrence
+mapping; **that is what an entry move is** (D1's own worked example is FIRMA's `448` becoming the
+second `448`). The danger the per-row arrow carries — a row arriving beside another entry's rows
+and being silently re-aimed onto them — cannot arise where the entry has no other rows to be
+separated from. The refusal is now conditioned on `EntrySource`, which is precisely what the
+overlay computes it for, and which `moveEntry` was throwing away by taking bare `IntRange`s.
+Phase 4's entry drag would have been silently dead for every single-field group.
+
+*The lesson:* D1 is right as written. The code was stricter than the rule and said so in the
+rule's own words, which is the hardest kind of wrongness to see.
+
+**Also corrected:** `moveEntry`'s out-of-range refusal told a *middle* entry it was "already last
+in its group", which it plainly was not. A refusal that describes the wrong situation is worse
+than one that says nothing, because the author believes it.
+
+**Two things found and deliberately not fixed**, recorded so Phase 1 does not inherit them
+unknowingly:
+
+- `ComparisonSemantics.linkMoves` pairs the *k*-th moved chunk with the *k*-th chunk by landing
+  place. That is correct for the two-entry swap (they point at each other) and is the *inverse*
+  edge for a three-way rotation. `Chunk.placement` is the real source of truth for the connector,
+  so Phase 1 should decide what the crossing line means for a rotation and take it from there.
+- `SemanticsContractTest` exercises only the `MessageView` overload of `align`, never the
+  `ReferenceMessage` one — which is the overload carrying the anchoring rule. Widen it when the
+  reference slot lands (Phase 5), and R2 is the reason to.
 
 ---
 

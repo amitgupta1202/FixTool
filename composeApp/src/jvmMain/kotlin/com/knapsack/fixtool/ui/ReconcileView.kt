@@ -66,22 +66,26 @@ fun ReconcileView(
     crumb: String = "",
     /** When the message arrived. Temporal rows are judged against THIS, never against "now" — see below. */
     actualAt: Instant? = null,
+    /**
+     * A **stable identity for the step** — the thing the staging state is keyed on.
+     *
+     * Not `expectation`: every fix replaces it, so keying on it destroyed history, draft and original on every
+     * click. Not `crumb` either: it is built from the step's messageType and session, and BOTH are editable in
+     * the editor while the reconcile view is open — so changing the session would have silently thrown away a
+     * session's worth of repairs, which is the same bug wearing a different hat.
+     */
+    stepKey: Any = crumb,
 ) {
-    // Keyed on the STEP, not on the expectation.
-    //
-    // Every fix calls onChange, the editor pushes that into step.expectation, and this composable recomposes
-    // with a new `expectation` value — so keying the staging state on `expectation` destroyed it on every
-    // click. In the running app the footer read "0 fixes staged" for ever, Undo was permanently dead, Discard
-    // did nothing, and no row ever showed as staged: the author could not walk back a wrong click on the one
-    // surface where a wrong click manufactures a false green. The tests never fed onChange back into the
-    // composable, so the whole suite was blind to it.
-    val original = remember(crumb) { expectation }
+    // Keyed on the STEP — see stepKey. Keying on `expectation` destroyed the staging state on every click,
+    // because every fix replaces it; keying on `crumb` destroyed it whenever the author edited the step's
+    // session or message type, because the crumb is built from them.
+    val original = remember(stepKey) { expectation }
     // Every fix is staged: the scenario file is not touched until the workbench saves, and Undo walks back
     // one fix at a time. The draft is pushed to the step as it changes so that navigating away — to look at
     // what the step before it sent — cannot silently destroy a session's worth of repairs.
-    val history = remember(crumb) { mutableStateListOf<StagedFix>() }
-    var draft by remember(crumb) { mutableStateOf(expectation) }
-    var loosening by remember(crumb) { mutableStateOf<Int?>(null) }
+    val history = remember(stepKey) { mutableStateListOf<StagedFix>() }
+    var draft by remember(stepKey) { mutableStateOf(expectation) }
+    var loosening by remember(stepKey) { mutableStateOf<Int?>(null) }
 
     fun stage(label: String, next: Expectation?) {
         if (next == null || next == draft) return

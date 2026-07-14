@@ -348,7 +348,7 @@ private fun StepDetail(
     }
     when (step.kind) {
         StepKind.SEND -> SendDetail(step, dictionary, onChange)
-        StepKind.EXPECT -> ExpectDetail(step, dictionary, secondInstance, onChange, runFailure)
+        StepKind.EXPECT -> ExpectDetail(step, dictionary, secondInstance, onChange, runFailure, stepIndex = index)
         StepKind.WAIT ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 SlimLabeled("State") {
@@ -477,6 +477,8 @@ private fun ExpectDetail(
     secondInstance: (String?, String?, String?) -> MessageView?,
     onChange: (EditStep) -> Unit,
     runFailure: RunFailureContext? = null,
+    /** The step's position in the scenario — stable across every edit to its contents. See ReconcileView. */
+    stepIndex: Int = 0,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         SlimLabeled("Direction") {
@@ -516,6 +518,8 @@ private fun ExpectDetail(
                 dictionary = dictionary,
                 crumb = "Expect · ${typeName?.let { "$it ($messageType)" } ?: messageType} · session ${step.session ?: "(active)"}",
                 actualAt = runFailure?.actualAt,
+                // The step's position in the scenario: stable across every edit to its contents.
+                stepKey = stepIndex,
                 // The golden follows the reconciliation. An expectation reconciled against *this* message
                 // describes *this* message, so keeping the old golden left the two contradicting each other:
                 // reopen the step later, without a failure, and the builder previews the new assertions

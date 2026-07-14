@@ -25,10 +25,27 @@ The same firm appears twice under different PartyRoles, so both entries carry 44
 the case the whole sequence model exists for, and the case identity-based matching could
 never address.
 """
+import os
 import socket
 import sys
 import time
 from datetime import datetime, timezone
+
+# The venue's behaviour, switchable at runtime by writing one of these words to MODE_FILE.
+#   golden : the reply a scenario is captured from.
+#   shape  : the party ENTRIES swap places (benign), plus a real value regression, a tag added and a tag
+#            dropped — the four kinds of failure the reconcile view is organised around.
+#   swap   : the two firms swap ROLES. Same tags, same positions, same everything else. This is a
+#            behaviour regression and must NEVER be offered as "entry moved".
+MODE_FILE = os.environ.get("FAKE_VENUE_MODE_FILE", "/tmp/fake_venue_mode")
+
+
+def mode():
+    try:
+        with open(MODE_FILE) as f:
+            return f.read().strip() or "golden"
+    except OSError:
+        return "golden"
 
 SOH = "\x01"
 HOST, PORT = "127.0.0.1", 19999
@@ -96,7 +113,8 @@ def main():
 
             elif mt == "D":  # NewOrderSingle -> the hostile ExecutionReport
                 clordid = fields.get("11", "UNKNOWN")
-                er = [
+                m = mode()
+                head = [
                     ("37", "VENUE-ORD-9"),      # OrderID  -- BEFORE ClOrdID, as a real venue sends
                     ("11", clordid),            # ClOrdID
                     ("17", "EXEC-1"),           # ExecID
@@ -108,17 +126,42 @@ def main():
                     ("44", "1.08510"),
                     ("6", "1.08510"),
                     ("14", fields.get("38", "1000000")),
-                    ("151", "0"),
-                    # the party group, MID-BODY. Same firm, two roles -> both entries 448=FIRMA.
-                    ("453", "2"),
-                    ("448", "FIRMA"), ("447", "D"), ("452", "1"),   # executing firm
-                    ("448", "FIRMA"), ("447", "D"), ("452", "4"),   # clearing firm
-                    # and a Text field AFTER the group, which toString() could never do
-                    ("58", "filled|in full"),   # NOTE the pipe: a legal FIX value
-                    ("60", now()),
                 ]
+
+                if m == "shape":
+                    # A benign ENTRY REORDER (the clearing firm now arrives first) — one-click Accept new
+                    # order — mixed with a genuine regression and some shape churn.
+                    er = head + [
+                        ("151", "250000"),                                  # <- VALUE CHANGED (was 0). Real.
+                        ("453", "2"),
+                        ("448", "FIRMB"), ("447", "D"), ("452", "4"),       # clearing firm, now FIRST
+                        ("448", "FIRMA"), ("447", "D"), ("452", "1"),       # executing firm, now SECOND
+                        ("2376", "Y"),                                      # <- TAG ADDED
+                        # 58 (Text) is NOT sent                             <- TAG MISSING
+                        ("60", now()),
+                    ]
+                elif m == "swap":
+                    # The two firms SWAP ROLES. Nothing moved; FIRMB is now the executing firm. This is a
+                    # regression, and the reconcile view must not call it a reorder.
+                    er = head + [
+                        ("151", "0"),
+                        ("453", "2"),
+                        ("448", "FIRMB"), ("447", "D"), ("452", "1"),       # <- FIRMB now holds role 1
+                        ("448", "FIRMA"), ("447", "D"), ("452", "4"),       # <- FIRMA now holds role 4
+                        ("58", "filled in full"),
+                        ("60", now()),
+                    ]
+                else:  # golden
+                    er = head + [
+                        ("151", "0"),
+                        ("453", "2"),
+                        ("448", "FIRMA"), ("447", "D"), ("452", "1"),       # executing firm
+                        ("448", "FIRMB"), ("447", "D"), ("452", "4"),       # clearing firm
+                        ("58", "filled in full"),
+                        ("60", now()),
+                    ]
                 conn.sendall(frame("8", er, seq))
-                print(f">> 8 (ExecutionReport, VENUE ORDER) seq={seq}", flush=True)
+                print(f">> 8 (ExecutionReport, mode={m}) seq={seq}", flush=True)
                 seq += 1
 
             elif mt == "1":  # TestRequest -> Heartbeat

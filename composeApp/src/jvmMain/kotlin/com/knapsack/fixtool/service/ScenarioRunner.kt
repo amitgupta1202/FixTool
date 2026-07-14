@@ -260,7 +260,11 @@ class ScenarioRunner(
         // message", and the one deciding WHICH MESSAGE a step binds to was the weaker of them.
         val fields = predicate?.fields
         if (!fields.isNullOrEmpty()) {
-            val wire = host.view(msg)?.fields() ?: return false
+            // A message we have no wire bytes for cannot be EXCLUDED by a field constraint either — refusing
+            // to bind would make the step time out with "no matching message", which points at the venue for
+            // something that is FixTool's own limitation, and hides a message that is sitting right there. It
+            // binds, and the expect step then fails loudly and says whose fault it is.
+            val wire = host.view(msg)?.fields() ?: return true
             fields.forEach { tv ->
                 if (wire.firstOrNull { it.first == tv.tag }?.second != tv.value) return false
             }

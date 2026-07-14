@@ -20,7 +20,7 @@ dodged the hard case.
 |---|---|---|
 | 0 | Engine seams (no UI) | **complete** |
 | 1 | The diff surface, standalone | **complete** |
-| 2 | Rail + document tabs; the window dies | not started |
+| 2 | Rail + document tabs; the window dies | **in progress** |
 | 3 | The diff surface becomes the only expectation editor | not started |
 | 4 | Drag moves, undo/redo, keyboard | not started |
 | 5 | Reference slot: paste, pick, provenance | not started |
@@ -65,9 +65,9 @@ that your files add none. The bench: `FIXTOOL_DIFF_HARNESS=1 ./gradlew :composeA
 4. **The control surface's `/screenshot` captures the MAIN window.** Point it at second-window
    content and it grabs the user's desktop instead. Do not.
 
-**Before writing any of Phase 2, write its `### Decisions taken before implementation` section
-here**, the way Phases 0 and 1 have one. Both times, that section caught something the
-checklist below had wrong — and both times it was the checklist, not the design.
+**Phase 2's `### Decisions taken before implementation` is written** (below, T1–T8), and it holds:
+T1 is a live defect — the editor drops every `stepId` on Save, so the id is a hash of the position
+again — and T2 says a document tab, unlike the window it replaces, is *disposed* when you look away.
 
 ---
 
@@ -689,6 +689,132 @@ bench without exception and the control surface answers; the interactive pass is
 ---
 
 ## Phase 2 — Rail + document tabs; the window dies
+
+### Decisions taken before implementation — read these first
+
+Eight things the checklist under-specifies or gets wrong, settled here with the reasoning, so the
+next reader does not re-derive them. **T1 is a live defect that Phase 0 exists to prevent and the
+editor has been re-creating on every Save; T2 changes the shape of the phase.**
+
+**T1 — The scenario editor throws away every step id on Save. The id is a position again.**
+
+`EditStep` (`ScenarioEditor.kt:69`) carries no `stepId`, so `toStep()` builds every step with the
+default `stepId = ""`, and Save hands `ScenarioService` a scenario whose steps have **no ids at all**.
+`save` then calls `withIds()`, whose first pass finds nothing to claim, and mints every id from
+`(scenario, phase, index)`.
+
+So the id is a hash of the position — **R1's defect at a different address**, and `withIds`' careful
+two-pass claim-before-mint is defeated by a caller that hands it a clean slate. In-place edits survive
+by accident: the minting is deterministic, so a step that has not moved is re-minted with the id it
+already had. **Move, insert or delete a step and Save, and every id below the edit shifts with the
+positions.** A run held from before that Save then names, by id, a step that is not the one that
+failed. `reconcileRoute`'s equality check catches that only where the two steps *differ* — and the
+case it cannot catch is the one R1 already documented: two Expects awaiting two fills of the same
+shape, where the route opens on the **wrong Expect** and one click of Accept actual writes the failing
+message's bytes into an assertion that never saw them.
+
+Nothing pinned it. `ScenarioEditorStepIdentityTest` is *named* for step identity and never looks at a
+`stepId`; the codec's invariant test asserts that no blank id reaches disk, which is true — the ids on
+disk are simply not the ones that went in. The fixture dodged the hard case by moving nothing.
+
+`EditStep` gains `stepId`; `toEditStep`/`toStep` carry it through; a step the author *adds* gets the
+blank that `withIds` mints at Save. Reproduce on the current code first, and mutation-check the
+round-trip.
+
+It is fixed here rather than filed, because **T2 is built on it**: a document's dirty flag is
+`draft != seed`, and a draft that loses its ids differs from its seed the moment it is built — every
+tab would open dirty and every close would ask to confirm.
+
+**T2 — A tab is not a window. Only the active document is composed, so the *document* must own its
+state; the composables cannot.**
+
+The workbench window kept `ScenarioEditor`'s `remember`ed state alive while the author looked at the
+session grid, because the window stayed composed. A document tab does not. Switch to the session tab
+and the editor's subtree is disposed — **its unsaved edits, and capture-review's entire include/exclude
+curation, go with it.** That is not a missing feature, it is a *regression against the window we are
+deleting*, and it sits on both of Phase 2's own gate paths (capture → save; deep-link → edit → save).
+
+There are two ways out and the cheap one is wrong. Keeping every open document composed but unplaced
+preserves all of it for free — and puts every document's nodes in the semantics tree, where
+`onNodeWithTag("editor-save")` will find a **hidden** tab's button and pass. A UI test that cannot tell
+which document it is looking at is worse than no test, and this phase's gate is a UI gate.
+
+So the documents own their state and the composables mirror it out:
+
+- `ScenarioEditor` gains `onChange: (Scenario) -> Unit`, emitted when the built scenario changes by
+  value; the tab re-seeds it from the document's draft when it comes back.
+- `ScenarioCaptureReview` becomes a controlled component over `CaptureReviewState(name, selectedIdx,
+  included)` — `state` in, `onStateChange` out. `RangeSelectors` stops mutating a `SnapshotStateList`
+  in place.
+- Both test harnesses **must feed the callback back** (ground rule 3). A harness that records it once
+  will sit happily on top of a document that keeps nothing.
+- **Dirty is measured against the editor's own round-tripped seed** — `initial.steps.map {
+  it.toEditStep().toStep() }` — never against the file. `EditStep` normalizes a Send's raw
+  (`parseFixMessage` → re-join), so comparing the draft against the file marks an untouched document
+  dirty over a difference the author did not make.
+
+**T3 — The centre pane has a selection of its own, and it is not `activeSessionIndex`.**
+
+A document tab is not a session, but the mockup puts them in one strip. If focusing a document moved
+`activeSessionIndex`, then the message editor's target, `fixtool_send`, the grid's tint and every
+control-surface call that means "the active session" would follow the author into a scenario document.
+
+So the ViewModel owns `openDocuments: List<ScenarioDoc>` and `activeDocumentId: String?`, and
+**`activeDocumentId == null` *is* the session view.** Clicking a session tab clears it; clicking a
+document tab sets it and leaves `activeSessionIndex` exactly where it was. One decider, in the
+ViewModel, because three doors (rail, run line, `openScenarioEditorForFailure`) and the control
+surface all open documents.
+
+`WorkbenchEditRequest`'s one-shot flow is deleted with the window that had to observe it — the
+ViewModel opens the document itself. The payload type is renamed `ScenarioEditRequest`; the word
+*workbench* does not survive this phase in the code either.
+
+**T4 — In SPLIT, the document takes one split and the sessions keep the other.**
+
+The proposal is explicit ("in SPLIT view modes the scenario document occupies one split while a live
+session stays visible in the other"), and SPLIT has no tab bar to hide the grid behind. So the centre
+becomes `session grid | divider | document area`, split **along the axis the author already chose** —
+SPLIT_HORIZONTAL (sessions left→right) puts the document to the right, SPLIT_VERTICAL (sessions
+stacked) puts it below. With no document open the region is not composed at all and SPLIT renders
+exactly as it does today. The document tab strip heads the document area in SPLIT and merges into the
+`TabBar` in TABS, from one component.
+
+**T5 — The rail cannot own the scenario list.**
+
+`ScenarioListPane` holds `scenarios` in a `remember` and calls its own `refresh()` after every write,
+which worked only because every write happened inside it. In Phase 2 the writes happen in a *document
+tab* — Save in the editor, Save in capture review — and a list that refreshes itself would never hear
+about them: the author saves, and the rail goes on showing the old step count. So the ViewModel owns
+`scenarios: StateFlow<List<Scenario>>`, refreshed on save/delete/capture, and the rail renders it.
+
+**T6 — The rail attributes a run by scenario *id*, never by `ScenarioResult.scenario`.**
+
+That field is a **name** (`ScenarioResult(scenario = scenario.name, …)`). Two scenarios may share one,
+and a green tick on the wrong row is a lie about what passed. `lastRunScenario` carries the identified
+`Scenario` that ran — match on its `id`. Per-step status matches on `stepId` first (`StepResult.stepId`
+against the saved step), falling back to `(phase == "steps", stepIndex)` for a result minted before the
+file grew ids.
+
+**T7 — Per-step *live* status does not exist. Do not draw it.**
+
+`ScenarioRunner` publishes one `ScenarioResult` at the end of the run; `assertionResults` trickle in
+per matched message but carry no notion of "step 3 is running now". So the ▸ belongs to the **scenario**
+(`scenarioRunning` ∧ `lastRunScenario.id`), and its steps stay `–` until the verdict lands. Inventing a
+per-step spinner means inventing the state behind it.
+
+And the runner **breaks at the first failing step** (`ScenarioRunner.kt:93`), so every step after a
+failure has no `StepResult` at all. Those render *"— not reached"* (the mockup's own words), never a
+bare `–`: `–` reads as *"ran, nothing to say"*, and this is the same class of silence as a missing
+button with no reason beside it.
+
+**T8 — A tab is a document, not a modal: Save does not close it.**
+
+`onSave` in the workbench meant "save and go back to the list", because the list was the only place to
+go back to. In a tab there is nowhere to go: Save writes, the document becomes clean, and the tab stays
+open — which is also what makes Phase 3's *Save & re-run* possible without inventing a new lifecycle.
+The two exceptions are honest ones: capture review's Save *creates* a scenario, so its document has
+served its purpose and closes; and `esc` / `×` on a **dirty** document confirms first, inline on the
+tab, in the app's own delete-confirm idiom (`ScenarioRow`) rather than a new dialog.
 
 ### 2.1 The Scenarios rail
 - [ ] New left-docked pane in `ui/App.kt` following the exact existing idiom

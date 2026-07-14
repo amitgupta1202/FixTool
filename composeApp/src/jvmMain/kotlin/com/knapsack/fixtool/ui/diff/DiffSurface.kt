@@ -255,7 +255,7 @@ private fun WhyNoMove(why: String) {
 @Composable
 private fun ColumnHeaders(referenceLabel: String) {
     Row(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 3.dp)) {
-        Header("EXPECTATION (EDITABLE)", Modifier.weight(1f))
+        Header("EXPECTATION (EDITABLE)", Modifier.weight(LEFT_WEIGHT))
         Spacer(Modifier.width(GUTTER))
         Header("RECEIVED — ${referenceLabel.uppercase()}", Modifier.weight(1f))
     }
@@ -269,8 +269,13 @@ private fun Header(text: String, modifier: Modifier) {
 // --------------------------------------------------------------------------------------------- the body
 
 private val GUTTER = 56.dp
-private val TAG_COL = 52.dp
-private val NAME_COL = 112.dp
+private val TAG_COL = 46.dp
+
+// The left column is the EDITABLE one — a chip, a value field, sometimes a tolerance — and the right is read-
+// only text that can be ellipsized without losing anything. Splitting the width evenly starved the side that
+// has controls in it, and at a narrow window the matcher editor's own labels wrapped one character per line.
+private val NAME_COL = 96.dp
+private const val LEFT_WEIGHT = 1.25f
 
 /** What the body draws, in order: a band opens an entry, and the lines inside it are indented under it. */
 private sealed interface Item {
@@ -386,7 +391,7 @@ private fun EntryBand(session: ReconcileSession, model: DiffModel, band: Item.Ba
                 .padding(horizontal = 12.dp, vertical = 2.dp)
                 .testTag(if (band.moved) "moved-band" else "entry-band"),
     ) {
-        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = Modifier.weight(LEFT_WEIGHT), verticalAlignment = Alignment.CenterVertically) {
             Text("▏", color = border, fontSize = 11.sp)
             Text(
                 band.entry.label.ifBlank {
@@ -471,7 +476,7 @@ private fun DiffRow(session: ReconcileSession, line: DiffLine, depth: Int) {
                 .padding(horizontal = 12.dp, vertical = 2.dp)
                 .testTag("diff-row"),
     ) {
-        Box(modifier = Modifier.weight(1f)) { LeftCell(session, line, depth) }
+        Box(modifier = Modifier.weight(LEFT_WEIGHT)) { LeftCell(session, line, depth) }
         Box(modifier = Modifier.width(GUTTER), contentAlignment = Alignment.Center) { Gutter(session, line) }
         Box(modifier = Modifier.weight(1f)) { RightCell(line) }
     }

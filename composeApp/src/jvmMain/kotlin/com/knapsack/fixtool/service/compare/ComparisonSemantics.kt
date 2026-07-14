@@ -47,6 +47,18 @@ interface ComparisonSemantics {
         resolver: (String) -> String? = { null },
         at: Instant = Instant.now(),
     ): AlignmentModel
+
+    /**
+     * Line [expectation] up against whatever is currently in the reference slot — this run's failure, the
+     * golden, a picked message, a paste — judged at **that message's own moment**. Swapping the slot and
+     * re-aligning is the whole of "re-judge against something else".
+     */
+    fun align(
+        expectation: Expectation,
+        reference: ReferenceMessage,
+        dictionary: FixDictionaryAdapter?,
+        resolver: (String) -> String? = { null },
+    ): AlignmentModel
 }
 
 /** The one shape the diff surface renders, whatever produced it. */
@@ -145,11 +157,41 @@ private open class SequenceSemantics(
         at: Instant,
     ): AlignmentModel {
         val draft = expectation.copy(mode = mode)
-        val now = { at }
+        val rows = ScenarioReconcile.rows(draft, actual, dictionary, resolver) { at }
+        return build(draft, actual, dictionary, resolver, { at }, rows)
+    }
+
+    override fun align(
+        expectation: Expectation,
+        reference: ReferenceMessage,
+        dictionary: FixDictionaryAdapter?,
+        resolver: (String) -> String?,
+    ): AlignmentModel {
+        val draft = expectation.copy(mode = mode)
+        // The reference's own moment, and — where it has none — rows that say so instead of guessing.
+        val anchor = reference.anchorInstant ?: Instant.now()
+        return build(
+            draft,
+            reference.view,
+            dictionary,
+            resolver,
+            { anchor },
+            ScenarioReconcile.rows(draft, reference, dictionary, resolver),
+        )
+    }
+
+    @Suppress("LongParameterList") // The engine's inputs, threaded whole: dropping one is how a clock gets lost.
+    private fun build(
+        draft: Expectation,
+        actual: MessageView,
+        dictionary: FixDictionaryAdapter?,
+        resolver: (String) -> String?,
+        now: () -> Instant,
         // Straight off ScenarioReconcile, which is straight off ExpectationEvaluator.diff — so the lines
         // the author sees are the lines the runner judged. A view that ran its own comparison would drift,
         // and would eventually offer a fix for a row the engine was not asserting.
-        val rows = ScenarioReconcile.rows(draft, actual, dictionary, resolver, now)
+        rows: List<ScenarioReconcile.Row>,
+    ): AlignmentModel {
         val wire = actual.fields()
 
         // **What moved is what the engine proved moved** — not what a row's status says.
@@ -161,7 +203,8 @@ private open class SequenceSemantics(
         // establishes it — verbatim block, occurrence-preserving, verified against the engine's own
         // alignment. So the moved rows come from there, and with them the placement that says where each
         // one landed; a moved row pairs with nothing, so nothing else can say what to draw opposite it.
-        val reorder = ScenarioReconcile.reorder(draft, actual, now) as? ScenarioReconcile.Reorder.Possible
+        val reorder =
+            ScenarioReconcile.reorder(draft, actual, now, resolver) as? ScenarioReconcile.Reorder.Possible
 
         return AlignmentModel(
             linkMoves(

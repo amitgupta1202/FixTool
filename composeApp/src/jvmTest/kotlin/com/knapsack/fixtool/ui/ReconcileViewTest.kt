@@ -24,6 +24,7 @@ import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.MessageView
+import com.knapsack.fixtool.service.ScenarioReconcile
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
@@ -353,5 +354,118 @@ class ReconcileViewTest {
         composeTestRule.onAllNodesWithText("Accept actual").onFirst().performClick()
 
         composeTestRule.onNodeWithTag("reconcile-staged").assertTextEquals("1")
+    }
+
+    // ------------------------------------------------- moving an entry by hand, and being told why not
+
+    private fun party(id: String, role: String) =
+        listOf(
+            FieldExpectation(448, Matcher.Exact(id)),
+            FieldExpectation(447, Matcher.Exact("D")),
+            FieldExpectation(452, Matcher.Exact(role)),
+        )
+
+    private fun partyExpectation() = Expectation(party("FIRMA", "1") + party("FIRMB", "4"), messageType = "8")
+
+    private fun threePartyExpectation() =
+        Expectation(party("FIRMA", "1") + party("FIRMB", "4") + party("FIRMC", "7"), messageType = "8")
+
+    /**
+     * The arrow must do something the engine would NOT do, or the test cannot tell it apart from
+     * Accept-new-order. Three parties, of which two swapped: the engine's plan moves B and C. The author
+     * instead moves A down — a placement the plan never proposes — and the expectation that comes out is one
+     * only the arrow can produce.
+     */
+    @Test
+    fun `the arrow moves the entry the author picked, not the one the engine planned`() {
+        // B and C swapped; A did not move. The engine's Accept-new-order would swap B and C back.
+        val actual =
+            wire(
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
+                448 to "FIRMC",
+                447 to "D",
+                452 to "7",
+                448 to "FIRMB",
+                447 to "D",
+                452 to "4",
+            )
+        var edited: Expectation? = null
+
+        composeTestRule.reconcile(threePartyExpectation(), actual) { edited = it }
+
+        // B and C are the entries the engine bracketed. The author moves B *up* — past FIRMA, an entry the
+        // engine did not touch and never proposed touching.
+        composeTestRule.onAllNodesWithTag("move-block-up").onFirst().performClick()
+
+        val fields = edited!!.fields.map { it.tag to (it.matcher as Matcher.Exact).value }
+        assertEquals(
+            listOf(
+                448 to "FIRMB",
+                447 to "D",
+                452 to "4",
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
+                448 to "FIRMC",
+                447 to "D",
+                452 to "7",
+            ),
+            fields,
+            "B swapped with A — and every party is still whole, firm still beside its own role",
+        )
+        val reordered = ScenarioReconcile.acceptNewOrder(threePartyExpectation(), actual)
+        val plan = reordered?.fields?.map { it.tag to (it.matcher as Matcher.Exact).value }
+        assertTrue(
+            fields != plan,
+            "the arrow must reach a placement the engine's plan does not — otherwise it proves nothing: $plan",
+        )
+    }
+
+    /**
+     * The arrows the mockup drew and nobody built. They live on the block, and clicking one moves the whole
+     * entry — which is why the author, looking at a bracket, has a way to fix an alignment they disagree with
+     * that does not involve dragging a single row past its sibling.
+     */
+    @Test
+    fun `a bracketed entry can be moved by hand, as a whole, from the block header`() {
+        // The entries swapped places (shape). FIRMA still holds role 1, so this is a real move.
+        val actual = wire(448 to "FIRMB", 447 to "D", 452 to "4", 448 to "FIRMA", 447 to "D", 452 to "1")
+        var edited: Expectation? = null
+
+        composeTestRule.reconcile(partyExpectation(), actual) { edited = it }
+
+        // One bracket per entry — not one lump around the whole group, which is what left the arrows with
+        // nothing to swap with.
+        composeTestRule.onAllNodesWithTag("moved-block").assertCountEquals(2)
+        composeTestRule.onAllNodesWithTag("move-block-down").onFirst().performClick()
+
+        val fields = edited!!.fields.map { it.tag to (it.matcher as Matcher.Exact).value }
+        assertEquals(
+            listOf(448 to "FIRMB", 447 to "D", 452 to "4", 448 to "FIRMA", 447 to "D", 452 to "1"),
+            fields,
+            "the entry moved whole: FIRMA is still the firm asserted alongside role 1",
+        )
+        composeTestRule.onNodeWithTag("reconcile-staged").assertTextEquals("1")
+    }
+
+    /**
+     * THE ROLE SWAP. Two firms exchange roles; the `452` rows still pass where they are. No move is offered —
+     * correctly — and the view must **say so**, because an author who sees red rows in a party group and no
+     * re-order anywhere concludes the feature was never built. That is exactly what happened.
+     */
+    @Test
+    fun `a role swap offers no move, and says why not`() {
+        // Same positions, same roles; the FIRMS swapped. Nothing moved — the values changed in place.
+        val actual = wire(448 to "FIRMB", 447 to "D", 452 to "1", 448 to "FIRMA", 447 to "D", 452 to "4")
+
+        composeTestRule.reconcile(partyExpectation(), actual)
+
+        composeTestRule.onNodeWithTag("moved-block").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("move-block-up").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("move-block-down").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("reconcile-no-move").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("reconcile-no-move").assertTextContains("did not move", substring = true)
     }
 }

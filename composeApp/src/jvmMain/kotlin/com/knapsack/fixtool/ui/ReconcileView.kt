@@ -1,5 +1,6 @@
 // Compose UI: dense composable calls read best on one line.
 @file:Suppress("MaxLineLength", "LongParameterList")
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.knapsack.fixtool.ui
 
@@ -9,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -116,12 +118,14 @@ fun ReconcileView(
     // a green by a longer route" failure canAcceptActual's own doc warns about, manufactured by the view.
     val judgedAt = actualAt ?: Instant.now()
     val rows = ScenarioReconcile.rows(draft, actual, dictionary, now = { judgedAt })
-    val reorder = ScenarioReconcile.acceptNewOrder(draft, actual)
-    // A row is "moved" exactly when Accept-new-order would put it somewhere else — defined by the fix
-    // itself, so there is no second opinion about it to disagree with the first. That is what lets a party
-    // arriving out of order read as *one* entry that moved, rather than as six unrelated value mismatches.
-    val movedRows = ScenarioReconcile.movedRows(draft, actual)
-    val blocks = contiguousBlocks(rows, movedRows)
+    // One decision, asked once. A row is "moved" exactly when Accept-new-order would put it somewhere else —
+    // defined by the fix itself, so there is no second opinion to disagree with the first. That is what lets
+    // a party arriving out of order read as *one* entry that moved rather than six value mismatches; and when
+    // the engine withholds the move, this is what carries the reason it withheld it.
+    val reorder = ScenarioReconcile.reorder(draft, actual, now = { judgedAt })
+    val newOrder = (reorder as? ScenarioReconcile.Reorder.Possible)?.reordered
+    val movedRows = (reorder as? ScenarioReconcile.Reorder.Possible)?.moved.orEmpty()
+    val blocks = bracketsFor(rows, movedRows, ScenarioReconcile.entries(draft))
 
     Column(modifier = modifier.fillMaxWidth().border(1.dp, AppTheme.Colors.border).testTag("reconcile-view")) {
         StepHeader(
@@ -143,36 +147,85 @@ fun ReconcileView(
             onDiscard = ::discard,
             onStrictChange = { stage(if (it) "Switched to STRICT" else "Switched to OPEN", draft.copy(mode = if (it) MatchMode.STRICT else MatchMode.OPEN)) },
         )
-        VerdictBar(rows, movedRows, blocks.size)
+        VerdictBar(rows, movedRows, movedEntries = blocks.count { it.span != null })
+        // The engine knows exactly why it is not offering a move. It used to keep that to itself, and an
+        // author looking at a group full of red rows with no re-order on offer concluded — reasonably — that
+        // re-ordering had never been built. See ScenarioReconcile.Reorder.
+        (reorder as? ScenarioReconcile.Reorder.Refused)?.let { NoMoveNote(it.why) }
         DiffHeaderRow()
 
-        Column(modifier = Modifier.fillMaxWidth()) {
-            rows.forEachIndexed { i, row ->
-                blocks.firstOrNull { it.first == i }?.let { block ->
-                    MovedBlockHeader(
-                        rows = block.map { rows[it] },
-                        dictionary = dictionary,
-                        onAcceptOrder = { stage("Accepted the new order", reorder) },
-                    )
-                }
-                DiffRowView(
-                    row = row,
-                    moved = row.index in movedRows,
-                    edited = isEdited(row, original, actual, dictionary),
-                    loosening = loosening == i,
-                    onLoosen = { loosening = if (loosening == i) null else i },
-                    onMatcherChange = { stage("Loosened ${row.tag} to ${ExpectationDescribe.of(it)}", ScenarioReconcile.loosen(draft, row.index!!, it)) },
-                    onAcceptActual = { stage("Accepted ${row.tag} = ${row.actual}", ScenarioReconcile.acceptActual(draft, row.index!!, row.actual)) },
-                    onAssertAbsent = { stage("Asserting ${row.tag} absent", ScenarioReconcile.assertAbsent(draft, row.index!!)) },
-                    canAssertAbsent = row.index?.let { ScenarioReconcile.canAssertAbsent(draft, actual, it) } == true,
-                    onDrop = { stage("Dropped ${row.tag}", ScenarioReconcile.drop(draft, row.index!!)) },
-                    dropTakesWholeTag = row.index?.let { ScenarioReconcile.dropTakesWholeTag(draft, it) } == true,
-                    onAssertIt = { stage("Now asserted: ${row.tag} = ${row.actual}", ScenarioReconcile.addAssertion(draft, actual, row.wireIndex!!, dictionary)) },
-                )
-                if (blocks.any { it.last == i }) BlockEnd()
-            }
-        }
+        DiffRows(
+            rows = rows,
+            blocks = blocks,
+            movedRows = movedRows,
+            draft = draft,
+            original = original,
+            actual = actual,
+            dictionary = dictionary,
+            newOrder = newOrder,
+            loosening = loosening,
+            onLoosening = { loosening = it },
+            stage = ::stage,
+        )
         Footer(staged = history.size, canUndo = history.isNotEmpty(), onUndo = ::undo)
+    }
+}
+
+/** The diff itself: every row, with its block brackets and its per-row fixes. */
+@Composable
+private fun DiffRows(
+    rows: List<ScenarioReconcile.Row>,
+    blocks: List<Bracket>,
+    movedRows: Set<Int>,
+    draft: Expectation,
+    original: Expectation,
+    actual: MessageView,
+    dictionary: FixDictionary?,
+    newOrder: Expectation?,
+    loosening: Int?,
+    onLoosening: (Int?) -> Unit,
+    stage: (String, Expectation?) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        rows.forEachIndexed { i, row ->
+            blocks.firstOrNull { it.rendered.first == i }?.let { bracket ->
+                val span = bracket.span
+                MovedBlockHeader(
+                    rows = bracket.rendered.map { rows[it] },
+                    dictionary = dictionary,
+                    // ONE Accept-new-order, on the first bracket, because it applies the engine's re-order of
+                    // the WHOLE message — not of the one entry whose bracket it happens to sit in. Drawn inside
+                    // every bracket, a click on the first silently re-ordered the others and left their buttons
+                    // dead, with no way for the author to tell what they had just done.
+                    showAcceptOrder = blocks.firstOrNull() === bracket,
+                    onAcceptOrder = { stage("Accepted the new order", newOrder) },
+                    canMoveUp = span != null && ScenarioReconcile.canMoveBlock(draft, span, up = true),
+                    canMoveDown = span != null && ScenarioReconcile.canMoveBlock(draft, span, up = false),
+                    onMoveUp = { span?.let { stage("Moved the entry up", ScenarioReconcile.moveBlock(draft, it, up = true)) } },
+                    onMoveDown = { span?.let { stage("Moved the entry down", ScenarioReconcile.moveBlock(draft, it, up = false)) } },
+                )
+            }
+            DiffRowView(
+                row = row,
+                moved = row.index in movedRows,
+                edited = isEdited(row, original, actual, dictionary),
+                loosening = loosening == i,
+                onLoosen = { onLoosening(if (loosening == i) null else i) },
+                onMatcherChange = { stage("Loosened ${row.tag} to ${ExpectationDescribe.of(it)}", ScenarioReconcile.loosen(draft, row.index!!, it)) },
+                onAcceptActual = { stage("Accepted ${row.tag} = ${row.actual}", ScenarioReconcile.acceptActual(draft, row.index!!, row.actual)) },
+                onAssertAbsent = { stage("Asserting ${row.tag} absent", ScenarioReconcile.assertAbsent(draft, row.index!!)) },
+                canAssertAbsent = row.index?.let { ScenarioReconcile.canAssertAbsent(draft, actual, it) } == true,
+                onDrop = { stage("Dropped ${row.tag}", ScenarioReconcile.drop(draft, row.index!!)) },
+                dropTakesWholeTag = row.index?.let { ScenarioReconcile.dropTakesWholeTag(draft, it) } == true,
+                onAssertIt = {
+                    stage(
+                        "Now asserted: ${row.tag} = ${row.actual}",
+                        ScenarioReconcile.addAssertion(draft, actual, row.wireIndex!!, dictionary),
+                    )
+                },
+            )
+            if (blocks.any { it.rendered.last == i }) BlockEnd()
+        }
     }
 }
 
@@ -247,6 +300,12 @@ private fun VerdictBar(rows: List<ScenarioReconcile.Row>, movedRows: Set<Int?>, 
     val behaviour = values
     val added = rows.count { it.unasserted && it.wireIndex != null }
     val missing = rows.count { !it.passed && !isMoved(it) && it.status == TagStatus.MISSING }
+    // Two different units, and they must not be confused. `attention` is a count of ROWS — the headline says
+    // "N of M rows need attention" — while the phrase beside it counts ENTRIES. Feeding the entry count into
+    // the row count made the headline read "2 of 21 rows need attention" over six rows that had all moved, and
+    // on a moved field that belongs to no repeating group it counted zero and the bar announced that every
+    // assertion would now pass.
+    val movedRowCount = rows.count { isMoved(it) }
     val moved = movedEntries
 
     // Rows that cannot be judged here at all — a reference resolves against a live run's scope, and there is
@@ -260,19 +319,24 @@ private fun VerdictBar(rows: List<ScenarioReconcile.Row>, movedRows: Set<Int?>, 
     // count entirely, and the bar declared success over a step that fails.
     val bucketed = setOf(TagStatus.VALUE, TagStatus.INVALID, TagStatus.MISSING)
     val unresolved = rows.count { !it.passed && !it.unasserted && !it.unknown && !isMoved(it) && it.status !in bucketed }
-    val attention = values + added + missing + moved + unresolved
+    val attention = values + added + missing + movedRowCount + unresolved
 
     val parts = buildList {
         if (values > 0) add("$values value${plural(values)} changed")
         if (added > 0) add("$added tag${plural(added)} added")
         if (missing > 0) add("$missing tag${plural(missing)} missing")
         if (moved > 0) add("$moved entr${if (moved == 1) "y" else "ies"} moved")
+        else if (movedRowCount > 0) add("$movedRowCount field${plural(movedRowCount)} moved")
         if (unresolved > 0) add("$unresolved out of order")
         if (unknown > 0) add("$unknown not checkable here")
     }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    // FlowRow, not Row. The verdict is the one line a reader must not have to work for, and in a Row its last
+    // phrase — the shape-versus-behaviour verdict, the whole point of the bar — was the one that got squeezed:
+    // at the workbench's own default width it collapsed to a column one character wide and several hundred dp
+    // tall, which pushed the entire diff below the fold. The pane was a red rectangle with no rows in it.
+    FlowRow(
+        itemVerticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().background(if (attention > 0) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant).padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
@@ -379,6 +443,45 @@ private fun contiguousBlocks(rows: List<ScenarioReconcile.Row>, moved: Set<Int?>
         i = end + 1
     }
     return blocks
+}
+
+/**
+ * The brackets, and the expectation span each one may be moved by.
+ *
+ * One bracket per **entry**, because a bracket around a whole six-row group has no sibling to swap with and
+ * would leave the arrows permanently dead. But the entries come from [ScenarioReconcile.entries] — the row
+ * order of the *expectation* — and never from the period of whatever run of rows happened to move.
+ *
+ * That distinction is the whole defect. Take the period of the moved run and a run that starts mid-entry
+ * (because the first row of the entry still passes and stays put) splits into brackets that are each half of
+ * one party welded to half of the next: `(452 role, 448 firm)`. Hand that to a move and one click asserts one
+ * party's role of another party's firm — the assert-the-wrong-field false green, arriving through the very
+ * affordance built to prevent it.
+ *
+ * A moved row that belongs to no repeating run still gets a bracket, so it can be seen; it just has no
+ * sibling to be moved past, and therefore no arrows ([Bracket.span] is null).
+ */
+private data class Bracket(val rendered: IntRange, val span: IntRange?)
+
+private fun bracketsFor(
+    rows: List<ScenarioReconcile.Row>,
+    moved: Set<Int>,
+    entries: List<IntRange>,
+): List<Bracket> {
+    val renderedAt = rows.withIndex().mapNotNull { (r, row) -> row.index?.let { it to r } }.toMap()
+    val movedEntries = entries.filter { entry -> entry.any { it in moved } }
+
+    val entryBrackets =
+        movedEntries.mapNotNull { entry ->
+            val renderedRows = entry.mapNotNull { renderedAt[it] }
+            if (renderedRows.isEmpty()) null else Bracket(renderedRows.min()..renderedRows.max(), entry)
+        }
+
+    // Moved rows outside every repeating run: bracketed as they were, with no arrows.
+    val claimed = movedEntries.flatMap { it.toList() }.toSet()
+    val loose = contiguousBlocks(rows, moved - claimed).map { Bracket(it, span = null) }
+
+    return (entryBrackets + loose).sortedBy { it.rendered.first }
 }
 
 @Composable
@@ -523,20 +626,39 @@ private fun DropButton(onDrop: () -> Unit, takesWholeTag: Boolean) {
 }
 
 /**
- * A moved entry, bracketed as one thing with one fix.
+ * A moved entry, bracketed as one thing with one fix — and, when the diff's alignment is not the one the
+ * author knows to be true, `move entry ↑ ↓` to say so by hand.
  *
  * A venue does not move a PartyRole; it moves a *party* — the delimiter and everything under it, three to
  * six tags travelling together. Fixing that row by row would be several clicks to express one fact, and each
  * click would leave the expectation in a state that is momentarily wrong.
+ *
+ * **The arrows are on the block. They are never on a row, and they never will be.** A per-row arrow lets the
+ * author move the second `452` above the first, which silently swaps which occurrence each of the two rows
+ * checks: the row still reads `452 exact 4` while it has quietly stopped meaning the clearing firm's role and
+ * started meaning the executing firm's. It also lets them build an order no real message has —
+ * `448, 447, 448, 452, 452`. Moving the whole block cannot do either: it swaps with a run carrying the same
+ * tags in the same order, so the expectation's tag sequence does not change at all, and every row keeps the
+ * neighbours that give it its meaning. See [ScenarioReconcile.moveBlock].
  */
 @Composable
-private fun MovedBlockHeader(rows: List<ScenarioReconcile.Row>, dictionary: FixDictionary?, onAcceptOrder: () -> Unit) {
+private fun MovedBlockHeader(
+    rows: List<ScenarioReconcile.Row>,
+    dictionary: FixDictionary?,
+    showAcceptOrder: Boolean,
+    onAcceptOrder: () -> Unit,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .background(AppTheme.Colors.selectionSecondary)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .testTag("moved-block"),
     ) {
         Text("⇅", color = AppTheme.Colors.warning, fontSize = 11.sp, modifier = Modifier.width(GUT))
         val travelled = rows.filter { it.status == TagStatus.MOVED || !it.passed }.ifEmpty { rows }
@@ -553,9 +675,53 @@ private fun MovedBlockHeader(rows: List<ScenarioReconcile.Row>, dictionary: FixD
             color = AppTheme.Colors.textSecondary,
             fontSize = 10.sp,
             maxLines = 1,
+            modifier = Modifier.weight(1f),
         )
-        Row(modifier = Modifier.weight(1f)) {}
-        SlimButton("Accept new order", onClick = onAcceptOrder, color = AppTheme.Colors.info)
+        // Only where there is a sibling entry to swap with. A disabled arrow says "not here"; an absent one
+        // would say "never built", which is the misreading this whole block exists to correct.
+        if (canMoveUp || canMoveDown) {
+            Text("move entry", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
+            SlimButton(
+                text = "↑",
+                onClick = onMoveUp,
+                color = AppTheme.Colors.warning,
+                enabled = canMoveUp,
+                modifier = Modifier.padding(end = 2.dp).testTag("move-block-up"),
+            )
+            SlimButton(
+                text = "↓",
+                onClick = onMoveDown,
+                color = AppTheme.Colors.warning,
+                enabled = canMoveDown,
+                modifier = Modifier.padding(end = 6.dp).testTag("move-block-down"),
+            )
+        }
+        if (showAcceptOrder) SlimButton("Accept new order", onClick = onAcceptOrder, color = AppTheme.Colors.info)
+    }
+}
+
+/**
+ * Why no move is on offer — the sentence that turns a silence into an answer.
+ *
+ * Without it the view shows "2 values changed" over two red `448` rows and says nothing about the re-order it
+ * considered and deliberately withheld; the author, who can see perfectly well that the two firms have
+ * swapped, concludes the feature does not exist. The engine knew why. It just did not say.
+ */
+@Composable
+private fun NoMoveNote(why: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppTheme.Colors.surfaceVariant)
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+    ) {
+        Text("⇅", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, modifier = Modifier.width(GUT))
+        Text(
+            text = why,
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 10.sp,
+            modifier = Modifier.testTag("reconcile-no-move"),
+        )
     }
 }
 

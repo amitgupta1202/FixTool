@@ -168,4 +168,99 @@ class ControlMessageFieldsTest {
         )
         assertTrue(fields.count { it["tag"]!!.jsonPrimitive.int == 448 } == 2)
     }
+
+    private fun post(path: String, body: String): HttpResponse<String> {
+        val request =
+            HttpRequest
+                .newBuilder(URI.create("http://127.0.0.1:$port$path"))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build()
+        return client.send(request, HttpResponse.BodyHandlers.ofString())
+    }
+
+    /**
+     * An expectation with **no rows** asserts nothing, and must never report success.
+     *
+     * `results.all { passed }` on an empty list is `true`, so `/assert` answered `{passed: true, tags: []}` —
+     * a check that verified nothing and called itself green, to an agent that records it as a passing test.
+     * The guard only covered the `fields` key being *absent*, not being empty, and an agent that filters a
+     * captured field list down to nothing (or mis-parses a capture_expectation response) lands here easily.
+     */
+    @Test
+    fun `an assert with no rows is refused, not reported as passing`() {
+        val resp = post("/assert", """{"session":"VENUE","messageType":"8","direction":"in","fields":[]}""")
+
+        val body = Json.parseToJsonElement(resp.body()).jsonObject
+        assertEquals(
+            "error",
+            body["status"]?.jsonPrimitive?.content,
+            "an expectation with no rows must be refused: $body",
+        )
+        assertTrue(
+            body["error"]!!.jsonPrimitive.content.contains("asserts nothing"),
+            "and it must say why: ${body["error"]}",
+        )
+    }
+
+    /**
+     * The read surface and the assert surface must agree about what arrived.
+     *
+     * A message FixTool has no wire bytes for cannot be judged — its field order would have to be invented —
+     * so `/assert` refuses it. `/messages` still returns a best-effort field list for it, which is right (a
+     * blank pane helps nobody), but it must SAY so, or an agent is shown a message, composes rows from it, and
+     * is then told the message does not exist.
+     */
+    @Test
+    fun `a message with no wire bytes is flagged on read and refused on assert`() {
+        val sessionsField = FixMessageViewModel::class.java.getDeclaredField("_sessions")
+        sessionsField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val sessions = sessionsField.get(viewModel) as MutableList<FixMessageSession>
+        sessions[0].addMessage(
+            FixMessage(
+                timestamp = LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = "8=FIX.4.4|35=9|34=4|49=VENUE|56=US|45=1|10=006|",
+                messageType = "9",
+                quickfixMessage = Message(),
+                wireRaw = null, // FixTool does not have the venue's bytes for this one
+            ),
+        )
+        sessions[0].flushMessageQueue()
+
+        // Read: the fields come back, but the message is flagged.
+        val read =
+            client.send(
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port/messages?session=VENUE")).GET().build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+        val readBody = Json.parseToJsonElement(read.body()).jsonObject
+        val messages = readBody["messages"]!!.jsonArray.map { it.jsonObject }
+        val flagged = messages.single { it["messageType"]!!.jsonPrimitive.content == "9" }
+        assertEquals(
+            false,
+            flagged["wireOrderKnown"]!!.jsonPrimitive.content.toBoolean(),
+            "an agent must be able to tell that this message's field order is not the venue's",
+        )
+        // ...and the ones we do have bytes for are not flagged.
+        val good = messages.first { it["messageType"]!!.jsonPrimitive.content == "8" }
+        assertEquals(true, good["wireOrderKnown"]!!.jsonPrimitive.content.toBoolean())
+
+        // Assert: refused outright, and it says whose fault it is.
+        val resp =
+            post(
+                "/assert",
+                """{"session":"VENUE","messageType":"9","direction":"in","fields":[{"tag":45,"matcher":{"type":"exact","value":"1"}}]}""",
+            )
+        val body = Json.parseToJsonElement(resp.body()).jsonObject
+        assertEquals(false, body["passed"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals("no-wire-bytes", body["status"]!!.jsonPrimitive.content)
+        assertTrue(
+            body["error"]!!.jsonPrimitive.content.contains("FixTool limitation"),
+            "the refusal must blame the tool, not the venue: ${body["error"]}",
+        )
+        // Same key set as a judged reply, so a caller need not special-case the one response whose whole
+        // purpose is to tell it something went wrong.
+        assertTrue(body["tags"]!!.jsonArray.isEmpty(), "nothing was judged, so no row may be reported")
+    }
 }

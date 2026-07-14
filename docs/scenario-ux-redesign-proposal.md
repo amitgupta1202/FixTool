@@ -52,7 +52,8 @@ and where they live. The current implementation's own pain points make the case:
 
 ## Part 1 — Scenarios move into the main window
 
-Two pieces, following the app's two existing layout idioms:
+Three pieces — the first two follow the app's existing layout idioms; the third is the
+2026-07-14 revision:
 
 ### 1a. The Scenarios rail — a docked tool pane, like the message editor
 
@@ -74,18 +75,44 @@ right now", which a separate window never was.
 ### 1b. Scenario documents open as tabs in the centre, beside the session tabs
 
 The `TabBar` already switches the centre pane between sessions. Scenario *documents* —
-the flow editor, a capture review, a reconcile diff — join it as closable tabs with a
-distinct glyph (`⚙ rfq flow v2`, `⇄ Step 2 · reconcile`), the way an IDE mixes editors
-and diff tabs in one strip:
+the flow editor and a capture review — join it as closable tabs with a distinct glyph
+(`⚙ rfq flow v2`), the way an IDE mixes editors into one strip:
 
-- **Width.** A two-sided diff and the step editor need the centre; a 28 %-wide dock
-  cannot hold them. The rail stays narrow because documents do not open inside it.
+- **Width.** The step editor needs the centre; a 28 %-wide dock cannot hold it. The
+  rail stays narrow because documents do not open inside it.
 - **Context is one click, not one window.** The session tab with the tinted grid rows is
   a neighbouring tab; in SPLIT view modes the scenario document occupies one split while
   a live session stays visible in the other.
-- **Deep links stay honest.** "Reconcile assertions →" (run report, rail, or the message
-  viewer) opens/focuses the reconcile *tab* for that step — same `WorkbenchEditRequest`
-  plumbing, different landing surface. No `toFront()`, no window-state bugs.
+
+### 1c. The diff opens in a dedicated window — **revised 2026-07-14**
+
+> Original decision: the reconcile diff was a document tab like the others. Revised on
+> review: **the diff surface — reconcile, authoring, and the plain viewer — opens in a
+> dedicated window**, the way an IDE opens a diff. The rail, the flow editor, and
+> capture review stay in the main window as above.
+
+Why a window is right for *this* surface and wrong for the workbench it replaced:
+
+- **A diff is consulted against context, not instead of it.** In a tab, opening the
+  reconcile *hides* the session grid it is about — the failure's surroundings vanish at
+  the exact moment they matter. In a window, the grid, rail, and detail panel stay
+  visible beside the diff. The original "away from context" complaint was about the
+  *whole workbench* living remotely; a task-scoped diff window is opened *from* context
+  and closes back into it.
+- **It is task-scoped and disposable.** It opens on one step (or one message pair),
+  does one job, and closes — the IntelliJ diff-frame model. The workbench window failed
+  because it was a *place*; this is a *tool*.
+- **It never holds the only copy of unsaved state.** The scenario workspace (one draft
+  per scenario, whatever is looking at it) lives with the main window; closing a diff
+  window closes a *view*, never discards a draft, and the rail/editor keep showing
+  dirty state. This is the property that makes a second window safe where the old one
+  was not.
+
+Rules: the main window remains the only *persistent* window. Diff windows are
+transient; one window per subject (re-opening the same step focuses the existing
+window); several windows over different subjects may coexist (two diffs side by side is
+a real workflow). Deep links — rail, run line, message viewer, `fixtool_reconcile` —
+open-or-focus the window for that step.
 
 `ScenarioWorkbenchWindow` and the `Mode.List/Capture/Edit` switcher are deleted;
 `ScenarioListPane` content becomes the rail; `ScenarioCaptureReview` and `ScenarioEditor`
@@ -342,19 +369,23 @@ No new surface, no new persistence, no new safety argument.
 
 ## Part 5 — The three workflows, counted in clicks
 
-The layout rules exist for these paths. The standing rules first: **no second window,
-ever** — every surface is a tab or pane, so the grid and detail panel are never more
-than one click away; every failure surface deep-links to the same destination; `esc`
-closes a tab (a dirty one confirms); and anything that needs a message accepts *the
-current grid selection, a paste, or a picker* — whichever the user already has in hand.
+The layout rules exist for these paths. The standing rules first: **one persistent
+window** — the rail, editor, and capture are panes and tabs in it, so the grid and
+detail panel are never more than one click away; **the diff opens in a dedicated,
+task-scoped window** (§1c) beside that context, never over it; every failure surface
+deep-links to the same destination; `esc` closes a tab or diff window (a dirty one
+confirms; a closing diff window never discards the scenario's draft); and anything that
+needs a message accepts *the current grid selection, a paste, or a picker* — whichever
+the user already has in hand.
 
 **W1 — run and repair (the daily loop).**
 Rail **▶ Run** *(1)* → failure lands in three places at once (rail step ✗, grid row red,
-detail banner) → **Reconcile →** from any of them *(2)* → the diff editor tab, scrolled
-to the first failing row → fixes are gutter clicks, inline edits, drags — each judged
-live → **Save & re-run** *(3 + fixes)*: one button writes the scenario and runs it
-again, and the rail verdict answers on the spot. Two clicks from failure to fixing;
-one from fixed to proven.
+detail banner) → **Reconcile →** from any of them *(2)* → the diff window opens beside
+the grid, scrolled to the first failing row → fixes are gutter clicks, inline edits,
+drags — each judged live, with the failure's surroundings still on screen → **Save &
+re-run** *(3 + fixes)*: one button writes the scenario and runs it again, and the rail
+verdict answers on the spot. Two clicks from failure to fixing; one from fixed to
+proven.
 
 **W2 — a wire from a real server becomes a scenario.**
 Rail **New scenario → Paste wire…** *(1)*, paste the log fragment *(2)* → capture-review
@@ -384,7 +415,8 @@ needs:
   editor's authoring mode.
 - `entryRegions`/`longestRepeat` as the primary structure source — demoted to fallback
   behind the dictionary overlay.
-- The run-report → reconcile *window* hop — deep links land on tabs.
+- The run-report → *workbench-window* hop — deep links land on the editor tab or the
+  task-scoped diff window (§1c), never on a persistent second window.
 
 And one model-level fix the reports surfaced: **steps gain stable ids**, so run results
 address a step by identity instead of index, and `reconcileRoute`'s "edited since run"

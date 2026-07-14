@@ -16,6 +16,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -287,5 +288,103 @@ class VerdictTest {
             Verdict.canAcceptShape(rows, MatchMode.STRICT),
             "in STRICT the very same tags ARE the failure, and the button is the fix",
         )
+    }
+
+    // ------------------------------------------------------------------ the slot chooses the sentence (S1)
+
+    /**
+     * **"N rows need attention" is a claim about the VENUE, and it is only true of the venue's own message.**
+     *
+     * The sentence has meant *the venue did something new* since the day it was written. Against a message the
+     * author bound **by hand** — a row picked out of a grid, a reply pasted from UAT — FixTool has no idea why
+     * it is being compared: it may be another environment's answer to the same order, a rejection where a fill
+     * was captured, or a different venue entirely. It reports, and it does not diagnose.
+     *
+     * Live before this: `bindPickedReference` is reachable from the no-reference prompt, which is shown
+     * *precisely when the step has never run* — so an author bound a grid message to a never-run step and the
+     * surface told them three rows needed attention, as though a venue they had not yet called had regressed.
+     */
+    @Test
+    fun `a red row against a message the author bound by hand is not a venue regression`() {
+        val verdict = verdictOf(captured, reply, movedEntries = 2)
+        assertTrue(verdict.attention > 1, "the fixture must have something to say")
+
+        listOf(ReferenceMessage.Provenance.PICKED, ReferenceMessage.Provenance.PASTED).forEach { provenance ->
+            val headline = verdict.headlineAgainst(provenance)
+            assertFalse(
+                headline.contains("need attention"),
+                "against $provenance that sentence accuses the venue of a regression it may not have had: $headline",
+            )
+            assertTrue(headline.contains("do not hold"), "it says what is true and nothing more: $headline")
+            assertTrue(headline.contains(verdict.attention.toString()), "and it still counts: $headline")
+        }
+    }
+
+    /** The same rows against the venue's own message keep the sentence they have always had. */
+    @Test
+    fun `a red row against this run, or the golden, still means the venue did something new`() {
+        val verdict = verdictOf(captured, reply, movedEntries = 2)
+
+        listOf(ReferenceMessage.Provenance.THIS_RUN, ReferenceMessage.Provenance.GOLDEN).forEach { provenance ->
+            assertEquals(verdict.headline, verdict.headlineAgainst(provenance), "$provenance is the venue's own message")
+        }
+    }
+
+    /** Green is about a message too: it holds *against the one in the slot*, and the sentence names it. */
+    @Test
+    fun `green against a hand-bound message says which message it holds against`() {
+        val draft = Expectation(listOf(FieldExpectation(35, Matcher.Exact("8"))), messageType = "8", mode = MatchMode.OPEN)
+        val verdict = verdictOf(draft, wireView(35 to "8"))
+
+        assertEquals(0, verdict.attention)
+        assertTrue(
+            verdict.headlineAgainst(ReferenceMessage.Provenance.PASTED).contains("holds against the pasted message"),
+            verdict.headlineAgainst(ReferenceMessage.Provenance.PASTED),
+        )
+    }
+
+    /**
+     * **The FAILED chip is the headline in five letters, and it was drawn with no idea what was in the slot.**
+     *
+     * `DiffSurface` drew it on `needsAttention` alone. So the never-run step above — the one being *authored*
+     * against a picked message — was painted **FAILED**, in red, beside a verdict that said something else;
+     * and verify-generalizes, whose whole answer is *"over-specified"*, was painted FAILED too. A step that has
+     * not run cannot have failed. The chip and the headline come from one function now, so they cannot come to
+     * disagree about what the reader is looking at.
+     */
+    @Test
+    fun `the chip says what the slot licenses it to say, and never FAILED about a step that did not fail`() {
+        val verdict = verdictOf(captured, reply, movedEntries = 2)
+
+        assertEquals("failed", verdict.chipAgainst(ReferenceMessage.Provenance.THIS_RUN))
+        assertEquals("would fail", verdict.chipAgainst(ReferenceMessage.Provenance.GOLDEN), "it has not run: this is a prediction")
+        assertEquals("over-specified", verdict.chipAgainst(ReferenceMessage.Provenance.SECOND_INSTANCE))
+        assertEquals("does not hold", verdict.chipAgainst(ReferenceMessage.Provenance.PICKED))
+        assertEquals("does not hold", verdict.chipAgainst(ReferenceMessage.Provenance.PASTED))
+    }
+
+    /** Nothing to say is nothing to draw — the chip is absent on a green diff, whatever is in the slot. */
+    @Test
+    fun `a diff with nothing to do carries no chip at all`() {
+        val draft = Expectation(listOf(FieldExpectation(35, Matcher.Exact("8"))), messageType = "8", mode = MatchMode.OPEN)
+        val verdict = verdictOf(draft, wireView(35 to "8"))
+
+        ReferenceMessage.Provenance.entries.forEach { provenance ->
+            assertNull(verdict.chipAgainst(provenance), "green against $provenance")
+        }
+    }
+
+    /**
+     * A step that asserts nothing passes for ever while checking nothing, and that is true against *any*
+     * message in the slot. The one sentence the provenance may not soften.
+     */
+    @Test
+    fun `asserting nothing is called out whatever is on the right`() {
+        val verdict = verdictOf(Expectation(emptyList(), messageType = "8"), reply)
+
+        ReferenceMessage.Provenance.entries.forEach { provenance ->
+            assertEquals(verdict.headline, verdict.headlineAgainst(provenance))
+            assertTrue(verdict.headlineAgainst(provenance).contains("nothing is asserted"))
+        }
     }
 }

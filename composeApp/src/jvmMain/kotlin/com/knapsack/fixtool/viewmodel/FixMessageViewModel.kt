@@ -66,6 +66,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import java.io.File
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 class FixMessageViewModel(
@@ -479,13 +481,21 @@ class FixMessageViewModel(
         openReconcileDocument(scenario = draft, stepId = stepId)
     }
 
-    private fun referenceOf(wire: String, arrivedAt: java.time.Instant?): ReferenceMessage =
-        ReferenceMessage.live(
+    private fun referenceOf(wire: String, arrivedAt: java.time.Instant?): ReferenceMessage {
+        val at = arrivedAt ?: java.time.Instant.now()
+        return ReferenceMessage.live(
             view = RawMessageView(wire),
             provenance = ReferenceMessage.Provenance.THIS_RUN,
-            label = "this run",
-            arrivedAt = arrivedAt ?: java.time.Instant.now(),
+            // The mockup's own words. The chip and the right column's heading are both this label, so the slot
+            // says what it is holding wherever the reader happens to look.
+            label = "received — this run · ${clockOf(at)}",
+            arrivedAt = at,
         )
+    }
+
+    /** `09:35:44` — a moment a reader can match against the row they clicked in the grid. */
+    private fun clockOf(instant: java.time.Instant): String =
+        CLOCK_FORMAT.format(instant.atZone(ZoneId.systemDefault()))
 
     private fun newReconcileSession(
         scenarioId: String,
@@ -541,12 +551,13 @@ class FixMessageViewModel(
         val expectation =
             (scenarioDraft(doc.scenarioId)?.draft?.steps?.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect)
                 ?.expectation ?: return
+        val at = arrivedAt?.atZone(java.time.ZoneId.systemDefault())?.toInstant() ?: java.time.Instant.now()
         val reference =
             ReferenceMessage.live(
                 view = RawMessageView(wire),
                 provenance = ReferenceMessage.Provenance.PICKED,
-                label = "picked",
-                arrivedAt = arrivedAt?.atZone(java.time.ZoneId.systemDefault())?.toInstant() ?: java.time.Instant.now(),
+                label = "picked — ${clockOf(at)}",
+                arrivedAt = at,
             )
         val existing = doc.session
         if (existing != null) {
@@ -1413,6 +1424,14 @@ class FixMessageViewModel(
      *
      * By `stepId`, because the step may have moved under the tab. A step the new run never reached matched no
      * message, and its diff keeps the reference it had rather than inventing one.
+     *
+     * **And it re-binds only the slots the run owns.** THIS_RUN is the run's by definition; GOLDEN is a step
+     * that had never run and now has, which is the answer the author asked for by running it. A reference the
+     * author bound **by hand** — a message picked out of a grid, a reply pasted from another environment — is
+     * usually the whole reason the diff is open, and replacing it because a run happened takes away the thing
+     * they were comparing against at the moment they were using it. Those are kept. `thisRunWire` is updated
+     * either way, so the swap menu offers the new run's bytes; the run simply does not impose them on a
+     * question the author has already answered.
      */
     private fun rebindReconcileDocuments() {
         val ran = _lastRunScenario.value ?: return
@@ -1431,7 +1450,9 @@ class FixMessageViewModel(
                 val reference = referenceOf(wire, arrivedAt)
                 val session = doc.session
                 if (session != null) {
-                    session.swapReference(reference)
+                    if (runOwns(session.reference.provenance)) session.swapReference(reference)
+                    // Held whatever the slot holds: this is what the menu's "received — this run" entry binds,
+                    // and what tells a hand-bound diff that a newer run has landed.
                     updateDocument(doc.copy(thisRunWire = wire))
                 } else {
                     // It was showing the prompt: there was nothing to diff against, and now there is.
@@ -1447,6 +1468,12 @@ class FixMessageViewModel(
                 }
             }
     }
+
+    /**
+     * Whose slot is this to fill? A run may replace the message it *produced* — and a golden, which is only
+     * ever standing in for a run that had not happened yet. It may not replace one the author chose.
+     */
+    private fun runOwns(provenance: ReferenceMessage.Provenance): Boolean = !provenance.chosenByTheAuthor
 
     /**
      * **Save & re-run** — the third click of W1, and the one that closes the loop. Saves the scenario the diff
@@ -2931,3 +2958,6 @@ class FixMessageViewModel(
         DemoServerManager.stop()
     }
 }
+
+/** `09:35:44` — the clock the reference chip and the grid row are both read against. */
+private val CLOCK_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")

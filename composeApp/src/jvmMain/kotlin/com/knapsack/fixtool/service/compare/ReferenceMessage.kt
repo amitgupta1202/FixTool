@@ -53,6 +53,26 @@ data class ReferenceMessage(
 
         /** Wire bytes from somewhere FixTool cannot vouch for: a log, an email, another environment. */
         PASTED,
+        ;
+
+        /**
+         * **Did the author put this message here, or did FixTool?** — one question, and three things turn on it.
+         *
+         * FixTool binds two of these on the author's behalf: the message that *failed this run*, and the
+         * *golden* the step was captured from. Both are the message the step is **about**. The other three the
+         * author chose, deliberately, for a reason FixTool does not know.
+         *
+         * - **The verdict's sentence.** A red row against the step's own message means *the venue did something
+         *   new*; against a message the author bound it means only that the rows do not hold against it, and
+         *   saying more would accuse a venue of a regression nobody has evidence of.
+         * - **The header's chip**, which is that sentence in two words, and is read first.
+         * - **What a run may replace.** A run owns the slot it filled — and a golden, which was only ever
+         *   standing in for a run that had not happened yet. It does not own the message the author chose, and
+         *   taking it away because a run landed removes the thing they were comparing against at the moment they
+         *   were using it.
+         */
+        val chosenByTheAuthor: Boolean
+            get() = this == SECOND_INSTANCE || this == PICKED || this == PASTED
     }
 
     companion object {

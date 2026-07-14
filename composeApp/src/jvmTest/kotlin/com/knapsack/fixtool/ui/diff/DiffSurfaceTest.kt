@@ -144,6 +144,8 @@ class DiffSurfaceTest {
     private fun ComposeContentTestRule.surface(
         initial: Expectation,
         message: MessageView,
+        provenance: ReferenceMessage.Provenance = ReferenceMessage.Provenance.THIS_RUN,
+        label: String = "received — this run · 09:35:44",
         onEdit: (Expectation) -> Unit = {},
     ) {
         setContent {
@@ -155,8 +157,7 @@ class DiffSurfaceTest {
                 remember(Unit) {
                     ReconcileSession(
                         original = expectation,
-                        initialReference =
-                            ReferenceMessage.live(message, ReferenceMessage.Provenance.THIS_RUN, "this run", arrival),
+                        initialReference = ReferenceMessage.live(message, provenance, label, arrival),
                         dictionary = dictionary,
                         onChange = {
                             expectation = it
@@ -185,6 +186,40 @@ class DiffSurfaceTest {
         } catch (e: Exception) {
             println("[DiffSurfaceTest] snapshot '$name' skipped: ${e.message}")
         }
+    }
+
+    // ----- the slot chooses the sentence, and the chip is a sentence -----------------------------------------
+
+    /**
+     * **A step that has not run cannot have failed, and the header used to say it had.**
+     *
+     * The chip was drawn on `needsAttention` alone. Bind a message the author picked out of a grid — which the
+     * no-reference prompt offers *precisely when the step has never run* — and the same rows that would have
+     * been a venue regression painted the step **FAILED**, in red, beside a headline that said the same thing.
+     * Both sentences accused a venue that had not been called.
+     */
+    @Test
+    fun `a picked message is not a verdict on the venue, and the header does not say it failed`() {
+        composeTestRule.surface(captured, reply, provenance = ReferenceMessage.Provenance.PICKED, label = "picked — 09:41:02")
+
+        composeTestRule.onNodeWithTag("diff-failed").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("DOES NOT HOLD").assertCountEquals(1)
+        composeTestRule.onAllNodesWithText("FAILED").assertCountEquals(0)
+        composeTestRule
+            .onNodeWithTag("diff-summary")
+            .assertTextContains("do not hold against the picked message", substring = true)
+        // And the right column stops claiming the bytes were *received* on this run, which they were not.
+        composeTestRule.onAllNodesWithText("PICKED — 09:41:02 — WIRE ORDER").assertCountEquals(1)
+        snapshot("diff_surface_picked_reference.png")
+    }
+
+    /** The same rows against the message the step is *about* keep the word they have always had. */
+    @Test
+    fun `against this run's own failure the header still says failed`() {
+        composeTestRule.surface(captured, reply)
+
+        composeTestRule.onAllNodesWithText("FAILED").assertCountEquals(1)
+        composeTestRule.onNodeWithTag("diff-summary").assertTextContains("rows need attention", substring = true)
     }
 
     // ----- what a failure looks like ----------------------------------------------------------------------

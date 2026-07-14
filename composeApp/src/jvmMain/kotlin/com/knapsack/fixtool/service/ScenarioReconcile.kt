@@ -596,9 +596,17 @@ object ScenarioReconcile {
      */
     fun entries(draft: Expectation): List<IntRange> = entryRegions(draft).flatten()
 
-    /** The entries, grouped by the repeating run they belong to — siblings may only swap within their own run. */
-    private fun entryRegions(draft: Expectation): List<List<IntRange>> {
-        val tags = draft.fields.map { it.tag }
+    fun entryRegions(draft: Expectation): List<List<IntRange>> = entryRegions(draft.fields.map { it.tag })
+
+    /**
+     * The entries, grouped by the repeating run they belong to — siblings may only swap within their own run.
+     *
+     * Taken over a bare tag sequence rather than an [Expectation] because the same guess has to be made
+     * about a *message* whose group the dictionary does not define — see
+     * [com.knapsack.fixtool.service.compare.GroupOverlay], which is the primary source of entry boundaries
+     * now and calls this only where the dictionary has nothing to say.
+     */
+    fun entryRegions(tags: List<Int>): List<List<IntRange>> {
         val regions = mutableListOf<List<IntRange>>()
         var i = 0
         while (i < tags.size) {

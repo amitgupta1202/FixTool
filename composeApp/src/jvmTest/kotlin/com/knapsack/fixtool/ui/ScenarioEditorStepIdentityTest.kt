@@ -10,9 +10,11 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * A step's identity is the step, not its position in the list.
@@ -71,6 +73,81 @@ class ScenarioEditorStepIdentityTest {
         assertEquals(MatchMode.STRICT, steps[1].expectation.mode)
         // ...and D, which the user never opened, is untouched.
         assertEquals(MatchMode.OPEN, steps[2].expectation.mode)
+    }
+
+    /**
+     * And identity means the id on disk, not merely the draft under the cursor — which is what this file
+     * never asked, in every test above, by never moving a step and never looking at a `stepId`.
+     *
+     * `EditStep` carried no id, so Save handed the service a scenario whose steps had none, and
+     * [withIds] — finding nothing to claim — minted every one of them from `(scenario, phase, index)`.
+     * The id was a hash of the position again. In-place edits survived by luck (the minting is
+     * deterministic, so a step that had not moved got its own id back); a **move** slid every id below
+     * it onto the next step down, and a run held from before the save then named, by id, a step that was
+     * not the one that failed. Where the two are alike — two Expects awaiting two fills of the same
+     * shape — `reconcileRoute`'s equality check passes and the route opens on the *wrong* Expect, one
+     * click of Accept actual from writing the failing message's bytes into an assertion that never saw
+     * them. That is the corruption the id was introduced to prevent, re-created by the editor.
+     */
+    @Test
+    fun `moving a step carries its id with it, instead of handing it to the neighbour`() {
+        val loaded = scenario.withIds()
+        val idA = loaded.steps[0].stepId
+        val idB = loaded.steps[1].stepId
+        var saved: Scenario? = null
+        composeTestRule.setContent {
+            ScenarioEditor(
+                initial = loaded,
+                dictionary = null,
+                sessionOptions = emptyList(),
+                onSave = { saved = it },
+                onBack = {},
+            )
+        }
+
+        composeTestRule.onAllNodesWithContentDescription("Down")[0].performClick() // A moves below B
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+
+        val out = saved!!.steps.map { it as ScenarioStep.Expect }
+        assertEquals(listOf("B", "A", "C", "D"), out.map { (it.expectation.fields.single().matcher as Matcher.Exact).value })
+        assertEquals(idB, out[0].stepId, "B kept its id")
+        assertEquals(idA, out[1].stepId, "A carried its id down with it")
+        // And the service's own `withIds()` — which mints for every blank — has nothing left to mint.
+        assertEquals(saved!!.steps.map { it.stepId }, saved!!.withIds().steps.map { it.stepId })
+    }
+
+    /**
+     * The other half of the same rule, and the one R1 was written about: a step the author *inserts* takes
+     * an id that is nobody else's. Minted from its position, it would be handed exactly the id the step
+     * already sitting at that position is carrying — so it must be minted only after every existing step
+     * has claimed its own, and salted past the collision.
+     */
+    @Test
+    fun `an inserted step is minted an id of its own, and steals nobody's`() {
+        val loaded = scenario.withIds()
+        val before = loaded.steps.map { it.stepId }
+        var saved: Scenario? = null
+        composeTestRule.setContent {
+            ScenarioEditor(
+                initial = loaded,
+                dictionary = null,
+                sessionOptions = emptyList(),
+                onSave = { saved = it },
+                onBack = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("step-row-0").performClick() // select A; insert lands under it
+        composeTestRule.onNodeWithTag("add-expect").performClick()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+
+        val persisted = saved!!.withIds().steps
+        assertEquals(5, persisted.size)
+        // Every original step still carries the id it had, in its new place.
+        assertEquals(before, listOf(0, 2, 3, 4).map { persisted[it].stepId })
+        val minted = persisted[1].stepId
+        assertTrue(minted.isNotBlank(), "the new step reaches disk with an id")
+        assertTrue(minted !in before, "and it is not one of theirs")
     }
 
     @Test

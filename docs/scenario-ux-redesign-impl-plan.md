@@ -21,7 +21,7 @@ dodged the hard case.
 | 0 | Engine seams (no UI) | **complete** |
 | 1 | The diff surface, standalone | **complete** |
 | 2 | Rail + document tabs; the window dies | **complete** |
-| 3 | The diff surface becomes the only expectation editor | **planned** (decisions written; V1 changes its shape) |
+| 3 | The diff surface becomes the only expectation editor | **complete** |
 | 4 | Drag moves, undo/redo, keyboard | not started |
 | 5 | Reference slot: paste, pick, provenance | not started |
 | 6 | The plain diff viewer | not started |
@@ -29,13 +29,18 @@ dodged the hard case.
 
 ---
 
-## Start here — the state of play (updated at the end of Phase 2)
+## Start here — the state of play (updated at the end of Phase 3)
 
-**Phases 0, 1 and 2 are complete and on `main`.** The engine seams exist; the diff surface is
-built and screenshot-tested but **nothing routes to it yet**; and the scenarios workbench now
-lives in the main window as a docked rail and a set of document tabs — there is no second window.
-Phase 3 is next, and it is the one that puts `DiffSurface` on screen: the reconcile document tab
-hosts it, and `ReconcileView` and `ExpectationBuilder` die.
+**Phases 0–3 are complete and on `main`.** The engine seams exist; the scenarios workbench is a docked
+rail and a set of document tabs in the main window (no second window); and **`DiffSurface` is now the
+only surface in the app that can author or repair an assertion** — `ReconcileView`, `ExpectationBuilder`
+and `ExpectationDrafts` are deleted. A scenario has exactly **one unsaved draft** (the *workspace*),
+however many documents are looking at it.
+
+Phase 4 is next: drag moves, `⌘Z`/`⌘⇧Z`, and `alt+↑/↓`. The stacks and the validators already exist —
+Phase 1 built the snapshot undo/redo, Phase 0 built the move validator — so Phase 4 is the input layer
+over them, plus the two things the mockup draws and nobody has built: the **violet crossing connector**
+between moved entries, and the live *would-this-pass?* tooltip during a drag.
 
 **What exists now, and where:**
 
@@ -51,18 +56,22 @@ hosts it, and `ReconcileView` and `ExpectationBuilder` die.
 | A document and its state (the tab owns the draft — see T2) | `ui/ScenarioDocuments.kt` |
 | The document tab strip + the host that composes the active one | `ui/ScenarioDocumentPane.kt` |
 | Documents, the centre's selection, the close-confirm, the scenario list | `FixMessageViewModel` |
+| **The workspace — one unsaved draft per scenario, whatever is looking at it** | `ScenarioDraft` (`ui/ScenarioDocuments.kt`); `openScenarios` on the ViewModel |
+| The diff document: its session, its reference slot, its undo stack | `ScenarioDoc.Reconcile` |
+| **The one surface that authors or repairs an assertion, and its only host** | `ui/diff/DiffSurface.kt` in `ScenarioDocumentPane.ReconcileDocument` |
 | ~~Dev bench~~ | deleted in 2.2 with the window, as planned |
 
 Steps carry a stable `stepId` (Phase 0); `reconcileRoute` addresses a failure by it, and the
 `ReconcileSession` must be `remember(stepId)`-keyed for the same reason (P3).
 
-**Commands.** `./gradlew :composeApp:jvmTest` — **1204 tests, 0 failures** is the current bar.
+**Commands.** `./gradlew :composeApp:jvmTest` — **1208 tests, 0 failures** is the current bar.
 The lint rule is that **your files add none**; measure it by counting findings *per file* on the
 pre-phase tree and again after (`ktlintCheck` + `detekt`, `--continue`), because a bare total moves
-whenever a file is added or deleted. The tree is currently 2084 by that count. The diff bench is
-gone: it rode in the workbench window, and 2.2 deleted both.
+whenever a file is added or deleted. The tree is currently **1769** by that count, against the 2121 the
+same command reports on the pre-Phase-2 tree — 352 fewer, most of them deleted along with the two
+surfaces Phase 3 removed.
 
-**Five traps, all of which cost time in Phases 0–2:**
+**Seven traps, all of which cost time in Phases 0–3:**
 
 1. **Never run `ktlintFormat`.** It reformats all 64 files of the module and buries the work in
    a style diff. Fix your own lines by hand, or commit first and then
@@ -82,8 +91,19 @@ gone: it rode in the workbench window, and 2.2 deleted both.
    `/screenshot` endpoint captures the main window, which is now the whole app.
 5. **Only the active document is composed.** A tab is not the window it replaced: switch away and
    its subtree is *disposed*. Anything the author has typed must live in the document
-   (`ScenarioDoc`), not in the composable — and the same goes for whatever Phase 3 puts in a
-   reconcile tab, whose `ReconcileSession` holds an undo stack that must not evaporate.
+   (`ScenarioDoc`), not in the composable. Phase 3's `ReconcileSession` — the undo stack, the
+   reference slot, the staged count — lives there for exactly this reason: left in a `remember`, the
+   author comes back to a footer promising *"0 edits staged · nothing is written until you save"* over
+   a draft three edits from disk, which is worse than a lost undo stack.
+6. **A sentence is a claim, and the arithmetic behind it is a decider.** Every phase so far has found
+   the verdict lying: the entry count fed into the row count; `added` counted twice; and in Phase 3, a
+   denominator that never existed (*"4 of 2 rows need attention"*) and — under it — added tags counted
+   as failures in **OPEN**, so a passing step painted itself FAILED and *disagreed with the engine*.
+   When a rule is already known somewhere (`canAcceptShape` knew this one), the surface that does not
+   know it is the bug.
+7. **Do not put literal SOH bytes in a source file you will edit again.** Tooling eats them silently,
+   and a fixture whose wire has been quietly de-delimited parses as **one field** — which looks exactly
+   like a real alignment defect and costs an hour. Write `\u0001`.
 
 **Phase 2's `### Decisions taken before implementation` is written** (below, T1–T8), and it held:
 T1 was a live defect — the editor dropped every `stepId` on Save, so the id was a hash of the
@@ -1110,57 +1130,113 @@ And **the budget test that fell between the phases**: 1.2 deferred *"a 40-row ex
 60-field message re-judges under a fixed ceiling"* to 1.3, and 1.3 shipped without it. Its box is still
 open. Phase 3 is where the surface it protects goes live in front of a user, and where it gets written.
 
-### 3.0 The scenario workspace (V1 — do this first; nothing else is safe without it)
-- [ ] `openScenarios: Map<String, ScenarioDraft(draft, seed)>` on the ViewModel. The draft moves
-      **out** of `ScenarioDoc.Editor`; `Editor` and the new `Reconcile` doc both carry a
-      `scenarioId` and are *views* onto it. **One unsaved draft per scenario, by construction.**
-- [ ] Dirty is the workspace's. Closing the **last** document of a dirty scenario confirms;
-      closing one of several does not. Discard drops the workspace entry.
-- [ ] Save writes the workspace draft (from either tab) and re-seeds it from disk, as 2.2 does.
-- [ ] Tests: two documents on one scenario share one draft — an edit in the diff tab is visible in
-      the editor tab and is saved exactly once; the Phase 2 document tests move onto the workspace
-      unchanged in meaning.
+### 3.0 The scenario workspace (V1) — **complete**
+- [x] `openScenarios: Map<String, ScenarioDraft(draft, seed)>` on the ViewModel. The draft moved
+      **out** of `ScenarioDoc.Editor`; `Editor` and `Reconcile` both carry a `scenarioId` and are
+      *views* onto it. **One unsaved draft per scenario, by construction.**
+- [x] Dirty is the workspace's. Closing the **last** document of a dirty scenario confirms; closing
+      one of several does not. The last close drops the draft — a draft nothing is looking at is
+      unreachable and unsaveable, and the next open would silently hand back edits already walked
+      away from.
+- [x] Save writes the workspace draft (from either tab) and re-seeds it from disk.
+- [x] `ScenarioDraft.of` normalizes with `withIds()` — **found by a test**: a document addresses a
+      step by `stepId`, so a draft with blank ids is a draft whose steps cannot be found. The
+      workspace is a new door, and D3's normalizer runs at every door.
+- [x] Tests (`ScenarioWorkspaceTest`, `ScenarioDeepLinkTest`): the diff and the editor are two views
+      of one draft — an edit in the diff is visible in the editor and saved exactly once, and the
+      rename in the editor survives the deep-link that opens the diff.
 
-### 3.1 Reconcile routes into `DiffSurface`
-- [ ] New `ScenarioDoc.Reconcile(scenarioId, stepId, session, reference)` — the **only** host of
-      `DiffSurface` (V2). Bound to the failing step with `ReferenceMessage(THIS_RUN)` from the
-      `ScenarioEditRequest` (wire bytes + arrival instant). `onChange` writes the expectation into
-      the workspace draft's step **by `stepId`**; the golden is re-pointed **only** for THIS_RUN
-      (V4 — not for SECOND_INSTANCE, not for a paste).
-- [ ] The `ReconcileSession` is a field of that document, not a `remember` (V3), and is
-      **rebased** on Save — or the footer goes on counting edits that are already on disk.
-- [ ] An unbound reference is a **prompt**, never a diff against an empty message (V6).
-- [ ] Row-level deep link: `MessageDetailPanel`'s failing tag rows carry the door
-      (`onEditAssertion(tag)`), it travels as `ScenarioEditRequest.focusTag`, and `DiffBody` —
-      now a `LazyColumn` (V8) — scrolls to that row.
-- [ ] `reorder` gets the reference's unjudgeable rows (V7). Reproduce the withheld move on an
-      unanchored golden first; mutation-check the guard.
-- [ ] **Delete `ui/ReconcileView.kt`** and its private pieces (`VerdictBar`, `RowFixes`,
-      `EntryArrows`, `MovedBlockHeader`, `NoMoveNote`) — after the three missing successors in
-      V10's map exist and are green.
-- [ ] Save & re-run in the header: saves, runs, and **re-binds every open reconcile document by
-      `stepId`** when the result lands (V9); disabled while a run is in flight.
-- [ ] The re-judge budget test 1.2 deferred and 1.3 dropped: a 40-row expectation against a
-      60-field message re-judges under a fixed ceiling.
+### 3.1 Reconcile routes into `DiffSurface` — **complete**
+- [x] `ScenarioDoc.Reconcile(scenarioId, stepId, session, thisRunWire, focusTag)` — the **only** host
+      of `DiffSurface` (V2), bound to the failing step with `ReferenceMessage(THIS_RUN)`. `onChange`
+      writes the expectation into the workspace draft **by `stepId`**; the golden is re-pointed **only**
+      for THIS_RUN (V4).
+- [x] The `ReconcileSession` is a field of that document (V3) and is **rebased** on Save.
+- [x] An unbound reference is a **prompt** (V6), offering the golden, then the message selected in a
+      session grid, then the reason there is nothing to diff against yet.
+- [x] Row-level deep link: every failing tag row in `MessageDetailPanel` is its own door, it travels
+      as `focusTag`, and `DiffBody` — now a `LazyColumn` (V8) — scrolls to that row.
+- [x] `reorder` gets the reference's unjudgeable rows (V7). Reproduced first; the guard is
+      mutation-checked by that reproduction.
+- [x] **Deleted `ui/ReconcileView.kt`** — after the three missing successors in V10's map existed and
+      were green on `DiffSurface`.
+- [x] Save & re-run: saves, runs, and **re-binds every open diff by `stepId`** when the result lands
+      (V9); disabled while a run is in flight.
+- [x] The re-judge budget test 1.2 deferred and 1.3 dropped: a 40-row expectation against a 60-field
+      message, rebuilt from scratch, under a fixed ceiling.
 
-### 3.2 Authoring is the same surface
-- [ ] A never-run Expect step opens the same document with `ReferenceMessage(GOLDEN)`; a step with
-      no golden gets V6's prompt (golden → the selected grid message → the reason why not).
-- [ ] "Verify generalizes" = swapping the reference to `SECOND_INSTANCE`
-      (`viewModel.liveSecondInstance`, already ported in Phase 2) — **and the verdict says
-      *over-specified*, not "needs attention"** (V5). A red row there is the author's fault, not
-      the venue's, and the sentence is the whole difference.
-- [ ] **Delete `ui/ExpectationBuilder.kt`** (and `ExpectationDrafts`) after porting its test
-      assertions; `MatcherEditor.kt` stays (it is the chip editor inside `DiffSurface`).
-- [ ] `ScenarioEditor.ExpectDetail` shrinks to: **bind-predicate editing + the door to the step's
-      diff tab** (V2 — *not* `DiffSurface` itself, which this checklist used to say and which
-      would have given one surface two hosts and one expectation two drafts).
+### 3.2 Authoring is the same surface — **complete**
+- [x] A never-run Expect step opens the same document with `ReferenceMessage(GOLDEN)`; a step with no
+      golden gets V6's prompt.
+- [x] "Verify generalizes" = swapping the reference to `SECOND_INSTANCE` — **and the verdict says
+      *over-specified*** (`Verdict.headlineAgainst`, V5), because a red row there is the author's
+      assertion being too tight, not the venue regressing.
+- [x] **Deleted `ui/ExpectationBuilder.kt`** and `ExpectationDrafts`, after every one of their test
+      assertions had a successor in `DiffAuthoringTest`.
+- [x] `ScenarioEditor.ExpectDetail` shrinks to the **step** — direction, timeout, bind predicate — plus
+      the door to the diff. It no longer edits assertions at all.
 
-**Phase 3 gate:** there is exactly one surface in the app that can author or repair an
-assertion — **and exactly one host composing it**; the full fail→fix→save→re-run→green loop
-verified live against fake-venue `swap` (a reorder: one-click Accept new order) and `shape`
-(added/missing tags), with screenshots; all ported tests green. And the screenshots, not the
-tests, are the gate: three phases running, the picture has found what the suite could not.
+**Phase 3 gate — met, with one honest gap.** There is exactly one surface in the app that can author or
+repair an assertion, and exactly one host composing it: `rg` finds no `ReconcileView`, no
+`ExpectationBuilder`, no `ExpectationDrafts`. Full suite green (**1208 tests, 0 failures**); every file
+at or below its lint baseline (the tree is **1769** findings against the 2121 the same command reports
+on the pre-phase tree — 352 fewer, most of them deleted with the surfaces). The fail → fix → save →
+re-run → green loop is proven end-to-end against a **real FIX acceptor** by `ScenarioIntegrationTest`,
+and click-by-click, with pictures, by `ScenarioDocumentsScreenshotTest`.
+
+*The gap:* the loop was **not** driven live against `tools/fake-venue`'s `swap`/`shape` modes. The
+control surface can run a scenario but it cannot *click*, and every repair in this phase is a click —
+so a live pass over the reorder case is the author's, and it is the one thing this phase did not prove
+in the app itself. (A live smoke against the demo acceptor did run: the app launches with both surfaces
+deleted, the rail reports the failure, and the route is offered.)
+
+### Phase 3 outcome — what actually happened
+
+**V1 held, and it was the checklist that was wrong.** 3.1 and 3.2 contradicted each other about where
+`DiffSurface` lives, and taking both literally would have allowed **two unsaved drafts of one
+expectation** — one tab's Save writing the other's work away. That is the two-editing-surfaces defect
+from the model doc, re-created between two tabs. The draft belongs to the scenario now.
+
+**Two live defects were waiting in the phase's path, exactly as V4 and V7 predicted.**
+
+- `reorder` was never told that an **unanchored** reference cannot judge a `~now` row. `rows()` has
+  always known. So on a golden with no `SendingTime(52)`, a timestamp inside a moved entry was
+  value-checked against the wall clock, "failed", and the tool printed the torn-entry refusal —
+  *"the values there changed in place"* — about entries that had plainly swapped. **R2's defect, one
+  matcher along.** Latent while every reference was a live run's; it fires the moment authoring routes
+  to the diff, and it lands on market-data snapshots, every one of which carries an `MDEntryTime`.
+- The golden-re-pointing rule, generalised to a slot without thought, would have had
+  verify-generalizes **rewrite the golden to the second instance** — destroying the very thing it was
+  checking against — and a pasted reference silently become the scenario's canonical example.
+
+**And the picture found two more, which is now four phases out of four.**
+
+The first screenshot of the diff read **"4 of 2 rows need attention"**. The numerator counts rows from
+*both* sides — a tag the venue added is a row the expectation does not have — and the denominator
+counted only the expectation's. There was never an honest ratio there, so the headline is now what the
+mockup always said: *"N rows need attention"*, with the split below it.
+
+Underneath that was the real one: **added tags counted as failures in OPEN.** OPEN's entire promise is
+that an unmentioned tag is ignored — so a fully passing OPEN step whose venue sends three optional
+fields announced *"3 rows need attention"*, painted itself FAILED, and **disagreed with the engine
+about whether the step passed**. `canAcceptShape` has known the OPEN/STRICT distinction since Phase 1;
+the verdict — the sentence read *first* — did not. `Verdict.of` now takes the mode, with **no default**:
+a caller who forgets is a caller who calls a passing step failed.
+
+Also found by looking: the matcher editor's `± tol` label had nowhere to go in the expectation column
+and wrapped **one character per line**.
+
+**Deviations, and things deliberately left:**
+
+- The reconcile tab is titled `⇄ Step N · reconcile` and is keyed on `(scenarioId, stepId)`, so it
+  follows the step if the author reorders the flow underneath it.
+- `Save & re-run` is enabled on a **clean** step too. Re-running a step you have not touched is how you
+  find out whether the venue has settled down, and that is a question worth being able to ask.
+- The mockup's violet **crossing connector** between moved entries still does not exist; Phase 1 drew
+  the move as band styling and a `⇄ Accept new order` chip, and Phase 3 did not add the curve. The
+  information is all there; the line is not.
+- `ScenarioService.load()` of an id that does not exist still fires a user-facing error toast (it cannot
+  tell "missing" from "corrupt"). Pre-existing; still a Phase 7 cleanup candidate.
 
 ---
 
@@ -1263,8 +1339,8 @@ message → diff → seed → step added to a scenario → run.
 | `service/compare/ComparisonSemantics.kt`, `GroupOverlay.kt`, `ReferenceMessage.kt` | new (Phase 0) |
 | `service/compare/Verdict.kt` | new (Phase 1.1) — the counting and the sentences, lifted out of `ReconcileView` verbatim and shared by both surfaces until the old one dies |
 | `ui/diff/ReconcileSession.kt`, `ui/diff/DiffSurface.kt` | new (Phase 1) |
-| `ui/ReconcileView.kt` | deleted (Phase 3.1) after test porting |
-| `ui/ExpectationBuilder.kt` | deleted (Phase 3.2) after test porting |
+| `ui/ReconcileView.kt` | **deleted (Phase 3.1)** — successors on `DiffSurface` first |
+| `ui/ExpectationBuilder.kt` + `ExpectationDrafts` | **deleted (Phase 3.2)** — successors in `DiffAuthoringTest` first |
 | `ui/ScenarioWorkbench.kt` window + `Mode` | **deleted (Phase 2.2)** — whole file; list content → `ui/ScenariosRail.kt` |
 | `ui/diff/DiffHarness.kt` | **deleted (Phase 2.2)** with its host, as planned |
 | `ui/ScenarioDocuments.kt`, `ui/ScenarioDocumentPane.kt`, `ui/ScenariosRail.kt` | new (Phase 2) |

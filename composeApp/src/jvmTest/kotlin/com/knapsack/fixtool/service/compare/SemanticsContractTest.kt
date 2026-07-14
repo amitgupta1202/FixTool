@@ -3,10 +3,12 @@ package com.knapsack.fixtool.service.compare
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.wireView
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -32,6 +34,19 @@ import kotlin.test.assertTrue
  *    message as itself cannot be trusted to say anything about one that differs.
  * 5. **The model is a partition.** Every row of the diff appears in exactly one chunk, in reading order —
  *    so the surface cannot silently drop a failure it has no chunk for.
+ * 6. **The reference overload pairs exactly as the message overload does.** Pairing is blind to provenance and
+ *    to the anchor, as it is blind to the matcher.
+ * 7. **A row nobody can read is `unknown`, never `false`** — given what a *reconcile view* actually has, which
+ *    is no resolver and, for a paste with no `SendingTime(52)`, no moment either.
+ *
+ * **Properties 6 and 7 exist because of R2, and R2 is what happens without them.** Until Phase 5 this harness
+ * only ever called the `MessageView` overload — the one that does **not** carry the anchoring rule — and the
+ * example-based test that covered the other one handed the engine a working `referenceResolver` *the app can
+ * never supply*: a reconcile view has no run scope, so there is nothing to pass. It passed. Meanwhile a
+ * `reference` row, asked to judge a value it could not read, answered **false**, the block it sat in never
+ * fitted, and the tool told the author "these entries did not move; it is the values there that changed" about
+ * a message whose party entries had plainly swapped. A row nobody could read was enough to hide an entry that
+ * had moved. The fixture dodged the hard case by giving the engine something the caller does not have.
  *
  * `AlignmentPropertiesTest` stays exactly as it is: it pins the *current* aligner against an independently
  * written oracle, and it is the regression net this harness is not.
@@ -184,5 +199,95 @@ class SemanticsContractTest {
                 }
             }
         }
+    }
+
+    // ---------------------------------------------------------------- the reference overload (S7)
+
+    /**
+     * The overload the diff actually calls, over the same bytes, **must pair identically**. A semantics that
+     * paired differently because of *what the slot says about the message* would make the diff and the runner
+     * disagree about what faces what — and the slot is exactly the thing the author swaps to ask "and against
+     * this one?".
+     */
+    @Test
+    fun `the reference overload pairs exactly as the message overload does`() {
+        eachSemantics { semantics ->
+            for (wire in messages) {
+                val message = wireView(wire)
+                for (expectation in expectations) {
+                    val plain = pairing(semantics.align(expectation, message, dictionary = null))
+                    ReferenceMessage.Provenance.entries.forEach { provenance ->
+                        val reference = ReferenceMessage(message, provenance, provenance.name, ANCHOR)
+                        val viaSlot = pairing(semantics.align(expectation, reference, dictionary = null))
+                        assertEquals(
+                            plain,
+                            viaSlot,
+                            "${semantics.id}: pairing moved when the slot said $provenance — $expectation vs $wire",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * **The row the app cannot read, judged the way the app judges it.**
+     *
+     * No resolver — because a reconcile view has none — and no moment, because a paste need not carry one. Both
+     * rows come back `unknown`: not passed, not failed, and out of every count. Answering `false` is R2, and
+     * answering `true` is the false green the model exists to make impossible.
+     */
+    @Test
+    fun `a row that cannot be read is unknown, and never false`() {
+        val wire = listOf(11 to "ORD-1", 60 to "20200101-00:00:00")
+        val message = wireView(wire)
+        val expectation =
+            Expectation(
+                listOf(
+                    // A reference resolves against a live run's variable scope. A diff has no scope to offer it.
+                    FieldExpectation(11, Matcher.Reference("\${id0}")),
+                    FieldExpectation(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)),
+                ),
+            )
+
+        eachSemantics { semantics ->
+            // A paste with no SendingTime(52): there is no moment to judge `~now` against, and the clock is not
+            // one — it would manufacture a red describing nothing but how long ago the message was pasted.
+            val unanchored = ReferenceMessage(message, ReferenceMessage.Provenance.PASTED, "pasted", null)
+            val rows = semantics.align(expectation, unanchored, dictionary = null).rows
+
+            rows.forEach { row ->
+                assertTrue(
+                    row.unknown,
+                    "${semantics.id}: row ${row.tag} was judged when nothing here could judge it — ${row.status}",
+                )
+                assertFalse(row.passed, "${semantics.id}: an unreadable row is not a pass either")
+            }
+            val verdict = Verdict.of(rows, emptySet(), 0, expectation.mode)
+            assertEquals(0, verdict.judged, "${semantics.id}: and they are counted as judged by nothing")
+            assertEquals(0, verdict.attention, "${semantics.id}: nor as failures")
+        }
+    }
+
+    /** An anchored reference judges its temporal at **the message's own moment**, and not at the wall clock. */
+    @Test
+    fun `an anchored reference judges a temporal row at the reference's instant`() {
+        val sent = "20200101-00:00:05"
+        val message = wireView(listOf(52 to sent, 60 to sent))
+        val expectation = Expectation(listOf(FieldExpectation(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60))))
+        val anchored = ReferenceMessage.pasted(message)
+
+        eachSemantics { semantics ->
+            val row = semantics.align(expectation, anchored, dictionary = null).rows.single { it.tag == 60 }
+            assertTrue(
+                row.passed,
+                "${semantics.id}: `~now ±60s` held when the message was sent, and the reader being years late " +
+                    "is not the venue's doing — ${row.status}",
+            )
+        }
+    }
+
+    private companion object {
+        val ANCHOR: java.time.Instant = java.time.Instant.parse("2026-07-14T08:12:31Z")
     }
 }

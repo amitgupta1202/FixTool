@@ -85,6 +85,84 @@ defect, not a trade-off:
 
 Everything later plugs into these. The app looks identical after this phase.
 
+### Decisions taken before implementation — read these first
+
+Five things the checklist below under-specifies or gets wrong. Settled here, with the
+reasoning, so the next reader does not re-derive them.
+
+**D1 — The move rule, stated precisely. Supersedes the one-liner 0.4 used to carry.**
+
+*"A move is legal iff every repeated tag's occurrence mapping is preserved"* refuses every
+entry swap. When FIRMA's party moves past FIRMB's, FIRMA's `448` **becomes the second**
+`448` — the occurrence mapping is precisely what changes, and that is the move the design
+calls safe (mockup *"Why moving a row can lie"* §04; `ReconcileMoveBlockTest` pins it
+green, and that test may not be modified). The rule that actually holds is:
+
+> **No row is ever separated from the entry it belongs to; a row of a repeated tag may
+> cross a same-tag sibling only if its whole entry crosses with it; and no move may land
+> strictly inside another entry.**
+
+Every case falls out of it. A top-level scalar is an entry of one — it has no same-tag
+siblings, so it moves freely, which is what the proposal wants for a hand-authored row in
+the wrong wire order. A lone row of a repeated tag crossing its sibling is the per-row
+arrow (§03) and is refused. An entry crossing an entry carries all of itself (§04) and is
+allowed. A rotation window is not an entry (§05) and is refused — the overlay is what says
+where an entry begins. `moveRow` and `moveEntry` are two callers of one validator, and
+`moveBlock` becomes a third, keeping its signature.
+
+One clause is ours rather than the mockup's: **a row may not leave its entry for another
+one.** Moving a `452` into an entry that carries no `452` crosses no sibling, so the rule
+above would permit it — and it would silently re-aim the row at another party. The live
+re-judge cannot catch that (the row goes green). Refused, as the smallest behaviour that
+keeps the invariant.
+
+**D2 — The registry gate is a build-time test, not a startup assertion.**
+
+0.2 asks the registry to "fail fast at startup" for a semantics that has not passed the
+contract. The contract harness enumerates hundreds of thousands of (message, expectation)
+pairs; nothing runs that at app start. So: `SemanticsContractTest` iterates
+`SemanticsRegistry.all()` and fails the **build** for any registered semantics that
+violates the contract — an unverified semantics cannot ship — plus a cheap startup check
+that every `MatchMode` resolves to a registered id. Same guarantee, honest mechanism.
+
+**D3 — `stepId` must be assigned deterministically, or it breaks the route it exists to fix.**
+
+`reconcileRoute` loads the scenario from disk a *second* time to compare it against the one
+that ran. If a file with no ids were given fresh random ids on each load, the two loads
+would never agree, and **every failure on a pre-`stepId` file would be refused** — the exact
+opposite of 0.1's purpose. So a step without an id gets `UUID.nameUUIDFromBytes` over
+(scenario id, phase, index): stable across loads. Only genuinely new steps get a random one.
+
+`stepId` defaults to `""` (unassigned) so the positionally-constructed steps throughout the
+existing tests stay equal to one another; a single `Scenario.withIds()` normalizer runs at
+codec load, at capture, and at save, and an invariant test asserts a blank id never reaches
+disk. Ids duplicated within one scenario are re-minted on load. Equality still *includes*
+`stepId` — that is what makes the edited-since-run check exact.
+
+**D4 — Two live defects fall inside Phase 0's scope and are fixed with it.**
+
+- `ScenarioCodec.expectationFromJson` reads the mode as `strict = (mode == "strict")`, so
+  **any unrecognised value silently becomes OPEN**. A typo in a hand-edited scenario
+  loosens the assertion instead of failing the load — the "silently degrade" case 0.2
+  forbids. Fixed there, with the mode → semantics-id parsing.
+- `ScenarioReconcile.verbatimWindow` asks `ExpectationEvaluator.satisfies`, which hard-codes
+  `Instant.now()` and a null resolver. An entry carrying a temporal row (an `MDEntryTime`
+  in `NoMDEntries`) or a reference row can therefore never be recognised as moved-verbatim,
+  so **Accept new order is silently withheld for market-data groups** — a red with no button
+  and no reason, which is the failure mode this area keeps producing. The anchor threading in
+  0.5 fixes it. Reproduce it on the current code first.
+
+**D5 — Three shapes the mockups need, which Phase 0 is the only place to produce.**
+
+- `Reorder.Possible` gains `placement: Map<Int, Int>` (row index → wire index). The violet
+  crossing connector and `Chunk.moveLink` have no other source of truth. Additive; no
+  behaviour change.
+- `GroupOverlay` entry labels carry the mockup's form — `NoPartyIDs · entry 1 — FIRMA ·
+  1 Executing`: the delimiter's value **and** an identity field's enum description, both
+  computed in the overlay, never in the UI.
+- Rows keep their occurrence (the mockup renders `448#2` in the tag column);
+  `Alignment.occurrence` already carries it, and `AlignmentModel` must not drop it.
+
 ### 0.1 Stable step ids
 - [ ] `ScenarioStep` gains `stepId: String` (UUID, generated on creation/capture/load —
       a file without ids gets them assigned on load and keeps them on save; additive
@@ -138,18 +216,28 @@ Everything later plugs into these. The app looks identical after this phase.
       has no dependency on `GroupOverlay`** (mutation-check: add the import, test fails).
 
 ### 0.4 Generalized move validation
-- [ ] `ScenarioReconcile.moveRow(draft, fromIndex, toIndex): MoveResult` implementing the
-      proposal's one rule: **a move is legal iff every repeated tag's occurrence mapping
-      is preserved** — scalar rows move freely; a row of a repeated tag may not cross a
-      same-tag sibling; entry-range moves (from the overlay) move as a unit. `MoveResult`
-      is `Applied(newExpectation)` or `Refused(why)` reusing the existing sentences where
-      they fit and adding the occurrence-swap sentence for single-row refusals.
-- [ ] `moveBlock` becomes a caller of the same validation (behaviour today = subset of
-      the new rule); `ReconcileMoveBlockTest` stays green unmodified — it is the
-      regression net for this refactor.
+- [ ] One validator implementing **D1's rule** (not the one-liner this section used to
+      carry — see the decisions above): no row leaves its entry; a row of a repeated tag
+      crosses a same-tag sibling only if its whole entry crosses with it; no move lands
+      inside an entry.
+- [ ] `ScenarioReconcile.moveRow(draft, fromIndex, toIndex): MoveResult` — the per-row
+      drag, legal for a scalar (an entry of one), refused for a lone row of a repeated tag.
+- [ ] `ScenarioReconcile.moveEntry(draft, overlay?, entry, toSlot): MoveResult` — an
+      entry-range move to any sibling slot within its group (the proposal's entry drag;
+      today's `moveBlock` only swaps with the adjacent sibling). A null overlay falls back
+      to the `entries` heuristic, which is what keeps the old callers behaving identically.
+- [ ] `MoveResult` is `Applied(newExpectation)` or `Refused(why)`, reusing the existing
+      refusal sentences where they fit and adding the occurrence-swap sentence for the
+      single-row refusal.
+- [ ] `moveBlock` keeps its signature and becomes a caller of the same validator;
+      `ReconcileMoveBlockTest` stays green **unmodified** — it is the regression net for
+      this refactor, and it is what proves D1 subsumes today's behaviour.
 - [ ] Property test in the `AlignmentPropertiesTest` style: for generated expectations,
-      every `Applied` move preserves each row's `(tag, occurrence)` binding; every
-      occurrence-swapping candidate is `Refused`. Mutation-check the guard.
+      every `Applied` move leaves each row asserting the same *entry* it asserted before
+      (the correspondence, not the raw `(tag, occurrence)` binding — an entry move changes
+      that binding on purpose); every occurrence-swapping candidate that does not carry a
+      whole entry is `Refused`; the three-party rotation window is `Refused`.
+      Mutation-check the guard.
 
 ### 0.5 Reference anchoring
 - [ ] `ReferenceMessage` value type: `{view: MessageView, provenance: THIS_RUN|GOLDEN|SECOND_INSTANCE|PICKED|PASTED, label, anchorInstant}` —

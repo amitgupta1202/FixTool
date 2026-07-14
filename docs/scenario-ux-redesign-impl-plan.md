@@ -405,51 +405,212 @@ unknowingly:
 
 Build the new component next to the old UI; nothing routes to it yet.
 
-### 1.1 `ReconcileSession` (state holder, not a composable)
-- [ ] `ui/diff/ReconcileSession.kt`: holds `original`, `draft`, the reference slot, the
-      selected semantics; exposes `chunks` (memoized: recompute only on draft/reference/
-      semantics change, not on every recomposition); applies `EditOp`s.
-- [ ] `EditOp` sealed commands with inverses: `SetMatcher`, `AcceptActual`, `Loosen`,
-      `Drop`, `AssertAbsent`, `InsertAssertion`, `MoveRow`, `MoveEntry`, `AcceptOrder`,
-      `Reseed`, `SetMode`, `SwapReference`. Each delegates to the existing pure
-      `ScenarioReconcile` functions — **no reimplementation of any operation**.
-- [ ] Undo/redo stacks (`⌘Z`/`⌘⇧Z` wiring comes in Phase 4; the stacks and `undo()`/
-      `redo()`/`canUndo`/`canRedo` land now). `discard()` restores `original`.
-      `isDirty` drives save/cancel affordances.
-- [ ] Tests: command/inverse round-trips for every op (apply → undo → byte-equal
-      expectation); redo after undo; discard after arbitrary sequences; the memoized
-      re-judge invalidates on each of the three inputs and not otherwise.
+### Decisions taken before implementation — read these first
 
-### 1.2 The `DiffSurface` composable
-- [ ] `ui/diff/DiffSurface.kt` renders a `ReconcileSession` per the mockups: header
-      (crumb, semantics chip, reference chip, verdict line with the existing
-      shape-vs-behaviour sentence), two aligned columns, centre gutter, footer (staged
-      count, the "nothing is written…" sentence verbatim, undo/redo/cancel/save).
-      Left rows: tag · dictionary name · matcher chip (dropdown = `MatcherEditor`
-      vocabulary) · value (inline editable). Right rows: tag · name · value · enum
-      description. Alignment gaps get the hatched treatment; `unjudged` rows the amber
-      third-state treatment.
-- [ ] Gutter applies per chunk kind exactly per proposal table: `«` accept-actual
-      (hidden where `canAcceptActual` refuses), `«` assert-it, `×` drop
-      (whole-tag rule surfaced in its tooltip), `∅` assert-absent (where legal),
-      `⇄ Accept new order` on engine-proven moves. Bulk toolbar: Accept all shape
-      changes (value mismatches never included), Re-seed from reference.
-- [ ] Group bands from `GroupOverlay`: entry header rows with labels, per-entry hue,
-      indent guides, nested indent; hover on an entry highlights its aligned counterpart;
-      heuristic-sourced entries visibly badged. Moved entries: violet band + crossing
-      connector in the gutter.
-- [ ] The "asserts nothing" banner: an expectation whose rows are all dropped/presence
-      renders the warning before save (reuse the existing detection).
-- [ ] Live re-judge: every `EditOp` updates row statuses, bands, and the verdict counts
-      in the same frame (via the memoized session, not per-row recomputation).
-- [ ] Compose tests + screenshots covering: value mismatch / added / missing / moved /
-      unjudged rendering; each gutter apply mutating the draft through the session; an
-      edit flipping a row green live; accept-all-shape never touching a value mismatch;
-      the empty-assertion banner; hover pairing. Reuse the fixture corpus from
-      `ReconcileViewTest` so behaviour parity is checked against the old view's cases.
+Nine things the checklist under-specifies or gets wrong, settled here with the reasoning, so
+the next reader does not re-derive them. **P1 and P2 change the shape of the phase.**
 
-**Phase 1 gate:** `DiffSurface` demonstrable in a test harness window (temporary,
-dev-only) against fake-venue `shape` and `swap` outputs; screenshot set committed.
+**P1 — The verdict is *lifted* out of the old view, not rewritten. This is the phase's
+biggest risk and the checklist does not mention it.**
+
+`ReconcileView.VerdictBar` (`ui/ReconcileView.kt:303-390`) is the most hard-won code in the
+app. Every counter in it carries a comment naming a bug that *shipped*:
+
+- the entry count fed into the row count — *"2 of 21 rows need attention"* over six rows that
+  had all moved;
+- `unknown` rows dropped from the counts — one click of *Loosen → reference* made a red row
+  unjudgeable and the bar announced *"✓ every assertion would now pass"* over an expectation
+  asserting that a ClOrdID equals an OrdStatus;
+- a `MOVED` row that no re-ordering covers fell out of every bucket, so the bar **declared
+  success over a step that fails**;
+- `judged == 0` is not a separate banner — it *is* the headline, and it is the only thing
+  standing between an author and a step that passes for ever while checking nothing.
+
+A new composable that counts its own rows gets all six back, silently, and its tests will not
+catch them because its tests will be written from the same misunderstanding. So:
+
+> **`Verdict` becomes a pure data class computed by one function in `service/compare/`, moved
+> out of `ReconcileView` verbatim — same arithmetic, same sentences, same order of clauses.
+> `ReconcileView` is refactored to call it *in this phase*, so `ReconcileViewTest` keeps
+> pinning it, unmodified. `DiffSurface` calls the same function.**
+
+Two surfaces, one verdict, one set of tests. The same treatment goes to `canAcceptShape` (the
+OPEN/unasserted guard at `:147-149`, whose comment records the bug where the bulk button
+asserted every field an OPEN author had deliberately left alone). This inverts what Phase 3
+expected to do: most of `ReconcileViewTest`'s assertions stop being *UI* tests at all, so
+there is nothing to "port" — they were never about the composable.
+
+**P2 — Undo is a snapshot stack. The checklist asks for command inverses, and that is wrong.**
+
+1.1 says "`EditOp` sealed commands **with inverses**". Writing an inverse for each op is writing
+each op twice. `drop` on a repeated tag removes *every* row of that tag — the whole-tag rule —
+so its inverse must restore N rows at N indices. `reseed` rebuilds from the seeder, re-attaches
+the reference rows, *and* appends the echoes the reply no longer carries. `acceptNewOrder`
+applies a verified permutation. An inverse that is subtly wrong is a corruption that appears
+only after `⌘Z` — the quietest possible defect in the one surface whose entire promise is
+*"nothing is written to the scenario until you save."*
+
+The existing view already does the right thing and nobody noticed: `StagedFix(label, before)`
+(`ReconcileView.kt:241`) snapshots the **whole expectation**. An `Expectation` is a small
+immutable data class; a snapshot is O(rows) and *cannot be wrong*.
+
+So: an `EditOp` is a **label plus an application** (`(Expectation) -> Expectation?`) — which is
+exactly what a future auto-fix `FixPlan` produces, and what the footer's *"loosen 151 · accept
+order (2 entries)"* reads from. Undo/redo is a list of `(label, expectation)` snapshots with a
+cursor; redo is the forward half of the same list. The checklist's "command/inverse round-trip"
+test becomes **apply → undo → byte-equal**, which is what it was really asking for, and it is
+now true by construction rather than by a second implementation of every operation.
+
+**P3 — The session is keyed on the step's `stepId`, and this has already bitten twice.**
+
+`ReconcileView.stepKey` (`:71-90`) carries the scars: keying the staging state on `expectation`
+destroyed history on every click (every fix replaces it), and keying on `crumb` destroyed it
+whenever the author edited the step's session or message type — both are in the crumb, and both
+are editable while the view is open. The host currently passes `stepIndex`
+(`ScenarioEditor.kt:539`), which is the identity it could name rather than the one it meant.
+
+Phase 0 gave every step a `stepId`. **That is the key** — `remember(stepId) { ReconcileSession(…) }` —
+and it is the identity the old comment was reaching for.
+
+**P4 — The memo key must be by value. `RawMessageView` has no `equals`, and that will defeat it
+silently.**
+
+1.1 wants `chunks` memoized on (draft, reference, semantics). But `RawMessageView`
+(`service/RawMessageView.kt:13`) is a plain class with **no value equality**, so
+`ReferenceMessage` — a data class — inherits *identity* equality on its `view`. Build the
+`ReferenceMessage` from the `WorkbenchEditRequest` inside the composable (the natural way to
+write it) and the key changes every frame: the memo never hits, and every recomposition re-runs
+`reorder`, which enumerates every contiguous block of the expectation and scans each across the
+wire. Nothing fails. It is merely slow, for a reason nobody would ever find.
+
+So the memo key is **value-typed**: `(draft, wire bytes, anchorInstant, provenance,
+semanticsId)`. Pinned by a test that constructs an equal-but-distinct `ReferenceMessage` and
+asserts the recompute count does not move. And a **budget test**: a 40-row expectation against a
+60-field message re-judges under a fixed ceiling, so the live re-judge cannot quietly become
+sluggish as the engine grows.
+
+**P5 — The two sides are paired *once*, in the session — never zipped in the composable.**
+
+`Chunk` carries `rows` and `right` as two parallel lists, and they are **not 1:1 in every kind**.
+A `SAME` chunk holding an `absent` row that passes has a row with no wire field at all
+(`rightOf` returns null), so `right` is shorter than `rows` — and a naive `zip` slides every
+field below it up one line. The two sides of the diff would then disagree about what faces what:
+the exact seam `GroupOverlay` was built to close, re-opened in the renderer.
+
+So the session emits a display model — `DiffLine(chunk, left: Row?, right: MessageField?,
+offers)` — built once and tested without Compose. The pairing rule, stated: **a row faces the
+field at its `wireIndex`; a moved row faces the field at its `placement`; a row with neither
+faces a gap.** The composable renders lines and never decides what faces what. (This is a small
+additive change to Phase 0's `Chunk`, and it is recorded as one.)
+
+**P6 — The gutter's offers come from the engine's predicates, never from the chunk kind.**
+
+The proposal's gutter table maps chunk kind → button, but whether an offer is *honest* is a
+row-level engine question: `canAcceptActual` refuses temporal and reference rows,
+`canAssertAbsent` refuses when the tag appears elsewhere in the reply, and `dropTakesWholeTag`
+changes what `×` means. The mockup already says *"hidden where `canAcceptActual` refuses"*.
+
+So `offersFor(line): List<Offer>` lives in the session, is a pure function of the engine's own
+predicates, and is tested without Compose. **The UI cannot draw a button the engine would
+refuse** — the same one-decider rule Phase 0 enforced between the engine and the overlay.
+
+**P7 — The mode chip is an edit, and the selected semantics is *derived*, not stored.**
+
+The proposal wants the chip to preview a failure under a semantics the scenario was not authored
+under, read-only. But today the only registered semantics **are** the two `MatchMode`s — so a
+read-only preview of OPEN that you then cannot save is strictly worse than editing the mode and
+pressing `⌘Z`. `SetMode` is therefore an ordinary `EditOp`: staged, undoable, saved.
+
+And `selectedSemantics` is **derived** — `SemanticsRegistry.forMode(draft.mode)` — never stored
+on the session. A stored copy is a second source of truth, and it would eventually say STRICT
+over a step that saves OPEN. When a semantics arrives that is *not* a `MatchMode` (tree, GumTree),
+that is when the preview-only path is built and the chip's menu grows the disabled entries the
+mockup already draws.
+
+**P8 — `SwapReference` is not an edit.**
+
+It changes what you are comparing *against*, not what you are *asserting*. It must not stage,
+must not push undo, must not set `isDirty`, and must not appear in "3 edits staged". It
+re-judges, and that is all. The session owns the slot from this phase, so Phase 5 is a UI, not a
+refactor.
+
+**P9 — The chip vocabulary is `MATCHER_TYPES` minus `reference`, and the row's *value* column
+is `MatcherEditor` itself.**
+
+`ReconcileView` narrows the Loosen menu to six types (`LOOSENINGS`, `:300`) and excludes
+`reference` for a reason recorded at `MatcherEditor.kt:90-100`: a dropdown-seeded `${out.D.11}`
+on a failing OrdStatus row makes that row unjudgeable, drops it out of every count, and the bar
+announces that every assertion would now pass. The mockup's menu agrees — it lists seven types,
+omits `reference`, and footnotes it: *"REFERENCE ROWS ARE MADE AT CAPTURE — ${id0} BINDS ACROSS
+STEPS"*. `exact` is back, because this is direct editing and not "loosen".
+
+So: the dropdown offers seven; a row that already *is* a reference still shows `reference` on its
+chip; nothing can switch *to* it. And the left row is `tag · name · MatcherEditor` — the matcher
+editor **is** the value column, which is why neither `ExpectationEvaluator.describe` nor
+`ScenarioUi.matcherSummary` renders there. (Those two are a pre-existing duplication; `describe`
+stays, for the footer's staged labels and the engine's refusal sentences. Note it for Phase 7.)
+
+### 1.1 The shared verdict (extract first, build on it after)
+- [ ] `service/compare/Verdict.kt`: `Verdict(judged, attention, values, added, missing,
+      movedRows, movedEntries, unknown, unresolved)` + `headline`, `shapeVersusBehaviour`,
+      `parts` — the arithmetic and the sentences moved out of `VerdictBar` **verbatim**.
+      Pure: `(rows, movedRows, movedEntries) -> Verdict`. `canAcceptShape` moves with it.
+- [ ] `ReconcileView` refactored to render it. `ReconcileViewTest` passes **unmodified** —
+      that is the proof the extraction changed nothing, and it is the whole point of doing
+      it before the new surface exists rather than after.
+- [ ] Unit tests for `Verdict` covering each bug its comments record: the entry-vs-row count,
+      the unjudgeable row that must not read as a pass, the unbracketed `MOVED` row, and
+      `judged == 0`. Mutation-check each.
+
+### 1.2 `ReconcileSession` (state holder, not a composable)
+- [ ] `ui/diff/ReconcileSession.kt`: holds `original`, `draft`, the reference slot; derives
+      the semantics (P7); exposes `lines: List<DiffLine>` (P5), `verdict`, `overlay`, and the
+      withheld-move reason — all memoized on the value-typed key (P4), recomputed on draft /
+      reference change and nothing else.
+- [ ] `EditOp` = label + application (P2), one per existing pure op and **no reimplementation
+      of any**: `SetMatcher`, `AcceptActual`, `Loosen`, `Drop`, `AssertAbsent`,
+      `InsertAssertion`, `MoveRow`, `MoveEntry`, `AcceptOrder`, `Reseed`, `AcceptAllShape`,
+      `SetMode`. `SwapReference` is *not* one (P8).
+- [ ] Snapshot undo/redo with a cursor: `undo()`/`redo()`/`canUndo`/`canRedo`/`isDirty`;
+      `discard()` restores `original`. (`⌘Z` key wiring is Phase 4; the stacks land now.)
+- [ ] `offersFor(line)` from the engine's `can*` predicates (P6).
+- [ ] Tests: apply → undo → **byte-equal** expectation for every op; redo after undo; discard
+      after arbitrary sequences; `SwapReference` re-judges without staging, dirtying, or
+      pushing undo; the memo holds across an equal-but-distinct reference and invalidates on
+      each real input (P4); the re-judge budget.
+
+### 1.3 The `DiffSurface` composable
+- [ ] `ui/diff/DiffSurface.kt` renders a `ReconcileSession` per the mockups: header (crumb,
+      semantics chip, reference chip, the `Verdict` from 1.1), two aligned columns, centre
+      gutter, footer (staged count, the *"nothing is written to the scenario until you save"*
+      sentence verbatim, undo/redo/cancel/save). Left rows: tag (with `#2` occurrence
+      suffix) · name · `MatcherEditor` (P9). Right rows: tag · name · value · enum
+      description as a **separate dim span**, per the mockup — not folded into the value
+      string. Gaps get the hatched treatment; `unjudged` rows the amber `◌` third state.
+      Built from `SlimComponents`, never Material3 defaults.
+- [ ] Gutter per the proposal's table, but offered by `offersFor` (P6): `«` accept-actual,
+      `«` assert-it, `×` drop (whole-tag rule in its tooltip), `∅` assert-absent,
+      `⇄ Accept new order` on engine-proven moves. Bulk: Accept all shape changes, Re-seed.
+- [ ] Group bands from `GroupOverlay`: entry headers with the overlay's own labels, per-entry
+      hue, nested indent; hover highlights the aligned counterpart; `HEURISTIC` entries
+      badged as the guess they are. Moved entries: violet band + crossing connector.
+      Entry `↑`/`↓` ship now (they exist today; the surface must not regress against the view
+      it replaces) — drag is Phase 4.
+- [ ] The withheld-move reason renders **on the group it is about** (the mockup moves it off
+      the detached note it is today), verbatim from `Reorder.Refused.why`.
+- [ ] Compose tests + screenshots: value mismatch / added / missing / moved / unjudged; every
+      gutter apply mutating the draft through the session; an edit flipping a row green live;
+      accept-all-shape never touching a value mismatch; the `judged == 0` headline; hover
+      pairing. **The test harness must feed `onChange` back**, as `ScenarioEditor` does — a
+      harness that merely records it let a completely dead staging mechanism survive seven
+      passing tests (`ReconcileViewTest.kt:63-87`, and its docstring says so).
+
+**Phase 1 gate:** full suite green; `DiffSurface` driven interactively as a temporary
+`Mode.Diff` inside the **existing** `ScenarioWorkbenchWindow` — no new window, and the host is
+already condemned in 2.2, so nothing is written to be deleted — against fake-venue `shape` (the
+entries swap places; a re-order **must** be offered) and `swap` (the firms swap roles; a
+re-order must **never** be offered, and the refusal must render on the group). Screenshot set
+committed from the Compose tests, not from the harness.
 
 ---
 
@@ -632,7 +793,8 @@ message → diff → seed → step added to a scenario → run.
 |---|---|
 | `service/ExpectationEvaluator.kt`, `model/scenario/Matcher.kt`, `ScenarioRunner/Capture/Codec/Report/Service`, `ExpectationSeeder` | untouched (0.1/0.5 additive params excepted) |
 | `service/ScenarioReconcile.kt` | kept — ops become `EditOp` delegates; `moveRow` added; entry heuristics demoted to overlay fallback |
-| `service/compare/ComparisonSemantics.kt`, `GroupOverlay.kt` | new (Phase 0) |
+| `service/compare/ComparisonSemantics.kt`, `GroupOverlay.kt`, `ReferenceMessage.kt` | new (Phase 0) |
+| `service/compare/Verdict.kt` | new (Phase 1.1) — the counting and the sentences, lifted out of `ReconcileView` verbatim and shared by both surfaces until the old one dies |
 | `ui/diff/ReconcileSession.kt`, `ui/diff/DiffSurface.kt` | new (Phase 1) |
 | `ui/ReconcileView.kt` | deleted (Phase 3.1) after test porting |
 | `ui/ExpectationBuilder.kt` | deleted (Phase 3.2) after test porting |

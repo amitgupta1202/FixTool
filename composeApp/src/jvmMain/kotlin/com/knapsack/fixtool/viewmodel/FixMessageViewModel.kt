@@ -796,6 +796,48 @@ class FixMessageViewModel(
     }
 
     /**
+     * **Capture, from pasted wire.** The same review surface, fed by [ScenarioCapture.fromPaste] instead of the
+     * session logs — a server log fragment, an email, a message from an environment FixTool has never connected
+     * to. Every artifact it makes is badged `pasted`, because FixTool did not watch these bytes arrive.
+     */
+    fun openPasteCapture() {
+        val session = sessions.firstOrNull()?.title.orEmpty()
+        openDocument(
+            ScenarioDoc.Capture(
+                scan = ScenarioCapture.Scan(emptyList(), emptyList()),
+                state = CaptureReviewState.of(0),
+                paste = ScenarioDoc.Capture.Paste(session = session),
+            ),
+        )
+    }
+
+    /**
+     * Re-read the paste. It happens on **every** change to the text *and* to the session, because the session is
+     * what settles the direction: `SenderCompID(49)` against its own CompIDs (S9). Change the session and a row
+     * that was `Send` may become `Expect` — which is not a redraw, it is a different scenario.
+     */
+    fun updateCapturePaste(text: String, session: String) {
+        val config = sessions.firstOrNull { it.title == session }?.currentConfig
+        val read = ScenarioCapture.fromPaste(text, session, config?.senderCompID, config?.targetCompID)
+        updateCaptureDocument { doc ->
+            doc.copy(
+                scan = ScenarioCapture.Scan(read.candidates, emptyList()),
+                state = CaptureReviewState.of(read.candidates.size).copy(name = doc.state.name),
+                paste = ScenarioDoc.Capture.Paste(text, session, read.refused),
+            )
+        }
+    }
+
+    /** The author settled a direction the bytes could not. Nothing else may settle it — see S9. */
+    fun setCandidateDirection(index: Int, direction: FixMessage.Direction) {
+        updateCaptureDocument { doc ->
+            val candidates =
+                doc.scan.candidates.mapIndexed { i, c -> if (i == index) c.copy(direction = direction) else c }
+            doc.copy(scan = doc.scan.copy(candidates = candidates))
+        }
+    }
+
+    /**
      * Write the editor's draft to disk, and leave the tab open on it.
      *
      * A tab is a document, not a modal: Save writes and the document becomes clean. It is re-seeded from what

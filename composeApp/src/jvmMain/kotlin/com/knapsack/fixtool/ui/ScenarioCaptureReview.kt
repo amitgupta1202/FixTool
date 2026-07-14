@@ -72,6 +72,12 @@ fun ScenarioCaptureReview(
     onStateChange: (CaptureReviewState) -> Unit = {},
     /** Selecting a candidate selects its source message in the session grid and the detail panel. */
     onSelectSource: (FixMessage) -> Unit = {},
+    /** Capture's second source. Null = the live sessions; non-null = the author is pasting wire (S9). */
+    paste: ScenarioDoc.Capture.Paste? = null,
+    onPasteChange: (String, String) -> Unit = { _, _ -> },
+    /** A direction the bytes could not settle, settled by the author. Nothing else may settle it. */
+    onSetDirection: (Int, FixMessage.Direction) -> Unit = { _, _ -> },
+    sessionOptions: List<String> = emptyList(),
 ) {
     val name = state.name
     val selectedIdx = state.selectedIdx
@@ -87,8 +93,15 @@ fun ScenarioCaptureReview(
     val varColors = varColorMap(stepVars.flatMap { it.minted })
     val sessionColors = sessionColorMap(candidates.map { it.session })
 
-    /** Index into [previewSteps] for an included candidate row (steps mirror the selection order). */
-    fun stepIndexOf(candidateIdx: Int): Int = (0 until candidateIdx).count { state.includes(it) }
+    /**
+     * Index into [previewSteps] for an included candidate row (steps mirror the selection order).
+     *
+     * **Only DIRECTED rows become steps** — `captureFrom` skips the undirected ones — so an undirected row
+     * upstream must not shift the count, or the preview would draw one candidate's chips against another
+     * candidate's step.
+     */
+    fun stepIndexOf(candidateIdx: Int): Int =
+        (0 until candidateIdx).count { state.includes(it) && candidates.getOrNull(it)?.direction != null }
 
     fun include(index: Int, on: Boolean) {
         val next = state.included.toMutableList()
@@ -122,11 +135,28 @@ fun ScenarioCaptureReview(
             SlimButton(
                 text = "Save scenario",
                 onClick = { onSave(name.ifBlank { "Captured scenario" }, selection) },
-                enabled = selection.isNotEmpty(),
+                // **An undirected row cannot be saved.** A reply mis-marked as a Send becomes a step that
+                // asserts NOTHING — the scenario sends the venue's own reply back at it and reports green — so
+                // a direction nobody has settled blocks the save by name rather than defaulting into silence.
+                enabled = selection.isNotEmpty() && ScenarioCapture.undirected(selection).isEmpty(),
                 color = AppTheme.Colors.success,
                 modifier = Modifier.testTag("capture-save"),
             )
         }
+        val undirected = ScenarioCapture.undirected(selection)
+        if (undirected.isNotEmpty()) {
+            Text(
+                "${undirected.size} message${if (undirected.size == 1) "" else "s"} still ${
+                    if (undirected.size == 1) "has" else "have"
+                } no direction. A paste does not carry one, and these bytes' SenderCompID(49) does not match " +
+                    "the session's — so say which way each one went. A reply saved as a Send becomes a step " +
+                    "that asserts nothing.",
+                color = AppTheme.Colors.warning,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp).testTag("capture-undirected"),
+            )
+        }
+        paste?.let { PasteSource(it, sessionOptions, onPasteChange) }
         Text(
             text = "Sends become parameterized Send steps (fresh ids, live timestamps); responses become assertions. " +
                 "●id badges mark where an id is minted, ○id where it must echo back — including across sessions.",
@@ -162,10 +192,13 @@ fun ScenarioCaptureReview(
                         included = isIncluded,
                         selected = i == selectedIdx,
                         sessionColor = sessionColors[candidate.session] ?: AppTheme.Colors.primary,
-                        vars = if (isIncluded) stepVars.getOrNull(stepIndexOf(i)) else null,
+                        // An undirected row makes no step yet, so it has no vars — and the step indices below it
+                        // have not shifted, because captureFrom skips it too.
+                        vars = if (isIncluded && candidate.direction != null) stepVars.getOrNull(stepIndexOf(i)) else null,
                         varColors = varColors,
                         onToggle = { include(i, it) },
                         onSelect = { select(i) },
+                        onSetDirection = onSetDirection,
                     )
                 }
             }
@@ -227,6 +260,7 @@ private fun CandidateRow(
     varColors: Map<String, androidx.compose.ui.graphics.Color>,
     onToggle: (Boolean) -> Unit,
     onSelect: () -> Unit,
+    onSetDirection: (Int, FixMessage.Direction) -> Unit = { _, _ -> },
 ) {
     val outgoing = candidate.outgoing
     val bg = if (selected) AppTheme.Colors.selectionPrimary else AppTheme.Colors.surfaceVariant
@@ -237,13 +271,32 @@ private fun CandidateRow(
         Checkbox(checked = included, onCheckedChange = onToggle, modifier = Modifier.testTag("candidate-check-$index"))
         RowIndex(index, dimmed = !included)
         SessionBadge(candidate.session, sessionColor, modifier = Modifier.width(130.dp))
-        DirectionGlyph(outgoing, modifier = Modifier.padding(end = 6.dp))
+        // **A paste carries no direction, and it is not guessed.** Where the bytes settle it, the glyph; where
+        // they do not, the author is asked — because a reply saved as a Send is a step that asserts nothing.
+        if (candidate.direction == null) {
+            DirectionToggle(index, onSetDirection)
+        } else {
+            DirectionGlyph(outgoing, modifier = Modifier.padding(end = 6.dp))
+        }
         Text(
-            text = if (outgoing) "Send ${msgTypeLabel(dictionary, candidate.messageType)}" else "Expect ${msgTypeLabel(dictionary, candidate.messageType)}",
+            text =
+                when {
+                    candidate.direction == null -> msgTypeLabel(dictionary, candidate.messageType)
+                    outgoing -> "Send ${msgTypeLabel(dictionary, candidate.messageType)}"
+                    else -> "Expect ${msgTypeLabel(dictionary, candidate.messageType)}"
+                },
             color = if (included) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
             fontSize = 12.sp,
             maxLines = 1,
         )
+        if (candidate.pasted) {
+            Text(
+                "pasted",
+                color = AppTheme.Colors.warning,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(start = 6.dp).testTag("candidate-pasted-$index"),
+            )
+        }
         if (vars != null) {
             VarBadges(vars.minted, vars.referenced, varColors, modifier = Modifier.padding(start = 8.dp))
         }
@@ -526,4 +579,74 @@ private fun OccurrenceLabel(occurrence: Int, show: Boolean) {
 private fun TagAndName(tag: Int, dictionary: FixDictionary?) {
     Text("$tag", color = AppTheme.Colors.tagNumber, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(44.dp))
     Text(dictionary?.getFieldName(tag) ?: "", color = AppTheme.Colors.textSecondary, fontSize = 11.sp, maxLines = 1, modifier = Modifier.width(120.dp))
+}
+
+/**
+ * **Capture's second source.** One message per line, read by the same reader the diff's paste sheet uses — so
+ * a message means the same thing whichever door it comes through. A line the reader refuses is not a
+ * candidate, and it is **reported**: leaving a message out has to be something the author is told.
+ *
+ * The session is not decoration. It is what settles the **direction** — `SenderCompID(49)` against that
+ * session's own CompIDs — so changing it re-reads the paste, and a row that was a Send may become an Expect.
+ */
+@Composable
+private fun PasteSource(
+    paste: ScenarioDoc.Capture.Paste,
+    sessionOptions: List<String>,
+    onChange: (String, String) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("capture-paste")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("PASTE WIRE — ONE MESSAGE PER LINE", color = AppTheme.Colors.textSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            SlimLabeled("Session", modifier = Modifier.padding(start = 12.dp)) {
+                SlimDropdown(
+                    value = paste.session.ifBlank { null },
+                    options = sessionOptions,
+                    onValueChange = { onChange(paste.text, it.orEmpty()) },
+                    displayText = { it },
+                    placeholder = "pick a session",
+                    modifier = Modifier.width(160.dp).testTag("capture-paste-session"),
+                )
+            }
+        }
+        SlimField(
+            value = paste.text,
+            onValueChange = { onChange(it, paste.session) },
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp).testTag("capture-paste-field"),
+        )
+        // What could not be read, in the reader's own words. Never dropped on the floor — a capture is a claim
+        // about coverage, and a silent omission turns a scenario that checks four of five replies into one
+        // that looks complete.
+        paste.refused.forEach { why ->
+            Text(
+                "✗ $why",
+                color = AppTheme.Colors.error,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 4.dp).testTag("capture-paste-refused"),
+            )
+        }
+    }
+}
+
+/**
+ * **The direction a paste does not carry.** Offered only where nothing has settled it — the bytes are asked
+ * first (`SenderCompID(49)` against the session), and the author only where they cannot answer.
+ */
+@Composable
+private fun DirectionToggle(index: Int, onSet: (Int, FixMessage.Direction) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("capture-direction-$index")) {
+        Text("which way?", color = AppTheme.Colors.warning, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
+        SlimButton(
+            "▶ Send",
+            onClick = { onSet(index, FixMessage.Direction.OUTGOING) },
+            color = AppTheme.Colors.textSecondary,
+            modifier = Modifier.padding(end = 2.dp).testTag("capture-direction-out-$index"),
+        )
+        SlimButton(
+            "◀ Expect",
+            onClick = { onSet(index, FixMessage.Direction.INCOMING) },
+            color = AppTheme.Colors.textSecondary,
+            modifier = Modifier.testTag("capture-direction-in-$index"),
+        )
+    }
 }

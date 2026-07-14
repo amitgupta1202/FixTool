@@ -587,6 +587,29 @@ server.tool(
 );
 
 server.tool(
+  "fixtool_capture_paste",
+  "Capture a scenario from PASTED WIRE — a server log fragment, one message per line — with no live " +
+    "session at all. The same reader the paste sheet uses: a line whose reading the bytes disprove (a " +
+    "'|' inside a value, a checksum that disagrees) is REFUSED and reported, never guessed. Direction " +
+    "is read from SenderCompID(49) against the given CompIDs; a message whose direction nothing settles " +
+    "blocks the save, because a reply saved as a send asserts nothing. Every step is badged 'pasted'. " +
+    "Returns {status,id,steps,pasted,refused[]} or {status:refused,undirected[]}.",
+  {
+    name: z.string().describe("scenario name"),
+    wire: z.string().describe("the pasted bytes — one FIX message per line (SOH or '|' delimited)"),
+    session: z.string().optional().describe("session id/title to assign, whose CompIDs settle direction"),
+    senderCompId: z.string().optional().describe("our CompID (overrides the session's) — 49 equal to this is outgoing"),
+    targetCompId: z.string().optional().describe("the venue's CompID (overrides the session's) — 49 equal to this is incoming"),
+    profile: z.string().optional().describe("connection profile id/name to tag the scenario with"),
+  },
+  async (args) => {
+    const body = {};
+    for (const [k, v] of Object.entries(args)) if (v !== undefined) body[k] = v;
+    return text("POST", "/scenarios/capture-paste", body);
+  },
+);
+
+server.tool(
   "fixtool_list_scenarios",
   "List saved scenarios (id, name, profile, step counts, userTags), optionally filtered by profile.",
   { profile: z.string().optional().describe("profile id, name, or tag to filter by") },

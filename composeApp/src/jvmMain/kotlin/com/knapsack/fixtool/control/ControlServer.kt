@@ -23,6 +23,7 @@ import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
+import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReport
@@ -111,6 +112,7 @@ class ControlServer(
         httpServer.createContext("/scenarios/reconcile") { ex -> handle(ex) { reconcile(ex) } }
         httpServer.createContext("/scenarios/run") { ex -> handle(ex) { runScenario(ex) } }
         httpServer.createContext("/scenarios/capture") { ex -> handle(ex) { captureScenario(ex) } }
+        httpServer.createContext("/scenarios/capture-paste") { ex -> handle(ex) { capturePaste(ex) } }
         httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
         httpServer.createContext("/detail") { ex -> handle(ex) { detailSearch(ex) } }
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
@@ -798,7 +800,7 @@ class ControlServer(
         val scan = ScenarioCapture.scan(captured)
         val scenario =
             ScenarioCapture.captureFrom(
-                id = java.util.UUID.randomUUID().toString(),
+                id = newScenarioId(),
                 name = name,
                 profile = profile,
                 selection = scan.candidates,
@@ -833,6 +835,76 @@ class ControlServer(
             }
             put("scenario", ScenarioCodec.toJson(scenario))
         }
+    }
+
+    /**
+     * **Capture from pasted wire, without a hand.** The paste box is click-only — the control surface cannot
+     * type into it — so W2's gate (paste a log fragment → save → run → reconcile) could not be driven by the
+     * machine. This is the same door the UI's paste review takes: `ScenarioCapture.fromPaste`, then
+     * `captureFrom`, so a route it refuses is a route the review refuses in the same words.
+     *
+     * It honours both of S9's rules loudly. A line whose reading the bytes disprove is **reported** in
+     * `refused`, not dropped. A row whose direction nothing settled is **reported** in `undirected` and the
+     * capture is not saved — because a reply mis-marked as a Send is a step that asserts nothing, and an agent
+     * writing a CI job must be told, not handed a green that checks less than it says.
+     */
+    private fun capturePaste(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val name = body["name"]?.jsonPrimitive?.content ?: return errorObject("missing 'name'")
+        val text = body["wire"]?.jsonPrimitive?.content ?: return errorObject("missing 'wire' (the pasted bytes)")
+        val sessionKey = body["session"]?.jsonPrimitive?.content
+        val session = sessionKey?.let { resolveSession(it) }
+        val scan =
+            ScenarioCapture.fromPaste(
+                text = text,
+                session = sessionKey ?: session?.title.orEmpty(),
+                senderCompId = pastedCompId(body, "senderCompId") { onEdt { session?.currentConfig?.senderCompID } },
+                targetCompId = pastedCompId(body, "targetCompId") { onEdt { session?.currentConfig?.targetCompID } },
+            )
+        val undirected = ScenarioCapture.undirected(scan.candidates)
+        if (scan.candidates.isEmpty() || undirected.isNotEmpty()) {
+            return buildJsonObject {
+                put("status", "refused")
+                put(
+                    "reason",
+                    if (scan.candidates.isEmpty()) {
+                        "no message could be read from the paste"
+                    } else {
+                        "${undirected.size} message(s) have no direction — pass senderCompId/targetCompId, or a " +
+                            "session whose CompIDs match, so a reply is not saved as a Send that asserts nothing"
+                    },
+                )
+                put("refused", buildJsonArray { scan.refused.forEach { add(it) } })
+                put("undirected", buildJsonArray { undirected.forEach { add(it.messageType) } })
+            }
+        }
+        val scenario =
+            ScenarioCapture.captureFrom(
+                id = newScenarioId(),
+                name = name,
+                profile = body["profile"]?.jsonPrimitive?.content,
+                selection = scan.candidates,
+                dictionary = onEdt { viewModel.dictionary },
+            )
+        val ok = viewModel.scenarioService.save(scenario)
+        return buildJsonObject {
+            put("status", if (ok) "created" else "failed")
+            put("id", scenario.id)
+            put("name", scenario.name)
+            put("steps", scenario.steps.size)
+            put("pasted", scenario.steps.all { it.origin == StepOrigin.PASTED })
+            put("refused", buildJsonArray { scan.refused.forEach { add(it) } })
+            put("scenario", ScenarioCodec.toJson(scenario))
+        }
+    }
+
+    /** A CompID from the request, or the assigned session's — whichever is present. */
+    private fun pastedCompId(body: JsonObject, key: String, fromSession: () -> String?): String? =
+        body[key]?.jsonPrimitive?.content ?: fromSession()
+
+    private fun newScenarioId(): String {
+        val uuid = java.util.UUID.randomUUID()
+        return uuid.toString()
     }
 
     /** Deletes a scenario by id. */

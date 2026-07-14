@@ -162,9 +162,10 @@ private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit) {
             }
         is Matcher.Numeric -> {
             SlimField(numText(matcher.expected), { onChange(Matcher.Numeric(it.toDoubleOrNull() ?: matcher.expected, matcher.tolerance)) }, monospace = true, modifier = Modifier.width(80.dp))
-            SlimLabeled("± tol") {
-                SlimField(numText(matcher.tolerance), { onChange(Matcher.Numeric(matcher.expected, it.toDoubleOrNull() ?: matcher.tolerance)) }, monospace = true, modifier = Modifier.width(70.dp))
-            }
+            // A bare "±" rather than a "± tol" label: in a narrow diff column the label had nowhere to go and
+            // wrapped to one character per line, which is not a label, it is a decoration.
+            Text("±", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
+            SlimField(numText(matcher.tolerance), { onChange(Matcher.Numeric(matcher.expected, it.toDoubleOrNull() ?: matcher.tolerance)) }, monospace = true, modifier = Modifier.width(56.dp))
         }
         is Matcher.Temporal -> {
             SlimDropdown(
@@ -175,9 +176,9 @@ private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit) {
                 modifier = Modifier.width(76.dp),
             )
             if (matcher.kind == TemporalKind.NOW_WITHIN_TOLERANCE) {
-                SlimLabeled("± sec") {
-                    SlimField(matcher.toleranceSeconds.toString(), { onChange(Matcher.Temporal(matcher.kind, it.toLongOrNull() ?: matcher.toleranceSeconds)) }, monospace = true, modifier = Modifier.width(56.dp))
-                }
+                Text("±", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
+                SlimField(matcher.toleranceSeconds.toString(), { onChange(Matcher.Temporal(matcher.kind, it.toLongOrNull() ?: matcher.toleranceSeconds)) }, monospace = true, modifier = Modifier.width(48.dp))
+                Text("s", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
             }
         }
     }

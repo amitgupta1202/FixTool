@@ -107,13 +107,73 @@ data class Verdict(
      */
     fun headlineAgainst(provenance: ReferenceMessage.Provenance): String =
         when {
-            provenance != ReferenceMessage.Provenance.SECOND_INSTANCE -> headline
+            // A step that asserts nothing passes every run for ever while checking nothing. That is true of it
+            // against ANY message, and it is the one sentence the slot may not soften.
             assertsNothing -> headline
-            attention == 0 ->
-                "✓ generalizes — every assertion holds against a different message of the same shape"
-            attention == 1 -> "⚠ 1 row is over-specified — it only passes against the message it was captured from"
+            // THIS_RUN and GOLDEN are the message the step is *about*. A red row there is the venue.
+            !provenance.chosenByTheAuthor -> headline
+            provenance == ReferenceMessage.Provenance.SECOND_INSTANCE -> overSpecified()
+            else -> doesNotHoldAgainst(provenance)
+        }
+
+    private fun overSpecified(): String =
+        when (attention) {
+            0 -> "✓ generalizes — every assertion holds against a different message of the same shape"
+            1 -> "⚠ 1 row is over-specified — it only passes against the message it was captured from"
             else -> "⚠ $attention rows are over-specified — they only pass against the message they were captured from"
         }
+
+    /**
+     * **PICKED and PASTED: the tool reports, and does not diagnose.**
+     *
+     * FixTool did not choose this message and cannot know why the author did. It may be UAT's reply to the same
+     * order, a rejection where a fill was captured, or another venue entirely — so *"N rows need attention"*,
+     * which in this surface has always meant **the venue did something new**, would accuse a venue of a
+     * regression nobody has evidence of and send an engineer hunting a bug that does not exist. What is true is
+     * that the rows do not hold against the message on the right. The split (`1 value changed · 1 tag missing`)
+     * says the rest, and the author, who chose the message, is the one who knows what that means.
+     */
+    private fun doesNotHoldAgainst(provenance: ReferenceMessage.Provenance): String {
+        val noun = if (provenance == ReferenceMessage.Provenance.PICKED) "the picked message" else "the pasted message"
+        return when {
+            attention == 1 -> "1 row does not hold against $noun"
+            attention > 1 -> "$attention rows do not hold against $noun"
+            // Green — and, exactly as in `headline`, green only about what could actually be checked here.
+            unknown > 0 ->
+                "✓ every checked assertion holds against $noun ($judged checked · $unknown only verifiable on a run)"
+            else -> "✓ every assertion holds against $noun ($judged checked)"
+        }
+    }
+
+    /**
+     * **The header's chip — which is the headline in two words, and is read before it.**
+     *
+     * It used to be the literal string `failed`, drawn by the surface on [needsAttention] alone, with no idea
+     * what was in the reference slot. So a step being *authored* against a message picked out of a grid — a step
+     * that has **never run**, which is precisely why the pick prompt was showing — was painted **FAILED**, in
+     * red, beside a verdict saying something else. And verify-generalizes, whose whole answer is *"over-specified"*,
+     * was painted FAILED too. A step that has not run cannot have failed.
+     *
+     * Same rule as [headlineAgainst], and the same function is the reason they cannot come to disagree: the word
+     * is licensed by what is on the right. Null when there is nothing to say — a green diff carries no chip.
+     */
+    fun chipAgainst(provenance: ReferenceMessage.Provenance): String? =
+        when {
+            !needsAttention -> null
+            provenance == ReferenceMessage.Provenance.THIS_RUN -> "failed"
+            // It has not run. This is a prediction about a run that has not happened, and it says so.
+            provenance == ReferenceMessage.Provenance.GOLDEN -> "would fail"
+            provenance == ReferenceMessage.Provenance.SECOND_INSTANCE -> "over-specified"
+            else -> "does not hold"
+        }
+
+    /**
+     * Is a red row here an accusation about the **venue**, or a fact about a message the author chose? It is
+     * what the chip and the verdict line are coloured from: error is a claim, and it may only be made about the
+     * message the step is actually about.
+     */
+    fun accusesTheVenue(provenance: ReferenceMessage.Provenance): Boolean =
+        needsAttention && !provenance.chosenByTheAuthor
 
     /** `1 value changed · 1 tag added · 1 tag missing · 2 entries moved` — what happened, in its own units. */
     val parts: List<String> get() =

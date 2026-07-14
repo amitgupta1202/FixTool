@@ -155,7 +155,21 @@ private fun DiffHeader(
                 color = AppTheme.Colors.info,
                 testTag = "diff-reference",
             )
-            if (model.verdict.needsAttention) Chip("failed", AppTheme.Colors.error, tinted = true, testTag = "diff-failed")
+            // **The chip is the headline in two words, and it is read first.** It used to say `failed`, drawn
+            // on `needsAttention` alone with no idea what was on the right — so a step being *authored* against
+            // a picked message, one that has never run, was painted FAILED; and verify-generalizes, whose whole
+            // answer is "over-specified", was painted FAILED too. The word is licensed by the slot, and by the
+            // same function the headline comes from, so the two cannot come to disagree.
+            val provenance = session.reference.provenance
+            model.verdict.chipAgainst(provenance)?.let { word ->
+                val venuesOwn = model.verdict.accusesTheVenue(provenance)
+                Chip(
+                    label = word,
+                    color = if (venuesOwn) AppTheme.Colors.error else AppTheme.Colors.warning,
+                    tinted = true,
+                    testTag = "diff-failed",
+                )
+            }
         }
         Spacer(Modifier.width(0.dp))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
@@ -260,22 +274,31 @@ private fun Chip(label: String, color: Color, tinted: Boolean = false, testTag: 
 @Composable
 private fun VerdictLine(model: DiffModel, provenance: ReferenceMessage.Provenance) {
     val v = model.verdict
+    // Red is a claim, and it may only be made about the message the step is actually ABOUT. Against a message
+    // the author bound by hand, rows that do not hold are amber: something to look at, not an accusation.
+    val accuses = v.accusesTheVenue(provenance)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
             Modifier
                 .fillMaxWidth()
                 .background(
-                    if (v.needsAttention) AppTheme.Colors.notificationErrorBackground else AppTheme.Colors.surfaceVariant,
+                    when {
+                        accuses -> AppTheme.Colors.notificationErrorBackground
+                        v.needsAttention -> AppTheme.Colors.notificationInfoBackground
+                        else -> AppTheme.Colors.surfaceVariant
+                    },
                 ).padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
-            // Against a SECOND_INSTANCE a red row is an over-specified assertion, not a venue regression —
-            // and the sentence has to say which, or the author goes hunting a bug that does not exist.
+            // Against a SECOND_INSTANCE a red row is an over-specified assertion, not a venue regression; against
+            // a picked or pasted message it is neither, and FixTool does not know which. The sentence has to say
+            // which, or the author goes hunting a bug that does not exist.
             text = v.headlineAgainst(provenance),
             color =
                 when {
-                    v.needsAttention -> AppTheme.Colors.error
+                    accuses -> AppTheme.Colors.error
+                    v.needsAttention -> AppTheme.Colors.warning
                     v.assertsNothing -> AppTheme.Colors.warning
                     else -> AppTheme.Colors.success
                 },
@@ -325,12 +348,18 @@ private fun RefusedMove(why: String, onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * The right column's heading is **the slot's own label**, and it used to be `RECEIVED — …` whatever was in it.
+ * *Received* is a claim about how the bytes got here, and it is false of a golden and of a paste — the two
+ * slots authoring uses. The label says what the message is; the only thing this adds is that it is the venue's
+ * order and not ours, which is true of all five.
+ */
 @Composable
 private fun ColumnHeaders(referenceLabel: String) {
     Row(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 3.dp)) {
         Header("EXPECTATION (EDITABLE)", Modifier.weight(LEFT_WEIGHT))
         Spacer(Modifier.width(GUTTER))
-        Header("RECEIVED — ${referenceLabel.uppercase()}", Modifier.weight(1f))
+        Header("${referenceLabel.uppercase()} — WIRE ORDER", Modifier.weight(1f))
     }
 }
 

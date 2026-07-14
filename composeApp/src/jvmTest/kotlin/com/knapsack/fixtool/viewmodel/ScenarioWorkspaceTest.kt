@@ -9,6 +9,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.withIds
+import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.ui.ScenarioDoc
 import org.junit.After
 import org.junit.Before
@@ -191,6 +192,58 @@ class ScenarioWorkspaceTest {
             "the diff shows what the venue sent THIS time, not what it sent last time",
         )
         assertEquals(0, session.model.verdict.attention, "so the step it just fixed reads as fixed")
+    }
+
+    /**
+     * **…and it re-binds the slots it owns, which are not all of them.**
+     *
+     * The other half of the rule above, and it is the half that was missing. An author who binds a message
+     * *by hand* — a row picked out of a grid, a reply pasted from UAT — has said what they want on the right,
+     * and it is usually the whole reason the diff is open. Re-binding it because a run happened takes the thing
+     * they were comparing against away **at the moment they were using it**, and says nothing.
+     *
+     * The run's bytes are still held on the document, so the swap menu can offer them. They are simply not
+     * forced into a slot the author has already answered.
+     */
+    @Test
+    fun `a run does not take away the reference the author bound by hand`() {
+        val onDisk = saved()
+        val stepId = onDisk.withIds().steps[1].stepId
+        val failing = message(wire("150=0"))
+        viewModel.openScenarioEditor(onDisk)
+        viewModel.noteScenarioRun(onDisk)
+        viewModel.setAssertionResults(mapOf(failing to StepResult(1, "expect", "steps", false, stepId = stepId)))
+        viewModel.openReconcileDocument(onDisk, stepId, thisRunWire = failing.wireRaw)
+
+        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
+        val session = doc.session!!
+        viewModel.bindPickedReference(doc, wire("150=X"), null)
+        assertEquals(ReferenceMessage.Provenance.PICKED, session.reference.provenance, "the author has answered the question")
+
+        // A run lands — from Save & re-run, or from the rail, or from an agent over the control surface.
+        val next = message(wire("150=F"))
+        viewModel.noteScenarioRun(onDisk)
+        viewModel.setAssertionResults(mapOf(next to StepResult(1, "expect", "steps", true, stepId = stepId)))
+        viewModel.publishScenarioResult(ScenarioResult(onDisk.name, passed = true, steps = emptyList()))
+
+        assertEquals(
+            ReferenceMessage.Provenance.PICKED,
+            session.reference.provenance,
+            "the message the author chose is still the message on the right",
+        )
+        assertEquals(
+            "X",
+            session.model.lines
+                .single { it.row.tag == 150 }
+                .right
+                ?.value,
+            "and it is still THEIR bytes being diffed, not the run's",
+        )
+        val after =
+            viewModel.openDocuments.value
+                .filterIsInstance<ScenarioDoc.Reconcile>()
+                .single()
+        assertEquals(next.wireRaw, after.thisRunWire, "the run's bytes are held — the menu offers them, the run does not impose them")
     }
 
     /** The venue's bytes, SOH-delimited — never the `|` display string, which is not what the engine reads. */

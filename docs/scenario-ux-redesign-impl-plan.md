@@ -18,7 +18,7 @@ dodged the hard case.
 
 | Phase | Title | Status |
 |---|---|---|
-| 0 | Engine seams (no UI) | not started |
+| 0 | Engine seams (no UI) | **complete** |
 | 1 | The diff surface, standalone | not started |
 | 2 | Rail + document tabs; the window dies | not started |
 | 3 | The diff surface becomes the only expectation editor | not started |
@@ -164,75 +164,75 @@ disk. Ids duplicated within one scenario are re-minted on load. Equality still *
   `Alignment.occurrence` already carries it, and `AlignmentModel` must not drop it.
 
 ### 0.1 Stable step ids
-- [ ] `ScenarioStep` gains `stepId: String` (UUID, generated on creation/capture/load —
+- [x] `ScenarioStep` gains `stepId: String` (UUID, generated on creation/capture/load —
       a file without ids gets them assigned on load and keeps them on save; additive
       key in `ScenarioCodec`, `ignoreUnknownKeys` untouched).
-- [ ] `StepResult` carries `stepId` alongside `stepIndex`; `ScenarioReport.toJson`
+- [x] `StepResult` carries `stepId` alongside `stepIndex`; `ScenarioReport.toJson`
       emits it (additive).
-- [ ] `FixMessageViewModel.reconcileRoute` refuses "edited since run" **per step by id**:
+- [x] `FixMessageViewModel.reconcileRoute` refuses "edited since run" **per step by id**:
       route opens iff the *ran* step (by `stepId`) is byte-equal to the *saved* step;
       edits to other steps no longer block. Update `ScenarioDeepLinkTest` — the
       edited-since-run case must split into "this step edited → refused" and "another
       step edited → still routes".
-- [ ] Codec round-trip test: load a pre-`stepId` file → ids assigned, everything else
+- [x] Codec round-trip test: load a pre-`stepId` file → ids assigned, everything else
       byte-identical on save except the added ids.
 
 ### 0.2 `ComparisonSemantics` + `AlignmentModel`
-- [ ] New `service/compare/ComparisonSemantics.kt`: interface
+- [x] New `service/compare/ComparisonSemantics.kt`: interface
       `{ id, label, align(expectation, actual: MessageView, resolver, at): AlignmentModel }`
       and `AlignmentModel(chunks: List<Chunk>)`,
       `Chunk(kind: SAME|VALUE|LEFT_ONLY|RIGHT_ONLY|MOVED, left: List<RowRef>, right: List<RowRef>, moveLink: ChunkId?)`.
       Rows keep everything `ScenarioReconcile.Row` carries today (status, unknown,
       occurrence, wireIndex, dictionary name).
-- [ ] `StrictSemantics` and `OpenSemantics` implemented as thin wrappers over the
+- [x] `StrictSemantics` and `OpenSemantics` implemented as thin wrappers over the
       existing `ExpectationEvaluator.diff` + `ScenarioReconcile.rows/movedBlocks` — no
       behaviour change; golden tests assert the wrapper reproduces today's rows exactly
       on the existing fixture corpus.
-- [ ] A semantics **registry** with a registration gate: generalize
+- [x] A semantics **registry** with a registration gate: generalize
       `AlignmentPropertiesTest` into a reusable property harness
       (`SemanticsContractTest`) that every registered semantics must pass — including
       "pairing is blind to matcher outcomes" and "an expectation seeded from a message
       aligns clean against it". STRICT and OPEN pass it; the registry refuses (fails
       fast at startup in dev/test) a semantics that hasn't.
-- [ ] Mode selection continues to serialize as `MatchMode` — `strict`/`open` map to
+- [x] Mode selection continues to serialize as `MatchMode` — `strict`/`open` map to
       semantics ids; unknown future ids must fail loudly at load, not silently degrade.
 
 ### 0.3 `GroupOverlay` (dictionary-derived structure, presentation-only)
-- [ ] New `service/compare/GroupOverlay.kt`: built from
+- [x] New `service/compare/GroupOverlay.kt`: built from
       `FixDictionaryAdapter`/`DataDictionary` group definitions (reuse the recursive
       knowledge in `FixStructure.walk` / `FixMessageHelper.processFields`), mapping a
       flat field list to nested entry nodes `{groupTag, entryIndex, rowRange, children}`.
       One overlay instance feeds **both** sides of a diff (built per side from the same
       dictionary — the two sides must never disagree about where an entry starts for
       identical tag sequences).
-- [ ] Fallback: where the dictionary does not know the group, fall back to the existing
+- [x] Fallback: where the dictionary does not know the group, fall back to the existing
       `ScenarioReconcile.entries` period-detection; the overlay says which source it
       used per group (the UI will badge heuristic entries).
-- [ ] Entry labels: delimiter value + best identity description from the dictionary
+- [x] Entry labels: delimiter value + best identity description from the dictionary
       (e.g. `FIRMA · 1 Executing`), computed here, not in the UI.
-- [ ] Tests: nested groups; a 3-entry party group (the rotation trap from the model doc —
+- [x] Tests: nested groups; a 3-entry party group (the rotation trap from the model doc —
       the overlay must produce entry boundaries where period-detection was fooled);
       unknown custom group falls back; **architecture test that `ExpectationEvaluator`
       has no dependency on `GroupOverlay`** (mutation-check: add the import, test fails).
 
 ### 0.4 Generalized move validation
-- [ ] One validator implementing **D1's rule** (not the one-liner this section used to
+- [x] One validator implementing **D1's rule** (not the one-liner this section used to
       carry — see the decisions above): no row leaves its entry; a row of a repeated tag
       crosses a same-tag sibling only if its whole entry crosses with it; no move lands
       inside an entry.
-- [ ] `ScenarioReconcile.moveRow(draft, fromIndex, toIndex): MoveResult` — the per-row
+- [x] `ScenarioReconcile.moveRow(draft, fromIndex, toIndex): MoveResult` — the per-row
       drag, legal for a scalar (an entry of one), refused for a lone row of a repeated tag.
-- [ ] `ScenarioReconcile.moveEntry(draft, overlay?, entry, toSlot): MoveResult` — an
+- [x] `ScenarioReconcile.moveEntry(draft, overlay?, entry, toSlot): MoveResult` — an
       entry-range move to any sibling slot within its group (the proposal's entry drag;
       today's `moveBlock` only swaps with the adjacent sibling). A null overlay falls back
       to the `entries` heuristic, which is what keeps the old callers behaving identically.
-- [ ] `MoveResult` is `Applied(newExpectation)` or `Refused(why)`, reusing the existing
+- [x] `MoveResult` is `Applied(newExpectation)` or `Refused(why)`, reusing the existing
       refusal sentences where they fit and adding the occurrence-swap sentence for the
       single-row refusal.
-- [ ] `moveBlock` keeps its signature and becomes a caller of the same validator;
+- [x] `moveBlock` keeps its signature and becomes a caller of the same validator;
       `ReconcileMoveBlockTest` stays green **unmodified** — it is the regression net for
       this refactor, and it is what proves D1 subsumes today's behaviour.
-- [ ] Property test in the `AlignmentPropertiesTest` style: for generated expectations,
+- [x] Property test in the `AlignmentPropertiesTest` style: for generated expectations,
       every `Applied` move leaves each row asserting the same *entry* it asserted before
       (the correspondence, not the raw `(tag, occurrence)` binding — an entry move changes
       that binding on purpose); every occurrence-swapping candidate that does not carry a
@@ -240,17 +240,58 @@ disk. Ids duplicated within one scenario are re-minted on load. Equality still *
       Mutation-check the guard.
 
 ### 0.5 Reference anchoring
-- [ ] `ReferenceMessage` value type: `{view: MessageView, provenance: THIS_RUN|GOLDEN|SECOND_INSTANCE|PICKED|PASTED, label, anchorInstant}` —
+- [x] `ReferenceMessage` value type: `{view: MessageView, provenance: THIS_RUN|GOLDEN|SECOND_INSTANCE|PICKED|PASTED, label, anchorInstant}` —
       anchor = arrival instant for live/run messages (as `actualAt` today), the
       message's own `SendingTime(52)` for pasted (fallback: null → temporals render
       unjudged, with the reason).
-- [ ] `ScenarioReconcile.rows`/judging accept the anchor from `ReferenceMessage`
+- [x] `ScenarioReconcile.rows`/judging accept the anchor from `ReferenceMessage`
       (today's `actualAt` parameter generalized). Test: a pasted message an hour old
       judges its `~now ±60s` row against 52, not the clock.
 
 **Phase 0 gate:** all existing scenario/reconcile/evaluator tests green and unmodified
 except where a test asserted the old edited-since-run refusal; new tests as listed; app
 behaviour visibly unchanged (run a scenario, reconcile a failure in the current UI).
+
+### Phase 0 outcome — what actually happened
+
+**Gate met.** Full `:composeApp:jvmTest` green (including `TabSelectionTest`, which passed
+here); detekt/ktlint findings unchanged from the pre-phase baseline in every file touched.
+Live-verified against the demo acceptor: a **pre-`stepId` scenario file** (hand-written, no
+ids on disk — as were all of the user's existing `PLAY`/`DEMO` scenarios) loads, runs, fails,
+and reports `stepId`s that are **identical across two independent runs**, which is D3's whole
+argument, proven on a real file rather than a fixture.
+
+`ReconcileMoveBlockTest` is green **unmodified**, which is what proves D1's rule subsumes the
+old `moveBlock` behaviour rather than merely coexisting with it.
+
+**Three defects were found and fixed inside Phase 0's scope** (D4 predicted two of them):
+
+1. `ScenarioCodec` read the mode as `strict = (mode == "strict")`, so any unrecognised value
+   silently became OPEN — a typo, or a mode written by a later build, *loosened* the
+   expectation and the scenario went on passing while checking less than it said.
+2. `verbatimWindow` asked `ExpectationEvaluator.satisfies`, which hard-coded `Instant.now()`
+   and a null resolver, so an entry carrying an `MDEntryTime` or an echoed id could never be
+   recognised as having moved. Worse than the predicted silent withholding: the tool printed
+   the *torn-entry refusal* — "these rows did not move… the values changed in place… the
+   venue is behaving differently" — every word of which was false about a message whose
+   entries had plainly swapped.
+3. The entry label took the *first* dictionary-described field in an entry, which is
+   `PartyIDSource` — so every party in every message would have been labelled
+   `ProprietaryCustomCode`. It takes the last one (the role), which is what identifies it.
+
+**One pre-existing defect was found and NOT fixed** — it is outside Phase 0's scope, and
+Phase 2 is where it must be repaired:
+
+> **`assertionResults` goes stale after the first run.** Run a scenario a second time in the
+> same session and the grid keeps tinting the *first* run's message red, while the message
+> the new run actually failed on gets **no red rows, no failure banner, and no "Reconcile
+> assertions…" button** — so the detail panel's door into the reconcile view is shut for
+> every run after the first. Reproduced identically on `ac99574` (pre-Phase-0), so it is not
+> a regression from this work; verified by building that commit in a worktree and driving the
+> same flow through the control surface. It matters more than it looks: W1 (*run → repair →
+> re-run → repair again*) is the daily loop, and Phase 3's **Save & re-run** depends on the
+> second run's failure being reachable. The rail's live run tree (2.1) and the three doors
+> (2.2) must be built against fresh results, and this should get its own regression test.
 
 ---
 

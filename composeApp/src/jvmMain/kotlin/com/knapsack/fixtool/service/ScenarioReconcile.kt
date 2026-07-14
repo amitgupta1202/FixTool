@@ -397,6 +397,58 @@ object ScenarioReconcile {
     ): String? = (reorder(draft, message, now, referenceResolver) as? Reorder.Refused)?.why
 
     /**
+     * **A row this diff cannot judge AT ALL.** Two of them, and they are the same row wearing two matchers:
+     *
+     * - a `reference`, whose expression resolves against a live run's variable scope, and there is none here —
+     *   no caller has a resolver to pass, because there is nothing to pass;
+     * - a `temporal`, when the message on the other side carries no moment of its own (a golden or a paste with
+     *   no `SendingTime(52)`). There is no clock to judge "~now" by, and the wall clock is not one: it measures
+     *   how long ago the message was written, which is not a fact about the venue.
+     *
+     * Asking *"does its value still hold?"* of such a row answers nothing about the message's **shape**, and
+     * answering "no" — which is what a missing resolver and a missing clock must both answer — is what hid an
+     * entry that had plainly moved. It is placed, never value-checked; placement is occurrence- or
+     * block-preserving, so it keeps checking exactly the field it always did, and it is judged for real at
+     * replay. [placeByOccurrence] has always known this; [verbatimWindow] did not; and the second bullet was
+     * still missing after R2 fixed the first.
+     */
+    private fun judgeablePredicate(
+        referenceResolver: (String) -> String?,
+        temporalsJudgeable: Boolean,
+    ): (Matcher) -> Boolean =
+        { matcher ->
+            when (matcher) {
+                is Matcher.Reference -> referenceResolver(matcher.expression) != null
+                is Matcher.Temporal -> temporalsJudgeable
+                else -> true
+            }
+        }
+
+    /**
+     * The re-order, asked of a **[ReferenceMessage]** — which is the only overload the diff surface may use.
+     *
+     * It carries the moment to judge at *and* whether there is a moment at all, and both matter. A reference
+     * with no `SendingTime(52)` of its own — a golden captured without one, a paste from a log — has nothing to
+     * judge a `~now ±60s` row against, and [rows] already says so by returning that row `unknown`. Hand the
+     * same rows to the plain [reorder] and its wall-clock fallback value-checks them anyway: the row "fails",
+     * the block does not fit, the entry that plainly moved is refused its re-order, and the author is told the
+     * values changed in place. That is R2 exactly, one matcher along — so the two must be asked the same
+     * question, and this is where they are.
+     */
+    fun reorder(
+        draft: Expectation,
+        reference: ReferenceMessage,
+        referenceResolver: (String) -> String? = { null },
+    ): Reorder =
+        reorder(
+            draft = draft,
+            message = reference.view,
+            now = { reference.anchorInstant ?: Instant.now() },
+            referenceResolver = referenceResolver,
+            temporalsJudgeable = !reference.unanchored,
+        )
+
+    /**
      * A re-ordering that is safe, complete and verified — or nothing at all.
      *
      * There are exactly **two** ways a reply can be a reorder of the expectation rather than a regression of
@@ -425,6 +477,12 @@ object ScenarioReconcile {
          * never be recognised as part of an entry that moved — see [ExpectationEvaluator.satisfies].
          */
         referenceResolver: (String) -> String? = { null },
+        /**
+         * False when the message on the other side carries **no moment of its own**, so a `~now` row has no
+         * clock to be judged by and must be placed rather than value-checked. See the [ReferenceMessage]
+         * overload, which is the only thing that knows.
+         */
+        temporalsJudgeable: Boolean = true,
     ): Reorder {
         val wire = message.fields()
         val before = ExpectationEvaluator.diff(message, draft, referenceResolver, now)
@@ -433,15 +491,7 @@ object ScenarioReconcile {
         val holds = { matcher: Matcher, value: String ->
             ExpectationEvaluator.satisfies(matcher, value, referenceResolver, now)
         }
-        // A row this diff cannot judge AT ALL: a `reference` whose expression resolves against a live run's
-        // scope, and there is none here. Asking "does its value still hold?" of such a row answers nothing
-        // about the message's shape, and answering "no" — which is what a null resolver must answer — is what
-        // hid an entry that had plainly moved. It is placed, never value-checked; placement is occurrence- or
-        // block-preserving, so it keeps checking exactly the field it always did, and it is judged for real at
-        // replay. [placeByOccurrence] has always known this; [verbatimWindow] did not.
-        val judgeable = { matcher: Matcher ->
-            matcher !is Matcher.Reference || referenceResolver(matcher.expression) != null
-        }
+        val judgeable = judgeablePredicate(referenceResolver, temporalsJudgeable)
 
         // Which strategy produced the placement decides what a refusal is allowed to SAY. placeByOccurrence is
         // structurally occurrence-preserving — it exists to cover a venue reshaping an entry internally — so a

@@ -319,16 +319,20 @@ class ReconcileSession(
         }
 
     private fun build(): DiffModel {
+        // Every judgement below is made against the **reference**, and never against a clock this class chose:
+        // it carries the moment a `~now ±60s` row is judged at — the instant the message arrived, not the
+        // instant the engineer got round to clicking — and it carries the fact that some references have no
+        // moment at all, which is a thing both `rows` and `reorder` have to be told in the same words.
         val message = reference.view
-        // The reference's own moment — never the instant the diff was opened. A `~now ±60s` row that passed
-        // during the run must not read as a venue regression because the engineer took two minutes to click.
-        val at = reference.anchorInstant ?: Instant.now()
-        val now = { at }
 
         val alignment = semantics.align(draft, reference, dictionary, resolver)
         val rows = ScenarioReconcile.rows(draft, reference, dictionary, resolver)
         val overlay = GroupOverlay.of(draft, dictionary)
-        val reorder = ScenarioReconcile.reorder(draft, message, now, resolver)
+        // The reference, not the bare view: it carries whether there is a moment to judge a `~now` row by at
+        // all, and `reorder` has to be asked the same question `rows` is. Ask it the other way and a golden
+        // with no SendingTime(52) — which is every golden captured from a venue that does not send one —
+        // silently loses Accept-new-order on the entries that plainly moved, and blames the venue for it.
+        val reorder = ScenarioReconcile.reorder(draft, reference, resolver)
         val possible = reorder as? ScenarioReconcile.Reorder.Possible
         val moved = possible?.moved.orEmpty()
 

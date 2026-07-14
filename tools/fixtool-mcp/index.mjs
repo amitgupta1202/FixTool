@@ -619,6 +619,16 @@ server.tool(
 );
 
 server.tool(
+  "fixtool_reconcile",
+  "Open the reconcile diff on a step that failed the last run — the surface that repairs an assertion. " +
+    "With no argument it takes the run's first failing step, exactly as the rail's 'Reconcile \u2192' does; " +
+    "step=N addresses one by its 1-based position. Routes through the same check the button does, so a step " +
+    "edited since it ran is refused with the reason. Pair with fixtool_screenshot to see it.",
+  { step: z.number().int().optional().describe("1-based step number; default = the first failing step") },
+  async ({ step }) => text("POST", "/scenarios/reconcile", step === undefined ? {} : { step }),
+);
+
+server.tool(
   "fixtool_delete_scenario",
   "Delete a saved scenario by id.",
   { id: z.string().describe("scenario id") },

@@ -15,6 +15,7 @@ import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper
@@ -107,6 +108,7 @@ class ControlServer(
         httpServer.createContext("/select") { ex -> handle(ex) { select(ex) } }
         httpServer.createContext("/assert") { ex -> handle(ex) { assertMessage(ex) } }
         httpServer.createContext("/expectation/capture") { ex -> handle(ex) { captureExpectation(ex) } }
+        httpServer.createContext("/scenarios/reconcile") { ex -> handle(ex) { reconcile(ex) } }
         httpServer.createContext("/scenarios/run") { ex -> handle(ex) { runScenario(ex) } }
         httpServer.createContext("/scenarios/capture") { ex -> handle(ex) { captureScenario(ex) } }
         httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
@@ -847,6 +849,54 @@ class ControlServer(
      * Runs a scenario deterministically (by `id` from the store, or an inline `scenario`/body) and
      * returns a per-step, per-tag [ScenarioResult]. With `format:"junit"` returns JUnit XML for CI.
      */
+    /**
+     * **Open the diff on a failing step — the one thing the control surface could not do.**
+     *
+     * Every repair in the reconcile surface is a click, and this server cannot click. That has been the
+     * standing hole in the verification story: `/screenshot` photographs the main window, but nothing could
+     * *open* the document worth photographing, so the one surface in the app that authors an assertion was
+     * the one surface no automated run had ever seen against a real venue's bytes.
+     *
+     * It is not a new door into the diff. It calls `openReconcile` — the same function the rail's
+     * **Reconcile →** button calls, on the same `StepResult`, through the same `reconcileRoute` decider — so
+     * a route this refuses is a route the button refuses, in the same words. Three doors, one destination
+     * (T3); this is the fourth, and it goes to the same place.
+     *
+     * `{}` takes the last run's **first failing step**, which is what the rail's headline button does.
+     * `{"step": 2}` addresses one by its 1-based position among the scenario's steps.
+     */
+    private fun reconcile(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val at = body["step"]?.jsonPrimitive?.intOrNull
+        val result =
+            viewModel.scenarioResult.value
+                ?: return errorObject("no scenario has been run — there is no failure to reconcile")
+
+        val step =
+            if (at == null) {
+                result.firstFailure()
+                    ?: return errorObject("the last run passed: ${result.scenario} has nothing to reconcile")
+            } else {
+                result.steps.firstOrNull { it.phase == "steps" && it.stepIndex == at - 1 }
+                    ?: return errorObject("no step $at in the last run of ${result.scenario}")
+            }
+
+        // The route is the decider, and it is allowed to say no — "this step was edited since it ran" is a
+        // refusal the author must see rather than a document that lies about which bytes it is looking at.
+        return when (val route = viewModel.reconcileRoute(step)) {
+            is FixMessageViewModel.ReconcileRoute.Refused -> errorObject(route.why)
+            is FixMessageViewModel.ReconcileRoute.Open -> {
+                onEdt { viewModel.openReconcile(step) }
+                buildJsonObject {
+                    put("status", "open")
+                    put("scenario", result.scenario)
+                    put("step", step.stepIndex + 1)
+                    put("stepId", step.stepId)
+                }
+            }
+        }
+    }
+
     private fun runScenario(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val id = body["id"]?.jsonPrimitive?.content

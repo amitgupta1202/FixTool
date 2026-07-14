@@ -188,6 +188,89 @@ class ControlServerIntegrationTest {
         assertEquals("error", status(get("/templates?profile=does-not-exist")))
     }
 
+    // ----------------------------------------------------- the diff, opened without a hand
+
+    /**
+     * **The one thing the control surface could not do, and the reason the diff had never been seen live.**
+     *
+     * Every repair in the reconcile surface is a click, and this server cannot click — so the one surface in
+     * the app that authors an assertion was the one surface no automated run had ever opened against a real
+     * venue's bytes. `/scenarios/reconcile` is that click, and it is not a new door: it calls `openReconcile`
+     * on the same `StepResult`, through the same `reconcileRoute` decider, as the rail's **Reconcile →**.
+     *
+     * With no run behind it there is nothing to reconcile, and it says so rather than opening an empty tab.
+     */
+    @Test
+    fun `reconcile with no run behind it refuses, and says why`() {
+        val resp = post("/scenarios/reconcile", "{}")
+        assertEquals("error", status(resp))
+        assertTrue(
+            "no scenario has been run" in obj(resp)["error"]!!.jsonPrimitive.content,
+            obj(resp)["error"]!!.jsonPrimitive.content,
+        )
+    }
+
+    /**
+     * **The whole loop, with no hand on the mouse:** a live acceptor, a scenario that fails against it, and
+     * the diff opened on the step that failed — bound to the bytes that failed it.
+     *
+     * This is the thing the surface could never prove about itself. The route decides (a scenario the author
+     * has edited since it ran is *refused*, in `reconcileRoute`'s own words); when it opens, the document is
+     * a `ScenarioDoc.Reconcile` on the right `stepId`, carrying a session whose reference is the failing
+     * message and whose verdict is the engine's — not a tab that merely looks right.
+     */
+    @Test
+    fun `reconcile opens the diff on the failing step, bound to the bytes that failed it`() {
+        val fixServer = TestFixServer()
+        fixServer.start()
+        try {
+            val profile = liveProfile(fixServer.port)
+            viewModel.saveConnectionProfile(profile)
+            viewModel.connectProfile(profile.id, profile)
+            assertTrue(
+                awaitCondition(15_000) { viewModel.sessions.any { it.connectionState.value == FixConnectionState.LOGGED_ON } },
+                "session should log on to the test server",
+            )
+
+            // A step that MATCHES a message and FAILS an assertion on it — which is the only kind of failure
+            // the diff can be opened on, and the kind this endpoint exists to reach. (The order goes out; the
+            // step asserts a quantity it does not carry.)
+            val scenario =
+                """
+                {"name":"LOOP","steps":[
+                  {"type":"send","session":"LIVE","raw":"35=D|11=LOOP-1|55=EUR/USD|54=1|38=1000|40=1|"},
+                  {"type":"expect","session":"LIVE","direction":"out","timeoutMs":5000,
+                   "match":{"messageType":"D"},
+                   "expectation":{"messageType":"D","mode":"open",
+                     "fields":[{"tag":38,"matcher":{"type":"exact","value":"9999"}}]}}
+                ]}
+                """.trimIndent()
+            val saved = obj(post("/scenarios", scenario))
+            assertEquals("created", saved["status"]!!.jsonPrimitive.content, saved.toString())
+            val id = saved["id"]!!.jsonPrimitive.content
+            val run = obj(post("/scenarios/run", """{"id":"$id"}"""))
+            assertFalse(run["passed"]!!.jsonPrimitive.boolean, "the order carries 38=1000, not 9999: this must fail")
+
+            val open = obj(post("/scenarios/reconcile", "{}"))
+            assertEquals("open", open["status"]!!.jsonPrimitive.content, open.toString())
+            assertEquals(2, open["step"]!!.jsonPrimitive.int, "the Expect is step 2, and it is the one that failed")
+
+            // ...and what opened is the real thing: the diff document, on that step, judging the message that
+            // actually arrived. `openReconcile` runs on the EDT, so let it land.
+            assertTrue(
+                awaitCondition(5_000) { viewModel.activeDocument is com.knapsack.fixtool.ui.ScenarioDoc.Reconcile },
+                "the control surface opened the one surface that can repair the assertion",
+            )
+            val doc = viewModel.activeDocument as com.knapsack.fixtool.ui.ScenarioDoc.Reconcile
+            assertEquals(open["stepId"]!!.jsonPrimitive.content, doc.stepId)
+            val session = doc.session ?: error("the diff must be bound to the failing message, not to a prompt")
+            assertTrue(session.model.verdict.needsAttention, "the surface agrees with the engine that this failed")
+            assertEquals(38, session.model.lines.first { !it.row.passed }.row.tag, "and it is the row that failed")
+        } finally {
+            fixServer.stop()
+        }
+    }
+
     // ----------------------------------------------------- read / view / filter
 
     @Test
@@ -334,7 +417,11 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(37, tools.size)
+        assertEquals(38, tools.size)
+        assertTrue(
+            tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_reconcile" },
+            "the diff is reachable without a hand on the mouse, or an agent can never open the surface that repairs",
+        )
         tools.forEach {
             val t = it.jsonObject
             assertTrue(t.containsKey("name") && t.containsKey("inputSchema"), "each tool needs a name and schema")

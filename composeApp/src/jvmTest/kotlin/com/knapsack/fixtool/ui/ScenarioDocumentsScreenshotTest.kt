@@ -154,6 +154,7 @@ class ScenarioDocumentsScreenshotTest {
     @Composable
     private fun MainWindow() {
         val documents by viewModel.openDocuments.collectAsState()
+        val workspace by viewModel.openScenarios.collectAsState()
         val activeId by viewModel.activeDocumentId.collectAsState()
         val confirming by viewModel.confirmingCloseId.collectAsState()
         val active = documents.firstOrNull { it.id == activeId }
@@ -172,7 +173,7 @@ class ScenarioDocumentsScreenshotTest {
                     onToggleWrapText = {},
                     onConnect = {},
                     onDisconnect = {},
-                    documents = documents,
+                    documents = documentTabsOf(documents, workspace),
                     activeDocumentId = activeId,
                     confirmingCloseId = confirming,
                     onFocusDocument = { viewModel.focusDocument(it) },
@@ -224,7 +225,7 @@ class ScenarioDocumentsScreenshotTest {
         // 3 — an edit, staged in the document and nowhere else. The tab marks itself dirty.
         composeTestRule.onNodeWithTag("scenario-name").performTextReplacement("rfq flow v2 — edited")
         composeTestRule.waitForIdle()
-        assertTrue((viewModel.activeDocument as ScenarioDoc.Editor).dirty)
+        assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty)
         snapshot("phase2_document_tab_dirty.png")
 
         // 4 — and the × asks before it throws that away.
@@ -237,7 +238,7 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.onNodeWithText("Keep").performClick()
         composeTestRule.waitForIdle()
         assertTrue(viewModel.openDocuments.value.isNotEmpty(), "Keep must keep it")
-        assertTrue((viewModel.activeDocument as ScenarioDoc.Editor).dirty)
+        assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty)
     }
 
     /**
@@ -335,8 +336,7 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.onNodeWithTag("editor-save").performClick()
         composeTestRule.waitForIdle()
 
-        val doc = viewModel.activeDocument as ScenarioDoc.Editor
-        assertTrue(!doc.dirty, "saved, so the tab is clean and its × will not stop to ask")
+        assertTrue(!viewModel.scenarioDraft(scenario.id)!!.dirty, "saved, so the tab is clean and its × will not stop to ask")
         assertTrue(composeTestRule.onNodeWithTag("scenario-name").let { true })
         // The rail is showing what is on disk, and what is on disk is the new name.
         assertTrue(

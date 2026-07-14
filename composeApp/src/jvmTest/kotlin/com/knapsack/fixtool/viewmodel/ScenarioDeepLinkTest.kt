@@ -139,13 +139,16 @@ class ScenarioDeepLinkTest {
         // flow for one to consume: the ViewModel opens the document itself.
         val doc = viewModel.activeDocument as ScenarioDoc.Editor
         assertEquals(ScenarioDoc.editorId(scenario.id), viewModel.activeDocumentId.value)
-        assertEquals(scenario.id, doc.draft.id)
+        assertEquals(scenario.id, doc.scenarioId)
         assertEquals(1, doc.focusStep)
         assertEquals(1, doc.selectedStep, "and the cursor is on it, not on step 1")
         // Only the failed tags travel, each still naming the occurrence it checked.
         assertEquals(listOf(150 to 0, 448 to 1), doc.failure!!.failedTags.map { it.tag to it.occurrence })
-        // It opens clean: nothing has been edited, so closing it must not stop to ask.
-        assertFalse(doc.dirty)
+        // The draft is the SCENARIO's, not the tab's, and it opens clean: nothing has been edited, so closing
+        // it must not stop to ask.
+        val workspace = viewModel.scenarioDraft(scenario.id)!!
+        assertEquals(scenario.id, workspace.draft.id)
+        assertFalse(workspace.dirty)
     }
 
     /**
@@ -162,16 +165,16 @@ class ScenarioDeepLinkTest {
         viewModel.setAssertionResults(mapOf(msg to failedStepResult()))
 
         viewModel.openScenarioEditor(scenario)
-        val edited = (viewModel.activeDocument as ScenarioDoc.Editor).draft.copy(name = "renamed, unsaved")
-        viewModel.updateEditorDocument(ScenarioDoc.editorId(scenario.id)) { it.copy(draft = edited) }
+        viewModel.updateScenarioDraft(scenario.id) { it.copy(draft = it.draft.copy(name = "renamed, unsaved")) }
         val epochBefore = (viewModel.activeDocument as ScenarioDoc.Editor).focusEpoch
 
         viewModel.openScenarioEditorForFailure(msg)
 
         val doc = viewModel.activeDocument as ScenarioDoc.Editor
+        val workspace = viewModel.scenarioDraft(scenario.id)!!
         assertEquals(1, viewModel.openDocuments.value.size, "one tab, not two")
-        assertEquals("renamed, unsaved", doc.draft.name, "the unsaved edit survived the deep-link")
-        assertTrue(doc.dirty)
+        assertEquals("renamed, unsaved", workspace.draft.name, "the unsaved edit survived the deep-link")
+        assertTrue(workspace.dirty)
         assertEquals(1, doc.focusStep, "and it re-aimed at the step that failed")
         assertEquals(epochBefore + 1, doc.focusEpoch, "which the composable can only see as a new epoch")
     }

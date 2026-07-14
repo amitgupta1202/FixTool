@@ -184,7 +184,7 @@ class ScenarioRunReportTest {
         composeTestRule.onNodeWithTag("scenario-name").performTextReplacement("renamed but not saved")
         composeTestRule.waitForIdle()
         val id = viewModel.activeDocumentId.value!!
-        assertTrue((viewModel.activeDocument as ScenarioDoc.Editor).dirty, "the tab knows it is holding an edit")
+        assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty, "the scenario knows it is holding an edit")
 
         viewModel.showSessions() // the author glances at the session grid — the document is disposed
         composeTestRule.waitForIdle()
@@ -194,7 +194,7 @@ class ScenarioRunReportTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("scenario-name").assertTextContains("renamed but not saved")
-        assertEquals("renamed but not saved", (viewModel.activeDocument as ScenarioDoc.Editor).draft.name)
+        assertEquals("renamed but not saved", viewModel.scenarioDraft(scenario.id)!!.draft.name)
     }
 
     /**

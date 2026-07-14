@@ -81,8 +81,12 @@ fun App(
             val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
             val showScenariosRail by viewModel.showScenariosRail.collectAsState()
             val documents by viewModel.openDocuments.collectAsState()
+            val workspace by viewModel.openScenarios.collectAsState()
             val activeDocumentId by viewModel.activeDocumentId.collectAsState()
             val activeDocument = documents.firstOrNull { it.id == activeDocumentId }
+            // The tab strip is derived from both: a document of a scenario does not know the scenario's name
+            // or whether it is dirty, because the draft is the scenario's. See documentTabsOf.
+            val documentTabs = documentTabsOf(documents, workspace)
 
             // Load saved messages when active session changes
             LaunchedEffect(viewModel.activeSessionIndex) {
@@ -299,7 +303,7 @@ fun App(
                                             },
                                             isAtBottom = isAtBottom,
                                             onScrollToBottom = { scrollToBottomTrigger++ },
-                                            documents = documents,
+                                            documents = documentTabs,
                                             activeDocumentId = activeDocumentId,
                                             confirmingCloseId = confirmingCloseId,
                                             onFocusDocument = { viewModel.focusDocument(it) },

@@ -42,7 +42,7 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
  */
 @Composable
 fun DocumentTabs(
-    documents: List<ScenarioDoc>,
+    tabs: List<DocumentTab>,
     activeId: String?,
     confirmingCloseId: String?,
     onFocus: (String) -> Unit,
@@ -51,17 +51,17 @@ fun DocumentTabs(
     onCancelClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (documents.isEmpty()) return
+    if (tabs.isEmpty()) return
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 16.dp) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
-            documents.forEach { doc ->
-                DocumentTab(
-                    doc = doc,
-                    active = doc.id == activeId,
-                    confirming = confirmingCloseId == doc.id,
-                    onClick = { onFocus(doc.id) },
-                    onRequestClose = { onRequestClose(doc.id) },
-                    onConfirmClose = { onConfirmClose(doc.id) },
+            tabs.forEach { tab ->
+                DocumentTabView(
+                    tab = tab,
+                    active = tab.id == activeId,
+                    confirming = confirmingCloseId == tab.id,
+                    onClick = { onFocus(tab.id) },
+                    onRequestClose = { onRequestClose(tab.id) },
+                    onConfirmClose = { onConfirmClose(tab.id) },
                     onCancelClose = onCancelClose,
                 )
                 Spacer(modifier = Modifier.width(4.dp))
@@ -71,8 +71,8 @@ fun DocumentTabs(
 }
 
 @Composable
-private fun DocumentTab(
-    doc: ScenarioDoc,
+private fun DocumentTabView(
+    tab: DocumentTab,
     active: Boolean,
     confirming: Boolean,
     onClick: () -> Unit,
@@ -90,28 +90,28 @@ private fun DocumentTab(
                 .background(background)
                 .clickable(onClick = onClick)
                 .padding(horizontal = 6.dp, vertical = 1.dp)
-                .testTag("doc-tab-${doc.id}"),
+                .testTag("doc-tab-${tab.id}"),
     ) {
         // The accent that says "this is not a session" — the mockup's violet on the document tabs.
         Text(
-            doc.glyph,
+            tab.glyph,
             color = if (active) DocumentAccent else AppTheme.Colors.textDisabled,
             fontSize = 10.sp,
             modifier = Modifier.padding(end = 4.dp),
         )
-        Text(doc.title + if (doc.dirty) " •" else "", color = textColor, fontSize = 11.sp, maxLines = 1)
+        Text(tab.title + if (tab.dirty) " •" else "", color = textColor, fontSize = 11.sp, maxLines = 1)
         if (confirming) {
             Text("discard edits?", color = AppTheme.Colors.warning, fontSize = 10.sp, modifier = Modifier.padding(start = 6.dp))
             SlimButton(
                 "Discard",
                 onClick = onConfirmClose,
                 color = AppTheme.Colors.error,
-                modifier = Modifier.padding(start = 4.dp).testTag("doc-discard-${doc.id}"),
+                modifier = Modifier.padding(start = 4.dp).testTag("doc-discard-${tab.id}"),
             )
             SlimButton("Keep", onClick = onCancelClose, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(start = 2.dp))
         } else {
             Spacer(modifier = Modifier.width(6.dp))
-            TooltipIconButton(tooltip = "Close tab", onClick = onRequestClose, modifier = Modifier.size(16.dp).testTag("doc-close-${doc.id}")) {
+            TooltipIconButton(tooltip = "Close tab", onClick = onRequestClose, modifier = Modifier.size(16.dp).testTag("doc-close-${tab.id}")) {
                 Icon(Icons.Default.Close, contentDescription = "Close Document", tint = textColor, modifier = Modifier.size(11.dp))
             }
         }
@@ -134,26 +134,30 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 24.dp) {
         Column(modifier = modifier.fillMaxSize().background(AppTheme.Colors.background).padding(8.dp)) {
             when (doc) {
-                is ScenarioDoc.Editor ->
+                is ScenarioDoc.Editor -> {
+                    // The draft is the SCENARIO's, not this tab's — the diff tab is looking at the same one.
+                    val workspace by viewModel.openScenarios.collectAsState()
+                    val draft = workspace[doc.scenarioId]?.draft ?: return@Column
                     // Keyed on the deep-link's epoch, not on the draft: a second failure in a scenario that is
                     // already open must move the cursor to the new step, and a seeded-once cursor will not
-                    // move for a mere prop. Re-keying rebuilds the editor from `draft`, which the composable
+                    // move for a mere prop. Re-keying rebuilds the editor from the draft, which the composable
                     // has been mirroring out all along, so the author's unsaved edits survive the re-aim.
                     key(doc.id, doc.focusEpoch) {
                         ScenarioEditor(
-                            initial = doc.draft,
+                            initial = draft,
                             dictionary = viewModel.dictionary,
-                            sessionOptions = (doc.draft.sessionsInvolved() + viewModel.sessions.map { it.title }).distinct(),
+                            sessionOptions = (draft.sessionsInvolved() + viewModel.sessions.map { it.title }).distinct(),
                             secondInstance = { session, messageType, golden -> viewModel.liveSecondInstance(session, messageType, golden) },
                             focusStep = doc.focusStep,
                             runFailure = doc.failure,
                             selectedStep = doc.selectedStep,
                             onSelectStep = { index -> viewModel.updateEditorDocument(doc.id) { it.copy(selectedStep = index) } },
-                            onChange = { edited -> viewModel.updateEditorDocument(doc.id) { it.copy(draft = edited) } },
+                            onChange = { edited -> viewModel.updateScenarioDraft(doc.scenarioId) { it.copy(draft = edited) } },
                             onSave = { edited -> viewModel.saveScenarioDocument(edited) },
                             onBack = { viewModel.showSessions() },
                         )
                     }
+                }
                 is ScenarioDoc.Capture ->
                     ScenarioCaptureReview(
                         candidates = doc.scan.candidates,
@@ -182,6 +186,7 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
 @Composable
 fun ScenarioDocumentArea(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
     val documents by viewModel.openDocuments.collectAsState()
+    val workspace by viewModel.openScenarios.collectAsState()
     val activeId by viewModel.activeDocumentId.collectAsState()
     val confirmingCloseId by viewModel.confirmingCloseId.collectAsState()
     val active = documents.firstOrNull { it.id == activeId } ?: documents.lastOrNull() ?: return
@@ -189,7 +194,7 @@ fun ScenarioDocumentArea(viewModel: FixMessageViewModel, modifier: Modifier = Mo
         androidx.compose.material3.HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
         Row(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface).padding(horizontal = 6.dp, vertical = 2.dp)) {
             DocumentTabs(
-                documents = documents,
+                tabs = documentTabsOf(documents, workspace),
                 activeId = active.id,
                 confirmingCloseId = confirmingCloseId,
                 onFocus = { viewModel.focusDocument(it) },

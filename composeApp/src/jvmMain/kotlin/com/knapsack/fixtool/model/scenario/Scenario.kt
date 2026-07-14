@@ -41,11 +41,29 @@ sealed interface ScenarioStep {
      */
     val stepId: String
 
+    /**
+     * **Where the bytes behind this step came from** — and it is a claim about trust, not about history.
+     *
+     * FixTool watched a live capture arrive on a wire it was connected to. It did not watch a **paste**: a log
+     * fragment, an email, a message from another environment. A step authored or repaired against pasted bytes
+     * has none of a live capture's guarantees, and a hand-doctored paste must never be mistakable for one.
+     *
+     * It is also the sentence that explains something the author would otherwise find inexplicable. The golden
+     * is re-pointed **only** for THIS_RUN (V4) — a paste must never become the scenario's canonical example —
+     * so a step repaired against a paste has rows describing the paste and a golden describing the old capture,
+     * and it opens *red against its own golden*. The badge is why.
+     *
+     * Additive, defaulted, and written to disk only when it is not the default: a file that never had the key
+     * does not grow one. See [ScenarioStep.stepId], which is the same bargain.
+     */
+    val origin: StepOrigin get() = StepOrigin.LIVE
+
     /** Send a (parameterized) message; `${...}` is resolved against the scenario scope at run time. */
     data class Send(
         val raw: String,
         override val session: String? = null,
         override val stepId: String = "",
+        override val origin: StepOrigin = StepOrigin.LIVE,
     ) : ScenarioStep
 
     /** Block until a connection state is reached or a matching message arrives (no consume). */
@@ -55,6 +73,7 @@ sealed interface ScenarioStep {
         val match: MatchPredicate? = null,
         val timeoutMs: Long = 10_000,
         override val stepId: String = "",
+        override val origin: StepOrigin = StepOrigin.LIVE,
     ) : ScenarioStep
 
     /** Await the next not-yet-consumed matching message and assert it against an expectation. */
@@ -65,12 +84,14 @@ sealed interface ScenarioStep {
         val timeoutMs: Long = 10_000,
         val expectation: Expectation,
         override val stepId: String = "",
+        override val origin: StepOrigin = StepOrigin.LIVE,
     ) : ScenarioStep
 
     /** Clear a session's observable message log (typical setup step). */
     data class ClearMessages(
         override val session: String? = null,
         override val stepId: String = "",
+        override val origin: StepOrigin = StepOrigin.LIVE,
     ) : ScenarioStep
 
     /** Reset a session's FIX sequence numbers (typical setup step). */
@@ -79,7 +100,40 @@ sealed interface ScenarioStep {
         val sender: Int? = null,
         val target: Int? = null,
         override val stepId: String = "",
+        override val origin: StepOrigin = StepOrigin.LIVE,
     ) : ScenarioStep
+}
+
+/**
+ * **Did FixTool see these bytes on a wire, or did somebody paste them in?**
+ *
+ * Two values, not five. The *reference slot* has five provenances because it has five sources; a **step**
+ * records only whether what was written to it was vouched for. THIS_RUN, GOLDEN, SECOND_INSTANCE and PICKED
+ * are all bytes FixTool watched arrive — they need no badge. A paste is the one that does.
+ */
+enum class StepOrigin {
+    /** The bytes came off a wire FixTool was connected to. */
+    LIVE,
+
+    /** Bytes FixTool cannot vouch for: a log, an email, another environment. Badged, everywhere it shows. */
+    PASTED,
+    ;
+
+    companion object {
+        /**
+         * **An unrecognised origin degrades toward LESS trust, never more.**
+         *
+         * Unlike `mode` — where an unknown value changes *what is checked*, and so fails the load loudly — an
+         * unknown origin changes nothing that is checked. But reading it as LIVE would let a file claim **more**
+         * trust than it carries, and the badge exists precisely to stop that. So anything this build does not
+         * recognise is treated as not-vouched-for.
+         */
+        fun from(raw: String?): StepOrigin =
+            when (raw?.lowercase()) {
+                null, "live" -> LIVE
+                else -> PASTED
+            }
+    }
 }
 
 /** The same step under a new identity. A sealed interface has no `copy`, and the id has to be assignable. */
@@ -90,6 +144,16 @@ fun ScenarioStep.withStepId(id: String): ScenarioStep =
         is ScenarioStep.Expect -> copy(stepId = id)
         is ScenarioStep.ClearMessages -> copy(stepId = id)
         is ScenarioStep.ResetSeqNum -> copy(stepId = id)
+    }
+
+/** The same step, said to have come from somewhere else. See [ScenarioStep.origin]. */
+fun ScenarioStep.withOrigin(origin: StepOrigin): ScenarioStep =
+    when (this) {
+        is ScenarioStep.Send -> copy(origin = origin)
+        is ScenarioStep.Wait -> copy(origin = origin)
+        is ScenarioStep.Expect -> copy(origin = origin)
+        is ScenarioStep.ClearMessages -> copy(origin = origin)
+        is ScenarioStep.ResetSeqNum -> copy(origin = origin)
     }
 
 /**

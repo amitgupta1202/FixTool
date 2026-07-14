@@ -109,3 +109,33 @@ const val NO_ANCHOR: String =
         "against the clock would manufacture a red describing nothing but how long ago the message was " +
         "pasted — and the only repairs on a temporal row are to loosen it or drop it, so a phantom red here " +
         "leads straight to deleted coverage. The row is left unjudged."
+
+/**
+ * **An entry in the diff's swap menu** — and the reason it may not be taken, when it may not.
+ *
+ * The five sources of a reference, decided by the host (which is the only thing that knows whether the step
+ * has run, whether it was ever captured, and whether a second instance of its reply is on a session), and
+ * merely *drawn* by the surface. An entry with nothing behind it is drawn **disabled, with the reason** — a
+ * button that is simply absent is a feature the author concludes was never built (ground rule 6), and the
+ * mockup draws its unavailable semantics the same way.
+ */
+data class ReferenceOption(
+    val kind: Kind,
+    val label: String,
+    /** What it is, or — when it is disabled — why it is not there. */
+    val detail: String,
+    val enabled: Boolean,
+    val selected: Boolean,
+) {
+    enum class Kind {
+        THIS_RUN,
+        GOLDEN,
+        SECOND_INSTANCE,
+
+        /** Arms the slot: the next grid row the author clicks becomes the reference. */
+        PICK,
+
+        /** Opens the paste sheet. The bytes are read before they are bound — see `WirePaste`. */
+        PASTE,
+    }
+}

@@ -1,5 +1,8 @@
-// Compose UI: dense composable calls read best on one line.
-@file:Suppress("MaxLineLength", "LongParameterList")
+// Compose UI: dense composable calls read best on one line, and a composable is a declarative *tree* — its
+// length is the shape of what it draws, not a complexity it is hiding. The two rules added here are the same
+// bargain the two already there were: `LongMethod` fires on every non-trivial @Composable in this project, and
+// `TooManyFunctions` counts the private ones a file is *supposed* to be split into.
+@file:Suppress("MaxLineLength", "LongParameterList", "LongMethod", "TooManyFunctions")
 
 package com.knapsack.fixtool.ui.diff
 
@@ -19,6 +22,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +51,9 @@ import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.compare.ChunkKind
 import com.knapsack.fixtool.service.compare.EntrySource
 import com.knapsack.fixtool.service.compare.ReferenceMessage
+import com.knapsack.fixtool.ui.SlimField
+import com.knapsack.fixtool.service.compare.WirePaste
+import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.ui.AppTheme
 import com.knapsack.fixtool.ui.MATCHER_TYPES
 import com.knapsack.fixtool.ui.MatcherEditor
@@ -83,8 +91,19 @@ fun DiffSurface(
     runInFlight: Boolean = false,
     /** The tag the author clicked in the message viewer — the body scrolls to its row. */
     focusTag: Int? = null,
+    /** The swap menu's five entries, decided by the host (S11). Empty = no menu (the standalone harness). */
+    referenceOptions: List<ReferenceOption> = emptyList(),
+    onSelectReference: (ReferenceOption.Kind) -> Unit = {},
+    /** Bytes the author pasted, already **read** — a reading the message disproves never reaches here. */
+    onPasteWire: (WirePaste) -> Unit = {},
+    /** The slot is armed: the next grid row the author clicks binds it (S8). */
+    armed: Boolean = false,
+    onDisarm: () -> Unit = {},
+    /** This step was authored or repaired against a paste, and the badge says so wherever it shows (S3, S4). */
+    pastedOrigin: Boolean = false,
 ) {
     val model = session.model
+    var pasting by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     var dragging by remember { mutableStateOf<Dragging?>(null) }
     // Whether the SURFACE holds the focus, or a value field has taken it. The bare keys hang on this: see
@@ -107,7 +126,32 @@ fun DiffSurface(
                 .onKeyEvent { session.onBareKey(it, focused, dragging != null) { dragging = null } }
                 .testTag("diff-surface"),
     ) {
-        DiffHeader(session, model, crumb, onSave, onCancel, onSaveAndRerun, runInFlight)
+        DiffHeader(
+            session = session,
+            model = model,
+            crumb = crumb,
+            onSave = onSave,
+            onCancel = onCancel,
+            onSaveAndRerun = onSaveAndRerun,
+            runInFlight = runInFlight,
+            referenceOptions = referenceOptions,
+            pastedOrigin = pastedOrigin,
+            onSelectReference = { kind ->
+                if (kind == ReferenceOption.Kind.PASTE) pasting = true else onSelectReference(kind)
+            },
+        )
+        // Armed: the author has left this surface to click a grid row, and the slot is waiting for it. The
+        // state is the ViewModel's, because the grid cannot see this document (S8) — the banner merely says so.
+        if (armed) ArmedSlotBanner(onDisarm)
+        if (pasting) {
+            PasteSheet(
+                onUse = { paste ->
+                    onPasteWire(paste)
+                    pasting = false
+                },
+                onCancel = { pasting = false },
+            )
+        }
         VerdictLine(model, session.reference.provenance)
         // The engine knows exactly why it is not offering a move, and it used to keep that to itself. An
         // author looking at a group full of red rows with no re-order on offer concludes — reasonably — that
@@ -134,6 +178,9 @@ private fun DiffHeader(
     onCancel: (() -> Unit)?,
     onSaveAndRerun: (() -> Unit)? = null,
     runInFlight: Boolean = false,
+    referenceOptions: List<ReferenceOption> = emptyList(),
+    pastedOrigin: Boolean = false,
+    onSelectReference: (ReferenceOption.Kind) -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -150,11 +197,11 @@ private fun DiffHeader(
                 testTag = "diff-mode",
                 onClick = { session.apply(EditOp.setMode(if (strict) MatchMode.OPEN else MatchMode.STRICT)) },
             )
-            Chip(
-                label = session.reference.label,
-                color = AppTheme.Colors.info,
-                testTag = "diff-reference",
-            )
+            ReferenceChip(session.reference.label, referenceOptions, onSelectReference)
+            // The badge that outlives the paste. It has to: the golden is NOT re-pointed at pasted bytes (V4),
+            // so a step repaired against a paste opens red against its own captured example ever after — and
+            // this is the only thing on screen that explains why. It follows the step, not the slot.
+            if (pastedOrigin) Chip("pasted", AppTheme.Colors.warning, testTag = "diff-pasted-origin")
             // **The chip is the headline in two words, and it is read first.** It used to say `failed`, drawn
             // on `needsAttention` alone with no idea what was on the right — so a step being *authored* against
             // a picked message, one that has never run, was painted FAILED; and verify-generalizes, whose whole
@@ -803,6 +850,166 @@ private fun DiffFooter(session: ReconcileSession) {
                 color = AppTheme.Colors.textDisabled,
                 fontSize = 10.sp,
                 modifier = Modifier.testTag("diff-staged-labels"),
+            )
+        }
+    }
+}
+
+/**
+ * **The slot, and the menu that swaps it.** Five sources, and an entry with nothing behind it is drawn
+ * **disabled with the reason** rather than hidden — a missing button is a feature the author concludes was
+ * never built (ground rule 6; the host decides, see `referenceOptions`).
+ */
+@Composable
+private fun ReferenceChip(
+    label: String,
+    options: List<ReferenceOption>,
+    onSelect: (ReferenceOption.Kind) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Chip(
+            label = if (options.isEmpty()) label else "$label ▾",
+            color = AppTheme.Colors.info,
+            testTag = "diff-reference",
+            onClick = if (options.isEmpty()) null else ({ open = true }),
+        )
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    enabled = option.enabled,
+                    onClick = {
+                        open = false
+                        onSelect(option.kind)
+                    },
+                    modifier = Modifier.testTag("diff-reference-${option.kind.name.lowercase()}"),
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                (if (option.selected) "✓ " else "") + option.label,
+                                color = if (option.enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
+                                fontSize = 11.sp,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                option.detail,
+                                color = AppTheme.Colors.textDisabled,
+                                fontSize = 10.sp,
+                            )
+                        }
+                    },
+                )
+            }
+            Text(
+                "SWAPPING THE REFERENCE RE-JUDGES EVERY ROW · TEMPORALS ANCHOR TO THE REFERENCE, NOT THE CLOCK",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 8.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
+    }
+}
+
+/** The slot is waiting for a click that will happen somewhere else — so the surface says so, and can call it off. */
+@Composable
+private fun ArmedSlotBanner(onDisarm: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.notificationInfoBackground)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .testTag("diff-armed"),
+    ) {
+        Text("◎  ", color = AppTheme.Colors.info, fontSize = 11.sp)
+        Text(
+            "Click any row in a session grid and it becomes the reference. A message FixTool has no wire bytes " +
+                "for cannot be bound, and it will say so.",
+            color = AppTheme.Colors.info,
+            fontSize = 11.sp,
+            modifier = Modifier.weight(1f),
+        )
+        SlimButton("cancel", onClick = onDisarm, color = AppTheme.Colors.textSecondary, modifier = Modifier.testTag("diff-disarm"))
+    }
+}
+
+/**
+ * **The paste sheet, and its lint line.**
+ *
+ * The lint is the whole feature: it says **what was read** and it never guesses. A `|`-rendered paste whose
+ * values contain pipes is *told to the user* — the reading is disproved by the message's own checksum, and
+ * `Use as reference` is refused, because the right-hand column is what Accept-actual writes into the scenario
+ * and a value FixTool guessed wrong would go in as the thing to assert for ever. See [WirePaste].
+ */
+@Composable
+private fun PasteSheet(onUse: (WirePaste) -> Unit, onCancel: () -> Unit) {
+    var text by remember { mutableStateOf("") }
+    val paste = remember(text) { if (text.isBlank()) null else WirePaste.read(text) }
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.surfaceVariant)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("diff-paste-sheet"),
+    ) {
+        Text(
+            "PASTE WIRE — THE LINT SAYS WHAT WAS READ, IT NEVER GUESSES SILENTLY",
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        SlimField(
+            value = text,
+            onValueChange = { text = it },
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp).testTag("diff-paste-field"),
+        )
+        paste?.let { LintLine(it) }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+            SlimButton("Cancel", onClick = onCancel, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(end = 6.dp))
+            SlimButton(
+                "Use as reference",
+                onClick = { paste?.let(onUse) },
+                enabled = paste?.usable == true,
+                color = AppTheme.Colors.primary,
+                modifier = Modifier.testTag("diff-paste-use"),
+            )
+            if (paste?.usable == true) {
+                Chip("provenance: pasted", AppTheme.Colors.warning, testTag = "diff-paste-provenance")
+            }
+        }
+    }
+}
+
+/** **What was read** — the sentence the whole paste sheet exists to print. It never guesses; see [WirePaste]. */
+@Composable
+private fun LintLine(read: WirePaste) {
+    val colour =
+        when (read.verdict) {
+            WirePaste.Verdict.READ -> AppTheme.Colors.success
+            WirePaste.Verdict.UNVERIFIED -> AppTheme.Colors.warning
+            WirePaste.Verdict.REFUSED -> AppTheme.Colors.error
+        }
+    Column {
+        Text(read.lint, color = colour, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp).testTag("diff-paste-lint"))
+        read.ignoredPrefix?.let {
+            Text(
+                "ignored before the first field: \"$it\"",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        read.why?.let {
+            Text(it, color = AppTheme.Colors.error, fontSize = 10.sp, modifier = Modifier.padding(top = 4.dp).testTag("diff-paste-why"))
+        }
+        if (read.anchorNote.isNotBlank()) {
+            Text(
+                read.anchorNote,
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 4.dp).testTag("diff-paste-anchor"),
             )
         }
     }

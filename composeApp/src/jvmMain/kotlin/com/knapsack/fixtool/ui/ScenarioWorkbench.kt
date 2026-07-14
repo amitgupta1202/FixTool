@@ -41,6 +41,7 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.RawMessageView
+import com.knapsack.fixtool.ui.diff.DiffHarness
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 
 /**
@@ -111,6 +112,14 @@ private sealed interface Mode {
 
     object Capture : Mode
 
+    /**
+     * **Phase 1's dev bench for the new diff surface.** Reached with `FIXTOOL_DIFF_HARNESS=1`, and it rides
+     * here rather than in a window of its own because "no second window, ever" is a standing rule and this
+     * host is already condemned: Phase 2.2 deletes `ScenarioWorkbenchWindow` and the whole `Mode` switcher.
+     * **Delete this arm with them**, along with `ui/diff/DiffHarness.kt`.
+     */
+    object Diff : Mode
+
     data class Edit(
         val scenario: Scenario,
         /** Index into `scenario.steps` to open on, from the failure → editor deep-link. */
@@ -125,7 +134,9 @@ private sealed interface Mode {
 
 @Composable
 fun ScenarioWorkbench(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
-    var mode by remember { mutableStateOf<Mode>(Mode.List) }
+    // Phase 1's dev bench — see Mode.Diff. Deleted with this window in Phase 2.2.
+    val bench = System.getenv("FIXTOOL_DIFF_HARNESS") == "1"
+    var mode by remember { mutableStateOf<Mode>(if (bench) Mode.Diff else Mode.List) }
     // Failure → editor deep-link: a one-shot request from the session window (Edit assertion… on a
     // failed message) lands the editor directly on the failing step — no list → edit → hunt.
     val editRequest by viewModel.workbenchEditRequest.collectAsState()
@@ -154,6 +165,7 @@ private fun ScenarioWorkbenchBody(viewModel: FixMessageViewModel, mode: Mode, on
                     onCapture = { onMode(Mode.Capture) },
                     onEdit = { onMode(Mode.Edit(it)) },
                 )
+            is Mode.Diff -> DiffHarness(viewModel.dictionary)
             is Mode.Capture -> {
                 val scan = remember { viewModel.captureScan() }
                 ScenarioCaptureReview(

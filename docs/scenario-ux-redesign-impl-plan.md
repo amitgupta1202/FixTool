@@ -19,7 +19,7 @@ dodged the hard case.
 | Phase | Title | Status |
 |---|---|---|
 | 0 | Engine seams (no UI) | **complete** |
-| 1 | The diff surface, standalone | 1.1 done · 1.2–1.3 pending |
+| 1 | The diff surface, standalone | 1.1–1.2 done · 1.3 (the composable) pending |
 | 2 | Rail + document tabs; the window dies | not started |
 | 3 | The diff surface becomes the only expectation editor | not started |
 | 4 | Drag moves, undo/redo, keyboard | not started |
@@ -570,22 +570,31 @@ announced *"10 of 17 rows need attention"* over nine rows that need it. No test 
 number, so nothing in the view caught it in the years it was there; it took twenty lines of
 unit test to fall out. Counted once now, and pinned.
 
-### 1.2 `ReconcileSession` (state holder, not a composable)
-- [ ] `ui/diff/ReconcileSession.kt`: holds `original`, `draft`, the reference slot; derives
-      the semantics (P7); exposes `lines: List<DiffLine>` (P5), `verdict`, `overlay`, and the
-      withheld-move reason — all memoized on the value-typed key (P4), recomputed on draft /
-      reference change and nothing else.
-- [ ] `EditOp` = label + application (P2), one per existing pure op and **no reimplementation
-      of any**: `SetMatcher`, `AcceptActual`, `Loosen`, `Drop`, `AssertAbsent`,
-      `InsertAssertion`, `MoveRow`, `MoveEntry`, `AcceptOrder`, `Reseed`, `AcceptAllShape`,
-      `SetMode`. `SwapReference` is *not* one (P8).
-- [ ] Snapshot undo/redo with a cursor: `undo()`/`redo()`/`canUndo`/`canRedo`/`isDirty`;
-      `discard()` restores `original`. (`⌘Z` key wiring is Phase 4; the stacks land now.)
-- [ ] `offersFor(line)` from the engine's `can*` predicates (P6).
-- [ ] Tests: apply → undo → **byte-equal** expectation for every op; redo after undo; discard
-      after arbitrary sequences; `SwapReference` re-judges without staging, dirtying, or
-      pushing undo; the memo holds across an equal-but-distinct reference and invalidates on
-      each real input (P4); the re-judge budget.
+### 1.2 `ReconcileSession` (state holder, not a composable) — **complete**
+- [x] `ui/diff/ReconcileSession.kt`: holds `original`, `draft`, the reference slot; derives
+      the semantics (P7); exposes `model: DiffModel` — `lines` (P5), `verdict`, `overlay`,
+      `acceptOrder`, `withheldMove`, `canAcceptShape` — memoized on the value-typed key (P4),
+      recomputed on draft / reference change and nothing else.
+- [x] `EditOp` = label + application (P2), one per existing pure op and **no reimplementation
+      of any**. `SwapReference` is *not* one (P8) — it re-judges without staging or dirtying.
+- [x] Snapshot undo/redo with a cursor: `undo()`/`redo()`/`canUndo`/`canRedo`/`isDirty`/
+      `staged`/`stagedLabels`; `discard()` restores `original`. A refused or no-op edit is
+      never stacked. (`⌘Z` key wiring is Phase 4; the stacks land now.)
+- [x] `offersFor(row)` from the engine's `can*` predicates (P6).
+- [x] `Chunk.pairs` (P5): the row→field correspondence, decided where `wireIndex`, the
+      reorder's `placement` and the `absent`-row fallback already live. `rows`/`right` derived,
+      so Phase 0's tests hold unmodified.
+- [x] Tests (18): apply → undo → **byte-equal** for every op; redo, and a fresh edit abandoning
+      the redo branch; discard after an arbitrary sequence; `SwapReference` re-judges without
+      staging, dirtying or pushing undo; the memo holds across an equal-but-distinct reference
+      and invalidates on each real input; the offers withheld where the engine refuses. Every
+      guard mutation-checked.
+- [ ] The re-judge budget test (a 40-row expectation against a 60-field message under a fixed
+      ceiling) — deferred to 1.3, where the surface that must stay responsive exists.
+
+> **A note for whoever runs `ktlintFormat`: do not.** It reformats all 64 files of the module,
+> not the ones you touched, and buries the work in a style diff. The baseline is 1684 findings
+> (`ktlintCheck` + `detekt`, `--continue`); the rule is only that your files add none.
 
 ### 1.3 The `DiffSurface` composable
 - [ ] `ui/diff/DiffSurface.kt` renders a `ReconcileSession` per the mockups: header (crumb,

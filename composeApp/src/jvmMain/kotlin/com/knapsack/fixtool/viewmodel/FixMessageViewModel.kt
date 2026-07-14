@@ -49,6 +49,7 @@ import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.RunFailureContext
 import com.knapsack.fixtool.ui.ScenarioDoc
+import com.knapsack.fixtool.ui.ScenarioDraft
 import com.knapsack.fixtool.ui.asEditorSeed
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
@@ -212,6 +213,30 @@ class FixMessageViewModel(
 
     // ---- Scenario documents: the centre pane's tabs, beside the session tabs -------------------------
 
+    /**
+     * **The scenario workspace: one unsaved draft per scenario, however many documents are looking at it.**
+     *
+     * The draft used to belong to the editor document, which held while the editor was the only document that
+     * could touch a scenario. It is not — the reconcile diff edits an expectation of the same scenario — and
+     * two drafts of one scenario is the two-editing-surfaces defect, re-created between two tabs. See
+     * [ScenarioDraft].
+     */
+    private val _openScenarios = MutableStateFlow<Map<String, ScenarioDraft>>(emptyMap())
+    val openScenarios: StateFlow<Map<String, ScenarioDraft>> = _openScenarios.asStateFlow()
+
+    fun scenarioDraft(scenarioId: String): ScenarioDraft? = _openScenarios.value[scenarioId]
+
+    /**
+     * The draft, coming back from whichever document is editing it — always through a *transform*, never a
+     * `copy()` taken in a composable. Two documents (and, inside the editor, a draft that arrives from a
+     * `LaunchedEffect` and a cursor that arrives from a click) can be carrying different snapshots of the same
+     * scenario in the same frame, and a `copy()` off the stale one silently puts the other's edit back.
+     */
+    fun updateScenarioDraft(scenarioId: String, transform: (ScenarioDraft) -> ScenarioDraft) {
+        val current = _openScenarios.value[scenarioId] ?: return
+        _openScenarios.value = _openScenarios.value + (scenarioId to transform(current))
+    }
+
     private val _openDocuments = MutableStateFlow<List<ScenarioDoc>>(emptyList())
     val openDocuments: StateFlow<List<ScenarioDoc>> = _openDocuments.asStateFlow()
 
@@ -255,6 +280,10 @@ class FixMessageViewModel(
             _openDocuments.value.map { if (it.id == id && it is ScenarioDoc.Editor) transform(it) else it }
     }
 
+    /** Every open document that is a view onto [scenarioId]. */
+    private fun documentsOf(scenarioId: String): List<ScenarioDoc> =
+        _openDocuments.value.filter { it.scenarioId == scenarioId }
+
     fun updateCaptureDocument(transform: (ScenarioDoc.Capture) -> ScenarioDoc.Capture) {
         _openDocuments.value = _openDocuments.value.map { if (it is ScenarioDoc.Capture) transform(it) else it }
     }
@@ -282,9 +311,21 @@ class FixMessageViewModel(
             ?.let { RawMessageView(it) }
     }
 
+    /**
+     * Close a document — and, when it was the **last** view onto its scenario, drop that scenario's draft.
+     *
+     * A draft with nothing looking at it is unreachable and unsaveable; leaving it behind would mean the next
+     * time the author opened the scenario they would silently get edits they had already walked away from.
+     */
     fun closeDocument(id: String) {
+        val closing = _openDocuments.value.firstOrNull { it.id == id }
         val remaining = _openDocuments.value.filterNot { it.id == id }
         _openDocuments.value = remaining
+        closing?.scenarioId?.let { scenarioId ->
+            if (remaining.none { it.scenarioId == scenarioId }) {
+                _openScenarios.value = _openScenarios.value - scenarioId
+            }
+        }
         if (_activeDocumentId.value == id) _activeDocumentId.value = remaining.lastOrNull()?.id
         if (_confirmingCloseId.value == id) _confirmingCloseId.value = null
     }
@@ -297,9 +338,24 @@ class FixMessageViewModel(
     private val _confirmingCloseId = MutableStateFlow<String?>(null)
     val confirmingCloseId: StateFlow<String?> = _confirmingCloseId.asStateFlow()
 
+    /**
+     * Does closing this throw work away?
+     *
+     * For a scenario document the answer is **only if it is the last one open on that scenario**: the draft is
+     * the scenario's, not the tab's, so closing the diff tab while the editor tab is still open discards
+     * nothing and must not stop to ask. Asking anyway would teach the author that the prompt means nothing.
+     */
     fun requestCloseDocument(id: String) {
         val doc = _openDocuments.value.firstOrNull { it.id == id } ?: return
-        if (doc.dirty) _confirmingCloseId.value = id else closeDocument(id)
+        val discards =
+            when (doc) {
+                is ScenarioDoc.Capture -> doc.dirty
+                is ScenarioDoc.Editor -> {
+                    val last = documentsOf(doc.scenarioId).none { it.id != id }
+                    last && _openScenarios.value[doc.scenarioId]?.dirty == true
+                }
+            }
+        if (discards) _confirmingCloseId.value = id else closeDocument(id)
     }
 
     fun cancelCloseDocument() {
@@ -324,7 +380,21 @@ class FixMessageViewModel(
      * same scenario is not a reason to throw them away. Only the aim moves — which is what [focusEpoch] is
      * for, since the composable's cursor is seeded once and would otherwise ignore a new one.
      */
+
+    /**
+     * Make sure [scenario] has a draft in the workspace — **without disturbing one that is already there.**
+     *
+     * A scenario already open is a scenario that may be carrying unsaved edits, and the copy that arrives here
+     * came off disk. Re-seeding from it would throw the author's work away every time a second document opened
+     * on the same scenario, which is precisely what a workspace exists to prevent.
+     */
+    private fun ensureScenarioDraft(scenario: Scenario) {
+        if (_openScenarios.value.containsKey(scenario.id)) return
+        _openScenarios.value = _openScenarios.value + (scenario.id to ScenarioDraft.of(scenario))
+    }
+
     fun openScenarioEditor(scenario: Scenario, focusStep: Int? = null, failure: RunFailureContext? = null) {
+        ensureScenarioDraft(scenario)
         val id = ScenarioDoc.editorId(scenario.id)
         val open = _openDocuments.value.firstOrNull { it.id == id } as? ScenarioDoc.Editor
         val doc =
@@ -336,10 +406,8 @@ class FixMessageViewModel(
                     focusEpoch = if (focusStep != null) open.focusEpoch + 1 else open.focusEpoch,
                 )
             } else {
-                val seed = scenario.asEditorSeed()
                 ScenarioDoc.Editor(
-                    draft = seed,
-                    seed = seed,
+                    scenarioId = scenario.id,
                     focusStep = focusStep,
                     failure = failure,
                     selectedStep = focusStep,
@@ -365,11 +433,27 @@ class FixMessageViewModel(
      * is now *on disk*, so the draft carries the ids [Scenario.withIds] minted for any step the author added
      * — and the tab's dirty flag is measured against the file it actually wrote.
      */
+
+    /**
+     * Write the scenario's draft to disk, and leave its tabs open on it.
+     *
+     * A tab is a document, not a modal: Save writes and the scenario becomes clean. One Save, one draft,
+     * however many documents are looking at it — the diff tab and the editor tab cannot write different
+     * scenarios, because there is only one to write.
+     *
+     * [edited] is the caller's own latest — the editor's Save button is a click, and the draft it mirrors out
+     * arrives on a `LaunchedEffect`, so the click could otherwise beat the last keystroke to the workspace. It
+     * is written in first, and the workspace is then re-seeded from what actually reached the disk (which
+     * carries the ids [Scenario.withIds] minted for any step the author added).
+     */
     fun saveScenarioDocument(edited: Scenario): Boolean {
-        if (!scenarioService.save(edited)) return false
-        val onDisk = (scenarioService.load(edited.id) ?: edited).asEditorSeed()
-        (_openDocuments.value.firstOrNull { it.id == ScenarioDoc.editorId(edited.id) } as? ScenarioDoc.Editor)
-            ?.let { updateDocument(it.copy(draft = onDisk, seed = onDisk)) }
+        updateScenarioDraft(edited.id) { it.copy(draft = edited) }
+        val toSave = _openScenarios.value[edited.id]?.draft ?: edited
+        if (!scenarioService.save(toSave)) return false
+        val onDisk = ScenarioDraft.of(scenarioService.load(toSave.id) ?: toSave)
+        if (_openScenarios.value.containsKey(toSave.id)) {
+            _openScenarios.value = _openScenarios.value + (toSave.id to onDisk)
+        }
         return true
     }
 
@@ -381,10 +465,10 @@ class FixMessageViewModel(
         return true
     }
 
-    /** Delete a scenario, and close the tab that was editing it — a document with no file is a trap. */
+    /** Delete a scenario, and close every document looking at it — a view of a file that is gone is a trap. */
     fun deleteScenario(id: String) {
         scenarioService.delete(id)
-        closeDocument(ScenarioDoc.editorId(id))
+        documentsOf(id).forEach { closeDocument(it.id) }
     }
 
     fun duplicateScenario(scenario: Scenario) {
@@ -1138,6 +1222,7 @@ class FixMessageViewModel(
      * Runs a saved scenario deterministically off the UI thread (the runner blocks on polling) and
      * publishes the per-step / per-tag [ScenarioResult] to [scenarioResult] for the red/green overlay.
      */
+
     /**
      * Claims the single run slot (shared by the UI and the control surface, whose runners would
      * otherwise race each other's consumed-message cursors). Pair with [endScenarioRun].

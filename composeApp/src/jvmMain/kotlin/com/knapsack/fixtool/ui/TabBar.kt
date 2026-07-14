@@ -34,8 +34,12 @@ fun TabBar(
      * Scenario documents, in the same strip as the sessions — an IDE mixes editors and diffs with its files.
      * A document tab does **not** move the active session: [activeDocumentId] is the centre pane's selection
      * and `null` is the session view. See [ScenarioDoc].
+     *
+     * These are [DocumentTab]s and not documents, because a document of a scenario cannot say on its own what
+     * that scenario is called or whether it is dirty — the draft belongs to the scenario now. See
+     * [documentTabsOf].
      */
-    documents: List<ScenarioDoc> = emptyList(),
+    documents: List<DocumentTab> = emptyList(),
     activeDocumentId: String? = null,
     confirmingCloseId: String? = null,
     onFocusDocument: (String) -> Unit = {},
@@ -71,7 +75,7 @@ fun TabBar(
             }
 
             DocumentTabs(
-                documents = documents,
+                tabs = documents,
                 activeId = activeDocumentId,
                 confirmingCloseId = confirmingCloseId,
                 onFocus = onFocusDocument,

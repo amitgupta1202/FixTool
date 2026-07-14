@@ -99,6 +99,14 @@ highlights the source message in its session grid and the detail panel (the grid
 selection plumbing — `selectMessage` — already exists). The include/exclude checklist,
 the send/expect previews, and the id-echo badges are kept as they are.
 
+Capture also gains a **second source: pasted wire.** A paste box accepts one message per
+line — a server log fragment, a message from an email — and the lines become candidates
+in the same review surface: per-row direction toggle (a paste carries no direction),
+session assignment, the same include/exclude and previews. Sends become parameterized
+Send steps, replies become seeded expectations; the pasted bytes *are* the wire for
+seeding purposes, and every artifact built from a paste carries a visible `pasted`
+provenance badge, because a paste has none of a live capture's guarantees.
+
 ---
 
 ## Part 2 — The Expectation Diff Editor
@@ -222,15 +230,70 @@ Edits are commands (`SetMatcher`, `AcceptActual`, `Drop`, `InsertAssertion`, `Mo
 - The footer keeps the staged count and the promise, verbatim: *"nothing is written to
   the scenario until you save."*
 
+### The reference slot — whose message is on the right
+
+The right side is not hard-wired to "this run's failure". It is a **slot**, shown as a
+chip in the editor header, and swapping it re-judges every row instantly:
+
+- **received — this run** (a failed step; the default the deep-link binds)
+- **golden** — the captured message (the default for a never-run step: authoring *is*
+  the same diff)
+- **second instance** — a later live message of the same shape (this *is* the old
+  "verify generalizes", no longer a special case)
+- **pick from session…** — click any row in a session grid while the slot is armed
+- **paste wire…** — paste a message grabbed from a real server: logs, an email, another
+  environment. The pasted bytes are parsed as-is (SOH preferred, `|` accepted); a lint
+  line reports what was read rather than guessing silently — a `|`-delimited paste whose
+  values contain pipes is *told to the user*, because this codebase has been burned by
+  exactly that ambiguity before.
+
+Two honesty rules ride along. **Provenance is always visible** — the chip says where the
+reference came from (`this run · 09:35:44`, `golden`, `pasted`), and anything saved from
+a pasted reference keeps a `pasted` badge; a hand-doctored paste must never be mistakable
+for a live capture. **Temporal rows anchor to the reference**, not the wall clock — a
+live message anchors at its arrival instant (as today), a pasted one at its own
+`SendingTime(52)`, so `~now ±60s` doesn't manufacture phantom reds against a message
+pasted an hour later.
+
 One editor means authoring inherits all of it: a never-run step opens the same diff
-against its **golden** message instead of a failing actual — same rows, same gutter,
-same undo. `ExpectationBuilder`'s "verify generalizes" (judge against a second captured
-instance) becomes a reference-message picker on the same surface: *golden · second
-instance · last received*.
+against its golden instead of a failing actual — same rows, same gutter, same undo —
+and building an expectation against a *real venue's* reply is just: paste it into the
+slot, watch the seeded rows judge against it, tighten what matters.
 
 ---
 
-## Part 3 — Comparison semantics as a seam, not a setting
+## Part 3 — The same surface as a plain diff viewer
+
+The editor's left side generalises from "an expectation" to **`Expectation | Message`**.
+Bind two messages instead and the identical surface — same alignment, same group
+overlay and entry bands, same moved-entry detection, same semantics chip — becomes a
+**read-only FIX diff viewer**: no matcher chips, no gutter applies, statuses reduce to
+*same · value differs · only-left · only-right · moved*. Nothing in it can write.
+
+Entry points, cheapest first:
+
+- **Select two messages in a grid → "Diff selected"** (the grid already multi-selects) —
+  two clicks from any session to a full structural diff.
+- **Detail panel → "Diff against…"** on any message — pick the other side from a grid,
+  or paste it.
+- **Rail / toolbar → "Diff messages…"** — two empty slots, each fed by *pick from
+  session · paste wire*, for the pure support case: two messages from two environments,
+  neither of them live.
+
+This unlocks the cases a venue-generic tool keeps meeting: UAT vs PROD replies for the
+same order, pre- vs post-upgrade ExecutionReports, "why did clearing reject yours and
+accept mine", two fills that should be twins. And it is the risk-free proving ground for
+future semantics — a new alignment algorithm can ship in the diff viewer long before it
+is trusted to judge assertions.
+
+The one-way door back: **"Seed expectation from left/right"** turns a side into a seeded
+expectation (the seeder that capture already uses) and flips the surface into editor
+mode — then "add to scenario…" files it as an Expect step. Diff first, assert when
+ready: the viewer is the authoring on-ramp.
+
+---
+
+## Part 4 — Comparison semantics as a seam, not a setting
 
 STRICT and OPEN differ only in what they do about unmentioned tags; both are LCS-shaped
 sequence alignments. The future the product wants — graph-based comparison, GumTree-style
@@ -277,6 +340,36 @@ No new surface, no new persistence, no new safety argument.
 
 ---
 
+## Part 5 — The three workflows, counted in clicks
+
+The layout rules exist for these paths. The standing rules first: **no second window,
+ever** — every surface is a tab or pane, so the grid and detail panel are never more
+than one click away; every failure surface deep-links to the same destination; `esc`
+closes a tab (a dirty one confirms); and anything that needs a message accepts *the
+current grid selection, a paste, or a picker* — whichever the user already has in hand.
+
+**W1 — run and repair (the daily loop).**
+Rail **▶ Run** *(1)* → failure lands in three places at once (rail step ✗, grid row red,
+detail banner) → **Reconcile →** from any of them *(2)* → the diff editor tab, scrolled
+to the first failing row → fixes are gutter clicks, inline edits, drags — each judged
+live → **Save & re-run** *(3 + fixes)*: one button writes the scenario and runs it
+again, and the rail verdict answers on the spot. Two clicks from failure to fixing;
+one from fixed to proven.
+
+**W2 — a wire from a real server becomes a scenario.**
+Rail **New scenario → Paste wire…** *(1)*, paste the log fragment *(2)* → capture-review
+tab: one candidate per line, direction toggles, session dropdowns, include/exclude,
+live previews → **Save scenario** *(3)*. Or mid-flow in the editor: **Add Expect from
+paste** on a step — the seeded expectation opens in the diff editor with the pasted
+reply as its reference, ready to tighten.
+
+**W3 — just a diff.**
+Select two messages in a grid → **Diff selected** *(2)* — or **Diff messages…** and feed
+the two slots from any mix of session picks and pastes. Read-only, and one action away
+from becoming W2 via *Seed expectation*.
+
+---
+
 ## What is discarded
 
 Per the decision that dev effort does not weigh here — ranked purely by what the design
@@ -315,6 +408,12 @@ refusal narrows to *the step that actually changed* instead of any edit anywhere
    entry with crossing connector, group bands with per-entry hues, gutter applies.
 3. **Direct editing** — matcher dropdown open on a row, live re-judge flipping rows
    green, staged-edit footer, undo/redo.
-4. **A withheld move** — role-swap case: arrows present, refusal reason inline.
-5. **Capture review as a tab** — candidate list linked to the session grid.
-6. **Semantics selector** — STRICT/OPEN today, tree/GumTree slots visible but disabled.
+4. **Moves** — the withheld role-swap move with its reason inline, and single-tag drags
+   with the one refused drop.
+5. **The reference slot** — the swap menu (this run · golden · second instance · pick ·
+   paste), the paste sheet with its lint line, provenance badges.
+6. **The standalone diff viewer** — two messages, no matchers, seed-expectation on-ramp.
+7. **Capture review as a tab** — candidate list linked to the session grid; paste as a
+   second source.
+8. **Semantics selector** — STRICT/OPEN today, tree/GumTree slots visible but disabled.
+9. **The three workflows, in clicks** — run-and-repair, paste-to-scenario, just-a-diff.

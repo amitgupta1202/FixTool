@@ -125,7 +125,14 @@ fun ReconcileView(
     val reorder = ScenarioReconcile.reorder(draft, actual, now = { judgedAt })
     val newOrder = (reorder as? ScenarioReconcile.Reorder.Possible)?.reordered
     val movedRows = (reorder as? ScenarioReconcile.Reorder.Possible)?.moved.orEmpty()
-    val blocks = bracketsFor(rows, movedRows, ScenarioReconcile.entries(draft))
+    val blocks =
+        bracketsFor(
+            rows = rows,
+            moved = movedRows,
+            entries = ScenarioReconcile.entries(draft),
+            draft = draft,
+            failing = rows.any { !it.passed },
+        )
 
     Column(modifier = modifier.fillMaxWidth().border(1.dp, AppTheme.Colors.border).testTag("reconcile-view")) {
         StepHeader(
@@ -147,7 +154,7 @@ fun ReconcileView(
             onDiscard = ::discard,
             onStrictChange = { stage(if (it) "Switched to STRICT" else "Switched to OPEN", draft.copy(mode = if (it) MatchMode.STRICT else MatchMode.OPEN)) },
         )
-        VerdictBar(rows, movedRows, movedEntries = blocks.count { it.span != null })
+        VerdictBar(rows, movedRows, movedEntries = blocks.count { it.moved })
         // The engine knows exactly why it is not offering a move. It used to keep that to itself, and an
         // author looking at a group full of red rows with no re-order on offer concluded — reasonably — that
         // re-ordering had never been built. See ScenarioReconcile.Reorder.
@@ -193,11 +200,12 @@ private fun DiffRows(
                 MovedBlockHeader(
                     rows = bracket.rendered.map { rows[it] },
                     dictionary = dictionary,
+                    moved = bracket.moved,
                     // ONE Accept-new-order, on the first bracket, because it applies the engine's re-order of
                     // the WHOLE message — not of the one entry whose bracket it happens to sit in. Drawn inside
                     // every bracket, a click on the first silently re-ordered the others and left their buttons
                     // dead, with no way for the author to tell what they had just done.
-                    showAcceptOrder = blocks.firstOrNull() === bracket,
+                    showAcceptOrder = blocks.firstOrNull { it.moved } === bracket,
                     onAcceptOrder = { stage("Accepted the new order", newOrder) },
                     canMoveUp = span != null && ScenarioReconcile.canMoveBlock(draft, span, up = true),
                     canMoveDown = span != null && ScenarioReconcile.canMoveBlock(draft, span, up = false),
@@ -448,38 +456,51 @@ private fun contiguousBlocks(rows: List<ScenarioReconcile.Row>, moved: Set<Int?>
 /**
  * The brackets, and the expectation span each one may be moved by.
  *
- * One bracket per **entry**, because a bracket around a whole six-row group has no sibling to swap with and
- * would leave the arrows permanently dead. But the entries come from [ScenarioReconcile.entries] — the row
- * order of the *expectation* — and never from the period of whatever run of rows happened to move.
+ * One bracket per **entry**, and the entries come from [ScenarioReconcile.entries] — the row order of the
+ * *expectation* — never from the period of whatever run of rows happened to move. That distinction is the
+ * whole defect: take the period of the moved run, and a run that starts mid-entry (because the entry's first
+ * row still passes and stays put) splits into brackets that are each half of one party welded to half of the
+ * next. Hand that to a move and one click asserts one party's role of another party's firm.
  *
- * That distinction is the whole defect. Take the period of the moved run and a run that starts mid-entry
- * (because the first row of the entry still passes and stays put) splits into brackets that are each half of
- * one party welded to half of the next: `(452 role, 448 firm)`. Hand that to a move and one click asserts one
- * party's role of another party's firm — the assert-the-wrong-field false green, arriving through the very
- * affordance built to prevent it.
+ * **Every entry gets a bracket on a failing step, not only the entries the engine moved.** The arrows are the
+ * author's override for a diff that aligned the way the engine could prove rather than the way the venue
+ * actually behaved — and that is precisely the case where the engine offers no move and draws no bracket. An
+ * override reachable only where the automatic fix already works is not an override. So a bracket with no move
+ * behind it carries the arrows and nothing else: no ⇅, no "entry moved", no Accept-new-order, because none of
+ * those would be true.
  *
- * A moved row that belongs to no repeating run still gets a bracket, so it can be seen; it just has no
- * sibling to be moved past, and therefore no arrows ([Bracket.span] is null).
+ * An entry with nowhere to go is not bracketed at all — a handle that cannot move is furniture.
  */
-private data class Bracket(val rendered: IntRange, val span: IntRange?)
+private data class Bracket(val rendered: IntRange, val span: IntRange?, val moved: Boolean)
 
 private fun bracketsFor(
     rows: List<ScenarioReconcile.Row>,
     moved: Set<Int>,
     entries: List<IntRange>,
+    draft: Expectation,
+    failing: Boolean,
 ): List<Bracket> {
     val renderedAt = rows.withIndex().mapNotNull { (r, row) -> row.index?.let { it to r } }.toMap()
-    val movedEntries = entries.filter { entry -> entry.any { it in moved } }
+
+    fun rendered(entry: IntRange): IntRange? =
+        entry.mapNotNull { renderedAt[it] }.takeIf { it.isNotEmpty() }?.let { it.min()..it.max() }
 
     val entryBrackets =
-        movedEntries.mapNotNull { entry ->
-            val renderedRows = entry.mapNotNull { renderedAt[it] }
-            if (renderedRows.isEmpty()) null else Bracket(renderedRows.min()..renderedRows.max(), entry)
+        entries.mapNotNull { entry ->
+            val didMove = entry.any { it in moved }
+            val movable =
+                ScenarioReconcile.canMoveBlock(draft, entry, up = true) ||
+                    ScenarioReconcile.canMoveBlock(draft, entry, up = false)
+            // A moved entry is always shown — the author has to be told it moved. An unmoved one is a handle,
+            // and a handle is only worth drawing on a step that is failing and only where it can actually go
+            // somewhere.
+            if (!didMove && !(failing && movable)) return@mapNotNull null
+            rendered(entry)?.let { Bracket(it, entry, moved = didMove) }
         }
 
     // Moved rows outside every repeating run: bracketed as they were, with no arrows.
-    val claimed = movedEntries.flatMap { it.toList() }.toSet()
-    val loose = contiguousBlocks(rows, moved - claimed).map { Bracket(it, span = null) }
+    val claimed = entries.filter { entry -> entry.any { it in moved } }.flatMap { it.toList() }.toSet()
+    val loose = contiguousBlocks(rows, moved - claimed).map { Bracket(it, span = null, moved = true) }
 
     return (entryBrackets + loose).sortedBy { it.rendered.first }
 }
@@ -645,6 +666,8 @@ private fun DropButton(onDrop: () -> Unit, takesWholeTag: Boolean) {
 private fun MovedBlockHeader(
     rows: List<ScenarioReconcile.Row>,
     dictionary: FixDictionary?,
+    /** Did the engine actually move this entry? A bracket that only carries the arrows must not claim it did. */
+    moved: Boolean,
     showAcceptOrder: Boolean,
     onAcceptOrder: () -> Unit,
     canMoveUp: Boolean,
@@ -656,48 +679,74 @@ private fun MovedBlockHeader(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .background(AppTheme.Colors.selectionSecondary)
+            .background(if (moved) AppTheme.Colors.selectionSecondary else AppTheme.Colors.surfaceVariant)
             .padding(horizontal = 10.dp, vertical = 4.dp)
-            .testTag("moved-block"),
+            .testTag(if (moved) "moved-block" else "entry-block"),
     ) {
-        Text("⇅", color = AppTheme.Colors.warning, fontSize = 11.sp, modifier = Modifier.width(GUT))
-        val travelled = rows.filter { it.status == TagStatus.MOVED || !it.passed }.ifEmpty { rows }
         Text(
-            text = if (travelled.size == 1) "Field moved" else "Entry moved",
-            color = AppTheme.Colors.warning,
+            text = if (moved) "⇅" else "·",
+            color = if (moved) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
+            fontSize = 11.sp,
+            modifier = Modifier.width(GUT),
+        )
+        val travelled = rows.filter { it.status == TagStatus.MOVED || !it.passed }.ifEmpty { rows }
+        val labelled = if (moved) travelled else rows
+        Text(
+            text = when {
+                !moved -> "Entry"
+                travelled.size == 1 -> "Field moved"
+                else -> "Entry moved"
+            },
+            color = if (moved) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
             fontWeight = FontWeight.Bold,
             fontSize = 11.sp,
             modifier = Modifier.padding(end = 8.dp),
         )
-        val names = travelled.map { "${it.tag}${dictionary?.getFieldName(it.tag)?.let { n -> " $n" } ?: ""}" }.distinct()
+        val names = labelled.map { "${it.tag}${dictionary?.getFieldName(it.tag)?.let { n -> " $n" } ?: ""}" }.distinct()
         Text(
-            text = "${names.joinToString(", ")} — same tags, same values, different position",
+            // The moved bracket states a fact the engine proved. The plain bracket states none — it is a handle,
+            // and saying "same values, different position" over an entry nothing moved would be a lie the author
+            // would have every right to act on.
+            text =
+                if (moved) {
+                    "${names.joinToString(", ")} — same tags, same values, different position"
+                } else {
+                    names.joinToString(", ")
+                },
             color = AppTheme.Colors.textSecondary,
             fontSize = 10.sp,
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
-        // Only where there is a sibling entry to swap with. A disabled arrow says "not here"; an absent one
-        // would say "never built", which is the misreading this whole block exists to correct.
-        if (canMoveUp || canMoveDown) {
-            Text("move entry", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
-            SlimButton(
-                text = "↑",
-                onClick = onMoveUp,
-                color = AppTheme.Colors.warning,
-                enabled = canMoveUp,
-                modifier = Modifier.padding(end = 2.dp).testTag("move-block-up"),
-            )
-            SlimButton(
-                text = "↓",
-                onClick = onMoveDown,
-                color = AppTheme.Colors.warning,
-                enabled = canMoveDown,
-                modifier = Modifier.padding(end = 6.dp).testTag("move-block-down"),
-            )
-        }
+        EntryArrows(canMoveUp, canMoveDown, onMoveUp, onMoveDown)
         if (showAcceptOrder) SlimButton("Accept new order", onClick = onAcceptOrder, color = AppTheme.Colors.info)
     }
+}
+
+/**
+ * `move entry ↑ ↓` — and nothing else, ever.
+ *
+ * A disabled arrow says "not from here". An absent one says "never built", which is the misreading the whole
+ * bracket exists to correct, so both are always drawn wherever the entry has anywhere to go at all.
+ */
+@Composable
+private fun EntryArrows(canMoveUp: Boolean, canMoveDown: Boolean, onMoveUp: () -> Unit, onMoveDown: () -> Unit) {
+    if (!canMoveUp && !canMoveDown) return
+    Text("move entry", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
+    SlimButton(
+        text = "↑",
+        onClick = onMoveUp,
+        color = AppTheme.Colors.warning,
+        enabled = canMoveUp,
+        modifier = Modifier.padding(end = 2.dp).testTag("move-block-up"),
+    )
+    SlimButton(
+        text = "↓",
+        onClick = onMoveDown,
+        color = AppTheme.Colors.warning,
+        enabled = canMoveDown,
+        modifier = Modifier.padding(end = 6.dp).testTag("move-block-down"),
+    )
 }
 
 /**

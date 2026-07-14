@@ -395,9 +395,11 @@ class ReconcileViewTest {
 
         composeTestRule.reconcile(threePartyExpectation(), actual) { edited = it }
 
-        // B and C are the entries the engine bracketed. The author moves B *up* — past FIRMA, an entry the
-        // engine did not touch and never proposed touching.
-        composeTestRule.onAllNodesWithTag("move-block-up").onFirst().performClick()
+        // All three parties are bracketed — A because it can still go somewhere, B and C because they moved.
+        // The author moves the SECOND entry (B) up, past FIRMA: an entry the engine never touched and never
+        // proposed touching. Its ↑ is the second one on screen; the first belongs to A and is disabled,
+        // because there is nothing above it.
+        composeTestRule.onAllNodesWithTag("move-block-up")[1].performClick()
 
         val fields = edited!!.fields.map { it.tag to (it.matcher as Matcher.Exact).value }
         assertEquals(
@@ -439,6 +441,7 @@ class ReconcileViewTest {
         // One bracket per entry — not one lump around the whole group, which is what left the arrows with
         // nothing to swap with.
         composeTestRule.onAllNodesWithTag("moved-block").assertCountEquals(2)
+        snapshot("reconcile_entry_moved.png")
         composeTestRule.onAllNodesWithTag("move-block-down").onFirst().performClick()
 
         val fields = edited!!.fields.map { it.tag to (it.matcher as Matcher.Exact).value }
@@ -451,21 +454,48 @@ class ReconcileViewTest {
     }
 
     /**
-     * THE ROLE SWAP. Two firms exchange roles; the `452` rows still pass where they are. No move is offered —
-     * correctly — and the view must **say so**, because an author who sees red rows in a party group and no
-     * re-order anywhere concludes the feature was never built. That is exactly what happened.
+     * THE ROLE SWAP. Two firms exchange roles; the `452` rows still pass where they are. **No automatic move**
+     * is offered — correctly, because nothing moved — and the view says why, since an author who sees red rows
+     * in a party group and no re-order anywhere concludes the feature was never built.
+     *
+     * The arrows are still there, because they are the author's override and this is exactly the shape of
+     * failure an override is for. They just have no ⇅, no "entry moved" and no Accept-new-order behind them:
+     * the tool offers a handle, and refuses to claim anything it cannot prove.
      */
     @Test
-    fun `a role swap offers no move, and says why not`() {
+    fun `a role swap offers no automatic move, and says why not`() {
         // Same positions, same roles; the FIRMS swapped. Nothing moved — the values changed in place.
         val actual = wire(448 to "FIRMB", 447 to "D", 452 to "1", 448 to "FIRMA", 447 to "D", 452 to "4")
 
         composeTestRule.reconcile(partyExpectation(), actual)
 
         composeTestRule.onNodeWithTag("moved-block").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("move-block-up").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("move-block-down").assertDoesNotExist()
+        composeTestRule.onAllNodesWithText("Accept new order").assertCountEquals(0)
         composeTestRule.onNodeWithTag("reconcile-no-move").assertIsDisplayed()
         composeTestRule.onNodeWithTag("reconcile-no-move").assertTextContains("did not move", substring = true)
+
+        // ...and the author still has a handle on each entry.
+        composeTestRule.onAllNodesWithTag("entry-block").assertCountEquals(2)
+        composeTestRule.onAllNodesWithTag("move-block-down").assertCountEquals(2)
+        snapshot("reconcile_role_swap.png")
+    }
+
+    /**
+     * And moving an entry by hand on that role swap **cannot manufacture a green**. Swapping the two parties
+     * makes the `448` rows pass — and the `452` rows fail in their place, because the roles did not move. The
+     * diff re-judges every row after every move, so the tool goes on saying the step is broken. That is the
+     * safety property that lets the arrows exist at all where the engine refuses: a wrong move goes red, not
+     * green.
+     */
+    @Test
+    fun `moving an entry by hand on a role swap cannot fake a pass`() {
+        val actual = wire(448 to "FIRMB", 447 to "D", 452 to "1", 448 to "FIRMA", 447 to "D", 452 to "4")
+
+        composeTestRule.reconcile(partyExpectation(), actual)
+
+        composeTestRule.onAllNodesWithTag("move-block-down").onFirst().performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("reconcile-summary").assertTextContains("need attention", substring = true)
     }
 }

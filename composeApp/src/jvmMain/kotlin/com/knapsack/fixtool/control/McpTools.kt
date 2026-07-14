@@ -328,6 +328,15 @@ object McpTools {
                 ),
             ),
             tool(
+                "fixtool_reconcile",
+                "Open the reconcile diff on a step that failed the last run — the one surface in the app that " +
+                    "can author or repair an assertion. With no argument it takes the run's first failing step, " +
+                    "exactly as the rail's 'Reconcile →' does; step=N addresses one by its 1-based position. It " +
+                    "routes through the same check the button does, so a step edited since it ran is refused with " +
+                    "the reason rather than opened over the wrong bytes. Pair with fixtool_screenshot to see it.",
+                props("step" to string("1-based step number; default = the first failing step")),
+            ),
+            tool(
                 "fixtool_delete_scenario",
                 "Delete a saved scenario by id.",
                 props("id" to string("scenario id")),

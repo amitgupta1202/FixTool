@@ -22,7 +22,7 @@ dodged the hard case.
 | 1 | The diff surface, standalone | **complete** |
 | 2 | Rail + document tabs; the window dies | **complete** |
 | 3 | The diff surface becomes the only expectation editor | **complete** |
-| 4 | Drag moves, undo/redo, keyboard | **in progress** — decisions taken (M1–M9) |
+| 4 | Drag moves, undo/redo, keyboard | **complete** |
 | 5 | Reference slot: paste, pick, provenance | not started |
 | 6 | The plain diff viewer | not started |
 | 7 | Cleanup, docs, final verification | not started |
@@ -31,23 +31,26 @@ dodged the hard case.
 
 ## Start here — the state of play (updated at the end of Phase 3)
 
-**Phases 0–3 are complete and on `main`.** The engine seams exist; the scenarios workbench is a docked
+**Phases 0–4 are complete and on `main`.** The engine seams exist; the scenarios workbench is a docked
 rail and a set of document tabs in the main window (no second window); and **`DiffSurface` is now the
 only surface in the app that can author or repair an assertion** — `ReconcileView`, `ExpectationBuilder`
 and `ExpectationDrafts` are deleted. A scenario has exactly **one unsaved draft** (the *workspace*),
 however many documents are looking at it.
 
-Phase 4 is next: drag moves, `⌘Z`/`⌘⇧Z`, and `alt+↑/↓`. The stacks and the validators already exist —
-Phase 1 built the snapshot undo/redo, Phase 0 built the move validator — so Phase 4 is the input layer
-over them, plus the two things the mockup draws and nobody has built: the **violet crossing connector**
-between moved entries, and the live *would-this-pass?* tooltip during a drag.
+**Phase 4 is done.** Rows and entries drag, `⌘Z`/`⌘⇧Z`/`alt+↑/↓`/`↑↓`/`n`/`p`/`esc` work, the **violet
+crossing connector** is drawn, and a drag answers *would every row pass here?* before the mouse is released.
+Two of its decisions were not input-layer work at all: the move validator's refusal sentence was being
+**computed and thrown away** on every call (M1), and the right-hand column at a moved entry was showing the
+reply's fields **in an order the reply does not have** (M2) — which is also why the connector had nothing to
+cross. Both are fixed; read M1–M9 before touching a move.
 
-> **It is not only an input layer, and its decisions section says why** (M1–M9, below). Two of them change
-> the shape of the phase. `EditOp` is `(Expectation) -> Expectation?`, so the move validator's refusal
-> sentence — the whole of *"refused drops snap back with the reason"* — is **computed and discarded** on
-> every call (M1). And the right-hand column, at a moved entry, pairs each row with the field it *landed
-> on* rather than the one the venue sent there, so reading it top to bottom gives **an order the reply does
-> not have** — and leaves the crossing connector with nothing to cross (M2).
+Phase 5 is next: the reference slot (paste · pick · provenance).
+
+> **The control surface can now open the diff** — `POST /scenarios/reconcile` / `fixtool_reconcile`, through
+> the same `reconcileRoute` decider the rail's *Reconcile →* button uses. It is the one thing the automation
+> could not do (it cannot click), and it is why the one surface that repairs an assertion had never been
+> opened live against a real venue's bytes. A deviation from the proposal's scope, taken deliberately —
+> see Phase 4's outcome.
 
 **What exists now, and where:**
 
@@ -57,8 +60,10 @@ between moved entries, and the live *would-this-pass?* tooltip during a drag.
 | Dictionary-derived entry boundaries + labels; `EntrySource.DICTIONARY\|HEURISTIC` | `service/compare/GroupOverlay.kt` |
 | The right-hand slot: provenance + the instant temporals judge at | `service/compare/ReferenceMessage.kt` |
 | **The verdict — counted once, for both surfaces** | `service/compare/Verdict.kt` |
-| Draft + snapshot undo/redo + the gutter's offers + memoized `DiffModel` | `ui/diff/ReconcileSession.kt` |
+| Draft + snapshot undo/redo + the gutter's offers + memoized `DiffModel` + **the selection and the display list** | `ui/diff/ReconcileSession.kt` |
 | The two-column diff, the gutter, the group bands | `ui/diff/DiffSurface.kt`, `DiffPalette.kt` |
+| **The drag, the keys, the crossing connector, the would-pass tooltip** | `ui/diff/DiffMoves.kt` (Phase 4) |
+| **Opening the diff without a hand** — the same route the rail's button takes | `POST /scenarios/reconcile` · `fixtool_reconcile` |
 | The docked rail: the run tree, the routes, the actions | `ui/ScenariosRail.kt` |
 | A document and its state (the tab owns the draft — see T2) | `ui/ScenarioDocuments.kt` |
 | The document tab strip + the host that composes the active one | `ui/ScenarioDocumentPane.kt` |
@@ -71,7 +76,7 @@ between moved entries, and the live *would-this-pass?* tooltip during a drag.
 Steps carry a stable `stepId` (Phase 0); `reconcileRoute` addresses a failure by it, and the
 `ReconcileSession` must be `remember(stepId)`-keyed for the same reason (P3).
 
-**Commands.** `./gradlew :composeApp:jvmTest` — **1208 tests, 0 failures** is the current bar.
+**Commands.** `./gradlew :composeApp:jvmTest` — **1227 tests, 0 failures** is the current bar.
 The lint rule is that **your files add none**; measure it by counting findings *per file* on the
 pre-phase tree and again after (`ktlintCheck` + `detekt`, `--continue`), because a bare total moves
 whenever a file is added or deleted. The tree is currently **1769** by that count, against the 2121 the
@@ -1423,54 +1428,127 @@ Two small things that ride along, both of which are bugs if got wrong:
   move*, and moves never coalesce with each other (each is a discrete fact, unlike the keystrokes of a value
   — `EditOp.coalesceKey`, P2).
 
-### 4.1 The refusal reaches the surface (M1)
-- [ ] `EditResult = Applied | Refused(why) | Unchanged`; `EditOp.apply` and `ReconcileSession.apply` return
+### 4.1 The refusal reaches the surface (M1) — **complete**
+- [x] `EditResult = Applied | Refused(why) | Unchanged`; `EditOp.apply` and `ReconcileSession.apply` return
       it. `EditOp.pure { … }` preserves every existing op verbatim (`null` → `Unchanged`).
-- [ ] `ReconcileSession.refusal: String?` — the last refusal, cleared by the next successful edit, by
+- [x] `ReconcileSession.refusal: String?` — the last refusal, cleared by the next successful edit, by
       undo/redo/discard, and by the start of a drag. `preview(op)` dry-runs without staging (M8).
-- [ ] Tests: a refused `moveRow` leaves the draft **byte-identical** and carries the engine's sentence
+- [x] Tests: a refused `moveRow` leaves the draft **byte-identical** and carries the engine's sentence
       verbatim; a no-op move is `Unchanged` and says nothing; `preview` stages nothing and pushes no undo.
 
-### 4.2 Wire-order pairing and the crossing connector (M2, M3)
-- [ ] Delete the `MOVED` pairing override in `ComparisonSemantics.chunk()`; `Chunk.landing: List<Int>`
-      published from `placement`. `AlignmentModelTest`'s two pinned assertions change **with the reasoning
-      recorded here** — they pinned the defect.
-- [ ] Re-mutation-check `offersFor`'s moved-row guard: it is the only thing between the author and one
-      click deleting *"FIRMA holds role 1"*, and M2 makes the row look exactly like a value mismatch again.
-- [ ] `DiffModel.items` (M4): bands and lines, hues, depths, first-moved-band — out of `DiffSurface`,
+### 4.2 Wire-order pairing and the crossing connector (M2, M3) — **complete**
+- [x] Deleted the `MOVED` pairing override in `ComparisonSemantics.chunk()`; `Chunk.landing: List<Int>`
+      published from `placement`. `AlignmentModelTest`'s two pinned assertions changed — **they pinned the
+      defect**, and the new one asserts what was actually wrong: the right column, read top to bottom, is
+      the reply's own order.
+- [x] Re-mutation-checked `offersFor`'s moved-row guard — **two tests die without it**, and M2 is what made
+      it load-bearing again (FIRMA's row now shows FIRMB, which reads exactly like a value mismatch).
+- [x] `DiffModel.items` (M4): bands and lines, hues, depths, first-moved-band — out of `DiffSurface`,
       memoized with the model, tested without Compose.
-- [ ] The violet crossing connector: a `Canvas` over the `LazyColumn`, one curve per moved chunk, from its
+- [x] The violet crossing connector: a `Canvas` over the `LazyColumn`, one curve per moved chunk, from its
       band to the display line holding `landing.first()`, positioned from `LazyListState.layoutInfo`. Ends
-      scrolled off-screen clip rather than lie. A three-way rotation draws three curves, not two (M3).
+      scrolled off-screen leave the viewport in the direction the entry went. A three-way rotation draws
+      three curves, not two (M3).
 
-### 4.3 Drag: rows and entries
-- [ ] Row drag from the `⠿` handle: insertion line at the landing, live would-pass tooltip (M8) with its
+### 4.3 Drag: rows and entries — **complete**
+- [x] Row drag from the `⠿` handle: insertion line at the landing, live would-pass tooltip (M8) with its
       three sentences, refused drops snap back with the reason at the cursor. Every drop routes through
       `ScenarioReconcile.moveRow` — the UI cannot construct a move the engine did not approve.
-- [ ] Entry drag from the band handle (the overlay's range → `moveEntry`); the ↑/↓ buttons stay.
-- [ ] The withheld-move sentence keeps rendering inline on the group (role-swap case) — unchanged.
+- [x] Entry drag from the band handle (the overlay's range → `moveEntry`); the ↑/↓ buttons stay.
+- [x] The withheld-move sentence keeps rendering inline on the group (role-swap case) — unchanged.
 
-### 4.4 Keyboard
-- [ ] `⌘Z`/`⌘⇧Z` (preview), `alt+↑/↓` (preview) → the existing stack and the existing validator; `↑/↓`
+### 4.4 Keyboard — **complete**
+- [x] `⌘Z`/`⌘⇧Z` (preview), `alt+↑/↓` (preview) → the existing stack and the existing validator; `↑/↓`
       selection, `n`/`p` next/previous **diff** chunk (skipping `SAME`, no wrap), `esc` (bubble, M7).
-- [ ] Selection in the session (M5), **re-anchored after every move**; the header gains the mockup's
+- [x] Selection in the session (M5), **re-anchored after every move**; the header gained the mockup's
       `↑ prev` / `↓ next diff` buttons, wired to the same functions `n`/`p` call.
-- [ ] Tests: `alt+↓` twice moves **the same row** two places (the M5 defect, reproduced first); typing `n`
-      into a value field types `n` (the M6 defect); `⌘Z` walks the diff's stack while a value field has
-      focus, and the field's own undo never runs.
+- [x] Tests: `alt+↓` twice moves **the same row** two places (the M5 defect, mutation-checked); typing `n`
+      into a value field types `n` — **and M6's stated mechanism was wrong, see below**; `⌘Z` walks the
+      diff's stack while a value field has focus, and the field's own undo never runs.
 
-### 4.5 The gate
-- [ ] At least one **real drag** UI test (`performMouseInput`), writing its screenshots to
-      `composeApp/build/scenario-screenshots/`: the out-of-order hand-authored row fixed by a drag, and the
-      refused sibling-crossing drop with its reason at the cursor.
-- [ ] Undo restores byte-equal drafts across a mixed edit/move/accept sequence.
-- [ ] Mutation-check: disable the occurrence-mapping guard, a test fails.
+### 4.5 The gate — **complete**
+- [x] Real **drag** UI tests (`performMouseInput`), screenshots in `composeApp/build/scenario-screenshots/`:
+      the out-of-order hand-authored row fixed by a drag (with the *would-pass* tooltip before the release),
+      the refused sibling-crossing drop with its reason at the cursor, and the entry drag.
+- [x] Undo restores byte-equal drafts across a mixed edit/move/accept sequence.
+- [x] Mutation-check: disable the occurrence-mapping guard, a test fails.
 
-**Phase 4 gate:** the mockup-4 scenarios reproduced live (out-of-order hand-authored row
-fixed by drag; refused sibling-crossing drop with reason), screenshots committed. **And the
-loop Phase 3 could not drive:** fail → fix → save → re-run → green, live against
-`tools/fake-venue`'s `swap`/`shape` modes — the author can click, and Phase 4 is the phase
-whose repairs are clicks.
+**Phase 4 gate — met.** Full suite green (**1227 tests, 0 failures**); every touched file at or below its
+lint baseline (`DiffSurface` 3, `ReconcileSession` 2, `ComparisonSemantics`/`DiffPalette`/`DiffMoves`/
+`ControlServer` 0). The mockup-4 scenarios are reproduced and photographed by `DiffDragTest`, click by
+click, with a real mouse.
+
+**And the loop Phase 3 could not drive is now driven — by the machine, not by hand.** `/scenarios/reconcile`
+opens the diff on a failing step through the *same* `reconcileRoute` decider the rail's **Reconcile →**
+button calls, so the surface that repairs an assertion is finally reachable without a human hand. Live
+against `tools/fake-venue`: `golden` captures and passes; `shape` fails with **the two party entries
+swapped** (plus a real `151` regression and a dropped `58`) and the route opens on the Expect; `swap` fails
+with **the two firms' roles exchanged** and the route opens on the same step — no exceptions, correct
+`stepId` both times. `ControlServerIntegrationTest` pins the whole loop against a real acceptor: run → fail
+→ open the diff → the document is a `ScenarioDoc.Reconcile` on the right step, bound to the bytes that
+failed it, whose verdict agrees with the engine's.
+
+*The one thing not done here:* **live pixels.** `GET /screenshot` returned an all-black frame throughout —
+the display in this environment is asleep, and `screencapture` gets the same black frame, so it is the
+machine and not the app. The picture evidence is therefore the Compose screenshot set, which is driven by a
+real mouse; the live pass proved the *route*, the *bytes* and the *absence of exceptions*, not the pixels.
+
+### Phase 4 outcome — what actually happened
+
+**M1 and M2 were both real, and M2 was live.** The refusal sentence *was* being computed by the validator and
+discarded by the op that called it (`(Expectation) -> Expectation?`, where `null` meant both "refused" and
+"nothing changed") — invisible only because the ↑/↓ arrows are *disabled* where a move is illegal, and a drag
+has no disabled state. And the right-hand column *was* showing the reply's fields in an order the reply does
+not have: `AlignmentModelTest` pinned `moved[0].right == [3,4,5]` and `moved[1].right == [0,1,2]`, so reading
+the column top to bottom across a swapped party group gave `3,4,5,0,1,2`. A message no venue sent, in the
+renderer. The test that pinned it justified itself with a sentence — *"a moved row pairs with nothing"* —
+that `ComparisonSemantics` contradicts forty lines away, and is right to: a moved row pairs perfectly well,
+positionally, which is exactly why its rows go red as value mismatches.
+
+**M6 was right about the danger and wrong about the mechanism, and the test said so.** The decision was that
+bare keys should *bubble* (`onKeyEvent`) because "a focused text field consumes its own characters first".
+That is true on Android and **false on the desktop**: Compose's text field takes a printable character from
+the separate `KEY_TYPED` event and leaves the `KeyDown` for `N` completely unconsumed. It bubbled straight
+into `nextChunk()` — the letter still arrived in the field, *and* the author was thrown down the diff. The
+guard is now `isFocused` on the surface's own node. Bubbling still earns its place (it is what leaves the
+arrow keys to a text field's cursor), but it is not sufficient, and the reasoning that said it was is
+recorded where the next reader will meet it.
+
+**The picture found what no assertion did — five phases out of five.** A row the venue sent *in another
+position* rendered its right-hand gap as **"not sent"**. The engine has always distinguished the two
+(`TagStatus.MOVED` — *"present, but not in this position"*), and `ChunkKind`'s own comment promised the
+surface would keep saying it; the renderer collapsed every gap into the same three words. So a hand-authored
+step whose rows are out of wire order **accused the venue of dropping a field that was sitting two lines away
+on the same screen** — sending an engineer to hunt a regression that does not exist, which is the exact
+failure this area keeps producing. Reproduced first, then fixed.
+
+**And the semantics tree found one that a screen reader would have found the hard way.** `Modifier.clickable`
+on a row sets `mergeDescendants`, which folds the whole row into a single semantics node — so the matcher
+editor's value field, the gutter's buttons and every child test tag became unreachable. Seven tests went red
+at once and named it. Selection now taps through a gesture, which carries no semantics and merges nothing.
+
+**A deviation, deliberately taken, and it is outside the proposal's stated scope.** The proposal puts the
+control surface out of scope (*"`fixtool_panel` toggles the rail; everything else is untouched"*), and Phase 4
+adds **`POST /scenarios/reconcile`** (plus its MCP tool). The reason: every repair in this surface is a
+click, the control surface cannot click, and so the one surface in the app that can author or repair an
+assertion was the one surface no automated run had ever opened against a real venue's bytes — which is the
+gap Phase 3 recorded and could not close. It is not a second door: it calls `openReconcile` on the same
+`StepResult`, through the same `reconcileRoute` decider, as the rail's button, so a route it refuses is a
+route the button refuses in the same words. It made this phase's gate provable, and it makes Phases 5–7's
+gates provable too.
+
+**Deviations, and things deliberately left:**
+
+- **The `⇄ Accept new order` chip still shows only its glyph**, not the mockup's full label — it is a 56dp
+  gutter, and the words do not fit. Pre-existing from Phase 1; the band beside it now says *"⇅ moved — same
+  tags, same values, different position"*, so the meaning is on screen even if the button is terse.
+- **A drag does not auto-scroll** when the pointer reaches the edge of the viewport. On a 200-field
+  market-data snapshot an entry cannot be dragged past the fold; the keyboard (`alt+↑/↓`) can. Worth fixing,
+  not blocking.
+- **The connector is drawn between chunk *centres*.** For entries of very different heights the curve leaves
+  and lands slightly off the band's own line. It is a stroke, not an assertion.
+- `ScenarioService.load()` of an id that does not exist still fires a user-facing error toast. Pre-existing;
+  still a Phase 7 cleanup candidate.
 
 ---
 

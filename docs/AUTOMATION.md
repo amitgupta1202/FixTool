@@ -98,6 +98,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `DELETE /scenarios`  | `{"id"}`                               | delete a scenario                                   |
 | `POST /scenarios/capture` | `{"name", "profile"?, "sessions"?}` | record the live message flow into a scenario (auto-parameterized, echoed ids wired to `reference` matchers) |
 | `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`) |
+| `POST /scenarios/reconcile` | `{}` or `{"step": N}`            | **open the diff on a step the last run failed** — the one surface that can repair an assertion. `{}` takes the first failing step, as the rail's *Reconcile →* does; it goes through the same route check, so a step edited since it ran is refused **with the reason**. Pair with `GET /screenshot`. |
 | `POST /detail`       | `{"query"?, "mode"?, "show"?}`         | drives the detail panel's tag search: sets the query and/or match-context `mode` (`bare`\|`identity`\|`full`) so a nested tag keeps its repeating-group context |
 | `POST /search`       | `{"query", "pin"?}`                    | cross-session matches sorted chronologically (a timeline); pins to the search pane |
 | `POST /filter`       | `{"scope"?, "session"?, "regex"?, "messageTypes"?, "showIncoming"?, "showOutgoing"?, "showSeparator"?}` | filters the grid for a focused screenshot |

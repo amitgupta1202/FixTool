@@ -263,6 +263,68 @@ class ScenarioDeepLinkTest {
         )
     }
 
+    /**
+     * **THE CORRUPTION AN ID IS SUPPOSED TO PREVENT, WALKED BACK IN THROUGH THE ID ITSELF.**
+     *
+     * A minted id is a hash of (scenario, phase, index). `withIds` used to mint for the first blank id it met
+     * *before* the steps below it had claimed theirs — so a step inserted at index 1 was minted with the id
+     * the existing step at index 1 was already carrying, took it, and pushed that step onto its own
+     * successor's id. Every step below the insertion slid one place down the id list.
+     *
+     * Here the two Expects await two fills that happen to look alike, and one of them failed. After the
+     * insert, the failing step's id names the *other* Expect — and because the two are equal, the "is this
+     * still the step that ran?" check passed. The route opened on the wrong Expect, and one click of "Accept
+     * actual" would have written the failing message's bytes into an assertion that never saw it: the exact
+     * false green the id was introduced to close, produced by the id.
+     */
+    @Test
+    fun `a step inserted above the failure does not re-point the route at another step`() {
+        val scenario =
+            Scenario(
+                id = "sc-twins",
+                name = "two fills of the same shape",
+                steps =
+                    listOf(
+                        ScenarioStep.Send("35=D|11=X|"),
+                        ScenarioStep.Expect(
+                            expectation =
+                                Expectation(fields = listOf(FieldExpectation(150, Matcher.Exact("F"))), messageType = "8"),
+                        ),
+                        ScenarioStep.Expect(
+                            expectation =
+                                Expectation(fields = listOf(FieldExpectation(150, Matcher.Exact("F"))), messageType = "8"),
+                        ),
+                    ),
+            ).withIds()
+        assertTrue(viewModel.scenarioService.save(scenario))
+        val msg = failedMessage()
+        // The SECOND of the twins is what failed.
+        val step = failedStepResult(stepIndex = 2).copy(stepId = scenario.steps[2].stepId)
+        viewModel.noteScenarioRun(scenario)
+        viewModel.setAssertionResults(mapOf(msg to step))
+
+        // The author inserts a step at the top and saves. Nothing about the failing step has changed.
+        assertTrue(
+            viewModel.scenarioService.save(
+                scenario.copy(steps = listOf(ScenarioStep.Send("35=D|11=Y|")) + scenario.steps),
+            ),
+        )
+
+        val request = opened(step)
+
+        assertEquals(
+            3,
+            request.focusStep,
+            "the failing Expect is the LAST step now — routing to the twin above it would let Accept actual " +
+                "write this message's bytes into an assertion that never saw it",
+        )
+        assertEquals(
+            scenario.steps[2].stepId,
+            request.scenario.steps[3].stepId,
+            "and the step it landed on is the step that ran, by name",
+        )
+    }
+
     /** A step that is gone is gone: there is no expectation left to reconcile the failure against. */
     @Test
     fun `the step that failed, deleted since the run, is refused`() {

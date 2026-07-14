@@ -253,6 +253,41 @@ class ReconcileAnchorTest {
         assertTrue("left unjudged" in row.reason, row.reason)
     }
 
+    /**
+     * **THE SAME DEFECT AGAIN, AT THE SEAM THE SLOT OPENED — and R2's carve-out is one matcher short.**
+     *
+     * `rows(draft, reference, …)` already knows what to do with a reference that carries no moment of its own:
+     * a temporal row against it is `unknown`, never failed, because there is no clock to judge it by. `reorder`
+     * is never told. It takes `now = { anchor ?: Instant.now() }` from its caller and falls through to the
+     * wall clock — so the one row nobody can read is value-checked anyway, "fails", the block does not fit, and
+     * the entries that plainly moved are refused a re-order and told, in the torn-entry refusal, that *"the
+     * values there changed in place"*.
+     *
+     * That is exactly R2: *a row nobody could read was enough to hide an entry that had plainly moved.* R2
+     * carved out `Reference`; the anchor seam re-opens it for `Temporal`. It starts firing the moment authoring
+     * routes to the diff surface, because a GOLDEN is where an anchorless reference becomes routine — and it
+     * lands on market-data snapshots, every one of which carries an `MDEntryTime`.
+     */
+    @Test
+    fun `an entry that moved is still recognised when the reference has no moment to judge its timestamps by`() {
+        val draft = snapshot()
+        // A golden captured without a SendingTime — no moment of its own, so its temporals cannot be judged.
+        val reference = ReferenceMessage.golden(swapped())
+        assertTrue(reference.unanchored, "the fixture must actually dodge nothing: this reference has no 52")
+
+        val reorder = ScenarioReconcile.reorder(draft, reference)
+
+        assertTrue(
+            reorder is ScenarioReconcile.Reorder.Possible,
+            "the entries moved verbatim; the only row that 'failed' is one this reference cannot judge at " +
+                "all, and refusing on it hides the move and blames the venue for it: $reorder",
+        )
+        assertTrue(
+            ExpectationEvaluator.evaluate(reference.view, reorder.reordered, now = { arrival }).all { it.passed },
+            "and accepting it must actually repair the step",
+        )
+    }
+
     /** The slot swaps, and the whole diff re-judges. That is all "compare against something else" is. */
     @Test
     fun `swapping the reference re-judges every row`() {

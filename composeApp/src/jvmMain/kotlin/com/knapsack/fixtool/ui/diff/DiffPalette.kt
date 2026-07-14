@@ -33,6 +33,12 @@ object DiffPalette {
     /** A row the reply did not answer, or one the expectation never mentioned: the other side is nothing. */
     val gap = Color(0x143A3A3A)
 
+    /**
+     * The author's cursor. It has to beat every other tint, because it is the row `alt+↑/↓` is about to move
+     * and the one `n` just landed on — and a selection you cannot find is a keyboard you cannot use.
+     */
+    val selectedRow = Color(0x382D5A8C)
+
     /** Row tints. Deliberately faint: the gutter and the values carry the meaning, not the background. */
     val valueRow = Color(0x1AE06C75)
     val missingRow = Color(0x12E06C75)

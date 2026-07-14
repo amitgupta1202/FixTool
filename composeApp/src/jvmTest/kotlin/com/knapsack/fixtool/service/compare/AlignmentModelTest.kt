@@ -168,11 +168,19 @@ class AlignmentModelTest {
     // ----- moves ----------------------------------------------------------------------------------------
 
     /**
-     * The crossing connector's data. A moved row pairs with nothing, so its own alignment has no wire
-     * position — the right side of a MOVED chunk exists only because the engine's placement is published.
+     * **The crossing connector's data — and the reason there is a crossing to draw at all.**
+     *
+     * A moved row *does* pair: FIRMA's `448`, being the first `448` of the expectation, is judged against the
+     * first `448` of the reply, which now holds FIRMB. That is why the rows go red as value mismatches and
+     * not one of them carries `TagStatus.MOVED`. So the right column stays **the reply, in the reply's
+     * order**, and the fact that FIRMA is elsewhere is carried by [Chunk.landing] — and drawn, in violet,
+     * across the gutter.
+     *
+     * This test previously asserted the opposite (`moved[0].right` was wire `3,4,5`), which made the right
+     * column read `3,4,5,0,1,2` top to bottom: an order the reply does not have.
      */
     @Test
-    fun `two entries that traded places point at each other, and know where they landed`() {
+    fun `two entries that traded places face the wire, and each knows where it went`() {
         val expectation = exp(MatchMode.STRICT, *(party("FIRMA", "1") + party("FIRMB", "4")).toTypedArray())
         val message = wireView(448 to "FIRMB", 447 to "D", 452 to "4", 448 to "FIRMA", 447 to "D", 452 to "1")
 
@@ -180,11 +188,19 @@ class AlignmentModelTest {
 
         val moved = model.chunks.filter { it.kind == ChunkKind.MOVED }
         assertEquals(2, moved.size, "two entries moved, and each is one chunk")
-        // FIRMA's rows are listed first and land second; FIRMB's are listed second and land first.
         assertEquals("FIRMA", (moved[0].left.first().matcher as Matcher.Exact).value)
-        assertEquals(listOf(3, 4, 5), moved[0].right.map { it.wireIndex }, "FIRMA is now the second party on the wire")
-        assertEquals(listOf(0, 1, 2), moved[1].right.map { it.wireIndex })
-        // ...and each names the other, which is what the surface draws the crossing between.
+
+        // The right column is the message: chunk 0 faces the first three fields, chunk 1 the next three.
+        assertEquals(listOf(0, 1, 2), moved[0].right.map { it.wireIndex })
+        assertEquals(listOf(3, 4, 5), moved[1].right.map { it.wireIndex })
+        assertEquals("FIRMB", moved[0].right.first().value, "FIRMA's row faces what the venue put in that slot")
+
+        // ...and each says where its own rows actually went. This is what the connector is drawn from.
+        assertEquals(listOf(3, 4, 5), moved[0].landing, "FIRMA is now the second party on the wire")
+        assertEquals(listOf(0, 1, 2), moved[1].landing)
+
+        // The pairing survives, and is honest for a two-entry swap. It is NOT what the connector reads —
+        // for a three-way rotation it is the inverse edge. See Chunk.landing.
         assertEquals(moved[1].id, moved[0].moveLink)
         assertEquals(moved[0].id, moved[1].moveLink)
     }

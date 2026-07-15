@@ -5,6 +5,7 @@ package com.knapsack.fixtool.ui.diff
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -91,8 +92,43 @@ fun DiffViewerWindow(viewModel: FixMessageViewModel, state: DiffViewerState, onC
                     notifications = viewModel.notifications,
                     onDismiss = { id -> viewModel.dismissNotification(id) },
                 )
+                // A seeded, scenario-less editor's edits live only in its own session — closing the window is the
+                // one thing that loses them. So Escape/× (routed through requestCloseDiffViewer) stops to ask, in
+                // the app's own confirm idiom, on the same `_confirmingCloseId` the reconcile window uses (F4/G6).
+                val confirming by viewModel.confirmingCloseId.collectAsState()
+                if (confirming == state.id) {
+                    DiscardConfirm(
+                        onDiscard = { viewModel.closeDiffViewer(state.id) },
+                        onKeep = { viewModel.cancelCloseDocument() },
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                }
             }
         }
+    }
+}
+
+/** Closing a viewer holding a dirty seeded editor asks first, in the app's own confirm idiom (mirrors DiffWindow, F4). */
+@Composable
+private fun DiscardConfirm(onDiscard: () -> Unit, onKeep: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.notificationErrorBackground)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("diff-viewer-confirm-close"),
+    ) {
+        Text(
+            "Discard unsaved edits and close?",
+            color = AppTheme.Colors.warning,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(end = 6.dp),
+        )
+        SlimButton("Discard", onClick = onDiscard, color = AppTheme.Colors.error, modifier = Modifier.testTag("diff-viewer-discard"))
+        SlimButton("Keep", onClick = onKeep, color = AppTheme.Colors.textSecondary)
     }
 }
 

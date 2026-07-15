@@ -103,6 +103,18 @@ class ScenarioRunner(
     @Suppress("ReturnCount")
     private fun preflight(scenario: Scenario): StepResult? {
         val all = scenario.setup + scenario.steps + scenario.teardown
+        // An empty scenario must never report a green. The final verdict is `results.all { it.passed }`,
+        // which is vacuously true over an empty result set — so a scenario with no steps at all would report
+        // passed on every run while doing and checking nothing, a CI gate that is green precisely because it
+        // looked at nothing. A Send-only / Wait-only scenario is deliberately NOT rejected here: it does real
+        // work and its result is meaningful (a load driver, or the scope fixtures that assert on what was
+        // sent). Only the degenerate zero-step case is the false green this guards.
+        if (all.isEmpty()) {
+            return preflightFailure(
+                "This scenario has no steps — it would report passed on every run without sending or " +
+                    "checking anything.",
+            )
+        }
         // A session whose logon the scenario itself waits for doesn't need to be LOGGED_ON up front.
         val waitCovered =
             all.filterIsInstance<ScenarioStep.Wait>()

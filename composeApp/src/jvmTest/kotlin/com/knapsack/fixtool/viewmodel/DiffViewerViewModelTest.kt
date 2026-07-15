@@ -1,9 +1,11 @@
 package com.knapsack.fixtool.viewmodel
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.ui.ScenarioDoc
+import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.ui.diff.SeedFrom
 import com.knapsack.fixtool.ui.diff.ViewerSlot
 import org.junit.After
@@ -242,5 +244,47 @@ class DiffViewerViewModelTest {
         val id = soleViewerId()
         viewModel.closeDiffViewer(id)
         assertNull(viewModel.armedViewerSlot.value, "closing the viewer disarms its slot")
+    }
+
+    // --------------------------------------------- closing a viewer that holds staged authoring asks first (G6)
+
+    /** Seed from A, then stage one edit, so the scenario-less editor is dirty and dropping the window would lose it. */
+    private fun seededDirtyViewer(): String {
+        viewModel.openDiffSelected(a, b)
+        val id = soleViewerId()
+        viewModel.seedFromViewer(id, SeedFrom.A)
+        val editing = viewModel.diffViewer(id)!!.editing!!
+        val other = if (editing.draft.mode == MatchMode.STRICT) MatchMode.OPEN else MatchMode.STRICT
+        editing.apply(EditOp.setMode(other))
+        assertTrue(editing.isDirty, "one staged edit dirties the seeded editor")
+        return id
+    }
+
+    @Test
+    fun `closing a viewer with a dirty seeded editor asks first, it does not drop the window`() {
+        val id = seededDirtyViewer()
+        viewModel.requestCloseDiffViewer(id)
+        assertEquals(id, viewModel.confirmingCloseId.value, "a dirty seed stops to confirm")
+        assertNotNull(viewModel.diffViewer(id), "the viewer is not dropped while the confirm is up")
+    }
+
+    @Test
+    fun `closing a read-only viewer closes it at once, with no confirm`() {
+        viewModel.openDiffSelected(a, b)
+        val id = soleViewerId()
+        assertNull(viewModel.diffViewer(id)!!.editing, "no seeded editor — a plain read-only diff")
+        viewModel.requestCloseDiffViewer(id)
+        assertNull(viewModel.diffViewer(id), "a read-only viewer closes instantly")
+        assertNull(viewModel.confirmingCloseId.value, "and never raises the discard confirm")
+    }
+
+    @Test
+    fun `discarding from the confirm actually removes the viewer`() {
+        val id = seededDirtyViewer()
+        viewModel.requestCloseDiffViewer(id)
+        // The confirm's "Discard" is wired straight to closeDiffViewer.
+        viewModel.closeDiffViewer(id)
+        assertNull(viewModel.diffViewer(id), "discard drops the viewer")
+        assertNull(viewModel.confirmingCloseId.value, "and clears the confirm flag")
     }
 }

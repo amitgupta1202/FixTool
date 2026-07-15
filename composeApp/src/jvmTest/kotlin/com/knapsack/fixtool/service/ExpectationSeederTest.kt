@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import org.junit.Test
+import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -115,5 +116,40 @@ class ExpectationSeederTest {
 
         assertEquals(listOf("1", "2"), results.filter { it.tag == 54 }.map { it.actual })
         assertTrue(results.all { it.passed }, "an ambiguous-identity group is no longer unassertable")
+    }
+
+    @Test
+    fun `a LOCALMKTDATE business date seeds Exact and stays green against its own capture on a later day`() {
+        // SettlDate(64) is LOCALMKTDATE — a fixed T+n settlement date, not "today". Seeded Temporal(TODAY)
+        // it was red on its own captured value every day but the capture day, and the only temporal repairs
+        // are Loosen/Drop, so coverage silently eroded. It must seed Exact(value) — the value the venue echoes.
+        val settlDate = "20260101"
+        val captured = listOf(35 to "8", 64 to settlDate)
+        val seeded = ExpectationSeeder.seedDetailed(captured, dictionary)
+
+        val matcher = seeded.first { it.field.tag == 64 }.field.matcher
+        assertTrue(matcher is Matcher.Exact, "SettlDate(64) LOCALMKTDATE must seed Exact, got $matcher")
+        assertEquals(settlDate, (matcher as Matcher.Exact).value)
+
+        // The invariant the bug broke: a freshly-captured golden must evaluate green against itself — even
+        // when 'now' is a different day than the settlement date. Inject 'now' so the check is deterministic.
+        val raw = captured.joinToString("|", postfix = "|") { "${it.first}=${it.second}" }
+        val expectation = ExpectationSeeder.seed(captured, dictionary)
+        val aDifferentDay = Instant.parse("2026-07-15T09:15:02Z")
+        val results = ExpectationEvaluator.evaluate(RawMessageView(raw), expectation, now = { aDifferentDay })
+
+        assertTrue(results.isNotEmpty())
+        assertTrue(results.all { it.passed }, "must be green against itself: ${results.filterNot { it.passed }}")
+    }
+
+    @Test
+    fun `a UTCDATEONLY field still seeds Temporal TODAY (regression guard)`() {
+        // MDEntryDate(272) is UTCDATEONLY — it genuinely means the current UTC date on a live snapshot, so
+        // Exact would wrongly break it on daily replay. The narrowing of DATE_TYPES must leave this intact.
+        val seeded = ExpectationSeeder.seedDetailed(listOf(272 to "20260630"), dictionary)
+
+        val matcher = seeded.first { it.field.tag == 272 }.field.matcher
+        assertTrue(matcher is Matcher.Temporal, "MDEntryDate(272) UTCDATEONLY should still seed Temporal, got $matcher")
+        assertEquals(TemporalKind.TODAY, (matcher as Matcher.Temporal).kind)
     }
 }

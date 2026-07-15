@@ -1028,10 +1028,24 @@ class FixMessageViewModel(
         updateDiffViewer(promoted)
     }
 
+    /**
+     * The viewer window's `×`/`esc`: confirm first **only** when a seeded editor floats here and it is dirty
+     * (G6). The seeded [ReconcileSession] is scenario-less — its staged authoring lives in the session's own
+     * stack and reaches no draft — so dropping the window is the one thing that loses it, silently. A read-only
+     * viewer, or a clean seed, has nothing to discard and closes at once, exactly as before. Reuses the same
+     * `_confirmingCloseId` the diff window's own dirty-close confirm uses (F4); ids are unique across both
+     * collections (a pair-hash viewer id never equals a `(scenarioId, stepId)` window id).
+     */
+    fun requestCloseDiffViewer(id: String) {
+        val editing = diffViewer(id)?.editing
+        if (editing != null && editing.isDirty) _confirmingCloseId.value = id else closeDiffViewer(id)
+    }
+
     fun closeDiffViewer(id: String) {
         _openDiffViewers.value = _openDiffViewers.value.filterNot { it.id == id }
         if (_armedReferenceSlot.value == id) _armedReferenceSlot.value = null
         if (_armedViewerSlot.value?.viewerId == id) _armedViewerSlot.value = null
+        if (_confirmingCloseId.value == id) _confirmingCloseId.value = null
     }
 
     /** Swap A and B, and re-judge. Not an edit — it changes what you are looking at (the session mutates in place). */

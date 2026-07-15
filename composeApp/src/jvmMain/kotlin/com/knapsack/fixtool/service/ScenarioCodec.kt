@@ -15,7 +15,6 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -169,7 +168,11 @@ object ScenarioCodec {
             direction = obj["direction"]?.jsonPrimitive?.contentOrNull,
             fields = obj["fields"]?.jsonArray?.map {
                 val f = it.jsonObject
-                TagValue(f["tag"]!!.jsonPrimitive.int, f["value"]!!.jsonPrimitive.content)
+                val tag = f["tag"]?.jsonPrimitive?.intOrNull
+                    ?: throw IllegalArgumentException("match predicate field missing integer 'tag'")
+                val value = f["value"]?.jsonPrimitive?.contentOrNull
+                    ?: throw IllegalArgumentException("match predicate field on tag $tag missing 'value'")
+                TagValue(tag, value)
             } ?: emptyList(),
         )
 

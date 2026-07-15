@@ -65,15 +65,22 @@ fun Matcher.Regex.compiled(): kotlin.text.Regex? =
  * CI report or an `fixtool_assert` response is told *why* the pattern is bad, not merely that it is.
  */
 @Suppress("SwallowedException")
-fun Matcher.validationError(): String? {
-    if (this !is Matcher.Regex) return null
-    return try {
-        kotlin.text.Regex(pattern)
-        null
-    } catch (e: java.util.regex.PatternSyntaxException) {
-        "'$pattern' is not a usable pattern: ${e.description}"
+fun Matcher.validationError(): String? =
+    when (this) {
+        is Matcher.Regex ->
+            try {
+                kotlin.text.Regex(pattern)
+                null
+            } catch (e: java.util.regex.PatternSyntaxException) {
+                "'$pattern' is not a usable pattern: ${e.description}"
+            }
+        // An "any of" that lists nothing can match nothing: it is a permanently-red row with a blank
+        // expected column, which the authoring UI can produce by clearing the field or switching a blank
+        // row to oneOf. Report it as the bad assertion it is, exactly like an uncompilable regex, rather
+        // than leaving the reader to puzzle over a mystery red the tool never explains.
+        is Matcher.OneOf -> if (values.isEmpty()) "oneOf has no values to match against" else null
+        else -> null
     }
-}
 
 /** Temporal comparison kinds. */
 enum class TemporalKind {
@@ -158,7 +165,7 @@ enum class TagStatus {
     /** The value is somewhere in the reply and would satisfy the matcher — but not in this position. */
     MOVED,
 
-    /** The matcher itself is unusable (an uncompilable regex). Not the venue's fault; the row's. */
+    /** The matcher itself is unusable: an uncompilable regex, or an empty oneOf. Not the venue's fault; the row's. */
     INVALID,
 }
 

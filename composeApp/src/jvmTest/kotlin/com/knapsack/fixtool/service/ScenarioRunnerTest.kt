@@ -138,6 +138,25 @@ class ScenarioRunnerTest {
     }
 
     @Test
+    fun `a failing teardown does not flip an otherwise-green verdict, but stays in the report`() {
+        val host = FakeHost()
+        host.clearOk = false // the teardown ClearMessages will fail (its session vanished mid-run)
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "teardown-fails",
+                steps = listOf(ScenarioStep.Send("35=D|11=ORD|", session = "s")),
+                teardown = listOf(ScenarioStep.ClearMessages(session = "s")),
+            )
+        val result = run(host, scenario)
+        // Every setup+step passed; teardown is best-effort cleanup and must not decide the verdict.
+        assertTrue(result.passed, "a green run must stay green when only teardown fails: ${result.steps}")
+        // But the teardown failure is still reported, not swallowed — the report shows cleanup went wrong.
+        val teardown = result.steps.single { it.phase == "teardown" }
+        assertFalse(teardown.passed, "the failing teardown step must still be present and marked failed")
+    }
+
+    @Test
     fun `preflight fails fast by name when a session is missing`() {
         val host = FakeHost()
         host.stateOf = { session -> if (session == "gone") null else "LOGGED_ON" }
@@ -234,6 +253,24 @@ class ScenarioRunnerTest {
     }
 
     @Test
+    fun `a bind constraint matches a later occurrence of a repeated tag, not only the first`() {
+        val host = FakeHost()
+        // Tag 11 appears twice in wire order; only the SECOND occurrence carries the value we bind on. The
+        // old firstOrNull check consulted occurrence #1 ("AAA"), never matched, and the step timed out.
+        host.inbox += incomingWire("8", listOf(35 to "8", 11 to "AAA", 11 to "ORD-1"))
+        val scenario = scenario(
+            ScenarioStep.Expect(
+                session = "s",
+                match = MatchPredicate("8", null, listOf(TagValue(11, "ORD-1"))),
+                timeoutMs = 1_000,
+                expectation = Expectation(fields = listOf(FieldExpectation(35, Matcher.Exact("8"))), messageType = "8"),
+            ),
+        )
+        val result = run(host, scenario)
+        assertTrue(result.passed, "the constraint must match the 2nd occurrence of tag 11: ${result.steps}")
+    }
+
+    @Test
     fun `expect timeout names the session, its state, and the bind constraints`() {
         val host = FakeHost()
         val scenario = scenario(
@@ -295,7 +332,18 @@ class ScenarioRunnerTest {
             quickfixMessage = Message().apply { bindTags.forEach { (t, v) -> setString(t, v) } },
         ).also { viewTags[it] = tags }
 
+    /** Like [incoming] but the wire view keeps order and may repeat a tag (a grouped field) — a Map cannot. */
+    private fun incomingWire(type: String, wire: List<Pair<Int, String>>): FixMessage =
+        FixMessage(
+            timestamp = LocalDateTime.now(),
+            direction = FixMessage.Direction.INCOMING,
+            rawMessage = "35=$type|",
+            messageType = type,
+            quickfixMessage = Message(),
+        ).also { wireFields[it] = wire }
+
     private val viewTags = java.util.IdentityHashMap<FixMessage, Map<Int, String>>()
+    private val wireFields = java.util.IdentityHashMap<FixMessage, List<Pair<Int, String>>>()
 
     /** Fake host: an in-memory inbox + sent log, a virtual clock advanced by the no-op sleep. */
     private inner class FakeHost : ScenarioHost {
@@ -324,7 +372,11 @@ class ScenarioRunnerTest {
         val noWireOrder = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
 
         override fun view(message: FixMessage): MessageView? =
-            if (message in noWireOrder) null else MapView(viewTags[message] ?: emptyMap())
+            when {
+                message in noWireOrder -> null
+                message in wireFields -> ListView(wireFields.getValue(message))
+                else -> MapView(viewTags[message] ?: emptyMap())
+            }
 
         override fun clearMessages(session: String?): Boolean {
             if (!clearOk) return false
@@ -344,5 +396,10 @@ class ScenarioRunnerTest {
         // sequence model the order of the fields *is* the addressing, so a view that reordered them
         // would be testing against a message no venue ever sent.
         override fun fields(): List<Pair<Int, String>> = tags.toList()
+    }
+
+    /** A wire view that keeps exact order and may repeat a tag — what a message with grouped fields looks like. */
+    private class ListView(private val wire: List<Pair<Int, String>>) : MessageView {
+        override fun fields(): List<Pair<Int, String>> = wire
     }
 }

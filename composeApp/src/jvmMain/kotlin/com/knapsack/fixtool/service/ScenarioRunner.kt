@@ -96,19 +96,25 @@ class ScenarioRunner(
         for ((i, step) in scenario.teardown.withIndex()) {
             results += runStep(step, i, "teardown", scope, consumed)
         }
-        return ScenarioResult(scenario.name, results.all { it.passed }, results)
+        // Teardown is best-effort cleanup — a teardown Expect/Wait that times out, or a ClearMessages whose
+        // tab was closed mid-run, must not flip an otherwise-green verdict. Judge on the setup/steps phases
+        // only; the teardown StepResults stay in `results`, so a cleanup problem is still visible in the
+        // report, it just does not decide pass/fail. Vacuously true over an empty `results`, but preflight
+        // has already rejected the zero-step scenario before we get here.
+        val passed = results.none { it.phase != "teardown" && !it.passed }
+        return ScenarioResult(scenario.name, passed, results)
     }
 
     /** Non-null = the reason this scenario cannot run at all. */
     @Suppress("ReturnCount")
     private fun preflight(scenario: Scenario): StepResult? {
         val all = scenario.setup + scenario.steps + scenario.teardown
-        // An empty scenario must never report a green. The final verdict is `results.all { it.passed }`,
-        // which is vacuously true over an empty result set — so a scenario with no steps at all would report
-        // passed on every run while doing and checking nothing, a CI gate that is green precisely because it
-        // looked at nothing. A Send-only / Wait-only scenario is deliberately NOT rejected here: it does real
-        // work and its result is meaningful (a load driver, or the scope fixtures that assert on what was
-        // sent). Only the degenerate zero-step case is the false green this guards.
+        // An empty scenario must never report a green. The final verdict passes when no non-teardown step
+        // failed, which is vacuously true over an empty result set — so a scenario with no steps at all would
+        // report passed on every run while doing and checking nothing, a CI gate that is green precisely
+        // because it looked at nothing. A Send-only / Wait-only scenario is deliberately NOT rejected here:
+        // it does real work and its result is meaningful (a load driver, or the scope fixtures that assert on
+        // what was sent). Only the degenerate zero-step case is the false green this guards.
         if (all.isEmpty()) {
             return preflightFailure(
                 "This scenario has no steps — it would report passed on every run without sending or " +
@@ -299,7 +305,10 @@ class ScenarioRunner(
             // binds, and the expect step then fails loudly and says whose fault it is.
             val wire = host.view(msg)?.fields() ?: return true
             fields.forEach { tv ->
-                if (wire.firstOrNull { it.first == tv.tag }?.second != tv.value) return false
+                // ANY occurrence of the tag satisfies the constraint. `firstOrNull` consulted only occurrence
+                // #1, so a constraint on a repeated/grouped tag whose match sat in a later copy could never
+                // bind — the step timed out looking for a message that was sitting right there.
+                if (wire.none { it.first == tv.tag && it.second == tv.value }) return false
             }
         }
         return true

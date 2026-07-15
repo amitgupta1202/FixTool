@@ -29,6 +29,13 @@ import kotlinx.serialization.json.put
  * on malformed input.
  */
 object ScenarioCodec {
+    /**
+     * The scenario wire version this build writes and is willing to read. A file at this version or below
+     * loads; a file written by a NEWER FixTool is refused (see [fromJson]). Keep this in lock-step with the
+     * version [Scenario] writes, and hang any real migrate() off the gap between an old file's version and this.
+     */
+    const val CURRENT_SCENARIO_VERSION = 1
+
     fun toJson(scenario: Scenario): JsonObject =
         buildJsonObject {
             put("id", scenario.id)
@@ -49,17 +56,29 @@ object ScenarioCodec {
      * disk after loading each of them separately. A random id here would make those two loads disagree
      * about every step of every pre-id file.
      */
-    fun fromJson(obj: JsonObject): Scenario =
-        Scenario(
+    fun fromJson(obj: JsonObject): Scenario {
+        val name = str(obj, "name")
+        // `version` now earns its keep: it guards against opening a file written by a NEWER FixTool, whose
+        // steps or modes this build could otherwise silently mis-read. A missing version defaults to 1 and
+        // loads; a version <= CURRENT loads unchanged. This is also the seam a real migrate() would hook into.
+        val version = obj["version"]?.jsonPrimitive?.intOrNull ?: 1
+        if (version > CURRENT_SCENARIO_VERSION) {
+            throw IllegalArgumentException(
+                "scenario '$name' is version $version, but this FixTool understands scenarios up to version " +
+                    "$CURRENT_SCENARIO_VERSION — upgrade FixTool to open it.",
+            )
+        }
+        return Scenario(
             id = str(obj, "id"),
-            name = str(obj, "name"),
+            name = name,
             profile = obj["profile"]?.jsonPrimitive?.contentOrNull,
             setup = obj["setup"]?.jsonArray?.map { stepFromJson(it.jsonObject) } ?: emptyList(),
             steps = obj["steps"]?.jsonArray?.map { stepFromJson(it.jsonObject) } ?: emptyList(),
             teardown = obj["teardown"]?.jsonArray?.map { stepFromJson(it.jsonObject) } ?: emptyList(),
             userTags = obj["userTags"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
-            version = obj["version"]?.jsonPrimitive?.intOrNull ?: 1,
+            version = version,
         ).withIds()
+    }
 
     // ----------------------------------------------------------------- steps
 

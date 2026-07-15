@@ -221,4 +221,39 @@ class ScenarioCodecTest {
         val wait = ScenarioCodec.fromJson(json).steps.single() as ScenarioStep.Wait
         assertEquals(listOf(TagValue(150, "")), wait.match!!.fields)
     }
+
+    // ----- the version ------------------------------------------------------------------------------
+
+    /**
+     * **A file written by a NEWER FixTool is refused, not silently mis-read.**
+     *
+     * A future build may add a step type, a mode, or a matcher this build does not know. Loading such a
+     * file anyway would drop what it cannot parse and pass while checking less than the author wrote — the
+     * same silent-degrade the mode refusal exists to prevent. So a version above what this build understands
+     * fails the load loudly, by name, telling the reader to upgrade.
+     */
+    @Test
+    fun `a scenario from a newer FixTool fails the load, by name`() {
+        val next = ScenarioCodec.CURRENT_SCENARIO_VERSION + 1
+        val future = Json.parseToJsonElement("""{"id":"sc-1","name":"n","version":$next}""").jsonObject
+        val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.fromJson(future) }
+        assertTrue("$next" in why.message!!, "the refusal must name the version: ${why.message}")
+        assertTrue("upgrade" in why.message!!, "and tell the reader what to do: ${why.message}")
+    }
+
+    /** A scenario at the version this build writes loads unchanged. */
+    @Test
+    fun `a scenario at the current version loads cleanly`() {
+        val current = Json.parseToJsonElement(
+            """{"id":"sc-1","name":"n","version":${ScenarioCodec.CURRENT_SCENARIO_VERSION}}""",
+        ).jsonObject
+        assertEquals(ScenarioCodec.CURRENT_SCENARIO_VERSION, ScenarioCodec.fromJson(current).version)
+    }
+
+    /** An absent version is not a from-the-future file: it defaults to 1, and old files load as they always did. */
+    @Test
+    fun `a scenario with no version key still loads`() {
+        val noVersion = Json.parseToJsonElement("""{"id":"sc-1","name":"n"}""").jsonObject
+        assertEquals(1, ScenarioCodec.fromJson(noVersion).version)
+    }
 }

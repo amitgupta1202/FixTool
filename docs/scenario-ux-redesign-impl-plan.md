@@ -2340,22 +2340,244 @@ pane that Phase 3 already shrank.
 
 ## Phase 7 — The plain diff viewer
 
-- [ ] `DiffSurface` left side generalizes to `Expectation | Message`; message-left mode
-      renders read-only (no matcher chips, no gutter applies, no save), statuses
-      reduce to same/value/only-A/only-B/moved, footer states it is read-only.
-- [ ] Entry points — each opens a **diff window** (Phase 6 host): grid multi-select (2)
-      → "Diff selected" (context/toolbar); `MessageDetailPanel` → "Diff against…";
-      rail/toolbar → "Diff messages…" with two empty slots (pick/paste each). Subject
-      key for focus-not-duplicate: the message pair.
-- [ ] "Seed expectation from A/B ▾" seeds via `ExpectationSeeder` and flips the window
-      into editor mode with the other side as reference; "add to scenario…" files it as
-      an Expect step (scenario/step picker; new scenario allowed).
-- [ ] Tests: viewer mode cannot mutate anything (architecture-level: no `EditOp` except
-      `SwapReference`/`SetMode` accepted); two-message alignment on the fixture corpus;
-      seed-then-edit produces a valid step that round-trips and runs.
+### Decisions taken before implementation — read these first
 
-**Phase 7 gate:** W3 verified live: two grid rows → diff window beside the grid;
-UAT-style paste vs live message → diff → seed → step added to a scenario → run.
+Nine things the checklist under-specifies or gets wrong, settled here with the reasoning, so the next reader
+does not re-derive them. **G1, G2 and G3 change the shape of the phase**: the checklist's *"`DiffSurface` left
+side generalizes"* reads as a boolean, and it is a structural fork through the align seam, the state holder, the
+surface, and the window subject at once. None of the nine is a **live** defect — Phase 7 *adds* a surface rather
+than repairing one, and the debts it could trip on (the missing-id toast, the length-prefixed `RawData(96)`) are
+Phase 8's, recorded at the end of Phases 5 and 6.
+
+**G1 — The viewer's left side is message A seeded *all-exact*, and the diff is the aligner the runner already
+uses. No second pairing implementation is written.**
+
+`ComparisonSemantics.align` has no message-vs-message overload — both take an `Expectation`
+(`ComparisonSemantics.kt:43,56`) — and the statuses a viewer needs (`same · value · only-A · only-B · moved`)
+are exactly `ChunkKind` already. There are two ways to close that gap, and one of them is the divergence seam
+this codebase keeps being burned by. A *genuine* message-vs-message aligner would be a **second implementation**
+of what `SequenceSemantics` does — pair by `(tag, position)`, decide `SAME`/`VALUE` by value equality,
+`only-*` by the mode, `MOVED` by `reorder` — and two implementations of one pairing is `RawMessageView` vs
+`FixMessageView`, the two editing surfaces, the P5 zip, all over again. So:
+
+> **Side A is seeded as an all-exact `Expectation`, and the diff is the existing `align(expectation, referenceB)`
+> the runner judges with.** "Pairing never consults the matcher" — the seam's whole safety argument — is then
+> true *by construction*, because it is the runner's own code. It is trivially true (an `Exact` matcher consults
+> value equality, which the contract explicitly permits), but it is true for the right reason.
+
+"All-exact" is **literal and bespoke, not `ExpectationSeeder.seed`**. The seeder loosens a `UTCTIMESTAMP` to
+`~now ±60s` and an id to `presence` — correct when *authoring an assertion*, catastrophic in a *viewer*: two
+messages whose `SendingTime`s differ would pair `SAME` (both satisfy `~now`), and the viewer would **hide the
+very difference it exists to show**. So every field of A becomes `Exact(value)`, and the one thing dropped is the
+envelope (`SessionTags.NEVER_ASSERTED` — `BeginString`, `BodyLength`, `CheckSum`, `MsgSeqNum`, `SendingTime`,
+`Sender`/`TargetCompID`, `LastMsgSeqNumProcessed`): it differs by construction on any two distinct messages and
+would drown the real diff. Dropped from **both** sides (A via the seeding, B by the same strip on its view), so
+an envelope tag does not resurface as a spurious `+B`. Mode comes from the chip (G5). This is the "seed side A
+as an all-exact Expectation and relabel the output" the checklist's own note names, chosen over the second
+aligner on defect grounds, not effort.
+
+**G2 — "Nothing can write" is a property of the state holder, not a flag on it. The viewer uses a read-only
+holder and a sibling surface; the pure diff computation is shared, the editing apparatus is not.**
+
+`ReconcileSession` is editing to the core — the undo stack is `Expectation` snapshots, `apply`/`undo`/`discard`/
+`rebase` mutate it, `offersFor` computes gutter applies, and `onChange` writes into a workspace. Reusing it for
+the viewer with `onChange = {}` would drag every one of those in and leave *"nothing can write"* as *"please do
+not call these fifteen methods"* — precisely the hidden-button architecture the plan forbids. So:
+
+> **The pure `DiffModel` computation is extracted** (bands, overlay, moved-entry detection, the verdict counts —
+> `ReconcileSession.build`, today private) **and shared, parameterized on an offer generator.** `ReconcileSession`
+> passes its real `offersFor`; the viewer passes `{ emptyList() }`, so the viewer's `DiffLine`s carry **no
+> offers** and the gutter has nothing to draw but the status glyph. The viewer's holder exposes `model`,
+> `swapSides()`, `setMode()` — and **no `apply`**. "Nothing can write" is then structural: there is no mutation
+> to reach, not a button that is merely hidden.
+
+The extraction must leave `ReconcileSession` **byte-identical** — its tests stay green *unmodified*, which is the
+proof it changed nothing, the same discipline P1 used to lift the verdict. The surface is a **sibling
+`DiffViewerSurface`** with its own header/gutter/footer, sharing the diff **body** primitives (the two columns,
+the group bands, the crossing connector, the value cell) with `DiffSurface` — *share the body, fork the chrome* —
+because two renderers of the body is the P5/`GroupOverlay` seam re-opened in the one place nobody would look. The
+left column renders a **plain value** (the same cell the right column already draws), never `MatcherEditor`. The
+guard to mutation-check: *no `EditOp` reaches the viewer, because the viewer holds no session that has one.*
+
+**G3 — The viewer window is a second window-subject kind, scenario-less, keyed on the message pair. It reuses
+the Phase-6 window mechanism; it does not fake a scenario.**
+
+`DiffWindowState.scenarioId` is a **non-null `String`**, and Phase 6's twelve slot/rebind callers key to it; a
+plain diff has neither a scenario nor a step. F9 predicted this exactly — *"a document that is a view and a draft
+that is per-scenario is the shape that survives it."* Widening `DiffWindowState` to a nullable scenario drags the
+nullability through all twelve callers; faking a scenario re-creates the per-scenario coupling Phase 3's
+workspace removed. So:
+
+> **A new `DiffViewerState`, sibling to `DiffWindowState`, holding two sides** (each nullable — the *"Diff
+> messages…"* opener starts empty), a `mode`, `focusTag`/`focusEpoch` (reused verbatim), and — after Seed (G6) —
+> an `editing` session. It carries **no `ScenarioDraft`, no undo stack, no `ReconcileSession`** until seeded. It
+> is keyed on the **message pair** for focus-not-duplicate where both sides are known at open (Diff selected,
+> Diff against…); the empty *"Diff messages…"* opener mints a fresh id, because two empty viewers are two
+> intentions.
+
+The mechanism is Phase 6's, reused, not rebuilt: `main.kt`'s application scope iterates a **second list**
+`openDiffViewers`, each window under its own `key(id)` with its own `rememberWindowState` — F2's two-states rule
+holds unchanged (the **frame** — size/position — is composable-owned `rememberWindowState`; the **content** is
+ViewModel-owned). A separate list, rather than a widened `DiffWindowState`, is what keeps the twelve reconcile
+callers untouched.
+
+**G4 — Both sides go through `wireRaw` and the paste reader, never the display string. The refusals are the ones
+already written.**
+
+The viewer feeds two messages, and neither is *"a reference to an expectation"* — but invariant 3 (only
+`wireRaw`/`wireFields` feed diffs) binds both. Pick-from-grid and *Diff selected* require `wireRaw` and refuse a
+message that has none **at the click, in words** (S8's rule — not a click that quietly does nothing). Paste feeds
+`WirePaste`, which reads to `READ`/`UNVERIFIED`/`REFUSED` and refuses a `|`-inside-a-value with the message's own
+checksum as evidence — the same reader and the same refusals the reference slot uses (`bindPastedReference`),
+wired for **both** slots. The pipe trap this codebase has shipped twice gets no pass because there is no
+assertion on the screen.
+
+**G5 — The viewer diagnoses nothing. Its header is a neutral difference count, not a pass/fail verdict, and there
+is no FAILED chip.**
+
+S1 generalized: *what a red row means is decided by what licensed the comparison.* The reconcile verdict says
+*"N rows need attention"* / `FAILED`, which in this app means **the venue did something new** — a diagnosis. A
+viewer's comparison is *"how do these two differ,"* and neither side is the truth, so that sentence would accuse
+a venue (or an author) of a regression nobody has evidence of — the exact failure S1 was written to stop. So the
+viewer reuses `Verdict`'s **counts** and none of its **language**:
+
+> The header is a **descriptive difference count** — *"3 differences · 1 value · 1 only in A · 1 only in B"* — with
+> **no FAILED chip and no error tint.** The `+A`/`+B` glyphs name the *side*; the red/blue hues (inherited from
+> the diff body) encode **which side carries the extra field, not fault**, and because the count is descriptive
+> the color is not read as blame.
+
+Default mode is **OPEN** (the mockup), switchable to STRICT via the chip — and the mode changes only how a
+difference is *classified* (STRICT flags order and count; OPEN tolerates unmentioned extras), **never whether it
+is shown**: a `RIGHT_ONLY` field surfaces as a `+B` line in both modes, so the viewer is symmetric regardless.
+`SetMode` and `Swap sides` are the two things the viewer *can* do, and — like `SwapReference` in the editor (P8)
+— neither is an edit: they change what you are looking at, stage nothing, write nothing.
+
+**G6 — Seed is the one-way door, and the state between it and *"add to scenario…"* is genuinely new: a
+scenario-less editable expectation.**
+
+Proposal §3 is explicit — Seed *"flips the surface into editor mode with the other side as reference"* **before**
+*"add to scenario…"* commits it. So Seed does **not** mint a scenario:
+
+> **Seed seeds the chosen side with the *real* `ExpectationSeeder.seed`** (now the surface *is* authoring an
+> assertion — `~now` and `presence` are correct again), wraps the *other* side as the reference, and builds a
+> **scenario-less `ReconcileSession`** whose `onChange` is a no-op (edits live in the session's own snapshot
+> stack). The viewer window renders the editor — matcher chips, verdict, live re-judge, undo all return — with
+> **Save replaced by *"Add to scenario… ▾"***, because there is no scenario to Save to yet.
+
+*"Add to scenario…"* opens a **scenario/step picker (new scenario allowed)**, files `editing.draft` as an
+`Expect` step into the chosen or newly-minted `ScenarioDraft` **workspace** (unsaved — nothing reaches disk until
+Save, invariant 4), and **hands the window off to a normal reconcile `DiffWindow`** on that
+`(scenarioId, stepId)` — *a Phase-6 window whose `scenarioId` did not exist a second ago* — so authoring
+continues with Save / Save & re-run / the rebind and the `pasted` badge. This is the single realization of *"how
+a scenario-less viewer window becomes a scenario-bound editing window."*
+
+**G7 — The grid multi-selects visually only; the two-selected-messages path is wired out. Three entry points,
+each refusing a message with no `wireRaw` at the click.**
+
+`HierarchicalGridView` renders multi-selection (`isMultiSelected`, the *"N selected"* action bar with its Copy
+button) but holds `selectedMessageIds` **internally** and exposes only `onSelectMessage: (FixMessage?) -> Unit`
+— a single-message door. So:
+
+> Add `onDiffSelected: (FixMessage, FixMessage) -> Unit` and a **"Diff selected"** button in the **existing**
+> action bar, **enabled only when exactly two are selected**, and requiring `wireRaw` on **both** — a message
+> with none is refused at the click, in words (S8), not by a disabled button with no reason.
+
+The three entry points: **grid → "Diff selected"** (both sides known); **detail panel → "Diff against…"** (fixes
+A = the detail message, arms B for a pick or a paste); **rail/toolbar → "Diff messages…"** (a viewer with two
+empty slots, each fed by pick/paste). All three are click-only, so each gets a Compose UI test that clicks and
+writes a screenshot to `composeApp/build/scenario-screenshots/`.
+
+**G8 — `/screenshot?window=diff` goes ambiguous the moment a reconcile and a viewer window are both open. The
+viewer gets a distinct title, the gate drives by substring, and a control-surface door makes it provable.**
+
+Phase 6's selector (`ControlServer.pickWindow`) resolves `?window=diff` to *"the first window that is not the
+main one"* — a coin flip once a reconcile **and** a viewer window are both up. The reconcile title already
+contains `reconcile`; the viewer's is distinct (`diff: 8 vs 8 — FixTool`, the mockup's tab label). So the gate
+drives screenshots by **title substring** — `?window=reconcile` and `?window=diff:`, both deterministic through
+`pickWindow`'s `else` (substring) branch — and does not lean on the bare `?window=diff` heuristic while both are
+open. And because the control surface **cannot click** and every viewer entry point is click-only:
+
+> Add **`POST /scenarios/diff`** (and **`fixtool_diff`**): open a viewer on two references, each supplied as a
+> **pick** (session + match) or a **paste** (bytes read through `WirePaste`). This is the **fourth** deliberate
+> deviation from *"the control surface is out of scope"* — after Phase 2's `panel` retarget, Phase 4's
+> `/scenarios/reconcile`, Phase 5's `/scenarios/capture-paste` — for the same reason each time: it reuses the same
+> readers and the same refusals, so a route it refuses is one the click refuses in the same words, and it makes
+> W3's gate screenshot-provable without a hand.
+
+**G9 — `SemanticsContractTest` is widened to the two-message case, and the corpus must not dodge the hard case.**
+
+The all-exact-A-vs-B path *is* `align(expectation, reference)`, which `SemanticsContractTest` already exercises —
+but never with an expectation seeded all-exact from **one real message against a different one**, which is the
+case Phase 7 introduces and the blind spot the model doc warns about. Phase 0's review (R2) and Phase 5 (S7)
+recorded this shape of gap: *the fixture handed the engine something the surface can never supply.* So add the
+property (a dedicated `TwoMessageDiffTest`, or two more properties in the contract harness):
+
+- all-exact-A vs **A** is all-`SAME` (property 0.2 already, restated for the exact-diff seeding);
+- all-exact-A vs **B** produces the expected `=`/`≠`/`+A`/`+B`/moved classification;
+- pairing is blind to values-as-matchers, over the same bytes — trivially true here, and pinned anyway.
+
+The corpus carries the model doc's hard cases — a **pipe inside a value**, **two different firms** in a party
+group, a group with **≥3 entries and ≥3 tags each** (the rotation trap), and **nested groups** — plus the fake
+venue's `golden`/`shape`/`swap` trio, where `golden` vs `shape` is a value change **and** an added tag **and** a
+dropped tag **and** a moved entry in one message, and `swap` vs `golden` is the role swap. A message-vs-message
+path that only ever diffs entry-aligned spans is the exact *fixture-dodges-the-hard-case* failure the model
+doc's §"Testing this model" lists, in the tool built to stop it.
+
+### 7.1 The shared builder and the two-message diff (G1, G2, G9)
+
+- [ ] The pure `DiffModel` computation is extracted from `ReconcileSession` and shared,
+      parameterized on an offer generator (G2); `ReconcileSession` passes `offersFor`,
+      the viewer passes `{ emptyList() }`. `ReconcileSessionTest` passes **unmodified** —
+      the proof the extraction changed nothing.
+- [ ] Exact-diff seeding of side A (G1): every field `Exact`, `SessionTags.NEVER_ASSERTED`
+      dropped from **both** sides, mode from the chip; the diff is the existing
+      `align(expectation, referenceB)` — no second aligner.
+- [ ] `SemanticsContractTest` widened / `TwoMessageDiffTest` added (G9): all-exact-A vs A
+      is all-`SAME`; A vs B gives the expected `=`/`≠`/`+A`/`+B`/moved; the corpus carries
+      the hard cases (pipe-in-value, two firms, ≥3 entries, nested groups) and the fake
+      venue's `golden`/`shape`/`swap`. Mutation-checked.
+
+### 7.2 The viewer window and its surface (G3, G5)
+
+- [ ] `DiffViewerState` (scenario-less; two nullable sides, `mode`, `focusTag`/`focusEpoch`),
+      keyed on the message pair for focus-not-duplicate; `openDiffViewers` on the ViewModel;
+      `main.kt` iterates it under `key(id)` with its own `rememberWindowState` (F2 unchanged).
+- [ ] `DiffViewerSurface` (G2, G5): read-only, sharing the diff **body** with `DiffSurface`,
+      left column a plain value (no `MatcherEditor`); header A/B provenance chips, `Swap sides`,
+      the semantics chip (default OPEN), a **neutral difference count** (no FAILED chip, no
+      error tint); `=`/`≠`/`+A`/`+B` gutter glyphs; read-only footer verbatim.
+- [ ] Distinct viewer title (`diff: <A> vs <B> — FixTool`) so `?window=diff:` addresses it
+      by substring while a reconcile window is also open (G8).
+
+### 7.3 Entry points, the paste, and the one-way door (G4, G6, G7)
+
+- [ ] `onDiffSelected: (FixMessage, FixMessage) -> Unit` wired out of `HierarchicalGridView`;
+      **"Diff selected"** in the existing multi-select action bar, enabled at exactly two,
+      both requiring `wireRaw` — refused at the click, in words (G4, G7).
+- [ ] `MessageDetailPanel` → **"Diff against…"** (fixes A, arms B: pick or paste); rail/toolbar
+      → **"Diff messages…"** (two empty slots, each pick/paste). Both slots read `wireRaw` /
+      go through `WirePaste`; a `|`-in-value paste is refused with its checksum (G4).
+- [ ] **"Seed expectation from A/B ▾"** (G6): the real `ExpectationSeeder.seed`, the other side
+      as reference, a **scenario-less** `ReconcileSession` (editor mode returns, Save →
+      **"Add to scenario… ▾"**); the picker (new scenario allowed) files it into the workspace
+      and hands off to a reconcile `DiffWindow`.
+
+### 7.4 The automation door and the gate (G8)
+
+- [ ] `POST /scenarios/diff` / `fixtool_diff` opens a viewer on two references (each a pick or
+      a paste, read through `WirePaste`) — the fourth deliberate control-surface deviation, so
+      the gate can open a viewer without a hand.
+- [ ] Compose UI test + screenshot to `composeApp/build/scenario-screenshots/` for **every**
+      click-only entry point (Diff selected, Diff against…, Diff messages…, Seed → add to
+      scenario). Viewer-cannot-mutate is an architecture test: no `EditOp` reaches the viewer.
+- [ ] Seed-then-edit produces a valid `Expect` step that round-trips and runs.
+
+**Phase 7 gate:** W3 verified live, driven by the control surface where it can and by Compose UI
+test + screenshot where it cannot (the click-only half): two grid rows → **Diff selected** → a
+**viewer window** beside the grid (distinct title, addressable by substring while a reconcile
+window is also open); then a UAT-style **paste** wire vs a live message → diff → **Seed
+expectation** → the step **added to a scenario** → **run** it. Two distinct window bounds prove
+two real windows live (the display is asleep; live pixels come back black, as every phase since 4).
 
 ---
 

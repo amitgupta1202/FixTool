@@ -239,7 +239,9 @@ object ExpectationEvaluator {
             return TagResult(
                 tag = a.tag,
                 matcher = describe,
-                expected = "invalid regex: $it",
+                // The reason names the kind itself ("…not a usable pattern…", "oneOf has no values…"), so
+                // the prefix stays generic — a oneOf row must not be labelled "invalid regex".
+                expected = "invalid: $it",
                 actual = a.actual,
                 passed = false,
                 index = a.index,

@@ -89,6 +89,26 @@ class ExpectationEvaluatorTest {
         assertTrue(r.expected.contains("Unclosed character class"), r.expected)
     }
 
+    @Test
+    fun `an empty oneOf is an invalid row, not a mystery red on value`() {
+        // An "any of" that lists nothing can match nothing: it was a permanently-red VALUE row with a
+        // blank expected column and no explanation. It is a bad assertion, reported like a bad regex.
+        val r = eval(wireView(39 to "2"), fe(39, Matcher.OneOf(emptyList()))).single()
+        assertFalse(r.passed)
+        assertEquals(TagStatus.INVALID, r.status)
+        assertTrue(r.expected.contains("oneOf"), r.expected)
+    }
+
+    @Test
+    fun `a non-empty oneOf still passes a member and fails a non-member`() {
+        val ok = eval(wireView(39 to "2"), fe(39, Matcher.OneOf(listOf("1", "2")))).single()
+        assertTrue(ok.passed)
+        assertEquals(TagStatus.OK, ok.status)
+        val miss = eval(wireView(39 to "3"), fe(39, Matcher.OneOf(listOf("1", "2")))).single()
+        assertFalse(miss.passed)
+        assertEquals(TagStatus.VALUE, miss.status)
+    }
+
     // ------------------------------------------------------- the case the old model could not do
 
     /**

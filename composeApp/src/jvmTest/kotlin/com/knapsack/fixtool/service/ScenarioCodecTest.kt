@@ -137,7 +137,8 @@ class ScenarioCodecTest {
         assertFalse(result.passed)
         // Not merely "invalid" — *why*. The reader who most needs the reason is the one who cannot open
         // the editor: an agent reading a failed fixtool_assert, or an engineer reading a red CI step.
-        assertTrue(result.expected.contains("invalid regex"), "the row should say what is wrong with it: ${result.expected}")
+        assertTrue(result.expected.contains("invalid"), "the row should say what is wrong with it: ${result.expected}")
+        assertTrue(result.expected.contains("not a usable pattern"), "and that it is the pattern: ${result.expected}")
         assertTrue(result.expected.contains("Unclosed character class"), "and why: ${result.expected}")
     }
 
@@ -183,5 +184,41 @@ class ScenarioCodecTest {
     fun `an expectation with no mode at all is OPEN, as it always was`() {
         val noMode = Json.parseToJsonElement("""{"fields":[]}""").jsonObject
         assertEquals(MatchMode.OPEN, ScenarioCodec.expectationFromJson(noMode).mode)
+    }
+
+    // ----- the match predicate ---------------------------------------------------------------------
+
+    /**
+     * A hand-edited `match` field with no `tag` is a **malformed file, not a crash**. It used to reach
+     * `!!` and surface as a bare NullPointerException — swallowed generically upstream into an
+     * uninformative "Cannot load scenario: null" — instead of the by-name refusal the codec gives
+     * everywhere else. A missing (or non-integer) key now fails the load loudly, saying which key.
+     */
+    @Test
+    fun `a match predicate field with no tag fails the load, by name`() {
+        val json = Json.parseToJsonElement(
+            """{"id":"sc-1","name":"n","steps":[{"type":"wait","match":{"fields":[{"value":"F"}]}}]}""",
+        ).jsonObject
+        val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.fromJson(json) }
+        assertTrue("tag" in why.message!!, "the refusal must name the key it could not read: ${why.message}")
+    }
+
+    @Test
+    fun `a match predicate field with no value fails the load, by name`() {
+        val json = Json.parseToJsonElement(
+            """{"id":"sc-1","name":"n","steps":[{"type":"wait","match":{"fields":[{"tag":150}]}}]}""",
+        ).jsonObject
+        val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.fromJson(json) }
+        assertTrue("value" in why.message!!, "the refusal must name the key it could not read: ${why.message}")
+    }
+
+    /** An empty string is a value; only an *absent* key is a refusal. An empty `value` still loads. */
+    @Test
+    fun `a match predicate field with an empty-string value still loads`() {
+        val json = Json.parseToJsonElement(
+            """{"id":"sc-1","name":"n","steps":[{"type":"wait","match":{"fields":[{"tag":150,"value":""}]}}]}""",
+        ).jsonObject
+        val wait = ScenarioCodec.fromJson(json).steps.single() as ScenarioStep.Wait
+        assertEquals(listOf(TagValue(150, "")), wait.match!!.fields)
     }
 }

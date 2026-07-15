@@ -451,11 +451,13 @@ server.tool(
 
 server.tool(
   "fixtool_screenshot",
-  "Capture a PNG screenshot of the FixTool window for visual verification.",
-  {},
-  async () => {
+  "Capture a PNG screenshot of a FixTool window for visual verification. window picks which: main " +
+    "(default), diff (the reconcile/diff window), or a substring of a window's title.",
+  { window: z.string().optional().describe("which window: main (default), diff, or a title substring") },
+  async ({ window }) => {
     try {
-      const res = await call("GET", "/screenshot");
+      const path = window ? `/screenshot?window=${encodeURIComponent(window)}` : "/screenshot";
+      const res = await call("GET", path);
       if (!res.ok) {
         return { content: [{ type: "text", text: `screenshot failed: HTTP ${res.status}` }] };
       }

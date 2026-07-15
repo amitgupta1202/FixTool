@@ -62,7 +62,7 @@ class ControlServerIntegrationTest {
         // stores, so these tests never read or write the real ~/.fixtool files.
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
         port = freePort()
-        server = ControlServer(port, viewModel, windowProvider = { null }, token = null)
+        server = ControlServer(port, viewModel, windowProvider = { emptyList() }, token = null)
         server.start()
     }
 
@@ -464,7 +464,7 @@ class ControlServerIntegrationTest {
     @Test
     fun `token is enforced when configured`() {
         val securePort = freePort()
-        val secure = ControlServer(securePort, viewModel, windowProvider = { null }, token = "s3cret")
+        val secure = ControlServer(securePort, viewModel, windowProvider = { emptyList() }, token = "s3cret")
         secure.start()
         try {
             val base = "http://127.0.0.1:$securePort/health"

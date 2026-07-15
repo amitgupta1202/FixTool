@@ -48,7 +48,7 @@ class AssertIntegrationTest {
         testDir = File.createTempFile("fixtool-assert-test", "").apply { delete(); mkdirs() }
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
         port = freePort()
-        server = ControlServer(port, viewModel, windowProvider = { null }, token = null)
+        server = ControlServer(port, viewModel, windowProvider = { emptyList() }, token = null)
         server.start()
     }
 

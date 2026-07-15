@@ -84,7 +84,16 @@ import javax.swing.SwingUtilities
 class ControlServer(
     private val port: Int,
     private val viewModel: FixMessageViewModel,
-    private val windowProvider: () -> Window?,
+    /**
+     * **Every showing top-level window, not "the first one."**
+     *
+     * It used to be `() -> Window?` = `getWindows().firstOrNull()`, which was right only because there was
+     * one window. Once the diff opens in its own window (Phase 6), `getWindows()` returns AWT's windows in no
+     * defined order, so `firstOrNull()` photographs whichever it happens to list first — the main window or a
+     * diff, from run to run. So the provider hands back **all** of them and [selectWindow] picks by title, so
+     * `?window=` is deterministic and the *main* window's screenshot is deterministic again too.
+     */
+    private val windowProvider: () -> List<Window>,
     private val token: String? = System.getenv("FIXTOOL_CONTROL_TOKEN")?.ifBlank { null },
 ) {
     private val logger = LoggerFactory.getLogger(ControlServer::class.java)
@@ -1482,7 +1491,7 @@ class ControlServer(
                 respondText(ex, HTTP_UNAUTHORIZED, "unauthorized")
                 return
             }
-            val bytes = captureWindowPng() ?: run {
+            val bytes = captureWindowPng(queryParams(ex)["window"]) ?: run {
                 respondText(ex, HTTP_NOT_FOUND, "no window")
                 return
             }
@@ -1497,9 +1506,20 @@ class ControlServer(
         }
     }
 
-    /** Captures the app window as a PNG, or null if there is no window. Shared by HTTP and MCP. */
-    private fun captureWindowPng(): ByteArray? {
-        val window = windowProvider() ?: return null
+    /**
+     * **Which window `?window=` names.** `main` (or absent) is the main window, by title — never `firstOrNull()`,
+     * which is undefined-order once a second window exists. `diff` is the first showing window that is not the
+     * main one; any other value matches a window whose title contains it (so a specific step can be targeted).
+     * Only `Frame`s (the app's real windows) are considered, which also skips heavyweight popups and tooltips.
+     */
+    private fun selectWindow(selector: String?): Window? {
+        val frames = windowProvider().filter { it.isShowing }.filterIsInstance<java.awt.Frame>()
+        return pickWindow(frames.map { it.title.orEmpty() to it }, selector)?.second
+    }
+
+    /** Captures a window as a PNG, or null if the selector names none. Shared by HTTP and MCP. */
+    private fun captureWindowPng(selector: String?): ByteArray? {
+        val window = selectWindow(selector) ?: return null
         val bounds = onEdt { window.bounds }
         val image = Robot().createScreenCapture(bounds)
         return ByteArrayOutputStream().use { out ->
@@ -1632,7 +1652,7 @@ class ControlServer(
         val params = request["params"]?.jsonObject ?: return mcpToolResult("missing params", isError = true)
         val name = params["name"]?.jsonPrimitive?.content ?: return mcpToolResult("missing tool name", isError = true)
         val args = params["arguments"] as? JsonObject ?: JsonObject(emptyMap())
-        if (name == "fixtool_screenshot") return mcpScreenshotResult()
+        if (name == "fixtool_screenshot") return mcpScreenshotResult(args["window"]?.jsonPrimitive?.content)
         // Markdown prose, not a JSON body — hand it back verbatim rather than escaped inside one.
         if (name == "fixtool_syntax") return mcpToolResult(SyntaxReference.markdown)
         val handler = mcpDispatch[name] ?: return mcpToolResult("unknown tool: $name", isError = true)
@@ -1655,8 +1675,8 @@ class ControlServer(
             if (isError) put("isError", true)
         }
 
-    private fun mcpScreenshotResult(): JsonObject {
-        val png = captureWindowPng() ?: return mcpToolResult("no window / screenshot unavailable", isError = true)
+    private fun mcpScreenshotResult(selector: String? = null): JsonObject {
+        val png = captureWindowPng(selector) ?: return mcpToolResult("no window / screenshot unavailable", isError = true)
         return buildJsonObject {
             put(
                 "content",
@@ -1773,6 +1793,22 @@ class ControlServer(
         }
 
     companion object {
+        /** The main window's title, so `?window=main` finds it by name rather than by list order. */
+        const val MAIN_WINDOW_TITLE = "FixTool - FiX Message Viewer"
+
+        /**
+         * **The pure selection policy, AWT-free so it can be pinned.** `main` (or absent) is the main window by
+         * title — never list order; `diff` is the first window that is not the main one; anything else matches a
+         * title substring. Returns `(title, window)` or null.
+         */
+        internal fun <T> pickWindow(candidates: List<Pair<String, T>>, selector: String?): Pair<String, T>? =
+            when {
+                selector.isNullOrBlank() || selector == "main" ->
+                    candidates.firstOrNull { it.first == MAIN_WINDOW_TITLE } ?: candidates.firstOrNull()
+                selector == "diff" -> candidates.firstOrNull { it.first != MAIN_WINDOW_TITLE && it.first.isNotBlank() }
+                else -> candidates.firstOrNull { it.first.contains(selector, ignoreCase = true) }
+            }
+
         private const val HTTP_OK = 200
         private const val HTTP_UNAUTHORIZED = 401
         private const val HTTP_NOT_FOUND = 404
@@ -1805,7 +1841,7 @@ object ControlServerLauncher {
      * already running on the right port). Call on app start and whenever the setting changes.
      */
     @Synchronized
-    fun apply(viewModel: FixMessageViewModel, windowProvider: () -> Window?, enabled: Boolean, port: Int) {
+    fun apply(viewModel: FixMessageViewModel, windowProvider: () -> List<Window>, enabled: Boolean, port: Int) {
         val envPort = System.getenv("FIXTOOL_CONTROL_PORT")?.toIntOrNull()
         val desiredPort = envPort ?: if (enabled) port else null
         when {

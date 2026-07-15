@@ -75,7 +75,7 @@ fun main() {
                 }
                 exitApplication()
             },
-            title = "FixTool - FiX Message Viewer",
+            title = com.knapsack.fixtool.control.ControlServer.MAIN_WINDOW_TITLE,
             // rememberWindowState, not WindowState. A bare WindowState is a NEW state object on every
             // recomposition of the application scope, and Compose then applies it to the live window: the
             // size snaps back to exactly 1920x1080 and the position re-cascades, taking the user's own resize
@@ -91,7 +91,12 @@ fun main() {
             // When window gains focus, automatically request focus on compose content
             // This prevents users from having to click multiple times on toolbar buttons
             LaunchedEffect(Unit) {
-                val window = Window.getWindows().firstOrNull()
+                // The main window BY TITLE, not `firstOrNull()` — once the diff opens in its own window,
+                // `getWindows()` has no defined order and the focus listener would attach to the wrong one.
+                val window =
+                    Window.getWindows().firstOrNull {
+                        (it as? java.awt.Frame)?.title == com.knapsack.fixtool.control.ControlServer.MAIN_WINDOW_TITLE
+                    } ?: Window.getWindows().firstOrNull()
                 window?.addWindowListener(
                     object : WindowAdapter() {
                         override fun windowActivated(ignored: WindowEvent?) {
@@ -117,7 +122,10 @@ fun main() {
                     viewModelRef = viewModel
                     // Automation control surface: env var FIXTOOL_CONTROL_PORT overrides, otherwise
                     // driven by the Settings toggle. Apply the initial state and react to changes.
-                    val windowProvider = { java.awt.Window.getWindows().firstOrNull() }
+                    // ALL showing windows, not the first — the control surface picks by title (see
+                    // ControlServer.selectWindow), so `?window=main|diff` is deterministic once a diff window
+                    // is on screen. `getWindows()` order is undefined; `firstOrNull()` was only accidentally right.
+                    val windowProvider = { java.awt.Window.getWindows().toList() }
                     val settings = viewModel.appSettings
                     ControlServerLauncher.apply(
                         viewModel,

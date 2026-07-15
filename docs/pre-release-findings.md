@@ -15,9 +15,14 @@
 | **F1** | ✅ Fixed + tested | `DATE_TYPES` narrowed to `{UTCDATEONLY, UTCDATE}`; LOCALMKTDATE/MONTHYEAR now seed `Exact`. Tests prove green-against-own-capture. |
 | **F3** | ✅ Fixed + tested (**reclassified**) | Guard rejects only the **truly empty** (zero-step) scenario. A blanket "must have an Expect" was wrong — Send-only/Wait-only scenarios are a first-class, tested concept (load drivers, scope fixtures); it broke 5 existing tests and would break the load-testing use case. See [F3 detail](#f3--assertion-less-scenario-reports-pass--blocker-ci-integrity). |
 | **F7** | ✅ Fixed + tested | Plain viewer now routes Esc/× through `requestCloseDiffViewer`, which shows the app's `DiscardConfirm` when the seeded editor `isDirty`. |
+| **F2** | ✅ Fixed + tested | Verdict now `results.none { it.phase != "teardown" && !it.passed }` — teardown still runs and is reported, but does not decide pass/fail. |
+| **F4** | ✅ Fixed + tested | Bind constraint now matches **any** occurrence of a repeated tag (`wire.none { tag && value }`), not just the first. |
+| **F5** | ✅ Fixed + tested | `predicateFromJson` throws a by-name `IllegalArgumentException` (missing `tag`/`value`) instead of an NPE; empty-string value still loads. |
+| **F6** | ✅ Fixed + tested | Empty `OneOf` reports `INVALID` with a reason; the shared INVALID prefix generalized from "invalid regex:" to "invalid:". |
+| **F10a/b/c** | ✅ Tests added | Committed assertion tests for nested-group reorder, whole-group add/remove, and a missing count tag (behavior was already correct; now regression-protected). |
 | **F8** | ⏳ Open (decision) | No headless exit-code entrypoint. Blocker only if CI-from-CLI is in scope this release. |
 
-Full `jvmTest` suite passes (BUILD SUCCESSFUL, no failures) with F1/F3/F7 applied. Everything else below is unchanged (should-fix / polish, not addressed in this pass).
+Full `jvmTest` suite passes (BUILD SUCCESSFUL, no failures) after both fix passes. Remaining: **F8** (a scope decision), **U1–U4** (UX polish, best verified in the running app), and **F9** (inert `version`/`migrate`, cosmetic).
 
 ---
 

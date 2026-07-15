@@ -20,9 +20,14 @@
 | **F5** | ✅ Fixed + tested | `predicateFromJson` throws a by-name `IllegalArgumentException` (missing `tag`/`value`) instead of an NPE; empty-string value still loads. |
 | **F6** | ✅ Fixed + tested | Empty `OneOf` reports `INVALID` with a reason; the shared INVALID prefix generalized from "invalid regex:" to "invalid:". |
 | **F10a/b/c** | ✅ Tests added | Committed assertion tests for nested-group reorder, whole-group add/remove, and a missing count tag (behavior was already correct; now regression-protected). |
-| **F8** | ⏳ Open (decision) | No headless exit-code entrypoint. Blocker only if CI-from-CLI is in scope this release. |
+| **U1** | ✅ Fixed | Mode chip is now a filled, hover-highlighted, hand-cursor toggle (no misleading `▾`) with a `TooltipArea` explaining STRICT vs OPEN, consistent across both diff surfaces. |
+| **U2** | ✅ Fixed | Meaningful informational text moved off `textDisabled` (≈3:1) to `textSecondary` (≈7.7:1) on both surfaces. |
+| **U3** | ✅ Fixed | Viewer gutter markers now map to their side (+A = info/A-colour, +B = warning/B-colour); only-in-A no longer reads as an error-red value mismatch. |
+| **U4** | ✅ Fixed | Plain viewer gained next/prev-diff navigation (buttons + `n`/`p`) mirroring the editor, over a `LazyColumn`. |
+| **F9** | ✅ Fixed | `Scenario.version` now has a real job: `fromJson` refuses a from-the-future file (`version > CURRENT_SCENARIO_VERSION`) by name, and is the seam a future `migrate()` hooks into. |
+| **F8** | 🗂️ Deferred → [issue #39](https://github.com/amitgupta1202/FixTool/issues/39) | No headless exit-code entrypoint. No current CI-from-CLI requirement; filed for the future. |
 
-Full `jvmTest` suite passes (BUILD SUCCESSFUL, no failures) after both fix passes. Remaining: **F8** (a scope decision), **U1–U4** (UX polish, best verified in the running app), and **F9** (inert `version`/`migrate`, cosmetic).
+**All review findings are now resolved or deferred.** Full `jvmTest` suite passes (BUILD SUCCESSFUL, no failures) after every pass; the UX changes were also visually confirmed against the rendered screenshot output. The only open item is **F8**, deferred to issue #39 by decision (no current need).
 
 ---
 

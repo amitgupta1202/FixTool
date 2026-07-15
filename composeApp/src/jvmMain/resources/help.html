@@ -2003,39 +2003,55 @@ stunnel stunnel.conf</code></pre>
     <code>~/.fixtool/scenarios/</code> &mdash; diffable, shareable, and easy to commit alongside your
     project.</p>
 
-    <p><strong>The workflow in the app (capture &rarr; review &rarr; run &rarr; relax):</strong>
-    scenarios live in their own resizable <strong>Scenarios window</strong> (the ▶ playlist button in
-    the toolbar) &mdash; it is non-modal, so the session view stays live next to it.</p>
+    <p><strong>The workflow in the app (capture &rarr; review &rarr; run &rarr; reconcile):</strong>
+    scenarios live in the <strong>Scenarios rail</strong> &mdash; a docked pane in the main window you
+    toggle from the toolbar (or with <code>fixtool_panel "scenarios"</code>), so the session grid, detail
+    panel, and rail are all on screen at once. The rail is a <em>test-runner tree</em>: every scenario
+    expands to its steps, each carrying live <code>&#10003; / &#10007; / &#9656; running / &ndash; not run</code>
+    status, with <strong>Run</strong>, edit, duplicate, and delete per scenario. Scenario documents &mdash;
+    the flow editor and capture review &mdash; open as <strong>tabs in the centre</strong> beside the session
+    tabs (in SPLIT view they take one split while a live session keeps the other).</p>
     <ol>
         <li><strong>Work a flow normally</strong> &mdash; connect and send/receive messages across one
         or more sessions (e.g. an RFQ: QuoteRequest out, Quote back; or an order and its
         ExecutionReport).</li>
         <li>Click <strong>Capture from sessions&hellip;</strong>. Nothing saves blind: a
-        <strong>review screen</strong> lists every business message across all sessions in time
-        order, each row carrying its <strong>session color badge</strong> and direction. Untick
-        noise, or trim the flow with the <strong>From</strong> / <strong>To</strong> range
-        dropdowns. The right pane previews what the selected message becomes: outgoing &rarr; a parameterized send (fresh
-        ClOrdID/QuoteReqID + TransactTime each run), incoming &rarr; assertions with
-        <strong>smart-seeded matchers</strong> (timestamps&rarr;temporal, prices&rarr;numeric,
-        IDs&rarr;presence, else exact). Echoed ids are auto-correlated and drawn as
-        <strong>&#9679;id badges</strong>: filled where the id is minted, hollow where it must echo
-        back &mdash; even across sessions. Name it, save.</li>
-        <li><strong>Run</strong> a saved scenario. It replays deterministically and the results appear
-        <strong>right in the session window</strong>: matched message rows are tinted green/red, and
-        selecting a message shows each asserted tag in the detail panel with
-        <strong>expected vs actual</strong> &mdash; red where it failed. A tag that appears more than once
-        shows one row per <strong>occurrence</strong>, so the second party entry's <code>PartyRole</code> is
-        checked and reported separately from the first's.</li>
-        <li><strong>Reconcile the failure</strong> &mdash; one surface, and it can see both sides.
-        <p>The message viewer <em>diagnoses</em>: it tints the failed message red and shows expected against
-        actual, so you see what broke without going anywhere. It does not <em>fix</em>, and that is
-        deliberate. The viewer renders the message that arrived, so it has no row for anything that did not
-        &mdash; a tag the venue <em>stopped</em> sending, the most ordinary way a venue regresses, has
-        nothing to click. It gains one action: <strong>Reconcile assertions &rarr;</strong>.</p>
-        <p>That opens the <strong>reconcile view</strong>, which shows the failed step as a
-        <strong>diff</strong> &mdash; the expectation you captured beside the message that actually arrived,
-        aligned the way <code>git diff</code> aligns two files. Every kind of failure becomes one row with
-        one obvious fix:</p>
+        <strong>capture-review tab</strong> lists every business message across all sessions in time
+        order, each row carrying its <strong>session color badge</strong> and direction, and selecting a
+        candidate highlights its source row in the session grid. Untick noise, or trim the flow with the
+        <strong>From</strong> / <strong>To</strong> range dropdowns. The right pane previews what the
+        selected message becomes: outgoing &rarr; a parameterized send (fresh ClOrdID/QuoteReqID +
+        TransactTime each run), incoming &rarr; assertions with <strong>smart-seeded matchers</strong>
+        (timestamps&rarr;temporal, prices&rarr;numeric, IDs&rarr;presence, else exact). Echoed ids are
+        auto-correlated and drawn as <strong>&#9679;id badges</strong>: filled where the id is minted,
+        hollow where it must echo back &mdash; even across sessions. Name it, save.
+        <p><strong>Second source &mdash; pasted wire.</strong> Capture review also takes a
+        <strong>paste box</strong> (one FIX message per line &mdash; a server log fragment, a message from an
+        email). The lines become candidates in the same review, with a per-row direction toggle and a
+        session dropdown. The bytes are read, never guessed: a <code>|</code>-inside-a-value line whose own
+        checksum disproves the reading is <em>refused</em> with the evidence, and a message whose direction
+        cannot be settled <em>blocks the save</em>. Anything built from a paste carries a visible
+        <strong>pasted</strong> badge &mdash; a hand-pasted message has none of a live capture's guarantees.</p></li>
+        <li><strong>Run</strong> a saved scenario (from the rail). It replays deterministically and the
+        results appear in <strong>two places</strong>: the rail's step tree turns green/red, and in the
+        session grid the matched message rows are tinted &mdash; selecting one shows each asserted tag in the
+        detail panel with <strong>expected vs actual</strong>, red where it failed. A tag that appears more
+        than once shows one row per <strong>occurrence</strong>, so the second party entry's
+        <code>PartyRole</code> is checked and reported separately from the first's.</li>
+        <li><strong>Reconcile the failure</strong> &mdash; the message viewer <em>diagnoses</em>; the diff
+        window <em>authors</em>.
+        <p>The message viewer tints the failed message red and shows expected against actual, so you see what
+        broke without going anywhere. It does not <em>fix</em>, and that is deliberate: it renders the message
+        that arrived, so it has no row for anything that did not &mdash; a tag the venue <em>stopped</em>
+        sending, the most ordinary way a venue regresses, has nothing to click. It gains one action:
+        <strong>Reconcile assertions &rarr;</strong> (and the rail's failed step carries the same
+        <strong>Reconcile &rarr;</strong>, or the reason it cannot).</p>
+        <p>That opens the <strong>diff window</strong> &mdash; a dedicated, task-scoped window beside the grid,
+        the way an IDE opens a diff, so the failure's surroundings stay visible. It shows the failed step as a
+        <strong>two-sided diff</strong>: your expectation on the left (<em>directly editable</em> &mdash; each
+        row's matcher is a dropdown, its value a field), the message that arrived on the right (read-only, the
+        venue's own bytes), aligned by the engine's own pairing with repeating-group <strong>entry bands</strong>.
+        Every kind of failure carries its fix in the centre gutter:</p>
         <ul>
             <li><strong>The value changed</strong> &mdash; <em>Accept actual</em> (which re-seeds the row,
             keeping it numeric or exact as it was, rather than flattening it), <em>Loosen</em> (presence,
@@ -2049,19 +2065,42 @@ stunnel stunnel.conf</code></pre>
             silently swap which occurrence two rows refer to, which is the assert-the-wrong-field failure
             this model exists to make impossible.</li>
         </ul>
-        <p>Nothing is written until you press <strong>Save</strong> &mdash; the same batched discipline as
-        the message editor. <strong>Undo last</strong> takes back one fix; <strong>Discard</strong> drops
-        the lot.</p>
-        <p>Two rows are deliberately <em>not</em> offered <em>Accept actual</em>: a
-        <strong>timestamp</strong> (<code>~now &plusmn;60s</code>), because accepting it would pin the
-        scenario to a moment that will never come again, and an <strong>echoed id</strong>
-        (<code>${out.D.11}</code>), because accepting it would pin the scenario to this run's id and delete
-        the correlation check. Loosen or drop those instead.</p></li>
+        <p>You can also edit directly &mdash; change a matcher, type a value, or <strong>drag</strong> a row
+        or a whole entry into place &mdash; and every edit <strong>re-judges live</strong>: you watch the step
+        go green as you resolve it, and a fix that does not fix shows red before you save.
+        <strong>&#8984;Z / &#8984;&#8679;Z</strong> walk undo/redo. Nothing is written until you press
+        <strong>Save</strong>; <strong>Save &amp; re-run</strong> writes and replays in one click, and the
+        rail verdict answers on the spot.</p>
+        <p>The right side is a <strong>slot</strong>, shown as a chip in the header: swap it between
+        <em>this run</em>, the <em>golden</em>, a <em>second instance</em> of the same message, a message you
+        <em>pick</em> from a grid, or one you <em>paste</em> &mdash; and every row re-judges instantly against
+        it. Two rows are deliberately <em>not</em> offered <em>Accept actual</em>: a <strong>timestamp</strong>
+        (<code>~now &plusmn;60s</code>), because accepting it pins the scenario to a moment that will never come
+        again, and an <strong>echoed id</strong> (<code>${out.D.11}</code>), because accepting it deletes the
+        correlation check. Loosen or drop those instead.</p>
+        <p><strong>Authoring is the same window.</strong> A never-run step opens the identical diff against its
+        golden &mdash; same rows, same gutter, same undo &mdash; so building an expectation and repairing one
+        are one surface, not two.</p></li>
     </ol>
     <p>Each step keeps its own <strong>session</strong> (a dropdown in the step detail), so one
     scenario can span multiple sessions &mdash; drive an initiator, assert on an acceptor, correlate
     a quote and a trade conversationally across both. Scenarios are stored one file per scenario
     under <code>~/.fixtool/scenarios/</code>.</p>
+
+    <h3>Comparing two messages &mdash; the plain diff viewer</h3>
+    <p>Sometimes you just want to see how two messages differ, with no scenario and no assertion in sight:
+    UAT vs PROD replies for the same order, pre- vs post-upgrade ExecutionReports, &ldquo;why did clearing
+    reject yours and accept mine&rdquo;, two fills that should be twins. Select two messages in a grid and
+    click <strong>&#8646; Diff selected</strong>, or <strong>&#8646; Diff against&hellip;</strong> on any
+    message in the detail panel, or <strong>&#8646; Diff messages&hellip;</strong> in the rail (two empty
+    slots, each filled by a session pick or a paste). Any of them opens a <strong>read-only</strong> diff of
+    the two messages in its own window &mdash; the same alignment and entry bands as the reconcile diff, but
+    no matcher chips and no gutter fixes: statuses reduce to <code>=</code> same &middot; <code>&ne;</code>
+    value differs &middot; <code>+A</code>/<code>+B</code> only-on-one-side &middot; moved, under a neutral
+    difference count (it diagnoses nothing &mdash; neither side is the truth). Switch OPEN/STRICT or swap the
+    sides from the header. When you are ready to turn a comparison into a check, <strong>Seed expectation from
+    A/B</strong> flips the window into the editor with the other side as its reference, and <strong>Add to
+    scenario&hellip;</strong> files it as an Expect step &mdash; diff first, assert when ready.</p>
 
     <div class="tip">
         <strong>The point:</strong> the LLM (or a human) authors the scenario once; a dumb runner

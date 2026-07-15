@@ -561,8 +561,8 @@ private fun nextOccurrence(counts: MutableMap<Int, Int>, tag: Int): Int {
 
 /**
  * Which entry this row is — `#2` for the second occurrence of a repeating tag, blank when the tag is
- * unique. Same convention as the ExpectationBuilder, and for the same reason: four identical "452
- * PartyRole" rows are four rows the author cannot tell apart, and the one they mean is a guess.
+ * unique. Same convention as the diff surface's occurrence suffix, and for the same reason: four identical
+ * "452 PartyRole" rows are four rows the author cannot tell apart, and the one they mean is a guess.
  */
 @Composable
 private fun OccurrenceLabel(occurrence: Int, show: Boolean) {

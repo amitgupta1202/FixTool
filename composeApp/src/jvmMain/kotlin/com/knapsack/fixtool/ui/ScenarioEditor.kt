@@ -135,7 +135,7 @@ fun Scenario.asEditorSeed(): Scenario = copy(steps = steps.map { it.toEditStep()
 data class RunFailureContext(
     val failedTags: List<com.knapsack.fixtool.model.scenario.TagResult>,
     val actualRaw: String?,
-    /** When the message arrived — the instant temporal rows are judged against. See ReconcileView. */
+    /** When the message arrived — the instant temporal rows are judged against (the reference's anchor in the diff). */
     val actualAt: java.time.Instant? = null,
 )
 

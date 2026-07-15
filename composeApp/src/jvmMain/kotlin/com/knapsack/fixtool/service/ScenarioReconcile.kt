@@ -896,6 +896,14 @@ object ScenarioReconcile {
      */
     fun entries(draft: Expectation): List<IntRange> = entryRegions(draft).flatten()
 
+    /**
+     * The row-order heuristic over an expectation's tags — **the documented fallback**, not the primary source.
+     * Since the dictionary overlay landed (Phase 0), [com.knapsack.fixtool.service.compare.GroupOverlay] decides
+     * entry boundaries wherever the dictionary defines the group; this is reached only where it does not (the
+     * proposal's *"demoted to fallback behind the dictionary overlay"*). The overlay-aware callers here
+     * ([entryRangesOf], [siblingRunsOf], [spansOf]) fall back to it with `?:`, and `moveBlock` — kept as the
+     * regression net that proves the D1 rule subsumes the old behaviour — still takes it directly.
+     */
     fun entryRegions(draft: Expectation): List<List<IntRange>> = entryRegions(draft.fields.map { it.tag })
 
     /**

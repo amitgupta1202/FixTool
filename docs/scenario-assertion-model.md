@@ -148,6 +148,16 @@ invisible, and it is the only outcome a testing tool must never produce. We take
 
 ## Reconciling a failure
 
+> **UI note.** The *presentation* described in this section — the two text columns, the per-row
+> quick-fix chips — is **superseded** by the scenario UX redesign: reconciliation now happens in a
+> two-sided **diff window** (an editable expectation on the left, the received message on the right,
+> the fixes in a centre gutter), and the plain read-only viewer generalises the same surface to any
+> two messages. See [`scenario-ux-redesign-proposal.md`](./scenario-ux-redesign-proposal.md) and
+> [`scenario-ux-redesign-impl-plan.md`](./scenario-ux-redesign-impl-plan.md) for what the surface is
+> today. The **model** below — what a failure *is*, why a move is an entry-level action and not
+> per-tag arrows, and what an "entry" is — is **unchanged** and remains the specification the diff
+> window implements.
+
 A failed step is a **diff between two lists**: the expectation (captured) and the message that
 actually arrived. Align them the way `git diff` aligns two files — longest common subsequence over
 `(tag, matcher-satisfied)` — and every kind of failure falls out of the same view:

@@ -1047,8 +1047,8 @@ class ControlServer(
             }
         // The same run the Run button performs — one run slot, one choreography, one verdict published the
         // same way. This endpoint used to keep its own copy of that sequence and had quietly dropped the
-        // last step of it, so an agent-driven run left the workbench's run report (and the only route to the
-        // reconcile view) blank. Null = the slot is taken; a UI run and a control run would otherwise
+        // last step of it, so an agent-driven run left the rail's run report (and the only route to the
+        // diff window) blank. Null = the slot is taken; a UI run and a control run would otherwise
         // consume each other's messages.
         val result =
             viewModel.runScenarioBlocking(scenario)

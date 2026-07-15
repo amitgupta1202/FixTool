@@ -218,9 +218,9 @@ class ControlServerIntegrationTest {
      * the diff opened on the step that failed — bound to the bytes that failed it.
      *
      * This is the thing the surface could never prove about itself. The route decides (a scenario the author
-     * has edited since it ran is *refused*, in `reconcileRoute`'s own words); when it opens, the document is
-     * a `ScenarioDoc.Reconcile` on the right `stepId`, carrying a session whose reference is the failing
-     * message and whose verdict is the engine's — not a tab that merely looks right.
+     * has edited since it ran is *refused*, in `reconcileRoute`'s own words); when it opens, a diff **window**
+     * stands up on the right `stepId`, carrying a session whose reference is the failing message and whose
+     * verdict is the engine's — not a tab that merely looks right.
      */
     @Test
     fun `reconcile opens the diff on the failing step, bound to the bytes that failed it`() {

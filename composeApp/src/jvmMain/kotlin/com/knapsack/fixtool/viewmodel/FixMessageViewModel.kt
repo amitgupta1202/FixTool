@@ -1134,13 +1134,39 @@ class FixMessageViewModel(
     }
 
     /** Open capture review on a fresh scan of the sessions — or focus the review already open. */
-    fun openCaptureReview() {
-        if (_openDocuments.value.any { it.id == ScenarioDoc.CAPTURE_ID }) {
-            focusDocument(ScenarioDoc.CAPTURE_ID)
+    /**
+     * **Capture the whole flow, straight into the editor** — the top toolbar's capture button.
+     *
+     * Every business message across every session becomes a step and the editor opens on it, so curation
+     * *is* editing: trim, delete noise, fix, save. There is no read-only review screen in between. The two
+     * were the same chronological flow list, and a surface that looks editable but is not is the confusion
+     * this removes. Live rows carry their own direction (off the wire) and session, so nothing needs asking.
+     *
+     * All-sessions scope matches the toolbar's other actions (Search All, Clear All) and the capture model,
+     * which has always scanned every session and merged chronologically — so a cross-session RFQ is captured
+     * whole, with no per-session scoping to reconcile. Paste keeps its own door ([openPasteCapture]): pasted
+     * bytes carry no direction, which is a curation the review surface exists to settle.
+     */
+    fun captureAllSessionsToEditor() {
+        val scan = captureScan()
+        if (scan.candidates.isEmpty()) {
+            showNotification(
+                "Nothing to capture — no business messages in any session. Drive the flow first.",
+                NotificationType.WARNING,
+            )
             return
         }
-        val scan = captureScan()
-        openDocument(ScenarioDoc.Capture(scan, CaptureReviewState.of(scan.candidates.size)))
+        val id = saveCapturedSelection("Captured scenario", scan.candidates) ?: return
+        // A message FixTool has no wire bytes for is one the scenario will not cover — said, not dropped, or the
+        // author is handed a test that looks complete and is not. In practice empty: QuickFIX/J keeps its bytes.
+        if (scan.unreadable.isNotEmpty()) {
+            showNotification(
+                "${scan.unreadable.size} message${if (scan.unreadable.size == 1) "" else "s"} left out — no wire " +
+                    "bytes, so ${if (scan.unreadable.size == 1) "it" else "they"} cannot be asserted on.",
+                NotificationType.WARNING,
+            )
+        }
+        scenarioService.load(id)?.let { openScenarioEditor(it) }
     }
 
     /**

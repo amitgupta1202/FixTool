@@ -7,10 +7,16 @@
 package com.knapsack.fixtool.ui.diff
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.TooltipPlacement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +26,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
@@ -33,16 +41,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -188,13 +200,13 @@ private fun DiffHeader(
             }
             // The mode chip. It is an EDIT — staged, undoable, saved — and not a read-only preview: with only
             // STRICT and OPEN registered, a preview you cannot save is strictly worse than an edit you can
-            // undo. The semantics is DERIVED from the mode, so the chip and the scenario cannot disagree.
+            // undo. The semantics is DERIVED from the mode, so the chip and the scenario cannot disagree. It is
+            // the one *control* in this row, so it is drawn as one — a standing fill, a hover highlight and a
+            // hand cursor the outline-only badges beside it lack — never as another read-only badge (U1).
             val strict = session.draft.mode == MatchMode.STRICT
-            Chip(
+            ModeChip(
                 label = session.semantics.label,
-                color = AppTheme.Colors.warning,
-                testTag = "diff-mode",
-                onClick = { session.apply(EditOp.setMode(if (strict) MatchMode.OPEN else MatchMode.STRICT)) },
+                onToggle = { session.apply(EditOp.setMode(if (strict) MatchMode.OPEN else MatchMode.STRICT)) },
             )
             ReferenceChip(session.reference.label, referenceOptions, onSelectReference)
             // The badge that outlives the paste. It has to: the golden is NOT re-pointed at pasted bytes (V4),
@@ -313,6 +325,66 @@ private fun Chip(label: String, color: Color, tinted: Boolean = false, testTag: 
 }
 
 /**
+ * **The mode toggle — STRICT ⇄ OPEN — and the one *control* in the header's chip row.** Drawn by the shared
+ * [Chip] it was indistinguishable from the static `pasted`/verdict badges beside it: nothing said the mode
+ * could be changed, or what the two words meant. So this is deliberately not a badge — it carries a standing
+ * fill and a hover highlight the outline-only badges do not have, a hand cursor, and a [TooltipArea] that spells
+ * out the choice. No caret: it is a direct toggle, not a menu. The label stays visible; the tooltip explains.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ModeChip(label: String, onToggle: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val color = AppTheme.Colors.warning
+    val shape = RoundedCornerShape(4.dp)
+    TooltipArea(
+        tooltip = {
+            Text(
+                MODE_TOOLTIP,
+                modifier =
+                    Modifier
+                        .shadow(4.dp, shape)
+                        .background(AppTheme.Colors.border, shape)
+                        .widthIn(max = 340.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                color = AppTheme.Colors.text,
+                fontSize = 11.sp,
+            )
+        },
+        delayMillis = 400,
+        tooltipPlacement =
+            TooltipPlacement.ComponentRect(
+                anchor = Alignment.BottomCenter,
+                alignment = Alignment.BottomCenter,
+                offset = DpOffset(0.dp, 4.dp),
+            ),
+    ) {
+        // A standing fill (badges are outline-only) plus a brighter hover tint and a hand cursor: three cues
+        // the static chips lack, so this reads as a toggle before it is clicked, not after.
+        Box(
+            modifier =
+                Modifier
+                    .padding(end = 6.dp)
+                    .border(1.dp, color)
+                    .background(color.copy(alpha = if (hovered) 0.28f else 0.14f))
+                    .hoverable(interaction)
+                    .pointerHoverIcon(PointerIcon.Hand)
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .testTag("diff-mode"),
+        ) {
+            Text(label.uppercase(), color = color, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// Shared verbatim with the plain viewer's mode toggle, so the two surfaces explain the choice the same way.
+private const val MODE_TOOLTIP =
+    "Match mode. STRICT: the reply must carry the same tags, the same number of times, in the same order. " +
+        "OPEN: the listed assertions must appear in order; any extra tag the reply adds is ignored. Click to switch."
+
+/**
  * **Shape versus behaviour** — the one line a reader must never have to work out for themselves, and it is
  * not counted here. [com.knapsack.fixtool.service.compare.Verdict] counts it, for this surface and the one it
  * replaces, so the two can never come to disagree about how many rows are red.
@@ -411,7 +483,9 @@ private fun ColumnHeaders(referenceLabel: String) {
 
 @Composable
 private fun Header(text: String, modifier: Modifier) {
-    Text(text, color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, modifier = modifier)
+    // Informational column labels (which side is editable, whose wire order the right shows), not disabled
+    // chrome — so textSecondary, above the WCAG-AA floor textDisabled sits under at this size (U2).
+    Text(text, color = AppTheme.Colors.textSecondary, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, modifier = modifier)
 }
 
 // --------------------------------------------------------------------------------------------- the body
@@ -781,7 +855,9 @@ private fun DiffFooter(session: ReconcileSession) {
         if (staged > 0) {
             Text(
                 " — " + session.stagedLabels.joinToString(" · "),
-                color = AppTheme.Colors.textDisabled,
+                // What the save will write — informational, and read alongside the textSecondary promise beside
+                // it, so it matches rather than sitting a contrast step dimmer than its own sibling (U2).
+                color = AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 modifier = Modifier.testTag("diff-staged-labels"),
             )
@@ -836,7 +912,9 @@ private fun ReferenceChip(
             }
             Text(
                 "SWAPPING THE REFERENCE RE-JUDGES EVERY ROW · TEMPORALS ANCHOR TO THE REFERENCE, NOT THE CLOCK",
-                color = AppTheme.Colors.textDisabled,
+                // A consequence the author must read before they swap — informational, so textSecondary. At 8sp
+                // textDisabled is ~3:1, below WCAG AA, which is exactly the wrong contrast for a caveat (U2).
+                color = AppTheme.Colors.textSecondary,
                 fontSize = 8.sp,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             )
@@ -930,7 +1008,9 @@ private fun LintLine(read: WirePaste) {
         read.ignoredPrefix?.let {
             Text(
                 "ignored before the first field: \"$it\"",
-                color = AppTheme.Colors.textDisabled,
+                // What the reader read but FixTool dropped — informational lint, like the textSecondary anchor
+                // note below it; both are things the author needs to see, not disabled chrome (U2).
+                color = AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(top = 2.dp),
             )

@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
+import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
@@ -285,6 +286,94 @@ class ScenarioRunnerTest {
         assertTrue(detail.contains("where 150=F"), "detail: $detail")
         assertTrue(detail.contains("on 's'"), "detail: $detail")
         assertTrue(detail.contains("state=LOGGED_ON"), "detail: $detail")
+    }
+
+    // ----- Decision 6: disambiguating two same-type messages -----------------------------------------
+
+    /** Two ExecutionReports; the assertion belongs to the second. An occurrence ordinal binds it, not the first. */
+    @Test
+    fun `an occurrence ordinal binds the Nth message of a type, not the first`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0")) // ack
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2")) // fill — the one asserted
+        val step =
+            ScenarioStep.Expect(
+                session = "s",
+                match = MatchPredicate(messageType = "8", occurrence = 2),
+                timeoutMs = 1_000,
+                expectation = Expectation(fields = listOf(FieldExpectation(39, Matcher.Exact("2"))), messageType = "8"),
+            )
+        val result = run(host, scenario(step))
+        assertTrue(result.passed, "occurrence=2 must bind the second 8 (OrdStatus=2): ${result.steps}")
+    }
+
+    /** The screenshot's real fix: bind the ExecutionReport that carries QuoteReqID, skipping the ack that does not. */
+    @Test
+    fun `a present constraint binds the message that carries the tag, skipping the one that does not`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0")) // no QuoteReqID
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2", 131 to "QR-9")) // carries QuoteReqID
+        val step =
+            ScenarioStep.Expect(
+                session = "s",
+                match = MatchPredicate(messageType = "8", fields = listOf(TagValue(131, "", MatchOp.PRESENT))),
+                timeoutMs = 1_000,
+                expectation = Expectation(fields = listOf(FieldExpectation(39, Matcher.Exact("2"))), messageType = "8"),
+            )
+        val result = run(host, scenario(step))
+        assertTrue(result.passed, "present(131) must bind the second report: ${result.steps}")
+    }
+
+    @Test
+    fun `an absent constraint binds the message that lacks the tag`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0", 131 to "QR-9")) // carries QuoteReqID
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2")) // does not
+        val step =
+            ScenarioStep.Expect(
+                session = "s",
+                match = MatchPredicate(messageType = "8", fields = listOf(TagValue(131, "", MatchOp.ABSENT))),
+                timeoutMs = 1_000,
+                expectation = Expectation(fields = listOf(FieldExpectation(39, Matcher.Exact("2"))), messageType = "8"),
+            )
+        assertTrue(run(host, scenario(step)).passed)
+    }
+
+    /** An ordinal is absolute, so two steps cannot both claim the same slot — the second says so, by name. */
+    @Test
+    fun `an occurrence pointing at a message an earlier step took fails, naming the conflict`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val first = expect("8", FieldExpectation(39, Matcher.Exact("0"))) // walk-in-order takes the 1st
+        val clash =
+            ScenarioStep.Expect(
+                session = "s",
+                match = MatchPredicate(messageType = "8", occurrence = 1), // wants the 1st too
+                timeoutMs = 40,
+                expectation = Expectation(fields = emptyList(), messageType = "8"),
+            )
+        val result = run(host, scenario(first, clash))
+        assertFalse(result.passed)
+        val detail = result.steps[1].detail!!
+        assertTrue(detail.contains("already matched by an earlier step"), "detail: $detail")
+        assertTrue(detail.contains("1st"), "the detail should name the ordinal: $detail")
+    }
+
+    @Test
+    fun `an occurrence beyond what arrived times out, saying it wanted more`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8")) // only one
+        val step =
+            ScenarioStep.Expect(
+                session = "s",
+                match = MatchPredicate(messageType = "8", occurrence = 2),
+                timeoutMs = 40,
+                expectation = Expectation(fields = emptyList(), messageType = "8"),
+            )
+        val result = run(host, scenario(step))
+        assertFalse(result.passed)
+        assertTrue(result.steps.single().detail!!.contains("fewer than 2"), "detail: ${result.steps.single().detail}")
     }
 
     // ----------------------------------------------------------------- helpers

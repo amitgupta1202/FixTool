@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
+import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
@@ -199,6 +200,9 @@ object ScenarioCapture {
         // capturedValue -> "${varName}" reference, scenario-wide (so a response on any session can echo it).
         val refByValue = mutableMapOf<String, String>()
         val steps = mutableListOf<ScenarioStep>()
+        // Each Expect step paired with the message it was seeded from, so the post-pass below can compare the
+        // bytes of two same-type replies and seed a discriminator that tells them apart.
+        val expectCandidates = mutableListOf<Pair<Int, Candidate>>()
 
         for (candidate in selection) {
             // An undirected row cannot become a step: it would become a Send that asserts nothing, silently.
@@ -207,12 +211,101 @@ object ScenarioCapture {
             if (candidate.outgoing) {
                 steps += sendStep(candidate, dictionary, refByValue)
             } else {
+                expectCandidates += steps.size to candidate
                 steps += expectStep(candidate, dictionary, refByValue)
             }
         }
+        disambiguateSameType(steps, expectCandidates)
 
         val setup = selection.map { it.session }.distinct().map { ScenarioStep.ClearMessages(it) }
         return Scenario(id = id, name = name, profile = profile, setup = setup, steps = steps)
+    }
+
+    /** Business fields whose value is stable across a replay (unlike ids/timestamps/seqnums). */
+    private val STABLE_VALUE_DISCRIMINATORS = listOf(150, 39) // ExecType, OrdStatus
+
+    /**
+     * **Two same-type replies the seeded bind constraints cannot tell apart get a discriminator here.**
+     *
+     * Capture seeds bind constraints only from echoed correlation ids ([ID_TAGS]), which are identical across
+     * every fill of one order — so two `ExecutionReport`s for the same `ClOrdID` bind by arrival order alone,
+     * and a step that means "the terminal one" silently grabs the ack. This post-pass groups the Expects by
+     * `(session, messageType)` and, for each group its existing constraints do not already separate, seeds the
+     * *minimal* distinguisher, preferring intent over position:
+     *
+     * 1. a **value** discriminator on a stable business tag (ExecType/OrdStatus) whose value differs across all
+     *    members — reorder-proof and self-documenting;
+     * 2. else, for a pair, a **presence** discriminator on a tag one carries and the other does not (e.g. the
+     *    terminal report's `QuoteReqID`) — value-agnostic, so replay-safe for id tags;
+     * 3. else **occurrence** ordinals by arrival order — always separates, but a bare count, so it is the last
+     *    resort.
+     */
+    private fun disambiguateSameType(steps: MutableList<ScenarioStep>, expects: List<Pair<Int, Candidate>>) {
+        val groups = expects.groupBy { (_, c) -> c.session to c.messageType }
+        for ((_, members) in groups) {
+            if (members.size < 2) continue
+            // Already separable by the constraints capture seeded (distinct echoed ids)? Arrival order + the
+            // consumed cursor then suffice, and adding anything would only be noise.
+            if (members.map { (idx, _) -> bindSignature(steps[idx]) }.toSet().size == members.size) continue
+            if (seedValueDiscriminator(steps, members)) continue
+            if (members.size == 2 && seedPresenceDiscriminator(steps, members)) continue
+            seedOrdinals(steps, members)
+        }
+    }
+
+    /** A comparable key for what an Expect's bind predicate already constrains — fields (op+value) and ordinal. */
+    private fun bindSignature(step: ScenarioStep): String {
+        val m = (step as? ScenarioStep.Expect)?.match ?: return ""
+        return m.fields.sortedBy { it.tag }.joinToString(",") { "${it.tag}:${it.op}:${it.value}" } + "|occ=${m.occurrence}"
+    }
+
+    private fun seedValueDiscriminator(steps: MutableList<ScenarioStep>, members: List<Pair<Int, Candidate>>): Boolean {
+        for (tag in STABLE_VALUE_DISCRIMINATORS) {
+            val values = members.map { (_, c) -> firstValue(c, tag) }
+            if (values.any { it == null }) continue // the tag must be on every member
+            if (values.toSet().size != members.size) continue // and pairwise distinct, so it separates all
+            members.forEach { (idx, c) -> addConstraint(steps, idx, TagValue(tag, firstValue(c, tag)!!, MatchOp.EQ)) }
+            return true
+        }
+        return false
+    }
+
+    private fun seedPresenceDiscriminator(steps: MutableList<ScenarioStep>, members: List<Pair<Int, Candidate>>): Boolean {
+        val (a, b) = members
+        val aTags = a.second.fields.mapTo(mutableSetOf()) { it.first }
+        val bTags = b.second.fields.mapTo(mutableSetOf()) { it.first }
+        // A tag on exactly one of the two separates them. Prefer a correlation id (the QuoteReqID case) — it is
+        // the field an author would themselves reach for — then the lowest-numbered tag for a stable choice.
+        val distinguishing = (aTags - bTags) + (bTags - aTags)
+        val tag = distinguishing.filter { it in ID_TAGS }.minOrNull() ?: distinguishing.minOrNull() ?: return false
+        val presentInA = tag in aTags
+        addConstraint(steps, a.first, TagValue(tag, "", if (presentInA) MatchOp.PRESENT else MatchOp.ABSENT))
+        addConstraint(steps, b.first, TagValue(tag, "", if (presentInA) MatchOp.ABSENT else MatchOp.PRESENT))
+        return true
+    }
+
+    private fun seedOrdinals(steps: MutableList<ScenarioStep>, members: List<Pair<Int, Candidate>>) {
+        // The k-th same-type reply, in arrival order, is occurrence k. The members are already chronological
+        // (selection is), but sort defensively so the ordinal cannot depend on grouping order.
+        members.sortedBy { (_, c) -> c.timestamp }.forEachIndexed { k, (idx, _) -> setOccurrence(steps, idx, k + 1) }
+    }
+
+    private fun firstValue(c: Candidate, tag: Int): String? {
+        val hit = c.fields.firstOrNull { it.first == tag } ?: return null
+        return hit.second.takeIf { it.isNotBlank() }
+    }
+
+    private fun addConstraint(steps: MutableList<ScenarioStep>, idx: Int, tv: TagValue) {
+        val e = steps[idx] as? ScenarioStep.Expect ?: return
+        val m = e.match ?: MatchPredicate(messageType = e.expectation.messageType)
+        if (m.fields.any { it.tag == tv.tag }) return // never double up on a tag we already constrain
+        steps[idx] = e.copy(match = m.copy(fields = m.fields + tv))
+    }
+
+    private fun setOccurrence(steps: MutableList<ScenarioStep>, idx: Int, n: Int) {
+        val e = steps[idx] as? ScenarioStep.Expect ?: return
+        val m = e.match ?: MatchPredicate(messageType = e.expectation.messageType)
+        steps[idx] = e.copy(match = m.copy(occurrence = n))
     }
 
     /**

@@ -402,5 +402,67 @@ needed (sequential steps plus the `Wait`/`Expect` timeouts cover the async gap),
 it enables validating acceptor auto-response rules by driving an initiator. The
 marginal cost is zero, so the format supports it from day one; the polished
 multi-session **authoring UI** is deferred to the Run phase.
-</content>
-</invoke>
+
+### Decision 6 — Disambiguating same-type messages: presence/absence bind constraints + an occurrence ordinal
+
+Decision 4 selects a message by business fields (`ExecType`, `OrdStatus`) plus a
+consumed cursor. That is sufficient only when (a) the distinguishing signal is a plain
+`tag=value` **and** (b) every message the author cares about has an `Expect` that
+consumes the ones before it. Real lifecycles break both. In the **Repo Full Lifecycle**
+scenario two `ExecutionReport`s (`35=8`) share the same `ClOrdID`; the first is the ack
+(`ExecType=0`, no `QuoteReqID`) and the terminal one carries `QuoteReqID (131)`. The
+scenario has no `Expect` for the ack, so the terminal step binds the *earliest* `8` —
+the ack — and its `131` assertion fails against a message that never had the tag. The
+one field that separates the two (131 present vs absent) was expressed only as an
+*assertion*, and assertions never steer binding (by design — see the evaluator's "never
+re-aim onto whatever field makes it green"). **Reconcile cannot fix this:** it repairs
+the *expected value* against the bound (wrong) message, erasing the check rather than
+moving to the right message. Disambiguation must happen at the **binding** layer.
+
+Two additions to `MatchPredicate` (`Scenario.kt`) close the gap, jointly:
+
+1. **Presence/absence bind constraints.** `TagValue` gains an operator (`EQ` default,
+   plus `PRESENT` / `ABSENT`; `REGEX`/`ONE_OF` left open). The terminal step then binds
+   on `131 PRESENT` — the *reason* it is the right message, reorder- and count-proof.
+   This is the preferred, intent-revealing form and covers the screenshot case directly.
+2. **An occurrence ordinal.** `MatchPredicate` gains `occurrence: Int? = null`. When set
+   (1-based), the step binds the N-th message in the `messageType + direction + fields`-
+   filtered chronological snapshot — the literal "2nd `ExecutionReport`" — rather than
+   the first not-yet-consumed one. This is the escape hatch for messages that are
+   genuinely identical except for order, where no discriminator exists. `null` preserves
+   today's exact behaviour (first unconsumed).
+
+**Semantics and precedence** (in `ScenarioRunner.matches`/`runExpect`): filter by
+`messageType`+`direction`, apply each `fields` constraint through the *wire view*
+(`host.view(msg).fields()`, so grouped/repeated tags and presence tests read through the
+same door the evaluator judges through); then, if `occurrence` is set, index the
+filtered snapshot to the N-th match instead of taking the first unconsumed. The consumed
+cursor still records the bound message, and a step fails loudly if its slot is already
+consumed or fewer than N matches exist by the deadline. `occurrence` is **absolute over
+the filtered snapshot**, not relative to the cursor — "the 2nd" means the same message
+regardless of what earlier steps consumed. A negative/`last` ordinal is **deferred**:
+under polling "the last" is unknowable while more messages may still arrive, so binding
+it early is a race; positive ordinals only in the first cut.
+
+**Capture auto-seeds the discriminator (the usability lever).** `ScenarioCapture.expectStep`
+today seeds bind constraints only from echoed correlation ids (`ID_TAGS`), which are
+identical across fills of one order — exactly the blind spot. A post-pass over the
+captured steps groups `Expect`s by `(session, messageType)`; for each ambiguous group it
+seeds the *minimal* distinguisher: prefer a tag whose **value differs** across the group
+(`ExecType`/`OrdStatus` and any other differing tag), else a **presence/absence**
+difference (`131` present in one, absent in another), and only if the members are
+otherwise tag-identical does it fall back to assigning `occurrence` ordinals by capture
+order. Intent (presence/value) is always preferred over position (count), so scenarios
+do not rot when a venue inserts a message.
+
+*Back-compat & codec:* `TagValue.op` defaults `EQ` and `occurrence` defaults `null`, so
+existing scenario files are byte-identical and behave identically; the codec writes the
+new keys only when non-default and **rejects an unknown operator at load** (fail closed,
+consistent with the assertion-model doc's stance on unknown keys). *UI:* the `Expect`
+editor gains an ordinal chip ("2nd ▾ of type") and a per-constraint operator
+(`= / present / absent`) on the bind row. *Deferred:* the relative anchor ("the first
+`8` **after** step 6's `TradeCaptureReport`", by `stepId`) — expressive for lifecycles
+but largely redundant with presence + ordinal for current flows, and a larger surface;
+revisit if a scenario needs "next match after an event" that neither a discriminator nor
+an absolute ordinal can express.
+

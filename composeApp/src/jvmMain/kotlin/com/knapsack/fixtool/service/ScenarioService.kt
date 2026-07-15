@@ -80,19 +80,27 @@ class ScenarioService(
             if (file.exists()) file.delete() else false
         }.also { if (it) onChanged?.invoke() }
 
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "SwallowedException")
     /**
-     * A scenario that cannot be read is **said out loud**, not dropped.
+     * A scenario that cannot be read is **said out loud**, not dropped — but **missing is not corrupt**.
      *
-     * `notifyUser = false` meant a file the codec refused simply vanished from the workbench — no
-     * banner, no row, no explanation, and the author's scenario apparently deleted itself. That was
-     * survivable while the only cause was a corrupt file. It is not survivable now: the codec refuses,
-     * by design, every scenario written by the group-path model, and an upgrade that silently empties a
-     * user's scenario list while telling them nothing is the worst possible way to deliver that message.
+     * `notifyUser = false` meant a file the codec refused simply vanished from the rail — no banner, no row,
+     * no explanation, and the author's scenario apparently deleted itself. That was survivable while the only
+     * cause was a corrupt file. It is not survivable now: the codec refuses, by design, every scenario written
+     * by the group-path model, and an upgrade that silently empties a user's scenario list while telling them
+     * nothing is the worst possible way to deliver that message.
+     *
+     * A file that is **not there at all** is a different thing, and it must stay quiet. `load(id)` of an id that
+     * has been deleted — or a bad request carrying a blank id (`.json`) — is the caller asking for something
+     * that is not present, not a file we failed to read; shouting an error toast about it treats a benign lookup
+     * as a corruption. So a `FileNotFoundException` returns null silently, and only a file that **exists and will
+     * not parse** is said out loud. (Filed since Phase 2 and re-noted every phase since; fixed in Phase 8.)
      */
     private fun loadFile(file: File): Scenario? =
         try {
             ScenarioCodec.fromJson(Json.parseToJsonElement(file.readText()).jsonObject)
+        } catch (e: java.io.FileNotFoundException) {
+            null // missing ≠ corrupt: the id is not on disk, which is not something to shout about
         } catch (e: Exception) {
             logger.error("Cannot load scenario '${file.name}': ${e.message}", e, notifyUser = true)
             null

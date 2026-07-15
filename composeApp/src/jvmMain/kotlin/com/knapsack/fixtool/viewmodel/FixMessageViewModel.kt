@@ -60,6 +60,7 @@ import com.knapsack.fixtool.ui.diff.DiffViewerSession
 import com.knapsack.fixtool.ui.diff.DiffViewerState
 import com.knapsack.fixtool.ui.diff.ReconcileSession
 import com.knapsack.fixtool.ui.diff.SeedFrom
+import com.knapsack.fixtool.ui.diff.ViewerSlot
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -778,11 +779,39 @@ class FixMessageViewModel(
     val armedReferenceSlot: StateFlow<String?> = _armedReferenceSlot.asStateFlow()
 
     fun armReferenceSlot(diffWindowId: String) {
+        // One click means one thing (S8): arming the reconcile reference disarms any armed viewer slot, and
+        // vice versa. Two armed slots would make a grid click ambiguous, which is the silence ground rule 6
+        // forbids wearing the clothes of a binding.
+        _armedViewerSlot.value = null
         _armedReferenceSlot.value = diffWindowId
     }
 
     fun disarmReferenceSlot() {
         _armedReferenceSlot.value = null
+    }
+
+    /** A viewer window's slot armed for a grid pick: the window id and which of its two sides the click fills. */
+    data class ArmedViewerSlot(
+        val viewerId: String,
+        val slot: ViewerSlot,
+    )
+
+    /**
+     * **A viewer slot waiting for a grid click** — which viewer window, and which of its two sides (A/B). The
+     * plain diff viewer has two slots where the reconcile window has one, so the armed identity carries the side;
+     * everything else mirrors [_armedReferenceSlot] (S8), including that it lives on the ViewModel because the
+     * grid it is waiting for is in the main window while the viewer is in its own.
+     */
+    private val _armedViewerSlot = MutableStateFlow<ArmedViewerSlot?>(null)
+    val armedViewerSlot: StateFlow<ArmedViewerSlot?> = _armedViewerSlot.asStateFlow()
+
+    fun armViewerSlot(viewerId: String, slot: ViewerSlot) {
+        _armedReferenceSlot.value = null // one arm at a time, as above
+        _armedViewerSlot.value = ArmedViewerSlot(viewerId, slot)
+    }
+
+    fun disarmViewerSlot() {
+        _armedViewerSlot.value = null
     }
 
     /**
@@ -795,6 +824,7 @@ class FixMessageViewModel(
      */
     fun selectMessageFromGrid(message: FixMessage?) {
         if (message != null && _armedReferenceSlot.value != null && bindArmedReference(message)) return
+        if (message != null && _armedViewerSlot.value != null && bindArmedViewerSlot(message)) return
         selectMessage(message)
     }
 
@@ -910,9 +940,98 @@ class FixMessageViewModel(
         _openDiffViewers.value = _openDiffViewers.value + DiffViewerState(id = id, session = session)
     }
 
+    /**
+     * **"Diff messages…"** — open an empty viewer with two unfilled slots, each to be filled by a session pick or
+     * a paste (G7). It is given a **freshly-minted** id, not a [DiffViewerState.pairId]: it has no pair yet, and
+     * two empty viewers are two intentions (Phase 7, G3).
+     */
+    fun openEmptyDiffViewer() {
+        val id = "viewer:empty:${java.util.UUID.randomUUID()}"
+        _openDiffViewers.value = _openDiffViewers.value + DiffViewerState(id = id)
+    }
+
+    /**
+     * **"Diff against…"** — from the detail panel, open a viewer with side A already the message the author was
+     * looking at, and **arm side B** so the next grid pick (or a paste) fills it (G7). A message with no wire
+     * bytes cannot be a side (invariant 3), and that is refused *at the click*, in words.
+     */
+    fun openDiffAgainst(message: FixMessage): Boolean {
+        val left = sideOf(message)
+        if (left == null) {
+            showNotification(
+                "FixTool does not have this message's wire bytes, so it cannot be diffed — only the bytes the " +
+                    "venue actually sent can be a side, not the display string.",
+                NotificationType.ERROR,
+            )
+            return false
+        }
+        val id = "viewer:against:${java.util.UUID.randomUUID()}"
+        _openDiffViewers.value = _openDiffViewers.value + DiffViewerState(id = id, pendingLeft = left)
+        armViewerSlot(id, ViewerSlot.RIGHT)
+        return true
+    }
+
+    /**
+     * A grid row was clicked while a **viewer** slot was armed. Binds the message into that slot, and — like the
+     * reconcile arm ([bindArmedReference]) — refuses a message with no wire bytes *at the click*, in words,
+     * leaving the slot armed for another try. Returns true only when it consumed the click by binding.
+     */
+    fun bindArmedViewerSlot(message: FixMessage): Boolean {
+        val armed = _armedViewerSlot.value
+        val viewer = armed?.let { diffViewer(it.viewerId) }
+        if (armed == null || viewer == null) return false
+        val side = sideOf(message)
+        if (side == null) {
+            showNotification(
+                "FixTool does not have this message's wire bytes, so it cannot be diffed against. Only the bytes " +
+                    "the venue actually sent can be a side — the display string is not them.",
+                NotificationType.ERROR,
+            )
+            return false
+        }
+        fillViewerSlot(viewer, armed.slot, side)
+        disarmViewerSlot()
+        // The click happened in the main window; raise the (now-promoted) viewer back to the front — the epoch
+        // bump toFronts it. Re-fetch, because fillViewerSlot just replaced the state.
+        diffViewer(armed.viewerId)?.let { updateDiffViewer(it.copy(focusEpoch = it.focusEpoch + 1)) }
+        return true
+    }
+
+    /** Fill a viewer slot from pasted bytes (already **read** by [WirePaste]); promotes to a session when both fill. */
+    fun fillViewerSlotFromPaste(viewerId: String, slot: ViewerSlot, paste: WirePaste): Boolean {
+        val viewer = diffViewer(viewerId) ?: return false
+        val wire = paste.wire?.takeIf { paste.usable } ?: return false
+        val label = paste.sendingTime?.let { "pasted · ${it.takeLast(TIME_OF_DAY)}" } ?: "pasted"
+        val side = DiffSide(wire = wire, label = label, provenance = ReferenceMessage.Provenance.PASTED)
+        fillViewerSlot(viewer, slot, side)
+        return true
+    }
+
+    /**
+     * Put [side] in [slot], and — the moment **both** sides are known — promote the two pending sides into a
+     * read-only [DiffViewerSession] on the **same** window (its id and frame are kept). Until then the window
+     * stays an empty-slots prompt, never a diff against nothing (the reconcile window's empty-reference rule).
+     */
+    private fun fillViewerSlot(viewer: DiffViewerState, slot: ViewerSlot, side: DiffSide) {
+        val left = if (slot == ViewerSlot.LEFT) side else viewer.pendingLeft
+        val right = if (slot == ViewerSlot.RIGHT) side else viewer.pendingRight
+        val promoted =
+            if (left != null && right != null) {
+                viewer.copy(
+                    session = DiffViewerSession(left, right, getDictionaryAdapter()),
+                    pendingLeft = null,
+                    pendingRight = null,
+                )
+            } else {
+                viewer.copy(pendingLeft = left, pendingRight = right)
+            }
+        updateDiffViewer(promoted)
+    }
+
     fun closeDiffViewer(id: String) {
         _openDiffViewers.value = _openDiffViewers.value.filterNot { it.id == id }
         if (_armedReferenceSlot.value == id) _armedReferenceSlot.value = null
+        if (_armedViewerSlot.value?.viewerId == id) _armedViewerSlot.value = null
     }
 
     /** Swap A and B, and re-judge. Not an edit — it changes what you are looking at (the session mutates in place). */
@@ -1110,7 +1229,7 @@ class FixMessageViewModel(
      * end in the first place: the tool knew exactly what it was withholding and said nothing.
      */
     sealed interface ReconcileRoute {
-        /** The failure can be reconciled: [request] opens the workbench on its diff. */
+        /** The failure can be reconciled: [request] opens the diff window on the failing step. */
         data class Open(
             val request: ScenarioEditRequest,
         ) : ReconcileRoute
@@ -1865,8 +1984,8 @@ class FixMessageViewModel(
     }
 
     /**
-     * Publish the last run's verdict. The workbench's run report — and the route from a failed step to the
-     * reconcile view, which hangs off it — reads this. Production code publishes only through
+     * Publish the last run's verdict. The rail's run report — and the route from a failed step to the
+     * diff window, which hangs off it — reads this. Production code publishes only through
      * [runScenarioBlocking]; it is open for tests that stage a run's aftermath without running one.
      */
     fun publishScenarioResult(result: ScenarioResult?) {

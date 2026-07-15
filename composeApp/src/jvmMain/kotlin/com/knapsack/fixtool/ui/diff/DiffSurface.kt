@@ -877,7 +877,7 @@ private fun ArmedSlotBanner(onDisarm: () -> Unit) {
  * and a value FixTool guessed wrong would go in as the thing to assert for ever. See [WirePaste].
  */
 @Composable
-private fun PasteSheet(onUse: (WirePaste) -> Unit, onCancel: () -> Unit) {
+internal fun PasteSheet(onUse: (WirePaste) -> Unit, onCancel: () -> Unit, useLabel: String = "Use as reference") {
     var text by remember { mutableStateOf("") }
     val paste = remember(text) { if (text.isBlank()) null else WirePaste.read(text) }
     Column(
@@ -903,7 +903,7 @@ private fun PasteSheet(onUse: (WirePaste) -> Unit, onCancel: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
             SlimButton("Cancel", onClick = onCancel, color = AppTheme.Colors.textSecondary, modifier = Modifier.padding(end = 6.dp))
             SlimButton(
-                "Use as reference",
+                useLabel,
                 onClick = { paste?.let(onUse) },
                 enabled = paste?.usable == true,
                 color = AppTheme.Colors.primary,

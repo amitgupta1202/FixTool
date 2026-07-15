@@ -1252,6 +1252,7 @@ private fun AppMessageDetailPanel(
         onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
         tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags } ?: emptyList(),
         onEditAssertion = selectedMessage?.let { msg -> ({ tag: Int? -> viewModel.openScenarioEditorForFailure(msg, tag) }) },
+        onDiffAgainst = { msg -> viewModel.openDiffAgainst(msg) },
     )
 }
 

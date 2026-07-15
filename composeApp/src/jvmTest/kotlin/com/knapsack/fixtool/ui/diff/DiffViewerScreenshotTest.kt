@@ -115,10 +115,58 @@ class DiffViewerScreenshotTest {
         assertTrue(seeded == SeedFrom.A, "Seed from A must fire the one-way door")
     }
 
-    private fun snapshot(name: String) {
+    // ---------------------------------------- the empty-slots opener (Phase 8: "Diff messages…" / "Diff against…")
+
+    @Test
+    fun `the opener shows two slots — one filled A, one armed B (the Diff against… look)`() {
+        composeTestRule.setContent {
+            androidx.compose.foundation.layout.Box(modifier = Modifier.size(900.dp, 420.dp).background(AppTheme.Colors.background)) {
+                EmptySlots(
+                    pendingLeft = sideA(),
+                    pendingRight = null,
+                    armedSlot = ViewerSlot.RIGHT,
+                    onArm = {},
+                    onDisarm = {},
+                    onUsePaste = { _, _ -> },
+                )
+            }
+        }
+        composeTestRule.onNodeWithTag("diff-viewer-empty").assertExists()
+        composeTestRule.onNodeWithTag("viewer-slot-a-filled").assertExists() // A carries the golden label
+        composeTestRule.onNodeWithTag("viewer-slot-b-armed").assertExists() // B is waiting for a grid click
+        captureTag("diff-viewer-empty", "diff_viewer_empty_slots.png")
+    }
+
+    @Test
+    fun `pick from session arms a slot, and paste wire opens the sheet`() {
+        var armed: ViewerSlot? = null
+        composeTestRule.setContent {
+            androidx.compose.foundation.layout.Box(modifier = Modifier.size(900.dp, 420.dp).background(AppTheme.Colors.background)) {
+                EmptySlots(
+                    pendingLeft = null,
+                    pendingRight = null,
+                    armedSlot = null,
+                    onArm = { armed = it },
+                    onDisarm = {},
+                    onUsePaste = { _, _ -> },
+                )
+            }
+        }
+        composeTestRule.onNodeWithTag("viewer-slot-a-pick").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue(armed == ViewerSlot.LEFT, "pick from session arms side A")
+
+        composeTestRule.onNodeWithTag("viewer-slot-b-paste").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("diff-paste-sheet").assertExists() // the reconcile paste sheet, reused
+    }
+
+    private fun snapshot(name: String) = captureTag("diff-viewer", name)
+
+    private fun captureTag(tag: String, name: String) {
         try {
             outDir.mkdirs()
-            ImageIO.write(composeTestRule.onNodeWithTag("diff-viewer").captureToImage().toAwtImage(), "png", File(outDir, name))
+            ImageIO.write(composeTestRule.onNodeWithTag(tag).captureToImage().toAwtImage(), "png", File(outDir, name))
         } catch (e: Exception) {
             println("[DiffViewerScreenshotTest] snapshot '$name' skipped: ${e.message}")
         }

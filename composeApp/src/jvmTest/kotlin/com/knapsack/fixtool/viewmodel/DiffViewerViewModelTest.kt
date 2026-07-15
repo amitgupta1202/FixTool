@@ -2,8 +2,10 @@ package com.knapsack.fixtool.viewmodel
 
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.ui.ScenarioDoc
 import com.knapsack.fixtool.ui.diff.SeedFrom
+import com.knapsack.fixtool.ui.diff.ViewerSlot
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -57,6 +59,11 @@ class DiffViewerViewModelTest {
 
     private val a = msg(wire("35=8", "31=1.0851", "58=filled|in full"), at = 44)
     private val b = msg(wire("35=8", "31=1.0849"), at = 46)
+
+    private fun soleViewerId(): String {
+        val viewer = viewModel.openDiffViewers.value.single()
+        return viewer.id
+    }
 
     @Test
     fun `diff selected opens a viewer on two messages`() {
@@ -145,5 +152,95 @@ class DiffViewerViewModelTest {
             viewModel.openDocuments.value.any { it is ScenarioDoc.Editor && it.scenarioId == scenario.id },
             "the editor tab opened on the new scenario",
         )
+    }
+
+    // -------------------------------------------------- the two Phase-8 entry points (both empty-slots doors)
+
+    @Test
+    fun `diff messages opens an empty viewer with two unfilled slots`() {
+        viewModel.openEmptyDiffViewer()
+        val viewer = viewModel.openDiffViewers.value.single()
+        assertNull(viewer.session, "an empty opener has no diff yet — it is a prompt, not a diff against nothing")
+        assertNull(viewer.pendingLeft)
+        assertNull(viewer.pendingRight)
+    }
+
+    @Test
+    fun `two picks fill the empty opener's slots and promote it to a diff`() {
+        viewModel.openEmptyDiffViewer()
+        val id = soleViewerId()
+
+        viewModel.armViewerSlot(id, ViewerSlot.LEFT)
+        assertTrue(viewModel.bindArmedViewerSlot(a), "the armed left slot binds the clicked message")
+        assertNull(viewModel.diffViewer(id)!!.session, "one side is not a diff yet")
+        assertEquals(a.wireRaw, viewModel.diffViewer(id)!!.pendingLeft!!.wire)
+
+        viewModel.armViewerSlot(id, ViewerSlot.RIGHT)
+        assertTrue(viewModel.bindArmedViewerSlot(b))
+        val session = viewModel.diffViewer(id)!!.session
+        assertNotNull(session, "both sides bound → the diff opens")
+        assertNull(viewModel.diffViewer(id)!!.pendingLeft, "pending is cleared once promoted")
+        assertTrue(session.model.lines.any { it.row.tag == 31 }, "the promoted diff shows the two messages differ on 31")
+    }
+
+    @Test
+    fun `diff against pre-fills A and arms B, and a grid pick completes it`() {
+        assertTrue(viewModel.openDiffAgainst(a), "A has wire bytes, so the viewer opens")
+        val viewer = viewModel.openDiffViewers.value.single()
+        assertEquals(a.wireRaw, viewer.pendingLeft!!.wire, "the detail message is side A")
+        assertNull(viewer.session, "B is not bound yet, so it is still an opener")
+        assertEquals(ViewerSlot.RIGHT, viewModel.armedViewerSlot.value!!.slot, "B is armed for the next pick")
+        assertEquals(viewer.id, viewModel.armedViewerSlot.value!!.viewerId)
+
+        assertTrue(viewModel.bindArmedViewerSlot(b))
+        assertNotNull(viewModel.diffViewer(viewer.id)!!.session, "picking B completes the pair")
+        assertNull(viewModel.armedViewerSlot.value, "binding disarms")
+    }
+
+    @Test
+    fun `diff against refuses a message with no wire bytes, and says so`() {
+        assertFalse(viewModel.openDiffAgainst(msg(null)), "no wire bytes → no side")
+        assertTrue(viewModel.openDiffViewers.value.isEmpty(), "nothing opens")
+        assertTrue(viewModel.notifications.isNotEmpty(), "the refusal is said, not silent")
+    }
+
+    @Test
+    fun `an armed viewer slot refuses a no-wire pick at the click, and stays armed`() {
+        viewModel.openDiffAgainst(a)
+        val armed = viewModel.armedViewerSlot.value
+        assertFalse(viewModel.bindArmedViewerSlot(msg(null)), "a message with no wire bytes cannot fill the slot")
+        assertTrue(viewModel.notifications.isNotEmpty(), "refused in words")
+        assertEquals(armed, viewModel.armedViewerSlot.value, "the slot stays armed for another try")
+    }
+
+    @Test
+    fun `arming a viewer slot and a reference slot are mutually exclusive — one click means one thing`() {
+        viewModel.armReferenceSlot("window-1")
+        assertEquals("window-1", viewModel.armedReferenceSlot.value)
+        viewModel.openEmptyDiffViewer()
+        val id = soleViewerId()
+        viewModel.armViewerSlot(id, ViewerSlot.LEFT)
+        assertNull(viewModel.armedReferenceSlot.value, "arming a viewer slot disarms the reconcile reference")
+
+        viewModel.armReferenceSlot("window-1")
+        assertNull(viewModel.armedViewerSlot.value, "arming the reference disarms the viewer slot")
+    }
+
+    @Test
+    fun `pasted bytes fill a viewer slot, and two pastes promote to a diff`() {
+        viewModel.openEmptyDiffViewer()
+        val id = soleViewerId()
+        viewModel.fillViewerSlotFromPaste(id, ViewerSlot.LEFT, WirePaste.read(a.wireRaw!!))
+        assertNull(viewModel.diffViewer(id)!!.session, "one pasted side is not a diff yet")
+        viewModel.fillViewerSlotFromPaste(id, ViewerSlot.RIGHT, WirePaste.read(b.wireRaw!!))
+        assertNotNull(viewModel.diffViewer(id)!!.session, "two pasted sides → the diff opens")
+    }
+
+    @Test
+    fun `closing a viewer clears an arm that targeted it`() {
+        viewModel.openDiffAgainst(a)
+        val id = soleViewerId()
+        viewModel.closeDiffViewer(id)
+        assertNull(viewModel.armedViewerSlot.value, "closing the viewer disarms its slot")
     }
 }

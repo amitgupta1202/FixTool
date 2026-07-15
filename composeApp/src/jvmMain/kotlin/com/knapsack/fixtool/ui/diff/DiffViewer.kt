@@ -18,6 +18,16 @@ import com.knapsack.fixtool.service.compare.ReferenceMessage
 enum class SeedFrom { A, B }
 
 /**
+ * Which slot of a not-yet-complete viewer a grid pick or a paste fills — the left ("A") or the right ("B").
+ *
+ * The *"Diff messages…"* opener starts with both empty and fills them one at a time; *"Diff against…"* starts
+ * with A already the message the author was looking at and arms B. Either way the fill lands in one of these two
+ * slots ([DiffViewerState.pendingLeft]/[DiffViewerState.pendingRight]), and the pair is promoted to a read-only
+ * [DiffViewerSession] the moment both are known.
+ */
+enum class ViewerSlot { LEFT, RIGHT }
+
+/**
  * **One side of a plain diff** — a message the author put here, and how the header names it.
  *
  * Both sides are the venue's own **bytes** (invariant 3: only `wireRaw` feeds a diff, never the `|`-substituted

@@ -47,8 +47,9 @@ curl -s $B/screenshot -o shot.png                                   # main windo
 
 Scenarios: `POST /scenarios` (JSON per `docs/fixtool-assert-spec.md` / `ScenarioCodec`),
 `POST /scenarios/run -d '{"id":...}'` → per-step/per-tag report. `POST /assert` for
-one-off expectations. `POST /panel -d '{"panel":"scenarios"}'` opens the workbench window
-(screenshot captures the MAIN window only).
+one-off expectations. `POST /panel -d '{"panel":"scenarios"}'` toggles the Scenarios rail
+(docked in the main window). The reconcile diff and the plain diff viewer open in their own
+windows; address one by title with `GET /screenshot?window=main|reconcile|diff:`.
 
 ## Gotchas
 

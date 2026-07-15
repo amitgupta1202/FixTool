@@ -124,7 +124,7 @@ server.tool(
   "fixtool_panel",
   "Show or hide a UI panel for verification screenshots: connection (the connection/profile " +
     "editor), editor (message editor), detail (message details), settings, or scenarios (the " +
-    "scenarios workbench).",
+    "Scenarios rail, docked in the main window).",
   {
     panel: z.enum(["connection", "editor", "detail", "settings", "scenarios"]),
     show: z.boolean().default(true),

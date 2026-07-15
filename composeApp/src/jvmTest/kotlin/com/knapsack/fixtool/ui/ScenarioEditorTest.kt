@@ -61,7 +61,6 @@ class ScenarioEditorTest {
                     dictionary = dictionary,
                     sessionOptions = listOf("QUOTE", "TRADE"),
                     onSave = onSave,
-                    onBack = {},
                 )
             }
         }

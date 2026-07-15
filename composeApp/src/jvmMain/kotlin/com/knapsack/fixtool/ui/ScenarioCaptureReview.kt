@@ -3,10 +3,11 @@
 
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,20 +15,23 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -59,7 +63,6 @@ fun ScenarioCaptureReview(
     candidates: List<ScenarioCapture.Candidate>,
     dictionary: FixDictionary?,
     onSave: (String, List<ScenarioCapture.Candidate>) -> Boolean,
-    onBack: () -> Unit,
     modifier: Modifier = Modifier,
     /** Messages FixTool could not read the wire bytes for — see [UnreadableNotice]. */
     unreadable: List<FixMessage> = emptyList(),
@@ -118,19 +121,30 @@ fun ScenarioCaptureReview(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = AppTheme.Colors.textSecondary)
+        // One control row — name, the From/To range, the help affordance, the count, and Save — instead of the
+        // four stacked rows this was. The tab already says "capture", so the screen title is gone; the long
+        // "what this becomes" paragraph now lives behind the ⓘ, out of the way until it is asked for.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 2.dp, bottom = 4.dp),
+        ) {
+            SlimLabeled("Name") {
+                SlimField(name, { onStateChange(state.copy(name = it)) }, modifier = Modifier.width(160.dp).testTag("capture-name"))
             }
-            Text("Capture scenario", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            SlimLabeled("Name", modifier = Modifier.padding(start = 16.dp)) {
-                SlimField(name, { onStateChange(state.copy(name = it)) }, modifier = Modifier.width(240.dp).testTag("capture-name"))
-            }
+            RangeSelectors(
+                candidates = candidates,
+                dictionary = dictionary,
+                included = state.included,
+                onIncludedChange = { onStateChange(state.copy(included = it)) },
+            )
+            CaptureHelp()
             Text(
-                "${selection.size} of ${candidates.size} messages selected",
+                "${selection.size}/${candidates.size} selected",
                 color = AppTheme.Colors.textSecondary,
                 fontSize = 11.sp,
-                modifier = Modifier.weight(1f).padding(start = 16.dp),
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
             )
             SlimButton(
                 text = "Save scenario",
@@ -157,21 +171,7 @@ fun ScenarioCaptureReview(
             )
         }
         paste?.let { PasteSource(it, sessionOptions, onPasteChange) }
-        Text(
-            text = "Sends become parameterized Send steps (fresh ids, live timestamps); responses become assertions. " +
-                "●id badges mark where an id is minted, ○id where it must echo back — including across sessions.",
-            color = AppTheme.Colors.textSecondary,
-            fontSize = 11.sp,
-            modifier = Modifier.padding(start = 12.dp, bottom = 6.dp),
-        )
         UnreadableNotice(unreadable, dictionary)
-        RangeSelectors(
-            candidates = candidates,
-            dictionary = dictionary,
-            included = state.included,
-            onIncludedChange = { onStateChange(state.copy(included = it)) },
-            modifier = Modifier.padding(start = 12.dp, bottom = 8.dp),
-        )
         if (candidates.isEmpty()) {
             Text(
                 "Nothing to capture: no business messages in any session. Drive the flow in the main window first.",
@@ -181,8 +181,11 @@ fun ScenarioCaptureReview(
             )
             return@Column
         }
-        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(0.56f).fillMaxHeight()) {
+        // The split is draggable, same as the editor's, so a wide message can be given the room to read.
+        var split by remember { mutableStateOf(0.56f) }
+        var paneWidth by remember { mutableStateOf(0) }
+        Row(modifier = Modifier.weight(1f).fillMaxWidth().onSizeChanged { paneWidth = it.width }) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(split).fillMaxHeight()) {
                 itemsIndexed(candidates) { i, candidate ->
                     val isIncluded = state.includes(i)
                     CandidateRow(
@@ -202,8 +205,8 @@ fun ScenarioCaptureReview(
                     )
                 }
             }
-            Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(AppTheme.Colors.border))
-            Column(modifier = Modifier.weight(0.44f).fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 12.dp)) {
+            PaneDivider(onDrag = { dx -> if (paneWidth > 0) split = (split + dx / paneWidth).coerceIn(0.20f, 0.80f) }, testTag = "capture-pane-divider")
+            Column(modifier = Modifier.weight(1f - split).fillMaxHeight().verticalScroll(rememberScrollState()).padding(start = 12.dp)) {
                 if (selectedIdx in candidates.indices) {
                     CandidateDetail(
                         index = selectedIdx,
@@ -346,7 +349,7 @@ private fun RangeSelectors(
     }
     val first = included.indexOfFirst { it }.takeIf { it >= 0 }
     val last = included.indexOfLast { it }.takeIf { it >= 0 }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = modifier) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier) {
         SlimLabeled("From") {
             SlimDropdown(
                 value = first,
@@ -354,7 +357,7 @@ private fun RangeSelectors(
                 onValueChange = { picked -> if (picked != null) onIncludedChange(included.trimmedBefore(picked)) },
                 displayText = ::label,
                 placeholder = "first message",
-                modifier = Modifier.width(280.dp).testTag("capture-from"),
+                modifier = Modifier.width(180.dp).testTag("capture-from"),
             )
         }
         SlimLabeled("To") {
@@ -364,9 +367,36 @@ private fun RangeSelectors(
                 onValueChange = { picked -> if (picked != null) onIncludedChange(included.trimmedAfter(picked)) },
                 displayText = ::label,
                 placeholder = "last message",
-                modifier = Modifier.width(280.dp).testTag("capture-to"),
+                modifier = Modifier.width(180.dp).testTag("capture-to"),
             )
         }
+    }
+}
+
+/**
+ * The "what this becomes" explanation, folded behind an ⓘ so it costs one glyph of space instead of a
+ * two-line paragraph. Hover reveals the full text — the same words the screen used to spend a row on.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CaptureHelp() {
+    TooltipArea(
+        tooltip = {
+            Text(
+                text = "Sends become parameterized Send steps (fresh ids, live timestamps); responses become " +
+                    "assertions.\n\n●id marks where an id is minted, ○id where it must echo back — including across sessions.",
+                modifier = Modifier
+                    .shadow(4.dp, RoundedCornerShape(4.dp))
+                    .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .widthIn(max = 360.dp),
+                color = AppTheme.Colors.text,
+                fontSize = 11.sp,
+            )
+        },
+        delayMillis = 300,
+    ) {
+        Text("ⓘ", color = AppTheme.Colors.info, fontSize = 14.sp, modifier = Modifier.testTag("capture-help"))
     }
 }
 

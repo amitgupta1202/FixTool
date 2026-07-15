@@ -155,7 +155,6 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                             onSelectStep = { index -> viewModel.updateEditorDocument(doc.id) { it.copy(selectedStep = index) } },
                             onChange = { edited -> viewModel.updateScenarioDraft(doc.scenarioId) { it.copy(draft = edited) } },
                             onSave = { edited -> viewModel.saveScenarioDocument(edited) },
-                            onBack = { viewModel.showSessions() },
                         )
                     }
                 }
@@ -170,7 +169,6 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                         // so selecting a candidate selects its source message in the session it came from.
                         onSelectSource = { message -> viewModel.selectMessage(message) },
                         onSave = { name, selection -> viewModel.saveCaptureDocument(name, selection) },
-                        onBack = { viewModel.showSessions() },
                         // Capture's second source (S9). Null for a live scan; the paste box otherwise.
                         paste = doc.paste,
                         onPasteChange = { text, session -> viewModel.updateCapturePaste(text, session) },

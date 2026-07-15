@@ -21,6 +21,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
 import org.junit.Before
@@ -146,8 +147,12 @@ class ScenarioRunReportTest {
         // of this test's; that it *renders* is DiffSurfaceTest's job, and that the route *reaches* it is this.
         val window = viewModel.openDiffWindows.value.single()
         assertEquals(stepId(), window.stepId)
-        assertTrue(window.session?.model?.verdict?.needsAttention == true, "and it agrees with the run that this failed")
+        val verdict = window.session?.model?.verdict
+        assertTrue(verdict?.needsAttention == true, "and it agrees with the run that this failed")
     }
+
+    /** The single open diff window — every test here opens exactly one. */
+    private fun onlyWindow() = viewModel.openDiffWindows.value.single()
 
     /** The step this scenario's run failed at, by identity. */
     private fun stepId(): String =
@@ -171,7 +176,7 @@ class ScenarioRunReportTest {
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
 
-        assertEquals(stepId(), viewModel.openDiffWindows.value.single().stepId, "the step the rail named, not the first one")
+        assertEquals(stepId(), onlyWindow().stepId, "the step the rail named, not the first one")
     }
 
     /**
@@ -189,8 +194,8 @@ class ScenarioRunReportTest {
         composeTestRule.waitForIdle()
 
         // Accept the actual on the failing 150 row — one staged repair, applied to the window's own session.
-        val session = viewModel.openDiffWindows.value.single().session!!
-        session.apply(com.knapsack.fixtool.ui.diff.EditOp.acceptActual(0, 150, "8"))
+        val session = onlyWindow().session!!
+        session.apply(EditOp.acceptActual(0, 150, "8"))
         assertEquals(1, session.staged)
         assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty, "the scenario knows it is holding an edit")
 
@@ -199,7 +204,7 @@ class ScenarioRunReportTest {
 
         // The repair is still staged and ⌘Z still has somewhere to go, because the session was never in a
         // composable that the main window could dispose.
-        val after = viewModel.openDiffWindows.value.single().session!!
+        val after = onlyWindow().session!!
         assertEquals(1, after.staged)
         assertTrue(after.canUndo)
     }

@@ -71,6 +71,8 @@ class ScenarioWorkspaceTest {
         return viewModel.scenarioService.load(scenario.id)!!
     }
 
+    private fun onlyWindow() = viewModel.openDiffWindows.value.single()
+
     @Test
     fun `a scenario opens clean, and an edit dirties the scenario rather than the tab`() {
         viewModel.openScenarioEditor(saved())
@@ -255,7 +257,7 @@ class ScenarioWorkspaceTest {
         val stepId = onDisk.withIds().steps[1].stepId
         viewModel.openScenarioEditor(onDisk)
         viewModel.openDiffWindow(onDisk, stepId, thisRunWire = message(wire("150=0")).wireRaw)
-        val epochBefore = viewModel.openDiffWindows.value.single().focusEpoch
+        val epochBefore = onlyWindow().focusEpoch
 
         viewModel.openDiffWindow(onDisk, stepId, focusTag = 150)
 

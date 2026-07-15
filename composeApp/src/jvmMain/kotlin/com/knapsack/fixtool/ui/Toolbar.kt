@@ -86,6 +86,22 @@ fun Toolbar(
             }
         }
 
+        // Scenarios button (repeatable scenarios + assertion results)
+        if (onOpenScenarios != null) {
+            TooltipIconButton(
+                tooltip = "Repeatable Scenarios",
+                onClick = onOpenScenarios,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlaylistPlay,
+                    contentDescription = "Repeatable Scenarios",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = tooltipIconModifier,
+                )
+            }
+        }
+
         Text(
             text = "FixTool",
             color = AppTheme.Colors.text,
@@ -465,22 +481,6 @@ fun Toolbar(
                 Icon(
                     imageVector = Icons.Default.Help,
                     contentDescription = "Help",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = tooltipIconModifier,
-                )
-            }
-        }
-
-        // Scenarios button (repeatable scenarios + assertion results)
-        if (onOpenScenarios != null) {
-            TooltipIconButton(
-                tooltip = "Repeatable Scenarios",
-                onClick = onOpenScenarios,
-                modifier = tooltipModifier,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlaylistPlay,
-                    contentDescription = "Repeatable Scenarios",
                     tint = AppTheme.Colors.textSecondary,
                     modifier = tooltipIconModifier,
                 )

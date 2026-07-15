@@ -17,7 +17,7 @@ import com.knapsack.fixtool.model.scenario.TemporalKind
  * - the envelope ([SessionTags.NEVER_ASSERTED])        → omitted entirely
  * - IDs and addressing ([SessionTags.VALUE_NOT_PORTABLE], OrderID 37, ExecID 17) → `Presence`
  * - `UTCTIMESTAMP` / time-ish     → `Temporal(NOW_WITHIN_TOLERANCE)`
- * - `UTCDATEONLY` / date-ish      → `Temporal(TODAY)`
+ * - `UTCDATEONLY` / `UTCDATE`     → `Temporal(TODAY)` (a *current* UTC date — never a business date; see [DATE_TYPES])
  * - `PRICE`/`QTY`/`AMT`/`FLOAT`   → `Numeric(captured)` (tolerance 0 = format-robust exact)
  * - everything else               → `Exact(captured)`
  *
@@ -87,6 +87,9 @@ object ExpectationSeeder {
             tag in PRESENCE_TAGS -> Matcher.Presence
             fieldType in TIMESTAMP_TYPES ->
                 Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, DEFAULT_TIME_TOLERANCE_SECONDS)
+            // Only *current* UTC dates land here (an MDEntryDate on a live snapshot is today's date). Business
+            // dates — LOCALMKTDATE, MONTHYEAR — are deliberately excluded from DATE_TYPES and fall through to
+            // Exact below, so the golden stays green against its own captured value. See [DATE_TYPES].
             fieldType in DATE_TYPES -> Matcher.Temporal(TemporalKind.TODAY)
             fieldType in NUMERIC_TYPES && value.toDoubleOrNull() != null ->
                 Matcher.Numeric(value.toDouble(), DEFAULT_NUMERIC_TOLERANCE)
@@ -104,6 +107,14 @@ object ExpectationSeeder {
 
     // QuickFIX FieldType enum names, matched as strings so we don't bind to a specific QF/J version.
     private val TIMESTAMP_TYPES = setOf("UTCTIMESTAMP", "UTCTIMEONLY", "TZTIMESTAMP", "TZTIMEONLY", "TIME")
-    private val DATE_TYPES = setOf("UTCDATEONLY", "UTCDATE", "LOCALMKTDATE", "MONTHYEAR")
+
+    // Only the types that genuinely mean "the current UTC date": an MDEntryDate(272) on a live snapshot is
+    // today's date, and seeding it Exact would wrongly go red on daily replay. LOCALMKTDATE and MONTHYEAR are
+    // deliberately NOT here. A SettlDate(64)/TradeDate(75) is a fixed *business* date and a MONTHYEAR is a
+    // maturity — a settlement, trade or maturity date is not "today", so Temporal(TODAY) turned red on the
+    // golden's own captured value on every T+n (and the only reconcile repairs on a temporal row are
+    // Loosen/Drop, so the coverage silently eroded). Excluded from this set, they fall through to Exact(value)
+    // — the value the venue echoes — which keeps a freshly-captured scenario green against its own capture.
+    private val DATE_TYPES = setOf("UTCDATEONLY", "UTCDATE")
     private val NUMERIC_TYPES = setOf("PRICE", "QTY", "AMT", "FLOAT", "PRICEOFFSET", "PERCENTAGE")
 }

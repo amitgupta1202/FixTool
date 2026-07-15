@@ -162,7 +162,7 @@ fun main() {
             val diffViewers by viewModel.openDiffViewers.collectAsState()
             diffViewers.forEach { state ->
                 key(state.id) {
-                    DiffViewerWindow(viewModel, state, onClose = { viewModel.closeDiffViewer(state.id) })
+                    DiffViewerWindow(viewModel, state, onClose = { viewModel.requestCloseDiffViewer(state.id) })
                 }
             }
         }

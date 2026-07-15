@@ -160,6 +160,38 @@ class ScenarioRunnerTest {
     }
 
     @Test
+    fun `an empty scenario fails preflight instead of reporting a vacuous green`() {
+        val host = FakeHost()
+        // No steps at all: `results.all { it.passed }` would be vacuously true and report passed=true,
+        // a green gate that did and checked nothing. The runner must reject it up front.
+        val result = run(host, Scenario(id = "x", name = "empty"))
+        assertFalse(result.passed, "an empty scenario must not report passed")
+        val step = result.steps.single()
+        assertEquals("preflight", step.kind)
+        assertTrue(step.detail!!.contains("no steps"), "detail: ${step.detail}")
+    }
+
+    @Test
+    fun `a Send-only scenario is not rejected by the empty-scenario guard`() {
+        val host = FakeHost()
+        // A scenario that only sends does real work (a load driver, or a scope fixture that asserts on what
+        // was sent) — it must NOT be rejected for having no Expect. Only a truly empty scenario is a false
+        // green, so this one runs.
+        val result = run(host, scenario(ScenarioStep.Send("11=ORD-1", session = "s")))
+        assertTrue(result.steps.none { it.kind == "preflight" }, "a Send-only scenario must clear preflight")
+        assertEquals(listOf("11=ORD-1"), host.sent, "the send must actually run")
+    }
+
+    @Test
+    fun `a scenario with at least one Expect is unaffected by the asserts-nothing guard`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 150 to "0"))
+        val result = run(host, scenario(expect("8", FieldExpectation(150, Matcher.Exact("0")))))
+        assertTrue(result.passed, "a scenario that asserts still runs and can pass: ${result.steps}")
+        assertTrue(result.steps.none { it.kind == "preflight" }, "the guard must not trip when a step asserts")
+    }
+
+    @Test
     fun `a scenario that waits for logon itself passes preflight while disconnected`() {
         val host = FakeHost()
         host.stateOf = { "DISCONNECTED" }

@@ -412,4 +412,188 @@ class ScenarioReconcileTest {
             "re-seeding must not pin the echo assertion to the uuid this one run happened to mint",
         )
     }
+
+    // ------------------------------------------------------------------- nested-group re-order
+
+    /**
+     * A venue that swaps two entries of a NESTED group has changed the message's **shape**, not its
+     * behaviour — the same one-click accept the top-level swap gets. The re-order engine descends into the
+     * nested NoPartySubIDs(802) group and brackets the two sub-entries that travelled; each row keeps its
+     * own matcher, so every PartySubIDType lands on the sub-party it always described. Nothing else asserts
+     * that the engine handles nesting at all.
+     */
+    @Test
+    fun `a nested group entry that swapped is re-ordered, and every assertion survives`() {
+        val wire =
+            wireView(
+                35 to "8",
+                453 to "1",
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
+                802 to "2",
+                // the two sub-entries arrive swapped
+                523 to "SUB2",
+                803 to "2",
+                523 to "SUB1",
+                803 to "1",
+            )
+        val draft =
+            expectation(
+                FieldExpectation(35, Matcher.Exact("8")),
+                FieldExpectation(453, Matcher.Exact("1")),
+                FieldExpectation(448, Matcher.Exact("FIRMA")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("1")),
+                FieldExpectation(802, Matcher.Exact("2")),
+                FieldExpectation(523, Matcher.Exact("SUB1")),
+                FieldExpectation(803, Matcher.Exact("1")),
+                FieldExpectation(523, Matcher.Exact("SUB2")),
+                FieldExpectation(803, Matcher.Exact("2")),
+            )
+
+        val possible =
+            ScenarioReconcile.reorder(draft, wire) as? ScenarioReconcile.Reorder.Possible
+                ?: error("two nested sub-entries merely swapped — that is a re-order, not a regression")
+        assertEquals(
+            setOf(6, 7, 8, 9),
+            possible.moved,
+            "both nested sub-entries — the 523/803 pairs — are what moved, and nothing else",
+        )
+
+        val fixed = ScenarioReconcile.acceptNewOrder(draft, wire) ?: error("the sub-entries merely swapped")
+        assertTrue(
+            ExpectationEvaluator.evaluate(wire, fixed).all { it.passed },
+            "each sub-entry's PartySubIDType still lands on the sub-party it always described",
+        )
+    }
+
+    // ---------------------------------------------------------- whole groups: missing, extra, no count
+
+    /**
+     * The venue sent NO party group at all — not a reordering, not a value change, an entire group absent.
+     * Every count and party row has nothing to pair with, so each reports MISSING, and the step fails
+     * whether the mode tolerates unmentioned extras (OPEN) or not (STRICT). There is no re-order to offer:
+     * nothing moved, it is simply gone.
+     */
+    @Test
+    fun `a venue that sends no party group at all reports every row missing, in both modes`() {
+        val wire = wireView(35 to "8")
+        val open =
+            expectation(
+                FieldExpectation(453, Matcher.Exact("2")),
+                FieldExpectation(448, Matcher.Exact("FIRMA")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("1")),
+                FieldExpectation(448, Matcher.Exact("FIRMB")),
+                FieldExpectation(447, Matcher.Exact("E")),
+                FieldExpectation(452, Matcher.Exact("4")),
+            )
+        val strict = open.copy(mode = MatchMode.STRICT)
+
+        assertTrue(
+            rows(open, wire).filter { it.judged }.all { it.status == TagStatus.MISSING },
+            "count and both entries have nowhere to pair — that is missing, not moved",
+        )
+        assertFalse(ExpectationEvaluator.evaluate(wire, open).all { it.passed }, "OPEN still requires what it lists")
+        assertFalse(ExpectationEvaluator.evaluate(wire, strict).all { it.passed })
+        assertEquals(
+            ScenarioReconcile.Reorder.None,
+            ScenarioReconcile.reorder(open, wire),
+            "an absent group did not move; there is nothing to re-order",
+        )
+    }
+
+    /**
+     * The venue sent an EXTRA party entry and bumped NoPartyIDs to match. The count row (453) is a plain
+     * value mismatch — 2 was expected, 3 arrived — so both modes fail: OPEN on the count alone (it tolerates
+     * the unmentioned third entry's fields), STRICT on the count *and* the three unasserted extras.
+     */
+    @Test
+    fun `a venue that sends an extra party entry is a count mismatch, and both modes fail`() {
+        val wire =
+            wireView(
+                453 to "3",
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
+                448 to "FIRMB",
+                447 to "E",
+                452 to "4",
+                // one party more than the expectation captured
+                448 to "FIRMC",
+                447 to "F",
+                452 to "7",
+            )
+        val open =
+            expectation(
+                FieldExpectation(453, Matcher.Exact("2")),
+                FieldExpectation(448, Matcher.Exact("FIRMA")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("1")),
+                FieldExpectation(448, Matcher.Exact("FIRMB")),
+                FieldExpectation(447, Matcher.Exact("E")),
+                FieldExpectation(452, Matcher.Exact("4")),
+            )
+        val strict = open.copy(mode = MatchMode.STRICT)
+
+        assertEquals(
+            TagStatus.VALUE,
+            rows(open, wire).single { it.tag == 453 }.status,
+            "the count row found its 453 — the value 3 is simply not the 2 it asserts",
+        )
+        assertEquals(
+            listOf(453),
+            ExpectationEvaluator.evaluate(wire, open).filterNot { it.passed }.map { it.tag },
+            "OPEN tolerates the extra entry's fields; only the count is wrong",
+        )
+        val strictFailures = ExpectationEvaluator.evaluate(wire, strict).filterNot { it.passed }
+        assertTrue(453 in strictFailures.map { it.tag }, "STRICT fails the count too")
+        assertTrue(
+            strictFailures.any { it.tag == 448 && it.status == TagStatus.UNEXPECTED },
+            "and STRICT fails the extra entry's fields as unexpected",
+        )
+    }
+
+    /**
+     * The venue omitted NoPartyIDs(453) but sent both party entries intact. The count row has no 453 to pair
+     * with, so it reports MISSING and both modes fail on it — while the entry rows pair with their fields
+     * exactly as before and stay OK. A vanished count is not a vanished group.
+     */
+    @Test
+    fun `a venue that omits the group count keeps the entries paired but the count row missing`() {
+        val wire =
+            wireView(
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
+                448 to "FIRMB",
+                447 to "E",
+                452 to "4",
+            )
+        val open =
+            expectation(
+                FieldExpectation(453, Matcher.Exact("2")),
+                FieldExpectation(448, Matcher.Exact("FIRMA")),
+                FieldExpectation(447, Matcher.Exact("D")),
+                FieldExpectation(452, Matcher.Exact("1")),
+                FieldExpectation(448, Matcher.Exact("FIRMB")),
+                FieldExpectation(447, Matcher.Exact("E")),
+                FieldExpectation(452, Matcher.Exact("4")),
+            )
+        val strict = open.copy(mode = MatchMode.STRICT)
+
+        val judged = rows(open, wire)
+        assertEquals(
+            TagStatus.MISSING,
+            judged.single { it.tag == 453 }.status,
+            "the reply carries no 453 for the count row to pair with",
+        )
+        assertTrue(
+            judged.filter { it.tag != 453 && it.judged }.all { it.status == TagStatus.OK },
+            "the entries still pair, value for value — only the count vanished",
+        )
+        assertFalse(ExpectationEvaluator.evaluate(wire, open).all { it.passed })
+        assertFalse(ExpectationEvaluator.evaluate(wire, strict).all { it.passed })
+    }
 }

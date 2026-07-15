@@ -25,8 +25,11 @@ dodged the hard case.
 | 4 | Drag moves, undo/redo, keyboard | **complete** |
 | 5 | Reference slot: paste, pick, provenance | **complete** |
 | 6 | The diff gets its own window (direction change 2026-07-14) | **complete** |
-| 7 | The plain diff viewer | **complete** (two secondary entry points deferred — see outcome) |
-| 8 | Cleanup, docs, final verification | not started |
+| 7 | The plain diff viewer | **complete** (its two deferred entry points were built in Phase 8) |
+| 8 | Cleanup, docs, final verification | **complete** |
+
+**The redesign is complete.** All eight phases are on `main`; the closing **"Deviations from plan"**
+section is at the end of this document.
 
 ---
 
@@ -76,6 +79,16 @@ chip (G5). **Seed expectation from A/B** floats a scenario-less `ReconcileSessio
 it (G6). Reached by grid **"Diff selected"** and the control door `POST /scenarios/diff` (G8); the detail-panel
 **"Diff against…"** and rail **"Diff messages…"** entries are deferred (see Phase 7 outcome). Read G1–G9 before
 touching the viewer.
+
+**Phase 8 is done, and with it the redesign.** Cleanup (the `entryRegions`/`longestRepeat` fallback documented,
+dead-name prose retired, no present-tense *workbench* reference left in a shipped doc), docs brought to the app
+that exists (`help.html` §12, `AUTOMATION.md` with the fourth control door finally documented, `index.mjs`,
+the assertion-model pointer), the screenshot set regenerated and 24 stale PNGs deleted, and W1/W2/W3 smoked
+live. Its one product decision was **Amit's — to build Phase 7's two deferred viewer entries now** rather than
+ship without them; they were built (`EmptySlots`, the cross-window `_armedViewerSlot`, the reused paste sheet).
+And the **most user-visible carried debt — the missing-id error toast — was reproduced live and fixed**
+(`ScenarioService`: missing ≠ corrupt). The redesign-wide **"Deviations from plan"** capstone is at the foot of
+this document; the other five carried debts ship as-is there, each with its reason.
 
 > **Direction change (2026-07-14), decided by Amit during review: the diff surface moved into a
 > dedicated window** — reconcile, authoring, and the future viewer — the way an IDE opens a diff (Phase 6, now
@@ -2662,20 +2675,159 @@ list.
 
 ## Phase 8 — Cleanup, docs, final verification
 
-- [ ] Demote `entryRegions`/`longestRepeat` to the documented fallback path (only
-      caller: `GroupOverlay`); delete anything now uncalled (`bracketsFor` UI plumbing,
-      old workbench-only helpers). `rg` for dead references to the deleted composables.
-- [ ] `resources/help.html` §12 rewritten for rail/tabs/the diff window/paste/diff viewer;
-      `docs/AUTOMATION.md` + `McpTools`/`index.mjs` descriptions updated where they
-      mention the workbench window; `syntax.md` untouched (semantics unchanged —
-      verify by diff).
-- [ ] `scenario-assertion-model.md` §"Reconciling a failure" gets a pointer to the
-      proposal + this plan (its UI description is superseded; its model is not).
-- [ ] Regenerate the screenshot evidence set (`build/scenario-screenshots/`) from the
-      new UI tests; delete stale PNGs.
-- [ ] Full suite + detekt/ktlint status vs the known baseline; live smoke of W1/W2/W3
-      once more; final commit updates this plan to all-complete with a short
-      "deviations from plan" section appended (empty is a valid answer, silence is not).
+### Decision taken before implementation — the one product call in this phase
+
+Phase 7 shipped the plain diff viewer with **two of its three entry points deferred** — the detail
+panel's *"Diff against…"* and the rail/toolbar *"Diff messages…"* (two empty slots). *"Diff selected"*
+and the control door `POST /scenarios/diff` already reached the viewer for every live and automated
+case, so the architecture was proven; building the two more was new UI, not cleanup, and therefore a
+product decision rather than the agent's. **Surfaced to Amit at the start of Phase 8, who chose to
+build both now.** So this phase does one thing beyond cleanup: it builds those two entries (they reuse
+`openDiffViewer`; *"Diff against…"* arms a cross-window viewer slot the way S8 armed the reference,
+*"Diff messages…"* fills two `pendingLeft`/`pendingRight` slots and promotes to a session when both
+bind). The arming is a **second** armed-slot on the ViewModel (`_armedViewerSlot`, carrying the side),
+mutually exclusive with the reconcile reference arm so one grid click always means one thing.
+
+- [x] Demote `entryRegions`/`longestRepeat` to the **documented** fallback path (only production
+      caller: `GroupOverlay`'s no-dictionary branch; `moveBlock`, kept as the D1 regression net, still
+      takes it directly). Doc note added; `bracketsFor` was already gone; no uncalled helper remained to
+      delete. `rg` for the deleted composables (`ReconcileView`, `ExpectationBuilder`,
+      `ExpectationDrafts`, `ScenarioWorkbench`, `ReconcileDocument`, `ScenarioDoc.Reconcile`,
+      `DiffHarness`): the live prose hits are retired — the two kdoc pointers (`ScenarioEditor`,
+      `ScenarioCaptureReview`) now name a surviving surface, the stale `ScenarioDoc.Reconcile` test
+      comment now says *diff window*, and the present-tense *workbench* references in
+      `FixMessageViewModel`/`MessageDetailPanel`/`ControlServer` are fixed. Historical *"the workbench
+      window, which is gone"* comments are **kept** — they are accurate rationale, not dead references.
+- [x] The two deferred viewer entry points built (Amit's call, above): detail panel **"Diff against…"**
+      and rail **"Diff messages…"**, with the cross-window viewer-slot arming, the empty-slots prompt
+      (`EmptySlots`), and the paste sheet reused from the reference slot. 12 tests (8 ViewModel, 2
+      empty-slots UI, 2 button clicks); the empty-slots picture is regenerated evidence.
+- [x] `resources/help.html` §12 rewritten for the rail + document tabs + the diff **window** + paste
+      capture + the **plain diff viewer** (the model/matcher/tool content above it is semantics-accurate
+      and untouched); `docs/AUTOMATION.md` line-68 `panel` retargeted to the rail, the **fourth door
+      `POST /scenarios/diff` documented** (it was missing), and `/screenshot` given the reconcile-vs-viewer
+      title disambiguation; `index.mjs` `fixtool_panel` says rail; `.claude/skills/verify/SKILL.md`'s
+      present-tense *"workbench window"* fixed. `McpTools` already said "rail". `syntax.md` **byte-identical**
+      (verified by `git diff --quiet`).
+- [x] `scenario-assertion-model.md` §"Reconciling a failure" gets a one-paragraph pointer to the proposal
+      + this plan (its UI description is superseded; the model prose is untouched).
+- [x] Screenshot evidence set regenerated from the current UI tests; **24 stale PNGs deleted** (the
+      `reconcile_*`/`expectation_builder*` sets from the deleted surfaces, the pre-redesign `scenario_*`,
+      and the old `phase2/phase3_document_tab_*` including the dead diff-as-a-tab shots). 31 current PNGs
+      remain, all written by a live test. (`build/scenario-screenshots/` is git-ignored, so this is a
+      working-tree cleanup, not part of the commit.)
+- [x] Full suite green (**1318, 0** — 1304 + 12 entry-point + 2 debt-fix tests); every touched file at or
+      below its per-file detekt/ktlint baseline; **W1/W2/W3 smoked live** against `tools/fake-venue` (route
+      + window bounds + no flow exceptions — pixels black, display asleep). The plan is flipped to
+      all-complete and the redesign-wide **"Deviations from plan"** section is appended below.
+
+**Phase 8 gate — met.** Full `:composeApp:jvmTest` green at **1318, 0**. Per-file lint at baseline for all
+17 touched files (the two composables that legitimately need many callbacks carry `@Suppress("LongParameterList")`
+with the codebase's own justifying comment; the one deliberate `FileNotFoundException` swallow carries
+`@Suppress("SwallowedException")`). `syntax.md` byte-identical. help.html / AUTOMATION.md / index.mjs /
+McpTools / the verify skill describe the app that exists — no present-tense "workbench window" survives. The
+screenshot set is regenerated and the stale PNGs are gone. W1/W2/W3 were driven live through the control
+surface against the fake venue: **W1** — `golden` run passed, `shape` run failed on the Expect, and
+`POST /scenarios/reconcile` opened the diff in its own window (`?window=reconcile` → 1100×900, distinct from
+main's 1728×1080); **W2** — a `NewOrderSingle`+`ExecutionReport` fragment from the venue's SOH log pasted
+through `POST /scenarios/capture-paste` into a two-step scenario, the Send badged `origin: pasted`, no
+refusals, and `58=filled|in full` kept whole; **W3** — `POST /scenarios/diff` on the golden vs `shape`
+ExecutionReports opened the plain viewer (`?window=diff:` → 1100×820), three real windows on screen at once,
+each addressable by its title substring (the F/G8 disambiguation, proven live — bare `?window=diff` is the
+coin flip it warned about). No exceptions from any flow; the only error lines in the run log were the
+missing-id toast fired by a bad request during the run — which this phase then fixed (see below).
+
+### Phase 8 outcome — what actually happened
+
+**The one product decision was Amit's, and it was to build the two deferred viewer entries.** They were
+surfaced explicitly rather than decided by omission (the ground rule the handoff set). Building them was
+small because Phase 7 had already left the shape: `DiffViewerState` already carried `pendingLeft`/`pendingRight`
+for exactly this, and the arming reused S8's pattern. The one genuinely new piece is a second armed slot on
+the ViewModel (`_armedViewerSlot`, carrying which side), made mutually exclusive with the reconcile reference
+arm so a grid click is never ambiguous about what it fills.
+
+**The most user-visible carried debt was reproduced live and fixed.** During the W1 smoke a bad request with
+a blank scenario id fired the *"Cannot load scenario"* error toast — `ScenarioService.loadFile` caught every
+exception and shouted, so a **missing** id (a `FileNotFoundException`) was treated like a **corrupt** file.
+The Phase-2 comment's intent — shout when a file exists and will not parse, because an upgrade silently
+emptying a scenario list is the worst outcome — is right and is kept; missing is now a separate, quiet case.
+Reproduced on the old code first (the missing-id test fails without the fix), and the corrupt-file test proves
+the shout survives. Filed since Phase 2 and re-noted every phase; closed here.
+
+**No new defect was found by the picture this time — the sixth phase where the screenshot mattered, it merely
+confirmed.** The empty-slots opener renders as intended (side A filled, side B armed with its banner and
+cancel), and the reconcile paste path was unaffected by making its `PasteSheet` reusable.
+
+---
+
+## Deviations from plan — the redesign's closing statement
+
+The proposal and this plan were followed. The list below is everything that shipped differently from what
+those two documents literally said, and — for each debt the phases deliberately deferred — whether it was
+fixed or ships as-is, with the reason. Ranked by impact, not by effort.
+
+### Deliberate scope deviations, taken and kept
+
+1. **The control surface grew four doors, and the proposal put it out of scope.** *"`fixtool_panel` toggles
+   the rail; everything else is untouched"* — and the redesign added, in order, the `panel` retarget (Phase 2),
+   `POST /scenarios/reconcile` (Phase 4), `POST /scenarios/capture-paste` (Phase 5), and `POST /scenarios/diff`
+   (Phase 7). The reason was the same each time and it is a gate reason, not a feature one: **the gate is a
+   screenshot and the control surface cannot click**, so the one surface that repairs an assertion, the paste
+   box, and the plain viewer were each unreachable by any automated run. Each door calls the **same** decider,
+   reader, and refusals as the click it stands in for, so a route it refuses is a click refused in the same
+   words — it is a second *hand*, never a second *decider*. Kept; all four are documented in `AUTOMATION.md`
+   and `index.mjs`.
+
+2. **The diff moved into its own window (proposal §1c, revised 2026-07-14 by Amit).** The original proposal
+   made the reconcile diff a document tab; review moved it — and the plain viewer — into a dedicated,
+   task-scoped window, IDE-style. This is in the proposal now (§1c) and is not a deviation from the shipped
+   design, only from the pre-revision one; recorded for the reader who finds the older text.
+
+3. **Phase 7's two deferred viewer entries were built in Phase 8, not left deferred.** Phase 7 shipped
+   *"Diff selected"* + the control door and deferred *"Diff against…"* / *"Diff messages…"*. Phase 8 surfaced
+   the choice to Amit, who chose to build them. So the redesign ships with **all three** viewer entry points
+   the proposal §3 lists, plus the control door.
+
+### The six carried debts — each fixed or shipped, with the reason
+
+1. **`ScenarioService.load()` of a missing id fired a user-facing error toast** (could not tell *missing* from
+   *corrupt*). **FIXED (Phase 8)** — missing is a quiet `null`, corrupt still shouts. The most user-visible of
+   the debts, and the only one this phase judged worth a behaviour change; reproduced first, guard
+   mutation-checked.
+2. **The paste reader refuses a length-prefixed data field** (`RawDataLength(95)`/`RawData(96)`, which may
+   legally contain SOH). **Ships as-is.** Reason: FixTool's parser has never honoured the length prefix, so
+   such a message reads as junk segments and is **refused** — which is the honest outcome (a message it cannot
+   read is refused, never misread into an assertion), and honouring the prefix is a parser change well outside
+   a cleanup phase. The model doc's §5 footnote is the spec for when it is done.
+3. **The `⇄ Accept new order` chip shows only its glyph, not the label** (a 56 dp gutter). **Ships as-is**
+   (pre-existing since Phase 1). Reason: the words do not fit the gutter, and the band beside it already says
+   *"⇅ moved — same tags, same values, different position"*, so the meaning is on screen.
+4. **A drag does not auto-scroll at the viewport edge** — a 200-field snapshot cannot be dragged past the
+   fold. **Ships as-is** (Phase 4). Reason: `alt+↑/↓` moves the same row or entry from the keyboard with no
+   fold to reach, so no move is unreachable; edge auto-scroll is a nicety, not a correctness gap.
+5. **The crossing connector is drawn between chunk *centres***, so for entries of very different heights it
+   leaves and lands slightly off the band's own line. **Ships as-is** (Phase 4). Reason: it is a stroke, not
+   an assertion — the move it depicts is proven by the engine and stated in words on the band.
+6. **Several diff windows over different subjects centre-stack** (`WindowPosition(Alignment.Center)`). **Ships
+   as-is** (Phase 6). Reason: harmless, and the alternative (cascade) risks the very shove the centred position
+   was chosen to avoid.
+
+### One more, from Phase 7, recorded for completeness
+
+- **The plain viewer does not draw the violet crossing connector.** A moved entry shows its violet band and
+  the `⇅ moved` note (the meaning is on screen), but the canvas connector `DiffSurface` overlays is not reused,
+  because the viewer body is a plain scrolling `Column`, not a `LazyColumn` with a `layoutInfo` to position the
+  curve from. **Ships as-is.** Reason: the read-only viewer needs neither scroll-to-a-deep-linked-row nor a
+  drag, so a `LazyColumn` would buy it nothing and would cost the click-only gate the full semantics tree a
+  non-lazy column keeps.
+
+### Cosmetic residue, noted so it is not mistaken for stale
+
+- One screenshot, `workbench_editor.png`, keeps a legacy *workbench* name though it is written by a **current**
+  test (`ScenarioEditorTest`, photographing the scenario editor as it exists). It is live evidence, not a stale
+  artifact, so it was not deleted; the name is a fossil. (The file is git-ignored regardless, so it never ships.)
+
+**Everything else shipped as the proposal and this plan describe.**
 
 ---
 

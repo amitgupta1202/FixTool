@@ -29,6 +29,9 @@ import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.service.SessionTags
+import com.knapsack.fixtool.service.compare.ReferenceMessage
+import com.knapsack.fixtool.service.compare.WirePaste
+import com.knapsack.fixtool.ui.diff.DiffSide
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpContext
@@ -119,6 +122,7 @@ class ControlServer(
         httpServer.createContext("/assert") { ex -> handle(ex) { assertMessage(ex) } }
         httpServer.createContext("/expectation/capture") { ex -> handle(ex) { captureExpectation(ex) } }
         httpServer.createContext("/scenarios/reconcile") { ex -> handle(ex) { reconcile(ex) } }
+        httpServer.createContext("/scenarios/diff") { ex -> handle(ex) { diffMessages(ex) } }
         httpServer.createContext("/scenarios/run") { ex -> handle(ex) { runScenario(ex) } }
         httpServer.createContext("/scenarios/capture") { ex -> handle(ex) { captureScenario(ex) } }
         httpServer.createContext("/scenarios/capture-paste") { ex -> handle(ex) { capturePaste(ex) } }
@@ -976,6 +980,45 @@ class ControlServer(
                 }
             }
         }
+    }
+
+    /**
+     * **Open the plain diff viewer on two messages** — the fourth deliberate control-surface door (Phase 7, G8),
+     * after `panel`, `reconcile` and `capture-paste`. The viewer is click-only, and the gate is a screenshot, so
+     * the machine needs a way to *open* the window it will photograph by title.
+     *
+     * Each side is either a **pick** (`{session, match}` — a live message, by its wire bytes) or a **paste**
+     * (`{paste}` — bytes read through [WirePaste], the same reader the slot uses, so a `|`-in-a-value paste is
+     * refused here exactly as it is at the click). A side FixTool has no bytes for is refused, in words.
+     */
+    private fun diffMessages(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val left = resolveDiffSide(body["a"] as? JsonObject)
+            ?: return errorObject("side 'a' could not be read — give {session, match} for a live message with wire bytes, or {paste} for readable bytes")
+        val right = resolveDiffSide(body["b"] as? JsonObject)
+            ?: return errorObject("side 'b' could not be read — give {session, match} for a live message with wire bytes, or {paste} for readable bytes")
+        onEdt { viewModel.openDiffViewer(left, right) }
+        return buildJsonObject {
+            put("status", "open")
+            put("subject", "${left.messageType ?: "?"} vs ${right.messageType ?: "?"}")
+        }
+    }
+
+    private fun resolveDiffSide(spec: JsonObject?): DiffSide? {
+        if (spec == null) return null
+        spec["paste"]?.jsonPrimitive?.content?.let { raw ->
+            val paste = WirePaste.read(raw)
+            val wire = paste.wire?.takeIf { paste.usable } ?: return null
+            return DiffSide(wire, "pasted", ReferenceMessage.Provenance.PASTED)
+        }
+        val session = resolveSession(spec["session"]?.jsonPrimitive?.content) ?: return null
+        val match = spec["match"] as? JsonObject ?: JsonObject(emptyMap())
+        val message =
+            onEdt {
+                session.messages.value.filterIsInstance<FixMessage>().lastOrNull { matchesMessage(it, match) }
+            } ?: return null
+        val wire = message.wireRaw ?: return null
+        return DiffSide(wire, "${session.title} · ${message.messageType}", ReferenceMessage.Provenance.PICKED)
     }
 
     private fun runScenario(ex: HttpExchange): JsonElement {

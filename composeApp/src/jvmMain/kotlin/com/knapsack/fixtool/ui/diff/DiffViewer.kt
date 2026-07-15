@@ -14,6 +14,9 @@ import com.knapsack.fixtool.service.SessionTags
 import com.knapsack.fixtool.service.compare.MessageField
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 
+/** Which side *"Seed expectation from …"* mints an assertion out of. */
+enum class SeedFrom { A, B }
+
 /**
  * **One side of a plain diff** — a message the author put here, and how the header names it.
  *

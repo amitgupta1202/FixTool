@@ -654,6 +654,20 @@ server.tool(
 );
 
 server.tool(
+  "fixtool_diff",
+  "Open the plain diff VIEWER on two messages — a read-only FIX diff (=/≠/+A/+B), no assertions, nothing " +
+    "that writes. Each side is a PICK ({session, match:{messageType,tag,value,direction}} — a live message, by " +
+    "its wire bytes) or a PASTE ({paste:'<bytes>'} — read through the same reader the slot uses, so a '|' inside " +
+    "a value is refused, not guessed). A side with no wire bytes is refused. The window's title is " +
+    "'diff: A vs B', so photograph it with fixtool_screenshot window='diff:'. Returns {status:open,subject} or an error.",
+  {
+    a: z.record(z.any()).describe("side A: {session, match} to pick a live message, or {paste} for pasted bytes"),
+    b: z.record(z.any()).describe("side B: {session, match} to pick a live message, or {paste} for pasted bytes"),
+  },
+  async ({ a, b }) => text("POST", "/scenarios/diff", { a, b }),
+);
+
+server.tool(
   "fixtool_delete_scenario",
   "Delete a saved scenario by id.",
   { id: z.string().describe("scenario id") },

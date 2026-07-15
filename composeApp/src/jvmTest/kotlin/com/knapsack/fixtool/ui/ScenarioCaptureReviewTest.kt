@@ -93,7 +93,6 @@ class ScenarioCaptureReviewTest {
             state = state,
             onStateChange = { state = it },
             onSave = onSave,
-            onBack = {},
         )
     }
 
@@ -150,6 +149,28 @@ class ScenarioCaptureReviewTest {
         composeTestRule.onNodeWithTag("candidate-check-1").performClick()
         composeTestRule.waitForIdle()
         assertEquals(0, composeTestRule.onAllNodesWithText("○id0").fetchSemanticsNodes().size)
+    }
+
+    /**
+     * The consolidated header — Name, the From/To range, the ⓘ help and Save on one row — must keep Save
+     * reachable on a *narrow* pane. Save is right-pinned behind a weighted count, so if the fixed controls
+     * grow past the pane they push it off the edge; this renders at a deliberately tight width and asserts the
+     * whole row, Save included, is laid out and displayed.
+     */
+    @Test
+    fun `the header row keeps Save reachable on a narrow pane`() {
+        composeTestRule.setContent {
+            Box(modifier = Modifier.size(940.dp, 620.dp).background(AppTheme.Colors.background).padding(10.dp)) {
+                StatefulCaptureReview(candidates = candidates, onSave = { _, _ -> true })
+            }
+        }
+        composeTestRule.onNodeWithTag("capture-name").performTextInput("rfq")
+        composeTestRule.onNodeWithTag("capture-from").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("capture-to").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("capture-help").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("capture-save").assertIsDisplayed()
+        composeTestRule.waitForIdle()
+        snapshot("capture_header_row.png")
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")

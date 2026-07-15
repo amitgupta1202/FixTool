@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
@@ -164,7 +163,6 @@ fun ScenarioEditor(
     dictionary: FixDictionary?,
     sessionOptions: List<String>,
     onSave: (Scenario) -> Unit,
-    onBack: () -> Unit,
     /** Step index the deep-link landed on (the step a run failed at); null outside one. Not the selection. */
     focusStep: Int? = null,
     /** Opens the diff for a step, by its id — the one surface that authors or repairs an assertion. */
@@ -217,10 +215,7 @@ fun ScenarioEditor(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = AppTheme.Colors.textSecondary)
-            }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 4.dp)) {
             Text("Edit scenario", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             SlimLabeled("Name", modifier = Modifier.padding(start = 16.dp)) {
                 SlimField(name, { name = it }, modifier = Modifier.width(240.dp).testTag("scenario-name"))
@@ -763,11 +758,12 @@ private fun ConstraintOpCell(op: MatchOp, onPick: (MatchOp) -> Unit) {
 }
 
 /**
- * The draggable split between the flow list and the step detail. Same grab-and-drag divider the session view
- * uses, so it feels like the rest of the app rather than like a second, stranger app inside it.
+ * The draggable split between a flow list and its detail pane. Same grab-and-drag divider the session view
+ * uses, so it feels like the rest of the app rather than like a second, stranger app inside it. Shared by the
+ * editor and the capture review, which is why it takes its [testTag].
  */
 @Composable
-private fun PaneDivider(onDrag: (Float) -> Unit) {
+internal fun PaneDivider(onDrag: (Float) -> Unit, testTag: String = "editor-pane-divider") {
     Box(
         modifier =
             Modifier
@@ -780,7 +776,7 @@ private fun PaneDivider(onDrag: (Float) -> Unit) {
                         change.consume()
                         onDrag(dragAmount.x)
                     }
-                }.testTag("editor-pane-divider"),
+                }.testTag(testTag),
     )
 }
 

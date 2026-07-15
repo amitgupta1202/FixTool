@@ -57,7 +57,6 @@ class ScenarioEditorStepIdentityTest {
                 dictionary = null,
                 sessionOptions = emptyList(),
                 onSave = { saved = it },
-                onBack = {},
             )
         }
 
@@ -113,7 +112,6 @@ class ScenarioEditorStepIdentityTest {
                 dictionary = null,
                 sessionOptions = emptyList(),
                 onSave = { saved = it },
-                onBack = {},
             )
         }
 
@@ -154,7 +152,6 @@ class ScenarioEditorStepIdentityTest {
                 dictionary = null,
                 sessionOptions = emptyList(),
                 onSave = { saved = it },
-                onBack = {},
             )
         }
 

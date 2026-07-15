@@ -190,6 +190,7 @@ fun App(
                         onOpenSettings = { viewModel.toggleSettingsDialog() },
                         onOpenHelp = { viewModel.toggleHelpDialog() },
                         onOpenScenarios = { viewModel.toggleScenariosRail() },
+                        onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
                     )
 
                     // Settings Dialog

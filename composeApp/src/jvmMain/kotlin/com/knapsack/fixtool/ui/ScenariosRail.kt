@@ -79,7 +79,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
         Column(modifier = modifier.fillMaxSize().background(AppTheme.Colors.surface).testTag("scenarios-rail")) {
             RailHeader(
                 running = running,
-                onCapture = { viewModel.openCaptureReview() },
+                onCapture = { viewModel.captureAllSessionsToEditor() },
                 onPasteCapture = { viewModel.openPasteCapture() },
                 onNew = { viewModel.openScenarioEditor(newScenario()) },
                 onOpenFolder = { openScenarioFolder(viewModel) },

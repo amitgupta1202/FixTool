@@ -185,6 +185,28 @@ class AppIntegrationTest {
     }
 
     @Test
+    fun testCaptureScenarioButtonInvokesCallback() {
+        // Given: Toolbar rendered with a capture-scenario callback
+        var captureInvoked = false
+        composeTestRule.setContent {
+            Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
+                viewMode = viewMode,
+                onViewModeChange = { viewMode = it },
+                onCaptureScenario = { captureInvoked = true },
+            )
+        }
+
+        // Then: the capture button is present (next to the Scenarios button)...
+        composeTestRule.onNodeWithContentDescription("Capture Scenario").assertExists()
+
+        // ...and clicking it fires the callback that routes straight to the editor.
+        composeTestRule.onNodeWithContentDescription("Capture Scenario").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue(captureInvoked, "Capture Scenario button should invoke onCaptureScenario")
+    }
+
+    @Test
     fun testConnectionPanelButtonTogglesState() {
         // Given: Toolbar with connection panel initially off
         composeTestRule.setContent {

@@ -60,6 +60,7 @@ fun Toolbar(
     onOpenSettings: (() -> Unit)? = null,
     onOpenHelp: (() -> Unit)? = null,
     onOpenScenarios: (() -> Unit)? = null,
+    onCaptureScenario: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -314,6 +315,24 @@ fun Toolbar(
             }
 
             Spacer(modifier = Modifier.width(8.dp))
+        }
+
+        // Capture scenario — turn the whole flow across all sessions into an editable scenario. It lives with the
+        // other all-sessions *actions* (search / separator / clear), not the left pane-toggles: it is a one-shot
+        // that opens the editor directly (curation is editing — there is no separate read-only review screen).
+        if (onCaptureScenario != null) {
+            TooltipIconButton(
+                tooltip = "Capture Scenario from All Sessions",
+                onClick = onCaptureScenario,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlaylistAdd,
+                    contentDescription = "Capture Scenario",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = tooltipIconModifier,
+                )
+            }
         }
 
         // Search All Sessions

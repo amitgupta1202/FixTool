@@ -399,7 +399,13 @@ object McpTools {
                 props("profile" to string("profile id or name")),
                 required = listOf("profile"),
             ),
-            tool("fixtool_screenshot", "Capture a PNG screenshot of the FixTool window for visual verification."),
+            tool(
+                "fixtool_screenshot",
+                "Capture a PNG screenshot of a FixTool window for visual verification. `window` picks which: " +
+                    "`main` (default) the main window; `diff` the reconcile/diff window; or any substring of a " +
+                    "window's title to target a specific one.",
+                props("window" to string("which window: main (default), diff, or a title substring")),
+            ),
         )
 
     private fun tool(

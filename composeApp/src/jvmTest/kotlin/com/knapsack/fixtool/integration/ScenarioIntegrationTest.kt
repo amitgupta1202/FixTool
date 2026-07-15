@@ -52,7 +52,7 @@ class ScenarioIntegrationTest {
             }
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
         port = freePort()
-        server = ControlServer(port, viewModel, windowProvider = { null }, token = null)
+        server = ControlServer(port, viewModel, windowProvider = { emptyList() }, token = null)
         server.start()
         connectAcceptorAndClient()
     }

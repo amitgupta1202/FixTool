@@ -605,9 +605,10 @@ private fun ExpectDetail(
  * answers to *"which reference is bound"*, and two chances to rewrite the wrong assertion. That is the defect
  * the assertion model doc names, and it has been paid for once already.
  *
- * So this is the door. *Reconcile* when the step has failed a run; *Edit assertions* otherwise — the same tab,
- * the same surface, a different message in the slot, which is the whole argument of the reference slot made
- * where it costs nothing.
+ * So this is the door. *Reconcile* when the step has failed a run; *Edit assertions* otherwise — the same
+ * surface, a different message in the slot, which is the whole argument of the reference slot made where it
+ * costs nothing. The **⧉** glyph says the diff opens *elsewhere* — its own window (Phase 6), beside the grid
+ * it is about — not in a tab that replaces the step editor.
  */
 @Composable
 private fun AssertionsDoor(step: EditStep, onOpenDiff: (() -> Unit)?) {
@@ -627,7 +628,7 @@ private fun AssertionsDoor(step: EditStep, onOpenDiff: (() -> Unit)?) {
         )
         if (onOpenDiff != null) {
             SlimButton(
-                text = "Edit assertions →",
+                text = "Edit assertions ⧉",
                 onClick = onOpenDiff,
                 color = AppTheme.Colors.primary,
                 modifier = Modifier.padding(top = 6.dp).testTag("open-diff"),

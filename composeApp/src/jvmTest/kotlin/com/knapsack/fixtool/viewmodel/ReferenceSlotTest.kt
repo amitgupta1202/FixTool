@@ -13,7 +13,7 @@ import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
-import com.knapsack.fixtool.ui.ScenarioDoc
+import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.ui.diff.ReconcileSession
 import org.junit.After
@@ -115,11 +115,11 @@ class ReferenceSlotTest {
 
     private fun draft(): Scenario = viewModel.scenarioDraft("sc-1")!!.draft
 
-    private fun openDiff(onDisk: Scenario): ScenarioDoc.Reconcile {
+    private fun openDiff(onDisk: Scenario): DiffWindowState {
         val stepId = onDisk.withIds().steps[1].stepId
         viewModel.openScenarioEditor(onDisk)
-        viewModel.openReconcileDocument(onDisk, stepId)
-        return viewModel.activeDocument as ScenarioDoc.Reconcile
+        viewModel.openDiffWindow(onDisk, stepId)
+        return viewModel.openDiffWindows.value.single()
     }
 
     // ---------------------------------------------------------------- the menu says what it cannot do (S11)
@@ -163,23 +163,30 @@ class ReferenceSlotTest {
     // ---------------------------------------------------------------- the armed slot (S8)
 
     /**
-     * The author leaves the diff to click a grid row, so the arming cannot live in the diff. It is the
-     * ViewModel's, and after Phase 6 the grid will be in a different **window** — which is the same argument,
-     * louder.
+     * **Cross-window arming (S8, F5·2).** The author leaves the diff to click a grid row, so the arming cannot
+     * live in the diff: the diff is in its **own window** now, and the grid is in the main one. The armed flag
+     * is the ViewModel's, the grid answers it, and the diff window raises itself back to the front once it is
+     * bound (the epoch bump, F6) — because the author's eyes are about to go back to it.
      */
     @Test
     fun `arming the slot makes the next grid click the reference, and only the next one`() {
         val onDisk = saved()
         val doc = openDiff(onDisk)
+        val epochBefore = viewModel.openDiffWindows.value.single().focusEpoch
         assertNull(viewModel.armedReferenceSlot.value)
 
         viewModel.selectReference(doc, ReferenceOption.Kind.PICK)
-        assertEquals(doc.id, viewModel.armedReferenceSlot.value, "armed, and it says which diff is waiting")
+        assertEquals(doc.id, viewModel.armedReferenceSlot.value, "armed, and it says which diff window is waiting")
 
         viewModel.selectMessageFromGrid(message(wire("35=8", "11=ORD-9", "150=F")))
 
-        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        val session = (viewModel.openDiffWindows.value.single()).session!!
         assertEquals(ReferenceMessage.Provenance.PICKED, session.reference.provenance)
+        assertEquals(
+            epochBefore + 1,
+            viewModel.openDiffWindows.value.single().focusEpoch,
+            "the diff window raises itself back to the front once the grid click has bound it (F6)",
+        )
         assertEquals(
             "F",
             valueAt(session, 150),
@@ -214,7 +221,7 @@ class ReferenceSlotTest {
             )
         viewModel.selectMessageFromGrid(displayOnly)
 
-        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        val session = (viewModel.openDiffWindows.value.single()).session!!
         assertEquals(ReferenceMessage.Provenance.GOLDEN, session.reference.provenance, "the slot did not take it")
         val notification = viewModel.notifications.lastOrNull()
         assertNotNull(notification, "and a refused action says why — it does not merely fail to happen")
@@ -237,7 +244,7 @@ class ReferenceSlotTest {
         assertTrue(paste.usable, paste.why ?: paste.lint)
         assertTrue(viewModel.bindPastedReference(doc, paste))
 
-        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        val session = (viewModel.openDiffWindows.value.single()).session!!
         assertEquals(ReferenceMessage.Provenance.PASTED, session.reference.provenance)
         assertEquals("F", valueAt(session, 150), "re-judged, with no edit")
         assertEquals(1, session.model.verdict.attention, "and the row that no longer holds says so")
@@ -258,7 +265,7 @@ class ReferenceSlotTest {
         val doc = openDiff(onDisk)
         val stepId = doc.stepId
         viewModel.bindPastedReference(doc, WirePaste.read(frame("35=8", "150=F")))
-        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        val session = (viewModel.openDiffWindows.value.single()).session!!
 
         // Repair the row against the pasted bytes.
         session.apply(EditOp.acceptActual(0, 150, "F"))
@@ -282,7 +289,7 @@ class ReferenceSlotTest {
     fun `undoing the repair takes the pasted badge with it`() {
         val doc = openDiff(saved())
         viewModel.bindPastedReference(doc, WirePaste.read(frame("35=8", "150=F")))
-        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        val session = (viewModel.openDiffWindows.value.single()).session!!
 
         session.apply(EditOp.acceptActual(0, 150, "F"))
         assertEquals(StepOrigin.PASTED, draft().steps[1].origin)
@@ -307,7 +314,7 @@ class ReferenceSlotTest {
         assertEquals(WirePaste.Verdict.REFUSED, refused.verdict)
         assertFalse(viewModel.bindPastedReference(doc, refused), "nothing is bound from a reading that is disproved")
 
-        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        val session = (viewModel.openDiffWindows.value.single()).session!!
         assertEquals(ReferenceMessage.Provenance.GOLDEN, session.reference.provenance, "the slot is as it was")
     }
 
@@ -322,8 +329,8 @@ class ReferenceSlotTest {
         viewModel.openScenarioEditor(onDisk)
         viewModel.noteScenarioRun(onDisk)
         viewModel.setAssertionResults(mapOf(failing to StepResult(1, "expect", "steps", false, stepId = stepId)))
-        viewModel.openReconcileDocument(onDisk, stepId, thisRunWire = failing.wireRaw)
-        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
+        viewModel.openDiffWindow(onDisk, stepId, thisRunWire = failing.wireRaw)
+        val doc = viewModel.openDiffWindows.value.single()
         val session = doc.session!!
 
         assertEquals(1, session.model.verdict.attention, "bound to the failure: 150 came back F where 2 was asserted")

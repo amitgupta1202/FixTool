@@ -327,7 +327,7 @@ internal fun ReconcileSession.onBareKey(
     }
 }
 
-/** The `esc` stack: the drag first, then a refusal still on screen, then nothing — and `App.kt` closes the tab. */
+/** The `esc` stack: the drag first, then a refusal still on screen, then nothing — and the diff window closes. */
 private fun ReconcileSession.escaped(dragging: Boolean, cancelDrag: () -> Unit): Boolean =
     when {
         dragging -> true.also { cancelDrag() }

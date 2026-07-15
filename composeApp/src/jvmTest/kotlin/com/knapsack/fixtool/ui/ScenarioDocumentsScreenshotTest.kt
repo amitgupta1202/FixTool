@@ -198,10 +198,10 @@ class ScenarioDocumentsScreenshotTest {
         }
     }
 
-    /** The diff tab for the step this scenario's run failed at. */
-    private val diffTabId: String
+    /** The diff window for the step this scenario's run failed at. */
+    private val diffWindowId: String
         get() =
-            ScenarioDoc.reconcileId(
+            DiffWindowState.diffWindowId(
                 scenario.id,
                 viewModel
                     .scenarioDraft(scenario.id)!!
@@ -209,12 +209,16 @@ class ScenarioDocumentsScreenshotTest {
                     .stepId,
             )
 
+    private fun diffSession() = viewModel.diffWindow(diffWindowId)!!.session!!
+
     /**
-     * W1, the daily loop, in one test and four pictures: the rail names the failure, one click opens the diff
-     * in a tab, the repair is staged and the tab says so, and the `×` on it stops to ask.
+     * W1, the daily loop: the rail names the failure, one click opens the diff **window**, the repair is staged,
+     * and closing the last view of the dirty scenario stops to ask. The diff surface is a top-level window (not
+     * part of this composition — its pixels are `DiffSurfaceTest`/`ReferenceSlotScreenshotTest`, its live loop is
+     * the Phase 6 gate); this pins the rail picture and the loop's state through the ViewModel.
      */
     @Test
-    fun `the failure, the tab, the edit, and the confirmation`() {
+    fun `the failure, the diff window it opens, the edit, and the confirmation`() {
         stageFailedRun()
         composeTestRule.setContent { MainWindow() }
         composeTestRule.waitForIdle()
@@ -227,32 +231,24 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.onNodeWithText("not reached", substring = true).assertIsDisplayed()
         snapshot("phase2_rail_failed_run.png")
 
-        // 2 — one click, and the DIFF is a document tab beside the session tabs. Not a window, and not a
-        // six-column table inside the step editor: the one surface that can repair an assertion, given the
-        // whole centre.
+        // 2 — one click, and the DIFF opens in its own window (Phase 6), on the step that failed.
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("doc-tab-$diffTabId").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
-        snapshot("phase3_document_tab_diff.png")
+        val window = viewModel.openDiffWindows.value.single()
+        assertEquals(diffWindowId, window.id, "the one surface that can repair an assertion, in its own window")
 
         // 3 — a repair, staged in the session and written into the scenario's draft. Nothing is on disk.
-        composeTestRule.onNodeWithTag("accept_actual-150-0").performClick()
-        composeTestRule.waitForIdle()
+        diffSession().apply(com.knapsack.fixtool.ui.diff.EditOp.acceptActual(0, 150, "0"))
         assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty)
-        assertEquals(1, (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!.staged)
-        snapshot("phase3_document_tab_staged.png")
+        assertEquals(1, diffSession().staged)
 
-        // 4 — and the × asks before it throws that away.
-        composeTestRule.onNodeWithTag("doc-close-$diffTabId").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithText("discard edits?").assertIsDisplayed()
-        snapshot("phase3_document_tab_confirm_close.png")
+        // 4 — closing the window is the last view of a dirty scenario (the editor tab is not open), so it asks.
+        viewModel.requestCloseDiffWindow(diffWindowId)
+        assertEquals(diffWindowId, viewModel.confirmingCloseId.value, "the × asks before it throws the repair away")
 
-        // Keep, and the document is still there with the edit in it.
-        composeTestRule.onNodeWithText("Keep").performClick()
-        composeTestRule.waitForIdle()
-        assertTrue(viewModel.openDocuments.value.isNotEmpty(), "Keep must keep it")
+        // Keep, and the window is still there with the edit in it.
+        viewModel.cancelCloseDocument()
+        assertTrue(viewModel.openDiffWindows.value.isNotEmpty(), "Keep must keep it")
         assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty)
     }
 
@@ -262,22 +258,21 @@ class ScenarioDocumentsScreenshotTest {
      * the document was up — the message editor, `fixtool_send` and the grid's tint all follow that.
      */
     @Test
-    fun `a session tab puts the sessions back without closing the document`() {
+    fun `opening the diff window leaves the main window's session view exactly as it was`() {
         stageFailedRun()
         viewModel.setActiveSession(1) // TRADE
         composeTestRule.setContent { MainWindow() }
+
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
-        assertTrue(viewModel.activeSessionIndex == 1, "focusing a document did not move the active session")
 
-        composeTestRule.onNodeWithText("QUOTE").performClick()
-        composeTestRule.waitForIdle()
-
-        assertTrue(viewModel.activeDocumentId.value == null, "the centre is showing the sessions again")
-        assertTrue(viewModel.openDocuments.value.size == 1, "and the document is still open, in its tab")
-        composeTestRule.onNodeWithTag("diff-surface").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("doc-tab-$diffTabId").assertIsDisplayed()
-        snapshot("phase3_session_tab_restores_sessions.png")
+        // The diff opens *beside* context (its own window, §1c), not instead of it: the active session is
+        // untouched — the message editor, `fixtool_send` and the grid's tint all follow that — and the centre
+        // pane is still the sessions, not a document.
+        assertTrue(viewModel.openDiffWindows.value.isNotEmpty(), "the diff opened, in its own window")
+        assertTrue(viewModel.activeSessionIndex == 1, "opening the diff window did not move the active session")
+        assertTrue(viewModel.activeDocumentId.value == null, "and the centre is still the sessions, not a document")
+        snapshot("phase6_diff_window_leaves_sessions.png")
     }
 
     /**
@@ -347,16 +342,14 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("accept_actual-150-0").performClick()
-        composeTestRule.waitForIdle()
-        assertEquals(1, (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!.staged)
+        diffSession().apply(com.knapsack.fixtool.ui.diff.EditOp.acceptActual(0, 150, "0"))
+        assertEquals(1, diffSession().staged)
 
-        composeTestRule.onNodeWithTag("diff-save").performClick()
-        composeTestRule.waitForIdle()
+        assertTrue(viewModel.saveScenario(scenario.id))
 
-        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
-        assertTrue(!viewModel.scenarioDraft(scenario.id)!!.dirty, "saved, so the × will not stop to ask")
-        assertEquals(0, session.staged, "and the footer no longer counts an edit that is already on disk")
+        val session = diffSession()
+        assertTrue(!viewModel.scenarioDraft(scenario.id)!!.dirty, "saved, so the close will not stop to ask")
+        assertEquals(0, session.staged, "and the footer no longer counts an edit that is already on disk (rebased)")
         assertTrue(!session.isDirty)
         // The repair is on disk: the venue's ExecType is what the step now expects.
         val onDisk = viewModel.scenarioService.load(scenario.id)!!.steps[1] as ScenarioStep.Expect
@@ -368,6 +361,5 @@ class ScenarioDocumentsScreenshotTest {
                     .matcher as Matcher.Exact
             ).value,
         )
-        snapshot("phase3_document_tab_saved.png")
     }
 }

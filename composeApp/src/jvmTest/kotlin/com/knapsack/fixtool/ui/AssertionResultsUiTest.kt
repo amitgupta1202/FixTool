@@ -18,6 +18,7 @@ import quickfix.field.TargetCompID
 import java.io.File
 import java.time.LocalDateTime
 import javax.imageio.ImageIO
+import kotlin.test.assertNotNull
 
 /**
  * The assertion-failure rendering in the message detail panel: a verdict banner leads (what failed,
@@ -87,6 +88,22 @@ class AssertionResultsUiTest {
         }
         composeTestRule.onNodeWithText("✓ Scenario assertion passed — all 2 checked tags matched").assertExists()
         snapshot("assertion_pass_detail.png")
+    }
+
+    @Test
+    fun `the Diff against button hands this message to the plain diff viewer as side A`() {
+        var diffed: FixMessage? = null
+        composeTestRule.setContent {
+            MessageDetailPanel(
+                message = execReport(),
+                dictionary = FixDictionary.createDefault(),
+                onClose = {},
+                onDiffAgainst = { diffed = it },
+            )
+        }
+        composeTestRule.onNodeWithTag("detail-diff-against").performClick()
+        composeTestRule.waitForIdle()
+        assertNotNull(diffed, "Diff against… opens the viewer with this message as one side")
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")

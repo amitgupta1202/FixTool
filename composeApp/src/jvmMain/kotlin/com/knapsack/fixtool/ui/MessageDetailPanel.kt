@@ -72,11 +72,14 @@ fun MessageDetailPanel(
     // asserted once per occurrence (the four PartyRoles of four party entries), and those must not
     // collapse into one.
     tagResults: List<TagResult> = emptyList(),
-    // Failure → editor deep-link: opens the Scenarios workbench on the step that produced these
-    // results. Shown on the failure banner only when provided. This panel diagnoses a failure; it is
-    // not where one is repaired — that is the reconcile view, the only surface that can see both the
-    // expectation and the message that arrived.
+    // Failure → deep-link: opens the diff window on the step that produced these results. Shown on the
+    // failure banner only when provided. This panel diagnoses a failure; it is not where one is
+    // repaired — that is the diff window, the only surface that can see both the expectation and the
+    // message that arrived.
     onEditAssertion: ((Int?) -> Unit)? = null,
+    // "Diff against…" — open the plain diff viewer with this message as side A and the other side armed
+    // for a session pick or a paste (Phase 7 entry point). Available on any message with wire bytes.
+    onDiffAgainst: ((FixMessage) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -125,6 +128,23 @@ fun MessageDetailPanel(
 
                     // Only show message-specific buttons when a message is selected
                     if (message != null) {
+                        // "Diff against…" — start a plain diff with this message on one side (Phase 7 entry point).
+                        if (onDiffAgainst != null) {
+                            TooltipIconButton(
+                                tooltip = "Diff against another message…",
+                                onClick = { onDiffAgainst(message) },
+                                modifier = buttonSize.testTag("detail-diff-against"),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CompareArrows,
+                                    contentDescription = "Diff against",
+                                    tint = iconTintColor,
+                                    modifier = iconSize,
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
                         // Toggle expand/collapse all button
                         val allGroupKeys = remember(message) { collectAllGroupKeys(message) }
                         val allExpanded = allGroupKeys.isNotEmpty() && expandedGroups.containsAll(allGroupKeys)

@@ -42,6 +42,7 @@ import java.io.File
 import java.time.LocalDateTime
 import javax.imageio.ImageIO
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -362,5 +363,15 @@ class ScenarioDocumentsScreenshotTest {
                     .matcher as Matcher.Exact
             ).value,
         )
+    }
+
+    @Test
+    fun `the rail's Diff messages opens an empty plain diff viewer`() {
+        composeTestRule.setContent { MainWindow() }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("rail-diff-messages").performClick()
+        composeTestRule.waitForIdle()
+        val viewer = viewModel.openDiffViewers.value.single()
+        assertNull(viewer.session, "it opens empty — two slots to fill, not a diff against nothing yet")
     }
 }

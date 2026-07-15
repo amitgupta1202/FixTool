@@ -83,6 +83,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 onPasteCapture = { viewModel.openPasteCapture() },
                 onNew = { viewModel.openScenarioEditor(newScenario()) },
                 onOpenFolder = { openScenarioFolder(viewModel) },
+                onDiffMessages = { viewModel.openEmptyDiffViewer() },
                 onClose = { viewModel.toggleScenariosRail() },
             )
             RunStatusLine(
@@ -248,6 +249,7 @@ private fun RailHeader(
     onPasteCapture: () -> Unit,
     onNew: () -> Unit,
     onOpenFolder: () -> Unit,
+    onDiffMessages: () -> Unit,
     onClose: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 6.dp)) {
@@ -280,6 +282,16 @@ private fun RailHeader(
             SlimButton("Paste wire…", onClick = onPasteCapture, modifier = Modifier.testTag("rail-paste"))
             SlimButton("New", onClick = onNew, modifier = Modifier.testTag("rail-new"))
             SlimButton("Folder", onClick = onOpenFolder)
+        }
+        // The plain diff viewer's own front door: two empty slots, each a session pick or a paste. Distinct
+        // from a scenario capture — it diffs two messages and asserts nothing (Phase 7 entry point).
+        Row(modifier = Modifier.padding(bottom = 4.dp)) {
+            SlimButton(
+                "⇄ Diff messages…",
+                onClick = onDiffMessages,
+                color = AppTheme.Colors.textSecondary,
+                modifier = Modifier.testTag("rail-diff-messages"),
+            )
         }
     }
 }

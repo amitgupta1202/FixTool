@@ -37,9 +37,6 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.service.compare.ChunkKind
 import com.knapsack.fixtool.ui.AppTheme
 
-/** Which side *"Seed expectation from …"* mints an assertion out of. */
-enum class SeedFrom { A, B }
-
 /**
  * **The plain diff viewer — the same two-sided diff as [DiffSurface], with the writing removed.**
  *

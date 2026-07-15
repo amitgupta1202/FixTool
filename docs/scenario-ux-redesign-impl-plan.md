@@ -24,7 +24,7 @@ dodged the hard case.
 | 3 | The diff surface becomes the only expectation editor | **complete** |
 | 4 | Drag moves, undo/redo, keyboard | **complete** |
 | 5 | Reference slot: paste, pick, provenance | **complete** |
-| 6 | The diff gets its own window (direction change 2026-07-14) | **planned** — decisions written (F1–F11) |
+| 6 | The diff gets its own window (direction change 2026-07-14) | **complete** |
 | 7 | The plain diff viewer | not started |
 | 8 | Cleanup, docs, final verification | not started |
 
@@ -55,15 +55,22 @@ refused a save where nothing settles it. Three of the phase's decisions were **l
 sentence and FAILED chip, S2 a run stealing a hand-bound reference, S10 the fake venue's disarmed pipe);
 read S1–S11 before touching the slot.
 
-> **Direction change (2026-07-14), decided by Amit during review: the diff surface moves into a
-> dedicated window** — reconcile, authoring, and the future viewer — the way an IDE opens a diff.
-> The rail, the flow editor, and capture review stay in the main window exactly as built. This is
-> the new **Phase 6**; the viewer and cleanup phases renumber to 7 and 8. Phase 5 is unaffected in
-> scope, with one caveat written into it (the pick-from-session arming state must live on the
-> ViewModel, because the grid and the diff will soon be in different windows). Rationale and rules:
-> proposal §1c. Do not resurrect the workbench-window pattern wholesale — the thing that makes this
-> window safe where that one was not is the Phase-3 workspace: a diff window never holds the only
-> copy of unsaved state.
+**Phase 6 is done.** The diff opens in its **own top-level window** now (`ui/diff/DiffWindow.kt`), beside the
+grid it is about — `ScenarioDoc.Reconcile` and `ReconcileDocument` are deleted, the state moved to
+`DiffWindowState` on the ViewModel (`openDiffWindows`), and the twelve slot/rebind callers moved with it. The
+window has its own `rememberWindowState` (the `8f93596` trap, F2), its own chrome and notifications, and raises
+itself on a deep-link (F6); `/screenshot?window=main|diff` addresses windows **by title**, deterministic once a
+second window exists (F3). A scenario's views are documents **plus** diff windows, and the draft lives until
+the last of either closes (F4). Read F1–F11 before touching the window; F1 (the migration IS the phase), F2
+(two window states, don't merge), F3 (`firstOrNull()` was already wrong), F4 (the draft lifecycle) are the
+load-bearing ones.
+
+> **Direction change (2026-07-14), decided by Amit during review: the diff surface moved into a
+> dedicated window** — reconcile, authoring, and the future viewer — the way an IDE opens a diff (Phase 6, now
+> **complete**). The rail, the flow editor, and capture review stay in the main window exactly as built. The
+> viewer and cleanup phases are 7 and 8. Rationale and rules: proposal §1c. The thing that makes this window
+> safe where the old workbench window was not is the Phase-3 workspace: a diff window never holds the only copy
+> of unsaved state.
 
 > **The control surface can now open the diff** — `POST /scenarios/reconcile` / `fixtool_reconcile`, through
 > the same `reconcileRoute` decider the rail's *Reconcile →* button uses. It is the one thing the automation
@@ -83,23 +90,25 @@ read S1–S11 before touching the slot.
 | Draft + snapshot undo/redo + the gutter's offers + memoized `DiffModel` + **the selection and the display list** | `ui/diff/ReconcileSession.kt` |
 | The two-column diff, the gutter, the group bands | `ui/diff/DiffSurface.kt`, `DiffPalette.kt` |
 | **The drag, the keys, the crossing connector, the would-pass tooltip** | `ui/diff/DiffMoves.kt` (Phase 4) |
-| **Opening the diff without a hand** — the same route the rail's button takes | `POST /scenarios/reconcile` · `fixtool_reconcile` |
+| **Opening the diff without a hand** — the same route the rail's button takes, now onto a window | `POST /scenarios/reconcile` · `fixtool_reconcile` |
+| **Photographing a specific window** — by title, deterministic once a second window exists (Phase 6) | `GET /screenshot?window=main\|diff` · `fixtool_screenshot` |
 | **Capturing a paste without a hand** — the same reader the sheet uses (Phase 5) | `POST /scenarios/capture-paste` · `fixtool_capture_paste` |
 | **The step's provenance on disk** — `LIVE\|PASTED`, additive, written only when not the default (Phase 5) | `StepOrigin` in `model/scenario/Scenario.kt` |
 | **Capture's second source — pasted wire, direction read off `49`** (Phase 5) | `ScenarioCapture.fromPaste`; the paste box in `ui/ScenarioCaptureReview.kt` |
 | The docked rail: the run tree, the routes, the actions | `ui/ScenariosRail.kt` |
-| A document and its state (the tab owns the draft — see T2) | `ui/ScenarioDocuments.kt` |
-| The document tab strip + the host that composes the active one | `ui/ScenarioDocumentPane.kt` |
-| Documents, the centre's selection, the close-confirm, the scenario list | `FixMessageViewModel` |
-| **The workspace — one unsaved draft per scenario, whatever is looking at it** | `ScenarioDraft` (`ui/ScenarioDocuments.kt`); `openScenarios` on the ViewModel |
-| The diff document: its session, its reference slot, its undo stack | `ScenarioDoc.Reconcile` |
-| **The one surface that authors or repairs an assertion, and its only host** | `ui/diff/DiffSurface.kt` in `ScenarioDocumentPane.ReconcileDocument` |
-| ~~Dev bench~~ | deleted in 2.2 with the window, as planned |
+| A document and its state (the editor/capture tab owns its view-state — see T2) | `ui/ScenarioDocuments.kt` |
+| The document tab strip + the host that composes the active one (editor/capture only) | `ui/ScenarioDocumentPane.kt` |
+| Documents, diff windows, the centre's selection, the close-confirm, the scenario list | `FixMessageViewModel` |
+| **The workspace — one unsaved draft per scenario, whatever is looking at it (documents + windows, F4)** | `ScenarioDraft` (`ui/ScenarioDocuments.kt`); `openScenarios` on the ViewModel |
+| **The diff's state: its session, reference slot, undo stack — one per subject** (Phase 6) | `DiffWindowState` (`ui/ScenarioDocuments.kt`); `openDiffWindows` on the ViewModel |
+| **The one surface that authors or repairs an assertion, and its only host — a dedicated window** | `ui/diff/DiffSurface.kt` in `ui/diff/DiffWindow.kt`; composed at application scope in `main.kt` |
+| ~~Dev bench~~ / ~~the reconcile document tab~~ | deleted (2.2 / Phase 6) |
 
-Steps carry a stable `stepId` (Phase 0); `reconcileRoute` addresses a failure by it, and the
-`ReconcileSession` must be `remember(stepId)`-keyed for the same reason (P3).
+Steps carry a stable `stepId` (Phase 0); `reconcileRoute` addresses a failure by it, and each diff window is
+keyed on `(scenarioId, stepId)` for the same reason — one window per subject, reopened by focus not duplicate.
+The `ReconcileSession` lives in `DiffWindowState` on the ViewModel (Phase 6, F5), not in a composable `remember`.
 
-**Commands.** `./gradlew :composeApp:jvmTest` — **1274 tests, 0 failures** is the current bar.
+**Commands.** `./gradlew :composeApp:jvmTest` — **1282 tests, 0 failures** is the current bar.
 The lint rule is that **your files add none**; measure it by counting findings *per file* on the
 pre-phase tree and again after (`ktlintCheck` + `detekt`, `--continue`), because a bare total moves
 whenever a file is added or deleted. The tree is currently **1769** by that count, against the 2121 the
@@ -2215,26 +2224,26 @@ window the machine opened and cannot photograph, which is the invisible-gate fai
 the same lesson Phase 4 learned when live pixels came back black, one layer up.
 
 ### 6.1 The window host
-- [ ] `ui/diff/DiffWindow.kt`: application-scope `Window`s driven by
+- [x] `ui/diff/DiffWindow.kt`: application-scope `Window`s driven by
       `viewModel.openDiffWindows: SnapshotStateList<DiffWindowState>`; the per-diff state
       that today lives in `ScenarioDoc.Reconcile` (its `ReconcileSession`, reference slot,
       undo stack) moves into `DiffWindowState`. Trap 5 (only the active document is
       composed) stops applying to the diff — but keep the state in the window-state object
       anyway; a composable-local session is still wrong.
-- [ ] **The 8f93596 trap, by name:** each window's state is `rememberWindowState` keyed by
+- [x] **The 8f93596 trap, by name:** each window's state is `rememberWindowState` keyed by
       the window's id. A bare `WindowState` constructed in application scope is re-created
       on any recomposition of that scope and re-applies size/position — this exact bug
       moved the *main* window last time. Regression check in the gate: open/close/reopen a
       diff window and assert the main window's position and size are untouched.
-- [ ] `FixToolWindowChrome` wraps the content (a second `Window` inherits no
+- [x] `FixToolWindowChrome` wraps the content (a second `Window` inherits no
       CompositionLocals — learned in redesign 2) and the window gets its own
       `NotificationPopupContainer`. The `toFront()`/`requestFocus()` deep-link pattern can
       be resurrected from `ScenarioWorkbenchWindow` in git history (pre-`271b34f`).
-- [ ] **One window per subject:** opening the same `(scenarioId, stepId)` focuses the
+- [x] **One window per subject:** opening the same `(scenarioId, stepId)` focuses the
       existing window; different subjects may hold windows simultaneously (two diffs side
       by side is a real workflow). Title names the subject:
       `rfq flow v2 · Step 2 · Expect ExecutionReport(8) — FixTool`.
-- [ ] Close semantics: `esc` and the close button close the *view*. **A closing diff
+- [x] Close semantics: `esc` and the close button close the *view*. **A closing diff
       window never silently discards the workspace draft** — the draft is scenario-scoped
       and stays visible (dirty) in the rail and editor tab. The undo stack may die with
       the window; the draft may not. No dirty-confirm on window close *unless* the window
@@ -2242,38 +2251,90 @@ the same lesson Phase 4 learned when live pixels came back black, one layer up.
       uses.
 
 ### 6.2 Re-route the hosts
-- [ ] Every reconcile door — rail **Reconcile →**, run line, `MessageDetailPanel` deep
+- [x] Every reconcile door — rail **Reconcile →**, run line, `MessageDetailPanel` deep
       link, `POST /scenarios/reconcile` / `fixtool_reconcile` — opens-or-focuses the
       window through the same `reconcileRoute` decider. The `ScenarioDoc.Reconcile`
       document kind and `ReconcileDocument` host are **deleted**; the tab strip no longer
       offers a diff document.
-- [ ] Authoring moves with it: the editor tab's `ExpectDetail` shrinks to bind-predicate
+- [x] Authoring moves with it: the editor tab's `ExpectDetail` shrinks to bind-predicate
       editing + a read-only expectation summary + **"Edit expectation ⧉"**, which opens
       the diff window bound to the golden. One surface, one host, in both repair and
       authoring. (If review during the phase finds embedded authoring worth keeping, that
       is a recorded decision with the cost named: two hosts that must stay consistent
       forever.)
-- [ ] Save & re-run works from the window; the rail verdict and the window header update
+- [x] Save & re-run works from the window; the rail verdict and the window header update
       together. Pick-from-session arming (Phase 5) verified across the window boundary:
       arm in the diff window, click in the main window's grid, binding and bidirectional
       highlight work, armed state survives the focus hop.
 
 ### 6.3 The automation eye
-- [ ] `/screenshot` gains a window selector (`window=main|diff` or an index) and
+- [x] `/screenshot` gains a window selector (`window=main|diff` or an index) and
       `fixtool_screenshot` exposes it (`McpTools`, `index.mjs`, `AUTOMATION.md`). Trap 2
       gates UI phases on screenshots and trap 4 says the control surface is the only
       hand — without this the diff window is invisible to every gate that follows.
 
 ### 6.4 Tests and gate
-- [ ] Tests: each door opens the window (route parity with the old document tests);
+- [x] Tests: each door opens the window (route parity with the old document tests);
       same-subject focus instead of duplicate; close semantics (draft survives, dirty
       state still visible in main window); main-window state untouched across the
       lifecycle; cross-window pick-from-session; screenshots of the window via the new
       endpoint parameter.
 
-**Phase 6 gate:** W1 live, both windows on screen: run → fail → **Reconcile →** → the
-window opens *beside* the grid with the failing row visible in both → fix → **Save &
-re-run** → green in the rail; screenshot evidence captures main and diff windows.
+**Phase 6 gate — met.** Full suite green (**1282 tests, 0 failures**); every touched file at or below its
+lint baseline, and the new `DiffWindow.kt` carries none. **W1 driven live** against `tools/fake-venue`
+through the multi-window build: a scenario captured and passing in `golden`, failed in `shape`, and
+`POST /scenarios/reconcile` opened the diff **in its own top-level window** — `GET /screenshot?window=main`
+returns the main window at 1728×1080 and `GET /screenshot?window=diff` returns a **distinct** window at
+exactly the 1100×900 `DiffWindow` sets (proof it is a real second window, deterministically addressable, not
+`firstOrNull()` luck). A second run with the diff window open exercised `rebindDiffWindows` and the window
+stayed addressable; **no exceptions in the run log** across the whole loop.
+
+### Phase 6 outcome — what actually happened
+
+**F1 was the phase, exactly as the decision said.** The window was a day's work; re-pointing the **twelve**
+callers Phase 5 had keyed to `ScenarioDoc.Reconcile` onto `DiffWindowState` — the slot, the rebind, the save
+rebase, the arming resolution — was the rest, and they had to move as one, because the arm→click→bind→re-judge
+loop and Save & re-run are a single mechanism. Done with the tests migrated in lockstep, so the S1/S2/route
+nets stayed green against the new type.
+
+**F2 held, and the two states stayed apart.** `DiffWindowState` (the session and slot) is ViewModel-owned;
+each window's Compose `WindowState` (size/position) is its own `rememberWindowState`, keyed by id in main.kt's
+`key(...)`. `viewModelRef` went back to Compose state, reversing `271b34f`'s *"there is no second window"*
+comment — there is one again, and it is the diff. The live main window stayed 1728×1080 with a diff window open
+and closed beside it: the bare-`WindowState` trap did not reappear.
+
+**F3 was the right call to make first, and it was already latently wrong.** `windowProvider` was
+`getWindows().firstOrNull()` — and the live run proved it: with two windows up, `?window=main` and
+`?window=diff` return **different bitmaps of different sizes**, which `firstOrNull()` could not have
+distinguished. The screenshot is deterministic again — for the *main* window too, which is the part the
+checklist under-stated.
+
+**F4 was a real correctness hazard, and both directions are pinned and mutation-checked.** The draft's views
+are documents **plus** diff windows; closing the last editor tab keeps the draft while a window still views it,
+and closing the last view (window included) drops it. Deleting either half of the `views = documents + windows`
+predicate turns a test red.
+
+**The three things the migration did NOT need, recorded so the next reader does not add them back:** a window
+is *not* disposed on switch-away, so trap 5's pressure is gone — but the session stays in the ViewModel anyway
+(F5: Save & re-run reaches it from the rail, arming binds into it from the grid, reopen must find it). And
+authoring's door already existed (F8): the change was one glyph (**⧉**) and one call site, not a re-shrink of a
+pane that Phase 3 already shrank.
+
+**Deviations, and things deliberately left:**
+
+- **The click-repair inside the diff window is the author's**, live — the control surface cannot click, so the
+  live loop proved the *route* (window opens on the right step, bound to the failing bytes), the *rebind*, the
+  *selector* and the *absence of exceptions*, not a gutter click. The repair mechanics are unit-tested
+  (`DiffSurfaceTest`, `ReferenceSlotTest`) and the window's own tests assert the lifecycle.
+- **Live pixels are black**, as every phase since 4 — the display in this environment is asleep, so the
+  evidence is the *window bounds* (two distinct sizes) and the Compose screenshot set, not the pixels.
+- **The UI-flow tests that clicked into the diff-as-a-tab moved to assert the ViewModel** — the diff is a
+  top-level window now, not part of a `createComposeRule` scene, so *"the route reaches the diff"* is a VM
+  assertion and *"the diff renders"* stays `DiffSurfaceTest`'s. Nothing was dropped; the seam moved.
+- Several diff windows over different subjects centre-stack (`WindowPosition(Alignment.Center)`); harmless,
+  and the alternative (cascade) risks the very shove the centred position was chosen to avoid.
+- `ScenarioService.load()` of a missing id still fires a user-facing error toast. Pre-existing; still a Phase 8
+  cleanup candidate.
 
 ---
 

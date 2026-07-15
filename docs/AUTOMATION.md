@@ -99,11 +99,11 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /scenarios/capture` | `{"name", "profile"?, "sessions"?}` | record the live message flow into a scenario (auto-parameterized, echoed ids wired to `reference` matchers) |
 | `POST /scenarios/capture-paste` | `{"name", "wire", "session"?, "senderCompId"?, "targetCompId"?, "profile"?}` | capture from **pasted wire** — one FIX message per line, read like the paste sheet: a `\|`-inside-a-value line is **refused** (never guessed), and a message whose direction `SenderCompID(49)` cannot settle **blocks the save**. Every step is badged `pasted`. Returns `{status, id, steps, pasted, refused[]}` or `{status:"refused", undirected[]}` |
 | `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`) |
-| `POST /scenarios/reconcile` | `{}` or `{"step": N}`            | **open the diff on a step the last run failed** — the one surface that can repair an assertion. `{}` takes the first failing step, as the rail's *Reconcile →* does; it goes through the same route check, so a step edited since it ran is refused **with the reason**. Pair with `GET /screenshot`. |
+| `POST /scenarios/reconcile` | `{}` or `{"step": N}`            | **open the diff on a step the last run failed** — the one surface that can repair an assertion, in its own **window** (Phase 6). `{}` takes the first failing step, as the rail's *Reconcile →* does; it goes through the same route check, so a step edited since it ran is refused **with the reason**. Pair with `GET /screenshot?window=diff`. |
 | `POST /detail`       | `{"query"?, "mode"?, "show"?}`         | drives the detail panel's tag search: sets the query and/or match-context `mode` (`bare`\|`identity`\|`full`) so a nested tag keeps its repeating-group context |
 | `POST /search`       | `{"query", "pin"?}`                    | cross-session matches sorted chronologically (a timeline); pins to the search pane |
 | `POST /filter`       | `{"scope"?, "session"?, "regex"?, "messageTypes"?, "showIncoming"?, "showOutgoing"?, "showSeparator"?}` | filters the grid for a focused screenshot |
-| `GET /screenshot`    | —                                      | `image/png` bytes of the window                      |
+| `GET /screenshot`    | query: `window` (`main`\|`diff`\|title substring; default `main`) | `image/png` bytes of a window, picked by title — deterministic once a diff window is open |
 
 `session` may be an index (`0`), an id, or a title. `direction` is `in`/`out` (or omitted).
 Each message in `/messages` includes `timestamp`, `direction`, `messageType` (tag 35), the

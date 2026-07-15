@@ -181,20 +181,20 @@ class ScenarioIntegrationTest {
         assertEquals("0", failed150.actual, "acceptor answers ExecType=0")
         assertEquals(0, failed150.occurrence, "ExecType appears once — the first and only occurrence")
 
-        // Deep-link lands on the failing expect step (steps index 1: send=0, expect=1).
+        // Deep-link opens the diff WINDOW on the failing expect step (steps index 1: send=0, expect=1).
         viewModel.openScenarioEditorForFailure(failedMessage)
-        val doc = viewModel.activeDocument as com.knapsack.fixtool.ui.ScenarioDoc.Reconcile
-        assertEquals(id, doc.scenarioId)
+        val window = viewModel.openDiffWindows.value.single()
+        assertEquals(id, window.scenarioId)
         assertEquals(
             viewModel
                 .scenarioDraft(id)!!
                 .draft.steps[1]
                 .stepId,
-            doc.stepId,
+            window.stepId,
             "the diff opened on the step that failed, by its identity",
         )
-        assertNotNull(doc.session, "and it is bound to this run's bytes, so there is a diff to look at")
-        viewModel.closeDocument(doc.id)
+        assertNotNull(window.session, "and it is bound to this run's bytes, so there is a diff to look at")
+        viewModel.closeDiffWindow(window.id)
 
         // Rebaseline the step to what the venue actually sends, save it back, and re-run for real.
         assertEquals("updated", obj(post("/scenarios", scenarioJson("fixloop", "0", id = id)))["status"]!!.jsonPrimitive.content)

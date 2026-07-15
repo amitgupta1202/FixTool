@@ -10,7 +10,7 @@ import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.compare.ReferenceMessage
-import com.knapsack.fixtool.ui.ScenarioDoc
+import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.ui.diff.EditResult
 import org.junit.After
@@ -131,7 +131,7 @@ class ScenarioDeepLinkTest {
     // ----- the happy path ------------------------------------------------------------------------------
 
     @Test
-    fun `failure opens a document tab focused on the failing expect step`() {
+    fun `failure opens a diff window on the failing expect step`() {
         val scenario = scenarioWithExpect()
         assertTrue(viewModel.scenarioService.save(scenario))
         val msg = failedMessage()
@@ -140,39 +140,39 @@ class ScenarioDeepLinkTest {
 
         viewModel.openScenarioEditorForFailure(msg)
 
-        // The destination is a tab in the main window. There is no second window to raise, and no one-shot
-        // flow for one to consume: the ViewModel opens the document itself.
-        // The destination is the DIFF — the one surface that can repair an assertion — in a tab of its own,
-        // bound to this run's failing bytes.
-        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
+        // The destination is the DIFF — the one surface that can repair an assertion — in its own dedicated
+        // window (Phase 6), bound to this run's failing bytes. It is not a document: the centre pane's active
+        // document is untouched.
+        val window = viewModel.openDiffWindows.value.single()
         val stepId =
             viewModel
                 .scenarioDraft(scenario.id)!!
                 .draft.steps[1]
                 .stepId
-        assertEquals(ScenarioDoc.reconcileId(scenario.id, stepId), viewModel.activeDocumentId.value)
-        assertEquals(scenario.id, doc.scenarioId)
-        assertEquals(stepId, doc.stepId, "by the step's identity, not by where it sits today")
-        assertEquals(wireBytes, doc.thisRunWire)
-        assertEquals(ReferenceMessage.Provenance.THIS_RUN, doc.session!!.reference.provenance)
-        // The draft is the SCENARIO's, not the tab's, and it opens clean: nothing has been edited, so closing
+        assertNull(viewModel.activeDocumentId.value, "the diff is a window, not the active document")
+        assertEquals(DiffWindowState.diffWindowId(scenario.id, stepId), window.id)
+        assertEquals(scenario.id, window.scenarioId)
+        assertEquals(stepId, window.stepId, "by the step's identity, not by where it sits today")
+        assertEquals(wireBytes, window.thisRunWire)
+        assertEquals(ReferenceMessage.Provenance.THIS_RUN, window.session!!.reference.provenance)
+        // The draft is the SCENARIO's, not the window's, and it opens clean: nothing has been edited, so closing
         // it must not stop to ask.
         val workspace = viewModel.scenarioDraft(scenario.id)!!
         assertEquals(scenario.id, workspace.draft.id)
         assertFalse(workspace.dirty)
-        assertFalse(doc.session.isDirty)
+        assertFalse(window.session.isDirty)
     }
 
     /**
      * **The two documents of one scenario, and the one draft underneath them.**
      *
-     * The editor tab is open and carrying an unsaved rename; the failure deep-links to the diff. Two tabs now
-     * look at this scenario, and there must still be exactly one draft: the rename survives, and it is visible
-     * from the tab that did not make it. Two drafts here is the two-editing-surfaces defect, and it ends with
-     * one tab's Save writing the other tab's work away.
+     * The editor tab is open and carrying an unsaved rename; the failure deep-links to the diff window. The
+     * editor tab and the diff window now both look at this scenario, and there must still be exactly one draft:
+     * the rename survives, and it is visible from the view that did not make it. Two drafts here is the
+     * two-editing-surfaces defect, and it ends with one view's Save writing the other's work away.
      */
     @Test
-    fun `the diff and the editor are two views of one draft`() {
+    fun `the diff window and the editor are two views of one draft`() {
         val scenario = scenarioWithExpect()
         assertTrue(viewModel.scenarioService.save(scenario))
         val msg = failedMessage()
@@ -184,7 +184,8 @@ class ScenarioDeepLinkTest {
 
         viewModel.openScenarioEditorForFailure(msg)
 
-        assertEquals(2, viewModel.openDocuments.value.size, "the editor tab, and the diff tab")
+        assertEquals(1, viewModel.openDocuments.value.size, "the editor tab")
+        assertEquals(1, viewModel.openDiffWindows.value.size, "and the diff window")
         assertEquals(
             1,
             viewModel.openScenarios.value.size,
@@ -195,20 +196,20 @@ class ScenarioDeepLinkTest {
         assertTrue(workspace.dirty)
 
         // An edit made in the diff lands in the same draft the editor is looking at.
-        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
-        assertIs<EditResult.Applied>(doc.session!!.apply(EditOp.drop(0, 150)), "a repair, staged in the diff")
+        val window = viewModel.openDiffWindows.value.single()
+        assertIs<EditResult.Applied>(window.session!!.apply(EditOp.drop(0, 150)), "a repair, staged in the diff")
         val expectation = (viewModel.scenarioDraft(scenario.id)!!.draft.steps[1] as ScenarioStep.Expect).expectation
         assertTrue(expectation.fields.none { it.tag == 150 }, "and the editor's draft has it too")
         assertEquals("renamed, unsaved", viewModel.scenarioDraft(scenario.id)!!.draft.name, "without losing the rename")
     }
 
     /**
-     * A second failure of a step whose diff is already open, **carrying staged repairs**, must land on that tab
-     * — re-aimed at the new bytes, not rebuilt. Throwing the author's work away to show them a diff would be a
-     * strange way to help them fix it.
+     * A second failure of a step whose diff window is already open, **carrying staged repairs**, must land on
+     * that window — re-aimed at the new bytes (and raised to the front), not rebuilt. Throwing the author's work
+     * away to show them a diff would be a strange way to help them fix it.
      */
     @Test
-    fun `a second deep-link re-aims the open diff instead of rebuilding it`() {
+    fun `a second deep-link re-aims the open diff window instead of rebuilding it`() {
         val scenario = scenarioWithExpect()
         assertTrue(viewModel.scenarioService.save(scenario))
         val msg = failedMessage()
@@ -216,17 +217,17 @@ class ScenarioDeepLinkTest {
         viewModel.setAssertionResults(mapOf(msg to failedStepResult()))
 
         viewModel.openScenarioEditorForFailure(msg)
-        val first = viewModel.activeDocument as ScenarioDoc.Reconcile
+        val first = viewModel.openDiffWindows.value.single()
         assertIs<EditResult.Applied>(first.session!!.apply(EditOp.drop(0, 150)))
         val epochBefore = first.focusEpoch
 
         viewModel.openScenarioEditorForFailure(msg)
 
-        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
-        assertEquals(1, viewModel.openDocuments.value.size, "one diff tab for the step, not two")
-        assertSame(first.session, doc.session, "the same session — the undo stack and the staged count survive")
-        assertEquals(1, doc.session!!.staged, "and it is still holding the repair")
-        assertEquals(epochBefore + 1, doc.focusEpoch, "which the composable can only see as a new epoch")
+        val window = viewModel.openDiffWindows.value.single()
+        assertEquals(1, viewModel.openDiffWindows.value.size, "one diff window for the step, not two")
+        assertSame(first.session, window.session, "the same session — the undo stack and the staged count survive")
+        assertEquals(1, window.session!!.staged, "and it is still holding the repair")
+        assertEquals(epochBefore + 1, window.focusEpoch, "which the window sees as a new epoch, and raises itself on")
     }
 
     /**
@@ -311,9 +312,9 @@ class ScenarioDeepLinkTest {
         assertTrue("changed since this run" in refusal(step), "the refusal must say the step moved under the run")
 
         viewModel.openScenarioEditorForFailure(msg)
-        assertNull(
-            viewModel.activeDocumentId.value,
-            "reconciling here would diff an expectation the author has since rewritten",
+        assertTrue(
+            viewModel.openDiffWindows.value.isEmpty(),
+            "reconciling here would diff an expectation the author has since rewritten — refused, so no window",
         )
     }
 
@@ -445,7 +446,7 @@ class ScenarioDeepLinkTest {
         assertTrue("no wire bytes" in why && "FixTool limitation" in why, why)
 
         viewModel.openScenarioEditorForFailure(msg)
-        assertNull(viewModel.activeDocumentId.value)
+        assertTrue(viewModel.openDiffWindows.value.isEmpty(), "refused: no diff window opened")
         assertTrue(viewModel.notifications.any { "no wire bytes" in it.message })
     }
 
@@ -508,7 +509,7 @@ class ScenarioDeepLinkTest {
 
         viewModel.openScenarioEditorForFailure(msg)
 
-        assertNull(viewModel.activeDocumentId.value, "the message viewer's door must honour the same rule")
+        assertTrue(viewModel.openDiffWindows.value.isEmpty(), "the message viewer's door must honour the same rule")
         assertTrue(viewModel.notifications.any { "setup" in it.message })
     }
 

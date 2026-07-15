@@ -258,15 +258,15 @@ class ControlServerIntegrationTest {
             assertEquals("open", open["status"]!!.jsonPrimitive.content, open.toString())
             assertEquals(2, open["step"]!!.jsonPrimitive.int, "the Expect is step 2, and it is the one that failed")
 
-            // ...and what opened is the real thing: the diff document, on that step, judging the message that
+            // ...and what opened is the real thing: the diff WINDOW, on that step, judging the message that
             // actually arrived. `openReconcile` runs on the EDT, so let it land.
             assertTrue(
-                awaitCondition(5_000) { viewModel.activeDocument is com.knapsack.fixtool.ui.ScenarioDoc.Reconcile },
-                "the control surface opened the one surface that can repair the assertion",
+                awaitCondition(5_000) { viewModel.openDiffWindows.value.isNotEmpty() },
+                "the control surface opened the one surface that can repair the assertion — in its own window",
             )
-            val doc = viewModel.activeDocument as com.knapsack.fixtool.ui.ScenarioDoc.Reconcile
-            assertEquals(open["stepId"]!!.jsonPrimitive.content, doc.stepId)
-            val session = doc.session ?: error("the diff must be bound to the failing message, not to a prompt")
+            val window = viewModel.openDiffWindows.value.single()
+            assertEquals(open["stepId"]!!.jsonPrimitive.content, window.stepId)
+            val session = window.session ?: error("the diff must be bound to the failing message, not to a prompt")
             assertTrue(session.model.verdict.needsAttention, "the surface agrees with the engine that this failed")
             assertEquals(38, session.model.lines.first { !it.row.passed }.row.tag, "and it is the row that failed")
         } finally {

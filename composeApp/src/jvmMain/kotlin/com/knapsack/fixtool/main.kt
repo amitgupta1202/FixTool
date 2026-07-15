@@ -2,7 +2,12 @@ package com.knapsack.fixtool
 
 import androidx.compose.foundation.focusable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -13,6 +18,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.ui.App
+import com.knapsack.fixtool.ui.diff.DiffWindow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
@@ -51,12 +57,11 @@ fun main() {
     // close handler keeps one instance across recompositions of the application scope.
     var isClosing = false
 
-    // The close handler needs the ViewModel so it can disconnect the sessions. It used to be Compose state,
-    // because a second window had to recompose off the ViewModel's flows. There is no second window: the
-    // Scenarios workbench is a rail and a set of document tabs inside the one below.
-    var viewModelRef: com.knapsack.fixtool.viewmodel.FixMessageViewModel? = null
-
     application {
+        // Compose state, because the diff windows (Phase 6) are siblings of the main window down below and must
+        // recompose off the ViewModel's `openDiffWindows` flow. This reverses `271b34f`'s "there is no second
+        // window" — there is again, and it is the diff (F2).
+        var viewModelRef by remember { mutableStateOf<com.knapsack.fixtool.viewmodel.FixMessageViewModel?>(null) }
         Window(
             onCloseRequest = {
                 if (!isClosing) {
@@ -138,6 +143,19 @@ fun main() {
                     }
                 },
             )
+        }
+
+        // The diff windows — siblings of the main window, so closing one never touches the app, and each is
+        // task-scoped: it opens on one step, does one job, and closes back into the grid it is about (§1c).
+        // `key(id)` keeps each window's own composition (and its rememberWindowState) stable across the list
+        // changing under it.
+        viewModelRef?.let { viewModel ->
+            val diffWindows by viewModel.openDiffWindows.collectAsState()
+            diffWindows.forEach { state ->
+                key(state.id) {
+                    DiffWindow(viewModel, state, onClose = { viewModel.requestCloseDiffWindow(state.id) })
+                }
+            }
         }
     }
 }

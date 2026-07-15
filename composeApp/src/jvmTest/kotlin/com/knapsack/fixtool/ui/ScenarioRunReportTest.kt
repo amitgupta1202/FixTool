@@ -141,12 +141,12 @@ class ScenarioRunReportTest {
         composeTestRule.onNodeWithTag("reconcile-failure").performClick()
         composeTestRule.waitForIdle()
 
-        // Landed on the failing step's diff — the one surface that can repair an assertion — in a document tab
-        // in the main window, not an unfocused editor and not a second window.
-        composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("diff-summary").assertIsDisplayed()
-        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
-        assertEquals(stepId(), doc.stepId)
+        // The route opened the failing step's diff — the one surface that can repair an assertion — in its own
+        // window (Phase 6), bound to the bytes that failed it. The window is a top-level composition, not part
+        // of this test's; that it *renders* is DiffSurfaceTest's job, and that the route *reaches* it is this.
+        val window = viewModel.openDiffWindows.value.single()
+        assertEquals(stepId(), window.stepId)
+        assertTrue(window.session?.model?.verdict?.needsAttention == true, "and it agrees with the run that this failed")
     }
 
     /** The step this scenario's run failed at, by identity. */
@@ -171,44 +171,37 @@ class ScenarioRunReportTest {
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
-        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
-        assertEquals(stepId(), doc.stepId, "the step the rail named, not the first one")
+        assertEquals(stepId(), viewModel.openDiffWindows.value.single().stepId, "the step the rail named, not the first one")
     }
 
     /**
-     * The tab is not a window, and only the active document is composed: switch to the sessions and back, and
-     * an edit that lived in the composable would be gone. This is the regression Phase 2 could most easily
-     * have shipped — a document tab is *worse* than the window it replaced unless the document owns its state.
+     * **The session survives the main window doing whatever it likes (F5).** A repair staged in the diff, and
+     * its undo stack, live in the ViewModel's `openDiffWindows`, not in the diff window's composable — so a
+     * glance at the session grid, a focused editor tab, anything the main window does, cannot touch them. (The
+     * *reason* changed with Phase 6: a window is not disposed when you look away, unlike the tab it replaced;
+     * but Save & re-run, cross-window arming, and reopen still need the session reachable from here.)
      */
     @Test
-    fun `an unsaved repair, and its undo stack, survive a trip to the session view and back`() {
+    fun `a staged repair and its undo stack live in the ViewModel, untouched by the main window`() {
         stageFailedRun(failedMessage())
         composeTestRule.setContent { RailAndDocuments(viewModel) }
         composeTestRule.onNodeWithTag("reconcile-failure").performClick()
         composeTestRule.waitForIdle()
 
-        // Accept the actual on the failing row: one staged repair.
-        composeTestRule.onNodeWithTag("accept_actual-150-0").performClick()
-        composeTestRule.waitForIdle()
-        val id = viewModel.activeDocumentId.value!!
-        val session = (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!
+        // Accept the actual on the failing 150 row — one staged repair, applied to the window's own session.
+        val session = viewModel.openDiffWindows.value.single().session!!
+        session.apply(com.knapsack.fixtool.ui.diff.EditOp.acceptActual(0, 150, "8"))
         assertEquals(1, session.staged)
         assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty, "the scenario knows it is holding an edit")
 
-        viewModel.showSessions() // the author glances at the session grid — the document is disposed
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("diff-surface").assertDoesNotExist()
-
-        viewModel.focusDocument(id)
+        viewModel.showSessions() // the author glances at the session grid — the diff WINDOW is untouched by this
         composeTestRule.waitForIdle()
 
-        // The repair is still staged, the footer still counts it, and ⌘Z still has somewhere to go. A session
-        // left in the composable would have taken all three with it — and the footer would then have promised
-        // that nothing was written, over a draft that is one edit from disk.
-        composeTestRule.onNodeWithTag("diff-surface").assertIsDisplayed()
-        assertEquals(1, (viewModel.activeDocument as ScenarioDoc.Reconcile).session!!.staged)
-        assertTrue((viewModel.activeDocument as ScenarioDoc.Reconcile).session!!.canUndo)
+        // The repair is still staged and ⌘Z still has somewhere to go, because the session was never in a
+        // composable that the main window could dispose.
+        val after = viewModel.openDiffWindows.value.single().session!!
+        assertEquals(1, after.staged)
+        assertTrue(after.canUndo)
     }
 
     /**

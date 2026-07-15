@@ -46,6 +46,7 @@ import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.ui.CaptureReviewState
+import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.FixField
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
@@ -245,6 +246,23 @@ class FixMessageViewModel(
     val openDocuments: StateFlow<List<ScenarioDoc>> = _openDocuments.asStateFlow()
 
     /**
+     * **The open diff windows** — the reconcile/authoring surface, one dedicated window per `(scenarioId,
+     * stepId)` subject (Phase 6). Not a `ScenarioDoc`: it is not a tab in the centre pane, it is a top-level
+     * window composed at application scope. The state it holds is otherwise exactly what the reconcile
+     * *document* held; see [DiffWindowState] for why it stays here on the ViewModel.
+     */
+    private val _openDiffWindows = MutableStateFlow<List<DiffWindowState>>(emptyList())
+    val openDiffWindows: StateFlow<List<DiffWindowState>> = _openDiffWindows.asStateFlow()
+
+    /** The diff window's own state, coming back from the surface that is editing it. */
+    fun updateDiffWindow(state: DiffWindowState) {
+        _openDiffWindows.value = _openDiffWindows.value.map { if (it.id == state.id) state else it }
+    }
+
+    /** The diff window for [id], or null. For tests and for the arming resolution. */
+    fun diffWindow(id: String): DiffWindowState? = _openDiffWindows.value.firstOrNull { it.id == id }
+
+    /**
      * Which document the centre pane is showing — and **null *is* the session view.**
      *
      * The centre's selection is not [activeSessionIndex] and must never become it. A document tab is not a
@@ -325,13 +343,25 @@ class FixMessageViewModel(
         val closing = _openDocuments.value.firstOrNull { it.id == id }
         val remaining = _openDocuments.value.filterNot { it.id == id }
         _openDocuments.value = remaining
-        closing?.scenarioId?.let { scenarioId ->
-            if (remaining.none { it.scenarioId == scenarioId }) {
-                _openScenarios.value = _openScenarios.value - scenarioId
-            }
-        }
+        closing?.scenarioId?.let { dropDraftIfUnviewed(it) }
         if (_activeDocumentId.value == id) _activeDocumentId.value = remaining.lastOrNull()?.id
         if (_confirmingCloseId.value == id) _confirmingCloseId.value = null
+    }
+
+    /**
+     * **A draft with nothing looking at it is unreachable, and the views now live in two collections.**
+     *
+     * The Phase-3 workspace invariant — one draft per scenario, dropped when the last view of it closes — was
+     * counted over `_openDocuments` alone, which was right while the diff was a document. As a window it is a
+     * view of the scenario that `_openDocuments` cannot see, so counting only documents would drop the draft
+     * out from under a live diff window (closing the last editor tab), and its next `onChange` would write into
+     * a workspace that no longer exists. The views are documents **plus** diff windows (Phase 6 decision F4).
+     */
+    private fun dropDraftIfUnviewed(scenarioId: String) {
+        val stillViewed =
+            _openDocuments.value.any { it.scenarioId == scenarioId } ||
+                _openDiffWindows.value.any { it.scenarioId == scenarioId }
+        if (!stillViewed) _openScenarios.value = _openScenarios.value - scenarioId
     }
 
     /**
@@ -354,13 +384,42 @@ class FixMessageViewModel(
         val discards =
             when (doc) {
                 is ScenarioDoc.Capture -> doc.dirty
-                else -> {
-                    val scenarioId = doc.scenarioId
-                    val last = scenarioId != null && documentsOf(scenarioId).none { it.id != id }
-                    last && _openScenarios.value[scenarioId]?.dirty == true
-                }
+                else -> doc.scenarioId?.let { isLastDirtyView(it, exceptId = id) } == true
             }
         if (discards) _confirmingCloseId.value = id else closeDocument(id)
+    }
+
+    /**
+     * **Is closing this view the thing that discards the draft?** Only if it is the *last* view of a dirty
+     * scenario — where a view is an editor/capture document **or** a diff window (F4). Closing the diff window
+     * while the editor tab is still open discards nothing and must not stop to ask; closing the last one of
+     * either kind, on a dirty scenario, must.
+     */
+    private fun isLastDirtyView(scenarioId: String, exceptId: String): Boolean {
+        val otherView =
+            _openDocuments.value.any { it.scenarioId == scenarioId && it.id != exceptId } ||
+                _openDiffWindows.value.any { it.scenarioId == scenarioId && it.id != exceptId }
+        return !otherView && _openScenarios.value[scenarioId]?.dirty == true
+    }
+
+    // ---- The diff window's lifecycle: open-or-focus, close, and the dirty-last-view confirm (F4, F6) --------
+
+    /**
+     * Close a diff window — and drop the scenario's draft if this was its last view (F4). The armed slot, if it
+     * was waiting for *this* window, is disarmed with it: a click has nothing left to bind.
+     */
+    fun closeDiffWindow(id: String) {
+        val closing = _openDiffWindows.value.firstOrNull { it.id == id }
+        _openDiffWindows.value = _openDiffWindows.value.filterNot { it.id == id }
+        closing?.scenarioId?.let { dropDraftIfUnviewed(it) }
+        if (_armedReferenceSlot.value == id) _armedReferenceSlot.value = null
+        if (_confirmingCloseId.value == id) _confirmingCloseId.value = null
+    }
+
+    /** The window's `×`/`esc`: confirm first only when this is the last view of a dirty scenario (F4). */
+    fun requestCloseDiffWindow(id: String) {
+        val state = _openDiffWindows.value.firstOrNull { it.id == id } ?: return
+        if (isLastDirtyView(state.scenarioId, exceptId = id)) _confirmingCloseId.value = id else closeDiffWindow(id)
     }
 
     fun cancelCloseDocument() {
@@ -421,17 +480,18 @@ class FixMessageViewModel(
         openDocument(doc)
     }
 
-    // ---- The diff document: the one surface that authors or repairs an assertion ---------------------
+    // ---- The diff window: the one surface that authors or repairs an assertion ---------------------
 
     /**
-     * Open the diff on a step — or focus the tab already holding it, re-aimed at [focusTag].
+     * Open the diff **window** on a step — or focus the window already holding it (`focusEpoch` bump, which
+     * raises it), re-aimed at [focusTag].
      *
      * The reference is bound here and nowhere else: this run's failing bytes when there are any, the step's
-     * golden when there are not, and **nothing at all** when the step has neither — in which case the tab
+     * golden when there are not, and **nothing at all** when the step has neither — in which case the window
      * shows a prompt rather than diffing an expectation against an empty message and calling every row of it
      * missing.
      */
-    fun openReconcileDocument(
+    fun openDiffWindow(
         scenario: Scenario,
         stepId: String,
         thisRunWire: String? = null,
@@ -439,14 +499,15 @@ class FixMessageViewModel(
         focusTag: Int? = null,
     ) {
         ensureScenarioDraft(scenario)
-        val id = ScenarioDoc.reconcileId(scenario.id, stepId)
-        val open = _openDocuments.value.firstOrNull { it.id == id } as? ScenarioDoc.Reconcile
+        val id = DiffWindowState.diffWindowId(scenario.id, stepId)
+        val open = _openDiffWindows.value.firstOrNull { it.id == id }
         if (open != null) {
             // Already open, and it may be carrying an undo stack and an hour of staged repairs. Only the aim
-            // moves — and the reference with it, when this is a *new* failure of the same step.
+            // moves — and the reference with it, when this is a *new* failure of the same step. The epoch bump
+            // is what raises the window to the front (F6).
             val rebound = thisRunWire?.let { wire -> referenceOf(wire, arrivedAt) }
             rebound?.let { open.session?.swapReference(it) }
-            openDocument(
+            updateDiffWindow(
                 open.copy(
                     thisRunWire = thisRunWire ?: open.thisRunWire,
                     focusTag = focusTag ?: open.focusTag,
@@ -463,25 +524,25 @@ class FixMessageViewModel(
                 expectation?.golden != null -> ReferenceMessage.golden(RawMessageView(expectation.golden!!))
                 else -> null
             }
-        openDocument(
-            ScenarioDoc.Reconcile(
+        val window =
+            DiffWindowState(
                 scenarioId = scenario.id,
                 stepId = stepId,
                 session = expectation?.let { reference?.let { ref -> newReconcileSession(scenario.id, stepId, it, ref) } },
                 thisRunWire = thisRunWire,
                 focusTag = focusTag,
-            ),
-        )
+            )
+        _openDiffWindows.value = _openDiffWindows.value + window
     }
 
     /**
      * The editor's door into the diff — **authoring is the same surface**, with the golden in the slot instead
-     * of a failure. A step that has failed still opens on its failure, because the tab is keyed on the step and
-     * the one already holding this run's bytes is the one it finds.
+     * of a failure. A step that has failed still opens on its failure, because the window is keyed on the step
+     * and the one already holding this run's bytes is the one it finds.
      */
     fun openDiffForStep(scenarioId: String, stepId: String) {
         val draft = scenarioDraft(scenarioId)?.draft ?: return
-        openReconcileDocument(scenario = draft, stepId = stepId)
+        openDiffWindow(scenario = draft, stepId = stepId)
     }
 
     private fun referenceOf(wire: String, arrivedAt: java.time.Instant?): ReferenceMessage {
@@ -527,13 +588,11 @@ class FixMessageViewModel(
      * hand-doctored paste must never quietly become the scenario's canonical example.
      */
     private fun applyExpectation(scenarioId: String, stepId: String, edited: Expectation) {
-        val doc =
-            _openDocuments.value
-                .filterIsInstance<ScenarioDoc.Reconcile>()
-                .firstOrNull { it.scenarioId == scenarioId && it.stepId == stepId }
-        val session = doc?.session
+        val window =
+            _openDiffWindows.value.firstOrNull { it.scenarioId == scenarioId && it.stepId == stepId }
+        val session = window?.session
         val againstThisRun = session?.reference?.provenance == ReferenceMessage.Provenance.THIS_RUN
-        val golden = if (againstThisRun) doc?.thisRunWire ?: edited.golden else edited.golden
+        val golden = if (againstThisRun) window?.thisRunWire ?: edited.golden else edited.golden
         // **The badge follows the bytes.** Rows tightened against a paste were tightened against bytes FixTool
         // cannot vouch for, and — because the golden is NOT re-pointed at them (V4) — the step will open red
         // against its own canonical example ever after. The badge is the sentence that explains that.
@@ -567,10 +626,10 @@ class FixMessageViewModel(
      * Bind the message the author has selected in a session grid as this diff's reference — pick-from-grid, in
      * its cheapest honest form. Phase 5's armed slot widens it; the *provenance* is already right.
      */
-    fun bindPickedReference(doc: ScenarioDoc.Reconcile, wire: String, arrivedAt: java.time.LocalDateTime?) {
+    fun bindPickedReference(window: DiffWindowState, wire: String, arrivedAt: java.time.LocalDateTime?) {
         val at = arrivedAt?.atZone(java.time.ZoneId.systemDefault())?.toInstant() ?: java.time.Instant.now()
         bind(
-            doc,
+            window,
             ReferenceMessage.live(
                 view = RawMessageView(wire),
                 provenance = ReferenceMessage.Provenance.PICKED,
@@ -580,42 +639,43 @@ class FixMessageViewModel(
         )
     }
 
+    /** The step this diff is a view onto — or null, if the author has deleted it out from under the window. */
+    private fun expectStep(window: DiffWindowState): ScenarioStep.Expect? =
+        scenarioDraft(window.scenarioId)
+            ?.draft
+            ?.steps
+            ?.firstOrNull { it.stepId == window.stepId } as? ScenarioStep.Expect
+
     /**
      * Bind, or build the session if the slot was empty. The one door every reference goes through, so a
      * reference cannot arrive by a route that forgets to re-judge.
      */
-    /** The step this diff is a view onto — or null, if the author has deleted it out from under the tab. */
-    private fun expectStep(doc: ScenarioDoc.Reconcile): ScenarioStep.Expect? =
-        scenarioDraft(doc.scenarioId)
-            ?.draft
-            ?.steps
-            ?.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect
-
-    private fun bind(doc: ScenarioDoc.Reconcile, reference: ReferenceMessage): Boolean {
-        val expectation = expectStep(doc)?.expectation ?: return false
-        val existing = doc.session
+    private fun bind(window: DiffWindowState, reference: ReferenceMessage): Boolean {
+        val expectation = expectStep(window)?.expectation ?: return false
+        val existing = window.session
         if (existing != null) {
             existing.swapReference(reference)
             return true
         }
-        updateDocument(doc.copy(session = newReconcileSession(doc.scenarioId, doc.stepId, expectation, reference)))
+        val session = newReconcileSession(window.scenarioId, window.stepId, expectation, reference)
+        updateDiffWindow(window.copy(session = session))
         return true
     }
 
     // ---- The reference slot: what the swap menu may offer, and why it may not (S8, S11) ------------------
 
     /** The five entries of the swap menu, in the mockup's order, each one honest about whether it can be taken. */
-    fun referenceOptions(doc: ScenarioDoc.Reconcile): List<ReferenceOption> {
-        val bound = doc.session?.reference?.provenance
-        val step = expectStep(doc)
+    fun referenceOptions(window: DiffWindowState): List<ReferenceOption> {
+        val bound = window.session?.reference?.provenance
+        val step = expectStep(window)
         val golden = step?.expectation?.golden
         val second = secondInstanceFor(step)
         return listOf(
             ReferenceOption(
                 kind = ReferenceOption.Kind.THIS_RUN,
-                label = doc.thisRunWire?.let { "received — this run" } ?: "received — this run",
-                detail = if (doc.thisRunWire != null) "the message this run matched" else "this step has not run",
-                enabled = doc.thisRunWire != null,
+                label = "received — this run",
+                detail = if (window.thisRunWire != null) "the message this run matched" else "this step has not run",
+                enabled = window.thisRunWire != null,
                 selected = bound == ReferenceMessage.Provenance.THIS_RUN,
             ),
             ReferenceOption(
@@ -673,16 +733,16 @@ class FixMessageViewModel(
      * Take one of [referenceOptions]. PICK arms the slot; PASTE opens the sheet, and its bytes come back
      * through [bindPastedReference] once they have been **read**.
      */
-    fun selectReference(doc: ScenarioDoc.Reconcile, kind: ReferenceOption.Kind): Boolean {
-        val step = expectStep(doc)
+    fun selectReference(window: DiffWindowState, kind: ReferenceOption.Kind): Boolean {
+        val step = expectStep(window)
         return when (kind) {
-            ReferenceOption.Kind.THIS_RUN -> doc.thisRunWire?.let { bind(doc, referenceOf(it, null)) } ?: false
+            ReferenceOption.Kind.THIS_RUN -> window.thisRunWire?.let { bind(window, referenceOf(it, null)) } ?: false
             ReferenceOption.Kind.GOLDEN ->
-                step?.expectation?.golden?.let { bind(doc, ReferenceMessage.golden(RawMessageView(it))) } ?: false
+                step?.expectation?.golden?.let { bind(window, ReferenceMessage.golden(RawMessageView(it))) } ?: false
             ReferenceOption.Kind.SECOND_INSTANCE ->
                 secondInstanceFor(step)?.let { wire ->
                     bind(
-                        doc,
+                        window,
                         ReferenceMessage.live(
                             view = RawMessageView(wire),
                             provenance = ReferenceMessage.Provenance.SECOND_INSTANCE,
@@ -692,7 +752,7 @@ class FixMessageViewModel(
                     )
                 } ?: false
             ReferenceOption.Kind.PICK -> {
-                armReferenceSlot(doc.id)
+                armReferenceSlot(window.id)
                 true
             }
             // The sheet opens in the surface; the bytes come back through bindPastedReference once they are READ.
@@ -703,16 +763,16 @@ class FixMessageViewModel(
     /**
      * **The armed slot** — the diff is waiting for the next grid row the author clicks.
      *
-     * It lives here, and not in the diff, because the author must **leave the diff** to click a grid row: only
-     * the active document is composed today (trap 5), and after Phase 6 the grid is in another *window*. The
-     * grid, the detail panel and the diff must all agree about what the next click means, and two of them
-     * cannot see the document. Same reason `activeDocumentId` is here (T3): three surfaces, one fact.
+     * It lives here, and not in the diff, because the author must **leave the diff** to click a grid row: the
+     * diff is in its **own window** (Phase 6), and the grid is in the main one. The grid, the detail panel and
+     * the diff must all agree about what the next click means, and the diff window cannot see the main window's
+     * grid. Same reason `activeDocumentId` is here (T3): three surfaces, one fact — now across two windows.
      */
     private val _armedReferenceSlot = MutableStateFlow<String?>(null)
     val armedReferenceSlot: StateFlow<String?> = _armedReferenceSlot.asStateFlow()
 
-    fun armReferenceSlot(documentId: String) {
-        _armedReferenceSlot.value = documentId
+    fun armReferenceSlot(diffWindowId: String) {
+        _armedReferenceSlot.value = diffWindowId
     }
 
     fun disarmReferenceSlot() {
@@ -741,12 +801,14 @@ class FixMessageViewModel(
      */
     fun bindArmedReference(message: FixMessage): Boolean {
         val armed = _armedReferenceSlot.value ?: return false
-        val doc = _openDocuments.value.firstOrNull { it.id == armed } as? ScenarioDoc.Reconcile ?: return false
+        val window = _openDiffWindows.value.firstOrNull { it.id == armed } ?: return false
         val wire = message.wireRaw
         if (wire != null) {
-            bindPickedReference(doc, wire, message.timestamp)
+            bindPickedReference(window, wire, message.timestamp)
             disarmReferenceSlot()
-            focusDocument(armed)
+            // Raise the diff window back to the front — the click happened in the main window, and the author's
+            // eyes are about to go back to the diff. The epoch bump is what toFronts it (F6).
+            updateDiffWindow(diffWindow(armed)?.let { it.copy(focusEpoch = it.focusEpoch + 1) } ?: return true)
         } else {
             showNotification(
                 "FixTool does not have this message's wire bytes, so it cannot be diffed against. Only the bytes " +
@@ -762,10 +824,10 @@ class FixMessageViewModel(
      * themselves disprove never reaches this far, because the value it guessed wrong would be written into an
      * assertion.
      */
-    fun bindPastedReference(doc: ScenarioDoc.Reconcile, paste: WirePaste): Boolean {
+    fun bindPastedReference(window: DiffWindowState, paste: WirePaste): Boolean {
         val wire = paste.wire?.takeIf { paste.usable } ?: return false
         val label = paste.sendingTime?.let { "pasted · ${it.takeLast(TIME_OF_DAY)}" } ?: "pasted"
-        return bind(doc, ReferenceMessage.pasted(RawMessageView(wire), label))
+        return bind(window, ReferenceMessage.pasted(RawMessageView(wire), label))
     }
 
     /** Save the scenario a document is a view onto — the diff tab's Save, and the editor's, are one Save. */
@@ -775,12 +837,11 @@ class FixMessageViewModel(
         // Rebased, or the footer goes on counting edits that are already on disk: "3 edits staged · nothing is
         // written to the scenario until you save" is a promise, and after a Save it has been kept.
         val saved = _openScenarios.value[scenarioId]?.draft ?: return true
-        _openDocuments.value
-            .filterIsInstance<ScenarioDoc.Reconcile>()
+        _openDiffWindows.value
             .filter { it.scenarioId == scenarioId }
-            .forEach { doc ->
-                val step = saved.steps.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect
-                step?.let { doc.session?.rebase(it.expectation) }
+            .forEach { window ->
+                val step = saved.steps.firstOrNull { it.stepId == window.stepId } as? ScenarioStep.Expect
+                step?.let { window.session?.rebase(it.expectation) }
             }
         return true
     }
@@ -880,6 +941,8 @@ class FixMessageViewModel(
     fun deleteScenario(id: String) {
         scenarioService.delete(id)
         documentsOf(id).forEach { closeDocument(it.id) }
+        // The diff windows are views of the scenario too (F4) — a window onto a file that is gone is a trap.
+        _openDiffWindows.value.filter { it.scenarioId == id }.forEach { closeDiffWindow(it.id) }
     }
 
     fun duplicateScenario(scenario: Scenario) {
@@ -1010,8 +1073,8 @@ class FixMessageViewModel(
     /**
      * Opens the reconcile view for [step], or says why it will not. See [reconcileRoute].
      *
-     * The destination is a **document tab** — open-or-focus, scrolled to the failing step. Three doors (the
-     * rail, the run line, the message viewer's "Reconcile assertions…") and one destination, because two
+     * The destination is a **dedicated diff window** — open-or-focus, scrolled to the failing step. Three doors
+     * (the rail, the run line, the message viewer's "Reconcile assertions…") and one destination, because two
      * destinations would eventually be two answers to "which step failed".
      */
     fun openReconcile(step: StepResult, focusTag: Int? = null) {
@@ -1022,7 +1085,7 @@ class FixMessageViewModel(
                     request.scenario.steps
                         .getOrNull(request.focusStep ?: -1)
                         ?.stepId ?: return
-                openReconcileDocument(
+                openDiffWindow(
                     scenario = request.scenario,
                     stepId = stepId,
                     thisRunWire = request.actualRaw,
@@ -1654,7 +1717,7 @@ class FixMessageViewModel(
      */
     fun publishScenarioResult(result: ScenarioResult?) {
         _scenarioResult.value = result
-        if (result != null) rebindReconcileDocuments()
+        if (result != null) rebindDiffWindows()
     }
 
     /**
@@ -1676,14 +1739,13 @@ class FixMessageViewModel(
      * either way, so the swap menu offers the new run's bytes; the run simply does not impose them on a
      * question the author has already answered.
      */
-    private fun rebindReconcileDocuments() {
+    private fun rebindDiffWindows() {
         val ran = _lastRunScenario.value ?: return
-        _openDocuments.value
-            .filterIsInstance<ScenarioDoc.Reconcile>()
+        _openDiffWindows.value
             .filter { it.scenarioId == ran.id }
-            .forEach { doc ->
+            .forEach { window ->
                 val matched =
-                    _assertionResults.value.entries.firstOrNull { (_, result) -> result.stepId == doc.stepId }
+                    _assertionResults.value.entries.firstOrNull { (_, result) -> result.stepId == window.stepId }
                         ?: return@forEach
                 val wire = matched.key.wireRaw ?: return@forEach
                 val arrivedAt =
@@ -1691,20 +1753,20 @@ class FixMessageViewModel(
                         .atZone(java.time.ZoneId.systemDefault())
                         .toInstant()
                 val reference = referenceOf(wire, arrivedAt)
-                val session = doc.session
+                val session = window.session
                 if (session != null) {
                     if (runOwns(session.reference.provenance)) session.swapReference(reference)
                     // Held whatever the slot holds: this is what the menu's "received — this run" entry binds,
                     // and what tells a hand-bound diff that a newer run has landed.
-                    updateDocument(doc.copy(thisRunWire = wire))
+                    updateDiffWindow(window.copy(thisRunWire = wire))
                 } else {
                     // It was showing the prompt: there was nothing to diff against, and now there is.
                     val expectation =
-                        (scenarioDraft(ran.id)?.draft?.steps?.firstOrNull { it.stepId == doc.stepId } as? ScenarioStep.Expect)
+                        (scenarioDraft(ran.id)?.draft?.steps?.firstOrNull { it.stepId == window.stepId } as? ScenarioStep.Expect)
                             ?.expectation ?: return@forEach
-                    updateDocument(
-                        doc.copy(
-                            session = newReconcileSession(ran.id, doc.stepId, expectation, reference),
+                    updateDiffWindow(
+                        window.copy(
+                            session = newReconcileSession(ran.id, window.stepId, expectation, reference),
                             thisRunWire = wire,
                         ),
                     )
@@ -1720,7 +1782,7 @@ class FixMessageViewModel(
 
     /**
      * **Save & re-run** — the third click of W1, and the one that closes the loop. Saves the scenario the diff
-     * is looking at, runs it, and every open diff re-binds to what comes back (see [rebindReconcileDocuments]).
+     * is looking at, runs it, and every open diff re-binds to what comes back (see [rebindDiffWindows]).
      * The shared run slot already enforces one run at a time; the button is disabled while one is in flight.
      */
     fun saveAndRerun(scenarioId: String) {

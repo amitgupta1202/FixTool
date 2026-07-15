@@ -10,6 +10,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.compare.ReferenceMessage
+import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.ScenarioDoc
 import org.junit.After
 import org.junit.Before
@@ -19,6 +20,7 @@ import java.io.File
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -157,11 +159,11 @@ class ScenarioWorkspaceTest {
         viewModel.openScenarioEditor(onDisk)
         viewModel.noteScenarioRun(onDisk)
         viewModel.setAssertionResults(mapOf(failing to StepResult(1, "expect", "steps", false, stepId = stepId)))
-        viewModel.openReconcileDocument(onDisk, stepId, thisRunWire = failing.wireRaw)
+        viewModel.openDiffWindow(onDisk, stepId, thisRunWire = failing.wireRaw)
 
-        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
-        assertEquals(failing.wireRaw, doc.thisRunWire)
-        val session = doc.session!!
+        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1", stepId))!!
+        assertEquals(failing.wireRaw, window.thisRunWire)
+        val session = window.session!!
         assertEquals(
             "0",
             session.model.lines
@@ -177,10 +179,7 @@ class ScenarioWorkspaceTest {
         viewModel.setAssertionResults(mapOf(passing to StepResult(1, "expect", "steps", true, stepId = stepId)))
         viewModel.publishScenarioResult(ScenarioResult(onDisk.name, passed = true, steps = emptyList()))
 
-        val rebound =
-            viewModel.openDocuments.value
-                .filterIsInstance<ScenarioDoc.Reconcile>()
-                .single()
+        val rebound = viewModel.openDiffWindows.value.single()
         assertSame(session, rebound.session, "the same session — the undo stack is not a casualty of a re-run")
         assertEquals(passing.wireRaw, rebound.thisRunWire, "and it is looking at the new run's bytes")
         assertEquals(
@@ -202,7 +201,7 @@ class ScenarioWorkspaceTest {
      * and it is usually the whole reason the diff is open. Re-binding it because a run happened takes the thing
      * they were comparing against away **at the moment they were using it**, and says nothing.
      *
-     * The run's bytes are still held on the document, so the swap menu can offer them. They are simply not
+     * The run's bytes are still held on the window, so the swap menu can offer them. They are simply not
      * forced into a slot the author has already answered.
      */
     @Test
@@ -213,11 +212,11 @@ class ScenarioWorkspaceTest {
         viewModel.openScenarioEditor(onDisk)
         viewModel.noteScenarioRun(onDisk)
         viewModel.setAssertionResults(mapOf(failing to StepResult(1, "expect", "steps", false, stepId = stepId)))
-        viewModel.openReconcileDocument(onDisk, stepId, thisRunWire = failing.wireRaw)
+        viewModel.openDiffWindow(onDisk, stepId, thisRunWire = failing.wireRaw)
 
-        val doc = viewModel.activeDocument as ScenarioDoc.Reconcile
-        val session = doc.session!!
-        viewModel.bindPickedReference(doc, wire("150=X"), null)
+        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1", stepId))!!
+        val session = window.session!!
+        viewModel.bindPickedReference(window, wire("150=X"), null)
         assertEquals(ReferenceMessage.Provenance.PICKED, session.reference.provenance, "the author has answered the question")
 
         // A run lands — from Save & re-run, or from the rail, or from an agent over the control surface.
@@ -239,11 +238,74 @@ class ScenarioWorkspaceTest {
                 ?.value,
             "and it is still THEIR bytes being diffed, not the run's",
         )
-        val after =
-            viewModel.openDocuments.value
-                .filterIsInstance<ScenarioDoc.Reconcile>()
-                .single()
+        val after = viewModel.openDiffWindows.value.single()
         assertEquals(next.wireRaw, after.thisRunWire, "the run's bytes are held — the menu offers them, the run does not impose them")
+    }
+
+    // ---- Phase 6: the diff is a window now, and these are its lifecycle rules (F4, F6) ------------------
+
+    /**
+     * **Re-opening the same subject focuses the existing window; it does not mint a second.** The window is
+     * keyed on `(scenarioId, stepId)`, and a second failure of the same step raises the window that is already
+     * there (the epoch bump toFronts it) rather than opening another over the same undo stack.
+     */
+    @Test
+    fun `re-opening a step focuses its window, and does not open a second`() {
+        val onDisk = saved()
+        val stepId = onDisk.withIds().steps[1].stepId
+        viewModel.openScenarioEditor(onDisk)
+        viewModel.openDiffWindow(onDisk, stepId, thisRunWire = message(wire("150=0")).wireRaw)
+        val epochBefore = viewModel.openDiffWindows.value.single().focusEpoch
+
+        viewModel.openDiffWindow(onDisk, stepId, focusTag = 150)
+
+        assertEquals(1, viewModel.openDiffWindows.value.size, "one window per subject — never a duplicate")
+        val window = viewModel.openDiffWindows.value.single()
+        assertEquals(epochBefore + 1, window.focusEpoch, "the epoch bumps, which is what raises the window (F6)")
+        assertEquals(150, window.focusTag, "and it re-aims at the row the deep-link named")
+    }
+
+    /**
+     * **Closing the last editor tab does not drop the draft while a diff window is still open (F4).** The
+     * window is a view of the scenario that `_openDocuments` cannot see; counting only documents would drop the
+     * draft out from under a live window, and its next edit would write into a workspace that no longer exists.
+     */
+    @Test
+    fun `closing the editor tab keeps the draft while the diff window still views it`() {
+        val onDisk = saved()
+        val stepId = onDisk.withIds().steps[1].stepId
+        viewModel.openScenarioEditor(onDisk)
+        viewModel.openDiffWindow(onDisk, stepId, thisRunWire = message(wire("150=0")).wireRaw)
+        viewModel.updateScenarioDraft("sc-1") { it.copy(draft = it.draft.copy(name = "unsaved")) }
+
+        // Through requestClose, so it exercises the "is this the last VIEW" test: the diff window is another
+        // view, so closing the editor tab discards nothing and must NOT stop to ask (F4).
+        viewModel.requestCloseDocument(ScenarioDoc.editorId("sc-1"))
+        assertNull(viewModel.confirmingCloseId.value, "the diff window still views it: closing the tab discards nothing")
+
+        assertNotNull(viewModel.scenarioDraft("sc-1"), "the diff window is still a view: the draft survives")
+        assertTrue(viewModel.scenarioDraft("sc-1")!!.dirty, "and it is still the unsaved one")
+
+        // Now close the window too — the last view of a dirty scenario, so it confirms rather than dropping.
+        viewModel.requestCloseDiffWindow(DiffWindowState.diffWindowId("sc-1", stepId))
+        assertEquals(DiffWindowState.diffWindowId("sc-1", stepId), viewModel.confirmingCloseId.value, "the last view asks first")
+        assertNotNull(viewModel.scenarioDraft("sc-1"), "and until it is answered, nothing is dropped")
+    }
+
+    /** Closing a diff window while the editor tab is still open discards nothing, and must not stop to ask (F4). */
+    @Test
+    fun `closing a diff window with the editor tab open does not confirm`() {
+        val onDisk = saved()
+        val stepId = onDisk.withIds().steps[1].stepId
+        viewModel.openScenarioEditor(onDisk)
+        viewModel.openDiffWindow(onDisk, stepId, thisRunWire = message(wire("150=0")).wireRaw)
+        viewModel.updateScenarioDraft("sc-1") { it.copy(draft = it.draft.copy(name = "unsaved")) }
+
+        viewModel.requestCloseDiffWindow(DiffWindowState.diffWindowId("sc-1", stepId))
+
+        assertNull(viewModel.confirmingCloseId.value, "the editor tab still views the draft: closing the window discards nothing")
+        assertTrue(viewModel.openDiffWindows.value.isEmpty(), "so it just closes")
+        assertNotNull(viewModel.scenarioDraft("sc-1"), "and the draft stays, held by the editor tab")
     }
 
     /** The venue's bytes, SOH-delimited — never the `|` display string, which is not what the engine reads. */

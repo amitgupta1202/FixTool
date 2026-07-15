@@ -21,6 +21,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.unit.dp
+import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
@@ -238,7 +239,7 @@ class ScenarioDocumentsScreenshotTest {
         assertEquals(diffWindowId, window.id, "the one surface that can repair an assertion, in its own window")
 
         // 3 — a repair, staged in the session and written into the scenario's draft. Nothing is on disk.
-        diffSession().apply(com.knapsack.fixtool.ui.diff.EditOp.acceptActual(0, 150, "0"))
+        diffSession().apply(EditOp.acceptActual(0, 150, "0"))
         assertTrue(viewModel.scenarioDraft(scenario.id)!!.dirty)
         assertEquals(1, diffSession().staged)
 
@@ -342,7 +343,7 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.onNodeWithTag("rail-reconcile-1").performClick()
         composeTestRule.waitForIdle()
 
-        diffSession().apply(com.knapsack.fixtool.ui.diff.EditOp.acceptActual(0, 150, "0"))
+        diffSession().apply(EditOp.acceptActual(0, 150, "0"))
         assertEquals(1, diffSession().staged)
 
         assertTrue(viewModel.saveScenario(scenario.id))

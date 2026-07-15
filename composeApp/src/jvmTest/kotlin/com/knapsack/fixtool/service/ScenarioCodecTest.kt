@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
+import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
@@ -16,6 +17,7 @@ import com.knapsack.fixtool.model.scenario.validationError
 import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.Test
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.assertEquals
@@ -220,6 +222,53 @@ class ScenarioCodecTest {
         ).jsonObject
         val wait = ScenarioCodec.fromJson(json).steps.single() as ScenarioStep.Wait
         assertEquals(listOf(TagValue(150, "")), wait.match!!.fields)
+    }
+
+    // ----- op and occurrence (Decision 6: disambiguating same-type messages) ------------------------
+
+    /**
+     * The default EQ constraint must write exactly `{tag, value}` — no `op` key — so a scenario file written
+     * before this feature round-trips byte-identical, and old FixTools keep reading new EQ constraints.
+     */
+    @Test
+    fun `an EQ constraint still writes just tag and value, byte-identical to before ops existed`() {
+        val json = ScenarioCodec.predicateToJson(MatchPredicate(messageType = "8", fields = listOf(TagValue(150, "F"))))
+        val field = json["fields"]!!.jsonArray.single().jsonObject
+        assertEquals(setOf("tag", "value"), field.keys, "an EQ field must not grow an 'op' key: $field")
+        assertEquals("150", field["tag"]!!.jsonPrimitive.content)
+        assertEquals("F", field["value"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `present, absent and occurrence round-trip`() {
+        val p =
+            MatchPredicate(
+                messageType = "8",
+                occurrence = 2,
+                fields = listOf(TagValue(131, "", MatchOp.PRESENT), TagValue(41, "", MatchOp.ABSENT)),
+            )
+        assertEquals(p, ScenarioCodec.predicateFromJson(ScenarioCodec.predicateToJson(p)))
+    }
+
+    /** A present/absent constraint tests existence, so it is complete without a `value`. */
+    @Test
+    fun `a present constraint needs no value`() {
+        val json = Json.parseToJsonElement("""{"fields":[{"tag":131,"op":"present"}]}""").jsonObject
+        assertEquals(listOf(TagValue(131, "", MatchOp.PRESENT)), ScenarioCodec.predicateFromJson(json).fields)
+    }
+
+    /** Same stance as an unknown mode: an op this build cannot read fails the load, not silently becomes EQ. */
+    @Test
+    fun `a match op the build does not know fails the load, by name`() {
+        val json = Json.parseToJsonElement("""{"fields":[{"tag":131,"op":"presentish"}]}""").jsonObject
+        val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.predicateFromJson(json) }
+        assertTrue("presentish" in why.message!!, "the refusal must name the op: ${why.message}")
+    }
+
+    @Test
+    fun `a non-positive occurrence fails the load`() {
+        val zero = Json.parseToJsonElement("""{"messageType":"8","occurrence":0,"fields":[]}""").jsonObject
+        assertFailsWith<IllegalArgumentException> { ScenarioCodec.predicateFromJson(zero) }
     }
 
     // ----- the version ------------------------------------------------------------------------------

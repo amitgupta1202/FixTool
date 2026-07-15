@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import org.junit.Test
@@ -235,6 +236,86 @@ class ScenarioCaptureTest {
         assertEquals(Matcher.Reference("\${id0}"), matcher(scenario.steps[1] as ScenarioStep.Expect, 11))
         assertEquals(listOf("A"), scenario.setup.filterIsInstance<ScenarioStep.ClearMessages>().map { it.session })
     }
+
+    // ----- Decision 6: capture auto-seeds a discriminator for two same-type replies ------------------
+
+    /**
+     * Two ExecutionReports for one order — an ack (ExecType 0) and a fill (ExecType 2) — both echo the same
+     * ClOrdID, so the seeded id-echo constraints cannot tell them apart. Capture seeds a **value** discriminator
+     * on ExecType, the reorder-proof form, in preference to a positional ordinal.
+     */
+    @Test
+    fun `two same-type replies that differ in ExecType get a value discriminator, not an ordinal`() {
+        val session = ScenarioCapture.CapturedSession(
+            "TRADE",
+            listOf(
+                msg("8=FIX.4.4|35=D|34=2|49=CLI|56=TV|52=20260630-10:00:00|11=ORD-1|55=EUR/USD|54=1|38=1000000|40=2|60=20260630-10:00:00.000|10=001|", FixMessage.Direction.OUTGOING, 0),
+                msg("8=FIX.4.4|35=8|34=3|49=TV|56=CLI|52=20260630-10:00:01|11=ORD-1|17=E-1|150=0|39=0|60=20260630-10:00:01.000|10=002|", FixMessage.Direction.INCOMING, 1),
+                msg("8=FIX.4.4|35=8|34=4|49=TV|56=CLI|52=20260630-10:00:02|11=ORD-1|17=E-2|150=2|39=2|60=20260630-10:00:02.000|10=003|", FixMessage.Direction.INCOMING, 2),
+            ),
+        )
+        val expects = ScenarioCapture.capture("sc-disc-value", "fills", null, listOf(session), dictionary)
+            .steps.filterIsInstance<ScenarioStep.Expect>()
+
+        assertEquals(2, expects.size)
+        assertEquals("0", execTypeConstraint(expects[0]), "the ack should bind on ExecType=0: ${expects[0].match?.fields}")
+        assertEquals("2", execTypeConstraint(expects[1]), "the fill should bind on ExecType=2: ${expects[1].match?.fields}")
+        assertTrue(expects.all { it.match?.occurrence == null }, "a value discriminator must be preferred over a positional ordinal")
+    }
+
+    /**
+     * Same ExecType/OrdStatus on both, so no value tells them apart — but one carries Text(58) and the other
+     * does not. Capture seeds a **presence** discriminator, which is value-agnostic and so replay-safe.
+     */
+    @Test
+    fun `two same-type replies that differ only by a tag's presence get a presence discriminator`() {
+        val session = ScenarioCapture.CapturedSession(
+            "TRADE",
+            listOf(
+                msg("8=FIX.4.4|35=D|34=2|49=CLI|56=TV|52=20260630-10:00:00|11=ORD-1|55=EUR/USD|54=1|38=1000000|40=2|60=20260630-10:00:00.000|10=001|", FixMessage.Direction.OUTGOING, 0),
+                msg("8=FIX.4.4|35=8|34=3|49=TV|56=CLI|52=20260630-10:00:01|11=ORD-1|17=E-1|150=2|39=2|58=partial|60=20260630-10:00:01.000|10=002|", FixMessage.Direction.INCOMING, 1),
+                msg("8=FIX.4.4|35=8|34=4|49=TV|56=CLI|52=20260630-10:00:02|11=ORD-1|17=E-2|150=2|39=2|60=20260630-10:00:02.000|10=003|", FixMessage.Direction.INCOMING, 2),
+            ),
+        )
+        val expects = ScenarioCapture.capture("sc-disc-presence", "fills", null, listOf(session), dictionary)
+            .steps.filterIsInstance<ScenarioStep.Expect>()
+
+        assertEquals(2, expects.size)
+        assertTrue(
+            expects[0].match!!.fields.any { it.tag == 58 && it.op == MatchOp.PRESENT },
+            "the first should require Text(58) present: ${expects[0].match?.fields}",
+        )
+        assertTrue(
+            expects[1].match!!.fields.any { it.tag == 58 && it.op == MatchOp.ABSENT },
+            "the second should require Text(58) absent: ${expects[1].match?.fields}",
+        )
+    }
+
+    /**
+     * Two replies with identical business content — only volatile ExecID/time/seq differ, none a stable value
+     * or a presence difference. Position is the only thing that separates them, so capture falls back to
+     * occurrence ordinals.
+     */
+    @Test
+    fun `two indistinguishable same-type replies fall back to occurrence ordinals`() {
+        val session = ScenarioCapture.CapturedSession(
+            "TRADE",
+            listOf(
+                msg("8=FIX.4.4|35=D|34=2|49=CLI|56=TV|52=20260630-10:00:00|11=ORD-1|55=EUR/USD|54=1|38=1000000|40=2|60=20260630-10:00:00.000|10=001|", FixMessage.Direction.OUTGOING, 0),
+                msg("8=FIX.4.4|35=8|34=3|49=TV|56=CLI|52=20260630-10:00:01|11=ORD-1|17=E-1|150=2|39=2|60=20260630-10:00:01.000|10=002|", FixMessage.Direction.INCOMING, 1),
+                msg("8=FIX.4.4|35=8|34=4|49=TV|56=CLI|52=20260630-10:00:02|11=ORD-1|17=E-2|150=2|39=2|60=20260630-10:00:02.000|10=003|", FixMessage.Direction.INCOMING, 2),
+            ),
+        )
+        val expects = ScenarioCapture.capture("sc-disc-ordinal", "fills", null, listOf(session), dictionary)
+            .steps.filterIsInstance<ScenarioStep.Expect>()
+
+        assertEquals(2, expects.size)
+        assertEquals(1, expects[0].match?.occurrence, "the first reply is occurrence 1: ${expects[0].match}")
+        assertEquals(2, expects[1].match?.occurrence, "the second reply is occurrence 2: ${expects[1].match}")
+    }
+
+    private fun execTypeConstraint(e: ScenarioStep.Expect): String? =
+        e.match?.fields?.firstOrNull { it.tag == 150 && it.op == MatchOp.EQ }?.value
 
     private fun sessionOf(step: ScenarioStep): String? =
         when (step) {

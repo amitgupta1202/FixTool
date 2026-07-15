@@ -211,19 +211,39 @@ private fun mint(scenarioId: String, phase: String, index: Int, used: MutableSet
 }
 
 /**
- * Selects a message by message type / direction and zero or more tag=value pairs (**AND**), the
+ * Selects a message by message type / direction and zero or more tag constraints (**AND**), the
  * latter being the partial-fill discriminator (e.g. ExecType=F AND OrdStatus=2). Extends the old
  * single-tag `fixtool_wait` predicate with multi-tag matching; the runner adds a consumed cursor so
  * successive `Expect`s walk successive messages instead of re-matching the first.
+ *
+ * Two same-type messages that the [fields] cannot tell apart (e.g. an ack ExecutionReport and the
+ * terminal one, both echoing the same ClOrdID) are disambiguated by [occurrence]: when set, this step
+ * binds the N-th message (1-based) in the type+direction+fields-filtered chronological snapshot rather
+ * than the first not-yet-consumed one. `null` keeps the walk-in-order behaviour. Prefer a [TagValue]
+ * discriminator (a differing value, or [MatchOp.PRESENT]/[MatchOp.ABSENT] of a distinguishing tag) over
+ * a positional [occurrence] — a discriminator survives a venue inserting a message, a count does not.
  */
 data class MatchPredicate(
     val messageType: String? = null,
     val direction: String? = null,
     val fields: List<TagValue> = emptyList(),
+    val occurrence: Int? = null,
 )
 
-/** A single tag=value constraint used inside a [MatchPredicate]. */
-data class TagValue(val tag: Int, val value: String)
+/**
+ * A single tag constraint used inside a [MatchPredicate]. [value] is compared only for [MatchOp.EQ]; it
+ * is ignored (and conventionally blank) for [MatchOp.PRESENT]/[MatchOp.ABSENT], which test the tag's
+ * mere existence on the wire — the replay-safe way to distinguish messages by a correlation id whose
+ * value is minted fresh each run.
+ */
+data class TagValue(
+    val tag: Int,
+    val value: String = "",
+    val op: MatchOp = MatchOp.EQ,
+)
+
+/** How a [TagValue] tests the wire: equal to [TagValue.value], or present/absent regardless of value. */
+enum class MatchOp { EQ, PRESENT, ABSENT }
 
 /** The result of one step's execution. */
 data class StepResult(

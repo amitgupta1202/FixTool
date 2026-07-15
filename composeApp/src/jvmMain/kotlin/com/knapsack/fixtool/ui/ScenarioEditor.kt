@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -644,13 +645,15 @@ private fun AssertionsDoor(step: EditStep, onOpenDiff: (() -> Unit)?) {
  */
 @Composable
 private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onChange: (MatchPredicate?) -> Unit) {
-    fun push(messageType: String?, fields: List<TagValue>) {
-        val normalized = MatchPredicate(messageType?.ifBlank { null }, match?.direction, fields)
-        onChange(if (normalized.messageType == null && normalized.fields.isEmpty()) null else normalized)
+    fun push(messageType: String?, fields: List<TagValue>, occurrence: Int? = match?.occurrence) {
+        val normalized = MatchPredicate(messageType?.ifBlank { null }, match?.direction, fields, occurrence)
+        val empty = normalized.messageType == null && normalized.fields.isEmpty() && normalized.occurrence == null
+        onChange(if (empty) null else normalized)
     }
     Column(modifier = Modifier.padding(top = 8.dp)) {
         Text(
-            "Binds to — which arriving message this step asserts (consumed in order; add tag=value constraints for e.g. partial fills):",
+            "Binds to — which arriving message this step asserts (walked in order by default; pin a position, or " +
+                "add tag constraints — equals / present / absent — to pick a specific one, e.g. the terminal fill):",
             color = AppTheme.Colors.textSecondary,
             fontSize = 10.sp,
         )
@@ -661,6 +664,9 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
         ) {
             SlimLabeled("Msg type") {
                 MsgTypePicker(match?.messageType, dictionary) { picked -> push(picked, match?.fields ?: emptyList()) }
+            }
+            SlimLabeled("Position") {
+                OccurrencePicker(match?.occurrence) { picked -> push(match?.messageType, match?.fields ?: emptyList(), picked) }
             }
             SlimButton("+ constraint", onClick = { push(match?.messageType, (match?.fields ?: emptyList()) + TagValue(0, "")) })
         }
@@ -676,12 +682,25 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
                 SlimTagPicker(
                     tag = tv.tag,
                     fields = allFields,
-                    onPick = { picked -> push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = TagValue(picked, tv.value) }) },
+                    onPick = { picked -> push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(tag = picked) }) },
                     modifier = Modifier.width(64.dp),
                 )
                 FieldNameCell(tv.tag, dictionary)
-                ConstraintValueCell(tv, dictionary) { newValue ->
-                    push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = TagValue(tv.tag, newValue) })
+                ConstraintOpCell(tv.op) { newOp ->
+                    push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(op = newOp) })
+                }
+                if (tv.op == MatchOp.EQ) {
+                    ConstraintValueCell(tv, dictionary) { newValue ->
+                        push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(value = newValue) })
+                    }
+                } else {
+                    // Present/absent test existence only; there is no value to compare, so the cell would lie.
+                    Text(
+                        "(any value)",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 11.sp,
+                        modifier = Modifier.width(170.dp).padding(start = 4.dp),
+                    )
                 }
                 IconButton(
                     onClick = { push(match?.messageType, match!!.fields.toMutableList().apply { removeAt(i) }) },
@@ -697,6 +716,50 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
             }
         }
     }
+}
+
+/** Ordinal label for an [occurrence]: 1 -> "1st", 2 -> "2nd", 11 -> "11th". */
+private fun ordinalLabel(n: Int): String {
+    val suffix = if (n % 100 in 11..13) {
+        "th"
+    } else {
+        when (n % 10) {
+            1 -> "st"
+            2 -> "nd"
+            3 -> "rd"
+            else -> "th"
+        }
+    }
+    return "$n$suffix"
+}
+
+/**
+ * Pins which same-type message this step binds: "any (in order)" leaves the walk-in-order default, "2nd of
+ * type" binds the 2nd match absolutely — the escape hatch for two replies a tag constraint cannot separate.
+ */
+@Composable
+private fun OccurrencePicker(current: Int?, onPick: (Int?) -> Unit) {
+    val anyLabel = "any (in order)"
+    val options = listOf(anyLabel) + (1..9).map { it.toString() }
+    SlimDropdown(
+        value = current?.toString() ?: anyLabel,
+        options = options,
+        onValueChange = { picked -> onPick(picked?.toIntOrNull()) },
+        displayText = { v -> if (v == anyLabel) v else "${ordinalLabel(v.toInt())} of type" },
+        modifier = Modifier.width(140.dp).testTag("match-occurrence"),
+    )
+}
+
+/** The comparison a bind constraint applies: equals a value, or the tag is merely present / absent. */
+@Composable
+private fun ConstraintOpCell(op: MatchOp, onPick: (MatchOp) -> Unit) {
+    SlimDropdown(
+        value = op.name.lowercase(),
+        options = listOf("eq", "present", "absent"),
+        onValueChange = { picked -> picked?.let { onPick(MatchOp.valueOf(it.uppercase())) } },
+        displayText = { v -> if (v == "eq") "=" else v },
+        modifier = Modifier.width(96.dp).testTag("match-op"),
+    )
 }
 
 /**

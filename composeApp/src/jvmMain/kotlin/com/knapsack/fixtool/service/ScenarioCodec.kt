@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
+import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -173,10 +174,23 @@ object ScenarioCodec {
         buildJsonObject {
             p.messageType?.let { put("messageType", it) }
             p.direction?.let { put("direction", it) }
+            // Additive and default-omitting: an EQ constraint still writes exactly `{tag, value}`, so a file
+            // written before ops existed round-trips byte-identical. `op` and `occurrence` appear only when set.
+            p.occurrence?.let { put("occurrence", it) }
             put(
                 "fields",
                 buildJsonArray {
-                    p.fields.forEach { add(buildJsonObject { put("tag", it.tag); put("value", it.value) }) }
+                    p.fields.forEach { tv ->
+                        add(
+                            buildJsonObject {
+                                put("tag", tv.tag)
+                                if (tv.op != MatchOp.EQ) put("op", tv.op.name.lowercase())
+                                // EQ compares the value, so it is always written; present/absent ignore it and
+                                // write it only if the author happened to leave one behind.
+                                if (tv.op == MatchOp.EQ || tv.value.isNotBlank()) put("value", tv.value)
+                            },
+                        )
+                    }
                 },
             )
         }
@@ -185,15 +199,44 @@ object ScenarioCodec {
         MatchPredicate(
             messageType = obj["messageType"]?.jsonPrimitive?.contentOrNull,
             direction = obj["direction"]?.jsonPrimitive?.contentOrNull,
+            occurrence = obj["occurrence"]?.let { el ->
+                val n = el.jsonPrimitive.intOrNull ?: throw IllegalArgumentException(
+                    "match predicate 'occurrence' must be an integer, was '${el.jsonPrimitive.content}'",
+                )
+                require(n >= 1) { "match predicate 'occurrence' must be >= 1, was $n" }
+                n
+            },
             fields = obj["fields"]?.jsonArray?.map {
                 val f = it.jsonObject
                 val tag = f["tag"]?.jsonPrimitive?.intOrNull
                     ?: throw IllegalArgumentException("match predicate field missing integer 'tag'")
+                val op = matchOpFrom(f["op"]?.jsonPrimitive?.contentOrNull, tag)
                 val value = f["value"]?.jsonPrimitive?.contentOrNull
-                    ?: throw IllegalArgumentException("match predicate field on tag $tag missing 'value'")
-                TagValue(tag, value)
+                // Only EQ needs a value; a present/absent constraint is complete without one.
+                if (op == MatchOp.EQ && value == null) {
+                    throw IllegalArgumentException("match predicate field on tag $tag missing 'value'")
+                }
+                TagValue(tag, value ?: "", op)
             } ?: emptyList(),
         )
+
+    /**
+     * **A match op this codec does not know is a refusal, not a default** — the same stance as [modeFrom].
+     * Silently reading an unknown op as EQ would change which message a step binds (an EQ on a blank value can
+     * match nothing, or the wrong thing), so it fails the load loudly. An *absent* op is not unknown: it is the
+     * model default EQ, and files written before the key existed are entitled to it.
+     */
+    private fun matchOpFrom(raw: String?, tag: Int): MatchOp =
+        when (raw?.lowercase()) {
+            null, "eq" -> MatchOp.EQ
+            "present" -> MatchOp.PRESENT
+            "absent" -> MatchOp.ABSENT
+            else -> throw IllegalArgumentException(
+                "unknown match op '$raw' on tag $tag — this scenario was written by something that knows a " +
+                    "binding rule this build does not, and guessing at it would silently change which message " +
+                    "this step binds. Known ops: eq, present, absent.",
+            )
+        }
 
     fun expectationToJson(e: Expectation): JsonObject =
         buildJsonObject {

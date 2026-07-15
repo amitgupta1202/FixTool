@@ -1,11 +1,13 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.withIds
 
 /**
@@ -220,20 +222,49 @@ class ScenarioRunner(
         val msgType = match?.messageType ?: step.expectation.messageType
         val direction = match?.direction ?: step.direction
         val deadline = now() + step.timeoutMs
+        val occurrence = match?.occurrence
         var target: FixMessage? = null
-        while (target == null) {
-            target = host.messages(step.session)
-                .firstOrNull { it !in consumed && matches(it, msgType, direction, match) }
-            if (target != null) break
+        // Set when an absolute `occurrence` points at a message an earlier step already bound. That is a hard
+        // fail — two steps cannot own one message — and distinct from "the N-th has not arrived yet", which
+        // keeps polling until the deadline.
+        var takenByEarlierStep = false
+        while (target == null && !takenByEarlierStep) {
+            if (occurrence != null) {
+                // Absolute position over the type+direction+fields-filtered snapshot, 1-based. The consumed
+                // cursor does not shift the index — "the 2nd ExecutionReport" is the same message whatever the
+                // earlier steps took — but a message already taken cannot be re-bound here.
+                val nth = host.messages(step.session)
+                    .filter { matches(it, msgType, direction, match) }
+                    .getOrNull(occurrence - 1)
+                when {
+                    nth == null -> Unit // fewer than N have arrived; keep polling
+                    nth in consumed -> takenByEarlierStep = true
+                    else -> target = nth
+                }
+            } else {
+                target = host.messages(step.session)
+                    .firstOrNull { it !in consumed && matches(it, msgType, direction, match) }
+            }
+            if (target != null || takenByEarlierStep) break
             if (now() >= deadline) break
             host.sleep(pollMs)
         }
         if (target == null) {
             val constraints = match?.fields?.takeIf { it.isNotEmpty() }
-                ?.joinToString(" AND ", prefix = " where ") { "${it.tag}=${it.value}" } ?: ""
-            val detail = "no ${msgType ?: "matching"} message$constraints within ${step.timeoutMs}ms on " +
-                "'${label(step.session)}' (state=${host.connectionState(step.session) ?: "session not found"}, " +
+                ?.joinToString(" AND ", prefix = " where ") { describeConstraint(it) } ?: ""
+            val where = "on '${label(step.session)}' " +
+                "(state=${host.connectionState(step.session) ?: "session not found"}, " +
                 "${host.messages(step.session).size} messages seen)"
+            val detail = when {
+                takenByEarlierStep ->
+                    "the ${ordinal(occurrence!!)} ${msgType ?: "matching"} message$constraints was already matched " +
+                        "by an earlier step — two steps cannot bind the same message — $where"
+                occurrence != null ->
+                    "fewer than $occurrence ${msgType ?: "matching"} message$constraints within " +
+                        "${step.timeoutMs}ms $where"
+                else ->
+                    "no ${msgType ?: "matching"} message$constraints within ${step.timeoutMs}ms $where"
+            }
             return StepResult(index, "expect", phase, false, detail = detail)
         }
         consumed.add(target)
@@ -307,11 +338,39 @@ class ScenarioRunner(
             fields.forEach { tv ->
                 // ANY occurrence of the tag satisfies the constraint. `firstOrNull` consulted only occurrence
                 // #1, so a constraint on a repeated/grouped tag whose match sat in a later copy could never
-                // bind — the step timed out looking for a message that was sitting right there.
-                if (wire.none { it.first == tv.tag && it.second == tv.value }) return false
+                // bind — the step timed out looking for a message that was sitting right there. PRESENT/ABSENT
+                // test existence regardless of value — the replay-safe discriminator for a message that differs
+                // only by carrying (or not) a correlation id whose value is minted fresh each run.
+                val ok = when (tv.op) {
+                    MatchOp.EQ -> wire.any { it.first == tv.tag && it.second == tv.value }
+                    MatchOp.PRESENT -> wire.any { it.first == tv.tag }
+                    MatchOp.ABSENT -> wire.none { it.first == tv.tag }
+                }
+                if (!ok) return false
             }
         }
         return true
+    }
+
+    private fun describeConstraint(tv: TagValue): String =
+        when (tv.op) {
+            MatchOp.EQ -> "${tv.tag}=${tv.value}"
+            MatchOp.PRESENT -> "${tv.tag} present"
+            MatchOp.ABSENT -> "${tv.tag} absent"
+        }
+
+    private fun ordinal(n: Int): String {
+        val suffix = if (n % 100 in 11..13) {
+            "th"
+        } else {
+            when (n % 10) {
+                1 -> "st"
+                2 -> "nd"
+                3 -> "rd"
+                else -> "th"
+            }
+        }
+        return "$n$suffix"
     }
 
     private fun directionMatches(msg: FixMessage, direction: String): Boolean =

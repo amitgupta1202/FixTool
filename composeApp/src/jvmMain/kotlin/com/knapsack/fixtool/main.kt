@@ -18,6 +18,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.ui.App
+import com.knapsack.fixtool.ui.diff.DiffViewerWindow
 import com.knapsack.fixtool.ui.diff.DiffWindow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -154,6 +155,14 @@ fun main() {
             diffWindows.forEach { state ->
                 key(state.id) {
                     DiffWindow(viewModel, state, onClose = { viewModel.requestCloseDiffWindow(state.id) })
+                }
+            }
+            // The plain diff viewers — a second, scenario-less window subject (Phase 7). Same mechanism: one
+            // composition per id, its own rememberWindowState. Distinct titles keep `?window=diff:` deterministic.
+            val diffViewers by viewModel.openDiffViewers.collectAsState()
+            diffViewers.forEach { state ->
+                key(state.id) {
+                    DiffViewerWindow(viewModel, state, onClose = { viewModel.closeDiffViewer(state.id) })
                 }
             }
         }

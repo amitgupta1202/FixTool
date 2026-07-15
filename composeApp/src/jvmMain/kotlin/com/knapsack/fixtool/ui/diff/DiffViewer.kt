@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.SessionTags
+import com.knapsack.fixtool.service.compare.MessageField
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 
 /**
@@ -197,4 +198,22 @@ data class DiffViewerState(
         fun pairId(leftWire: String, rightWire: String): String =
             "viewer:${leftWire.hashCode()}:${rightWire.hashCode()}"
     }
+}
+
+/**
+ * **Side A's field, reconstructed from the all-exact row** — the viewer's left column is a *message*, not an
+ * editor, so it renders a plain value like the right column. A's value is exactly what the row's `Exact` matcher
+ * carries (that is how [exactExpectation] seeds it); a right-only line has no A field, and says so with a null.
+ */
+internal fun DiffLine.leftField(dictionary: FixDictionaryAdapter?): MessageField? {
+    if (row.unasserted) return null
+    val value = (row.matcher as? Matcher.Exact)?.value ?: return null
+    return MessageField(
+        wireIndex = row.wireIndex ?: -1,
+        tag = row.tag,
+        name = row.name,
+        occurrence = row.occurrence,
+        value = value,
+        description = dictionary?.getFieldValueDescription(row.tag, value),
+    )
 }

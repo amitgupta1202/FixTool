@@ -42,7 +42,12 @@ internal fun TagCell(tag: Int, occurrence: Int, kind: ChunkKind) {
             fontSize = 10.sp,
         )
         if (occurrence > 0) {
-            Text("#${occurrence + 1}", color = AppTheme.Colors.textDisabled, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+            Text(
+                "#${occurrence + 1}",
+                color = AppTheme.Colors.textDisabled,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.sp,
+            )
         }
     }
 }

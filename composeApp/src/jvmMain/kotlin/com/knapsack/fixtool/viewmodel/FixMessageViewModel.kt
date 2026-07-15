@@ -30,6 +30,7 @@ import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
+import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
@@ -37,7 +38,6 @@ import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.SavedMessagesService
-import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioRunner
@@ -857,9 +857,13 @@ class FixMessageViewModel(
      * bytes** — invariant 3: only `wireRaw` feeds a diff, never the `|`-substituted display string. The caller
      * refuses that at the click, in words, rather than by a click that quietly does nothing.
      */
-    private fun sideOf(message: FixMessage, provenance: ReferenceMessage.Provenance = ReferenceMessage.Provenance.PICKED): DiffSide? {
+    private fun sideOf(message: FixMessage): DiffSide? {
         val wire = message.wireRaw ?: return null
-        val typeName = dictionary?.getFieldEnumValues(35)?.firstOrNull { it.first == message.messageType }?.second
+        val typeName =
+            dictionary
+                ?.getFieldEnumValues(35)
+                ?.firstOrNull { it.first == message.messageType }
+                ?.second
         val where = sessionTitleOf(message)
         val label =
             buildString {
@@ -867,7 +871,7 @@ class FixMessageViewModel(
                 if (where != null) append(" · $where")
                 append(" · ${CLOCK_FORMAT.format(message.timestamp.toLocalTime())}")
             }
-        return DiffSide(wire = wire, label = label, provenance = provenance)
+        return DiffSide(wire = wire, label = label, provenance = ReferenceMessage.Provenance.PICKED)
     }
 
     private fun sessionTitleOf(message: FixMessage): String? =
@@ -882,9 +886,10 @@ class FixMessageViewModel(
         val left = sideOf(a)
         val right = sideOf(b)
         if (left == null || right == null) {
+            val which = if (left == null) "the first" else "the second"
             showNotification(
-                "FixTool does not have the wire bytes for ${if (left == null) "the first" else "the second"} message, " +
-                    "so it cannot be diffed. Only the bytes the venue actually sent can be a side — the display string is not them.",
+                "FixTool does not have the wire bytes for $which message, so it cannot be diffed — only the " +
+                    "bytes the venue actually sent can be a side, not the display string.",
                 NotificationType.ERROR,
             )
             return false
@@ -971,8 +976,13 @@ class FixMessageViewModel(
     }
 
     /** A blank scenario to seed into — the same one the rail's *New* button mints. */
-    fun newScenarioForSeed(): Scenario =
-        Scenario(id = java.util.UUID.randomUUID().toString(), name = "new scenario", steps = emptyList())
+    fun newScenarioForSeed(): Scenario {
+        val id =
+            java.util.UUID
+                .randomUUID()
+                .toString()
+        return Scenario(id = id, name = "new scenario", steps = emptyList())
+    }
 
     /** Save the scenario a document is a view onto — the diff tab's Save, and the editor's, are one Save. */
     fun saveScenario(scenarioId: String): Boolean {

@@ -618,13 +618,19 @@ fun HierarchicalGridView(
                         if (onDiffSelected != null) {
                             val selected = getSelectedFixMessages()
                             val canDiff = selected.size == 2
+                            val diffClick =
+                                if (canDiff) {
+                                    Modifier.clickable { onDiffSelected(selected[0], selected[1]) }
+                                } else {
+                                    Modifier
+                                }
                             Text(
                                 text = "⇄ Diff selected",
                                 color = if (canDiff) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
                                 fontSize = 11.sp,
                                 modifier =
                                     Modifier
-                                        .then(if (canDiff) Modifier.clickable { onDiffSelected(selected[0], selected[1]) } else Modifier)
+                                        .then(diffClick)
                                         .padding(horizontal = 6.dp)
                                         .testTag("grid-diff-selected"),
                             )

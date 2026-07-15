@@ -126,10 +126,42 @@ class DiffViewerSession(
         val l = left
         left = right
         right = l
+        selectedItem = null // the model is rebuilt against the swapped pair; the old nav position means nothing now
     }
 
     fun selectMode(next: MatchMode) {
         mode = next
+        selectedItem = null // re-classifying every difference re-numbers the chunks; start the next `n` from the top
+    }
+
+    // ------------------------------------------------------------------------- next-diff navigation
+
+    /**
+     * Where `n`/`p` (and the header's *↑ prev* / *↓ next diff*) last landed — an index into [DiffModel.items].
+     * The viewer has no editable [DiffSelection] to hang this on the way the editor does; it never reorders a
+     * row, so a plain item index is all [nextChunk]/[prevChunk] need, and all the list is scrolled by.
+     */
+    var selectedItem: Int? by mutableStateOf(null)
+        private set
+
+    /** `n` / *↓ next diff*: the next chunk that is a **difference**, never wrapping — mirrors the editor. */
+    fun nextChunk() = chunk(+1)
+
+    /** `p` / *↑ prev*: the previous differing chunk, never wrapping — a wrap silently teleports the reader. */
+    fun prevChunk() = chunk(-1)
+
+    private fun chunk(by: Int) {
+        val model = model
+        val diffs = model.diffChunks.mapNotNull { model.firstItemOf(it) }.sorted()
+        if (diffs.isEmpty()) return
+        val here = selectedItem
+        val next =
+            when {
+                here == null -> diffs.firstOrNull()
+                by > 0 -> diffs.firstOrNull { it > here }
+                else -> diffs.lastOrNull { it < here }
+            } ?: return
+        selectedItem = next
     }
 
     // Value-typed, like ReconcileSession's: the wire bytes and the mode are equal when they are equal, so the

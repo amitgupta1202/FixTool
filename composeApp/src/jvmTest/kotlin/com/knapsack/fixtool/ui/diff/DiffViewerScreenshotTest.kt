@@ -40,11 +40,23 @@ class DiffViewerScreenshotTest {
     // golden vs shape: a value change (151), a moved party entry, a dropped tag (58, only in A), an added
     // tag (2376, only in B) — every classification the viewer draws, in one pair.
     private val golden =
-        wire(35 to "8", 151 to "0", 453 to "2", 448 to "FIRMA", 447 to "D", 452 to "1", 448 to "FIRMB", 447 to "D", 452 to "4", 58 to "filled|in full")
+        wire(
+            35 to "8",
+            151 to "0",
+            453 to "2",
+            448 to "FIRMA",
+            447 to "D",
+            452 to "1",
+            448 to "FIRMB",
+            447 to "D",
+            452 to "4",
+            58 to "filled|in full",
+        )
     private val shape =
         wire(35 to "8", 151 to "500000", 2376 to "Y", 453 to "2", 448 to "FIRMB", 447 to "D", 452 to "4", 448 to "FIRMA", 447 to "D", 452 to "1")
 
     private fun sideA() = DiffSide(golden, "golden · UAT · 08:12:31", ReferenceMessage.Provenance.PICKED)
+
     private fun sideB() = DiffSide(shape, "this run · TRADE · 09:35:44", ReferenceMessage.Provenance.PICKED)
 
     private fun view(onSeed: (SeedFrom) -> Unit = {}): DiffViewerSession {

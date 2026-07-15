@@ -88,7 +88,13 @@ class TwoMessageDiffTest {
     fun `a changed value is a value chunk`() {
         val model = model(wire(35 to "8", 31 to "1.0851"), wire(35 to "8", 31 to "1.0849"))
         assertEquals(ChunkKind.VALUE, kindOfTag(model, 31))
-        assertEquals("1.0849", model.lines.single { it.row.tag == 31 }.right?.value)
+        assertEquals(
+            "1.0849",
+            model.lines
+                .single { it.row.tag == 31 }
+                .right
+                ?.value,
+        )
     }
 
     @Test
@@ -139,14 +145,29 @@ class TwoMessageDiffTest {
     fun `the golden-vs-shape shape shows all four differences at once`() {
         val golden =
             wire(
-                35 to "8", 151 to "0", 453 to "2",
-                448 to "FIRMA", 447 to "D", 452 to "1", 448 to "FIRMB", 447 to "D", 452 to "4",
+                35 to "8",
+                151 to "0",
+                453 to "2",
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
+                448 to "FIRMB",
+                447 to "D",
+                452 to "4",
                 58 to "filled|in full",
             )
         val shape =
             wire(
-                35 to "8", 151 to "500000", 2376 to "Y", 453 to "2",
-                448 to "FIRMB", 447 to "D", 452 to "4", 448 to "FIRMA", 447 to "D", 452 to "1",
+                35 to "8",
+                151 to "500000",
+                2376 to "Y",
+                453 to "2",
+                448 to "FIRMB",
+                447 to "D",
+                452 to "4",
+                448 to "FIRMA",
+                447 to "D",
+                452 to "1",
             )
         val model = model(golden, shape, MatchMode.STRICT)
         assertEquals(ChunkKind.VALUE, kindOfTag(model, 151), "151 regressed 0 -> 500000")

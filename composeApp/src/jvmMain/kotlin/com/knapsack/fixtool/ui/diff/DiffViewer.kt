@@ -125,7 +125,11 @@ class DiffViewerSession(
     // Value-typed, like ReconcileSession's: the wire bytes and the mode are equal when they are equal, so the
     // memo actually hits. Keying on the DiffSide (whose `view` is a RawMessageView with no `equals`) would miss
     // on every recomposition and re-run `reorder` for a reason nobody would ever find.
-    private data class Key(val left: String, val right: String, val mode: MatchMode)
+    private data class Key(
+        val left: String,
+        val right: String,
+        val mode: MatchMode,
+    )
 
     private var memo: Pair<Key, DiffModel>? = null
 

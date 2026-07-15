@@ -6,7 +6,6 @@ package com.knapsack.fixtool.ui.diff
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -218,9 +217,21 @@ private fun SeedMenu(onSeed: (SeedFrom) -> Unit) {
 @Composable
 private fun ViewerColumnHeaders(left: String, right: String) {
     Row(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 3.dp)) {
-        Text(left.uppercase(), color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(LEFT_WEIGHT))
+        Text(
+            left.uppercase(),
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(LEFT_WEIGHT),
+        )
         Spacer(Modifier.width(GUTTER))
-        Text(right.uppercase(), color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Text(
+            right.uppercase(),
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
@@ -267,7 +278,14 @@ private fun ViewerGutter(line: DiffLine) {
             ChunkKind.RIGHT_ONLY -> "+B" to AppTheme.Colors.info
             ChunkKind.MOVED -> "" to Color.Transparent
         }
-    if (glyph.isNotBlank()) Text(glyph, color = color, fontSize = 10.sp, modifier = Modifier.testTag("diff-viewer-gutter-${line.kind.name.lowercase()}"))
+    if (glyph.isNotBlank()) {
+        Text(
+            glyph,
+            color = color,
+            fontSize = 10.sp,
+            modifier = Modifier.testTag("diff-viewer-gutter-${line.kind.name.lowercase()}"),
+        )
+    }
 }
 
 /** The group band, read-only: the border, the entry label, and its counterpart on the other side. No arrows. */
@@ -300,7 +318,12 @@ private fun ViewerBand(band: DiffItem.Band) {
             Text(band.rightLabel ?: "—", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(start = 4.dp))
             if (band.moved) {
                 Box(Modifier.weight(1f))
-                Text("⇅ moved — same tags, same values, different position", color = DiffPalette.moved, fontSize = 9.sp, modifier = Modifier.testTag("viewer-moved-note"))
+                Text(
+                    "⇅ moved — same tags, same values, different position",
+                    color = DiffPalette.moved,
+                    fontSize = 9.sp,
+                    modifier = Modifier.testTag("viewer-moved-note"),
+                )
             }
         }
     }

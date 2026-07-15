@@ -29,7 +29,11 @@ class DiffViewerViewModelTest {
 
     @Before
     fun setup() {
-        testDir = File.createTempFile("fixtool-viewer", "").apply { delete(); mkdirs() }
+        testDir =
+            File.createTempFile("fixtool-viewer", "").apply {
+                delete()
+                mkdirs()
+            }
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
     }
 
@@ -76,29 +80,52 @@ class DiffViewerViewModelTest {
     @Test
     fun `the same pair focuses the existing viewer, it does not duplicate`() {
         viewModel.openDiffSelected(a, b)
-        val epoch0 = viewModel.openDiffViewers.value.single().focusEpoch
+        val epoch0 =
+            viewModel.openDiffViewers.value
+                .single()
+                .focusEpoch
         viewModel.openDiffSelected(a, b)
         assertEquals(1, viewModel.openDiffViewers.value.size, "the same pair must not open a second window")
-        assertTrue(viewModel.openDiffViewers.value.single().focusEpoch > epoch0, "re-opening raises the window")
+        assertTrue(
+            viewModel.openDiffViewers.value
+                .single()
+                .focusEpoch > epoch0,
+            "re-opening raises the window",
+        )
     }
 
     @Test
     fun `swap sides and mode mutate the session`() {
         viewModel.openDiffSelected(a, b)
-        val id = viewModel.openDiffViewers.value.single().id
+        val id =
+            viewModel.openDiffViewers.value
+                .single()
+                .id
         val session = viewModel.diffViewer(id)!!.session!!
         val leftBefore = session.left.wire
         viewModel.swapDiffViewerSides(id)
         assertEquals(session.right.wire, leftBefore, "swap put the old left on the right")
         val modeBefore = session.mode
-        viewModel.selectDiffViewerMode(id, if (modeBefore.name == "OPEN") com.knapsack.fixtool.model.scenario.MatchMode.STRICT else com.knapsack.fixtool.model.scenario.MatchMode.OPEN)
+        viewModel.selectDiffViewerMode(
+            id,
+            if (modeBefore.name ==
+                "OPEN"
+            ) {
+                com.knapsack.fixtool.model.scenario.MatchMode.STRICT
+            } else {
+                com.knapsack.fixtool.model.scenario.MatchMode.OPEN
+            },
+        )
         assertTrue(session.mode != modeBefore, "the mode changed")
     }
 
     @Test
     fun `seed floats a scenario-less editor, and add-to-scenario files it and hands off`() {
         viewModel.openDiffSelected(a, b)
-        val id = viewModel.openDiffViewers.value.single().id
+        val id =
+            viewModel.openDiffViewers.value
+                .single()
+                .id
 
         viewModel.seedFromViewer(id, SeedFrom.A)
         val editing = viewModel.diffViewer(id)!!.editing

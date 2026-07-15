@@ -994,9 +994,14 @@ class ControlServer(
     private fun diffMessages(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val left = resolveDiffSide(body["a"] as? JsonObject)
-            ?: return errorObject("side 'a' could not be read — give {session, match} for a live message with wire bytes, or {paste} for readable bytes")
         val right = resolveDiffSide(body["b"] as? JsonObject)
-            ?: return errorObject("side 'b' could not be read — give {session, match} for a live message with wire bytes, or {paste} for readable bytes")
+        if (left == null || right == null) {
+            val which = if (left == null) "'a'" else "'b'"
+            return errorObject(
+                "each side must be {session, match} for a live message with wire bytes, or {paste} for " +
+                    "readable bytes — the $which side could not be read",
+            )
+        }
         onEdt { viewModel.openDiffViewer(left, right) }
         return buildJsonObject {
             put("status", "open")
@@ -1013,12 +1018,11 @@ class ControlServer(
         }
         val session = resolveSession(spec["session"]?.jsonPrimitive?.content) ?: return null
         val match = spec["match"] as? JsonObject ?: JsonObject(emptyMap())
-        val message =
-            onEdt {
-                session.messages.value.filterIsInstance<FixMessage>().lastOrNull { matchesMessage(it, match) }
-            } ?: return null
+        val live = onEdt { session.messages.value.filterIsInstance<FixMessage>() }
+        val message = live.lastOrNull { matchesMessage(it, match) } ?: return null
         val wire = message.wireRaw ?: return null
-        return DiffSide(wire, "${session.title} · ${message.messageType}", ReferenceMessage.Provenance.PICKED)
+        val label = "${session.title} · ${message.messageType}"
+        return DiffSide(wire, label, ReferenceMessage.Provenance.PICKED)
     }
 
     private fun runScenario(ex: HttpExchange): JsonElement {

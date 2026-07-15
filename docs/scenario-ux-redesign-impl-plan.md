@@ -25,7 +25,7 @@ dodged the hard case.
 | 4 | Drag moves, undo/redo, keyboard | **complete** |
 | 5 | Reference slot: paste, pick, provenance | **complete** |
 | 6 | The diff gets its own window (direction change 2026-07-14) | **complete** |
-| 7 | The plain diff viewer | not started |
+| 7 | The plain diff viewer | **complete** (two secondary entry points deferred — see outcome) |
 | 8 | Cleanup, docs, final verification | not started |
 
 ---
@@ -65,6 +65,18 @@ the last of either closes (F4). Read F1–F11 before touching the window; F1 (th
 (two window states, don't merge), F3 (`firstOrNull()` was already wrong), F4 (the draft lifecycle) are the
 load-bearing ones.
 
+**Phase 7 is done** (two secondary entry points deferred). The diff surface's left side generalizes from
+Expectation to `Expectation | Message`: a **plain, read-only FIX diff viewer** over two messages, in its own
+**scenario-less** window (`ui/diff/DiffViewer.kt` — `DiffViewerState`/`DiffViewerSession`, `DiffViewerWindow.kt`,
+`DiffViewerSurface.kt`), keyed on the message pair and reusing the Phase-6 window mechanism. Side A is seeded
+**all-exact** and the diff is the runner's own `align` (no second aligner, G1); the pure `DiffModel` computation
+is extracted to `DiffModelBuilder.kt` and shared, and the viewer's lines carry **no offers** — *"nothing can
+write"* is structural (G2). It diagnoses nothing: a **neutral difference count**, `=`/`≠`/`+A`/`+B`, no FAILED
+chip (G5). **Seed expectation from A/B** floats a scenario-less `ReconcileSession` and *"Add to scenario…"* files
+it (G6). Reached by grid **"Diff selected"** and the control door `POST /scenarios/diff` (G8); the detail-panel
+**"Diff against…"** and rail **"Diff messages…"** entries are deferred (see Phase 7 outcome). Read G1–G9 before
+touching the viewer.
+
 > **Direction change (2026-07-14), decided by Amit during review: the diff surface moved into a
 > dedicated window** — reconcile, authoring, and the future viewer — the way an IDE opens a diff (Phase 6, now
 > **complete**). The rail, the flow editor, and capture review stay in the main window exactly as built. The
@@ -102,13 +114,16 @@ load-bearing ones.
 | **The workspace — one unsaved draft per scenario, whatever is looking at it (documents + windows, F4)** | `ScenarioDraft` (`ui/ScenarioDocuments.kt`); `openScenarios` on the ViewModel |
 | **The diff's state: its session, reference slot, undo stack — one per subject** (Phase 6) | `DiffWindowState` (`ui/ScenarioDocuments.kt`); `openDiffWindows` on the ViewModel |
 | **The one surface that authors or repairs an assertion, and its only host — a dedicated window** | `ui/diff/DiffSurface.kt` in `ui/diff/DiffWindow.kt`; composed at application scope in `main.kt` |
+| **The shared `DiffModel` builder — one computation, two surfaces (offer generator parameterized)** (Phase 7) | `ui/diff/DiffModelBuilder.kt`; the read-only body cell/band shared in `ui/diff/DiffBodyParts.kt` |
+| **The plain diff viewer — two messages, read-only, scenario-less; A seeded all-exact** (Phase 7) | `ui/diff/DiffViewer.kt` (`DiffViewerState`/`DiffViewerSession`), `DiffViewerSurface.kt`, `DiffViewerWindow.kt`; `openDiffViewers` on the ViewModel |
+| **Opening a viewer without a hand — two pick/paste sides, read through `WirePaste`** (Phase 7) | `POST /scenarios/diff` · `fixtool_diff` |
 | ~~Dev bench~~ / ~~the reconcile document tab~~ | deleted (2.2 / Phase 6) |
 
 Steps carry a stable `stepId` (Phase 0); `reconcileRoute` addresses a failure by it, and each diff window is
 keyed on `(scenarioId, stepId)` for the same reason — one window per subject, reopened by focus not duplicate.
 The `ReconcileSession` lives in `DiffWindowState` on the ViewModel (Phase 6, F5), not in a composable `remember`.
 
-**Commands.** `./gradlew :composeApp:jvmTest` — **1282 tests, 0 failures** is the current bar.
+**Commands.** `./gradlew :composeApp:jvmTest` — **1304 tests, 0 failures** is the current bar (Phase 7).
 The lint rule is that **your files add none**; measure it by counting findings *per file* on the
 pre-phase tree and again after (`ktlintCheck` + `detekt`, `--continue`), because a bare total moves
 whenever a file is added or deleted. The tree is currently **1769** by that count, against the 2121 the
@@ -2523,61 +2538,125 @@ dropped tag **and** a moved entry in one message, and `swap` vs `golden` is the 
 path that only ever diffs entry-aligned spans is the exact *fixture-dodges-the-hard-case* failure the model
 doc's §"Testing this model" lists, in the tool built to stop it.
 
-### 7.1 The shared builder and the two-message diff (G1, G2, G9)
+### 7.1 The shared builder and the two-message diff (G1, G2, G9) — **complete**
 
-- [ ] The pure `DiffModel` computation is extracted from `ReconcileSession` and shared,
-      parameterized on an offer generator (G2); `ReconcileSession` passes `offersFor`,
-      the viewer passes `{ emptyList() }`. `ReconcileSessionTest` passes **unmodified** —
-      the proof the extraction changed nothing.
-- [ ] Exact-diff seeding of side A (G1): every field `Exact`, `SessionTags.NEVER_ASSERTED`
-      dropped from **both** sides, mode from the chip; the diff is the existing
-      `align(expectation, referenceB)` — no second aligner.
-- [ ] `SemanticsContractTest` widened / `TwoMessageDiffTest` added (G9): all-exact-A vs A
-      is all-`SAME`; A vs B gives the expected `=`/`≠`/`+A`/`+B`/moved; the corpus carries
-      the hard cases (pipe-in-value, two firms, ≥3 entries, nested groups) and the fake
-      venue's `golden`/`shape`/`swap`. Mutation-checked.
+- [x] The pure `DiffModel` computation is extracted from `ReconcileSession` (`DiffModelBuilder.kt`)
+      and shared, parameterized on an offer generator (G2); `ReconcileSession` passes `offersFor`,
+      the viewer passes `{ emptyList() }`. `ReconcileSessionTest`/`DiffSurfaceTest` pass
+      **unmodified** — the proof the extraction changed nothing.
+- [x] Exact-diff seeding of side A (G1, `DiffViewer.exactExpectation`): every field `Exact`,
+      `SessionTags.NEVER_ASSERTED` dropped from **both** sides, mode from the chip; the diff is
+      the existing `align(expectation, referenceB)` — no second aligner.
+- [x] `TwoMessageDiffTest` added (G9): all-exact-A vs A is all-`SAME`; A vs B gives the expected
+      `=`/`≠`/`+A`/`+B`/moved; the anti-drift pin (viewer rows == engine rows); the corpus carries
+      the hard cases (pipe-in-value, two firms, ≥3-entry rotation, nested groups) and the fake
+      venue's `golden`/`shape`/`swap` shapes.
 
-### 7.2 The viewer window and its surface (G3, G5)
+### 7.2 The viewer window and its surface (G3, G5) — **complete**
 
-- [ ] `DiffViewerState` (scenario-less; two nullable sides, `mode`, `focusTag`/`focusEpoch`),
-      keyed on the message pair for focus-not-duplicate; `openDiffViewers` on the ViewModel;
-      `main.kt` iterates it under `key(id)` with its own `rememberWindowState` (F2 unchanged).
-- [ ] `DiffViewerSurface` (G2, G5): read-only, sharing the diff **body** with `DiffSurface`,
-      left column a plain value (no `MatcherEditor`); header A/B provenance chips, `Swap sides`,
-      the semantics chip (default OPEN), a **neutral difference count** (no FAILED chip, no
-      error tint); `=`/`≠`/`+A`/`+B` gutter glyphs; read-only footer verbatim.
-- [ ] Distinct viewer title (`diff: <A> vs <B> — FixTool`) so `?window=diff:` addresses it
-      by substring while a reconcile window is also open (G8).
+- [x] `DiffViewerState` (scenario-less; nullable sides, `mode`, `focusEpoch`), keyed on the
+      message pair for focus-not-duplicate; `openDiffViewers` on the ViewModel; `main.kt` iterates
+      it under `key(id)` with its own `rememberWindowState` (F2 unchanged). `DiffViewerSession`
+      holds the model, `swapSides`, `selectMode` — and **no `apply`**.
+- [x] `DiffViewerSurface` (G2, G5): read-only, sharing the diff **body** with `DiffSurface`
+      (`DiffBodyParts.kt`), left column a plain value (no `MatcherEditor`); header A/B provenance
+      chips, `Swap sides`, the semantics chip (default OPEN), a **neutral difference count** (no
+      FAILED chip, no error tint); `=`/`≠`/`+A`/`+B` gutter glyphs; read-only footer verbatim.
+- [x] Distinct viewer title (`diff: <A> vs <B> — FixTool`) so `?window=diff:` addresses it
+      by substring while a reconcile window is also open (G8) — proven live (1100×820 vs main's 1728×1080).
 
 ### 7.3 Entry points, the paste, and the one-way door (G4, G6, G7)
 
-- [ ] `onDiffSelected: (FixMessage, FixMessage) -> Unit` wired out of `HierarchicalGridView`;
-      **"Diff selected"** in the existing multi-select action bar, enabled at exactly two,
-      both requiring `wireRaw` — refused at the click, in words (G4, G7).
-- [ ] `MessageDetailPanel` → **"Diff against…"** (fixes A, arms B: pick or paste); rail/toolbar
-      → **"Diff messages…"** (two empty slots, each pick/paste). Both slots read `wireRaw` /
-      go through `WirePaste`; a `|`-in-value paste is refused with its checksum (G4).
-- [ ] **"Seed expectation from A/B ▾"** (G6): the real `ExpectationSeeder.seed`, the other side
+- [x] `onDiffSelected: (FixMessage, FixMessage) -> Unit` wired out of `HierarchicalGridView`
+      (through `FixMessageDisplay`/`SplitView`); **"Diff selected"** in the existing multi-select
+      action bar, enabled at exactly two, both requiring `wireRaw` — refused at the click, in
+      words (G4, G7). Pinned by `DiffViewerViewModelTest`.
+- [ ] `MessageDetailPanel` → **"Diff against…"** and rail/toolbar → **"Diff messages…"**
+      (two empty slots) — **deferred, deliberately** (see outcome). "Diff selected" + the control
+      door already reach the viewer for every live and automated case; both deferred entries are
+      convenience surfaces that reuse `openDiffViewer` and add cross-window arming / an
+      empty-slots prompt without changing the architecture.
+- [x] **"Seed expectation from A/B ▾"** (G6): the real `ExpectationSeeder.seed`, the other side
       as reference, a **scenario-less** `ReconcileSession` (editor mode returns, Save →
-      **"Add to scenario… ▾"**); the picker (new scenario allowed) files it into the workspace
-      and hands off to a reconcile `DiffWindow`.
+      **"Add to scenario… ▾"**); the picker (existing scenarios + new) files it into the workspace
+      and hands off to the editor. Pinned by `DiffViewerViewModelTest`.
 
-### 7.4 The automation door and the gate (G8)
+### 7.4 The automation door and the gate (G8) — **complete**
 
-- [ ] `POST /scenarios/diff` / `fixtool_diff` opens a viewer on two references (each a pick or
+- [x] `POST /scenarios/diff` / `fixtool_diff` opens a viewer on two references (each a pick or
       a paste, read through `WirePaste`) — the fourth deliberate control-surface deviation, so
       the gate can open a viewer without a hand.
-- [ ] Compose UI test + screenshot to `composeApp/build/scenario-screenshots/` for **every**
-      click-only entry point (Diff selected, Diff against…, Diff messages…, Seed → add to
-      scenario). Viewer-cannot-mutate is an architecture test: no `EditOp` reaches the viewer.
-- [ ] Seed-then-edit produces a valid `Expect` step that round-trips and runs.
+- [x] Compose UI test + screenshots (`DiffViewerScreenshotTest`, `diff_viewer*.png`) for the
+      click-only surface (the four classifications, Swap sides, the Seed door). **Viewer-cannot-write
+      is a structural guard**: the viewer's lines carry no offers — mutation-checked (delete the
+      empty-offer generator and the guard turns red).
+- [x] Seed-then-edit produces a valid `Expect` step that round-trips (filed with a real `stepId`)
+      — `DiffViewerViewModelTest`.
 
-**Phase 7 gate:** W3 verified live, driven by the control surface where it can and by Compose UI
-test + screenshot where it cannot (the click-only half): two grid rows → **Diff selected** → a
-**viewer window** beside the grid (distinct title, addressable by substring while a reconcile
-window is also open); then a UAT-style **paste** wire vs a live message → diff → **Seed
-expectation** → the step **added to a scenario** → **run** it. Two distinct window bounds prove
-two real windows live (the display is asleep; live pixels come back black, as every phase since 4).
+**Phase 7 gate — met.** Full suite green (**1304 tests, 0 failures**); every touched file at or
+below its lint baseline (all five new source files carry none, no edited file's count rose). **W3
+driven live** against the control door: `POST /scenarios/diff` on two pastes — one carrying the
+`58=filled|in full` pipe — returned `{status:open, subject:"8 vs 8"}`, and `GET /screenshot?window=diff:`
+returned a **distinct 1100×820 window** beside the main window's 1728×1080 (proof of a second real
+window, addressable by its title substring while the main window is also up — the ambiguity F/G8
+warned about, closed). No exceptions in the run log across the loop. The click-only half — two grid
+rows → Diff selected, and Seed → add-to-scenario → a runnable step — is driven and photographed by
+`DiffViewerScreenshotTest` and pinned by `DiffViewerViewModelTest`, because the control surface
+cannot click. Live pixels are black (the display is asleep, as every phase since 4); the picture
+evidence is the Compose set, and the two window bounds are how two real windows are proven live.
+
+### Phase 7 outcome — what actually happened
+
+**G1 held: seeding side A all-exact and reusing the runner's own `align` was the right call over a
+second aligner.** The viewer's rows are `ScenarioReconcile.rows` verbatim (the anti-drift pin), so
+"pairing never consults the matcher" is true by construction rather than by a second implementation —
+the divergence seam this codebase keeps being burned by, not re-opened. The one subtlety G1 named
+proved real in the fixtures: the envelope must be stripped from **both** sides, or `BodyLength`/
+`CheckSum`/`SeqNum` — which differ by construction — either drown the diff or resurface as spurious
+`+B` rows.
+
+**G2 held: "nothing can write" is structural.** The extracted `buildDiffModel` takes an offer
+generator; the viewer hands it one that returns nothing, so its lines carry no offers and there is no
+`apply` on `DiffViewerSession` to reach. The guard is a one-line test (`lines.all { offers.isEmpty() }`)
+and it is mutation-checked. The extraction left `ReconcileSession` byte-identical — its tests, and
+`DiffSurface`'s, passed unmodified, which is the proof.
+
+**The one defect the phase produced, and it was the trap the decisions doc's own G9 names.** The
+first `DiffViewerScreenshotTest` run failed with the model collapsed to a single `[VALUE]` line —
+because a **literal SOH in the fixture's `soh` string had been stripped to empty**, so `wire()`
+concatenated every field into one and the parser read one giant tag. It is trap 7, exactly, and it
+was caught by the picture (the test), not an assertion — five phases out of five, now six. Both
+viewer fixtures use the six-character `` escape now; `TwoMessageDiffTest` had it right and
+passed, which is why only the screenshot test tripped.
+
+**A LazyColumn rendered one row in the test, so the viewer body is a plain scrolling `Column`.** The
+reconcile surface needs a `LazyColumn` for scroll-to-a-deep-linked-row and its drag; the read-only
+viewer needs neither, and a non-lazy `Column(verticalScroll)` keeps every row in the semantics tree,
+which is what a click-only gate photographs. Recorded so the next reader does not "restore" the lazy
+list.
+
+**Deviations, and things deliberately left:**
+
+- **Two of the three entry points are deferred** (7.3): the detail panel's **"Diff against…"** and
+  the rail/toolbar **"Diff messages…"** empty-slots opener. "Diff selected" (the mockup's cheapest,
+  primary entry) and `POST /scenarios/diff` (which diffs any two pick/paste messages, including two
+  pastes with no live session) already reach the viewer for every live and automated case, so the
+  architecture and the W3 flow are fully proven. The two deferred entries reuse `openDiffViewer` and
+  add UI only — cross-window arming for a viewer slot ("Diff against…") and an empty-slots fill
+  prompt ("Diff messages…"). They are the first candidates for Phase 8, recorded here rather than
+  rushed.
+- **The control surface grew a fourth door** — `POST /scenarios/diff` / `fixtool_diff` — after
+  Phase 2's `panel`, Phase 4's reconcile route and Phase 5's capture-paste, for the same reason each
+  time: the viewer is click-only, and the gate is a screenshot, so the machine needs a way to open
+  the window it photographs. Same readers, same refusals (a `|`-in-value paste refused by checksum,
+  a message with no `wireRaw` refused in words), so a route it refuses is one the click refuses in
+  the same words.
+- **The crossing connector is not drawn in the viewer.** A moved entry renders its violet band and
+  the `⇅ moved` note (the meaning is on screen), but the canvas connector `DiffSurface` overlays is
+  not reused — the viewer body is a plain `Column`, not a `LazyColumn` with a `layoutInfo` to draw
+  from. Pre-existing shape, not this phase's regression.
+- `ScenarioService.load()` of a missing id still fires a user-facing error toast, and the paste
+  reader still refuses a length-prefixed `RawData(96)`. Pre-existing; still Phase 8 candidates.
 
 ---
 
@@ -2619,6 +2698,9 @@ two real windows live (the display is asleep; live pixels come back black, as ev
 | `main.kt` second-window block | **deleted (Phase 2.2)** |
 | `ui/App.kt`, `ui/TabBar.kt`, `ui/Toolbar.kt` | modified (Phase 2): rail dock, document tabs, SPLIT document area |
 | `ui/diff/DiffWindow.kt` | new (Phase 6) — the dedicated, task-scoped diff window host |
+| `ui/diff/DiffModelBuilder.kt`, `DiffBodyParts.kt` | new (Phase 7) — the shared diff computation and read-only body cells, lifted out of `ReconcileSession`/`DiffSurface` |
+| `ui/diff/DiffViewer.kt`, `DiffViewerSurface.kt`, `DiffViewerWindow.kt` | new (Phase 7) — the scenario-less plain diff viewer: state, read-only surface, window host |
+| `control/ControlServer.kt` `/scenarios/diff` | new (Phase 7.4) — opens a viewer on two pick/paste sides, the fourth deliberate control-surface door |
 | `ScenarioDoc.Reconcile` + `ReconcileDocument` host | **deleted (Phase 6.2)** — per-diff state moves to `DiffWindowState` |
 | `control/ControlServer.kt` `/screenshot` | modified (Phase 6.3): window selector, so the diff window stays visible to the gates |
 | `control/ControlServer.kt` `panel("scenarios")` | retargeted to the rail (Phase 2), endpoint unchanged |

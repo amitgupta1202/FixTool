@@ -41,7 +41,6 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -419,12 +418,11 @@ private fun Header(text: String, modifier: Modifier) {
 
 internal val GUTTER = 56.dp
 internal val ROW_PADDING = 12.dp
-private val TAG_COL = 46.dp
 
 // The left column is the EDITABLE one — a chip, a value field, sometimes a tolerance — and the right is read-
 // only text that can be ellipsized without losing anything. Splitting the width evenly starved the side that
 // has controls in it, and at a narrow window the matcher editor's own labels wrapped one character per line.
-private val NAME_COL = 96.dp
+// (The tag/name column widths and the read-only value cell are shared with the viewer — see DiffBodyParts.)
 internal const val LEFT_WEIGHT = 1.25f
 
 /**
@@ -658,16 +656,6 @@ private fun DiffRow(
     }
 }
 
-private fun rowTint(line: DiffLine): Color =
-    when {
-        line.unjudged -> DiffPalette.unjudgedRow
-        line.kind == ChunkKind.MOVED -> DiffPalette.movedBand
-        line.kind == ChunkKind.VALUE -> DiffPalette.valueRow
-        line.kind == ChunkKind.RIGHT_ONLY -> DiffPalette.addedRow
-        line.kind == ChunkKind.LEFT_ONLY -> DiffPalette.missingRow
-        else -> Color.Transparent
-    }
-
 /** The expectation. The matcher chip **is** the value column — there is no separate value cell to disagree. */
 @Composable
 private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, handlers: DragHandlers) {
@@ -687,7 +675,7 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, hand
             DragHandle(handlers, testTag = "row-handle-$index", modifier = Modifier.padding(end = 3.dp))
         }
         TagCell(row.tag, row.occurrence, line.kind)
-        Text(row.name, color = AppTheme.Colors.fieldName, fontSize = 10.sp, modifier = Modifier.width(NAME_COL))
+        Text(row.name, color = AppTheme.Colors.fieldName, fontSize = 10.sp, modifier = Modifier.width(DIFF_NAME_COL))
         if (index != null && row.matcher != null) {
             MatcherEditor(
                 matcher = row.matcher,
@@ -725,63 +713,9 @@ private fun RightCell(line: DiffLine) {
         }
         return
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        TagCell(field.tag, field.occurrence, line.kind)
-        Text(field.name, color = AppTheme.Colors.fieldName, fontSize = 10.sp, modifier = Modifier.width(NAME_COL))
-        Text(
-            field.value,
-            color =
-                if (line.kind ==
-                    ChunkKind.VALUE
-                ) {
-                    AppTheme.Colors.error
-                } else if (line.kind == ChunkKind.MOVED) {
-                    DiffPalette.moved
-                } else {
-                    AppTheme.Colors.fieldValue
-                },
-            fontFamily = FontFamily.Monospace,
-            fontSize = 10.sp,
-            fontWeight = if (line.kind == ChunkKind.VALUE) FontWeight.Bold else FontWeight.Normal,
-        )
-        // The dictionary's word for the value, as its own dim span — never folded into the value string,
-        // which is a message the venue never sent.
-        field.description?.takeIf { it != field.value }?.let {
-            Text("  $it", color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
-        }
-        if (line.unjudged) {
-            Text(
-                "  unjudged here — resolves at run time",
-                color = AppTheme.Colors.warning,
-                fontSize = 9.sp,
-                modifier = Modifier.testTag("unjudged-note"),
-            )
-        }
-    }
-}
-
-@Composable
-private fun TagCell(tag: Int, occurrence: Int, kind: ChunkKind) {
-    Row(modifier = Modifier.width(TAG_COL)) {
-        Text(
-            "$tag",
-            color =
-                if (kind ==
-                    ChunkKind.MOVED
-                ) {
-                    DiffPalette.moved
-                } else {
-                    AppTheme.Colors.tagNumber
-                },
-            fontFamily = FontFamily.Monospace,
-            fontSize = 10.sp,
-        )
-        // The occurrence, in the tag column, because it is part of the address: the second 452 is not the
-        // first one, and a reader who cannot see which is which cannot reason about a move at all.
-        if (occurrence > 0) {
-            Text("#${occurrence + 1}", color = AppTheme.Colors.textDisabled, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
-        }
-    }
+    // The value cell is shared with the viewer (DiffBodyParts) — one place draws a field, so the two surfaces
+    // cannot come to render the same value two different ways.
+    FieldValueCell(field, line.kind, line.unjudged)
 }
 
 /** The gutter. It draws what the session offers, and it never invents an offer of its own. */

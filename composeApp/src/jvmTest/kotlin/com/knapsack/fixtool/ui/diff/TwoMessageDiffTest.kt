@@ -29,7 +29,7 @@ import kotlin.test.assertTrue
 class TwoMessageDiffTest {
     private val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
 
-    private val soh = ""
+    private val soh = "\u0001"
 
     private fun wire(vararg f: Pair<Int, String>): String =
         f.joinToString("") { (tag, value) -> "$tag=$value$soh" }

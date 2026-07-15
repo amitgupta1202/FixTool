@@ -20,6 +20,7 @@ import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -36,6 +37,7 @@ import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.SavedMessagesService
+import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioRunner
@@ -53,7 +55,11 @@ import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.RunFailureContext
 import com.knapsack.fixtool.ui.ScenarioDoc
 import com.knapsack.fixtool.ui.ScenarioDraft
+import com.knapsack.fixtool.ui.diff.DiffSide
+import com.knapsack.fixtool.ui.diff.DiffViewerSession
+import com.knapsack.fixtool.ui.diff.DiffViewerState
 import com.knapsack.fixtool.ui.diff.ReconcileSession
+import com.knapsack.fixtool.ui.diff.SeedFrom
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -829,6 +835,144 @@ class FixMessageViewModel(
         val label = paste.sendingTime?.let { "pasted · ${it.takeLast(TIME_OF_DAY)}" } ?: "pasted"
         return bind(window, ReferenceMessage.pasted(RawMessageView(wire), label))
     }
+
+    // ---- The plain diff viewer: two messages, no scenario, nothing that writes (Phase 7) ------------------
+
+    /**
+     * The viewer windows — a **second** window subject, scenario-less, keyed on the message pair. Kept here on
+     * the ViewModel for the same reason the diff windows are ([DiffViewerState]): the window is composed at
+     * application scope, and the grid it may pick a slot from is in the main window.
+     */
+    private val _openDiffViewers = MutableStateFlow<List<DiffViewerState>>(emptyList())
+    val openDiffViewers: StateFlow<List<DiffViewerState>> = _openDiffViewers.asStateFlow()
+
+    fun updateDiffViewer(state: DiffViewerState) {
+        _openDiffViewers.value = _openDiffViewers.value.map { if (it.id == state.id) state else it }
+    }
+
+    fun diffViewer(id: String): DiffViewerState? = _openDiffViewers.value.firstOrNull { it.id == id }
+
+    /**
+     * A side of a plain diff, from a message the author picked. **Null when FixTool does not have the venue's
+     * bytes** — invariant 3: only `wireRaw` feeds a diff, never the `|`-substituted display string. The caller
+     * refuses that at the click, in words, rather than by a click that quietly does nothing.
+     */
+    private fun sideOf(message: FixMessage, provenance: ReferenceMessage.Provenance = ReferenceMessage.Provenance.PICKED): DiffSide? {
+        val wire = message.wireRaw ?: return null
+        val typeName = dictionary?.getFieldEnumValues(35)?.firstOrNull { it.first == message.messageType }?.second
+        val where = sessionTitleOf(message)
+        val label =
+            buildString {
+                append(typeName?.let { "$it(${message.messageType})" } ?: message.messageType)
+                if (where != null) append(" · $where")
+                append(" · ${CLOCK_FORMAT.format(message.timestamp.toLocalTime())}")
+            }
+        return DiffSide(wire = wire, label = label, provenance = provenance)
+    }
+
+    private fun sessionTitleOf(message: FixMessage): String? =
+        sessions.firstOrNull { s -> s.messages.value.any { it === message } }?.title
+
+    /**
+     * **Diff two messages the author selected in a grid.** Both must carry `wireRaw`; a side that does not is
+     * refused *at the click*, naming which one (G4/G7). Opens a viewer window, or focuses the one already
+     * showing this pair.
+     */
+    fun openDiffSelected(a: FixMessage, b: FixMessage): Boolean {
+        val left = sideOf(a)
+        val right = sideOf(b)
+        if (left == null || right == null) {
+            showNotification(
+                "FixTool does not have the wire bytes for ${if (left == null) "the first" else "the second"} message, " +
+                    "so it cannot be diffed. Only the bytes the venue actually sent can be a side — the display string is not them.",
+                NotificationType.ERROR,
+            )
+            return false
+        }
+        openDiffViewer(left, right)
+        return true
+    }
+
+    /** Open the viewer on two bound sides, or focus the window already showing this pair (G3). */
+    fun openDiffViewer(left: DiffSide, right: DiffSide) {
+        val id = DiffViewerState.pairId(left.wire, right.wire)
+        val existing = _openDiffViewers.value.firstOrNull { it.id == id }
+        if (existing != null) {
+            updateDiffViewer(existing.copy(focusEpoch = existing.focusEpoch + 1))
+            return
+        }
+        val session = DiffViewerSession(left, right, getDictionaryAdapter())
+        _openDiffViewers.value = _openDiffViewers.value + DiffViewerState(id = id, session = session)
+    }
+
+    fun closeDiffViewer(id: String) {
+        _openDiffViewers.value = _openDiffViewers.value.filterNot { it.id == id }
+        if (_armedReferenceSlot.value == id) _armedReferenceSlot.value = null
+    }
+
+    /** Swap A and B, and re-judge. Not an edit — it changes what you are looking at (the session mutates in place). */
+    fun swapDiffViewerSides(id: String) {
+        diffViewer(id)?.session?.swapSides()
+    }
+
+    fun selectDiffViewerMode(id: String, mode: MatchMode) {
+        diffViewer(id)?.session?.selectMode(mode)
+    }
+
+    /**
+     * **The one-way door (G6).** Seed a side into a real expectation (`ExpectationSeeder`, the same one capture
+     * uses — `~now` and `presence` are right again, because now we *are* authoring), put the other side in the
+     * reference slot, and float a **scenario-less** [ReconcileSession] on the window. The window becomes the
+     * editor; nothing reaches a scenario until *"Add to scenario…"* files it.
+     */
+    fun seedFromViewer(id: String, from: SeedFrom) {
+        val viewer = diffViewer(id) ?: return
+        val session = viewer.session ?: return
+        val chosen = if (from == SeedFrom.A) session.left else session.right
+        val other = if (from == SeedFrom.A) session.right else session.left
+        val seeded = ExpectationSeeder.seed(RawMessageView(chosen.wire).fields(), getDictionaryAdapter())
+        val reference =
+            ReferenceMessage
+                .pasted(RawMessageView(other.wire), other.label)
+                .copy(provenance = other.provenance)
+        val editing =
+            ReconcileSession(
+                original = seeded,
+                initialReference = reference,
+                dictionary = getDictionaryAdapter(),
+                // Scenario-less: the edits live in the session's own stack until add-to-scenario files them.
+                onChange = {},
+            )
+        updateDiffViewer(viewer.copy(editing = editing))
+    }
+
+    /** Cancel the seed and go back to the read-only viewer. Nothing was written, so there is nothing to discard. */
+    fun cancelSeed(id: String) {
+        diffViewer(id)?.let { updateDiffViewer(it.copy(editing = null)) }
+    }
+
+    /**
+     * **File the seeded expectation as an Expect step** into a scenario — existing or freshly minted — then open
+     * that scenario's editor and close the viewer. Nothing reaches disk: the step lands in the workspace draft
+     * (dirty), and Save from the editor is what writes it (invariant 4). This is where a scenario-less viewer
+     * window becomes a scenario-bound one.
+     */
+    fun addSeededToScenario(viewerId: String, scenario: Scenario) {
+        val editing = diffViewer(viewerId)?.editing ?: return
+        val expectation = editing.draft
+        ensureScenarioDraft(scenario)
+        val step = ScenarioStep.Expect(expectation = expectation, direction = "in")
+        updateScenarioDraft(scenario.id) { ws ->
+            ws.copy(draft = ws.draft.copy(steps = ws.draft.steps + step).withIds())
+        }
+        val draft = scenarioDraft(scenario.id)?.draft ?: return
+        openScenarioEditor(draft, focusStep = draft.steps.lastIndex)
+        closeDiffViewer(viewerId)
+    }
+
+    /** A blank scenario to seed into — the same one the rail's *New* button mints. */
+    fun newScenarioForSeed(): Scenario =
+        Scenario(id = java.util.UUID.randomUUID().toString(), name = "new scenario", steps = emptyList())
 
     /** Save the scenario a document is a view onto — the diff tab's Save, and the editor's, are one Save. */
     fun saveScenario(scenarioId: String): Boolean {

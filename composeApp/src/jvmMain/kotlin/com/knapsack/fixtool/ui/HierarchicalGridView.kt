@@ -236,6 +236,8 @@ fun HierarchicalGridView(
     gridViewColumns: List<Int> = emptyList(),
     selectedMessage: FixMessage? = null,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
+    /** The grid renders multi-selection; this is the door out for it — *"Diff selected"* on exactly two rows. */
+    onDiffSelected: ((FixMessage, FixMessage) -> Unit)? = null,
     recentlySentMessageTimestamp: LocalDateTime? = null,
     assertionResults: Map<FixMessage, com.knapsack.fixtool.model.scenario.StepResult> = emptyMap(),
     appSettings: com.knapsack.fixtool.model.AppSettings =
@@ -609,7 +611,24 @@ fun HierarchicalGridView(
 
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // Diff selected — enabled at exactly two. A message with no wireRaw is refused at the
+                        // click, in words, by the ViewModel (invariant 3), not by a silently disabled button.
+                        if (onDiffSelected != null) {
+                            val selected = getSelectedFixMessages()
+                            val canDiff = selected.size == 2
+                            Text(
+                                text = "⇄ Diff selected",
+                                color = if (canDiff) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
+                                fontSize = 11.sp,
+                                modifier =
+                                    Modifier
+                                        .then(if (canDiff) Modifier.clickable { onDiffSelected(selected[0], selected[1]) } else Modifier)
+                                        .padding(horizontal = 6.dp)
+                                        .testTag("grid-diff-selected"),
+                            )
+                        }
                         // Copy button
                         TooltipIconButton(
                             tooltip = "Copy Selected Messages ($copyShortcut)",

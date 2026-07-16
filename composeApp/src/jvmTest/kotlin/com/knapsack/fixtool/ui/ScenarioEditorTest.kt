@@ -126,6 +126,48 @@ class ScenarioEditorTest {
         assertEquals(listOf(TagValue(150, "2")), expect.match?.fields, "constraints survive the type edit")
     }
 
+    /**
+     * A bind predicate that is **only** a direction — `match={direction:'out'}`, an assertion on a message
+     * this side sent, authored via fixtool_save_scenario — must survive the BINDS TO form. push()'s "is it
+     * empty now" test looked at messageType, fields and occurrence and forgot the direction it was itself
+     * carrying through: typing into the type field and clearing it again collapsed the predicate to null,
+     * and the step silently flipped to the default direction ('in') — consuming the venue's replies instead
+     * of the outgoing message, with nothing on screen saying the constraint had existed.
+     */
+    @Test
+    fun `a direction-only bind predicate survives the BINDS TO form`() {
+        var saved: Scenario? = null
+        val directionOnly = scenario.copy(
+            steps = listOf(
+                scenario.steps[0],
+                ScenarioStep.Expect("TRADE", "in", MatchPredicate(null, "out", emptyList()), 5_000, expectation),
+            ),
+        )
+        composeTestRule.setContent {
+            Box(modifier = Modifier.size(1200.dp, 700.dp).background(AppTheme.Colors.background).padding(10.dp)) {
+                ScenarioEditor(
+                    initial = directionOnly,
+                    dictionary = null,
+                    sessionOptions = listOf("QUOTE", "TRADE"),
+                    onSave = { saved = it },
+                )
+            }
+        }
+        // Touch the form and leave it as empty as it started: type a message type, clear it again.
+        composeTestRule.onNodeWithTag("step-row-1").performClick()
+        composeTestRule.onNodeWithTag("match-type").performTextInput("8")
+        composeTestRule.onNodeWithTag("match-type").performTextClearance()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        val expect = saved!!.steps[1] as ScenarioStep.Expect
+        assertEquals(
+            MatchPredicate(null, "out", emptyList()),
+            expect.match,
+            "the direction is a constraint like any other — an empty-looking form must not delete it",
+        )
+    }
+
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun snapshot(name: String) {
         try {

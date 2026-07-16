@@ -152,6 +152,35 @@ class AssertIntegrationTest {
         assertFalse(byTag.containsKey(10), "CheckSum (volatile) should be omitted")
     }
 
+    /**
+     * The matcher table marks `toleranceSeconds` optional. Omitted, it parsed as ±0s — a matcher that
+     * passes only if the venue's stamp equals the judging instant to the exact second, so the row went
+     * red on a perfectly fresh reply with "~now ±0s" pointing at the venue rather than at the omitted
+     * default. Omitted means the seeder's default (60s), the answer every other door already gives.
+     */
+    @Test
+    fun `an omitted temporal tolerance means the seeder's default, not zero`() {
+        connectAcceptorAndClient()
+        post("/send", """{"session":"CLI","raw":"35=D|11=ORD-TOL|55=EUR/USD|54=1|38=100|40=1|"}""")
+        assertEquals(
+            "matched",
+            status(post("/wait", """{"session":"CLI","match":{"messageType":"8","direction":"in"},"timeoutMs":8000}""")),
+        )
+        // Let the reply age past a second, so ±0s cannot sneak a same-second pass.
+        Thread.sleep(1_500)
+        val resp =
+            obj(
+                post(
+                    "/assert",
+                    """{"session":"CLI","messageType":"8","direction":"in","fields":[{"tag":52,"matcher":{"type":"temporal"}}]}""",
+                ),
+            )
+        assertTrue(
+            resp["passed"]!!.jsonPrimitive.boolean,
+            "a seconds-old SendingTime must satisfy an omitted tolerance: $resp",
+        )
+    }
+
     @Test
     fun `assert is reachable over the MCP transport`() {
         connectAcceptorAndClient()

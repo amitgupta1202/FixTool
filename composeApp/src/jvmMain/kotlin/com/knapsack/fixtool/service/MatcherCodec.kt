@@ -102,7 +102,10 @@ object MatcherCodec {
                     "now_within_tolerance", null -> TemporalKind.NOW_WITHIN_TOLERANCE
                     else -> throw IllegalArgumentException("temporal kind must be today|now_within_tolerance")
                 },
-                toleranceSeconds = obj["toleranceSeconds"]?.jsonPrimitive?.longOrNull ?: 0L,
+                // Omitted means the seeder's default, not zero: the schema marks toleranceSeconds
+                // optional, and ±0s is a matcher a fresh reply fails by being a second old.
+                toleranceSeconds = obj["toleranceSeconds"]?.jsonPrimitive?.longOrNull
+                    ?: ExpectationSeeder.DEFAULT_TIME_TOLERANCE_SECONDS,
             )
             "reference" -> Matcher.Reference(requireStr(obj, "expression"))
             else -> throw IllegalArgumentException("unknown matcher type '$type'")

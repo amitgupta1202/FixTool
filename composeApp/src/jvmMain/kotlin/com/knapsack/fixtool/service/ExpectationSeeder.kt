@@ -67,8 +67,13 @@ object ExpectationSeeder {
     /** Default tolerances per numeric family. 0 still ignores formatting (parsed as numbers). */
     private const val DEFAULT_NUMERIC_TOLERANCE = 0.0
 
-    /** Default tolerance (seconds) for timestamp fields seeded as "now ± N". */
-    private const val DEFAULT_TIME_TOLERANCE_SECONDS = 60L
+    /**
+     * Default tolerance (seconds) for timestamp fields seeded as "now ± N". Internal because it is the
+     * ONE default: MatcherCodec answers an omitted `toleranceSeconds` with this same number, so the
+     * documented-optional field cannot quietly mean ±0s — a matcher that passes only when the venue's
+     * stamp equals the judging instant to the exact second.
+     */
+    internal const val DEFAULT_TIME_TOLERANCE_SECONDS = 60L
 
     /** One seeded assertion plus the captured value it was seeded from (for editor/preview rows). */
     data class SeededField(val field: FieldExpectation, val capturedValue: String)

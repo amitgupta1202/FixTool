@@ -30,7 +30,8 @@ class ExpectationEvaluatorTest {
         vararg fields: FieldExpectation,
         mode: MatchMode = MatchMode.OPEN,
         resolver: (String) -> String? = { null },
-    ) = ExpectationEvaluator.evaluate(view, Expectation(fields.toList(), mode = mode), resolver, fixedNow)
+        now: () -> java.time.Instant = fixedNow,
+    ) = ExpectationEvaluator.evaluate(view, Expectation(fields.toList(), mode = mode), resolver, now)
 
     private fun fe(tag: Int, matcher: Matcher) = FieldExpectation(tag, matcher)
 
@@ -70,6 +71,49 @@ class ExpectationEvaluatorTest {
         assertTrue(eval(v, fe(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60))).single().passed)
         assertFalse(eval(v, fe(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 5))).single().passed)
         assertTrue(eval(v, fe(60, Matcher.Temporal(TemporalKind.TODAY))).single().passed)
+    }
+
+    /**
+     * A time-only value names no date, and "today" is the wrong date on either side of midnight: a
+     * 23:59:59.5 stamp judged at 00:00:01Z is 1.5 seconds old, not ~86398 seconds — and a phantom red
+     * whose skew is a-day-minus-a-moment is worse than red, because the fix ladder's one-click repair
+     * then writes toleranceSeconds=86400 into the scenario, which is no assertion at all. The value is
+     * read on whichever of yesterday/today/tomorrow brings it nearest the judging instant. Any nightly
+     * run that crosses midnight UTC walks through this.
+     */
+    @Test
+    fun `a time-only value seconds before midnight is judged across it, not a day away`() {
+        val justPastMidnight = { Instant.parse("2026-07-01T00:00:01Z") }
+        val v = wireView(273 to "23:59:59.500")
+        val row = eval(v, fe(273, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)), now = justPastMidnight).single()
+        assertTrue(row.passed, "23:59:59.5 judged at 00:00:01 is 1.5s of skew, not 24h: $row")
+    }
+
+    @Test
+    fun `a time-only value just past midnight is judged from the old day's side of it`() {
+        val justBeforeMidnight = { Instant.parse("2026-06-30T23:59:30Z") }
+        val v = wireView(273 to "00:00:01")
+        val row = eval(v, fe(273, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)), now = justBeforeMidnight).single()
+        assertTrue(row.passed, "00:00:01 judged at 23:59:30 is 31s of skew, not 24h: $row")
+    }
+
+    /**
+     * The offset shapes must accept the same fractional precisions the plain shapes already do:
+     * a TZTIMESTAMP with microseconds parsed as null, and the seeded row was hard-wired to fail —
+     * the exact defect class the UTCTIMEONLY fix closed for the non-offset shapes.
+     */
+    @Test
+    fun `offset timestamps and times with micro and nano fractions are judged, not refused`() {
+        // fixedNow is 2026-06-30T09:15:02Z; both values are 09:15:31Z ± fractions = 29s of skew.
+        val v = wireView(60 to "20260630-11:15:31.123456+02:00", 273 to "11:15:31.123456789+02:00")
+        assertTrue(
+            eval(v, fe(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60))).single().passed,
+            "a microsecond TZTIMESTAMP is 29s from now, not unparseable",
+        )
+        assertTrue(
+            eval(v, fe(273, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60))).single().passed,
+            "a nanosecond TZTIMEONLY is 29s from now, not unparseable",
+        )
     }
 
     @Test

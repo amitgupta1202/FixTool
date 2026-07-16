@@ -379,8 +379,12 @@ object ExpectationEvaluator {
      * coverage is a green by a longer route, and a seeder that seeds a matcher its own evaluator cannot satisfy
      * is two components disagreeing about what a timestamp is.
      *
-     * A time-only value carries no date, so it is read as a time **today** (UTC) — which is what it means on
-     * the wire, and what makes "~now ±60s" a sensible thing to ask of it.
+     * A time-only value carries no date, so it is read on whichever of yesterday/today/tomorrow brings
+     * it **nearest the judging instant** — which is what the stamp meant on the wire. "Today" alone is
+     * the wrong date on either side of midnight: a 23:59:59.5 stamp judged at 00:00:01Z is 1.5 seconds
+     * old, and reading it as TODAY's 23:59:59.5 made it ~86398s away — a phantom red on a correct value
+     * whose one-click "repair" was toleranceSeconds=86400, an assertion of nothing. Every nightly run
+     * that crosses midnight UTC walks through this.
      */
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun parseFixTimestamp(value: String, now: () -> Instant): Instant? {
@@ -401,7 +405,7 @@ object ExpectationEvaluator {
         for (pattern in TIME_ONLY_PATTERNS) {
             try {
                 val time = LocalTime.parse(value, DateTimeFormatter.ofPattern(pattern))
-                return LocalDate.ofInstant(now(), ZoneOffset.UTC).atTime(time).toInstant(ZoneOffset.UTC)
+                return nearestInstant(time, now, ZoneOffset.UTC)
             } catch (e: Exception) {
                 // try next pattern
             }
@@ -413,12 +417,21 @@ object ExpectationEvaluator {
                 val parsed = DateTimeFormatter.ofPattern(pattern).parse(value)
                 val time = LocalTime.from(parsed)
                 val offset = ZoneOffset.from(parsed)
-                return LocalDate.ofInstant(now(), offset).atTime(time).toInstant(offset)
+                return nearestInstant(time, now, offset)
             } catch (e: Exception) {
                 // try next pattern
             }
         }
         return null
+    }
+
+    /** The instant this time-of-day names on the date (in [offset]) that brings it nearest to now. */
+    private fun nearestInstant(time: LocalTime, now: () -> Instant, offset: ZoneOffset): Instant {
+        val anchor = now()
+        val today = LocalDate.ofInstant(anchor, offset)
+        return listOf(today.minusDays(1), today, today.plusDays(1))
+            .map { it.atTime(time).toInstant(offset) }
+            .minBy { kotlin.math.abs(it.epochSecond - anchor.epochSecond) }
     }
 
     // ----------------------------------------------------------------- descriptions
@@ -490,16 +503,20 @@ object ExpectationEvaluator {
             "yyyyMMdd-HH:mm:ss",
         )
 
-    /** TZTIMESTAMP — the same moment, carrying its offset. */
+    /** TZTIMESTAMP — the same moment, carrying its offset. Same fraction precisions as the plain shapes. */
     private val OFFSET_TIMESTAMP_PATTERNS =
         listOf(
+            "yyyyMMdd-HH:mm:ss.SSSSSSSSSXXX",
+            "yyyyMMdd-HH:mm:ss.SSSSSSXXX",
             "yyyyMMdd-HH:mm:ss.SSSXXX",
             "yyyyMMdd-HH:mm:ssXXX",
         )
 
-    /** TZTIMEONLY — a time of day with an offset, and no date at all. */
+    /** TZTIMEONLY — a time of day with an offset, and no date at all. Same fraction precisions too. */
     private val OFFSET_TIME_ONLY_PATTERNS =
         listOf(
+            "HH:mm:ss.SSSSSSSSSXXX",
+            "HH:mm:ss.SSSSSSXXX",
             "HH:mm:ss.SSSXXX",
             "HH:mm:ssXXX",
         )

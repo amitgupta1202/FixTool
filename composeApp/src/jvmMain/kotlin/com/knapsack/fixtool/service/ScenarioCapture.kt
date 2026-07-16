@@ -32,6 +32,17 @@ object ScenarioCapture {
     /** Session/admin message types that are not part of the business flow. */
     private val ADMIN_MSG_TYPES = setOf("0", "1", "2", "3", "4", "5", "A")
 
+    /** Their names, for the sentence the paste review prints when it skips one. */
+    private val ADMIN_NAMES = mapOf(
+        "0" to "Heartbeat",
+        "1" to "TestRequest",
+        "2" to "ResendRequest",
+        "3" to "Reject",
+        "4" to "SequenceReset",
+        "5" to "Logout",
+        "A" to "Logon",
+    )
+
     /** Transport/session header+trailer tags the framework re-stamps on send; dropped from Send raw. */
     private val TRANSPORT_TAGS = SessionTags.REWRITTEN_ON_SEND
 
@@ -169,7 +180,9 @@ object ScenarioCapture {
      *
      * A line whose reading the bytes themselves **disprove** is not a candidate. It is *reported*, in the same
      * place the unreadable live messages already are ([Scan.unreadable] is a list of sentences here), because
-     * leaving a message out has to be a thing the author is told rather than a thing that happens.
+     * leaving a message out has to be a thing the author is told rather than a thing that happens. Session
+     * admin (Logon/Heartbeat/…) is skipped exactly as live capture skips it — and reported too, since a pasted
+     * log fragment usually starts with a Logon the author did not mean to replay.
      *
      * Direction is **not** guessed: [directionFrom] reads it off `SenderCompID(49)` where the assigned session
      * settles it, and leaves it null where nothing does. See [Candidate.direction] for what a guess costs.
@@ -193,6 +206,15 @@ object ScenarioCapture {
             val type = read.fields.firstOrNull { it.first == 35 }?.second
             if (type == null) {
                 refused += "line ${index + 1}: no MsgType(35) — this is not a message FixTool can replay"
+                return@forEachIndexed
+            }
+            // The same skip live capture applies, and for the same reason — session admin is the
+            // transport's business, and a 35=A replayed through the application door onto a logged-on
+            // session is a duplicate Logon most venues answer with a disconnect. Reported, not silent:
+            // a paste leaving lines out without saying so is a coverage lie in a smaller font.
+            if (type in ADMIN_MSG_TYPES) {
+                refused += "line ${index + 1}: 35=$type (${ADMIN_NAMES[type]}) is session admin, not business " +
+                    "flow — skipped, as live capture skips it. Replayed, it would break the session it runs on."
                 return@forEachIndexed
             }
             candidates +=
@@ -382,9 +404,14 @@ object ScenarioCapture {
         targetCompId: String?,
     ): FixMessage.Direction? {
         val sender = fields.firstOrNull { it.first == 49 }?.second ?: return null
-        return when (sender) {
-            senderCompId?.takeIf { it.isNotBlank() } -> FixMessage.Direction.OUTGOING
-            targetCompId?.takeIf { it.isNotBlank() } -> FixMessage.Direction.INCOMING
+        val ours = sender == senderCompId?.takeIf { it.isNotBlank() }
+        val theirs = sender == targetCompId?.takeIf { it.isNotBlank() }
+        return when {
+            // Both CompIDs claim the same name (a loopback, a self-connected session): the bytes do
+            // not decide, and a `when` that answered OUTGOING here was a guess wearing a rule's face.
+            ours && theirs -> null
+            ours -> FixMessage.Direction.OUTGOING
+            theirs -> FixMessage.Direction.INCOMING
             else -> null
         }
     }
@@ -397,9 +424,7 @@ object ScenarioCapture {
         dictionary: FixDictionaryAdapter?,
         refByValue: MutableMap<String, String>,
     ): ScenarioStep.Send {
-        val raw = StringBuilder()
-        for ((tag, value) in entry.fields) {
-            if (tag in TRANSPORT_TAGS) continue
+        val fields = entry.fields.filter { (tag, _) -> tag !in TRANSPORT_TAGS }.map { (tag, value) ->
             val out = when {
                 tag == 35 -> value
                 // Before the general timestamp rule: an expiry stamped "now" is expired on arrival.
@@ -410,9 +435,13 @@ object ScenarioCapture {
                 tag in ID_TAGS && value.isNotBlank() -> idExpr(value, refByValue)
                 else -> value
             }
-            raw.append(tag).append('=').append(out).append('|')
+            tag to out
         }
-        return ScenarioStep.Send(raw.toString(), entry.session, origin = entry.originOfStep())
+        // joinFields, not joinToString("|"): a captured value carrying a literal pipe pipe-joined here
+        // would re-parse at replay with its tail dropped — the venue would receive a message the client
+        // never sent, wearing a freshly computed checksum that agrees with it. The read side refuses
+        // exactly this misread (WirePaste); the Send step must not commit it on the way back out.
+        return ScenarioStep.Send(FixMessageHelper.joinFields(fields), entry.session, origin = entry.originOfStep())
     }
 
     /**

@@ -211,4 +211,22 @@ class WirePasteTest {
         assertEquals(WirePaste.Verdict.REFUSED, prose.verdict)
         assertTrue(prose.why!!.contains("tag=value") || prose.why!!.contains("`tag=value`"), prose.why!!)
     }
+
+    /**
+     * The frame ends at `CheckSum(10)`. Fields that follow it — a second record missing its `8=`,
+     * concatenated onto the line — are bytes the arithmetic never counted: the "✓ agree" lint is computed
+     * over nothing past the trailer, so without this refusal they ride into the slot **unverified, under a
+     * verified lint**, and Accept actual writes them into the scenario as fields the venue framed. It never
+     * framed them inside this message.
+     */
+    @Test
+    fun `fields after the checksum are a refusal, not passengers under a verified lint`() {
+        val paste = WirePaste.read(wire + "35=A${soh}49=FAKE_VENUE$soh")
+
+        assertEquals(WirePaste.Verdict.REFUSED, paste.verdict, "the frame ends at the trailer: ${paste.lint}")
+        assertTrue(paste.fields.isEmpty(), "nothing beyond the frame is bound — and so nothing at all is")
+        assertNull(paste.wire)
+        assertTrue(paste.why!!.contains("35=A"), "the bytes outside the frame are quoted back: ${paste.why}")
+        assertTrue(paste.why!!.contains("CheckSum(10)"), "and the trailer is named as where the message ended: ${paste.why}")
+    }
 }

@@ -49,7 +49,8 @@ private val FIELD_START = Regex("(?:^|[^0-9])([0-9]+)=")
  * - **[Verdict.UNVERIFIED]** — every segment read cleanly, but there is no `8=`/`10=` pair to check it against:
  *   a fragment. Bound, and *said*. `PASTED` provenance carries the doubt to the badge, and to disk.
  * - **[Verdict.REFUSED]** — the reading is **disproved**: a segment that is not `tag=value` (which is exactly
- *   what a pipe inside a value looks like), or arithmetic that disagrees. Nothing is bound.
+ *   what a pipe inside a value looks like), arithmetic that disagrees, or bytes past the `CheckSum(10)`
+ *   trailer — fields the frame never counted, riding a lint that says the frame agrees. Nothing is bound.
  *
  * *the exception, stated because it will be met: a length-prefixed data field (`RawDataLength(95)`/`RawData(96)`,
  * `XmlDataLen(212)`) may legally contain SOH. FixTool's parser has never honoured the length prefix, so such a
@@ -161,13 +162,20 @@ private fun pipeInAValue(
  */
 @Suppress("ReturnCount")
 private fun arithmeticOf(fields: List<Pair<Int, String>>, delimiter: Char, prefix: String?): WirePaste {
-    val checksumAt = fields.indexOfLast { it.first == 10 }
+    // The FIRST CheckSum(10): one message has one trailer, and it ends the frame. Asking for the last
+    // let a concatenated second record's own trailer stretch the frame over both.
+    val checksumAt = fields.indexOfFirst { it.first == 10 }
     val complete = fields.firstOrNull()?.first == 8 && checksumAt > 0
     val pipes = fields.count { it.second.contains('|') }
 
     // A fragment carries no arithmetic to be held to. With SOH that is fine — the delimiter was never in doubt.
     // With `|` it is the one case nothing can settle, and it says so rather than implying it was confirmed.
     if (!complete) return fragment(fields, delimiter, prefix, pipes)
+
+    // The frame ends at its trailer. Fields past CheckSum(10) may parse cleanly — and the arithmetic below
+    // counts nothing after the trailer, so binding them would carry bytes the venue never framed into the
+    // slot under the frame's own "✓ agree" lint: a second record missing its 8=, concatenated onto the line.
+    if (checksumAt != fields.lastIndex) return trailingBytesRefusal(fields, checksumAt, prefix, delimiter)
 
     val checksum = checksumOf(fields, checksumAt)
     if (checksum != null && checksum.first != checksum.second) {
@@ -219,6 +227,27 @@ private fun bodyLengthOf(fields: List<Pair<Int, String>>, checksumAt: Int): Pair
     val stated = fields[lengthAt].second.trim().toIntOrNull() ?: return null
     val body = fields.subList(lengthAt + 1, checksumAt).rebuild()
     return stated to body.toByteArray(Charsets.ISO_8859_1).size
+}
+
+/** Bytes after the trailer are outside the frame — the message ended, and something else followed it. */
+private fun trailingBytesRefusal(
+    fields: List<Pair<Int, String>>,
+    checksumAt: Int,
+    prefix: String?,
+    delimiter: Char,
+): WirePaste {
+    val trailing = fields.drop(checksumAt + 1)
+    val quoted = trailing.take(3).joinToString(", ") { (tag, value) -> "\"$tag=$value\"" }
+    return refused(
+        "CheckSum(10) is the trailer — the message ends there — and ${trailing.size} more field(s) follow it: " +
+            "$quoted. The frame's arithmetic counts nothing past the trailer, so these bytes are outside the " +
+            "message: a second record (missing its 8=) concatenated onto the line, or a copy that caught the " +
+            "start of the next one. Binding them would write fields the venue never framed into an assertion, " +
+            "under a checksum that never counted them. Paste one framed message.",
+        "${trailing.size} field(s) after CheckSum(10)",
+        prefix,
+        delimiter,
+    )
 }
 
 private fun checksumRefusal(stated: Int, computed: Int, prefix: String?, delimiter: Char): WirePaste =

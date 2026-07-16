@@ -189,6 +189,40 @@ class CaptureFidelityIntegrationTest {
         delete("/scenarios", """{"id":"${resp["id"]!!.jsonPrimitive.content}"}""")
     }
 
+    /**
+     * A log line with a second, headless record concatenated after the first message's trailer —
+     * `...10=004<SOH>35=A<SOH>49=VENUE` — must be refused whole. The frame's arithmetic covers nothing
+     * past CheckSum(10), so binding the trailing fields would put bytes the venue never framed into a
+     * scenario under a checksum that never counted them.
+     */
+    @Test
+    fun `a paste carrying bytes after the trailer is refused, not partially bound`() {
+        val soh = "\u0001"
+        val body = "35=8${soh}49=VENUE${soh}56=CLIENT${soh}11=TRL-$runId${soh}150=0$soh"
+        val head = "8=FIX.4.4${soh}9=${body.length}$soh"
+        val checksum = (head + body).toByteArray(Charsets.ISO_8859_1).sumOf { it.toInt() and 0xFF } % 256
+        val framed = head + body + "10=%03d$soh".format(checksum)
+        val wire = (framed + "35=A${soh}49=VENUE$soh").replace(soh, "\\u0001")
+
+        val resp =
+            obj(
+                post(
+                    "/scenarios/capture-paste",
+                    """{"name":"trail-$runId","wire":"$wire","senderCompId":"CLIENT","targetCompId":"VENUE"}""",
+                ),
+            )
+        assertEquals(
+            "refused",
+            resp["status"]?.jsonPrimitive?.content,
+            "bytes outside the frame disprove the reading — nothing may be bound: $resp",
+        )
+        val refused = resp["refused"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(
+            refused.any { it.contains("CheckSum(10)") },
+            "the refusal must name the trailer the message ended at: $refused",
+        )
+    }
+
     // ----------------------------------------------------------------- helpers
 
     /** The NewOrderSingles the acceptor side actually received, newest last. */

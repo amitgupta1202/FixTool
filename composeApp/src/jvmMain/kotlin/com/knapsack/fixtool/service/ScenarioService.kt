@@ -47,6 +47,13 @@ class ScenarioService(
     fun load(id: String): Scenario? = synchronized(lock) { loadFile(fileFor(id)) }
 
     /**
+     * When the scenario's file last changed, epoch millis — or null for a scenario not on disk (a draft).
+     * The rail's meta line reads it; it is the one honest date the tool has without a schema change, and it
+     * is exactly what an author means by "the one from yesterday".
+     */
+    fun modifiedAt(id: String): Long? = synchronized(lock) { fileFor(id).lastModified().takeIf { it > 0L } }
+
+    /**
      * Notified after any write, so that the thing rendering the scenario list cannot go stale behind a door it
      * does not own.
      *

@@ -4,25 +4,33 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -68,6 +76,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     val ran by viewModel.lastRunScenario.collectAsState()
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var confirmingDeleteId by remember { mutableStateOf<String?>(null) }
+    var filter by remember { mutableStateOf("") }
 
     // A failure the author cannot see is a failure they will not fix: open the tree on the scenario that
     // just failed, at the step it failed on.
@@ -76,12 +85,31 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
         if (id != null && result?.passed == false) expanded = expanded + id
     }
 
+    // By name or by the sessions it drives — "QUOTE1" finds every scenario touching that session, which is
+    // the other question an author actually asks of a list this long.
+    val visible =
+        remember(scenarios, filter) {
+            val q = filter.trim()
+            if (q.isEmpty()) {
+                scenarios
+            } else {
+                scenarios.filter { sc ->
+                    sc.name.contains(q, ignoreCase = true) ||
+                        sc.steps.mapNotNull { it.sessionOrNull() }.any { it.contains(q, ignoreCase = true) }
+                }
+            }
+        }
+    // File dates, read once per store change — the meta line must not touch the disk per frame.
+    val modified = remember(scenarios) { scenarios.associate { it.id to viewModel.scenarioService.modifiedAt(it.id) } }
+
     // Slim interactive targets, as the workbench had: Material3's 48dp minimum is a touch-screen convention
     // that would leave this rail room for a name and nothing else.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 20.dp) {
         Column(modifier = modifier.fillMaxSize().background(AppTheme.Colors.surface).testTag("scenarios-rail")) {
             RailHeader(
                 running = running,
+                filter = filter,
+                onFilter = { filter = it },
                 onCapture = { viewModel.captureAllSessionsToEditor() },
                 onPasteCapture = { viewModel.openPasteCapture() },
                 onNew = { viewModel.openScenarioEditor(newScenario()) },
@@ -110,12 +138,24 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 )
                 return@Column
             }
+            if (visible.isEmpty()) {
+                // The filter said something, and so does the tool — an empty pane with no sentence reads as
+                // "the scenarios are gone", which is a heart-stopper on a list the author curates by hand.
+                Text(
+                    "No scenario matches \"${filter.trim()}\" — by name or by session.",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(8.dp).testTag("rail-filter-empty"),
+                )
+                return@Column
+            }
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                scenarios.forEach { scenario ->
+                visible.forEach { scenario ->
                     scenarioTree(
                         viewModel = viewModel,
                         scenario = scenario,
                         run = RunView(ran, result, running),
+                        modifiedAt = modified[scenario.id],
                         expanded = scenario.id in expanded,
                         confirmingDelete = confirmingDeleteId == scenario.id,
                         onToggle = { expanded = if (scenario.id in expanded) expanded - scenario.id else expanded + scenario.id },
@@ -140,6 +180,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
     viewModel: FixMessageViewModel,
     scenario: Scenario,
     run: RunView,
+    modifiedAt: Long?,
     expanded: Boolean,
     confirmingDelete: Boolean,
     onToggle: () -> Unit,
@@ -148,17 +189,39 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
 ) {
     val ranThis = run.ran?.id == scenario.id
     item(key = scenario.id) {
+        // The second line is what tells four scenarios named "Captured scenario" apart: the sessions each
+        // drives, the step count, and the day its file last changed.
+        val sessions = scenario.steps.mapNotNull { it.sessionOrNull() }.distinct()
+        val meta =
+            buildList {
+                add("${scenario.steps.size} ${if (scenario.steps.size == 1) "step" else "steps"}")
+                if (sessions.isNotEmpty()) add(sessions.joinToString(" → "))
+                modifiedLabel(modifiedAt)?.let { add(it) }
+            }.joinToString(" · ")
+        // The failure's route, inline on the row that failed — where the failure is announced, not only in
+        // a banner the eye must correlate with the list below it. Remembered: the route consults the disk,
+        // and a hover flicker is not a reason to read a file.
+        val failure = if (ranThis) run.result?.firstFailure() else null
+        val inlineRoute = remember(run.result, scenario) { failure?.let { viewModel.reconcileRoute(it) } }
         ScenarioRailRow(
             scenario = scenario,
             verdict = scenarioVerdict(scenario, run.ran, run.result, run.running),
-            // The mockup's "1/3": how many of this scenario's steps passed, once it has run. Counted over the
-            // `steps` phase only — setup and teardown are not what the author is asking about.
-            stepCount =
+            // How many of this scenario's steps passed, once it has run — counted over the `steps` phase
+            // only; setup and teardown are not what the author is asking about.
+            fraction =
                 if (ranThis && run.result != null) {
                     "${run.result.steps.count { it.passed && it.phase == "steps" }}/${scenario.steps.size}"
                 } else {
-                    "${scenario.steps.size}"
+                    null
                 },
+            meta = meta,
+            reconcileLabel =
+                when {
+                    inlineRoute !is FixMessageViewModel.ReconcileRoute.Open -> null
+                    failure?.phase == "steps" && failure.stepIndex >= 0 -> "Reconcile step ${failure.stepIndex + 1} →"
+                    else -> "Reconcile →"
+                },
+            onReconcile = { failure?.let { viewModel.openReconcile(it) } },
             expanded = expanded,
             runEnabled = !run.running,
             confirmingDelete = confirmingDelete,
@@ -232,6 +295,22 @@ internal fun scenarioVerdict(scenario: Scenario, ran: Scenario?, result: Scenari
     }
 
 /**
+ * The file's date as an author reads it: `today 14:06` for today, `16 Jul` inside the year, `16 Jul 2025`
+ * once the year turns — the words people actually use for "the one from this morning" and "the old one".
+ */
+internal fun modifiedLabel(epochMs: Long?, clock: () -> java.time.Instant = { java.time.Instant.now() }): String? {
+    if (epochMs == null) return null
+    val zone = java.time.ZoneId.systemDefault()
+    val then = java.time.Instant.ofEpochMilli(epochMs).atZone(zone)
+    val today = java.time.LocalDate.ofInstant(clock(), zone)
+    return when {
+        then.toLocalDate() == today -> "today " + then.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+        then.year == today.year -> then.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))
+        else -> then.format(java.time.format.DateTimeFormatter.ofPattern("d MMM uuuu"))
+    }
+}
+
+/**
  * The result for the step now sitting at [index] — **by id first**, because that is what an id is for. The
  * index fallback is for a result minted against a file that had none, and it is checked against the same
  * phase, since a run's `stepIndex` is an index within its phase and not into the scenario.
@@ -249,10 +328,11 @@ internal fun resultFor(result: ScenarioResult?, scenario: Scenario, index: Int):
     return steps.firstOrNull { it.phase == "steps" && it.stepIndex == index && it.stepId.isNullOrBlank() }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RailHeader(
     running: Boolean,
+    filter: String,
+    onFilter: (String) -> Unit,
     onCapture: () -> Unit,
     onPasteCapture: () -> Unit,
     onNew: () -> Unit,
@@ -278,41 +358,85 @@ private fun RailHeader(
                 )
             }
         }
-        // A FLOW row: the rail is narrow and this used to be a Row that ran out of width and clipped its
-        // last button to "Fo". Buttons that don't fit wrap to the next line instead of being amputated.
-        FlowRow(
+        // One control row where five buttons used to wrap onto two lines: the filter (which a list this
+        // size had earned), one way in to the three ways of creating a scenario, and the utilities behind ⋯.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
         ) {
-            SlimButton(
-                "Capture from sessions…",
-                onClick = onCapture,
-                enabled = !running,
-                color = AppTheme.Colors.success,
-                modifier = Modifier.testTag("rail-capture"),
+            SlimField(
+                value = filter,
+                onValueChange = onFilter,
+                placeholder = "filter…",
+                modifier = Modifier.weight(1f).testTag("rail-filter"),
             )
-            // W2's front door: a server log fragment, pasted, becomes a scenario without a live session at all.
-            SlimButton("Paste wire…", onClick = onPasteCapture, modifier = Modifier.testTag("rail-paste"))
-            SlimButton("New", onClick = onNew, modifier = Modifier.testTag("rail-new"))
-            SlimButton("Folder", onClick = onOpenFolder)
-            // The plain diff viewer's own front door: two empty slots, each a session pick or a paste. Distinct
-            // from a scenario capture — it diffs two messages and asserts nothing (Phase 7 entry point).
-            SlimButton(
-                "⇄ Diff messages…",
-                onClick = onDiffMessages,
-                color = AppTheme.Colors.textSecondary,
-                modifier = Modifier.testTag("rail-diff-messages"),
-            )
+            Box {
+                var open by remember { mutableStateOf(false) }
+                SlimButton(
+                    "+ New ▾",
+                    onClick = { open = true },
+                    color = AppTheme.Colors.success,
+                    modifier = Modifier.testTag("rail-new-menu"),
+                )
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    RailMenuItem("Capture from sessions…", enabled = !running, tag = "rail-capture") {
+                        open = false
+                        onCapture()
+                    }
+                    // W2's front door: a server log fragment, pasted, becomes a scenario without a live session.
+                    RailMenuItem("Paste wire…", tag = "rail-paste") {
+                        open = false
+                        onPasteCapture()
+                    }
+                    RailMenuItem("New blank scenario", tag = "rail-new") {
+                        open = false
+                        onNew()
+                    }
+                }
+            }
+            Box {
+                var open by remember { mutableStateOf(false) }
+                SlimButton("⋯", onClick = { open = true }, color = AppTheme.Colors.textSecondary, modifier = Modifier.testTag("rail-more"))
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    RailMenuItem("Open scenarios folder", tag = "rail-folder") {
+                        open = false
+                        onOpenFolder()
+                    }
+                    // The plain diff viewer's own front door: two empty slots, each a session pick or a paste.
+                    // Distinct from a scenario capture — it diffs two messages and asserts nothing.
+                    RailMenuItem("⇄ Diff messages…", tag = "rail-diff-messages") {
+                        open = false
+                        onDiffMessages()
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun RailMenuItem(text: String, enabled: Boolean = true, tag: String, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(text, color = if (enabled) AppTheme.Colors.text else AppTheme.Colors.textDisabled, fontSize = 11.sp) },
+        enabled = enabled,
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+        modifier = Modifier.height(26.dp).testTag(tag),
+    )
 }
 
 @Composable
 private fun ScenarioRailRow(
     scenario: Scenario,
     verdict: RailVerdict,
-    stepCount: String,
+    /** "passed/total" once this scenario has run — what the FAILED chip shows. Null before any run. */
+    fraction: String?,
+    /** The identity line: "2 steps · QUOTE1 → TRADE1 · 15 Jul". */
+    meta: String,
+    /** "Reconcile step 2 →", when the failure has an open route — inline, where the failure is announced. */
+    reconcileLabel: String?,
+    onReconcile: () -> Unit,
     expanded: Boolean,
     runEnabled: Boolean,
     confirmingDelete: Boolean,
@@ -324,55 +448,113 @@ private fun ScenarioRailRow(
     onConfirmDelete: () -> Unit,
     onCancelDelete: () -> Unit,
 ) {
-    val bg = if (verdict == RailVerdict.FAILED) AppTheme.Colors.error.copy(alpha = 0.10f) else AppTheme.Colors.surfaceVariant
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    // The actions live where the pointer is. Ninety-six standing icon targets — four per row, delete
+    // included — were the rail's single loudest element, and all but four of them were about rows the
+    // author was not looking at. Hover (or an in-flight delete confirm) brings them back, on that row only.
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val bg =
+        when {
+            verdict == RailVerdict.FAILED -> AppTheme.Colors.error.copy(alpha = 0.10f)
+            hovered || confirmingDelete -> AppTheme.Colors.surfaceVariant
+            else -> androidx.compose.ui.graphics.Color.Transparent
+        }
+    Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(
-                    bg,
-                ).clickable(onClick = onToggle)
-                .padding(start = 6.dp, end = 2.dp, top = 1.dp, bottom = 1.dp)
+                .hoverable(interaction)
+                .background(bg)
+                .clickable(onClick = onToggle)
+                .padding(start = 6.dp, end = 4.dp, top = 2.dp, bottom = 3.dp)
                 .testTag("scenario-row-${scenario.id}"),
     ) {
-        // Not Modifier.size(): a 10dp box clips a 9sp glyph away to nothing, and the tree then looks like a
-        // flat list — the one affordance that says these rows open, invisible. Found by looking at it.
-        Text(if (expanded) "▾" else "▸", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, modifier = Modifier.width(10.dp))
-        VerdictGlyph(verdict, modifier = Modifier.padding(horizontal = 4.dp))
-        Text(
-            text = scenario.name,
-            color = AppTheme.Colors.text,
-            fontSize = 12.sp,
-            maxLines = 1,
-            // The rail is narrow and scenario names are sentences. Truncating without saying so reads as a
-            // name that simply ends there.
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (confirmingDelete) {
-            SlimButton("Delete", onClick = onConfirmDelete, color = AppTheme.Colors.error, modifier = Modifier.testTag("confirm-delete"))
-            SlimButton("Cancel", onClick = onCancelDelete, color = AppTheme.Colors.textSecondary)
-        } else {
-            // Start padding too: the name column ends flush against this, and a name long enough to fill it
-            // read straight into the count ("…regression1/2").
-            Text(stepCount, color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(start = 6.dp, end = 2.dp))
-            RailIcon(
-                Icons.Default.PlayArrow,
-                "Run",
-                if (runEnabled) AppTheme.Colors.success else AppTheme.Colors.textDisabled,
-                onRun,
-                enabled = runEnabled,
-                tag = "run-${scenario.id}",
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            // Not Modifier.size(): a 10dp box clips a 9sp glyph away to nothing, and the tree then looks like
+            // a flat list — the one affordance that says these rows open, invisible. Found by looking at it.
+            Text(if (expanded) "▾" else "▸", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, modifier = Modifier.width(10.dp))
+            Text(
+                text = scenario.name,
+                color = AppTheme.Colors.text,
+                fontSize = 12.sp,
+                maxLines = 1,
+                // The rail is narrow and scenario names are sentences. Truncating without saying so reads as
+                // a name that simply ends there.
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-            RailIcon(Icons.Default.Edit, "Edit", AppTheme.Colors.textSecondary, onEdit, tag = "edit-${scenario.id}")
-            RailIcon(Icons.Default.ContentCopy, "Duplicate", AppTheme.Colors.textSecondary, onDuplicate)
-            // A breath before the destructive one: Delete sat flush against Duplicate at 18dp targets, and
-            // the inline confirm is a net, not a licence to invite the misclick.
-            Spacer(Modifier.width(4.dp))
-            RailIcon(Icons.Default.Delete, "Delete", AppTheme.Colors.error, onRequestDelete, tag = "delete-${scenario.id}")
+            when {
+                confirmingDelete -> {
+                    SlimButton("Delete", onClick = onConfirmDelete, color = AppTheme.Colors.error, modifier = Modifier.testTag("confirm-delete"))
+                    SlimButton("Cancel", onClick = onCancelDelete, color = AppTheme.Colors.textSecondary)
+                }
+                hovered -> {
+                    RailIcon(
+                        Icons.Default.PlayArrow,
+                        "Run",
+                        if (runEnabled) AppTheme.Colors.success else AppTheme.Colors.textDisabled,
+                        onRun,
+                        enabled = runEnabled,
+                        tag = "run-${scenario.id}",
+                    )
+                    RailIcon(Icons.Default.Edit, "Edit", AppTheme.Colors.textSecondary, onEdit, tag = "edit-${scenario.id}")
+                    RailIcon(Icons.Default.ContentCopy, "Duplicate", AppTheme.Colors.textSecondary, onDuplicate)
+                    // A breath before the destructive one: Delete sat flush against Duplicate at 18dp
+                    // targets, and the inline confirm is a net, not a licence to invite the misclick.
+                    Spacer(Modifier.width(4.dp))
+                    RailIcon(Icons.Default.Delete, "Delete", AppTheme.Colors.error, onRequestDelete, tag = "delete-${scenario.id}")
+                }
+                // The verdict is a chip on the one row that owns the run slot — not a dash column on the
+                // twenty-three that do not. Silence means not run.
+                else -> VerdictChip(verdict, fraction)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 1.dp)) {
+            Text(
+                meta,
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 9.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (reconcileLabel != null) {
+                Text(" · ", color = AppTheme.Colors.textDisabled, fontSize = 9.5.sp)
+                Text(
+                    reconcileLabel,
+                    color = AppTheme.Colors.error,
+                    fontSize = 9.5.sp,
+                    maxLines = 1,
+                    modifier = Modifier.clickable(onClick = onReconcile).testTag("rail-row-reconcile-${scenario.id}"),
+                )
+            }
         }
     }
+}
+
+/** The last run's verdict, worn only by the scenario that ran: ✓ passed, ✗ 1/2, or running…. */
+@Composable
+private fun VerdictChip(verdict: RailVerdict, fraction: String?) {
+    val (label, colour) =
+        when (verdict) {
+            RailVerdict.PASSED -> "✓ passed" to AppTheme.Colors.success
+            RailVerdict.FAILED -> "✗ ${fraction ?: "failed"}" to AppTheme.Colors.error
+            RailVerdict.RUNNING -> "running…" to AppTheme.Colors.info
+            RailVerdict.NOT_RUN -> return
+        }
+    Text(
+        label,
+        color = colour,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.5.sp,
+        maxLines = 1,
+        modifier =
+            Modifier
+                .padding(start = 6.dp)
+                .border(1.dp, colour.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                .padding(horizontal = 5.dp),
+    )
 }
 
 @Composable

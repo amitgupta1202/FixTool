@@ -81,7 +81,7 @@ Each entry in an expectation's `fields` is `{tag, matcher: {type, ...}}`. There 
 | `regex` | `pattern` | the value matches the pattern |
 | `oneOf` | `values[]` | the value is in the set |
 | `numeric` | `value`, `tolerance`? | `abs(actual − value) <= tolerance`; tolerance `0` still ignores formatting (`1.2345` == `1.23450`) |
-| `temporal` | `kind` (`today` \| `now_within_tolerance`), `toleranceSeconds`? | parsed as UTCTimestamp / UTCDateOnly |
+| `temporal` | `kind` (`today` \| `now_within_tolerance`), `toleranceSeconds`? (default 60) | parsed as UTCTimestamp / UTCDateOnly |
 | `reference` | `expression` | the value equals a resolved `${...}` expression (§1) |
 
 Tip: `fixtool_capture_expectation` builds a draft expectation from a message already received, with

@@ -152,7 +152,7 @@ the *k*-th occurrence of it. `matcher.type` is one of:
 | `regex` | `pattern` | value matches the pattern |
 | `oneOf` | `values[]` | value ∈ set |
 | `numeric` | `value`, `tolerance`? | `abs(actual − value) ≤ tolerance` (0 still ignores formatting) |
-| `temporal` | `kind` (`today`\|`now_within_tolerance`), `toleranceSeconds`? | parsed as UTCTimestamp/UTCDate |
+| `temporal` | `kind` (`today`\|`now_within_tolerance`), `toleranceSeconds`? (default 60) | parsed as UTCTimestamp/UTCDate |
 | `reference` | `expression` | equals a `${…}` expr resolved over session history, e.g. `${out.D.11}` |
 
 `path` (`{groupTag, identityTag, identityValue, occurrence?}`) locates a repeating-group entry by

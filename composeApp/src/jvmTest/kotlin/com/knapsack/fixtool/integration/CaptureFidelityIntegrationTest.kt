@@ -223,6 +223,41 @@ class CaptureFidelityIntegrationTest {
         )
     }
 
+    /**
+     * The advertised no-session use case: paste with explicit CompIDs, no live session named at all.
+     * The saved steps must bind to **no** session (null = the active one at run time) — not to a session
+     * literally named "", which resolves against nothing and fails every preflight with
+     * "session '' not found" regardless of what is connected.
+     */
+    @Test
+    fun `a capture-paste without a session runs on the active session, not on a session named nothing`() {
+        connectAcceptorAndClient()
+        // The active session is the first one; make that the client, the side this flow was pasted from.
+        viewModel.moveSession(viewModel.sessions.indexOfFirst { it.title == "CLI" }, 0)
+        val soh = "\\u0001"
+        val wire =
+            listOf(
+                """35=D${soh}49=CLIENT${soh}56=VENUE${soh}11=NS-$runId${soh}55=EUR/USD${soh}54=1${soh}38=100${soh}40=1$soh""",
+                """35=8${soh}49=VENUE${soh}56=CLIENT${soh}11=NS-$runId${soh}37=OID-1${soh}39=0${soh}55=EUR/USD${soh}150=0$soh""",
+            ).joinToString("\\n")
+        val created =
+            obj(
+                post(
+                    "/scenarios/capture-paste",
+                    """{"name":"nosess-$runId","wire":"$wire","senderCompId":"CLIENT","targetCompId":"VENUE"}""",
+                ),
+            )
+        assertEquals("created", created["status"]?.jsonPrimitive?.content, "the paste is readable and directed: $created")
+        val id = created["id"]!!.jsonPrimitive.content
+
+        val ran = obj(post("/scenarios/run", """{"id":"$id"}"""))
+        assertTrue(
+            ran["passed"]!!.jsonPrimitive.boolean,
+            "no session named means the active session — not a preflight against a session named '': $ran",
+        )
+        delete("/scenarios", """{"id":"$id"}""")
+    }
+
     // ----------------------------------------------------------------- helpers
 
     /** The NewOrderSingles the acceptor side actually received, newest last. */

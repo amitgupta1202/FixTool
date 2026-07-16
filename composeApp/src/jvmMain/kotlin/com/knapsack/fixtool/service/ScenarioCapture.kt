@@ -298,9 +298,18 @@ object ScenarioCapture {
         }
         disambiguateSameType(steps, expectCandidates)
 
-        val setup = selection.map { it.session }.distinct().map { ScenarioStep.ClearMessages(it) }
+        val setup = selection.map { it.session.orNoneNamed() }.distinct().map { ScenarioStep.ClearMessages(it) }
         return Scenario(id = id, name = name, profile = profile, setup = setup, steps = steps)
     }
+
+    /**
+     * **A paste with no session names none.** A step's null session means "the active session at run
+     * time"; a session literally named `""` resolves against nothing and fails every preflight with
+     * "session '' not found" — regardless of what is connected — which turned the advertised
+     * paste-without-a-session use case into a scenario no one could run without remapping every step
+     * by hand. Blank is the absence of an answer, not an answer.
+     */
+    private fun String.orNoneNamed(): String? = takeIf { it.isNotBlank() }
 
     /** Business fields whose value is stable across a replay (unlike ids/timestamps/seqnums). */
     private val STABLE_VALUE_DISCRIMINATORS = listOf(150, 39) // ExecType, OrdStatus
@@ -441,7 +450,7 @@ object ScenarioCapture {
         // would re-parse at replay with its tail dropped — the venue would receive a message the client
         // never sent, wearing a freshly computed checksum that agrees with it. The read side refuses
         // exactly this misread (WirePaste); the Send step must not commit it on the way back out.
-        return ScenarioStep.Send(FixMessageHelper.joinFields(fields), entry.session, origin = entry.originOfStep())
+        return ScenarioStep.Send(FixMessageHelper.joinFields(fields), entry.session.orNoneNamed(), origin = entry.originOfStep())
     }
 
     /**
@@ -491,7 +500,7 @@ object ScenarioCapture {
             .distinctBy { it.tag }
         return ScenarioStep.Expect(
             origin = entry.originOfStep(),
-            session = entry.session,
+            session = entry.session.orNoneNamed(),
             direction = "in",
             match = MatchPredicate(messageType = entry.messageType, fields = bindConstraints),
             timeoutMs = DEFAULT_TIMEOUT_MS,

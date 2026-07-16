@@ -679,4 +679,32 @@ class DiffSurfaceTest {
         composeTestRule.surface(captured, reply)
         composeTestRule.onAllNodesWithTag("variables-strip").assertCountEquals(0)
     }
+
+    /**
+     * The `$` glyph: one click and a pinned literal becomes the correlation — the matcher is now
+     * `reference ${id0}`, judged green against the scope the reference carries. This is W1's answer to a
+     * capture that missed an echo: no free text, no leaving the diff.
+     */
+    @Test
+    fun `the track glyph turns a pinned literal into the correlation, in one click`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(11, Matcher.Exact("STALE")),
+                    FieldExpectation(150, Matcher.Exact("2")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val message = wireView(35 to "8", 11 to "A1B2", 150 to "2")
+        var last: Expectation? = null
+        composeTestRule.surface(draft, message, variables = listOf(ScenarioVariable("id0", "A1B2"))) { last = it }
+
+        composeTestRule.onNodeWithTag("track-11-0").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(Matcher.Reference("\${id0}"), last!!.fields[0].matcher)
+        composeTestRule.onAllNodesWithTag("track-11-0").assertCountEquals(0)
+        snapshot("diff_track_offer_applied.png")
+    }
 }

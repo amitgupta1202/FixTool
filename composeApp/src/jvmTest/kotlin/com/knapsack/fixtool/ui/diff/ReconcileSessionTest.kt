@@ -969,4 +969,83 @@ class ReconcileSessionTest {
         assertTrue(s.highlights(s.model.lines.single { it.row.tag == 41 }), "carries the value A1")
         assertFalse(s.highlights(s.model.lines.single { it.row.tag == 55 }), "nothing to do with id0")
     }
+
+    // ------------------------------------------------------------------ the track offer
+
+    /**
+     * `$` on a failing row whose actual IS the run's variable: applying it swaps the pinned literal for
+     * the correlation, and — because the scope rides the reference — the row is judged green on the spot.
+     * A failing value that matches no variable gets no such offer: value-equality is the whole gate.
+     */
+    @Test
+    fun `track is offered exactly where the scope proves the value, and applying it makes the row a judged reference`() {
+        val expectation =
+            Expectation(
+                fields =
+                    listOf(
+                        FieldExpectation(11, Matcher.Exact("STALE")),
+                        FieldExpectation(55, Matcher.Exact("GBPUSD")),
+                    ),
+                messageType = "8",
+            )
+        val message = wireView(35 to "8", 11 to "A1", 55 to "EURUSD")
+        val s = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "A1")), dictionary)
+
+        val track = s.model.lines.single { it.row.tag == 11 }.offers.single { it.kind == OfferKind.TRACK }
+        assertTrue("\${id0}" in track.tooltip, "the offer names the variable it would track: ${track.tooltip}")
+        assertTrue(
+            s.model.lines.single { it.row.tag == 55 }.offers.none { it.kind == OfferKind.TRACK },
+            "EURUSD is nobody's variable — a plain value change gets the plain repairs",
+        )
+
+        assertIs<EditResult.Applied>(s.apply(track.op))
+        val row = s.model.lines.single { it.row.tag == 11 }
+        assertEquals(Matcher.Reference("\${id0}"), row.row.matcher)
+        assertFalse(row.unjudged, "the scope is aboard, so the new reference is judged, not amber")
+        assertTrue(row.row.passed, "and the echo is this run's id, so it is green")
+
+        s.undo()
+        assertEquals(expectation, s.draft, "one undo, and the pinned literal is back byte-for-byte")
+    }
+
+    /**
+     * The offer matters MOST on a green row: an Exact pinning a minted id passes today *because* the id
+     * was minted today, and is red on every run after — the first-replay trust killer, one row at a time.
+     */
+    @Test
+    fun `a green literal that IS the run's variable is offered track — the landmine defusal`() {
+        val expectation = Expectation(fields = listOf(FieldExpectation(11, Matcher.Exact("A1"))), messageType = "8")
+        val message = wireView(35 to "8", 11 to "A1")
+        val s = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "A1")), dictionary)
+        val line = s.model.lines.single { it.row.tag == 11 }
+        assertTrue(line.row.passed, "green today")
+        assertTrue(line.offers.any { it.kind == OfferKind.TRACK }, "and red tomorrow, unless tracked")
+    }
+
+    /** No scope proves nothing, and a row that already asserts the correlation has nothing to gain. */
+    @Test
+    fun `no scope, no track — and a reference row is never offered it`() {
+        val expectation =
+            Expectation(
+                fields =
+                    listOf(
+                        FieldExpectation(11, Matcher.Exact("STALE")),
+                        FieldExpectation(41, Matcher.Reference("\${id0}")),
+                    ),
+                messageType = "8",
+            )
+        val message = wireView(35 to "8", 11 to "A1", 41 to "A1")
+
+        val bare = ReconcileSession(expectation, ref(message), dictionary)
+        assertTrue(
+            bare.model.lines.flatMap { it.offers }.none { it.kind == OfferKind.TRACK },
+            "without a scope, value-equality cannot be proved, so nothing is offered",
+        )
+
+        val s = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "A1")), dictionary)
+        assertTrue(
+            s.model.lines.single { it.row.tag == 41 }.offers.none { it.kind == OfferKind.TRACK },
+            "already the correlation",
+        )
+    }
 }

@@ -1013,13 +1013,18 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, hand
         TagCell(row.tag, row.occurrence, line.kind)
         Text(row.name, color = AppTheme.Colors.fieldName, fontSize = 10.sp, modifier = Modifier.width(DIFF_NAME_COL))
         if (index != null && row.matcher != null) {
+            val scope = session.reference.variables
             MatcherEditor(
                 matcher = row.matcher,
                 capturedValue = line.right?.value ?: row.actual ?: "",
-                // `reference` is not offered. A dropdown-seeded `${out.D.11}` on a failing row makes that row
-                // unjudgeable, drops it out of every count, and the verdict then announces that every
-                // assertion would now pass. Reference rows are made at capture, where the binding is real.
-                types = DIFF_MATCHERS,
+                // `reference` is offered exactly when the slot carries a run's scope, and not otherwise.
+                // Without one, a dropdown-seeded `${out.D.11}` on a failing row makes that row unjudgeable,
+                // drops it out of every count, and the verdict then announces that every assertion would now
+                // pass — the ban both hazards earned. With the scope in hand, both are gone: the seed names a
+                // real variable (the one this row's value matches, when one does), and the row is judged live
+                // against the run's own values, so a wrong pick is a visible red, not a silent green.
+                types = if (scope.isEmpty()) DIFF_MATCHERS else MATCHER_TYPES,
+                scopeVariables = scope,
                 onChange = { session.apply(EditOp.setMatcher(index, row.tag, it)) },
                 modifier = Modifier.testTag("matcher-${row.tag}-${row.occurrence}"),
             )
@@ -1308,4 +1313,5 @@ private fun LintLine(read: WirePaste) {
  * out of every count, and leaves the verdict announcing that every assertion would now pass. A row that
  * already *is* a reference still says so on its chip; nothing can switch *to* one here.
  */
+/** The dropdown with `reference` withheld — the diff's list when the slot carries no run scope. */
 private val DIFF_MATCHERS = MATCHER_TYPES.filter { it != "reference" }

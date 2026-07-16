@@ -255,13 +255,15 @@ class DiffSurfaceTest {
         snapshot("diff_surface_full.png")
     }
 
-    /** A reference row is the third state: neither pass nor fail, amber, and offered nothing to click. */
+    /** A reference row is the third state: neither pass nor fail, amber — offered no *repair*, only the authoring delete. */
     @Test
-    fun `a reference row renders unjudged and is offered no fix`() {
+    fun `a reference row renders unjudged and is offered no repair`() {
         composeTestRule.surface(captured, reply)
 
         composeTestRule.onNodeWithTag("unjudged-note").assertIsDisplayed()
         composeTestRule.onAllNodesWithTag("accept_actual-11-0").assertCountEquals(0)
+        // Deleting the assertion is authoring, not repair — the one edit that is honest on a row nobody can judge.
+        composeTestRule.onNodeWithTag("drop-11-0").assertIsDisplayed()
         composeTestRule.onNodeWithTag("diff-summary").assertTextContains("attention", substring = true)
     }
 
@@ -408,6 +410,35 @@ class DiffSurfaceTest {
             .assertTextContains("nothing is asserted", substring = true)
 
         snapshot("diff_surface_asserts_nothing.png")
+    }
+
+    // ----- authoring: the assertion no row can host -------------------------------------------------------
+
+    /**
+     * "+ assert a tag…" authors an `absent` row for a tag in **neither** column — the one assertion nothing
+     * on the surface could reach, because every other control hangs off an existing line. Typed, confirmed,
+     * staged, and judged in the same frame.
+     */
+    @Test
+    fun `assert-a-tag stages an absent row from the header, and the affordance resets`() {
+        var edited: Expectation? = null
+        composeTestRule.surface(captured, reply) { edited = it }
+
+        composeTestRule.onNodeWithTag("diff-add-tag").performClick()
+        composeTestRule.onNodeWithTag("diff-add-tag-field").performTextReplacement("9999")
+        composeTestRule.onNodeWithTag("diff-add-tag-confirm").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("diff-staged").assertTextEquals("1")
+        assertEquals(
+            FieldExpectation(9999, Matcher.Absent),
+            edited!!.fields.last(),
+            "the new row is appended, asserting the tag appears nowhere",
+        )
+        // The picker folds back to the idle affordance, ready for the next tag.
+        composeTestRule.onNodeWithTag("diff-add-tag").assertIsDisplayed()
+
+        snapshot("diff_surface_assert_a_tag.png")
     }
 
     // ----- the withheld move ------------------------------------------------------------------------------

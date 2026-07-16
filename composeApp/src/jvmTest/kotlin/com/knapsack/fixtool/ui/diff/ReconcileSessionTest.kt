@@ -97,6 +97,7 @@ class ReconcileSessionTest {
                 EditOp.acceptActual(3, 151, "500000"),
                 EditOp.drop(5, 448),
                 EditOp.assertAbsent(11, 58),
+                EditOp.insertAbsent(9999),
                 EditOp.loosen(3, 151, Matcher.Presence),
                 EditOp.setMode(MatchMode.OPEN),
                 EditOp.reseed(reply, dictionary),
@@ -526,9 +527,15 @@ class ReconcileSessionTest {
         assertNotNull(model.acceptOrder, "the honest repair is the one the engine proved, and it is on offer")
     }
 
-    /** A passing row has nothing to fix, and a row nobody can read has nothing to fix *here*. */
+    /**
+     * A passing row has nothing to *repair*, and a row nobody can read has nothing to repair *here* — but
+     * deleting an assertion is authoring, not repair, and this surface is the app's only assertion editor.
+     * On a fresh capture every row is green against its own golden, and a gutter that answered green with
+     * silence left the author no way to stop asserting anything. So the drop is offered — and **only** the
+     * drop: an Accept-actual or Loosen on a row that is not failing would be a one-click way to be wrong.
+     */
     @Test
-    fun `passing and unjudgeable rows are offered nothing`() {
+    fun `passing and unjudgeable rows are offered the drop, and nothing else`() {
         val draft =
             Expectation(
                 listOf(
@@ -540,15 +547,18 @@ class ReconcileSessionTest {
             )
         val model = ReconcileSession(draft, ref(wireView(35 to "8", 11 to "ORD-1")), dictionary).model
 
-        assertTrue(
-            model.lines
-                .single { it.row.tag == 35 }
-                .offers
-                .isEmpty(),
+        assertEquals(
+            listOf(OfferKind.DROP),
+            model.lines.single { it.row.tag == 35 }.offers.map { it.kind },
+            "a green row's one honest edit is to stop asserting it",
         )
         val echo = model.lines.single { it.row.tag == 11 }
         assertTrue(echo.unjudged, "a reference has no scope outside a run — amber, not red")
-        assertTrue(echo.offers.isEmpty(), "and an unreadable row must not be handed a one-click way to be wrong")
+        assertEquals(
+            listOf(OfferKind.DROP),
+            echo.offers.map { it.kind },
+            "deleting is legitimate even on a row this view cannot judge; repairing it is not",
+        )
     }
 
     // ----- the move, and the reason it is withheld --------------------------------------------------------
@@ -624,5 +634,169 @@ class ReconcileSessionTest {
 
         val reJudged = session.model.lines.single { it.row.tag == 44 }
         assertTrue(reJudged.row.passed, "loosened to cover both sides, so the row is green — not red by one ulp")
+    }
+
+    // ----- authoring on a step that passes ----------------------------------------------------------------
+
+    /**
+     * **A fresh capture is all green, and green must still be editable.** The diff is the app's only
+     * assertion-authoring surface; a gutter that answers a passing row with silence leaves the author no way
+     * to stop asserting anything. The drop is offered, it works, and undo restores the draft byte-for-byte.
+     */
+    @Test
+    fun `a green row offers the drop, applying it removes the row, and undo restores it exactly`() {
+        val greens =
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(11, Matcher.Exact("ORD-1")),
+                    FieldExpectation(58, Matcher.Exact("filled")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val s = session(greens, wireView(35 to "8", 11 to "ORD-1", 58 to "filled"))
+        val line = s.model.lines.single { it.row.tag == 58 }
+        assertTrue(line.row.passed, "the fixture is a capture judged against its own bytes: green")
+        assertEquals(
+            listOf(OfferKind.DROP),
+            line.offers.map { it.kind },
+            "delete is the one edit a passing row has; accept and loosen have nothing to repair",
+        )
+
+        val before = s.draft
+        assertIs<EditResult.Applied>(s.apply(line.offers.single().op))
+        assertTrue(s.draft.fields.none { it.tag == 58 }, "the row is gone from the draft")
+        assertTrue(s.model.lines.none { it.row.tag == 58 && !it.row.unasserted }, "and from the diff")
+
+        s.undo()
+        assertEquals(before, s.draft, "undo after an authoring delete restores the expectation byte-for-byte")
+    }
+
+    /**
+     * **The STRICT caveat is real, and the tooltip says it before it happens.** In STRICT a tag no row
+     * mentions is an unexpected extra — so dropping a row for a tag the venue still sends does not stop the
+     * step caring about it, it flips *which way* the step cares, and the next run is red where the edit
+     * looked like a clean-up. OPEN has no such cliff, and its tooltip carries no such warning.
+     */
+    @Test
+    fun `in STRICT the drop on a venue-sent row warns about the extra, and dropping really does flip the step red`() {
+        val strict =
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(58, Matcher.Exact("filled")),
+                ),
+                messageType = "8",
+                mode = MatchMode.STRICT,
+            )
+        val s = session(strict, wireView(35 to "8", 58 to "filled"))
+        assertFalse(s.model.verdict.needsAttention, "everything passes before the edit")
+
+        val drop = s.model.lines.single { it.row.tag == 58 }.offers.single { it.kind == OfferKind.DROP }
+        assertTrue("unexpected extra" in drop.tooltip, "the consequence is said where the click is: ${drop.tooltip}")
+
+        assertIs<EditResult.Applied>(s.apply(drop.op))
+        assertTrue(
+            s.model.verdict.needsAttention,
+            "the venue still sends 58, so STRICT now counts it against the step — the tooltip promised exactly this",
+        )
+
+        // The same drop under OPEN is what it looks like: the step simply stops checking the tag.
+        val open = session(strict.copy(mode = MatchMode.OPEN), wireView(35 to "8", 58 to "filled"))
+        val openDrop =
+            open.model
+                .lines
+                .single { it.row.tag == 58 }
+                .offers
+                .single { it.kind == OfferKind.DROP }
+        assertFalse("unexpected extra" in openDrop.tooltip, "OPEN has no extra to warn about: ${openDrop.tooltip}")
+        assertTrue("stops checking 58" in openDrop.tooltip, openDrop.tooltip)
+    }
+
+    /** And on a repeated tag in STRICT, the whole-tag rule and the extra warning are both said — merged, not either/or. */
+    @Test
+    fun `the whole-tag drop and the STRICT caveat merge into one tooltip`() {
+        val parties =
+            Expectation(
+                listOf(
+                    FieldExpectation(448, Matcher.Exact("FIRMA")),
+                    FieldExpectation(448, Matcher.Exact("FIRMB")),
+                ),
+                messageType = "8",
+                mode = MatchMode.STRICT,
+            )
+        val s = session(parties, wireView(448 to "FIRMA", 448 to "FIRMB"))
+
+        val drop =
+            s.model.lines
+                .first { it.row.tag == 448 }
+                .offers
+                .single { it.kind == OfferKind.DROP }
+        assertTrue("every row for 448 goes" in drop.tooltip, drop.tooltip)
+        assertTrue("unexpected extra" in drop.tooltip, drop.tooltip)
+    }
+
+    /**
+     * **The assertion no row can host: "this tag appears nowhere."** The new row is appended at the end —
+     * a position the model cannot misread, because an `absent` row takes no part in the alignment's scan —
+     * and it is judged like any other row: green where the reference lacks the tag, red the moment it does
+     * not, which is the honest answer to an author who asserted absence of something the venue sends.
+     */
+    @Test
+    fun `insert-absent appends, is green where the tag is missing, red where the reply carries it, and undoes exactly`() {
+        val draft =
+            Expectation(
+                listOf(FieldExpectation(35, Matcher.Exact("8"))),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val s = session(draft, wireView(35 to "8", 58 to "note"))
+        val before = s.draft
+
+        assertIs<EditResult.Applied>(s.apply(EditOp.insertAbsent(9999)))
+        assertEquals(FieldExpectation(9999, Matcher.Absent), s.draft.fields.last(), "appended at the end")
+        val absent = s.model.lines.single { it.row.tag == 9999 }
+        assertTrue(absent.row.passed, "the reference has no 9999, so the new row is green")
+        assertTrue(absent.rightIsGap, "an absent row that holds faces nothing")
+
+        assertIs<EditResult.Applied>(s.apply(EditOp.insertAbsent(58)))
+        val contradicted = s.model.lines.single { it.row.tag == 58 }
+        assertFalse(contradicted.row.passed, "the reply carries 58 — the new row says so on the very next re-judge")
+        assertEquals("note", contradicted.row.actual, "and it shows the value that contradicts it")
+
+        s.undo()
+        s.undo()
+        assertEquals(before, s.draft, "two undos, and the draft is byte-for-byte what was loaded")
+    }
+
+    /**
+     * The same append, judged under **STRICT** — where the trap would be double-counting: the absent row
+     * fails because the reply carries the tag, and the reply's field must not *also* be reported as an
+     * unexpected extra. One fact, one failure. (The alignment's `spokenFor` rule is what carries this.)
+     */
+    @Test
+    fun `under STRICT an inserted absent row is one failure, not a failure plus an extra`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(58, Matcher.Exact("note")),
+                ),
+                messageType = "8",
+                mode = MatchMode.STRICT,
+            )
+        val s = session(draft, wireView(35 to "8", 58 to "note"))
+        assertEquals(0, s.model.verdict.attention)
+
+        s.apply(EditOp.insertAbsent(9999))
+        assertEquals(0, s.model.verdict.attention, "a tag in neither column holds under STRICT too")
+
+        s.apply(EditOp.insertAbsent(58))
+        assertEquals(
+            1,
+            s.model.verdict.attention,
+            "the contradicted absent row is exactly one failure — the wire's 58 is spoken for, not an extra on top",
+        )
     }
 }

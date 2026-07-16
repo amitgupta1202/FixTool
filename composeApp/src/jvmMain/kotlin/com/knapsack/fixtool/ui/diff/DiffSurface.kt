@@ -71,6 +71,7 @@ import com.knapsack.fixtool.ui.AppTooltip
 import com.knapsack.fixtool.ui.MATCHER_TYPES
 import com.knapsack.fixtool.ui.MatcherEditor
 import com.knapsack.fixtool.ui.SlimButton
+import com.knapsack.fixtool.ui.SlimTagPicker
 
 /**
  * **A failed step as a diff you can edit.** The one surface in the app that authors an assertion.
@@ -174,7 +175,7 @@ fun DiffSurface(
         // here — and either way it is the engine's sentence, which names the assertion the move would have
         // quietly re-aimed. A refused action says why. It does not simply fail to happen.
         session.refusal?.let { RefusedMove(it) { session.clearRefusal() } }
-        ColumnHeaders(session.reference.label)
+        ColumnHeaders(session, session.reference.label)
         DiffBody(session, model, focusTag, dragging, focusRequester) { dragging = it }
         DiffFooter(session)
     }
@@ -481,12 +482,72 @@ private fun RefusedMove(why: String, onDismiss: () -> Unit) {
  * order and not ours, which is true of all five.
  */
 @Composable
-private fun ColumnHeaders(referenceLabel: String) {
-    Row(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 3.dp)) {
-        Header("EXPECTATION (EDITABLE)", Modifier.weight(LEFT_WEIGHT))
+private fun ColumnHeaders(session: ReconcileSession, referenceLabel: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surfaceHeader).padding(horizontal = 12.dp, vertical = 3.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(LEFT_WEIGHT)) {
+            Header("EXPECTATION (EDITABLE)", Modifier)
+            AddAbsentTag(session)
+        }
         Spacer(Modifier.width(GUTTER))
         Header("${referenceLabel.uppercase()} — WIRE ORDER", Modifier.weight(1f))
     }
+}
+
+/**
+ * **The one assertion no row can host: "this tag appears nowhere."** Everything else the surface offers
+ * hangs off an existing line — the gutter's `«` needs a field the reply carried, the chips need a row — but
+ * a tag in *neither* column has no line to hang off, so the affordance lives beside the column it authors
+ * into. Any tag is allowed: the live re-judge answers immediately, and an `absent` the reference contradicts
+ * goes red on the spot, which is more honest than a picker that pretends to know what the author meant.
+ */
+@Composable
+private fun AddAbsentTag(session: ReconcileSession) {
+    var adding by remember { mutableStateOf(false) }
+    var tag by remember { mutableStateOf(0) }
+    if (!adding) {
+        AppTooltip("Assert a tag appears nowhere in this message — for a tag in neither column. The new row is judged immediately") {
+            Text(
+                "+ assert a tag…",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 9.sp,
+                modifier =
+                    Modifier
+                        .padding(start = 10.dp)
+                        .clickable {
+                            tag = 0
+                            adding = true
+                        }.testTag("diff-add-tag"),
+            )
+        }
+        return
+    }
+    val fields = remember(session.dictionary) { session.dictionary?.getAllFields() ?: emptyList() }
+    SlimTagPicker(
+        tag = tag,
+        fields = fields,
+        onPick = { tag = it },
+        modifier = Modifier.width(150.dp).padding(start = 10.dp),
+        fieldTestTag = "diff-add-tag-field",
+    )
+    SlimButton(
+        "assert absent",
+        onClick = {
+            session.apply(EditOp.insertAbsent(tag))
+            adding = false
+        },
+        enabled = tag > 0,
+        color = AppTheme.Colors.primary,
+        modifier = Modifier.padding(start = 6.dp).testTag("diff-add-tag-confirm"),
+    )
+    SlimButton(
+        "cancel",
+        onClick = { adding = false },
+        color = AppTheme.Colors.textSecondary,
+        modifier = Modifier.padding(start = 4.dp).testTag("diff-add-tag-cancel"),
+    )
 }
 
 @Composable
@@ -809,25 +870,25 @@ private fun RightCell(line: DiffLine) {
 /** The gutter. It draws what the session offers, and it never invents an offer of its own. */
 @Composable
 private fun Gutter(session: ReconcileSession, line: DiffLine) {
-    if (line.offers.isEmpty()) {
-        // A moved row gets no glyph at all. It *passes* where the engine has it paired — FIRMA's `447` is
-        // still `D` — so a tick would be literally true and completely misleading: it would say "this row is
-        // fine" inside a band that says the entry it belongs to is in the wrong place. The band carries the
-        // meaning, and the gutter does not argue with it.
-        if (line.kind == ChunkKind.MOVED) return
-        val glyph =
-            if (line.unjudged) {
-                "◌"
-            } else if (line.row.passed && !line.row.unasserted) {
-                "✓"
-            } else {
-                ""
-            }
-        val colour = if (line.unjudged) AppTheme.Colors.warning else AppTheme.Colors.success.copy(alpha = 0.55f)
+    // A moved row gets no glyph at all. It *passes* where the engine has it paired — FIRMA's `447` is
+    // still `D` — so a tick would be literally true and completely misleading: it would say "this row is
+    // fine" inside a band that says the entry it belongs to is in the wrong place. The band carries the
+    // meaning, and the gutter does not argue with it.
+    if (line.kind == ChunkKind.MOVED) return
+    // The status glyph is not displaced by the offers beside it. ✓ (or ◌) is what the row IS; the × that
+    // authoring puts on every asserted row is what the author may DO — and trading one for the other would
+    // make "you can delete this assertion" read as "this row stopped passing".
+    val glyph =
+        if (line.unjudged) {
+            "◌"
+        } else if (line.row.passed && !line.row.unasserted) {
+            "✓"
+        } else {
+            ""
+        }
+    val colour = if (line.unjudged) AppTheme.Colors.warning else AppTheme.Colors.success.copy(alpha = 0.55f)
+    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
         if (glyph.isNotBlank()) Text(glyph, color = colour, fontSize = 10.sp)
-        return
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         line.offers.forEach { offer ->
             // The tooltip the offer has carried since it was born, finally drawn: a bare «/±/× is the most
             // consequential click on this surface wearing the least explanation.
@@ -837,7 +898,11 @@ private fun Gutter(session: ReconcileSession, line: DiffLine) {
                     onClick = { session.apply(offer.op) },
                     color =
                         when (offer.kind) {
-                            OfferKind.DROP -> AppTheme.Colors.error
+                            // Authoring-delete on a row that is not failing is housekeeping, not an alarm —
+                            // muted, so a freshly captured step does not read as a column of standing errors.
+                            // Error-red stays on the failing rows, where the drop is one of the repairs.
+                            OfferKind.DROP ->
+                                if (line.row.passed || line.unjudged) AppTheme.Colors.textSecondary else AppTheme.Colors.error
                             OfferKind.ASSERT_ABSENT -> AppTheme.Colors.textSecondary
                             OfferKind.LOOSEN -> AppTheme.Colors.warning
                             else -> AppTheme.Colors.info

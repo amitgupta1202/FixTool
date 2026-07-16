@@ -145,6 +145,42 @@ class FixMessageValidatorTest {
         )
     }
 
+    /**
+     * The verdict is a **content** verdict — that is July's decision and it stands (the editor's stale
+     * frame is recomputed at send). But a frame that *disagrees with its own bytes* must be **said**:
+     * POST /validate and fixtool_validate are handed captured frames to judge, and answering a corrupted
+     * capture with a bare `isValid: true` told the operator a message a real FIX engine would discard as
+     * garbled is well-formed. The frame speaks in warnings; the verdict stays about the content.
+     */
+    @Test
+    fun `a frame that disagrees with its own bytes is said, while the verdict stays about content`() {
+        val dictionary = FixDictionaryAdapter.fromFile(testDictionaryFile)
+        if (!dictionary.isLoaded()) return
+
+        val body = "35=0|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|"
+        val soh = "\u0001"
+        val framedBody = body.replace("|", soh)
+        val head = "8=FIX.4.4${soh}9=${framedBody.length}$soh"
+        val checksum = (head + framedBody).toByteArray(Charsets.ISO_8859_1).sumOf { it.toInt() and 0xFF } % 256
+
+        val intact = "8=FIX.4.4|9=${framedBody.length}|${body}10=%03d|".format(checksum)
+        val garbled = "8=FIX.4.4|9=${framedBody.length}|${body}10=%03d|".format((checksum + 7) % 256)
+
+        val good = FixMessageValidator.validate(intact, dictionary)
+        assertTrue(good.isValid, "an intact frame validates: ${good.errors}")
+        assertTrue(good.warnings.isEmpty(), "and its frame has nothing to warn about: ${good.warnings}")
+
+        val bad = FixMessageValidator.validate(garbled, dictionary)
+        assertTrue(bad.isValid, "the content verdict is unchanged — the body is fine")
+        assertTrue(
+            bad.warnings.any { it.contains("CheckSum(10)") },
+            "but the frame's disagreement with its own bytes must be said: ${bad.warnings}",
+        )
+
+        val draft = FixMessageValidator.validate("35=D|11=ORD123|55=EUR/USD|54=1|38=1000000|40=2|", dictionary)
+        assertTrue(draft.warnings.isEmpty(), "a draft carries no frame, so there is nothing to hold it to")
+    }
+
     @Test
     fun testValidatorFailsOnMissingRequiredField() {
         // Given: A FIX dictionary loaded from test file

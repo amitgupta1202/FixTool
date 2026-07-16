@@ -214,19 +214,36 @@ private fun fragment(fields: List<Pair<Int, String>>, delimiter: Char, prefix: S
 }
 
 /** `stated to computed`, or null where the message carries no checksum to be held to. */
-private fun checksumOf(fields: List<Pair<Int, String>>, checksumAt: Int): Pair<Int, Int>? {
-    val stated = fields[checksumAt].second.trim().toIntOrNull() ?: return null
-    val bytes = fields.take(checksumAt).rebuild().toByteArray(Charsets.ISO_8859_1)
-    return stated to (bytes.sumOf { it.toInt() and 0xFF } % CHECKSUM_MODULUS)
-}
+private fun checksumOf(fields: List<Pair<Int, String>>, checksumAt: Int): Pair<Int, Int>? =
+    WireArithmetic.checksum(fields, checksumAt)
 
 /** `stated to computed`, or null where the message carries no `BodyLength(9)` to be held to. */
-private fun bodyLengthOf(fields: List<Pair<Int, String>>, checksumAt: Int): Pair<Int, Int>? {
-    val lengthAt = fields.indexOfFirst { it.first == 9 }
-    if (lengthAt !in 0 until checksumAt) return null
-    val stated = fields[lengthAt].second.trim().toIntOrNull() ?: return null
-    val body = fields.subList(lengthAt + 1, checksumAt).rebuild()
-    return stated to body.toByteArray(Charsets.ISO_8859_1).size
+private fun bodyLengthOf(fields: List<Pair<Int, String>>, checksumAt: Int): Pair<Int, Int>? =
+    WireArithmetic.bodyLength(fields, checksumAt)
+
+/**
+ * **The frame's own arithmetic — one owner.** `CheckSum(10)` sums the bytes and `BodyLength(9)` counts
+ * them, always over the SOH encoding (the venue's, whatever rendering arrived here). WirePaste refuses
+ * on a disagreement; FixMessageValidator *reports* one — but they must never compute it differently.
+ */
+internal object WireArithmetic {
+    /** `stated to computed` checksum, or null where [checksumAt] holds no readable stated value. */
+    fun checksum(fields: List<Pair<Int, String>>, checksumAt: Int): Pair<Int, Int>? {
+        val stated = fields[checksumAt].second.trim().toIntOrNull() ?: return null
+        val bytes = fields.take(checksumAt).rebuild().toByteArray(Charsets.ISO_8859_1)
+        return stated to (bytes.sumOf { it.toInt() and 0xFF } % CHECKSUM_MODULUS)
+    }
+
+    /** `stated to computed` body length, or null where the message carries no `BodyLength(9)`. */
+    fun bodyLength(fields: List<Pair<Int, String>>, checksumAt: Int): Pair<Int, Int>? {
+        val lengthAt = fields.indexOfFirst { it.first == 9 }
+        if (lengthAt !in 0 until checksumAt) return null
+        val stated = fields[lengthAt].second.trim().toIntOrNull() ?: return null
+        val body = fields.subList(lengthAt + 1, checksumAt).rebuild()
+        return stated to body.toByteArray(Charsets.ISO_8859_1).size
+    }
+
+    private fun List<Pair<Int, String>>.rebuild(): String = joinToString("") { (tag, value) -> "$tag=$value$SOH" }
 }
 
 /** Bytes after the trailer are outside the frame — the message ended, and something else followed it. */

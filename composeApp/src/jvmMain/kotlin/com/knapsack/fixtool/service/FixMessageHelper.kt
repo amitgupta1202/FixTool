@@ -48,22 +48,28 @@ object FixMessageHelper {
         val message = Message()
         message.header.setString(MsgType.FIELD, msgTypeValue)
 
-        // Use version-aware header/trailer tags
+        // Version-aware header/trailer tags, EXTENDED by the loaded dictionary's own header/trailer
+        // sections — venue dialects add custom fields there (a routing tag, a desk id), and the static
+        // list alone put such a field in the body: the wire changed, the venue answered "tag specified
+        // out of required order", and Validate — reading the same dictionary — saw nothing wrong. Send
+        // and Validate must describe the same message.
         val headerTags = FixVersion.getHeaderTags(fixVersion)
         val trailerTags = FixVersion.getTrailerTags(fixVersion)
+        fun isHeader(tag: Int) = tag in headerTags || dataDictionary.isHeaderField(tag)
+        fun isTrailer(tag: Int) = tag in trailerTags || dataDictionary.isTrailerField(tag)
 
         // Process header fields
-        fields.filter { it.first in headerTags }.forEach { (tag, value) ->
+        fields.filter { isHeader(it.first) }.forEach { (tag, value) ->
             message.header.setString(tag, value)
         }
 
         // Process trailer fields
-        fields.filter { it.first in trailerTags }.forEach { (tag, value) ->
+        fields.filter { isTrailer(it.first) }.forEach { (tag, value) ->
             message.trailer.setString(tag, value)
         }
 
         // Process body fields recursively
-        val bodyFields = fields.filter { it.first !in headerTags && it.first !in trailerTags }
+        val bodyFields = fields.filter { !isHeader(it.first) && !isTrailer(it.first) }
         processFields(bodyFields, 0, message, dataDictionary, msgTypeValue)
 
         return message

@@ -131,6 +131,22 @@ enum class MatchMode {
 data class FieldExpectation(
     val tag: Int,
     val matcher: Matcher,
+    /**
+     * **Capture the value this row pairs with into the run's scope, under this name.**
+     *
+     * The receive→send half of correlation. A send minting `${id0}` and an expect echo-checking it was
+     * always expressible; the venue choosing a value (`QuoteReqID`, `OrderID`) that *our* next send must
+     * echo back was not — there was no way to read a received value into scope. A row with `bindAs`
+     * writes the actual value at its position (the k-th occurrence, exactly as it asserts) into the
+     * scope when the step binds; later sends and bind predicates reference `${name}` as usual.
+     *
+     * Orthogonal to the matcher: a row can assert `Presence` *and* capture. Writes follow assignment
+     * semantics (`${x = …}` overwrites too — last writer wins). A row whose tag never arrives captures
+     * nothing: no silent empty-string mint, and a later `${name}` stays literal, which the editor's
+     * never-minted warning names. Additive on disk — written only when set, so old files round-trip
+     * byte-identical.
+     */
+    val bindAs: String? = null,
 )
 
 /**

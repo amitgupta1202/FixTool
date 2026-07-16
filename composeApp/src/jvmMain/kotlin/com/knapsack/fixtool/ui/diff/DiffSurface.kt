@@ -76,6 +76,7 @@ import com.knapsack.fixtool.ui.MatcherEditor
 import com.knapsack.fixtool.ui.SlimButton
 import com.knapsack.fixtool.ui.SlimLabeled
 import com.knapsack.fixtool.ui.SlimTagPicker
+import com.knapsack.fixtool.ui.VarBadge
 import com.knapsack.fixtool.ui.VariableChipData
 import com.knapsack.fixtool.ui.VariablesStrip
 import com.knapsack.fixtool.ui.varColorMap
@@ -1028,6 +1029,17 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, hand
                 onChange = { session.apply(EditOp.setMatcher(index, row.tag, it)) },
                 modifier = Modifier.testTag("matcher-${row.tag}-${row.occurrence}"),
             )
+            // A capturing row wears the same filled badge a minting Send does — the ● is "this step
+            // writes ${name}", whichever side of the wire the value came from.
+            session.draft.fields.getOrNull(index)?.bindAs?.let { name ->
+                val colors = varColorMap(scope.map { it.name } + session.draft.fields.mapNotNull { it.bindAs })
+                VarBadge(
+                    name,
+                    colors[name] ?: AppTheme.Colors.primary,
+                    minted = true,
+                    modifier = Modifier.padding(start = 4.dp).testTag("capture-badge-${row.tag}-${row.occurrence}"),
+                )
+            }
         }
     }
 }

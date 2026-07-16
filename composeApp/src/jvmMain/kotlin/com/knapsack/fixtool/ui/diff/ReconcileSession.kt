@@ -23,6 +23,7 @@ import com.knapsack.fixtool.service.compare.MessageField
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.SemanticsRegistry
 import com.knapsack.fixtool.service.compare.Verdict
+import com.knapsack.fixtool.ui.mintName
 import java.time.Instant
 
 /**
@@ -130,6 +131,12 @@ class EditOp(
                 ScenarioReconcile.loosen(it, index, Matcher.Reference("\${$name}"))
             }
 
+        /** Capture the value this row pairs with into the scope — or stop, with null. Asserts nothing new. */
+        fun captureAs(index: Int, tag: Int, name: String?) =
+            pure(if (name != null) "Capturing $tag as \${$name}" else "Stopped capturing $tag") {
+                ScenarioReconcile.captureAs(it, index, name)
+            }
+
         /** A new row for a tag the diff has no line for — see [ScenarioReconcile.insertAbsent]. */
         fun insertAbsent(tag: Int) =
             pure("Now asserting $tag absent") { ScenarioReconcile.insertAbsent(it, tag) }
@@ -182,7 +189,7 @@ class EditOp(
 }
 
 /** What the gutter may offer on a line — and it may offer nothing the engine would refuse. */
-enum class OfferKind { ACCEPT_ACTUAL, LOOSEN, ASSERT_IT, ASSERT_ABSENT, DROP, TRACK }
+enum class OfferKind { ACCEPT_ACTUAL, LOOSEN, ASSERT_IT, ASSERT_ABSENT, DROP, TRACK, CAPTURE }
 
 /** One gutter control: its glyph, what it says when hovered, and the edit it would stage. */
 data class Offer(
@@ -748,6 +755,7 @@ class ReconcileSession(
                 // run after. The track offer is the defusal, and the passing row is where it matters most.
                 if (row.passed) trackOffer(index, row)?.let { add(it) }
                 add(dropOffer(index, row.tag, message))
+                if (row.passed) captureOffer(index, row)?.let { add(it) }
                 return@buildList
             }
 
@@ -790,6 +798,46 @@ class ReconcileSession(
             }
         }
     }
+
+    /**
+     * `↧` — capture the value this row pairs with into the run's scope (see [FieldExpectation.bindAs]):
+     * the receive→send half of correlation, for a value the **venue** chose that a later send must echo
+     * back. Offered on **green rows only** — a venue-assigned id is Presence-seeded and green, and a
+     * failing row's business is repair first; wiring a correlation through a value the step disputes
+     * would capture a value nobody has agreed is right. Independent of the run scope on purpose:
+     * authoring against the golden is exactly where the dealer echo gets wired. The name is derived from
+     * the dictionary (`quoteReqID`), collision-suffixed, and the tooltip says it before the click; a row
+     * already capturing is offered the un-capture instead.
+     */
+    private fun captureOffer(index: Int, row: ScenarioReconcile.Row): Offer? {
+        val current = draft.fields.getOrNull(index)?.bindAs
+        if (current != null) {
+            return Offer(
+                OfferKind.CAPTURE,
+                "↧",
+                "Stop capturing \${$current} — later \${$current} references stop resolving, and the " +
+                    "never-minted warning will name them",
+                EditOp.captureAs(index, row.tag, null),
+            )
+        }
+        val actual = row.actual ?: return null
+        val name = captureName(row.tag)
+        return Offer(
+            OfferKind.CAPTURE,
+            "↧",
+            "Capture as \${$name} — the venue chose this value ($actual); capturing it lets a later send " +
+                "or bind predicate echo it back as \${$name}. Asserts nothing new.",
+            EditOp.captureAs(index, row.tag, name),
+        )
+    }
+
+    /** [mintName], with what this surface can see taken: the run's scope and the draft's own captures. */
+    private fun captureName(tag: Int): String =
+        mintName(
+            tag,
+            dictionary?.getFieldName(tag),
+            (reference.variables.map { it.name } + draft.fields.mapNotNull { it.bindAs }).toSet(),
+        )
 
     /**
      * `$` — this row's actual value **is** one of the run's variables, so what the venue echoed is the id

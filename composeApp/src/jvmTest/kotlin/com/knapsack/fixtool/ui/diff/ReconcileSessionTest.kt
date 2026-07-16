@@ -549,9 +549,9 @@ class ReconcileSessionTest {
         val model = ReconcileSession(draft, ref(wireView(35 to "8", 11 to "ORD-1")), dictionary).model
 
         assertEquals(
-            listOf(OfferKind.DROP),
+            listOf(OfferKind.DROP, OfferKind.CAPTURE),
             model.lines.single { it.row.tag == 35 }.offers.map { it.kind },
-            "a green row's one honest edit is to stop asserting it",
+            "a green row's honest edits are authoring, not repair: stop asserting it, or capture its value",
         )
         val echo = model.lines.single { it.row.tag == 11 }
         assertTrue(echo.unjudged, "a reference has no scope outside a run — amber, not red")
@@ -694,13 +694,13 @@ class ReconcileSessionTest {
         val line = s.model.lines.single { it.row.tag == 58 }
         assertTrue(line.row.passed, "the fixture is a capture judged against its own bytes: green")
         assertEquals(
-            listOf(OfferKind.DROP),
+            listOf(OfferKind.DROP, OfferKind.CAPTURE),
             line.offers.map { it.kind },
-            "delete is the one edit a passing row has; accept and loosen have nothing to repair",
+            "a passing row's edits are authoring: delete it, or capture its value — repair has nothing to do",
         )
 
         val before = s.draft
-        assertIs<EditResult.Applied>(s.apply(line.offers.single().op))
+        assertIs<EditResult.Applied>(s.apply(line.offers.single { it.kind == OfferKind.DROP }.op))
         assertTrue(s.draft.fields.none { it.tag == 58 }, "the row is gone from the draft")
         assertTrue(s.model.lines.none { it.row.tag == 58 && !it.row.unasserted }, "and from the diff")
 
@@ -1047,5 +1047,69 @@ class ReconcileSessionTest {
             s.model.lines.single { it.row.tag == 41 }.offers.none { it.kind == OfferKind.TRACK },
             "already the correlation",
         )
+    }
+
+    // ------------------------------------------------------------------ the capture offer
+
+    /**
+     * `↧` on a green row: capture the venue's value into the scope, named from the dictionary, without
+     * changing what the row asserts. Independent of the run scope — authoring against the golden is
+     * exactly where the dealer echo gets wired — and a failing row's business is repair, not wiring.
+     */
+    @Test
+    fun `capture is offered on green rows, named from the dictionary, and applying it changes no assertion`() {
+        val expectation =
+            Expectation(
+                fields =
+                    listOf(
+                        FieldExpectation(37, Matcher.Presence),
+                        FieldExpectation(39, Matcher.Exact("0")),
+                    ),
+                messageType = "8",
+            )
+        val message = wireView(35 to "8", 37 to "VENUE-77", 39 to "2")
+        val s = ReconcileSession(expectation, ref(message), dictionary)
+
+        val capture = s.model.lines.single { it.row.tag == 37 }.offers.single { it.kind == OfferKind.CAPTURE }
+        assertTrue("\${orderID}" in capture.tooltip, "named from the dictionary before the click: ${capture.tooltip}")
+        assertTrue(
+            s.model.lines.single { it.row.tag == 39 }.offers.none { it.kind == OfferKind.CAPTURE },
+            "39 is red — a failing row's business is repair first",
+        )
+
+        assertIs<EditResult.Applied>(s.apply(capture.op))
+        assertEquals("orderID", s.draft.fields[0].bindAs)
+        assertEquals(expectation.fields[0].matcher, s.draft.fields[0].matcher, "asserts nothing new")
+
+        // The captured row now offers the un-capture; taking it is the toggle, and undo works too.
+        val stop = s.model.lines.single { it.row.tag == 37 }.offers.single { it.kind == OfferKind.CAPTURE }
+        assertTrue("Stop capturing" in stop.tooltip)
+        assertIs<EditResult.Applied>(s.apply(stop.op))
+        assertNull(s.draft.fields[0].bindAs)
+
+        s.undo()
+        assertEquals("orderID", s.draft.fields[0].bindAs)
+        s.undo()
+        assertEquals(expectation, s.draft, "back to byte-equal, two undos for two edits")
+    }
+
+    /** A second capture of the same tag elsewhere gets a suffixed name, never a silent re-assignment. */
+    @Test
+    fun `capture names collide by suffix, not by reuse`() {
+        val expectation =
+            Expectation(
+                fields =
+                    listOf(
+                        FieldExpectation(37, Matcher.Presence, bindAs = "orderID"),
+                        FieldExpectation(37, Matcher.Presence),
+                    ),
+                messageType = "8",
+            )
+        val message = wireView(35 to "8", 37 to "A", 37 to "B")
+        val s = ReconcileSession(expectation, ref(message), dictionary)
+
+        val second = s.model.lines.single { it.row.tag == 37 && it.row.occurrence == 1 }
+        val capture = second.offers.single { it.kind == OfferKind.CAPTURE }
+        assertTrue("\${orderID2}" in capture.tooltip, "suffixed: ${capture.tooltip}")
     }
 }

@@ -707,4 +707,29 @@ class DiffSurfaceTest {
         composeTestRule.onAllNodesWithTag("track-11-0").assertCountEquals(0)
         snapshot("diff_track_offer_applied.png")
     }
+
+    /** The `↧` glyph on a green row: one click captures the venue's value, and the row wears the ● badge. */
+    @Test
+    fun `the capture glyph names the venue's value, and the row wears the mint badge`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(37, Matcher.Presence),
+                    FieldExpectation(150, Matcher.Exact("2")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val message = wireView(35 to "8", 37 to "VENUE-77", 150 to "2")
+        var last: Expectation? = null
+        composeTestRule.surface(draft, message) { last = it }
+
+        composeTestRule.onAllNodesWithTag("capture-badge-37-0").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("capture-37-0").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("orderID", last!!.fields[0].bindAs)
+        composeTestRule.onNodeWithTag("capture-badge-37-0").assertIsDisplayed()
+        snapshot("diff_capture_offer_applied.png")
+    }
 }

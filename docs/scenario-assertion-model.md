@@ -45,6 +45,15 @@ tag and a matcher. There is no path, no group, no entry.
 **Pairing rule:** the *k*-th row for tag `T` refers to the *k*-th occurrence of tag `T` in the
 message under test.
 
+A row may additionally carry `bindAs: "name"` — **capture the value this row pairs with into the
+run's variable scope**, under that name, when the step binds. It is not an assertion (the matcher is
+unchanged and judged as ever); it is the receive→send half of correlation: the venue chooses a value
+(`QuoteReqID`, `OrderID`), the row captures it, and a later send or bind predicate echoes it back as
+`${name}`. The capture follows the pairing rule — the *k*-th row captures the *k*-th occurrence — and
+a row whose tag never arrives captures nothing (no silent empty-string mint). On disk the key is
+written only when set, so pre-capture files round-trip byte-identical; a blank name fails the load,
+by name.
+
 That is the whole model. The example above becomes:
 
 | # | tag | matcher |

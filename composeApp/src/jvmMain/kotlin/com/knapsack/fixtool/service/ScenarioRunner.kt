@@ -224,7 +224,7 @@ class ScenarioRunner(
         step: ScenarioStep.Expect,
         index: Int,
         phase: String,
-        scope: Map<String, String>,
+        scope: MutableMap<String, String>,
         consumed: MutableSet<FixMessage>,
     ): StepResult {
         // Resolve ${...} in the bind predicate once, up front — its inputs (the scenario scope) do
@@ -300,6 +300,15 @@ class ScenarioRunner(
         }
         val resolver = host.referenceResolver(step.session, scope)
         val tags = ExpectationEvaluator.evaluate(view, step.expectation, resolver)
+        // Capture-into-scope (bindAs): rows that name a variable write the value they paired with. Read
+        // off the evaluator's own results, not re-derived from the wire — the row↔occurrence pairing has
+        // ONE decider, and a second walk here would eventually disagree with it. A row that paired with
+        // nothing (MISSING) captures nothing; whether the row PASSED is irrelevant — the value was
+        // observed, and teardown (which runs after a failure) may need it.
+        step.expectation.fields.forEachIndexed { rowIndex, fe ->
+            val name = fe.bindAs ?: return@forEachIndexed
+            tags.firstOrNull { it.index == rowIndex }?.actual?.let { scope[name] = it }
+        }
         val result = StepResult(
             index,
             "expect",

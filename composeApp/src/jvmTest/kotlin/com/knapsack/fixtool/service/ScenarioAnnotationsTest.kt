@@ -94,4 +94,25 @@ class ScenarioAnnotationsTest {
         )
         assertEquals(emptyList(), ScenarioAnnotations.unminted(steps))
     }
+
+    /**
+     * A `bindAs` mints from the venue's side of the wire: the Expect wears the filled badge, and a later
+     * send's `${qr}` is a working reference — not a never-minted warning.
+     */
+    @Test
+    fun `a bindAs capture is a mint — badged on the Expect, and never a warning`() {
+        val steps = listOf(
+            ScenarioStep.Expect(
+                expectation = Expectation(
+                    fields = listOf(FieldExpectation(131, Matcher.Presence, bindAs = "qr")),
+                    messageType = "R",
+                ),
+            ),
+            ScenarioStep.Send("35=S|131=\${qr}|", "A"),
+        )
+        val vars = ScenarioAnnotations.annotate(steps)
+        assertEquals(listOf("qr"), vars[0].minted)
+        assertEquals(listOf("qr"), vars[1].referenced)
+        assertEquals(emptyList(), ScenarioAnnotations.unminted(steps))
+    }
 }

@@ -168,6 +168,29 @@ proposal if wanted.
 Each slice gates on full jvmTest + a live control-surface run against `tools/fake-venue`
 (a scenario whose echo the venue answers, reconciled with variables visible).
 
+## Delivery deviations (recorded as built, 2026-07-16)
+
+All three slices shipped same-day (commits `6689bb4`, `9eb237c`, slice 3 following). Two deliberate
+deviations from the text above:
+
+1. **Part 4a's "reference the value sent at step N" gutter offer was not built as a cross-step diff
+   operation.** The diff's whole safety promise is the snapshot stack — *nothing is written until
+   Save, and ⌘Z restores exactly* — and the stack snapshots **expectations**. A gutter offer that
+   also rewrites a *Send step's raw* would either bypass the stack (an edit ⌘Z cannot take back) or
+   demand the stack learn to snapshot whole scenarios. Instead: the **editor's send grid** gained a
+   per-field **● mint** button (`55=EURUSD` → `55=${sym = "EURUSD"}`, same bytes, editor-owned like
+   every other editor edit), and after the next run the diff's **$ Track** offer (slice 2) completes
+   the wiring one-click, because the mint is now in the scope. Same outcome, two honest surfaces.
+2. **The capture offer (`↧`) is green-rows-only.** A failing row's business is repair; wiring a
+   correlation through a value the step disputes would capture a value nobody has agreed is right —
+   and venue-assigned ids are Presence-seeded, so the rows that matter are green.
+
+Also settled during delivery: the track offer appears on **green** rows too (an `exact` pinning a
+minted id is the first-replay landmine — green today because it was minted today); reference-row
+judging is **per-row** (a scope that answers one row and not another judges the first and leaves the
+second amber, replacing the any-reference-resolves flag); and `reseed` carries `bindAs` across the
+way it already carries reference matchers.
+
 ## File touch map (orientation, not a contract)
 
 | Area | Files |

@@ -596,4 +596,52 @@ class ScenarioReconcileTest {
         assertFalse(ExpectationEvaluator.evaluate(wire, open).all { it.passed })
         assertFalse(ExpectationEvaluator.evaluate(wire, strict).all { it.passed })
     }
+
+    // ------------------------------------------------------------------ captureAs, and reseed keeping it
+
+    @Test
+    fun `captureAs names a row's capture, clears it with null, and touches nothing else`() {
+        val draft = expectation(FieldExpectation(37, Matcher.Presence), FieldExpectation(39, Matcher.Exact("2")))
+
+        val named = ScenarioReconcile.captureAs(draft, 0, "oid")
+        assertEquals("oid", named.fields[0].bindAs)
+        assertEquals(draft.fields[0].matcher, named.fields[0].matcher, "not an assertion change")
+        assertEquals(draft.fields[1], named.fields[1])
+
+        assertEquals(draft, ScenarioReconcile.captureAs(named, 0, null), "null un-names, back to byte-equal")
+        assertEquals(draft, ScenarioReconcile.captureAs(draft, 0, "  "), "a blank name is no name")
+    }
+
+    /**
+     * A capture is scenario wiring the seeder cannot know about, exactly as a reference is: reseeding
+     * away the `bindAs` would leave every later `${oid}` unresolvable, silently. The matcher of a
+     * captured row still re-seeds fresh — the capture rides along, it does not freeze the assertion.
+     */
+    @Test
+    fun `reseed keeps the capture on the same occurrence, while the matcher re-seeds fresh`() {
+        val draft =
+            expectation(
+                FieldExpectation(37, Matcher.Exact("STALE"), bindAs = "oid"),
+                FieldExpectation(39, Matcher.Exact("0")),
+            )
+        val message = wireView(35 to "8", 37 to "VENUE-77", 39 to "2")
+
+        val reseeded = ScenarioReconcile.reseed(draft, message, dictionary)
+
+        val row37 = reseeded.fields.single { it.tag == 37 }
+        assertEquals("oid", row37.bindAs, "the capture survives the reseed")
+        assertFalse(row37.matcher is Matcher.Exact && (row37.matcher as Matcher.Exact).value == "STALE", "the matcher re-seeded")
+    }
+
+    /** A captured tag the reply stopped carrying is kept — same stance as a lost echo, same reason. */
+    @Test
+    fun `reseed keeps a capture whose tag the reply no longer carries`() {
+        val draft = expectation(FieldExpectation(37, Matcher.Presence, bindAs = "oid"))
+        val message = wireView(35 to "8", 39 to "2")
+
+        val reseeded = ScenarioReconcile.reseed(draft, message, dictionary)
+
+        val kept = reseeded.fields.single { it.tag == 37 }
+        assertEquals("oid", kept.bindAs, "dropping it silently would break every later \${oid}")
+    }
 }

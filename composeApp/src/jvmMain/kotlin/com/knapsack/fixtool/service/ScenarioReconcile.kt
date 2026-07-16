@@ -1455,12 +1455,14 @@ object ScenarioReconcile {
         val wire = message.fields()
         val fresh = ExpectationSeeder.seed(wire, dictionary).copy(mode = draft.mode, golden = draft.golden)
 
-        // Carry every reference row across onto the same occurrence of the same tag it was asserting.
-        val keep = mutableMapOf<Pair<Int, Int>, Matcher>()
+        // Carry every reference row — and every capture — across onto the same occurrence of the same tag.
+        // A `bindAs` is scenario wiring the seeder cannot know about, exactly as a reference is: reseeding
+        // away the capture would leave every later `${name}` unresolvable, silently.
+        val keep = mutableMapOf<Pair<Int, Int>, FieldExpectation>()
         val seen = mutableMapOf<Int, Int>()
         for (row in draft.fields) {
             val k = seen.merge(row.tag, 1, Int::plus)!! - 1
-            if (row.matcher is Matcher.Reference) keep[row.tag to k] = row.matcher
+            if (row.matcher is Matcher.Reference || row.bindAs != null) keep[row.tag to k] = row
         }
         if (keep.isEmpty()) return fresh
 
@@ -1469,18 +1471,36 @@ object ScenarioReconcile {
         val rebuilt =
             fresh.fields.map { row ->
                 val k = counter.merge(row.tag, 1, Int::plus)!! - 1
-                keep[row.tag to k]?.let {
+                keep[row.tag to k]?.let { kept ->
                     carried += row.tag to k
-                    row.copy(matcher = it)
+                    // Only a Reference matcher is carried — a captured Exact row still re-seeds fresh,
+                    // with its capture riding along.
+                    row.copy(
+                        matcher = if (kept.matcher is Matcher.Reference) kept.matcher else row.matcher,
+                        bindAs = kept.bindAs,
+                    )
                 } ?: row
             }
 
         // An echo the reply no longer carries is not a row to delete — it is the venue having STOPPED echoing
         // the id, which is the regression the assertion exists to catch. Dropping it silently would re-seed
         // the step green over the top of it. It is kept, and it reports itself missing.
-        val lost = keep.entries.filter { it.key !in carried }.map { FieldExpectation(it.key.first, it.value) }
+        val lost = keep.entries.filter { it.key !in carried }.map { FieldExpectation(it.key.first, it.value.matcher, it.value.bindAs) }
         return fresh.copy(fields = rebuilt + lost)
     }
+
+    /**
+     * Name — or, with null, un-name — the capture on a row. See [FieldExpectation.bindAs]: this is the
+     * receive→send half of correlation, authored from the diff's gutter. Not an assertion change — the
+     * matcher is untouched, and what the row *checks* is exactly what it checked before.
+     */
+    fun captureAs(draft: Expectation, index: Int, name: String?): Expectation =
+        draft.copy(
+            fields =
+                draft.fields.mapIndexed { i, f ->
+                    if (i == index) f.copy(bindAs = name?.takeIf { it.isNotBlank() }) else f
+                },
+        )
 
     /**
      * The contiguous runs of rows that moved — bracketed so the view can offer one **Accept new order**

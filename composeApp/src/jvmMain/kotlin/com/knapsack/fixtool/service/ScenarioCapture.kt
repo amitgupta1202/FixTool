@@ -311,9 +311,10 @@ object ScenarioCapture {
     }
 
     private fun seedOrdinals(steps: MutableList<ScenarioStep>, members: List<Pair<Int, Candidate>>) {
-        // The k-th same-type reply, in arrival order, is occurrence k. The members are already chronological
-        // (selection is), but sort defensively so the ordinal cannot depend on grouping order.
-        members.sortedBy { (_, c) -> c.timestamp }.forEachIndexed { k, (idx, _) -> setOccurrence(steps, idx, k + 1) }
+        // The k-th same-type reply is occurrence k — in STEP order, which is what the runner walks when it
+        // binds "the k-th match" at replay. Not by timestamp: a pasted candidate's timestamp is its own
+        // SendingTime(52), and log fragments pasted out of order would hand the 1st ordinal to the 2nd step.
+        members.sortedBy { (idx, _) -> idx }.forEachIndexed { k, (idx, _) -> setOccurrence(steps, idx, k + 1) }
     }
 
     private fun firstValue(c: Candidate, tag: Int): String? {

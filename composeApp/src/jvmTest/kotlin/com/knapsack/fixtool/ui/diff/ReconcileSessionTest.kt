@@ -596,4 +596,33 @@ class ReconcileSessionTest {
         assertTrue("did not move" in model.withheldMove, model.withheldMove)
         assertTrue(model.lines.none { it.kind == ChunkKind.MOVED }, "and nothing is banded as moved")
     }
+
+    /**
+     * **A Loosen that leaves the row red is a broken button.** The evaluator's numeric compare is plain
+     * doubles, and the decimal difference is not the double difference: `2.0` vs `1.9` differ by `0.1` in
+     * decimal, but `2.0d - 1.9d` exceeds `0.1d` by ~6 ulps — the exact case where a tolerance computed in
+     * exact decimal arithmetic fails the arithmetic the runner will actually do. The offered band must
+     * cover the evaluator's own difference, whatever the pretty tooltip says.
+     */
+    @Test
+    fun `the loosen offer's band passes the evaluator's own double arithmetic`() {
+        val expectation =
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(44, Matcher.Exact("2.0")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val message = wireView(35 to "8", 44 to "1.9")
+        val session = session(expectation, message)
+
+        val priceLine = session.model.lines.single { it.row.tag == 44 }
+        val loosen = priceLine.offers.single { it.glyph == "±" }
+        assertIs<EditResult.Applied>(session.apply(loosen.op))
+
+        val reJudged = session.model.lines.single { it.row.tag == 44 }
+        assertTrue(reJudged.row.passed, "loosened to cover both sides, so the row is green — not red by one ulp")
+    }
 }

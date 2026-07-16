@@ -180,4 +180,35 @@ class CaptureFromPasteTest {
             "and not one of them claims otherwise",
         )
     }
+
+    /**
+     * A pasted candidate's timestamp is its own SendingTime(52) — so a paste whose lines carry
+     * out-of-order 52s (interleaved log fragments) must NOT let that time decide the occurrence
+     * ordinals. The runner binds "the k-th same-type match" in replay order, which is step order;
+     * an ordinal assigned by SendingTime would bind the 1st ordinal to the 2nd step.
+     */
+    @Test
+    fun `occurrence ordinals follow step order, not the pasted SendingTime`() {
+        // Two ERs the constraints cannot separate (same 11, same shape) — the ordinal seeder must fire.
+        // The FIRST line carries the LATER SendingTime, so a timestamp sort would swap the ordinals.
+        val er1 =
+            frame(
+                *"35=8 34=2 49=FAKE_VENUE 52=20260714-08:12:35.000 56=FIXTOOL 37=V-1 11=ORD-1 17=E-1 150=0 39=0".split(" ").toTypedArray(),
+            )
+        val er2 =
+            frame(
+                *"35=8 34=3 49=FAKE_VENUE 52=20260714-08:12:31.000 56=FIXTOOL 37=V-2 11=ORD-1 17=E-2 150=0 39=0".split(" ").toTypedArray(),
+            )
+        val scan = ScenarioCapture.fromPaste("$er1\n$er2", "Venue", senderCompId = "FIXTOOL", targetCompId = "FAKE_VENUE")
+        assertEquals(2, scan.candidates.size, scan.refused.joinToString())
+
+        val scenario = ScenarioCapture.captureFrom("id", "paste", null, scan.candidates, dictionary)
+        val expects = scenario.steps.filterIsInstance<ScenarioStep.Expect>()
+        assertEquals(2, expects.size)
+        assertEquals(
+            listOf(1, 2),
+            expects.map { it.match?.occurrence },
+            "the 1st step binds the 1st arrival, whatever its SendingTime says",
+        )
+    }
 }

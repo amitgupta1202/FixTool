@@ -3545,8 +3545,10 @@ class FixMessageViewModel(
     ) {
         logger.info("Showing notification: [$type] $message")
         // One balloon per message: a scenario whose every Send trips the same dictionary lint used to
-        // stack the identical warning once per step, per run.
-        if (_notifications.any { it.message == message && it.type == type }) return
+        // stack the identical warning once per step, per run. RE-SURFACED, not dropped — the container
+        // draws only the newest five, so a duplicate buried behind five sticky errors would otherwise
+        // suppress a balloon the user cannot even see.
+        _notifications.removeAll { it.message == message && it.type == type }
         val notification =
             Notification(
                 message = message,

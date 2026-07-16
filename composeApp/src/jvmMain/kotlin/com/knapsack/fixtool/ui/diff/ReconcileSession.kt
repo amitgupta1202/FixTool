@@ -720,12 +720,18 @@ class ReconcileSession(
         val expected = expectedText.toBigDecimalOrNull() ?: return null
         val actual = actualText.toBigDecimalOrNull() ?: return null
         if (expected.compareTo(actual) == 0) return null
-        val tolerance = (expected - actual).abs().stripTrailingZeros()
-        val matcher = Matcher.Numeric(expected.toDouble(), tolerance.toDouble())
+        val decimalTolerance = (expected - actual).abs().stripTrailingZeros()
+        // The band must pass THE EVALUATOR'S arithmetic, which is plain doubles: abs(a - expected) is not
+        // the decimal difference (2.0 vs 1.9 differs from 0.1d by ~6 ulps, on the failing side). The pretty
+        // decimal is kept where it already covers that; where rounding leaves it short, the evaluator's own
+        // difference is the tolerance — ugly digits, but a Loosen that leaves the row red is a broken button.
+        val doubleDifference = kotlin.math.abs(expected.toDouble() - actual.toDouble())
+        val tolerance = maxOf(decimalTolerance.toDouble(), doubleDifference)
+        val matcher = Matcher.Numeric(expected.toDouble(), tolerance)
         return Offer(
             OfferKind.LOOSEN,
             "±",
-            "Loosen — ${expected.toPlainString()} ± ${tolerance.toPlainString()} covers both sides, " +
+            "Loosen — ${expected.toPlainString()} ± ${decimalTolerance.toPlainString()} covers both sides, " +
                 "for a value that varies per run (a fill price, a remaining quantity)",
             EditOp.loosen(index, row.tag, matcher),
         )

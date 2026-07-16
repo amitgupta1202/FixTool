@@ -195,6 +195,20 @@ object ScenarioReconcile {
     fun assertAbsent(draft: Expectation, index: Int): Expectation = replace(draft, index, Matcher.Absent)
 
     /**
+     * Assert that a tag the expectation never mentioned appears **nowhere in the message** — the one
+     * assertion an author can add about a field the reference does not carry, which is why the diff has no
+     * row to hang it on and the gutter's `«` cannot reach it.
+     *
+     * Appended at the end, and that is a position the model cannot misread: an `absent` row takes no part
+     * in [ExpectationEvaluator.align]'s scan — it claims no wire field, so it cannot shift what any other
+     * row pairs with, and the judge checks it against the whole message wherever it sits. No precondition,
+     * deliberately: an `absent` for a tag the reference *does* carry goes red on the very next re-judge,
+     * which is the honest answer, where refusing to add it would only hide the question.
+     */
+    fun insertAbsent(draft: Expectation, tag: Int): Expectation =
+        draft.copy(fields = draft.fields + FieldExpectation(tag, Matcher.Absent))
+
+    /**
      * `absent` asserts the tag appears **nowhere in the message** — it is not scoped to one occurrence, and
      * it cannot be.
      *

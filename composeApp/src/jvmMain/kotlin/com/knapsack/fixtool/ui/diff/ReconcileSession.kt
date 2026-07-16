@@ -121,6 +121,10 @@ class EditOp(
         fun assertAbsent(index: Int, tag: Int) =
             pure("Asserting $tag absent") { ScenarioReconcile.assertAbsent(it, index) }
 
+        /** A new row for a tag the diff has no line for — see [ScenarioReconcile.insertAbsent]. */
+        fun insertAbsent(tag: Int) =
+            pure("Now asserting $tag absent") { ScenarioReconcile.insertAbsent(it, tag) }
+
         fun drop(index: Int, tag: Int) = pure("Dropped $tag") { ScenarioReconcile.drop(it, index) }
 
         fun assertIt(
@@ -638,10 +642,6 @@ class ReconcileSession(
      * means. The surface asks; it does not decide.
      */
     private fun offersFor(row: ScenarioReconcile.Row, message: MessageView, moved: Set<Int>): List<Offer> {
-        // A row the diff cannot read has nothing to accept and nothing to drop that would mean anything: its
-        // honest repairs are to loosen it or leave it, and both live on the matcher chip.
-        if (row.unknown || row.passed && !row.unasserted) return emptyList()
-
         // **A ROW THAT MOVED IS OFFERED NOTHING.** Its status is VALUE — FIRMA's `448` now faces FIRMB, so it
         // *looks* exactly like a value mismatch, and a gutter keyed on status alone would put an Accept-actual
         // under it. One click and FIRMA's row asserts FIRMB, while the `452` rows stay where they are: the
@@ -666,6 +666,16 @@ class ReconcileSession(
             }
             if (index == null) return@buildList
 
+            // A passing row has nothing to REPAIR, and a row the diff cannot read has nothing to accept or
+            // loosen that would mean anything — but deleting an assertion is *authoring*, not repair, and the
+            // author who has just captured a step is looking at a wall of green rows over an expectation that
+            // asserts more than they mean. This surface is the app's only assertion editor, so the drop is
+            // offered on every asserted row; everything else stays gated on there being a failure to fix.
+            if (row.unknown || row.passed) {
+                add(dropOffer(index, row.tag, message))
+                return@buildList
+            }
+
             when (row.status) {
                 TagStatus.VALUE, TagStatus.INVALID -> {
                     if (row.actual != null && row.matcher != null && ScenarioReconcile.canAcceptActual(row.matcher)) {
@@ -683,7 +693,7 @@ class ReconcileSession(
                     // that is allowed to move — explicit, staged and undoable, never seeded by default,
                     // because a silent tolerance on a price is a regression the scenario stops catching.
                     loosenOffer(index, row)?.let { add(it) }
-                    add(dropOffer(index, row.tag))
+                    add(dropOffer(index, row.tag, message))
                 }
                 TagStatus.MISSING -> {
                     if (ScenarioReconcile.canAssertAbsent(draft, message, index)) {
@@ -696,7 +706,7 @@ class ReconcileSession(
                             ),
                         )
                     }
-                    add(dropOffer(index, row.tag))
+                    add(dropOffer(index, row.tag, message))
                 }
                 else -> Unit // moved, or a status with no honest per-row repair
             }
@@ -750,16 +760,33 @@ class ReconcileSession(
     /**
      * Dropping a row of a **repeated** tag takes the tag's rows with it, all of them — or the survivors would
      * be promoted and silently re-aimed at another entry. The gutter has to say so before it happens.
+     *
+     * And in STRICT there is a second consequence the author cannot see from here: a tag no row mentions is
+     * an **unexpected extra**, so dropping a row for a tag the venue still sends does not stop the step
+     * caring about it — it flips *which way* the step cares, and the next run is red where this edit looked
+     * like a clean-up. The tooltip is the one moment to say so before it happens. (A tag the engine never
+     * asserts — the connection's own — is not counted as an extra, so it earns no warning it hasn't.)
      */
-    private fun dropOffer(index: Int, tag: Int): Offer {
+    private fun dropOffer(index: Int, tag: Int, message: MessageView): Offer {
         val wholeTag = ScenarioReconcile.dropTakesWholeTag(draft, index)
-        return Offer(
-            OfferKind.DROP,
-            "×",
+        val base =
             if (wholeTag) {
                 "Drop tag $tag — every row for $tag goes, or the survivors would start checking another entry"
             } else {
                 "Drop this row — the step stops checking $tag"
+            }
+        val strictExtra =
+            draft.mode == MatchMode.STRICT &&
+                tag !in ExpectationEvaluator.NEVER_ASSERTED &&
+                message.fields().any { it.first == tag }
+        return Offer(
+            OfferKind.DROP,
+            "×",
+            if (strictExtra) {
+                "$base. The venue still sends this, and STRICT counts a tag no row mentions as an " +
+                    "unexpected extra — dropping it makes the next run red"
+            } else {
+                base
             },
             EditOp.drop(index, tag),
         )

@@ -548,8 +548,11 @@ server.tool(
     "PARAMETERIZE IT: a send's raw, a match value and a reference matcher all resolve ${...} " +
     "expressions — always, with no resolve flag — over one variable scope that persists across every " +
     "step. The idiom is 11=${clOrdId = uuid} in the send, then assert the echo with " +
-    '{"type":"reference","expression":"${clOrdId}"}. Call fixtool_syntax for the full grammar, or ' +
-    "fixtool_capture_scenario to record one that is already correctly templated.",
+    '{"type":"reference","expression":"${clOrdId}"}. The REVERSE (venue chooses the value): an ' +
+    'expectation row may carry bindAs — {"tag":131,"matcher":{"type":"presence"},"bindAs":"qr"} ' +
+    "captures the paired value into the scope, and a later send echoes it with 131=${qr}. Call " +
+    "fixtool_syntax for the full grammar, or fixtool_capture_scenario to record one that is already " +
+    "correctly templated.",
   {
     name: z.string().describe("scenario name"),
     id: z.string().optional().describe("existing scenario id to update"),

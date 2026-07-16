@@ -68,6 +68,66 @@ class ScenarioCodecTest {
         assertEquals(scenario.withIds(), restored)
     }
 
+    /**
+     * `bindAs` is additive in exactly the `stepId`/`origin` way: written only where set, so a row that
+     * does not capture — and every pre-capture file — keeps its exact old shape.
+     */
+    @Test
+    fun `a capture round-trips, and only the capturing row carries the key`() {
+        val scenario =
+            Scenario(
+                id = "sc-b",
+                name = "capture",
+                steps =
+                    listOf(
+                        ScenarioStep.Expect(
+                            expectation =
+                                Expectation(
+                                    fields =
+                                        listOf(
+                                            FieldExpectation(37, Matcher.Presence, bindAs = "oid"),
+                                            FieldExpectation(39, Matcher.Exact("2")),
+                                        ),
+                                    messageType = "8",
+                                ),
+                        ),
+                    ),
+            )
+        val json = ScenarioCodec.toJson(scenario)
+        assertEquals(scenario.withIds(), ScenarioCodec.fromJson(json))
+        val text = json.toString()
+        assertEquals(1, Regex("\"bindAs\"").findAll(text).count(), "written only where set: $text")
+    }
+
+    /** A blank name is refused by name — the author meant to capture something, and silence loses it. */
+    @Test
+    fun `a blank capture name fails the load, by name`() {
+        val valid =
+            ScenarioCodec.toJson(
+                Scenario(
+                    id = "sc-b",
+                    name = "capture",
+                    steps =
+                        listOf(
+                            ScenarioStep.Expect(
+                                expectation =
+                                    Expectation(
+                                        fields = listOf(FieldExpectation(37, Matcher.Presence, bindAs = "oid")),
+                                        messageType = "8",
+                                    ),
+                            ),
+                        ),
+                ),
+            )
+        val blanked =
+            valid.toString().replace(Regex("\"bindAs\"\\s*:\\s*\"oid\""), "\"bindAs\": \"\"")
+        val e =
+            assertFailsWith<IllegalArgumentException> {
+                ScenarioCodec.fromJson(Json.parseToJsonElement(blanked).jsonObject)
+            }
+        assertTrue("bindAs" in (e.message ?: ""), "the refusal names the key: ${e.message}")
+    }
+
     @Test
     fun `junit xml reports a failing step`() {
         val result =

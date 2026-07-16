@@ -201,6 +201,13 @@ a run that minted nothing, so pre-existing consumers keep parsing). `/scenarios/
 response repeats it, so an agent repairing a `reference` row sees what `${id0}` actually held this
 run — the same data the diff window's variables strip shows the human.
 
+The reverse direction — the **venue** choosing a value our later sends must echo — is an expectation
+row's `bindAs`: `{"tag":131,"matcher":{"type":"presence"},"bindAs":"qr"}` captures the value the row
+pairs with into the scope when the step binds, and a later send says `131=${qr}`. The capture follows
+the positional pairing rule (the k-th row captures the k-th occurrence), captures nothing when the tag
+never arrives, and is additive on disk (written only when set). See
+`scenario-assertion-model.md` §The model.
+
 ```bash
 # run a book-a-trade flow and get a pass/fail report (no AI in the loop)
 curl -s -XPOST $B/scenarios/run -d '{"scenario":{

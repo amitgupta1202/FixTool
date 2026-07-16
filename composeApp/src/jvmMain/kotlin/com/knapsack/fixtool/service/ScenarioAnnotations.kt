@@ -46,6 +46,10 @@ object ScenarioAnnotations {
     private fun mintedIn(step: ScenarioStep): List<String> =
         when (step) {
             is ScenarioStep.Send -> MINT.findAll(step.raw).map { it.groupValues[1] }.toList()
+            // A `bindAs` row mints too — from the venue's side of the wire. The Expect that captures
+            // `QuoteReqID` into `${qr}` wears the same filled badge a minting Send does, and a later
+            // send's `${qr}` is a working reference, not a never-minted warning.
+            is ScenarioStep.Expect -> step.expectation.fields.mapNotNull { it.bindAs }
             else -> emptyList()
         }
 

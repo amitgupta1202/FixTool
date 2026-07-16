@@ -434,6 +434,77 @@ class ScenarioRunnerTest {
         assertEquals(listOf("id0"), result.variables.map { it.name }, "id1's Send never ran, so id1 was never minted")
     }
 
+    /**
+     * The receive→send half of correlation: the venue chooses a value (`OrderID`), a `bindAs` row
+     * captures it, and the next send echoes it back — the dealer-side flow that was inexpressible
+     * before `bindAs` existed. The captured name is a variable like any other: it comes out on the
+     * report, attributed to the Expect that captured it.
+     */
+    @Test
+    fun `a bindAs row captures the venue's value, and a later send echoes it`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 37 to "VENUE-77"))
+        val scenario =
+            scenario(
+                expect("8", FieldExpectation(37, Matcher.Presence, bindAs = "oid")),
+                ScenarioStep.Send("35=F|41=\${oid}|", session = "s"),
+            )
+        val result = run(host, scenario)
+        assertTrue(result.passed, "scenario should pass: ${result.steps}")
+        assertEquals(listOf("35=F|41=VENUE-77|"), host.sent, "the send echoes the value the venue chose")
+        assertEquals(
+            listOf(ScenarioVariable("oid", "VENUE-77", scenario.withIds().steps[0].stepId)),
+            result.variables,
+            "captured into scope, attributed to the Expect that captured it",
+        )
+    }
+
+    /** No silent empty-string mint: a row whose tag never arrived captures nothing. */
+    @Test
+    fun `a bindAs row whose tag never arrived mints nothing`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val result =
+            run(host, scenario(expect("8", FieldExpectation(37, Matcher.Presence, bindAs = "oid"))))
+        assertFalse(result.passed, "the Presence row failed — 37 never arrived")
+        assertEquals(emptyList(), result.variables, "nothing was observed, so nothing was minted")
+    }
+
+    /**
+     * Capture is about the value being OBSERVED, not about the row passing: teardown runs after a
+     * failure, and a teardown that cancels the venue's order needs the id whether or not the step's
+     * assertion held.
+     */
+    @Test
+    fun `a failing row still captures the value it paired with`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 37 to "VENUE-77"))
+        val result =
+            run(host, scenario(expect("8", FieldExpectation(37, Matcher.Exact("SOMETHING-ELSE"), bindAs = "oid"))))
+        assertFalse(result.passed)
+        assertEquals("VENUE-77", result.variables.single().value, "observed, so captured — teardown may need it")
+    }
+
+    /** The k-th row for a tag captures the k-th occurrence — the positional model, applied to capture. */
+    @Test
+    fun `a bindAs on the second row of a repeated tag captures the second occurrence`() {
+        val host = FakeHost()
+        host.inbox += incomingWire("8", listOf(35 to "8", 448 to "FIRMA", 448 to "FIRMB"))
+        val result =
+            run(
+                host,
+                scenario(
+                    expect(
+                        "8",
+                        FieldExpectation(448, Matcher.Presence),
+                        FieldExpectation(448, Matcher.Presence, bindAs = "counterparty"),
+                    ),
+                ),
+            )
+        assertTrue(result.passed, "${result.steps}")
+        assertEquals("FIRMB", result.variables.single().value)
+    }
+
     // ----------------------------------------------------------------- helpers
 
     private fun run(host: FakeHost, scenario: Scenario) =

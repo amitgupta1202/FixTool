@@ -39,7 +39,14 @@ object MatcherCodec {
         val matcherObj = obj["matcher"]?.jsonObject
             ?: throw IllegalArgumentException("field expectation for tag $tag missing 'matcher'")
         rejectGroupPath(obj, tag)
-        return FieldExpectation(tag = tag, matcher = parseMatcher(matcherObj))
+        // A blank capture name is refused by name, not read as "no capture": the author wrote the key
+        // meaning to capture something, and silently not-capturing is a scenario that loads, runs, and
+        // leaves a later ${" "} reference literal — the unknown-mode stance, applied here.
+        val bindAs = obj["bindAs"]?.jsonPrimitive?.contentOrNull
+        if (bindAs != null && bindAs.isBlank()) {
+            throw IllegalArgumentException("the assertion on tag $tag carries a blank 'bindAs' — name the variable, or remove the key")
+        }
+        return FieldExpectation(tag = tag, matcher = parseMatcher(matcherObj), bindAs = bindAs)
     }
 
     /**
@@ -126,6 +133,8 @@ object MatcherCodec {
         buildJsonObject {
             put("tag", fe.tag)
             put("matcher", matcherToJson(fe.matcher))
+            // Written only when set (invariant 5): a file that never captured does not grow a key.
+            fe.bindAs?.let { put("bindAs", it) }
         }
 
     fun matcherToJson(matcher: Matcher): JsonObject =

@@ -240,4 +240,46 @@ class ScenarioEditorTest {
         composeTestRule.onNodeWithText("never minted", substring = true).assertIsDisplayed()
         snapshot("editor_variables_strip.png")
     }
+
+    // ----- mint-at-send -------------------------------------------------------------------------------
+
+    /** `EURUSD` → `${sym = "EURUSD"}`, `${expr}` → `${name = expr}` — and never a mint around a mint. */
+    @Test
+    fun `mintFieldValue wraps a literal as a quoted assignment and an expression as itself`() {
+        assertEquals("\${symbol = \"EURUSD\"}", mintFieldValue("EURUSD", "symbol"))
+        assertEquals(
+            "\${ts = LocalDateTime.now()}",
+            mintFieldValue("\${LocalDateTime.now()}", "ts"),
+            "a whole-expression value wraps the expression, not the text",
+        )
+        assertEquals(
+            "\${note = \"say \\\"hi\\\"\"}",
+            mintFieldValue("say \"hi\"", "note"),
+            "quotes in the value survive as the same bytes",
+        )
+    }
+
+    /**
+     * The send grid's ● mints a field in place: the value gains a name, the wire bytes do not change,
+     * and the button disappears (a mint around a mint is nonsense). The scenario's step-1 send carries
+     * `11=${id0 = …}` already (no button) and `55=EUR/USD` style literals get one.
+     */
+    @Test
+    fun `the send grid's mint button rewrites the value as a named assignment`() {
+        var saved: Scenario? = null
+        render { saved = it }
+        // The Send step is selected by default (step 0). Its fields: 35=D (a plain literal — wears the
+        // mint button) and 11=${id0 = …} (already mints — no button; a mint around a mint is nonsense).
+        composeTestRule.onAllNodesWithTag("send-mint-1").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("send-mint-0").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithText("Save scenario").performClick()
+        composeTestRule.waitForIdle()
+        val send = saved!!.steps[0] as ScenarioStep.Send
+        assertTrue(
+            "35=\${tag35 = \"D\"}" in send.raw,
+            "the value gained a name (no dictionary loaded, so the fallback name), same bytes on the wire: ${send.raw}",
+        )
+    }
 }

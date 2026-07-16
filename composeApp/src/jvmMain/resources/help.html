@@ -2095,6 +2095,15 @@ stunnel stunnel.conf</code></pre>
         is red on every run after. And with a scope in hand the matcher dropdown offers
         <strong>reference</strong> as a <em>picker over the run's variables</em> (each shown with its value),
         so a correlation can be written by hand without typing &mdash; or mistyping &mdash; a name.</p>
+        <p>The reverse direction &mdash; the <em>venue</em> chooses a value your later sends must echo
+        (<code>QuoteReqID</code>, <code>OrderID</code>) &mdash; is a <strong>capture</strong>, not a matcher.
+        On a green row the gutter offers <strong>&#8615; Capture as <code>${name}</code></strong> (named from
+        the dictionary): the row's assertion is untouched, but when the step binds, the value it paired with
+        is written into the scope, and a later send or bind predicate says <code>${name}</code>. The
+        capturing row wears the same filled &#9679; badge a minting send does, in the diff and in the
+        editor's flow list. And in the editor's send grid, any literal field has a <strong>&#9679; mint</strong>
+        button: <code>55=EURUSD</code> becomes <code>55=${sym = "EURUSD"}</code> &mdash; identical bytes on
+        the wire, but the value now has a name an expect can reference-check.</p>
         <p><strong>Authoring is the same window.</strong> A never-run step opens the identical diff against its
         golden &mdash; same rows, same gutter, same undo &mdash; so building an expectation and repairing one
         are one surface, not two.</p></li>

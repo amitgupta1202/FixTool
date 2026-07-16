@@ -366,6 +366,7 @@ fun ScenarioEditor(
                             sessionColor = sessionColors[steps[selectedIdx].session] ?: AppTheme.Colors.textDisabled,
                             onChange = { steps[selectedIdx] = it },
                             onOpenDiff = onOpenDiff?.let { open -> { open(steps[selectedIdx].stepId) } },
+                            takenNames = mintedNames.toSet(),
                         )
                     }
                 } else {
@@ -529,6 +530,8 @@ private fun StepDetail(
     onChange: (EditStep) -> Unit,
     /** Opens this step's diff, when it is an Expect. See [AssertionsDoor]. */
     onOpenDiff: (() -> Unit)? = null,
+    /** Names the scenario already mints anywhere — a fresh mint must not silently re-assign one. */
+    takenNames: Set<String> = emptySet(),
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -563,7 +566,7 @@ private fun StepDetail(
         }
     }
     when (step.kind) {
-        StepKind.SEND -> SendDetail(step, dictionary, onChange)
+        StepKind.SEND -> SendDetail(step, dictionary, onChange, takenNames)
         StepKind.EXPECT -> ExpectDetail(step, dictionary, sessionOptions, sessionColor, onChange, onOpenDiff)
         StepKind.WAIT ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -612,8 +615,34 @@ private fun StepDetail(
  * for dictionary enum fields — a value dropdown with descriptions, so a user new to FIX picks
  * "1 (BUY)" instead of memorizing codes.
  */
+/** A value that already mints (`${x = …}`) — the mint button would wrap a mint in a mint. */
+private val ALREADY_MINTS = Regex("""\$\{\s*\w+\s*=""")
+
+/** A value that is entirely ONE `${…}` expression — minting wraps the expression, not the text. */
+private val WHOLE_EXPRESSION = Regex("""^\$\{([^}]+)}$""")
+
+/**
+ * The same bytes on the wire, now with a name: `EURUSD` → `${sym = "EURUSD"}`, and a value that is
+ * already an expression wraps as an assignment — `${LocalDateTime.now()}` → `${ts = LocalDateTime.now()}`.
+ * The assignment evaluates to exactly what the value evaluated to before, so minting a send field is
+ * never a change to what the venue receives — only to what later steps can say about it.
+ */
+internal fun mintFieldValue(value: String, name: String): String {
+    val inner = WHOLE_EXPRESSION.matchEntire(value.trim())?.groupValues?.get(1)?.trim()
+    return if (inner != null) {
+        "\${$name = $inner}"
+    } else {
+        "\${$name = \"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\"}"
+    }
+}
+
 @Composable
-private fun SendDetail(step: EditStep, dictionary: FixDictionary?, onChange: (EditStep) -> Unit) {
+private fun SendDetail(
+    step: EditStep,
+    dictionary: FixDictionary?,
+    onChange: (EditStep) -> Unit,
+    takenNames: Set<String> = emptySet(),
+) {
     // The expressions lesson costs one glyph, not a standing paragraph (same fold as capture's ⓘ).
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
         Text("Fields", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
@@ -660,6 +689,22 @@ private fun SendDetail(step: EditStep, dictionary: FixDictionary?, onChange: (Ed
                 modifier = Modifier.weight(1f).padding(start = 4.dp).testTag("send-value-$i"),
             )
             ValueHelpCell(tag, value, dictionary, onPick = { picked -> update(tag, picked) })
+            // Mint-at-send: give this value a name — same bytes on the wire, but later expects can
+            // reference-check the echo and later sends can reuse it. Hidden once the value mints.
+            if (value.isNotBlank() && !ALREADY_MINTS.containsMatchIn(value)) {
+                val name = mintName(tag, dictionary?.getFieldName(tag), takenNames)
+                AppTooltip(
+                    "Mint as \${$name} — the wire bytes do not change, but the value now has a name: an " +
+                        "expect can assert the echo (reference \${$name}) and a later send can reuse it.",
+                ) {
+                    SlimButton(
+                        "●",
+                        onClick = { update(tag, mintFieldValue(value, name)) },
+                        color = AppTheme.Colors.info,
+                        modifier = Modifier.padding(start = 2.dp).testTag("send-mint-$i"),
+                    )
+                }
+            }
             IconButton(
                 onClick = { onChange(step.copy(fields = step.fields.toMutableList().apply { removeAt(i) })) },
                 modifier = Modifier.size(22.dp),

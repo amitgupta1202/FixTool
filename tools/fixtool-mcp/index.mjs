@@ -67,9 +67,10 @@ server.tool(
   "fixtool_syntax",
   "The reference for FixTool's two mini-languages, as markdown: template expressions (${uuid}, " +
     "${now+1d}, ${out.D.11}, ${var = ...} — how to parameterize what you send, and which contexts " +
-    "resolve them) and matchers (how to assert what came back, including 'path' for repeating " +
-    "groups). Read this BEFORE authoring a scenario, a templated message, or an expectation — it is " +
-    "the only complete statement of either grammar.",
+    "resolve them) and matchers (how to assert what came back — an expectation is an ORDERED list, " +
+    "the k-th row for a tag asserts the k-th occurrence of it, and there is no 'path'). Read this " +
+    "BEFORE authoring a scenario, a templated message, or an expectation — it is the only complete " +
+    "statement of either grammar.",
   {},
   async () => text("GET", "/syntax"),
 );

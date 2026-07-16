@@ -420,7 +420,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(39, tools.size)
+        assertEquals(40, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_reconcile" },
             "the diff is reachable without a hand on the mouse, or an agent can never open the surface that repairs",
@@ -429,9 +429,40 @@ class ControlServerIntegrationTest {
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_capture_paste" },
             "and the paste box too, or W2 could never be driven without a hand",
         )
+        assertTrue(
+            tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_diff" },
+            "the plain diff viewer's door (G8) exists on this transport too, not only on HTTP and the Node server",
+        )
         tools.forEach {
             val t = it.jsonObject
             assertTrue(t.containsKey("name") && t.containsKey("inputSchema"), "each tool needs a name and schema")
+        }
+    }
+
+    /**
+     * **Advertised means callable.** tools/list is this transport's contract, and a listed name that
+     * tools/call answers "unknown tool" is registry rot — fixtool_capture_paste and fixtool_reconcile
+     * shipped a release advertised-but-uncallable on exactly this transport while working over plain
+     * HTTP and the Node server. Probed with inert arguments: any answer but "unknown tool" is the
+     * handler speaking (a named validation error is fine — that IS the wiring), so this cannot be
+     * satisfied by a count pin that never dials a number.
+     */
+    @Test
+    fun `every advertised mcp tool dispatches — advertised means callable`() {
+        val tools =
+            obj(post("/mcp", """{"jsonrpc":"2.0","id":11,"method":"tools/list"}"""))["result"]!!
+                .jsonObject["tools"]!!
+                .jsonArray
+                .map { it.jsonObject["name"]!!.jsonPrimitive.content }
+        assertTrue(tools.isNotEmpty())
+        // Inert per-tool arguments where {} would act rather than answer (demo {} means start).
+        val inert = mapOf("fixtool_demo" to """{"action":"stop"}""")
+        tools.forEach { name ->
+            val text = mcpCall(name, inert[name] ?: "{}")
+            assertFalse(
+                text.startsWith("unknown tool"),
+                "$name is advertised on /mcp but tools/call cannot reach it: $text",
+            )
         }
     }
 

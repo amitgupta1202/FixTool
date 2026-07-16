@@ -80,8 +80,9 @@ class ScenarioEditorStepIdentityTest {
                 ).value
             },
         )
-        // The edit landed on C — the step that was actually selected.
-        assertEquals(777L, steps[1].timeoutMs)
+        // The edit landed on C — the step that was actually selected. (The field displays seconds now;
+        // the model keeps milliseconds — the typed 777 means 777 s.)
+        assertEquals(777_000L, steps[1].timeoutMs)
         // ...and D, which the user never opened, is untouched.
         assertEquals(10_000L, steps[2].timeoutMs)
     }

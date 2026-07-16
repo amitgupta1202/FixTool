@@ -4,9 +4,12 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -49,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
@@ -323,6 +329,7 @@ fun ScenarioEditor(
                             step = steps[selectedIdx],
                             dictionary = dictionary,
                             sessionOptions = sessionOptions,
+                            sessionColor = sessionColors[steps[selectedIdx].session] ?: AppTheme.Colors.textDisabled,
                             onChange = { steps[selectedIdx] = it },
                             onOpenDiff = onOpenDiff?.let { open -> { open(steps[selectedIdx].stepId) } },
                         )
@@ -400,31 +407,130 @@ private fun AddStepBar(onAdd: (StepKind) -> Unit) {
     }
 }
 
+/**
+ * **One bounded concern of a step form** — the paste sheet's frame, extracted: a surfaceVariant sheet, a
+ * 9sp uppercase header (the register the diff surface already speaks — "EXPECTATION (EDITABLE)",
+ * "FIX PLAN — …"), and one left edge for everything inside. The header names the concern so the fields
+ * do not have to: inside a sheet titled RECEIVES, a dropdown reading "incoming" needs no "Direction" label,
+ * which is what lets every control start at the same x instead of wherever its label happened to end.
+ */
+@Composable
+private fun DetailSection(
+    header: String,
+    dim: String? = null,
+    headerTrailing: @Composable RowScope.() -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp)
+                .background(AppTheme.Colors.surfaceVariant, RoundedCornerShape(4.dp))
+                .border(1.dp, AppTheme.Colors.border, RoundedCornerShape(4.dp))
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 7.dp)) {
+            Text(header, color = AppTheme.Colors.textSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+            if (dim != null) {
+                Text(" $dim", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, letterSpacing = 0.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            headerTrailing()
+        }
+        content()
+    }
+}
+
+/** The quiet in-row words that replaced the field labels: "on", "waits up to", "position". */
+@Composable
+private fun QuietWord(text: String) {
+    Text(text, color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
+}
+
+/** The step's session, as the same colored dot the step list badges it with. */
+@Composable
+private fun SessionDot(color: androidx.compose.ui.graphics.Color) {
+    Box(modifier = Modifier.size(7.dp).background(color, CircleShape))
+}
+
+/** The expectation's mode, worn as a chip beside the title — displayed here, edited in the diff. */
+@Composable
+private fun ModeChipMini(mode: MatchMode) {
+    val strict = mode == MatchMode.STRICT
+    val colour = if (strict) AppTheme.Colors.warning else AppTheme.Colors.info
+    Text(
+        if (strict) "STRICT" else "OPEN",
+        color = colour,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.8.sp,
+        modifier =
+            Modifier
+                .padding(start = 8.dp)
+                .border(1.dp, colour.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                .padding(horizontal = 6.dp, vertical = 1.dp),
+    )
+}
+
+// One column spec for every tag·name grid on this screen: the bind constraints and the assertions preview
+// show the same shape of data, and two grids that disagree about their columns refuse to read as kin.
+private val TAG_COL = 64.dp
+private val NAME_COL = 128.dp
+
+/** The step's timeout as the seconds a human reads, while the model keeps milliseconds. */
+private fun secondsText(ms: Long): String =
+    if (ms % 1000L == 0L) {
+        (ms / 1000L).toString()
+    } else {
+        java.math.BigDecimal(ms).movePointLeft(3).stripTrailingZeros().toPlainString()
+    }
+
 @Composable
 private fun StepDetail(
     index: Int,
     step: EditStep,
     dictionary: FixDictionary?,
     sessionOptions: List<String>,
+    sessionColor: androidx.compose.ui.graphics.Color,
     onChange: (EditStep) -> Unit,
     /** Opens this step's diff, when it is an Expect. See [AssertionsDoor]. */
     onOpenDiff: (() -> Unit)? = null,
 ) {
-    Text("Step ${index + 1} — ${step.kind.name.lowercase()}", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)) {
-        SlimLabeled("Session") {
-            SlimDropdown(
-                value = step.session ?: ACTIVE_SESSION,
-                options = listOf(ACTIVE_SESSION) + sessionOptions,
-                onValueChange = { picked -> onChange(step.copy(session = picked?.takeIf { it != ACTIVE_SESSION })) },
-                displayText = { it },
-                modifier = Modifier.width(180.dp).testTag("session-dropdown"),
-            )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            // The Expect title says what the step expects, not merely that it is one — the same label the
+            // step list shows, so the detail pane and the list cannot describe one step two ways.
+            if (step.kind == StepKind.EXPECT) {
+                "Step ${index + 1} — ${stepLabel(step.toStep(), dictionary)}"
+            } else {
+                "Step ${index + 1} — ${step.kind.name.lowercase()}"
+            },
+            color = AppTheme.Colors.text,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (step.kind == StepKind.EXPECT) ModeChipMini(step.expectation.mode)
+    }
+    // The Expect form carries its session inside RECEIVES — the transport facts, together. Every other kind
+    // keeps the plain labeled row until it adopts the same sections, or the editor speaks two dialects.
+    if (step.kind != StepKind.EXPECT) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp)) {
+            SlimLabeled("Session") {
+                SlimDropdown(
+                    value = step.session ?: ACTIVE_SESSION,
+                    options = listOf(ACTIVE_SESSION) + sessionOptions,
+                    onValueChange = { picked -> onChange(step.copy(session = picked?.takeIf { it != ACTIVE_SESSION })) },
+                    displayText = { it },
+                    modifier = Modifier.width(180.dp).testTag("session-dropdown"),
+                )
+            }
         }
     }
     when (step.kind) {
         StepKind.SEND -> SendDetail(step, dictionary, onChange)
-        StepKind.EXPECT -> ExpectDetail(step, dictionary, onChange, onOpenDiff)
+        StepKind.EXPECT -> ExpectDetail(step, dictionary, sessionOptions, sessionColor, onChange, onOpenDiff)
         StepKind.WAIT ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 SlimLabeled("State") {
@@ -533,14 +639,14 @@ private fun SendDetail(step: EditStep, dictionary: FixDictionary?, onChange: (Ed
 
 /** Dictionary field name, colored like the message editor (orange for repeating-group tags). */
 @Composable
-private fun FieldNameCell(tag: Int, dictionary: FixDictionary?) {
+private fun FieldNameCell(tag: Int, dictionary: FixDictionary?, width: androidx.compose.ui.unit.Dp = 120.dp) {
     val isGroup = dictionary?.isGroupTag(tag) == true
     Text(
         text = dictionary?.getFieldName(tag) ?: "",
         color = if (isGroup) AppTheme.Colors.groupTag else AppTheme.Colors.fieldName,
         fontSize = 10.sp,
         maxLines = 1,
-        modifier = Modifier.width(120.dp).padding(start = 4.dp),
+        modifier = Modifier.width(width).padding(start = 4.dp),
     )
 }
 
@@ -581,12 +687,16 @@ private fun ValueHelpCell(tag: Int, value: String, dictionary: FixDictionary?, o
 private fun ExpectDetail(
     step: EditStep,
     dictionary: FixDictionary?,
+    sessionOptions: List<String>,
+    sessionColor: androidx.compose.ui.graphics.Color,
     onChange: (EditStep) -> Unit,
     /** Opens this step's diff — the one surface that can author or repair an assertion. */
     onOpenDiff: (() -> Unit)? = null,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        SlimLabeled("Direction") {
+    DetailSection("RECEIVES") {
+        // One sentence, one left edge: "incoming on <session> · waits up to <10> s". The field labels this
+        // row used to wear are the reason its controls started at five different x positions.
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SlimDropdown(
                 value = step.direction,
                 options = listOf("in", "out"),
@@ -594,14 +704,31 @@ private fun ExpectDetail(
                 displayText = { if (it == "out") "outgoing" else "incoming" },
                 modifier = Modifier.width(100.dp),
             )
-        }
-        SlimLabeled("Timeout ms") {
-            SlimField(
-                step.timeoutMs.toString(),
-                { onChange(step.copy(timeoutMs = it.toLongOrNull() ?: step.timeoutMs)) },
-                monospace = true,
-                modifier = Modifier.width(80.dp).testTag("expect-timeout"),
+            QuietWord("on")
+            SessionDot(sessionColor)
+            SlimDropdown(
+                value = step.session ?: ACTIVE_SESSION,
+                options = listOf(ACTIVE_SESSION) + sessionOptions,
+                onValueChange = { picked -> onChange(step.copy(session = picked?.takeIf { it != ACTIVE_SESSION })) },
+                displayText = { it },
+                modifier = Modifier.width(180.dp).testTag("session-dropdown"),
             )
+            QuietWord("· waits up to")
+            // Seconds on screen, milliseconds in the model — "Timeout ms 10000" made the reader do the
+            // arithmetic the field can do. Local text so a half-typed "1.5" is not reformatted mid-keystroke.
+            var seconds by remember { mutableStateOf(secondsText(step.timeoutMs)) }
+            SlimField(
+                seconds,
+                { typed ->
+                    seconds = typed
+                    typed.trim().toDoubleOrNull()?.takeIf { it >= 0 }?.let {
+                        onChange(step.copy(timeoutMs = (it * 1000).toLong()))
+                    }
+                },
+                monospace = true,
+                modifier = Modifier.width(52.dp).testTag("expect-timeout"),
+            )
+            QuietWord("s")
         }
     }
     MatchEditor(step.match, dictionary, onChange = { onChange(step.copy(match = it)) })
@@ -629,30 +756,35 @@ private const val DOOR_PREVIEW_ROWS = 8
 @Composable
 private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDiff: (() -> Unit)?) {
     val rows = step.expectation.fields
-    Column(modifier = Modifier.padding(top = 10.dp)) {
-        Text(
-            text =
-                when {
-                    rows.isNotEmpty() -> "Asserts ${rows.size} ${if (rows.size == 1) "row" else "rows"}:"
-                    step.expectation.golden != null -> "No asserted rows — this step checks only that a matching message arrives."
-                    else ->
+    DetailSection(
+        "ASSERTS",
+        dim = if (rows.isNotEmpty()) "— ${rows.size} ${if (rows.size == 1) "ROW" else "ROWS"} · EDITED IN THE DIFF" else null,
+    ) {
+        if (rows.isEmpty()) {
+            Text(
+                text =
+                    if (step.expectation.golden != null) {
+                        "No asserted rows — this step checks only that a matching message arrives."
+                    } else {
                         "No asserted rows, and no captured message. This step checks only that a matching " +
                             "message arrives; run the scenario, or bind a message, to start asserting on it."
-                },
-            color = AppTheme.Colors.textSecondary,
-            fontSize = 11.sp,
-        )
+                    },
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 11.sp,
+            )
+        }
         // The rows themselves, read-only — "16 asserted rows." was a number the author had to open another
         // window to see the meaning of. The diff stays the ONE surface that edits them (the door below).
+        // Same columns as the constraint grid above: the two show the same shape of data.
         rows.take(DOOR_PREVIEW_ROWS).forEach { fe ->
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
-                Text("${fe.tag}", color = AppTheme.Colors.tagNumber, fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(44.dp))
+                Text("${fe.tag}", color = AppTheme.Colors.tagNumber, fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(TAG_COL))
                 Text(
                     dictionary?.getFieldName(fe.tag) ?: "",
                     color = AppTheme.Colors.textSecondary,
                     fontSize = 10.sp,
                     maxLines = 1,
-                    modifier = Modifier.width(120.dp),
+                    modifier = Modifier.width(NAME_COL).padding(start = 4.dp),
                 )
                 Text(
                     matcherSummary(fe.matcher, dictionary, fe.tag),
@@ -661,6 +793,7 @@ private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDif
                     fontFamily = FontFamily.Monospace,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
         }
@@ -677,7 +810,7 @@ private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDif
                 text = "Edit assertions ⧉",
                 onClick = onOpenDiff,
                 color = AppTheme.Colors.primary,
-                modifier = Modifier.padding(top = 6.dp).testTag("open-diff"),
+                modifier = Modifier.padding(top = 8.dp).testTag("open-diff"),
             )
         }
     }
@@ -695,28 +828,26 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
         val empty = normalized.messageType == null && normalized.fields.isEmpty() && normalized.occurrence == null
         onChange(if (empty) null else normalized)
     }
-    Column(modifier = Modifier.padding(top = 8.dp)) {
-        // The lesson folded behind the ⓘ: it used to be a two-line standing paragraph that wrapped
-        // mid-sentence and ended in a dangling colon, paid on every visit to every Expect step.
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Binds to", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
+    // The lesson folded behind the ⓘ: it used to be a two-line standing paragraph that wrapped
+    // mid-sentence and ended in a dangling colon, paid on every visit to every Expect step.
+    DetailSection(
+        "BINDS TO",
+        dim = "— WHICH ARRIVING MESSAGE THIS STEP CONSUMES",
+        headerTrailing = {
             HintIcon(
                 "Which arriving message this step asserts. Walked in order by default; pin a position, or add " +
                     "tag constraints (equals / present / absent) to pick a specific one — e.g. the terminal fill.",
-                modifier = Modifier.testTag("binds-to-help"),
+                modifier = Modifier.padding(start = 5.dp).testTag("binds-to-help"),
             )
-        }
+        },
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 4.dp),
         ) {
-            SlimLabeled("Msg type") {
-                MsgTypePicker(match?.messageType, dictionary) { picked -> push(picked, match?.fields ?: emptyList()) }
-            }
-            SlimLabeled("Position") {
-                OccurrencePicker(match?.occurrence) { picked -> push(match?.messageType, match?.fields ?: emptyList(), picked) }
-            }
+            MsgTypePicker(match?.messageType, dictionary) { picked -> push(picked, match?.fields ?: emptyList()) }
+            QuietWord("position")
+            OccurrencePicker(match?.occurrence) { picked -> push(match?.messageType, match?.fields ?: emptyList(), picked) }
         }
         val allFields = remember(dictionary) { dictionary?.getAllFields() ?: emptyList() }
         // Vertical rhythm, and gaps between the cells. These rows were flush against each other and against
@@ -731,9 +862,9 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
                     tag = tv.tag,
                     fields = allFields,
                     onPick = { picked -> push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(tag = picked) }) },
-                    modifier = Modifier.width(64.dp),
+                    modifier = Modifier.width(TAG_COL),
                 )
-                FieldNameCell(tv.tag, dictionary)
+                FieldNameCell(tv.tag, dictionary, width = NAME_COL)
                 ConstraintOpCell(tv.op) { newOp ->
                     push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(op = newOp) })
                 }

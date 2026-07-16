@@ -2087,6 +2087,14 @@ stunnel stunnel.conf</code></pre>
         corresponds, so reference rows stay honestly unjudged. The editor shows the same strip for the whole
         scenario, and warns there about a <code>${name}</code> that is referenced but never minted &mdash;
         a typo the engine would otherwise send literally.</p>
+        <p>The scope also makes correlations <em>authorable from the diff</em>. A row whose actual value
+        <em>is</em> one of the run's variables &mdash; the venue echoing an id this run minted &mdash; gets a
+        <strong>$ Track</strong> offer in the gutter: one click swaps the pinned literal for
+        <code>reference ${id0}</code>, judged green on the spot. It appears on green rows too, deliberately:
+        an <em>exact</em> pinning a freshly minted id passes today <em>because</em> it was minted today, and
+        is red on every run after. And with a scope in hand the matcher dropdown offers
+        <strong>reference</strong> as a <em>picker over the run's variables</em> (each shown with its value),
+        so a correlation can be written by hand without typing &mdash; or mistyping &mdash; a name.</p>
         <p><strong>Authoring is the same window.</strong> A never-run step opens the identical diff against its
         golden &mdash; same rows, same gutter, same undo &mdash; so building an expectation and repairing one
         are one surface, not two.</p></li>

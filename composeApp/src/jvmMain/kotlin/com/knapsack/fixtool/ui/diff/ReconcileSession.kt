@@ -124,6 +124,12 @@ class EditOp(
         fun assertAbsent(index: Int, tag: Int) =
             pure("Asserting $tag absent") { ScenarioReconcile.assertAbsent(it, index) }
 
+        /** The row stops asserting this run's literal and starts asserting the correlation: `= ${name}`. */
+        fun track(index: Int, tag: Int, name: String) =
+            pure("Tracking \${$name} on $tag") {
+                ScenarioReconcile.loosen(it, index, Matcher.Reference("\${$name}"))
+            }
+
         /** A new row for a tag the diff has no line for — see [ScenarioReconcile.insertAbsent]. */
         fun insertAbsent(tag: Int) =
             pure("Now asserting $tag absent") { ScenarioReconcile.insertAbsent(it, tag) }
@@ -176,7 +182,7 @@ class EditOp(
 }
 
 /** What the gutter may offer on a line — and it may offer nothing the engine would refuse. */
-enum class OfferKind { ACCEPT_ACTUAL, LOOSEN, ASSERT_IT, ASSERT_ABSENT, DROP }
+enum class OfferKind { ACCEPT_ACTUAL, LOOSEN, ASSERT_IT, ASSERT_ABSENT, DROP, TRACK }
 
 /** One gutter control: its glyph, what it says when hovered, and the edit it would stage. */
 data class Offer(
@@ -737,12 +743,19 @@ class ReconcileSession(
             // asserts more than they mean. This surface is the app's only assertion editor, so the drop is
             // offered on every asserted row; everything else stays gated on there being a failure to fix.
             if (row.unknown || row.passed) {
+                // A GREEN row can still be a landmine: an Exact pinning a value that IS one of the run's
+                // variables passes today precisely because the id was minted today — and is red on every
+                // run after. The track offer is the defusal, and the passing row is where it matters most.
+                if (row.passed) trackOffer(index, row)?.let { add(it) }
                 add(dropOffer(index, row.tag, message))
                 return@buildList
             }
 
             when (row.status) {
                 TagStatus.VALUE, TagStatus.INVALID -> {
+                    // First, because when it applies the offers beside it are traps: accepting the literal
+                    // of an echoed id pins THIS run's value and is red again tomorrow.
+                    trackOffer(index, row)?.let { add(it) }
                     if (row.actual != null && row.matcher != null && ScenarioReconcile.canAcceptActual(row.matcher)) {
                         add(
                             Offer(
@@ -776,6 +789,28 @@ class ReconcileSession(
                 else -> Unit // moved, or a status with no honest per-row repair
             }
         }
+    }
+
+    /**
+     * `$` — this row's actual value **is** one of the run's variables, so what the venue echoed is the id
+     * this run minted, and the honest assertion is the correlation, not the literal. The reconcile-time
+     * analogue of capture's echo detection: offered exactly where the scope proves the equality, on a row
+     * that is not already a reference. Value-equality can coincide by accident (`1` is a Side and a
+     * PartyRole and a quantity), which is why this is an *offer* the author reads — with the variable named
+     * in the tooltip — and never a seed applied silently.
+     */
+    private fun trackOffer(index: Int, row: ScenarioReconcile.Row): Offer? {
+        val actual = row.actual ?: return null
+        if (row.matcher == null || row.matcher is Matcher.Reference) return null
+        val variable = reference.variables.firstOrNull { it.value == actual } ?: return null
+        return Offer(
+            OfferKind.TRACK,
+            "$",
+            "Track \${${variable.name}} — this value is the run's \${${variable.name}}. Assert the echo, " +
+                "not the literal: the next run mints a fresh value, and a pinned literal is red the moment " +
+                "it does.",
+            EditOp.track(index, row.tag, variable.name),
+        )
     }
 
     /**

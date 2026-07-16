@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.model.scenario.validationError
 
@@ -103,14 +104,26 @@ fun MatcherEditor(
      * offline, so the row stopped being red, dropped out of the verdict counts, and the bar announced "every
      * assertion would now pass". A one-click manufactured green, in the surface the model names as the
      * likeliest place to manufacture one.
+     *
+     * Both hazards are properties of an editor with **no scope**. With [scopeVariables] in hand the diff
+     * passes the full list again: the seed names a real variable (the one whose value the row actually
+     * carries, when there is one) instead of inventing `${out.D.11}`, and the row is judged live against
+     * the run's own values, so a wrong pick is a visible red, not a silent unjudged green.
      */
     types: List<String> = MATCHER_TYPES,
+    /**
+     * The run's variables, when the caller has a run in hand — the reference type then edits as a
+     * **picker over these names** (mistyping impossible, value visible) rather than a free-text field.
+     */
+    scopeVariables: List<ScenarioVariable> = emptyList(),
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         SlimDropdown(
             value = matcherTypeName(matcher),
             options = types,
-            onValueChange = { type -> type?.let { onChange(defaultMatcherForType(it, capturedValue)) } },
+            onValueChange = { type ->
+                type?.let { onChange(seededMatcherForType(it, capturedValue, scopeVariables)) }
+            },
             displayText = { it },
             itemText = { type -> MATCHER_HELP[type]?.let { "$type — $it" } ?: type },
             modifier = Modifier.width(90.dp),
@@ -118,12 +131,25 @@ fun MatcherEditor(
         // ONE slot, constant width, whatever the type — so the column has a straight edge and a row does
         // not change shape when its chip changes type. What each type needs is drawn inside it; a label
         // it used to wear beside the field ("pattern", "any of") is its field's placeholder now.
-        Box(modifier = Modifier.width(PARAMS_WIDTH)) { MatcherParams(matcher, onChange) }
+        Box(modifier = Modifier.width(PARAMS_WIDTH)) { MatcherParams(matcher, onChange, scopeVariables) }
     }
 }
 
+/**
+ * [defaultMatcherForType], except that a `reference` is seeded from the **scope** when one is in hand:
+ * the variable whose value this row actually carries (the correlation the author almost certainly
+ * means), else the first — never an invented `${out.D.11}`.
+ */
+private fun seededMatcherForType(type: String, value: String, scopeVariables: List<ScenarioVariable>): Matcher =
+    if (type == "reference" && scopeVariables.isNotEmpty()) {
+        val match = scopeVariables.firstOrNull { it.value == value } ?: scopeVariables.first()
+        Matcher.Reference("\${${match.name}}")
+    } else {
+        defaultMatcherForType(type, value)
+    }
+
 @Composable
-private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit) {
+private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit, scopeVariables: List<ScenarioVariable> = emptyList()) {
     when (matcher) {
         is Matcher.Presence, is Matcher.Absent -> Unit
         is Matcher.Exact ->
@@ -153,14 +179,31 @@ private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit) {
                 }
             }
         }
-        is Matcher.Reference ->
-            SlimField(
-                matcher.expression,
-                { onChange(Matcher.Reference(it)) },
-                monospace = true,
-                placeholder = "\${...}",
-                modifier = Modifier.fillMaxWidth(),
-            )
+        is Matcher.Reference -> {
+            // A picker over the scope's names when the expression IS one of them — the name cannot be
+            // mistyped, and the value it held this run is right there in the menu row. An expression the
+            // scope cannot name (`${out.D.11}`, a hand-written form) keeps the free-text field: the picker
+            // must never eat an expression it could not have produced.
+            val scopeName = scopeVariables.firstOrNull { "\${${it.name}}" == matcher.expression.trim() }
+            if (scopeName != null) {
+                SlimDropdown(
+                    value = scopeName,
+                    options = scopeVariables,
+                    onValueChange = { picked -> picked?.let { onChange(Matcher.Reference("\${${it.name}}")) } },
+                    displayText = { "\${${it.name}}" },
+                    itemText = { "\${${it.name}} = ${shortValue(it.value)}" },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                SlimField(
+                    matcher.expression,
+                    { onChange(Matcher.Reference(it)) },
+                    monospace = true,
+                    placeholder = "\${...}",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
         is Matcher.OneOf ->
             SlimField(
                 matcher.values.joinToString(","),

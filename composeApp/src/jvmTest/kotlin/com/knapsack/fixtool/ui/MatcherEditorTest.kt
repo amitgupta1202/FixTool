@@ -15,6 +15,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.validationError
 import org.junit.Rule
 import org.junit.Test
@@ -83,6 +84,69 @@ class MatcherEditorTest {
     @Test
     fun `an empty captured value still seeds a usable pattern`() {
         assertEquals(Matcher.Regex(".*"), defaultMatcherForType("regex", ""))
+    }
+
+    // ----- reference, with a scope in hand ---------------------------------------------------------------
+
+    /**
+     * With the run's variables supplied, switching a row to `reference` seeds the variable whose value the
+     * row actually carries — never the invented `${out.D.11}` — and the expression edits as a **picker**
+     * over the scope's names, so the name cannot be mistyped and each menu row shows what it held.
+     */
+    @Test
+    fun `with a scope, reference seeds the matching variable and edits as a picker`() {
+        val scope =
+            listOf(
+                ScenarioVariable("id0", "OTHER"),
+                ScenarioVariable("id1", "8"), // the captured value — the correlation the author means
+            )
+        var last: Matcher = Matcher.Exact("8")
+        composeTestRule.setContent {
+            var matcher by remember { mutableStateOf<Matcher>(Matcher.Exact("8")) }
+            Box(modifier = Modifier.size(620.dp, 90.dp).background(AppTheme.Colors.surface).padding(8.dp)) {
+                MatcherEditor(
+                    matcher = matcher,
+                    capturedValue = "8",
+                    scopeVariables = scope,
+                    onChange = {
+                        matcher = it
+                        last = it
+                    },
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("exact").performClick()
+        composeTestRule.onNodeWithText("reference", substring = true).performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(
+            Matcher.Reference("\${id1}"),
+            last,
+            "the seed is the variable whose value this row carries, not a hardcoded history expression",
+        )
+        snapshot("matcher_editor_reference_picker.png")
+
+        // The expression is now a picker: open it and choose the other variable — by name, values shown.
+        composeTestRule.onNodeWithText("\${id1}").performClick()
+        composeTestRule.onNodeWithText("\${id0} = OTHER", substring = true).performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(Matcher.Reference("\${id0}"), last)
+    }
+
+    /** An expression the scope cannot name keeps the free-text field — the picker must not eat it. */
+    @Test
+    fun `a history expression stays free text even when a scope is present`() {
+        composeTestRule.setContent {
+            Box(modifier = Modifier.size(620.dp, 90.dp).background(AppTheme.Colors.surface).padding(8.dp)) {
+                MatcherEditor(
+                    matcher = Matcher.Reference("\${out.D.11}"),
+                    capturedValue = "8",
+                    scopeVariables = listOf(ScenarioVariable("id0", "A1")),
+                    onChange = {},
+                )
+            }
+        }
+        composeTestRule.onNode(hasSetTextAction()).assertTextContains("\${out.D.11}")
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")

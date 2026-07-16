@@ -152,4 +152,57 @@ class ExpectationSeederTest {
         assertTrue(matcher is Matcher.Temporal, "MDEntryDate(272) UTCDATEONLY should still seed Temporal, got $matcher")
         assertEquals(TemporalKind.TODAY, (matcher as Matcher.Temporal).kind)
     }
+
+    /**
+     * FixTool is generic: RFQ, market data and post-trade venues mint their own ids exactly the way an
+     * order venue mints OrderID/ExecID. Seeded Exact, every captured scenario in those flows failed its
+     * own first replay — deterministically, because a fresh QuoteID per Quote is what a quoting venue is.
+     */
+    @Test
+    fun `venue-assigned ids across RFQ, MD and post-trade seed Presence, not Exact`() {
+        val seeded =
+            ExpectationSeeder.seedDetailed(
+                listOf(
+                    117 to "Q-778201", // QuoteID — fresh per Quote
+                    278 to "MDE-1", // MDEntryID — fresh per snapshot
+                    19 to "EXEC-PREV", // ExecRefID — the venue's own prior ExecID
+                    198 to "SO-4", // SecondaryOrderID
+                    527 to "SE-9", // SecondaryExecID
+                    880 to "MATCH-1", // TrdMatchID
+                    1003 to "TRD-55", // TradeID
+                ),
+                dictionary,
+            )
+
+        seeded.forEach { sf ->
+            assertTrue(
+                sf.field.matcher is Matcher.Presence,
+                "tag ${sf.field.tag} is venue-assigned and must seed Presence, got ${sf.field.matcher}",
+            )
+        }
+    }
+
+    /**
+     * A quote/order lifetime is deliberately NOT ~now — Temporal reds any quote living longer than the
+     * tolerance, Exact reds everything for ever. Presence: that the venue says how long it is good for
+     * is the behaviour; the stamp itself belongs to the venue's clock and this moment.
+     */
+    @Test
+    fun `ValidUntilTime and ExpireTime seed Presence, not Temporal`() {
+        val seeded =
+            ExpectationSeeder.seedDetailed(
+                listOf(
+                    62 to "20260716-10:10:00.000", // ValidUntilTime
+                    126 to "20260716-16:30:00.000", // ExpireTime
+                ),
+                dictionary,
+            )
+
+        seeded.forEach { sf ->
+            assertTrue(
+                sf.field.matcher is Matcher.Presence,
+                "tag ${sf.field.tag} is a lifetime stamp and must seed Presence, got ${sf.field.matcher}",
+            )
+        }
+    }
 }

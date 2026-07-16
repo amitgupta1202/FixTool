@@ -7,7 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -90,13 +93,17 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 running = running,
                 result = result,
                 dictionary = viewModel.dictionary,
-                route = remember(result) { result?.firstFailure()?.let { viewModel.reconcileRoute(it) } },
+                // Keyed on the STORE as well as the result: the route consults the file on disk, so a save or
+                // a delete changes the answer without changing the result — a route remembered on the result
+                // alone kept offering a button into a scenario that was already gone.
+                route = remember(result, scenarios) { result?.firstFailure()?.let { viewModel.reconcileRoute(it) } },
                 onReconcile = { result?.firstFailure()?.let { viewModel.openReconcile(it) } },
+                onDismiss = { viewModel.dismissRunResult() },
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             )
             if (scenarios.isEmpty()) {
                 Text(
-                    "No scenarios yet. Drive a flow in a session (by hand or over the MCP tools), then Capture from sessions.",
+                    "No scenarios yet. Drive a flow in a session, then Capture from sessions.",
                     color = AppTheme.Colors.textDisabled,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(8.dp),
@@ -181,7 +188,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
                 // judged at all.
                 unreached = ranThis && !run.running && run.result != null && stepResult == null,
                 route =
-                    remember(run.result, scenario) {
+                    remember(run.result, scenario, stepResult) {
                         stepResult?.takeIf { !it.passed }?.let { viewModel.reconcileRoute(it) }
                     },
                 onReconcile = { stepResult?.let { viewModel.openReconcile(it) } },
@@ -242,6 +249,7 @@ internal fun resultFor(result: ScenarioResult?, scenario: Scenario, index: Int):
     return steps.firstOrNull { it.phase == "steps" && it.stepIndex == index && it.stepId.isNullOrBlank() }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RailHeader(
     running: Boolean,
@@ -270,7 +278,13 @@ private fun RailHeader(
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+        // A FLOW row: the rail is narrow and this used to be a Row that ran out of width and clipped its
+        // last button to "Fo". Buttons that don't fit wrap to the next line instead of being amputated.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
+        ) {
             SlimButton(
                 "Capture from sessions…",
                 onClick = onCapture,
@@ -282,10 +296,8 @@ private fun RailHeader(
             SlimButton("Paste wire…", onClick = onPasteCapture, modifier = Modifier.testTag("rail-paste"))
             SlimButton("New", onClick = onNew, modifier = Modifier.testTag("rail-new"))
             SlimButton("Folder", onClick = onOpenFolder)
-        }
-        // The plain diff viewer's own front door: two empty slots, each a session pick or a paste. Distinct
-        // from a scenario capture — it diffs two messages and asserts nothing (Phase 7 entry point).
-        Row(modifier = Modifier.padding(bottom = 4.dp)) {
+            // The plain diff viewer's own front door: two empty slots, each a session pick or a paste. Distinct
+            // from a scenario capture — it diffs two messages and asserts nothing (Phase 7 entry point).
             SlimButton(
                 "⇄ Diff messages…",
                 onClick = onDiffMessages,
@@ -342,7 +354,9 @@ private fun ScenarioRailRow(
             SlimButton("Delete", onClick = onConfirmDelete, color = AppTheme.Colors.error, modifier = Modifier.testTag("confirm-delete"))
             SlimButton("Cancel", onClick = onCancelDelete, color = AppTheme.Colors.textSecondary)
         } else {
-            Text(stepCount, color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
+            // Start padding too: the name column ends flush against this, and a name long enough to fill it
+            // read straight into the count ("…regression1/2").
+            Text(stepCount, color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(start = 6.dp, end = 2.dp))
             RailIcon(
                 Icons.Default.PlayArrow,
                 "Run",
@@ -353,6 +367,9 @@ private fun ScenarioRailRow(
             )
             RailIcon(Icons.Default.Edit, "Edit", AppTheme.Colors.textSecondary, onEdit, tag = "edit-${scenario.id}")
             RailIcon(Icons.Default.ContentCopy, "Duplicate", AppTheme.Colors.textSecondary, onDuplicate)
+            // A breath before the destructive one: Delete sat flush against Duplicate at 18dp targets, and
+            // the inline confirm is a net, not a licence to invite the misclick.
+            Spacer(Modifier.width(4.dp))
             RailIcon(Icons.Default.Delete, "Delete", AppTheme.Colors.error, onRequestDelete, tag = "delete-${scenario.id}")
         }
     }
@@ -422,6 +439,8 @@ private fun StepRailRow(
                 color = if (unreached) AppTheme.Colors.textDisabled else AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 maxLines = 1,
+                // Ellipsis, not the hard clip that cut "· 17 tags" to "· 17" against the Reconcile button.
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             if (route is FixMessageViewModel.ReconcileRoute.Open) {
@@ -456,25 +475,59 @@ private fun RunStatusLine(
     dictionary: FixDictionary?,
     route: FixMessageViewModel.ReconcileRoute?,
     onReconcile: () -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when {
         running -> Text("Running…", color = AppTheme.Colors.info, fontSize = 11.sp, modifier = modifier)
         result != null ->
             Column(modifier = modifier) {
-                val passedSteps = result.steps.count { it.passed }
+                // The `steps` phase only — the same count the scenario's own row shows. This used to count
+                // setup/teardown too, so the two said "4/5" and "3/4" about the same run, one above the other.
+                val stepResults = result.steps.filter { it.phase == "steps" }
+                val passedSteps = stepResults.count { it.passed }
                 val color = if (result.passed) AppTheme.Colors.success else AppTheme.Colors.error
                 val verdict = if (result.passed) "PASSED" else "FAILED"
-                Text("Last run — ${result.scenario}: $verdict ($passedSteps/${result.steps.size} steps).", color = color, fontSize = 11.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Last run — ${result.scenario}: $verdict ($passedSteps/${stepResults.size} steps).",
+                        color = color,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // The report can always be put down. Without this, a red banner nobody can act on any
+                    // more (or one that has simply been read) sat at the head of the rail until the next run.
+                    TooltipIconButton(
+                        tooltip = "Dismiss this run report (clears the grid's red/green rows too)",
+                        onClick = onDismiss,
+                        modifier = Modifier.size(16.dp).testTag("dismiss-run-report"),
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Dismiss run report",
+                            tint = AppTheme.Colors.textSecondary,
+                            modifier = Modifier.size(11.dp),
+                        )
+                    }
+                }
                 val firstFailure = result.firstFailure()
                 if (firstFailure != null) {
                     val failedTags = firstFailure.tags.filterNot { it.passed }
                     val tagText =
                         failedTags.take(4).joinToString(", ") { t ->
-                            val name = dictionary?.getFieldName(t.tag)?.let { " $it" } ?: ""
-                            "${t.tag}$name"
+                            // "(?)" and not silence: "failed tags: 6, 31 LastPx" reads as if 6 were a count
+                            // or a typo. The dictionary not knowing a tag is a fact worth one glyph.
+                            val name = dictionary?.getFieldName(t.tag) ?: "(?)"
+                            "${t.tag} $name"
                         } + (if (failedTags.size > 4) " +${failedTags.size - 4} more" else "")
-                    val where = if (firstFailure.stepIndex < 0) firstFailure.kind else "step ${firstFailure.stepIndex + 1} ${firstFailure.kind}"
+                    // A failure outside the main phase says WHICH phase — "step 1 clear" for a setup step
+                    // pointed the author at the wrong list entirely.
+                    val where =
+                        when {
+                            firstFailure.stepIndex < 0 -> firstFailure.kind
+                            firstFailure.phase != "steps" -> "${firstFailure.phase} ${firstFailure.kind}"
+                            else -> "step ${firstFailure.stepIndex + 1} ${firstFailure.kind}"
+                        }
                     val detail = firstFailure.detail?.let { " ($it)" } ?: ""
                     Text(
                         text = "First failure: $where$detail" + (if (failedTags.isNotEmpty()) " — failed tags: $tagText" else ""),

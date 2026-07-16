@@ -63,10 +63,13 @@ private fun NotificationPopup(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Auto-dismiss after 10 seconds
+    // Auto-dismiss after 10 seconds — except errors. An error that vanishes while the author is looking
+    // away is an error that never happened: there is no notification history to find it in again.
     LaunchedEffect(notification.id) {
-        delay(10000)
-        onDismiss()
+        if (notification.type != NotificationType.ERROR) {
+            delay(10000)
+            onDismiss()
+        }
     }
 
     val (backgroundColor, borderColor, icon, iconTint) = getNotificationStyle(notification.type)

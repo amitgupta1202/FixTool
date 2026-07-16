@@ -159,7 +159,7 @@ class EditOp(
 }
 
 /** What the gutter may offer on a line — and it may offer nothing the engine would refuse. */
-enum class OfferKind { ACCEPT_ACTUAL, ASSERT_IT, ASSERT_ABSENT, DROP }
+enum class OfferKind { ACCEPT_ACTUAL, LOOSEN, ASSERT_IT, ASSERT_ABSENT, DROP }
 
 /** One gutter control: its glyph, what it says when hovered, and the edit it would stage. */
 data class Offer(
@@ -678,6 +678,11 @@ class ReconcileSession(
                             ),
                         )
                     }
+                    // The repair Accept-actual is NOT: a fill price that varies per run re-pinned to this
+                    // run's value is red again on the next one. This is the one-click answer for a value
+                    // that is allowed to move — explicit, staged and undoable, never seeded by default,
+                    // because a silent tolerance on a price is a regression the scenario stops catching.
+                    loosenOffer(index, row)?.let { add(it) }
                     add(dropOffer(index, row.tag))
                 }
                 TagStatus.MISSING -> {
@@ -697,6 +702,44 @@ class ReconcileSession(
             }
         }
     }
+
+    /**
+     * `±` — widen this row to a numeric band that covers both the expectation and the reply, for a value
+     * that legitimately varies per run (a fill price, a remaining quantity). Offered only where both sides
+     * are numbers and the matcher is Exact/Numeric; the arithmetic runs on the decimal *strings*, because a
+     * double subtraction would put `0.9149000000000001` in the tooltip and then in the scenario file.
+     */
+    private fun loosenOffer(index: Int, row: ScenarioReconcile.Row): Offer? {
+        val actualText = row.actual ?: return null
+        val expectedText =
+            when (val m = row.matcher) {
+                is Matcher.Exact -> m.value
+                is Matcher.Numeric -> decimalText(m.expected)
+                else -> return null
+            }
+        val expected = expectedText.toBigDecimalOrNull() ?: return null
+        val actual = actualText.toBigDecimalOrNull() ?: return null
+        if (expected.compareTo(actual) == 0) return null
+        val tolerance = (expected - actual).abs().stripTrailingZeros()
+        val matcher = Matcher.Numeric(expected.toDouble(), tolerance.toDouble())
+        return Offer(
+            OfferKind.LOOSEN,
+            "±",
+            "Loosen — ${expected.toPlainString()} ± ${tolerance.toPlainString()} covers both sides, " +
+                "for a value that varies per run (a fill price, a remaining quantity)",
+            EditOp.loosen(index, row.tag, matcher),
+        )
+    }
+
+    /** A double as the decimal it came from: no trailing `.0` on an integer, no scientific notation. */
+    private fun decimalText(d: Double): String =
+        if (d == d.toLong().toDouble()) {
+            d.toLong().toString()
+        } else {
+            // Via toString (shortest round-trip decimal), never BigDecimal(double) — which would expand
+            // 1.9999 to its full binary form and put fifty digits in the tooltip.
+            java.math.BigDecimal(d.toString()).stripTrailingZeros().toPlainString()
+        }
 
     /**
      * Dropping a row of a **repeated** tag takes the tag's rows with it, all of them — or the survivors would

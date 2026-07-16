@@ -43,6 +43,15 @@ data class ScenarioDraft(
                 .withIds()
                 .asEditorSeed()
                 .let { ScenarioDraft(it, it) }
+
+        /**
+         * A draft that is **not on disk yet** — a capture the author has not chosen to keep. Its seed is the
+         * scenario with no steps, so it is dirty from the first frame: Save writes it (and re-seeds from
+         * disk, going clean), and closing its last view asks first instead of silently discarding a capture
+         * the author may have spent a whole flow producing.
+         */
+        fun ofUnsaved(scenario: Scenario): ScenarioDraft =
+            of(scenario).let { it.copy(seed = it.seed.copy(steps = emptyList(), setup = emptyList(), teardown = emptyList())) }
     }
 }
 
@@ -111,7 +120,10 @@ sealed interface ScenarioDoc {
         override val glyph: String get() = "⧉"
         override val scenarioId: String? get() = null
 
-        val title: String get() = state.name.ifBlank { "capture" }.let { "capture: $it" }
+        // Never "capture: capture": a blank name falls back to the source, not to the tab's own kind.
+        val title: String get() =
+            state.name.takeIf { it.isNotBlank() }?.let { "capture: $it" }
+                ?: if (paste != null) "paste capture" else "capture"
         val dirty: Boolean
             get() = state != CaptureReviewState.of(scan.candidates.size) || paste?.text?.isNotBlank() == true
 

@@ -61,6 +61,7 @@ import com.knapsack.fixtool.ui.diff.DiffViewerState
 import com.knapsack.fixtool.ui.diff.ReconcileSession
 import com.knapsack.fixtool.ui.diff.SeedFrom
 import com.knapsack.fixtool.ui.diff.ViewerSlot
+import com.knapsack.fixtool.ui.sessionOrNull
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -200,6 +201,32 @@ class FixMessageViewModel(
      */
     fun noteScenarioRun(scenario: Scenario) {
         _lastRunScenario.value = scenario.withIds()
+        // Which sessions this run is ABOUT — the report's lifetime is tied to theirs (closing one of them
+        // closes the question the report answers). A step with no session runs on whatever is active NOW,
+        // so that title is resolved here, at run start; it is unknowable later.
+        val all = scenario.setup + scenario.steps + scenario.teardown
+        val named = all.mapNotNull { it.sessionOrNull() }
+        val active = if (all.any { it.sessionOrNull() == null }) _activeSessionState.value?.title else null
+        lastRunSessionTitles = (named + listOfNotNull(active)).toSet()
+    }
+
+    /** The sessions the last run touched — see [noteScenarioRun]. Drives [closeSession]'s report invalidation. */
+    private var lastRunSessionTitles: Set<String> = emptySet()
+
+    /**
+     * **Clear the last run's report and every overlay hanging off it** — the status line, the rail verdicts,
+     * and the session grid's red/green rows.
+     *
+     * Called by the rail's dismiss ✕, and by the two events that make the report a claim about nothing:
+     * deleting the scenario it names, and closing a session it ran against. A report that outlives its
+     * subject is not history, it is a standing accusation nobody can act on — the Reconcile button it
+     * carries routes to a scenario or a message that no longer exists.
+     */
+    fun dismissRunResult() {
+        _scenarioResult.value = null
+        _lastRunScenario.value = null
+        _assertionResults.value = emptyMap()
+        lastRunSessionTitles = emptySet()
     }
 
     /**
@@ -410,6 +437,13 @@ class FixMessageViewModel(
     }
 
     // ---- The diff window's lifecycle: open-or-focus, close, and the dirty-last-view confirm (F4, F6) --------
+
+    /**
+     * The size the author last left a diff frame at (reconcile or viewer). Each window keys its own
+     * `rememberWindowState`, so without this every open lands back at the 1100×900 default and a resize
+     * never outlives the window it was made in. Session-scoped on purpose — not persisted settings.
+     */
+    var preferredDiffWindowSize: androidx.compose.ui.unit.DpSize? = null
 
     /**
      * Close a diff window — and drop the scenario's draft if this was its last view (F4). The armed slot, if it
@@ -1156,7 +1190,6 @@ class FixMessageViewModel(
             )
             return
         }
-        val id = saveCapturedSelection("Captured scenario", scan.candidates) ?: return
         // A message FixTool has no wire bytes for is one the scenario will not cover — said, not dropped, or the
         // author is handed a test that looks complete and is not. In practice empty: QuickFIX/J keeps its bytes.
         if (scan.unreadable.isNotEmpty()) {
@@ -1166,7 +1199,27 @@ class FixMessageViewModel(
                 NotificationType.WARNING,
             )
         }
-        scenarioService.load(id)?.let { openScenarioEditor(it) }
+        // A DRAFT, not a file. This used to save first and open the editor second, which grew a pile of
+        // identical "Captured scenario" files out of every curious click — the author never asked for a
+        // file, they asked to look. The editor opens dirty (the draft's seed is empty), so the capture
+        // reaches disk when they Save it and asks before being discarded, like every other unsaved edit.
+        val scenario =
+            ScenarioCapture.captureFrom(
+                id = UUID.randomUUID().toString(),
+                name = ScenarioCapture.defaultName(),
+                profile = null,
+                selection = scan.candidates,
+                dictionary = dictionary,
+            )
+        openUnsavedScenarioEditor(scenario)
+    }
+
+    /** Open the editor on a scenario that is not on disk yet — dirty from the start, so closing it asks. */
+    private fun openUnsavedScenarioEditor(scenario: Scenario) {
+        if (!_openScenarios.value.containsKey(scenario.id)) {
+            _openScenarios.value = _openScenarios.value + (scenario.id to ScenarioDraft.ofUnsaved(scenario))
+        }
+        openScenarioEditor(scenario)
     }
 
     /**
@@ -1256,6 +1309,9 @@ class FixMessageViewModel(
         documentsOf(id).forEach { closeDocument(it.id) }
         // The diff windows are views of the scenario too (F4) — a window onto a file that is gone is a trap.
         _openDiffWindows.value.filter { it.scenarioId == id }.forEach { closeDiffWindow(it.id) }
+        // And so is the run report: a FAILED banner for a scenario that no longer exists is a standing
+        // accusation with a Reconcile button that routes nowhere.
+        if (_lastRunScenario.value?.id == id) dismissRunResult()
     }
 
     fun duplicateScenario(scenario: Scenario) {
@@ -1342,7 +1398,8 @@ class FixMessageViewModel(
         val saved =
             scenarioService.load(ranScenario.id)
                 ?: return ReconcileRoute.Refused(
-                    "Scenario '${ranScenario.name}' is not saved — there are no assertions on disk to reconcile.",
+                    "Scenario '${ranScenario.name}' is no longer on disk — deleted, or never saved — so " +
+                        "there are no assertions to reconcile.",
                 )
         // Which step ran here — by identity. The result's own id where it has one; otherwise the id of the
         // step that sat at its index in the scenario that ran, which is the same thing by construction
@@ -1797,6 +1854,13 @@ class FixMessageViewModel(
 
     fun closeSession(index: Int) {
         if (index in _sessions.indices) {
+            // The run report is a claim about this session's log. Closing the session closes the question:
+            // the failed message is gone, the Reconcile route would refuse, and the banner would just sit
+            // there accusing a log nobody can look at any more.
+            if (_scenarioResult.value != null && _sessions[index].title in lastRunSessionTitles) {
+                dismissRunResult()
+            }
+
             // Remove this session from its profile's group mapping
             profileToSessionMap.values.forEach { indices -> indices.removeAll { it == index } }
             profileToSessionMap.entries.removeIf { it.value.isEmpty() }
@@ -3480,6 +3544,9 @@ class FixMessageViewModel(
         type: NotificationType = NotificationType.ERROR,
     ) {
         logger.info("Showing notification: [$type] $message")
+        // One balloon per message: a scenario whose every Send trips the same dictionary lint used to
+        // stack the identical warning once per step, per run.
+        if (_notifications.any { it.message == message && it.type == type }) return
         val notification =
             Notification(
                 message = message,

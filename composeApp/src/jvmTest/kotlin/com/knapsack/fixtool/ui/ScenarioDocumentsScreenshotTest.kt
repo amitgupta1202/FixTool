@@ -278,11 +278,14 @@ class ScenarioDocumentsScreenshotTest {
     }
 
     /**
-     * Capture review as a document: the session grid it was scanned from is a tab away, not a window away.
-     * Its curation lives in the document, so the trip to that grid and back cannot discard it.
+     * The toolbar capture goes straight into the editor — as a **draft**. Nothing reaches disk until Save:
+     * the click-to-look used to write a "Captured scenario" file every time, and the store filled with
+     * identical twins nothing but a step count could tell apart. The draft is the scenario's, not the
+     * tab's, so the trip to the session grid and back cannot discard it — and it opens dirty, so closing
+     * its last view asks first.
      */
     @Test
-    fun `capture review is a document, and its curation survives the trip to the grid`() {
+    fun `toolbar capture opens an unsaved editor draft, and nothing reaches disk until Save`() {
         val session = viewModel.createSessionForTest("QUOTE")
         listOf(
             "8=FIX.4.435=D11=ORD-155=EUR/USD10=000" to FixMessage.Direction.OUTGOING,
@@ -305,31 +308,31 @@ class ScenarioDocumentsScreenshotTest {
 
         composeTestRule.onNodeWithTag("rail-capture").performClick()
         composeTestRule.waitForIdle()
-        assertTrue(viewModel.activeDocument is ScenarioDoc.Capture, "capture opened as a document")
-        composeTestRule.onNodeWithTag("capture-name").performTextReplacement("rfq")
 
-        // Selecting a candidate selects the message it was scanned FROM, in its session grid and the detail
-        // panel. That link is the reason capture is a tab and not a window: in a window there was nothing on
-        // the other end of it.
-        composeTestRule.onNodeWithTag("candidate-1").performClick()
-        composeTestRule.waitForIdle()
-        assertTrue(viewModel.selectedMessage.value?.messageType == "8", "the ExecutionReport is selected in the grid")
+        val doc = viewModel.activeDocument
+        assertTrue(doc is ScenarioDoc.Editor, "capture opened the editor, got $doc")
+        val scenarioId = (doc as ScenarioDoc.Editor).scenarioId
+        assertTrue(
+            viewModel.scenarioService.load(scenarioId) == null,
+            "nothing reached disk — the author has not chosen to keep this",
+        )
+        val draft = viewModel.scenarioDraft(scenarioId)
+        assertTrue(draft != null && draft.dirty, "the draft opens dirty, so closing its last view asks first")
+        assertTrue(draft!!.draft.steps.size == 2, "both messages became steps, got ${draft.draft.steps.size}")
+        assertTrue(draft.draft.name.startsWith("Capture "), "named by time, not a fixed twin-maker: '${draft.draft.name}'")
+        snapshot("capture_to_editor_unsaved_draft.png")
 
-        composeTestRule.onNodeWithTag("candidate-check-0").performClick() // untick the send
-        composeTestRule.waitForIdle()
-        snapshot("phase2_document_tab_capture.png")
-
-        val curated = (viewModel.activeDocument as ScenarioDoc.Capture).state
-        assertTrue(!curated.includes(0) && curated.includes(1), "the untick landed in the document")
-
-        // The whole point of it being a tab: go and look at the grid it came from, and come back.
+        // The whole point of the draft living on the scenario: a glance at the grid and back loses nothing.
         viewModel.showSessions()
         composeTestRule.waitForIdle()
-        viewModel.focusDocument(ScenarioDoc.CAPTURE_ID)
+        viewModel.focusDocument(ScenarioDoc.editorId(scenarioId))
         composeTestRule.waitForIdle()
+        assertTrue(viewModel.scenarioDraft(scenarioId)!!.draft == draft.draft, "the draft survived the trip")
 
-        assertTrue((viewModel.activeDocument as ScenarioDoc.Capture).state == curated, "the curation survived")
-        composeTestRule.onNodeWithTag("capture-name").assertTextContains("rfq")
+        // Save is the author choosing to keep it: the file appears, and the draft goes clean.
+        assertTrue(viewModel.saveScenario(scenarioId))
+        assertTrue(viewModel.scenarioService.load(scenarioId) != null, "Save wrote it")
+        assertTrue(viewModel.scenarioDraft(scenarioId)?.dirty == false, "and the tab went clean")
     }
 
     /**

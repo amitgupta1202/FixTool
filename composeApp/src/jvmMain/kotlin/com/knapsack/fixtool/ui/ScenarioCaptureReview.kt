@@ -3,8 +3,6 @@
 
 package com.knapsack.fixtool.ui
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,11 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
@@ -30,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -148,7 +143,7 @@ fun ScenarioCaptureReview(
             )
             SlimButton(
                 text = "Save scenario",
-                onClick = { onSave(name.ifBlank { "Captured scenario" }, selection) },
+                onClick = { onSave(name.ifBlank { ScenarioCapture.defaultName() }, selection) },
                 // **An undirected row cannot be saved.** A reply mis-marked as a Send becomes a step that
                 // asserts NOTHING — the scenario sends the venue's own reply back at it and reports green — so
                 // a direction nobody has settled blocks the save by name rather than defaulting into silence.
@@ -174,7 +169,13 @@ fun ScenarioCaptureReview(
         UnreadableNotice(unreadable, dictionary)
         if (candidates.isEmpty()) {
             Text(
-                "Nothing to capture: no business messages in any session. Drive the flow in the main window first.",
+                // The paste review's messages come from the paste box, not the sessions — telling its author
+                // to "drive the flow in the main window" sent them away from the flow they were in.
+                if (paste != null) {
+                    "Nothing captured yet — paste wire above, one message per line."
+                } else {
+                    "Nothing to capture: no business messages in any session. Drive the flow in the main window first."
+                },
                 color = AppTheme.Colors.textDisabled,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(12.dp),
@@ -376,28 +377,15 @@ private fun RangeSelectors(
 /**
  * The "what this becomes" explanation, folded behind an ⓘ so it costs one glyph of space instead of a
  * two-line paragraph. Hover reveals the full text — the same words the screen used to spend a row on.
+ * The editor's sections fold their guidance the same way ([HintIcon]), so one habit reads everywhere.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CaptureHelp() {
-    TooltipArea(
-        tooltip = {
-            Text(
-                text = "Sends become parameterized Send steps (fresh ids, live timestamps); responses become " +
-                    "assertions.\n\n●id marks where an id is minted, ○id where it must echo back — including across sessions.",
-                modifier = Modifier
-                    .shadow(4.dp, RoundedCornerShape(4.dp))
-                    .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-                    .widthIn(max = 360.dp),
-                color = AppTheme.Colors.text,
-                fontSize = 11.sp,
-            )
-        },
-        delayMillis = 300,
-    ) {
-        Text("ⓘ", color = AppTheme.Colors.info, fontSize = 14.sp, modifier = Modifier.testTag("capture-help"))
-    }
+    HintIcon(
+        "Sends become parameterized Send steps (fresh ids, live timestamps); responses become " +
+            "assertions.\n\n●id marks where an id is minted, ○id where it must echo back — including across sessions.",
+        modifier = Modifier.testTag("capture-help"),
+    )
 }
 
 @Composable
@@ -471,25 +459,37 @@ private fun SendPreview(
     val repeated = repeatedTags(candidate.fields)
     val occurrences = mutableMapOf<Int, Int>()
     var cursor = 0
+    val dropped = mutableListOf<Int>()
     candidate.fields.forEach { (tag, value) ->
         val occurrence = nextOccurrence(occurrences, tag)
         val replay = transformed.getOrNull(cursor)?.takeIf { it.first == tag }?.second
         if (replay != null) cursor++
+        // The payload leads. Six rows of "dropped (session/transport header)" before the first business
+        // field buried what the step actually sends; the drops are summarized in one line below.
+        if (replay == null) {
+            dropped += tag
+            return@forEach
+        }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
             TagAndName(tag, dictionary)
             OccurrenceLabel(occurrence, show = tag in repeated)
-            when {
-                replay == null ->
-                    Text("dropped (session/transport header)", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
-                replay == value ->
-                    Text(valueWithDescription(dictionary, tag, value), color = AppTheme.Colors.fieldValue, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
-                else -> {
-                    Text(value, color = AppTheme.Colors.textDisabled, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                    Text("  →  ", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
-                    ReplayChip(replay, varColors)
-                }
+            if (replay == value) {
+                Text(valueWithDescription(dictionary, tag, value), color = AppTheme.Colors.fieldValue, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
+            } else {
+                Text(value, color = AppTheme.Colors.textDisabled, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                Text("  →  ", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
+                ReplayChip(replay, varColors)
             }
         }
+    }
+    if (dropped.isNotEmpty()) {
+        Text(
+            "${dropped.size} session/transport header${if (dropped.size == 1) "" else "s"} dropped — " +
+                "re-stamped by the engine on send (${dropped.joinToString(", ")})",
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 10.sp,
+            modifier = Modifier.padding(top = 4.dp).testTag("send-preview-dropped"),
+        )
     }
 }
 
@@ -639,15 +639,22 @@ private fun PasteSource(
                 )
             }
         }
+        // A real text area: "one message per line" over a single-line field displayed the first line and
+        // silently hid the rest — the reader then refused "line 3" of a paste the author could not even see.
         SlimField(
             value = paste.text,
             onValueChange = { onChange(it, paste.session) },
+            monospace = true,
+            singleLine = false,
+            maxLines = 6,
+            placeholder = "8=FIX.4.4|9=…|35=D|…  — one message per line",
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp).testTag("capture-paste-field"),
         )
         // What could not be read, in the reader's own words. Never dropped on the floor — a capture is a claim
         // about coverage, and a silent omission turns a scenario that checks four of five replies into one
-        // that looks complete.
-        paste.refused.forEach { why ->
+        // that looks complete. GROUPED by reason: three lines refused for the same arithmetic used to print
+        // the same two-line lecture three times.
+        groupRefusals(paste.refused).forEach { why ->
             Text(
                 "✗ $why",
                 color = AppTheme.Colors.error,
@@ -656,6 +663,34 @@ private fun PasteSource(
             )
         }
     }
+}
+
+/**
+ * Refusals without the wall of red: `line 1: X`, `line 2: X` → `lines 1, 2: X`; and where the reasons differ
+ * only in their *fact* sentence ("…sum to 091" vs "…sum to 065") but share the lecture after it verbatim,
+ * later entries keep their fact and defer the lecture — three identical two-line paragraphs taught nothing
+ * the first one had not. First-seen order; a refusal not shaped `line N: ` passes through untouched.
+ */
+internal fun groupRefusals(refused: List<String>): List<String> {
+    val lineShape = Regex("^line (\\d+): (.+)$", RegexOption.DOT_MATCHES_ALL)
+    val byReason = linkedMapOf<String, MutableList<String>>()
+    val passthrough = mutableListOf<String>()
+    refused.forEach { entry ->
+        val match = lineShape.find(entry)
+        if (match == null) passthrough += entry else byReason.getOrPut(match.groupValues[2]) { mutableListOf() }.add(match.groupValues[1])
+    }
+    val seenLectures = mutableMapOf<String, String>()
+    return byReason.map { (reason, lines) ->
+        val label = if (lines.size == 1) "line ${lines.single()}" else "lines ${lines.joinToString(", ")}"
+        val sentenceEnd = reason.indexOf(". ")
+        val fact = if (sentenceEnd < 0) reason else reason.substring(0, sentenceEnd + 1)
+        val lecture = if (sentenceEnd < 0) "" else reason.substring(sentenceEnd + 2)
+        val saidAt = if (lecture.isBlank()) null else seenLectures.putIfAbsent(lecture, label)
+        when {
+            lecture.isBlank() || saidAt == null -> "$label: $reason"
+            else -> "$label: $fact (otherwise as $saidAt)"
+        }
+    } + passthrough
 }
 
 /**

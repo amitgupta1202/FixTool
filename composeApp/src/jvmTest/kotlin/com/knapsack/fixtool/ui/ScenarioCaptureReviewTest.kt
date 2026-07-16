@@ -227,4 +227,44 @@ class ScenarioCaptureReviewTest {
         composeTestRule.onNodeWithText("= 1").assertExists()
         composeTestRule.onNodeWithText("= 4").assertExists()
     }
+
+    // ----- groupRefusals: the refused lines without the wall of red --------------------------------------
+
+    @Test
+    fun `identical refusal reasons collapse to one entry naming every line`() {
+        val grouped =
+            groupRefusals(
+                listOf(
+                    "line 1: no MsgType(35) — this is not a message FixTool can replay",
+                    "line 2: no MsgType(35) — this is not a message FixTool can replay",
+                    "line 3: something else entirely",
+                ),
+            )
+        kotlin.test.assertEquals(
+            listOf(
+                "lines 1, 2: no MsgType(35) — this is not a message FixTool can replay",
+                "line 3: something else entirely",
+            ),
+            grouped,
+        )
+    }
+
+    @Test
+    fun `a shared lecture is said once - later refusals keep their fact and defer`() {
+        val lecture = "With a | delimiter that is what a pipe inside a value does. Paste the raw SOH bytes."
+        val grouped =
+            groupRefusals(
+                listOf(
+                    "line 1: CheckSum says 000, bytes sum to 091 — disproved. $lecture",
+                    "line 2: CheckSum says 000, bytes sum to 065 — disproved. $lecture",
+                ),
+            )
+        kotlin.test.assertEquals("line 1: CheckSum says 000, bytes sum to 091 — disproved. $lecture", grouped[0])
+        kotlin.test.assertEquals("line 2: CheckSum says 000, bytes sum to 065 — disproved. (otherwise as line 1)", grouped[1])
+    }
+
+    @Test
+    fun `a refusal not shaped line-N passes through untouched`() {
+        kotlin.test.assertEquals(listOf("free-form refusal"), groupRefusals(listOf("free-form refusal")))
+    }
 }

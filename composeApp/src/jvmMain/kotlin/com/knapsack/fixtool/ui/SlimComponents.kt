@@ -41,6 +41,14 @@ fun SlimField(
     monospace: Boolean = false,
     textColor: Color = AppTheme.Colors.text,
     tintBlank: Boolean = false,
+    /** Dim hint drawn inside an empty field — the slim replacement for a label that would shift the row. */
+    placeholder: String = "",
+    /**
+     * False = a real text area: the field grows with its lines (up to [maxLines]) instead of hiding every
+     * line but the first, which is what a single-line field silently does to a multi-line paste.
+     */
+    singleLine: Boolean = true,
+    maxLines: Int = 1,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -50,7 +58,7 @@ fun SlimField(
         onValueChange = onValueChange,
         modifier =
             modifier
-                .height(24.dp)
+                .let { if (singleLine) it.height(24.dp) else it.heightIn(min = 24.dp) }
                 .background(background, slimShape)
                 .border(1.dp, if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border, slimShape)
                 .padding(horizontal = 4.dp, vertical = 5.dp),
@@ -60,9 +68,24 @@ fun SlimField(
                 color = textColor,
                 fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
             ),
-        singleLine = true,
+        singleLine = singleLine,
+        maxLines = if (singleLine) 1 else maxLines.coerceAtLeast(2),
         cursorBrush = SolidColor(AppTheme.Colors.primary),
         interactionSource = interactionSource,
+        decorationBox = { inner ->
+            Box {
+                if (value.isEmpty() && placeholder.isNotEmpty()) {
+                    Text(
+                        placeholder,
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
+                    )
+                }
+                inner()
+            }
+        },
     )
 }
 

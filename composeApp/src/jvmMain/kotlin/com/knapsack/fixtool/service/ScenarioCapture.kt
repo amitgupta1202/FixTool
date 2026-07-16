@@ -42,6 +42,14 @@ object ScenarioCapture {
     data class CapturedSession(val title: String, val messages: List<FixMessage>)
 
     /**
+     * The name a capture wears until the author gives it one. Timestamped, because the fixed string this
+     * used to be ("Captured scenario") made every unnamed capture a twin of the last — a store full of
+     * files nothing but a step count could tell apart.
+     */
+    fun defaultName(now: java.time.LocalDateTime = java.time.LocalDateTime.now()): String =
+        "Capture " + now.format(java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm:ss"))
+
+    /**
      * One business message that capture *would* turn into a step: the row unit of the capture-review screen,
      * where the author curates the selection before anything is saved.
      *
@@ -160,14 +168,32 @@ object ScenarioCapture {
                     direction = directionFrom(read.fields, senderCompId, targetCompId),
                     messageType = type,
                     wire = wire,
-                    // A paste's own moment where it has one: its SendingTime(52). The order of the lines is
-                    // what a scenario replays, and it is the order they were pasted in.
-                    timestamp = at.plusNanos(index.toLong()),
+                    // A paste's own moment where it has one: its SendingTime(52) — three rows all stamped
+                    // with the instant of the paste tell the author nothing. Where 52 is absent or
+                    // unreadable, the paste moment (nudged per line, so the sort stays stable) stands in.
+                    timestamp = sendingTimeOf(read.fields) ?: at.plusNanos(index.toLong()),
                     fields = read.fields,
                     source = null,
                 )
         }
         return PastedScan(candidates, refused)
+    }
+
+    /** UTCTIMESTAMP formats a SendingTime(52) legitimately arrives in. */
+    private val SENDING_TIME_PATTERNS =
+        listOf(
+            "yyyyMMdd-HH:mm:ss.SSSSSSSSS",
+            "yyyyMMdd-HH:mm:ss.SSSSSS",
+            "yyyyMMdd-HH:mm:ss.SSS",
+            "yyyyMMdd-HH:mm:ss",
+        ).map { java.time.format.DateTimeFormatter.ofPattern(it) }
+
+    /** The message's own SendingTime(52), when it carries a readable one. */
+    private fun sendingTimeOf(fields: List<Pair<Int, String>>): java.time.LocalDateTime? {
+        val value = fields.firstOrNull { it.first == 52 }?.second ?: return null
+        return SENDING_TIME_PATTERNS.firstNotNullOfOrNull { fmt ->
+            runCatching { java.time.LocalDateTime.parse(value, fmt) }.getOrNull()
+        }
     }
 
     /** What a paste produced, and what it could not — the sentences the review prints. */

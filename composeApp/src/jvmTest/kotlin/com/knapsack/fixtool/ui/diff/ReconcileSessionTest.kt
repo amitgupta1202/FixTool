@@ -636,6 +636,40 @@ class ReconcileSessionTest {
         assertTrue(reJudged.row.passed, "loosened to cover both sides, so the row is green — not red by one ulp")
     }
 
+    /**
+     * **The ± is bound by the same single decider the fix plan consults** — `ExpectationSeeder.numericFamily`.
+     * PartyRole(452) asserted `4` and answered `1` is a role change, not drift: the plan proposes nothing for
+     * it, and the gutter must not hand the same band out by another door. `4 ± 3` accepts seven different
+     * meanings while reading like a tolerance — a permanent false green, one click wide. The price row in the
+     * same diff keeps its ±, so the withholding is the classification, not a lost feature.
+     */
+    @Test
+    fun `the loosen offer keeps the seed's counsel — no band on an enum-coded int`() {
+        val expectation =
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(452, Matcher.Exact("4")),
+                    FieldExpectation(44, Matcher.Exact("1.0850")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val message = wireView(35 to "8", 452 to "1", 44 to "1.0900")
+        val session = session(expectation, message)
+
+        val roleLine = session.model.lines.single { it.row.tag == 452 }
+        assertTrue(
+            roleLine.offers.none { it.glyph == "±" },
+            "a failing PartyRole is a role change, not drift — what the fix plan refuses, the gutter must not offer",
+        )
+        val priceLine = session.model.lines.single { it.row.tag == 44 }
+        assertTrue(
+            priceLine.offers.any { it.glyph == "±" },
+            "the price row keeps its ± — the withholding is per-family, not global",
+        )
+    }
+
     // ----- authoring on a step that passes ----------------------------------------------------------------
 
     /**

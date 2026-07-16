@@ -10,6 +10,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.ExpectationEvaluator
+import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.compare.Chunk
@@ -737,9 +738,17 @@ class ReconcileSession(
      * are numbers and the matcher is Exact/Numeric. The arithmetic lives in
      * [ScenarioReconcile.coveringBand], shared with the fix plan's bulk loosen — one decider for what
      * "covers both sides" means, including the decimal-vs-double ulp trap documented there.
+     *
+     * And an **Exact** earns a band only where the seed would have made one:
+     * [ExpectationSeeder.numericFamily] is the one decider of "may this field honestly carry a numeric
+     * tolerance", shared with [ScenarioReconcile.fixPlan] — so the gutter cannot hand out per-row what the
+     * plan refuses in bulk. PartyRole(452) failing `4` against `1` is a role change, not drift; `4 ± 3`
+     * over it accepts seven different meanings while reading like a tolerance, a false green one click
+     * wide. (A row that already *is* Numeric was classified when it became one; widening it stays offered.)
      */
     private fun loosenOffer(index: Int, row: ScenarioReconcile.Row): Offer? {
         val matcher = row.matcher ?: return null
+        if (matcher is Matcher.Exact && !ExpectationSeeder.numericFamily(row.tag, dictionary)) return null
         val band = ScenarioReconcile.coveringBand(matcher, row.actual) ?: return null
         return Offer(
             OfferKind.LOOSEN,

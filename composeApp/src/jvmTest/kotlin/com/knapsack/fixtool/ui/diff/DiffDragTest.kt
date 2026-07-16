@@ -289,9 +289,16 @@ class DiffDragTest {
     fun `a field the venue sent in another position is never called 'not sent'`() {
         composeTestRule.surface(handAuthored, venueOrder)
 
-        val orderId = session.model.lines.single { it.row.tag == 37 }
+        // Two lines carry tag 37 now: the unpaired row, and the ghost showing where the venue sent it.
+        val orderId = session.model.lines.single { it.row.tag == 37 && !it.row.ghost }
         assertTrue(orderId.rightIsGap, "it did not pair here — that is what being in the wrong place means")
         assertTrue("present, but not in this position" in orderId.row.reason, orderId.row.reason)
+
+        // ...and the field itself is not swallowed: the ghost faces it at its wire position.
+        assertTrue(
+            session.model.lines.single { it.row.ghost }.right?.tag == 37,
+            "the other end of the move is on screen",
+        )
 
         composeTestRule.onNodeWithTag("present-elsewhere").assertExists()
         composeTestRule.onAllNodesWithTag("not-sent").assertCountEquals(0)

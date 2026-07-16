@@ -998,7 +998,17 @@ private fun DiffRow(
 private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, handlers: DragHandlers) {
     if (line.leftIsGap) {
         Row(modifier = Modifier.fillMaxWidth().background(DiffPalette.gap).padding(start = (depth * 10).dp)) {
-            Text("not asserted", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, fontStyle = FontStyle.Italic)
+            // A ghost's gap carries the engine's own sentence — "sent here; the row asserting it is listed
+            // elsewhere" — in the same amber the moved row's right-hand gap speaks in, so the two ends of
+            // one move read as one story. "not asserted" here would accuse the author of not asserting a
+            // tag they plainly did.
+            Text(
+                if (line.row.ghost) line.row.reason else "not asserted",
+                color = if (line.row.ghost) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
+                fontSize = 10.sp,
+                fontStyle = FontStyle.Italic,
+                modifier = Modifier.testTag(if (line.row.ghost) "ghost-note" else "not-asserted-note"),
+            )
         }
         return
     }

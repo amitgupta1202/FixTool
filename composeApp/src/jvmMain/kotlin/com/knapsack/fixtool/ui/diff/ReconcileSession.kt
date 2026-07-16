@@ -729,6 +729,12 @@ class ReconcileSession(
         // nothing else. (Screenshots caught this; no assertion did, which is the argument for looking.)
         if (row.index in moved) return emptyList()
 
+        // A GHOST IS OFFERED NOTHING EITHER. It is the other end of a move: its tag is already asserted by
+        // the unpaired row, whose repairs are the honest ones (accept the new order, or drop the row — at
+        // which point this field stops being spoken for and earns the « like any extra). An « here would
+        // seed a second row contending for one field.
+        if (row.ghost) return emptyList()
+
         val index = row.index
         return buildList {
             if (row.unasserted && row.wireIndex != null) {

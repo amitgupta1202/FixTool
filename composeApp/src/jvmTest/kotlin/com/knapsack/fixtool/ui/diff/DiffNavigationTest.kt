@@ -127,7 +127,8 @@ class DiffNavigationTest {
     @Test
     fun `alt-down on an unasserted field is not a move at all`() {
         val s = session(outOfOrder, wireOrder)
-        val added = s.model.lines.single { it.leftIsGap }
+        // The ghost's left is a gap too — the genuine extra is the one that is not spoken for.
+        val added = s.model.lines.single { it.leftIsGap && !it.row.ghost }
         s.selection = assertNotNull(added.selection)
         assertIs<DiffSelection.Added>(s.selection)
 

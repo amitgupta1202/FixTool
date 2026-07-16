@@ -116,7 +116,7 @@ fun ScenarioStep.toEditStep(): EditStep =
 
 fun EditStep.toStep(): ScenarioStep =
     when (kind) {
-        StepKind.SEND -> ScenarioStep.Send(fields.joinToString("|", postfix = "|") { "${it.first}=${it.second}" }, session, stepId)
+        StepKind.SEND -> ScenarioStep.Send(FixMessageHelper.joinFields(fields), session, stepId)
         StepKind.WAIT -> ScenarioStep.Wait(session, state.ifBlank { null }, match, timeoutMs, stepId)
         StepKind.EXPECT -> ScenarioStep.Expect(session, direction, match, timeoutMs, expectation, stepId)
         StepKind.CLEAR -> ScenarioStep.ClearMessages(session, stepId)

@@ -147,6 +147,21 @@ object FixMessageHelper {
     const val SOH: Char = '\u0001'
 
     /**
+     * Joins fields into a raw string that [parseFixMessage] reads back to **the same fields**.
+     *
+     * `|` is the display substitution for SOH, and it is only faithful while no value carries a
+     * literal pipe: `58=filled|in full` pipe-joined re-parses as `58=filled` with the tail silently
+     * dropped — the write side of the very misread `WirePaste` refuses on the read side. Such a
+     * message is joined with SOH instead, which [delimiterOf] gives precedence, so the round-trip
+     * is exact. Everything that turns a field list back into a raw (capture's Send steps, the
+     * editor's write-back) must come through here rather than `joinToString("|")` its own answer.
+     */
+    fun joinFields(fields: List<Pair<Int, String>>): String {
+        val delimiter = if (fields.any { it.second.contains('|') }) SOH else '|'
+        return fields.joinToString("") { (tag, value) -> "$tag=$value$delimiter" }
+    }
+
+    /**
      * Best-effort fields **for rendering only**: the wire bytes when we have them, the lossy display
      * string when we do not. Never for assertions — the order may be QuickFIX's rather than the venue's,
      * and a `|` inside a value splits one field into two. See [wireFields].
@@ -292,7 +307,12 @@ object FixMessageHelper {
         return index
     }
 
-    fun String.toWireFixMessage() = this.replace('|', '\u0001')
+    /**
+     * Display → wire. A string that already carries SOH **is** wire: any `|` in it is a character
+     * inside a value, and replacing it would corrupt the one kind of value [joinFields] switches
+     * to SOH precisely to protect. Only a pipe-rendered string has pipes to substitute.
+     */
+    fun String.toWireFixMessage() = if (this.contains(SOH)) this else this.replace('|', SOH)
 
     fun String.toRawFixMessage() = this.replace('\u0001', '|')
 

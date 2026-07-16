@@ -825,7 +825,15 @@ private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDif
 private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onChange: (MatchPredicate?) -> Unit) {
     fun push(messageType: String?, fields: List<TagValue>, occurrence: Int? = match?.occurrence) {
         val normalized = MatchPredicate(messageType?.ifBlank { null }, match?.direction, fields, occurrence)
-        val empty = normalized.messageType == null && normalized.fields.isEmpty() && normalized.occurrence == null
+        // "Empty" must count every constraint the predicate carries — including the direction this form
+        // does not edit but does carry through. A direction-only predicate (match={direction:'out'}, an
+        // assertion on a message this side sent) collapsed to null here, and the step silently flipped to
+        // the default 'in' — consuming the venue's replies instead of the outgoing message.
+        val empty =
+            normalized.messageType == null &&
+                normalized.direction == null &&
+                normalized.fields.isEmpty() &&
+                normalized.occurrence == null
         onChange(if (empty) null else normalized)
     }
     // The lesson folded behind the ⓘ: it used to be a two-line standing paragraph that wrapped

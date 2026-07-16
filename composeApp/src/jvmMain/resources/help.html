@@ -2078,6 +2078,15 @@ stunnel stunnel.conf</code></pre>
         (<code>~now &plusmn;60s</code>), because accepting it pins the scenario to a moment that will never come
         again, and an <strong>echoed id</strong> (<code>${out.D.11}</code>), because accepting it deletes the
         correlation check. Loosen or drop those instead.</p>
+        <p>When the slot holds <em>this run</em>'s message, a <strong>VARIABLES strip</strong> above the diff
+        shows the run's scope &mdash; every <code>${id0}</code> the run minted, its actual value, and the step
+        that minted it. <strong>Reference rows are judged with it</strong>: <code>${id0}</code> shows a real
+        &#10003;/&#10007; against the run's own bytes instead of an unjudged &#9676;. Click a chip to highlight
+        every row that references the name or carries its value &mdash; the fastest answer to &ldquo;why did
+        this step bind to the wrong message&rdquo;. Against a golden or a paste there is no scope that
+        corresponds, so reference rows stay honestly unjudged. The editor shows the same strip for the whole
+        scenario, and warns there about a <code>${name}</code> that is referenced but never minted &mdash;
+        a typo the engine would otherwise send literally.</p>
         <p><strong>Authoring is the same window.</strong> A never-run step opens the identical diff against its
         golden &mdash; same rows, same gutter, same undo &mdash; so building an expectation and repairing one
         are one surface, not two.</p></li>

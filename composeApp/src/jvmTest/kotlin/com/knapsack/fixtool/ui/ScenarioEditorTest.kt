@@ -206,4 +206,38 @@ class ScenarioEditorTest {
         val after = dividerX()
         assertTrue(after > before + 100f, "dragging the divider right must widen the left pane: $before -> $after")
     }
+
+    // ----- the variables strip ----------------------------------------------------------------------------
+
+    /**
+     * The strip names the scenario's variables — with the last run's values when the host hands them in —
+     * and warns, in place, about a bare `${name}` nothing mints, which the engine would otherwise leave
+     * literal on the wire without a word said.
+     */
+    @Test
+    fun `the strip shows minted names with run values, and warns on a reference nothing mints`() {
+        val typoed =
+            scenario.copy(
+                steps =
+                    scenario.steps +
+                        ScenarioStep.Send("35=D|41=\${idO}|", "QUOTE"), // idO: a typo of id0
+            )
+        composeTestRule.setContent {
+            Box(modifier = Modifier.size(1200.dp, 700.dp).background(AppTheme.Colors.background).padding(10.dp)) {
+                ScenarioEditor(
+                    initial = typoed,
+                    dictionary = null,
+                    sessionOptions = listOf("QUOTE", "TRADE"),
+                    runVariables = listOf(com.knapsack.fixtool.model.scenario.ScenarioVariable("id0", "A1B2C3")),
+                    onSave = {},
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("variables-strip").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("variable-chip-id0").assertIsDisplayed()
+        composeTestRule.onNodeWithText("= A1B2C3", substring = true).assertIsDisplayed()
+        composeTestRule.onNodeWithText("never minted", substring = true).assertIsDisplayed()
+        snapshot("editor_variables_strip.png")
+    }
 }

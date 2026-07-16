@@ -32,6 +32,7 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -146,6 +147,7 @@ class DiffSurfaceTest {
         message: MessageView,
         provenance: ReferenceMessage.Provenance = ReferenceMessage.Provenance.THIS_RUN,
         label: String = "received — this run · 09:35:44",
+        variables: List<ScenarioVariable> = emptyList(),
         onEdit: (Expectation) -> Unit = {},
     ) {
         setContent {
@@ -157,7 +159,7 @@ class DiffSurfaceTest {
                 remember(Unit) {
                     ReconcileSession(
                         original = expectation,
-                        initialReference = ReferenceMessage.live(message, provenance, label, arrival),
+                        initialReference = ReferenceMessage.live(message, provenance, label, arrival, variables),
                         dictionary = dictionary,
                         onChange = {
                             expectation = it
@@ -638,5 +640,43 @@ class DiffSurfaceTest {
 
         composeTestRule.onAllNodesWithTag("entry-guessed").assertCountEquals(2)
         snapshot("diff_surface_heuristic_entry.png")
+    }
+
+    // ----- the variables strip --------------------------------------------------------------------------
+
+    /**
+     * **The strip shows the run's scope, and a chip click highlights the rows about it.** The `${id0}` row
+     * is judged (the scope is aboard the reference) and both the name-mention and the value-carry light up
+     * on the click; a second click puts it back. No scope → no strip at all, not an empty band.
+     */
+    @Test
+    fun `the variables strip shows the scope, and a chip click highlights the rows that carry it`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(11, Matcher.Reference("\${id0}")),
+                    FieldExpectation(150, Matcher.Exact("2")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val message = wireView(35 to "8", 11 to "A1B2", 150 to "2")
+        composeTestRule.surface(draft, message, variables = listOf(ScenarioVariable("id0", "A1B2")))
+
+        composeTestRule.onNodeWithTag("variables-strip").assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag("diff-row-highlighted").assertCountEquals(0)
+
+        composeTestRule.onNodeWithTag("variable-chip-id0").performClick()
+        composeTestRule.onAllNodesWithTag("diff-row-highlighted").assertCountEquals(1)
+        snapshot("diff_variables_strip_highlight.png")
+
+        composeTestRule.onNodeWithTag("variable-chip-id0").performClick()
+        composeTestRule.onAllNodesWithTag("diff-row-highlighted").assertCountEquals(0)
+    }
+
+    @Test
+    fun `no scope, no strip`() {
+        composeTestRule.surface(captured, reply)
+        composeTestRule.onAllNodesWithTag("variables-strip").assertCountEquals(0)
     }
 }

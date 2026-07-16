@@ -241,7 +241,7 @@ class ControlServerIntegrationTest {
             val scenario =
                 """
                 {"name":"LOOP","steps":[
-                  {"type":"send","session":"LIVE","raw":"35=D|11=LOOP-1|55=EUR/USD|54=1|38=1000|40=1|"},
+                  {"type":"send","session":"LIVE","raw":"35=D|11=${'$'}{id0 = \"LOOP-1\"}|55=EUR/USD|54=1|38=1000|40=1|"},
                   {"type":"expect","session":"LIVE","direction":"out","timeoutMs":5000,
                    "match":{"messageType":"D"},
                    "expectation":{"messageType":"D","mode":"open",
@@ -254,9 +254,19 @@ class ControlServerIntegrationTest {
             val run = obj(post("/scenarios/run", """{"id":"$id"}"""))
             assertFalse(run["passed"]!!.jsonPrimitive.boolean, "the order carries 38=1000, not 9999: this must fail")
 
+            // The run's scope comes out on the report: what `${id0}` held, and which step wrote it.
+            val runVars = run["variables"]!!.jsonArray.map { it.jsonObject }
+            assertEquals("id0", runVars.single()["name"]!!.jsonPrimitive.content)
+            assertEquals("LOOP-1", runVars.single()["value"]!!.jsonPrimitive.content)
+
             val open = obj(post("/scenarios/reconcile", "{}"))
             assertEquals("open", open["status"]!!.jsonPrimitive.content, open.toString())
             assertEquals(2, open["step"]!!.jsonPrimitive.int, "the Expect is step 2, and it is the one that failed")
+            assertEquals(
+                "LOOP-1",
+                open["variables"]!!.jsonArray.single().jsonObject["value"]!!.jsonPrimitive.content,
+                "the reconcile response says what the agent's \${id0} held — the strip's data, over the wire",
+            )
 
             // ...and what opened is the real thing: the diff WINDOW, on that step, judging the message that
             // actually arrived. `openReconcile` runs on the EDT, so let it land.
@@ -269,6 +279,11 @@ class ControlServerIntegrationTest {
             val session = window.session ?: error("the diff must be bound to the failing message, not to a prompt")
             assertTrue(session.model.verdict.needsAttention, "the surface agrees with the engine that this failed")
             assertEquals(38, session.model.lines.first { !it.row.passed }.row.tag, "and it is the row that failed")
+            assertEquals(
+                "LOOP-1",
+                session.reference.variables.single().value,
+                "the THIS_RUN reference carries the run's scope — the strip and any reference row read it here",
+            )
         } finally {
             fixServer.stop()
         }

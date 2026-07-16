@@ -8,9 +8,11 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.ExpectationSeeder
+import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.compare.Chunk
@@ -507,6 +509,31 @@ class ReconcileSession(
     /** Re-judge against something else. See [reference]: not an edit, so nothing here touches the stack. */
     fun swapReference(next: ReferenceMessage) {
         reference = next
+        // The highlight names a variable of the OLD reference's scope; a scope that no longer has it would
+        // leave every row dim for a reason the strip no longer shows.
+        if (next.variables.none { it.name == highlightedVariable }) highlightedVariable = null
+    }
+
+    // ---------------------------------------------------------------------------- the variables strip
+
+    /**
+     * The variable chip the author clicked in the strip, or null. A reading aid, not an edit: it highlights
+     * every line that mentions the name or carries its value, which is the fastest answer to "where did
+     * `${id0}` go in this message" — and to "why did this step bind to the wrong reply".
+     */
+    var highlightedVariable: String? by mutableStateOf(null)
+
+    /** Does this line mention [highlightedVariable] by name, or carry its value on either side? */
+    fun highlights(line: DiffLine): Boolean {
+        val name = highlightedVariable ?: return false
+        val value = reference.variables.firstOrNull { it.name == name }?.value
+        val matcher = line.row.matcher
+        val mentionsName =
+            matcher is Matcher.Reference &&
+                BARE_NAMES.findAll(matcher.expression).any { it.groupValues[1] == name }
+        val carriesValue =
+            value != null && (line.right?.value == value || (matcher as? Matcher.Exact)?.value == value)
+        return mentionsName || carriesValue
     }
 
     // ---------------------------------------------------------------------------- the model
@@ -521,13 +548,15 @@ class ReconcileSession(
      * expectation and scans each across the wire. Nothing would fail. It would merely be slow, for a reason
      * nobody would ever find.
      *
-     * So the key is the bytes, the moment, and the provenance — things that are equal when they are equal.
+     * So the key is the bytes, the moment, the provenance — and the scope, which re-judges reference rows
+     * exactly as the moment re-judges temporal ones — things that are equal when they are equal.
      */
     private data class Key(
         val draft: Expectation,
         val wire: List<Pair<Int, String>>,
         val anchor: Instant?,
         val provenance: ReferenceMessage.Provenance,
+        val variables: List<ScenarioVariable>,
     )
 
     private data class Snapshot(
@@ -545,7 +574,7 @@ class ReconcileSession(
 
     val model: DiffModel
         get() {
-            val key = Key(draft, reference.view.fields(), reference.anchorInstant, reference.provenance)
+            val key = Key(draft, reference.view.fields(), reference.anchorInstant, reference.provenance, reference.variables)
             memo?.let { (cached, model) -> if (cached == key) return model }
             val built = build(draft)
             rebuilds += 1
@@ -571,7 +600,24 @@ class ReconcileSession(
      */
     fun fixPlan(
         tolerance: ScenarioReconcile.FixTolerance = ScenarioReconcile.FixTolerance.CoverBoth,
-    ): List<ScenarioReconcile.PlannedFix> = ScenarioReconcile.fixPlan(draft, reference, dictionary, tolerance, resolver)
+    ): List<ScenarioReconcile.PlannedFix> =
+        ScenarioReconcile.fixPlan(draft, reference, dictionary, tolerance, effectiveResolver())
+
+    /**
+     * **The run scope the reference carries, in front of whatever the host supplied.**
+     *
+     * The scope rides on the [reference] (see `ReferenceMessage.variables`), so this is re-derived rather
+     * than fixed at construction: swap the run's message out for a paste and the `${id0}` rows fall back to
+     * unjudged in the same move — resolving them against a scope that other message never ran under would
+     * be a confident verdict about bytes nobody judged. The constructor's resolver stays underneath as the
+     * fallback for hosts (and tests) that inject their own.
+     */
+    private fun effectiveResolver(): (String) -> String? {
+        val scope = reference.variables
+        if (scope.isEmpty()) return resolver
+        val fromScope = FixMessageTemplate.scopeResolver(scope.associate { it.name to it.value })
+        return { expression -> fromScope(expression) ?: resolver(expression) }
+    }
 
     /**
      * [draft] shadows the property on purpose: [verdictOf] builds this for a candidate that is not staged.
@@ -582,7 +628,7 @@ class ReconcileSession(
      * behaviour byte-identical — the offers still close over *this* session's `draft`.
      */
     private fun build(draft: Expectation): DiffModel =
-        buildDiffModel(draft, reference, dictionary, resolver, ::offersFor)
+        buildDiffModel(draft, reference, dictionary, effectiveResolver(), ::offersFor)
 
     // ------------------------------------------------------------------------- selection and navigation
 
@@ -814,3 +860,6 @@ private fun ReconcileSession.moveEntrySelection(model: DiffModel, sel: DiffSelec
         selection = DiffSelection.Entry(start until start + sel.rows.count())
     }
 }
+
+/** Bare variable names inside `${...}` — the same shape `ScenarioAnnotations` badges by. */
+private val BARE_NAMES = Regex("""\$\{\s*(\w+)\s*}""")

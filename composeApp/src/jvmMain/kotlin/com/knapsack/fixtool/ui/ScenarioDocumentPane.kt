@@ -142,6 +142,12 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                     // already open must move the cursor to the new step, and a seeded-once cursor will not
                     // move for a mere prop. Re-keying rebuilds the editor from the draft, which the composable
                     // has been mirroring out all along, so the author's unsaved edits survive the re-aim.
+                    // The strip's values: the last run's scope, and only while the report stands for THIS
+                    // scenario — someone else's run must not put values under this scenario's names.
+                    val result by viewModel.scenarioResult.collectAsState()
+                    val ranScenario by viewModel.lastRunScenario.collectAsState()
+                    val runVariables =
+                        if (ranScenario?.id == doc.scenarioId) result?.variables.orEmpty() else emptyList()
                     key(doc.id, doc.focusEpoch) {
                         ScenarioEditor(
                             initial = draft,
@@ -149,6 +155,7 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                             sessionOptions = (draft.sessionsInvolved() + viewModel.sessions.map { it.title }).distinct(),
                             focusStep = doc.focusStep,
                             selectedStep = doc.selectedStep,
+                            runVariables = runVariables,
                             // The editor's door to the one surface that authors an assertion. Same tab, same
                             // surface, whichever message the slot happens to hold.
                             onOpenDiff = { stepId -> viewModel.openDiffForStep(doc.scenarioId, stepId) },

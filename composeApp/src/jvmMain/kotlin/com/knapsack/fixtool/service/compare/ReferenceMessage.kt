@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service.compare
 
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.MessageView
 import java.time.Instant
@@ -34,6 +35,19 @@ data class ReferenceMessage(
      * a paste with no `SendingTime(52)`.
      */
     val anchorInstant: Instant?,
+    /**
+     * **The variable scope of the run these bytes came from** — and the scope travels with the bytes, or
+     * the judgments lie.
+     *
+     * A `reference` row (`${id0}`) is judged against the scope of the run that produced the message in the
+     * slot, and against *nothing* for any other message: resolve `${id0}` while a paste from some other
+     * environment is bound and the row shows a confident red about an id that run never minted. So the
+     * scope is not a property of the diff, the session, or the ViewModel's last run — it is a property of
+     * **this reference**, filled only when the slot holds a run's own message (THIS_RUN), and empty for a
+     * golden, a paste, a pick, or a second instance, whose rows stay honestly *unjudged*. Swapping the
+     * reference swaps the scope with it, in the same move, and there is no way to hold one without the other.
+     */
+    val variables: List<ScenarioVariable> = emptyList(),
 ) {
     /** No moment to judge a `~now` row against. The rows say so; they do not guess. */
     val unanchored: Boolean get() = anchorInstant == null
@@ -76,9 +90,14 @@ data class ReferenceMessage(
     }
 
     companion object {
-        /** A message FixTool saw arrive, anchored at the instant it did. */
-        fun live(view: MessageView, provenance: Provenance, label: String, arrivedAt: Instant) =
-            ReferenceMessage(view, provenance, label, arrivedAt)
+        /** A message FixTool saw arrive, anchored at the instant it did — carrying its run's scope, if it has one. */
+        fun live(
+            view: MessageView,
+            provenance: Provenance,
+            label: String,
+            arrivedAt: Instant,
+            variables: List<ScenarioVariable> = emptyList(),
+        ) = ReferenceMessage(view, provenance, label, arrivedAt, variables)
 
         /**
          * Bytes the author pasted, anchored to **the message's own `SendingTime(52)`** — the only moment a

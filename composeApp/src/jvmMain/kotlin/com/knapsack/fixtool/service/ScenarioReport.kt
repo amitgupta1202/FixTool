@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.ScenarioResult
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import kotlinx.serialization.json.JsonObject
@@ -19,6 +20,19 @@ object ScenarioReport {
             put("scenario", result.scenario)
             put("passed", result.passed)
             put("steps", buildJsonArray { result.steps.forEach { add(stepToJson(it)) } })
+            // Additive, and only when the run minted anything: a report from before the scope was
+            // reported — or a scenario with no `${...}` at all — keeps its exact old shape.
+            if (result.variables.isNotEmpty()) {
+                put("variables", buildJsonArray { result.variables.forEach { add(variableToJson(it)) } })
+            }
+        }
+
+    /** `{name, value, mintedAtStepId?}` — what a `${name}` held this run, and which step wrote it. */
+    fun variableToJson(variable: ScenarioVariable): JsonObject =
+        buildJsonObject {
+            put("name", variable.name)
+            put("value", variable.value)
+            variable.mintedAtStepId?.let { put("mintedAtStepId", it) }
         }
 
     fun stepToJson(step: StepResult): JsonObject =

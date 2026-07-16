@@ -260,9 +260,30 @@ data class StepResult(
     val stepId: String? = null,
 )
 
+/**
+ * One variable of a run's scope, as the run left it: the name, the value, and the step that wrote it.
+ *
+ * The scope itself is a per-run `MutableMap` the runner threads through every step, and it used to be
+ * thrown away when the run ended — which made `${id0}` invisible at exactly the moment an author is
+ * staring at a reference row in the reconcile view wondering what it resolved to. The runner now hands
+ * the final scope out on the [ScenarioResult], so the report, the rail, and the diff window can all say
+ * what a name held. Final scope is enough: a mint is one-per-name in practice (`id0`, `id1`, …), and the
+ * `steps` phase stops at the first failure, so nothing minted *after* the step being reconciled can
+ * shadow what that step was judged with. A name deliberately re-assigned mid-run is the one distortion,
+ * and capture never authors one.
+ */
+data class ScenarioVariable(
+    val name: String,
+    val value: String,
+    /** The step whose evaluation wrote this name — blank ids reported as null. */
+    val mintedAtStepId: String? = null,
+)
+
 /** The result of a whole scenario run — drives both CI (exit code) and the in-app red/green overlay. */
 data class ScenarioResult(
     val scenario: String,
     val passed: Boolean,
     val steps: List<StepResult>,
+    /** The run's final variable scope, in mint order. Empty when the run minted nothing (or never began). */
+    val variables: List<ScenarioVariable> = emptyList(),
 )

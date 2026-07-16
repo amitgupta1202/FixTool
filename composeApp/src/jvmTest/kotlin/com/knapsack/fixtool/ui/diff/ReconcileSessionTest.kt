@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.compare.ChunkKind
@@ -866,5 +867,106 @@ class ReconcileSessionTest {
 
         s.undo()
         assertEquals(before, s.draft, "one undo, and the plan is gone whole — byte-for-byte")
+    }
+
+    // ------------------------------------------------------------------ the reference's scope
+
+    private fun scoped(vararg vars: Pair<String, String>) =
+        vars.map { (n, v) -> ScenarioVariable(n, v) }
+
+    /**
+     * **The scope travels with the reference.** A `${id0}` row against the run's own message — whose
+     * reference carries the run's scope — gets a real verdict; the same row against a reference with no
+     * scope is neither passing nor failing. This is the whole slice-1 promise: the reconcile view judges
+     * reference rows with exactly what the runner judged them with, and with nothing else.
+     */
+    @Test
+    fun `a reference row is judged by the scope the reference carries, and unjudged without one`() {
+        val expectation =
+            Expectation(fields = listOf(FieldExpectation(11, Matcher.Reference("\${id0}"))), messageType = "8")
+        val message = wireView(35 to "8", 11 to "A1")
+
+        val bare = ReconcileSession(expectation, ref(message), dictionary)
+        assertTrue(bare.model.lines.single { it.row.tag == 11 }.unjudged, "no scope, no verdict")
+
+        val s = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "A1")), dictionary)
+        val line = s.model.lines.single { it.row.tag == 11 }
+        assertFalse(line.unjudged, "the run's scope is in hand — the row has a verdict")
+        assertTrue(line.row.passed, "and the echo matches, so it is green")
+        assertEquals(0, s.model.verdict.attention)
+
+        val red = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "B9")), dictionary)
+        val redLine = red.model.lines.single { it.row.tag == 11 }
+        assertFalse(redLine.unjudged)
+        assertFalse(redLine.row.passed, "the echo differs from what this run minted — a real red")
+    }
+
+    /**
+     * Per-row honesty — the mutation check against the old any-reference-resolves flag. Two reference
+     * rows, a scope that covers exactly one: the covered row is judged, the uncovered row stays
+     * *unjudged*. The old global flag would have judged BOTH the moment one resolved, putting a
+     * confident red on an expression nobody evaluated ("unknown, never false").
+     */
+    @Test
+    fun `a scope that covers one reference row judges that row and leaves the other unjudged`() {
+        val expectation =
+            Expectation(
+                fields =
+                    listOf(
+                        FieldExpectation(11, Matcher.Reference("\${id0}")),
+                        FieldExpectation(41, Matcher.Reference("\${out.D.11}")), // history ref: no session here
+                    ),
+                messageType = "8",
+            )
+        val message = wireView(35 to "8", 11 to "A1", 41 to "A1")
+        val s = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "A1")), dictionary)
+        assertFalse(s.model.lines.single { it.row.tag == 11 }.unjudged)
+        assertTrue(
+            s.model.lines.single { it.row.tag == 41 }.unjudged,
+            "the scope has no answer for a history reference — that row must stay unjudged, not go red",
+        )
+    }
+
+    /** Swapping the reference swaps the scope with it — and takes a stale highlight along. */
+    @Test
+    fun `swapping to a scope-less reference re-judges reference rows to unjudged and clears the highlight`() {
+        val expectation =
+            Expectation(fields = listOf(FieldExpectation(11, Matcher.Reference("\${id0}"))), messageType = "8")
+        val message = wireView(35 to "8", 11 to "A1")
+        val s = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "A1")), dictionary)
+        assertFalse(s.model.lines.single { it.row.tag == 11 }.unjudged)
+        s.highlightedVariable = "id0"
+
+        val rebuiltBefore = s.rebuilds
+        s.swapReference(ReferenceMessage.golden(RawMessageView("35=8\u000111=A1\u0001")))
+        assertTrue(
+            s.model.lines.single { it.row.tag == 11 }.unjudged,
+            "a golden ran under no scope — its reference rows are unjudged again",
+        )
+        assertTrue(s.rebuilds > rebuiltBefore, "the memo keys on the scope, so the swap rebuilt the model")
+        assertNull(s.highlightedVariable, "the highlight named a variable of the old scope")
+    }
+
+    /** The strip's highlight: by name in a reference expression, or by carrying the value on either side. */
+    @Test
+    fun `highlight names lines that reference the variable or carry its value, and no others`() {
+        val expectation =
+            Expectation(
+                fields =
+                    listOf(
+                        FieldExpectation(11, Matcher.Reference("\${id0}")),
+                        FieldExpectation(41, Matcher.Exact("A1")),
+                        FieldExpectation(55, Matcher.Exact("EURUSD")),
+                    ),
+                messageType = "8",
+            )
+        val message = wireView(35 to "8", 11 to "A1", 41 to "A1", 55 to "EURUSD")
+        val s = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "A1")), dictionary)
+
+        assertFalse(s.highlights(s.model.lines.single { it.row.tag == 11 }), "nothing highlighted yet")
+        s.highlightedVariable = "id0"
+        assertTrue(s.highlights(s.model.lines.single { it.row.tag == 11 }), "mentions \${id0} by name")
+        assertTrue(s.highlights(s.model.lines.single { it.row.tag == 41 }), "carries the value A1")
+        assertFalse(s.highlights(s.model.lines.single { it.row.tag == 55 }), "nothing to do with id0")
     }
 }

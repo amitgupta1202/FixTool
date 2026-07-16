@@ -631,7 +631,9 @@ server.tool(
 server.tool(
   "fixtool_run_scenario",
   "Run a scenario deterministically and return a per-step, per-tag pass/fail report. Identify by id " +
-    "(from the store) or pass an inline scenario. format=junit returns JUnit XML for CI.",
+    "(from the store) or pass an inline scenario. format=junit returns JUnit XML for CI. When the run " +
+    "minted any ${...} variables, the report carries variables:[{name,value,mintedAtStepId?}] — what " +
+    "each name held, in mint order.",
   {
     id: z.string().optional().describe("saved scenario id"),
     scenario: z.record(z.any()).optional().describe("inline scenario JSON (alternative to id)"),
@@ -649,7 +651,9 @@ server.tool(
   "Open the reconcile diff on a step that failed the last run — the surface that repairs an assertion. " +
     "With no argument it takes the run's first failing step, exactly as the rail's 'Reconcile \u2192' does; " +
     "step=N addresses one by its 1-based position. Routes through the same check the button does, so a step " +
-    "edited since it ran is refused with the reason. Pair with fixtool_screenshot to see it.",
+    "edited since it ran is refused with the reason. The open response repeats the run's variables " +
+    "([{name,value,mintedAtStepId?}]) so a reference row's ${id0} can be read while repairing. Pair with " +
+    "fixtool_screenshot to see it.",
   { step: z.number().int().optional().describe("1-based step number; default = the first failing step") },
   async ({ step }) => text("POST", "/scenarios/reconcile", step === undefined ? {} : { step }),
 );

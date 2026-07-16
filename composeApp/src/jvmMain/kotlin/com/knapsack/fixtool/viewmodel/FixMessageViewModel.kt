@@ -24,6 +24,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
@@ -546,7 +547,7 @@ class FixMessageViewModel(
             // Already open, and it may be carrying an undo stack and an hour of staged repairs. Only the aim
             // moves — and the reference with it, when this is a *new* failure of the same step. The epoch bump
             // is what raises the window to the front (F6).
-            val rebound = thisRunWire?.let { wire -> referenceOf(wire, arrivedAt) }
+            val rebound = thisRunWire?.let { wire -> referenceOf(wire, arrivedAt, scenario.id) }
             rebound?.let { open.session?.swapReference(it) }
             updateDiffWindow(
                 open.copy(
@@ -561,7 +562,7 @@ class FixMessageViewModel(
         val expectation = (step as? ScenarioStep.Expect)?.expectation
         val reference =
             when {
-                thisRunWire != null -> referenceOf(thisRunWire, arrivedAt)
+                thisRunWire != null -> referenceOf(thisRunWire, arrivedAt, scenario.id)
                 expectation?.golden != null -> ReferenceMessage.golden(RawMessageView(expectation.golden!!))
                 else -> null
             }
@@ -586,7 +587,7 @@ class FixMessageViewModel(
         openDiffWindow(scenario = draft, stepId = stepId)
     }
 
-    private fun referenceOf(wire: String, arrivedAt: java.time.Instant?): ReferenceMessage {
+    private fun referenceOf(wire: String, arrivedAt: java.time.Instant?, scenarioId: String): ReferenceMessage {
         val at = arrivedAt ?: java.time.Instant.now()
         return ReferenceMessage.live(
             view = RawMessageView(wire),
@@ -595,8 +596,19 @@ class FixMessageViewModel(
             // says what it is holding wherever the reader happens to look.
             label = "received — this run · ${clockOf(at)}",
             arrivedAt = at,
+            variables = runVariablesFor(scenarioId),
         )
     }
+
+    /**
+     * The scope a THIS_RUN reference carries — the run report's, and **only while the report stands for
+     * this scenario.** `thisRunWire` can outlive both: a window keeps it after another scenario has run
+     * (rebind touches only the run's own scenario) and after the report is dismissed. Handing those bytes
+     * the *current* report's variables would judge `${id0}` rows against a scope their run never minted.
+     * No report, or someone else's report → no scope, and reference rows stay honestly unjudged.
+     */
+    private fun runVariablesFor(scenarioId: String): List<ScenarioVariable> =
+        if (_lastRunScenario.value?.id == scenarioId) _scenarioResult.value?.variables.orEmpty() else emptyList()
 
     /** `09:35:44` — a moment a reader can match against the row they clicked in the grid. */
     private fun clockOf(instant: java.time.Instant): String =
@@ -777,7 +789,8 @@ class FixMessageViewModel(
     fun selectReference(window: DiffWindowState, kind: ReferenceOption.Kind): Boolean {
         val step = expectStep(window)
         return when (kind) {
-            ReferenceOption.Kind.THIS_RUN -> window.thisRunWire?.let { bind(window, referenceOf(it, null)) } ?: false
+            ReferenceOption.Kind.THIS_RUN ->
+                window.thisRunWire?.let { bind(window, referenceOf(it, null, window.scenarioId)) } ?: false
             ReferenceOption.Kind.GOLDEN ->
                 step?.expectation?.golden?.let { bind(window, ReferenceMessage.golden(RawMessageView(it))) } ?: false
             ReferenceOption.Kind.SECOND_INSTANCE ->
@@ -2139,7 +2152,7 @@ class FixMessageViewModel(
                     matched.key.timestamp
                         .atZone(java.time.ZoneId.systemDefault())
                         .toInstant()
-                val reference = referenceOf(wire, arrivedAt)
+                val reference = referenceOf(wire, arrivedAt, ran.id)
                 val session = window.session
                 if (session != null) {
                     if (runOwns(session.reference.provenance)) session.swapReference(reference)

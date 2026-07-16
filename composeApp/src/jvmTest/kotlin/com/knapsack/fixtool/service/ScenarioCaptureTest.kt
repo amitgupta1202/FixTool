@@ -389,6 +389,68 @@ class ScenarioCaptureTest {
     }
 
     /**
+     * **Both sides of an RFQ in ONE scenario — the BrokerTec shape, and the major client's core flow.**
+     * FixTool holds the initiator session and the responder session; the scenario drives the whole
+     * conversation. The crux is the responder's OUTGOING Quote echoing the initiator's QuoteReqID: the
+     * value was minted by the scenario's *own* step 1, so capture must emit a REUSE of that variable —
+     * `131=${id0}` — never a fresh mint (which would answer a request nobody made) and never the
+     * captured literal (which would collide on the next run).
+     *
+     * This is the case that does NOT need receive→send variable capture: the id is born inside the
+     * scenario. (A responder tested *alone* against an external initiator still does — known gap.)
+     */
+    @Test
+    fun `both-sides RFQ in one scenario - the responder's quote reuses the initiator's minted variable`() {
+        val request = "8=FIX.4.4|35=R|34=2|49=INIT|56=RESP|131=REQ-9|146=1|55=EUR/USD|10=001|"
+        val quoteReply = "8=FIX.4.4|35=S|34=2|49=RESP|56=INIT|117=Q-1|131=REQ-9|55=EUR/USD|133=1.0853|10=002|"
+        val initiator = ScenarioCapture.CapturedSession(
+            "INIT",
+            listOf(
+                msg(request, FixMessage.Direction.OUTGOING, 0),
+                msg(quoteReply, FixMessage.Direction.INCOMING, 3),
+            ),
+        )
+        val responder = ScenarioCapture.CapturedSession(
+            "RESP",
+            listOf(
+                msg(request, FixMessage.Direction.INCOMING, 1),
+                msg(quoteReply, FixMessage.Direction.OUTGOING, 2),
+            ),
+        )
+
+        val scenario = ScenarioCapture.capture("sc-rfq", "both sides", null, listOf(initiator, responder), dictionary)
+
+        // Chronological across sessions: initiator sends, responder receives, responder quotes, initiator receives.
+        assertEquals(
+            listOf("Send" to "INIT", "Expect" to "RESP", "Send" to "RESP", "Expect" to "INIT"),
+            scenario.steps.map { it::class.simpleName to sessionOf(it) },
+        )
+        val sendRequest = scenario.steps[0] as ScenarioStep.Send
+        val expectRequest = scenario.steps[1] as ScenarioStep.Expect
+        val sendQuote = scenario.steps[2] as ScenarioStep.Send
+        val expectQuote = scenario.steps[3] as ScenarioStep.Expect
+
+        // Step 1 mints the QuoteReqID; step 2 (the responder's inbox) checks and binds on the echo.
+        assertTrue(sendRequest.raw.contains("131=\${id0 = UUID.randomUUID()"), sendRequest.raw)
+        assertEquals(Matcher.Reference("\${id0}"), matcher(expectRequest, 131))
+        assertEquals(
+            listOf(com.knapsack.fixtool.model.scenario.TagValue(131, "\${id0}")),
+            expectRequest.match?.fields,
+        )
+
+        // THE CRUX: the responder's outgoing Quote REUSES ${id0} — the same variable, across sessions
+        // and across a direction flip — and mints only its own QuoteID.
+        assertTrue(sendQuote.raw.contains("131=\${id0}"), "the quote answers THIS run's request; got ${sendQuote.raw}")
+        assertTrue(!sendQuote.raw.contains("131=\${id0 = "), "a re-mint would answer a request nobody made")
+        assertTrue(sendQuote.raw.contains("117=\${id1 = UUID.randomUUID()"), "the quoter mints its own QuoteID; got ${sendQuote.raw}")
+
+        // And the initiator's inbox checks both echoes — 117 sits in the presence set too, and the echo
+        // check must win over presence for a value this scenario minted itself.
+        assertEquals(Matcher.Reference("\${id0}"), matcher(expectQuote, 131))
+        assertEquals(Matcher.Reference("\${id1}"), matcher(expectQuote, 117))
+    }
+
+    /**
      * **FixTool is generic, and the correlation-id treatment must be too.** An MDReqID is minted fresh
      * per run (venues enforce uniqueness on request ids), its echo on the snapshot becomes a Reference
      * check, and it binds the Expect to THIS run's reply — exactly what ClOrdID has always had. And a

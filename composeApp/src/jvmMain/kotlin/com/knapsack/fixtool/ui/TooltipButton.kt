@@ -4,6 +4,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
@@ -94,6 +95,45 @@ fun TooltipIconButton(
         ) {
             content()
         }
+    }
+}
+
+/**
+ * The app's tooltip, around anything. The slim controls (SlimButton and friends) carry no tooltip of their
+ * own, which left the most consequential glyphs in the diff gutter — `«`, `±`, `×` — meaning whatever the
+ * author guessed they meant.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun AppTooltip(
+    text: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    TooltipArea(
+        tooltip = {
+            Text(
+                text = text,
+                modifier =
+                    Modifier
+                        .shadow(4.dp, tooltipShape)
+                        .background(AppTheme.Colors.border, tooltipShape)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .widthIn(max = 360.dp),
+                color = AppTheme.Colors.text,
+                fontSize = 11.sp,
+            )
+        },
+        delayMillis = 500,
+        modifier = modifier,
+        tooltipPlacement =
+            TooltipPlacement.ComponentRect(
+                anchor = Alignment.BottomCenter,
+                alignment = Alignment.BottomCenter,
+                offset = DpOffset(0.dp, 4.dp),
+            ),
+    ) {
+        content()
     }
 }
 

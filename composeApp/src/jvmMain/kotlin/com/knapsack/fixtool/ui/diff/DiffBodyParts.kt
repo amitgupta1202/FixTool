@@ -10,11 +10,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.service.compare.ChunkKind
 import com.knapsack.fixtool.service.compare.MessageField
 import com.knapsack.fixtool.ui.AppTheme
+import com.knapsack.fixtool.ui.AppTooltip
 
 /**
  * **The diff body's shared primitives** — the tag cell, the value cell, and the row tint.
@@ -89,12 +91,18 @@ internal fun FieldValueCell(field: MessageField, kind: ChunkKind, unjudged: Bool
             Text("  $it", color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
         }
         if (unjudged) {
-            Text(
-                "  unjudged here — resolves at run time",
-                color = AppTheme.Colors.warning,
-                fontSize = 9.sp,
-                modifier = Modifier.testTag("unjudged-note"),
-            )
+            // One line, ellipsized, full sentence on hover. Beside a long value (a ClOrdID is 36 chars)
+            // this note used to wrap into a four-line ragged fragment and quadruple the row.
+            AppTooltip("Unjudged here — a reference or temporal row can only be judged during a run, when the scenario's variables and clock exist.") {
+                Text(
+                    "  unjudged — resolves at run time",
+                    color = AppTheme.Colors.warning,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("unjudged-note"),
+                )
+            }
         }
     }
 }

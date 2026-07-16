@@ -35,6 +35,18 @@ import com.knapsack.fixtool.model.scenario.TemporalKind
  * so a scenario looks identical while being curated and while being edited.
  */
 
+/**
+ * Guidance behind one glyph. The editor's sections used to spend a standing paragraph each on words a
+ * user needs exactly once — hover the ⓘ and the same words are there, and a user who has learned the
+ * tool pays one glyph of space for them instead of two rows.
+ */
+@Composable
+fun HintIcon(text: String, modifier: Modifier = Modifier) {
+    AppTooltip(text) {
+        Text("ⓘ", color = AppTheme.Colors.info, fontSize = 13.sp, modifier = modifier)
+    }
+}
+
 /** Stable session→color assignment by first appearance, reusing the app's distinct-color palette. */
 fun sessionColorMap(titles: List<String>): Map<String, Color> =
     titles.distinct().mapIndexed { i, t -> t to AppTheme.Colors.usernameColors[i % AppTheme.Colors.usernameColors.size] }.toMap()

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,7 +59,14 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 fun DiffWindow(viewModel: FixMessageViewModel, state: DiffWindowState, onClose: () -> Unit) {
     // Centred, not cascaded — the platform must not shove this window onto the main one's corner (nor the
     // reverse). Its own remembered state; see the kdoc for why a bare WindowState is a bug here.
-    val windowState = rememberWindowState(size = DpSize(1100.dp, 900.dp), position = WindowPosition(Alignment.Center))
+    // Seeded from the size the author last left a diff frame at: each window's state is keyed to its id,
+    // so without the hand-off every open forgot the resize the author just made.
+    val windowState =
+        rememberWindowState(
+            size = viewModel.preferredDiffWindowSize ?: DpSize(1100.dp, 900.dp),
+            position = WindowPosition(Alignment.Center),
+        )
+    DisposableEffect(Unit) { onDispose { viewModel.preferredDiffWindowSize = windowState.size } }
     Window(
         onCloseRequest = onClose,
         title = diffWindowTitle(viewModel, state),

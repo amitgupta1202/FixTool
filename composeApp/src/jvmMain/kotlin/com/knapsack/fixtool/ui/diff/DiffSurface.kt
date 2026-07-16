@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,6 +67,7 @@ import com.knapsack.fixtool.ui.SlimField
 import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.ui.AppTheme
+import com.knapsack.fixtool.ui.AppTooltip
 import com.knapsack.fixtool.ui.MATCHER_TYPES
 import com.knapsack.fixtool.ui.MatcherEditor
 import com.knapsack.fixtool.ui.SlimButton
@@ -163,7 +165,7 @@ fun DiffSurface(
                 onCancel = { pasting = false },
             )
         }
-        VerdictLine(model, session.reference.provenance)
+        VerdictLine(model, session.reference.provenance, open = session.draft.mode == MatchMode.OPEN)
         // The engine knows exactly why it is not offering a move, and it used to keep that to itself. An
         // author looking at a group full of red rows with no re-order on offer concludes — reasonably — that
         // re-ordering was never built. That is what happened. Now it says.
@@ -390,7 +392,7 @@ private const val MODE_TOOLTIP =
  * replaces, so the two can never come to disagree about how many rows are red.
  */
 @Composable
-private fun VerdictLine(model: DiffModel, provenance: ReferenceMessage.Provenance) {
+private fun VerdictLine(model: DiffModel, provenance: ReferenceMessage.Provenance, open: Boolean) {
     val v = model.verdict
     // Red is a claim, and it may only be made about the message the step is actually ABOUT. Against a message
     // the author bound by hand, rows that do not hold are amber: something to look at, not an accusation.
@@ -422,17 +424,23 @@ private fun VerdictLine(model: DiffModel, provenance: ReferenceMessage.Provenanc
                 },
             fontWeight = FontWeight.Bold,
             fontSize = 11.sp,
+            maxLines = 1,
             modifier = Modifier.testTag("diff-summary"),
         )
-        if (v.parts.isNotEmpty()) {
-            Text(" │ ", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
-            Text(v.parts.joinToString(" · "), color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
-            Text(" │ ", color = AppTheme.Colors.textDisabled, fontSize = 11.sp)
+        val parts = v.partsUnder(open)
+        if (parts.isNotEmpty()) {
+            Text(" │ ", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
+            Text(parts.joinToString(" · "), color = AppTheme.Colors.textSecondary, fontSize = 11.sp, maxLines = 1)
+            Text(" │ ", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
+            // It is a BANNER: one line, always. The tail ellipsizes rather than wrapping the whole bar to
+            // two ragged lines — the counts to its left are the part that must never be pushed off.
             Text(
                 text = v.shapeVersusBehaviour,
                 color = if (v.values > 0) AppTheme.Colors.error else AppTheme.Colors.textSecondary,
                 fontSize = 11.sp,
-                modifier = Modifier.testTag("diff-shape-or-behaviour"),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false).testTag("diff-shape-or-behaviour"),
             )
         }
     }
@@ -490,7 +498,9 @@ private fun Header(text: String, modifier: Modifier) {
 
 // --------------------------------------------------------------------------------------------- the body
 
-internal val GUTTER = 56.dp
+// Wide enough for three offers side by side («, ±, ×) — at 56dp the third was clipped away, which is not
+// a smaller button, it is a repair the author cannot see exists.
+internal val GUTTER = 84.dp
 internal val ROW_PADDING = 12.dp
 
 // The left column is the EDITABLE one — a chip, a value field, sometimes a tolerance — and the right is read-
@@ -662,17 +672,19 @@ private fun EntryBand(
         }
         Box(modifier = Modifier.width(GUTTER), contentAlignment = Alignment.Center) {
             if (offerOrder && model.acceptOrder != null) {
-                Box(
-                    modifier =
-                        Modifier
-                            .border(1.dp, DiffPalette.moved)
-                            .background(AppTheme.Colors.surface)
-                            .clickable {
-                                session.apply(model.acceptOrder)
-                            }.padding(horizontal = 4.dp)
-                            .testTag("accept-new-order"),
-                ) {
-                    Text("⇄", color = DiffPalette.moved, fontSize = 11.sp)
+                AppTooltip("Accept the venue's new order — the expectation's entries take the order the reply carries") {
+                    Box(
+                        modifier =
+                            Modifier
+                                .border(1.dp, DiffPalette.moved)
+                                .background(AppTheme.Colors.surface)
+                                .clickable {
+                                    session.apply(model.acceptOrder)
+                                }.padding(horizontal = 4.dp)
+                                .testTag("accept-new-order"),
+                    ) {
+                        Text("⇄", color = DiffPalette.moved, fontSize = 11.sp)
+                    }
                 }
             }
         }
@@ -694,13 +706,15 @@ private fun EntryBand(
 
 @Composable
 private fun EntryArrow(glyph: String, enabled: Boolean, testTag: String, onClick: () -> Unit) {
-    SlimButton(
-        glyph,
-        onClick = onClick,
-        color = AppTheme.Colors.textSecondary,
-        enabled = enabled,
-        modifier = Modifier.padding(start = 2.dp).testTag(testTag),
-    )
+    AppTooltip(if (glyph == "↑") "Move this entry up one slot" else "Move this entry down one slot") {
+        SlimButton(
+            glyph,
+            onClick = onClick,
+            color = AppTheme.Colors.textSecondary,
+            enabled = enabled,
+            modifier = Modifier.padding(start = 2.dp).testTag(testTag),
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------------------------- a row
@@ -815,17 +829,22 @@ private fun Gutter(session: ReconcileSession, line: DiffLine) {
     }
     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
         line.offers.forEach { offer ->
-            SlimButton(
-                offer.glyph,
-                onClick = { session.apply(offer.op) },
-                color =
-                    when (offer.kind) {
-                        OfferKind.DROP -> AppTheme.Colors.error
-                        OfferKind.ASSERT_ABSENT -> AppTheme.Colors.textSecondary
-                        else -> AppTheme.Colors.info
-                    },
-                modifier = Modifier.testTag("${offer.kind.name.lowercase()}-${line.row.tag}-${line.row.occurrence}"),
-            )
+            // The tooltip the offer has carried since it was born, finally drawn: a bare «/±/× is the most
+            // consequential click on this surface wearing the least explanation.
+            AppTooltip(offer.tooltip) {
+                SlimButton(
+                    offer.glyph,
+                    onClick = { session.apply(offer.op) },
+                    color =
+                        when (offer.kind) {
+                            OfferKind.DROP -> AppTheme.Colors.error
+                            OfferKind.ASSERT_ABSENT -> AppTheme.Colors.textSecondary
+                            OfferKind.LOOSEN -> AppTheme.Colors.warning
+                            else -> AppTheme.Colors.info
+                        },
+                    modifier = Modifier.testTag("${offer.kind.name.lowercase()}-${line.row.tag}-${line.row.occurrence}"),
+                )
+            }
         }
     }
 }

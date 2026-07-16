@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
@@ -470,11 +471,11 @@ class ScenarioDeepLinkTest {
         viewModel.noteScenarioRun(scenario) // never saved
         viewModel.setAssertionResults(mapOf(msg to step))
 
-        assertTrue("not saved" in refusal(step))
+        assertTrue("no longer on disk" in refusal(step))
 
         viewModel.openScenarioEditorForFailure(msg)
         assertNull(viewModel.activeDocumentId.value)
-        assertTrue(viewModel.notifications.any { "not saved" in it.message })
+        assertTrue(viewModel.notifications.any { "no longer on disk" in it.message })
     }
 
     /**
@@ -548,5 +549,78 @@ class ScenarioDeepLinkTest {
         // Resolving the steps-phase failure must reach the fill's bytes, not the ack's (which are absent —
         // so a stepIndex-only lookup would refuse this with "no wire bytes" and hide the reconcile route).
         assertEquals(wireBytes, opened(stepsStep).actualRaw)
+    }
+
+    // ----- the run report's lifetime -------------------------------------------------------------------
+    //
+    // The report is a claim about (scenario, the session log it ran against). It must not outlive either:
+    // a FAILED banner for a deleted scenario — or for a closed session — is a standing accusation whose
+    // Reconcile button routes nowhere, and it used to sit there until the next run with no way to clear it.
+
+    /** Stage a full run's aftermath: report published, overlays set, attribution noted. */
+    private fun stageRunAftermath(scenario: Scenario): ScenarioResult {
+        val result = ScenarioResult(scenario.name, passed = false, steps = listOf(failedStepResult()))
+        viewModel.noteScenarioRun(scenario)
+        viewModel.setAssertionResults(mapOf(failedMessage() to failedStepResult()))
+        viewModel.publishScenarioResult(result)
+        return result
+    }
+
+    @Test
+    fun `deleting the ran scenario clears the report and the grid overlays with it`() {
+        val scenario = scenarioWithExpect()
+        assertTrue(viewModel.scenarioService.save(scenario))
+        stageRunAftermath(scenario)
+
+        viewModel.deleteScenario(scenario.id)
+
+        assertNull(viewModel.scenarioResult.value, "the report died with its scenario")
+        assertNull(viewModel.lastRunScenario.value)
+        assertTrue(viewModel.assertionResults.isEmpty(), "the grid's red/green rows died with it too")
+    }
+
+    @Test
+    fun `deleting a DIFFERENT scenario leaves the report standing`() {
+        val ran = scenarioWithExpect()
+        val other = scenarioWithExpect(id = "sc-other")
+        assertTrue(viewModel.scenarioService.save(ran))
+        assertTrue(viewModel.scenarioService.save(other))
+        val result = stageRunAftermath(ran)
+
+        viewModel.deleteScenario(other.id)
+
+        assertSame(result, viewModel.scenarioResult.value, "the report is still about a scenario that exists")
+    }
+
+    @Test
+    fun `closing the session the run was about clears the report - closing another does not`() {
+        // Steps carry no session, so the run is attributed to the ACTIVE session at run start.
+        val quote = viewModel.createSessionForTest("QUOTE")
+        viewModel.createSessionForTest("TRADE")
+        viewModel.setActiveSession(0)
+        check(viewModel.sessions[0] === quote)
+        val scenario = scenarioWithExpect()
+        assertTrue(viewModel.scenarioService.save(scenario))
+        val result = stageRunAftermath(scenario)
+
+        viewModel.closeSession(1) // TRADE — not the run's session
+        assertSame(result, viewModel.scenarioResult.value, "an unrelated session close changes nothing")
+
+        viewModel.closeSession(0) // QUOTE — the session the run was about
+        assertNull(viewModel.scenarioResult.value, "the report died with the log it was judging")
+        assertTrue(viewModel.assertionResults.isEmpty())
+    }
+
+    @Test
+    fun `dismissRunResult clears the report, the attribution and the overlays`() {
+        val scenario = scenarioWithExpect()
+        assertTrue(viewModel.scenarioService.save(scenario))
+        stageRunAftermath(scenario)
+
+        viewModel.dismissRunResult()
+
+        assertNull(viewModel.scenarioResult.value)
+        assertNull(viewModel.lastRunScenario.value)
+        assertTrue(viewModel.assertionResults.isEmpty())
     }
 }

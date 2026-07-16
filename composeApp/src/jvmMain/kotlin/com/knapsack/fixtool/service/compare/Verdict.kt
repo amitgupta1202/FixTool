@@ -176,10 +176,19 @@ data class Verdict(
         needsAttention && !provenance.chosenByTheAuthor
 
     /** `1 value changed · 1 tag added · 1 tag missing · 2 entries moved` — what happened, in its own units. */
-    val parts: List<String> get() =
+    val parts: List<String> get() = partsUnder(open = false)
+
+    /**
+     * [parts], phrased for the semantics judging the diff. Under OPEN, a tag the reply *added* is ignored
+     * by definition — counting "12 tags added" beside a green "every assertion would pass" read as twelve
+     * problems the verdict was somehow overlooking. Same counts, honest words.
+     */
+    fun partsUnder(open: Boolean): List<String> =
         buildList {
             if (values > 0) add("$values value${plural(values)} changed")
-            if (added > 0) add("$added tag${plural(added)} added")
+            if (added > 0) {
+                add(if (open) "$added extra tag${plural(added)} ignored (OPEN)" else "$added tag${plural(added)} added")
+            }
             if (missing > 0) add("$missing tag${plural(missing)} missing")
             if (movedEntries > 0) {
                 add("$movedEntries entr${if (movedEntries == 1) "y" else "ies"} moved")

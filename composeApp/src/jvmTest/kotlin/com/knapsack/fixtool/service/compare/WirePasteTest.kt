@@ -64,7 +64,7 @@ class WirePasteTest {
         assertTrue(paste.lint.startsWith("✓"), paste.lint)
         assertTrue(paste.lint.contains("SOH delimiter"), paste.lint)
         // The good news is said out loud: the thing that would have shredded this message did not.
-        assertTrue(paste.lint.contains("contains a `|`"), paste.lint)
+        assertTrue(paste.lint.contains("contains a |"), paste.lint)
     }
 
     /** A venue's log has a prefix. Refusing it would refuse every log line ever pasted; eating it silently is worse. */

@@ -19,6 +19,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,7 +62,13 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
  */
 @Composable
 fun DiffViewerWindow(viewModel: FixMessageViewModel, state: DiffViewerState, onClose: () -> Unit) {
-    val windowState = rememberWindowState(size = DpSize(1100.dp, 820.dp), position = WindowPosition(Alignment.Center))
+    // Seeded from the last diff frame the author resized, same as DiffWindow — the two are one habit.
+    val windowState =
+        rememberWindowState(
+            size = viewModel.preferredDiffWindowSize ?: DpSize(1100.dp, 820.dp),
+            position = WindowPosition(Alignment.Center),
+        )
+    DisposableEffect(Unit) { onDispose { viewModel.preferredDiffWindowSize = windowState.size } }
     Window(
         onCloseRequest = onClose,
         title = "diff: ${state.subjectTypes} — FixTool",

@@ -42,7 +42,9 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
@@ -230,9 +232,13 @@ fun ScenarioEditor(
             )
         }
         if (initial.setup.isNotEmpty()) {
+            val clears = initial.setup.any { it is ScenarioStep.ClearMessages }
             Text(
                 "Setup (runs first): " +
-                    initial.setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") },
+                    initial.setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") } +
+                    // The side effect worth a warning: the author's session log is wiped by every run, and
+                    // nothing else on this screen says so.
+                    (if (clears) " — wipes the session's message log on every run" else ""),
                 color = AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 6.dp),
@@ -422,14 +428,20 @@ private fun StepDetail(
         StepKind.WAIT ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 SlimLabeled("State") {
-                    SlimField(step.state, { onChange(step.copy(state = it)) }, monospace = true, modifier = Modifier.width(160.dp))
+                    // The example lives inside the empty field, where an example belongs.
+                    SlimField(
+                        step.state,
+                        { onChange(step.copy(state = it)) },
+                        monospace = true,
+                        placeholder = "e.g. LOGGED_ON",
+                        modifier = Modifier.width(160.dp),
+                    )
                 }
                 SlimLabeled("Timeout ms") {
                     SlimField(step.timeoutMs.toString(), {
                         onChange(step.copy(timeoutMs = it.toLongOrNull() ?: step.timeoutMs))
                     }, monospace = true, modifier = Modifier.width(80.dp))
                 }
-                Text("e.g. LOGGED_ON", color = AppTheme.Colors.textDisabled, fontSize = 10.sp)
             }
         StepKind.CLEAR ->
             Text("Clears the session's message log (deterministic starting point).", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
@@ -462,12 +474,15 @@ private fun StepDetail(
  */
 @Composable
 private fun SendDetail(step: EditStep, dictionary: FixDictionary?, onChange: (EditStep) -> Unit) {
-    Text(
-        "Fields — values may use \${...} expressions: \${id = UUID.randomUUID()} mints an id, \${id} reuses it, \${LocalDateTime.now()...} stamps send time.",
-        color = AppTheme.Colors.textSecondary,
-        fontSize = 10.sp,
-        modifier = Modifier.padding(bottom = 6.dp),
-    )
+    // The expressions lesson costs one glyph, not a standing paragraph (same fold as capture's ⓘ).
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+        Text("Fields", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
+        HintIcon(
+            "Values may use \${...} expressions: \${id = UUID.randomUUID()} mints an id, \${id} reuses it, " +
+                "\${LocalDateTime.now()...} stamps send time.",
+            modifier = Modifier.testTag("send-fields-help"),
+        )
+    }
     val unknownTags =
         com.knapsack.fixtool.service.DictionaryLint
             .unknownTags(step.fields, dictionary)
@@ -590,11 +605,14 @@ private fun ExpectDetail(
         }
     }
     MatchEditor(step.match, dictionary, onChange = { onChange(step.copy(match = it)) })
-    AssertionsDoor(step, onOpenDiff)
+    AssertionsDoor(step, dictionary, onOpenDiff)
 }
 
+/** How many asserted rows the door lists before it defers to the diff. */
+private const val DOOR_PREVIEW_ROWS = 8
+
 /**
- * **The step editor does not edit assertions. It says where they are edited.**
+ * **The step editor does not edit assertions. It says where they are edited — and now also what they are.**
  *
  * There is exactly one surface in the app that can author or repair an assertion — the diff — and exactly one
  * host that composes it: its own document tab. Two hosts would be two sets of props, two lifetimes and two
@@ -604,16 +622,18 @@ private fun ExpectDetail(
  * So this is the door. *Reconcile* when the step has failed a run; *Edit assertions* otherwise — the same
  * surface, a different message in the slot, which is the whole argument of the reference slot made where it
  * costs nothing. The **⧉** glyph says the diff opens *elsewhere* — its own window (Phase 6), beside the grid
- * it is about — not in a tab that replaces the step editor.
+ * it is about — not in a tab that replaces the step editor. The read-only row summary is not a second editing
+ * surface: it shows the first [DOOR_PREVIEW_ROWS] assertions so the count is not a number the author must
+ * open another window to interpret.
  */
 @Composable
-private fun AssertionsDoor(step: EditStep, onOpenDiff: (() -> Unit)?) {
-    val rows = step.expectation.fields.size
+private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDiff: (() -> Unit)?) {
+    val rows = step.expectation.fields
     Column(modifier = Modifier.padding(top = 10.dp)) {
         Text(
             text =
                 when {
-                    rows > 0 -> "$rows asserted ${if (rows == 1) "row" else "rows"}."
+                    rows.isNotEmpty() -> "Asserts ${rows.size} ${if (rows.size == 1) "row" else "rows"}:"
                     step.expectation.golden != null -> "No asserted rows — this step checks only that a matching message arrives."
                     else ->
                         "No asserted rows, and no captured message. This step checks only that a matching " +
@@ -622,6 +642,36 @@ private fun AssertionsDoor(step: EditStep, onOpenDiff: (() -> Unit)?) {
             color = AppTheme.Colors.textSecondary,
             fontSize = 11.sp,
         )
+        // The rows themselves, read-only — "16 asserted rows." was a number the author had to open another
+        // window to see the meaning of. The diff stays the ONE surface that edits them (the door below).
+        rows.take(DOOR_PREVIEW_ROWS).forEach { fe ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                Text("${fe.tag}", color = AppTheme.Colors.tagNumber, fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(44.dp))
+                Text(
+                    dictionary?.getFieldName(fe.tag) ?: "",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    modifier = Modifier.width(120.dp),
+                )
+                Text(
+                    matcherSummary(fe.matcher, dictionary, fe.tag),
+                    color = AppTheme.Colors.fieldName,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (rows.size > DOOR_PREVIEW_ROWS) {
+            Text(
+                "+${rows.size - DOOR_PREVIEW_ROWS} more — the diff shows all of them",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
         if (onOpenDiff != null) {
             SlimButton(
                 text = "Edit assertions ⧉",
@@ -646,12 +696,16 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
         onChange(if (empty) null else normalized)
     }
     Column(modifier = Modifier.padding(top = 8.dp)) {
-        Text(
-            "Binds to — which arriving message this step asserts (walked in order by default; pin a position, or " +
-                "add tag constraints — equals / present / absent — to pick a specific one, e.g. the terminal fill):",
-            color = AppTheme.Colors.textSecondary,
-            fontSize = 10.sp,
-        )
+        // The lesson folded behind the ⓘ: it used to be a two-line standing paragraph that wrapped
+        // mid-sentence and ended in a dangling colon, paid on every visit to every Expect step.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Binds to", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
+            HintIcon(
+                "Which arriving message this step asserts. Walked in order by default; pin a position, or add " +
+                    "tag constraints (equals / present / absent) to pick a specific one — e.g. the terminal fill.",
+                modifier = Modifier.testTag("binds-to-help"),
+            )
+        }
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -663,7 +717,6 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
             SlimLabeled("Position") {
                 OccurrencePicker(match?.occurrence) { picked -> push(match?.messageType, match?.fields ?: emptyList(), picked) }
             }
-            SlimButton("+ constraint", onClick = { push(match?.messageType, (match?.fields ?: emptyList()) + TagValue(0, "")) })
         }
         val allFields = remember(dictionary) { dictionary?.getAllFields() ?: emptyList() }
         // Vertical rhythm, and gaps between the cells. These rows were flush against each other and against
@@ -710,6 +763,13 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
                 }
             }
         }
+        // Below the constraints, because that is where the row it inserts appears. It used to sit up in the
+        // header row, a screen-width away from what it did.
+        SlimButton(
+            "+ constraint",
+            onClick = { push(match?.messageType, (match?.fields ?: emptyList()) + TagValue(0, "")) },
+            modifier = Modifier.padding(top = 6.dp),
+        )
     }
 }
 

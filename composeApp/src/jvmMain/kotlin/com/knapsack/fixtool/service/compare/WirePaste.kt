@@ -141,8 +141,8 @@ private fun pipeInAValue(
     val why =
         if (delimiter == '|') {
             "Read ${fields.size} fields and then could not read $quoted — which is not a FIX field and cannot " +
-                "be one. **That is what a `|` inside a value looks like**: `58=filled|in full` is legal FIX, and " +
-                "a log that renders SOH as `|` cannot be read back through it. Nothing in these characters says " +
+                "be one. That is what a | inside a value looks like: 58=filled|in full is legal FIX, and " +
+                "a log that renders SOH as | cannot be read back through it. Nothing in these characters says " +
                 "which pipe was the delimiter, and FixTool will not guess — the value it guessed wrong would be " +
                 "written into your assertion. Paste the raw bytes: a venue's message log keeps the SOH."
         } else {
@@ -224,7 +224,7 @@ private fun bodyLengthOf(fields: List<Pair<Int, String>>, checksumAt: Int): Pair
 private fun checksumRefusal(stated: Int, computed: Int, prefix: String?, delimiter: Char): WirePaste =
     refused(
         "The message's own CheckSum(10) says ${"%03d".format(stated)}, and these bytes as read sum to " +
-            "${"%03d".format(computed)}. **The reading is disproved by the message itself.** With a `|` " +
+            "${"%03d".format(computed)} — the reading is disproved by the message itself. With a | " +
             "delimiter that is what a pipe inside a value does — each one read as a delimiter moves the sum by " +
             "$PIPE_MINUS_SOH — and the checksum says how many were misread, never which, so there is nothing " +
             "here to repair without guessing. Paste the raw SOH bytes.",
@@ -247,8 +247,8 @@ private fun bodyLengthRefusal(stated: Int, computed: Int, prefix: String?, delim
 private fun pipeNote(pipes: Int): String =
     when (pipes) {
         0 -> ""
-        1 -> " · one value contains a `|`, and it is kept — these bytes say where the fields end"
-        else -> " · $pipes values contain a `|`, and they are kept — these bytes say where the fields end"
+        1 -> " · one value contains a |, and it is kept — these bytes say where the fields end"
+        else -> " · $pipes values contain a |, and they are kept — these bytes say where the fields end"
     }
 
 private fun List<Pair<Int, String>>.rebuild(): String = joinToString("") { (tag, value) -> "$tag=$value$SOH" }

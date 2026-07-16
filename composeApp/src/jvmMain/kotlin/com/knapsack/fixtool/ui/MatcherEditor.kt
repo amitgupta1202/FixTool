@@ -4,8 +4,10 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,8 +23,12 @@ import com.knapsack.fixtool.model.scenario.validationError
 /** The matcher type names, in the order shown in the editor's dropdown. */
 val MATCHER_TYPES = listOf("exact", "presence", "absent", "oneOf", "regex", "numeric", "temporal", "reference")
 
-/** Shared by the pattern field and the error beneath it, so the message wraps instead of widening the row. */
-private val PATTERN_FIELD_WIDTH = 120.dp
+/**
+ * Every matcher's parameters render inside one slot of this width. Each type used to bring its own —
+ * exact 130, reference 180, numeric 80+56, regex 120 plus a label that appeared from nowhere — so the
+ * column's right edge was ragged and a row changed shape every time its chip changed type.
+ */
+private val PARAMS_WIDTH = 210.dp
 
 /** One-line explanation per matcher type, shown in the type dropdown for users new to FIX testing. */
 private val MATCHER_HELP = mapOf(
@@ -109,7 +115,10 @@ fun MatcherEditor(
             itemText = { type -> MATCHER_HELP[type]?.let { "$type — $it" } ?: type },
             modifier = Modifier.width(90.dp),
         )
-        MatcherParams(matcher, onChange)
+        // ONE slot, constant width, whatever the type — so the column has a straight edge and a row does
+        // not change shape when its chip changes type. What each type needs is drawn inside it; a label
+        // it used to wear beside the field ("pattern", "any of") is its field's placeholder now.
+        Box(modifier = Modifier.width(PARAMS_WIDTH)) { MatcherParams(matcher, onChange) }
     }
 }
 
@@ -118,69 +127,86 @@ private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit) {
     when (matcher) {
         is Matcher.Presence, is Matcher.Absent -> Unit
         is Matcher.Exact ->
-            SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.width(130.dp))
+            SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.fillMaxWidth())
         is Matcher.Regex -> {
             // The one place a pattern is judged. The codec carries a bad one through unharmed, so the
             // author never loses a scenario to a half-typed character class — they are told here,
             // while they are typing it, and the row stays red until it compiles.
-            //
-            // The reason goes *under* the field, in its own column: as a sibling of the enclosing Row it
-            // was laid out beside the field instead, and a 50-character message measured before the
-            // row's trailing controls left them nothing to occupy.
             val problem = remember(matcher.pattern) { matcher.validationError() }
-            SlimLabeled("pattern") {
-                Column {
-                    SlimField(
-                        matcher.pattern,
-                        { onChange(Matcher.Regex(it)) },
-                        monospace = true,
-                        textColor = if (problem != null) AppTheme.Colors.error else AppTheme.Colors.text,
-                        modifier = Modifier.width(PATTERN_FIELD_WIDTH),
+            Column {
+                SlimField(
+                    matcher.pattern,
+                    { onChange(Matcher.Regex(it)) },
+                    monospace = true,
+                    textColor = if (problem != null) AppTheme.Colors.error else AppTheme.Colors.text,
+                    placeholder = "pattern",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (problem != null) {
+                    Text(
+                        problem,
+                        color = AppTheme.Colors.error,
+                        fontSize = 9.sp,
+                        lineHeight = 11.sp,
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    if (problem != null) {
-                        Text(
-                            problem,
-                            color = AppTheme.Colors.error,
-                            fontSize = 9.sp,
-                            lineHeight = 11.sp,
-                            modifier = Modifier.width(PATTERN_FIELD_WIDTH),
-                        )
-                    }
                 }
             }
         }
         is Matcher.Reference ->
-            SlimField(matcher.expression, { onChange(Matcher.Reference(it)) }, monospace = true, modifier = Modifier.width(180.dp))
+            SlimField(
+                matcher.expression,
+                { onChange(Matcher.Reference(it)) },
+                monospace = true,
+                placeholder = "\${...}",
+                modifier = Modifier.fillMaxWidth(),
+            )
         is Matcher.OneOf ->
-            SlimLabeled("any of") {
+            SlimField(
+                matcher.values.joinToString(","),
+                { onChange(Matcher.OneOf(it.split(",").map(String::trim).filter(String::isNotEmpty))) },
+                monospace = true,
+                placeholder = "value, value, …",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        is Matcher.Numeric ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 SlimField(
-                    matcher.values.joinToString(","),
-                    { onChange(Matcher.OneOf(it.split(",").map(String::trim).filter(String::isNotEmpty))) },
+                    numText(matcher.expected),
+                    { onChange(Matcher.Numeric(it.toDoubleOrNull() ?: matcher.expected, matcher.tolerance)) },
                     monospace = true,
-                    modifier = Modifier.width(140.dp),
+                    modifier = Modifier.weight(1f),
+                )
+                // A bare "±" rather than a "± tol" label: in a narrow diff column the label had nowhere to go
+                // and wrapped to one character per line, which is not a label, it is a decoration.
+                Text("±", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
+                SlimField(
+                    numText(matcher.tolerance),
+                    { onChange(Matcher.Numeric(matcher.expected, it.toDoubleOrNull() ?: matcher.tolerance)) },
+                    monospace = true,
+                    modifier = Modifier.width(64.dp),
                 )
             }
-        is Matcher.Numeric -> {
-            SlimField(numText(matcher.expected), { onChange(Matcher.Numeric(it.toDoubleOrNull() ?: matcher.expected, matcher.tolerance)) }, monospace = true, modifier = Modifier.width(80.dp))
-            // A bare "±" rather than a "± tol" label: in a narrow diff column the label had nowhere to go and
-            // wrapped to one character per line, which is not a label, it is a decoration.
-            Text("±", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
-            SlimField(numText(matcher.tolerance), { onChange(Matcher.Numeric(matcher.expected, it.toDoubleOrNull() ?: matcher.tolerance)) }, monospace = true, modifier = Modifier.width(56.dp))
-        }
-        is Matcher.Temporal -> {
-            SlimDropdown(
-                value = matcher.kind,
-                options = TemporalKind.values().toList(),
-                onValueChange = { kind -> kind?.let { onChange(Matcher.Temporal(it, matcher.toleranceSeconds)) } },
-                displayText = { if (it == TemporalKind.TODAY) "today" else "now ±" },
-                modifier = Modifier.width(76.dp),
-            )
-            if (matcher.kind == TemporalKind.NOW_WITHIN_TOLERANCE) {
-                Text("±", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
-                SlimField(matcher.toleranceSeconds.toString(), { onChange(Matcher.Temporal(matcher.kind, it.toLongOrNull() ?: matcher.toleranceSeconds)) }, monospace = true, modifier = Modifier.width(48.dp))
-                Text("s", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
+        is Matcher.Temporal ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                SlimDropdown(
+                    value = matcher.kind,
+                    options = TemporalKind.values().toList(),
+                    onValueChange = { kind -> kind?.let { onChange(Matcher.Temporal(it, matcher.toleranceSeconds)) } },
+                    displayText = { if (it == TemporalKind.TODAY) "today" else "now ±" },
+                    modifier = Modifier.width(84.dp),
+                )
+                if (matcher.kind == TemporalKind.NOW_WITHIN_TOLERANCE) {
+                    Text("±", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
+                    SlimField(
+                        matcher.toleranceSeconds.toString(),
+                        { onChange(Matcher.Temporal(matcher.kind, it.toLongOrNull() ?: matcher.toleranceSeconds)) },
+                        monospace = true,
+                        modifier = Modifier.width(48.dp),
+                    )
+                    Text("s", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, maxLines = 1)
+                }
             }
-        }
     }
 }
 

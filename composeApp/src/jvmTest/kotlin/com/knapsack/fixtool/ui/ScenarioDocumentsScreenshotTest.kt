@@ -11,14 +11,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.ui.diff.EditOp
@@ -306,6 +309,8 @@ class ScenarioDocumentsScreenshotTest {
         assertTrue(scan.candidates.size == 2, "the scan sees both business messages, got ${scan.candidates.size}")
         composeTestRule.setContent { MainWindow() }
 
+        // Capture lives in the rail's "+ New ▾" menu now — one door to the three ways of creating a scenario.
+        composeTestRule.onNodeWithTag("rail-new-menu").performClick()
         composeTestRule.onNodeWithTag("rail-capture").performClick()
         composeTestRule.waitForIdle()
 
@@ -372,9 +377,57 @@ class ScenarioDocumentsScreenshotTest {
     fun `the rail's Diff messages opens an empty plain diff viewer`() {
         composeTestRule.setContent { MainWindow() }
         composeTestRule.waitForIdle()
+        // The viewer's door lives behind the rail's ⋯ menu — a utility, not a creation action.
+        composeTestRule.onNodeWithTag("rail-more").performClick()
         composeTestRule.onNodeWithTag("rail-diff-messages").performClick()
         composeTestRule.waitForIdle()
         val viewer = viewModel.openDiffViewers.value.single()
         assertNull(viewer.session, "it opens empty — two slots to fill, not a diff against nothing yet")
+    }
+
+    /**
+     * **The rail after its cleanup (Option B):** rows carry an identity line — steps · sessions · file date —
+     * instead of a standing four-icon strip; the actions appear on the hovered row and nowhere else; and the
+     * filter finds a scenario by name or by the session it drives, answering with a sentence rather than a
+     * blank pane when nothing matches.
+     */
+    @Test
+    fun `the rail filters by name and session, and hides actions until hover`() {
+        assertTrue(viewModel.scenarioService.save(scenario)) // "rfq flow v2", no per-step session
+        assertTrue(
+            viewModel.scenarioService.save(
+                Scenario(
+                    id = "sc-md",
+                    name = "market data burst",
+                    steps =
+                        listOf(
+                            ScenarioStep.Send("35=V|262=REQ1|", "MD_CLIENT2"),
+                            ScenarioStep.Expect(session = "MD_CLIENT2", expectation = Expectation(emptyList(), messageType = "W")),
+                        ),
+                ),
+            ),
+        )
+        composeTestRule.setContent { MainWindow() }
+        composeTestRule.waitForIdle()
+
+        // The identity line is what tells same-named captures apart — here it names the session and count.
+        composeTestRule.onNodeWithText("2 steps · MD_CLIENT2", substring = true).assertIsDisplayed()
+        // No standing icon strip: the run button exists only once the pointer is on the row.
+        composeTestRule.onAllNodesWithTag("run-sc-md").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("scenario-row-sc-md").performMouseInput { moveTo(center) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("run-sc-md").assertIsDisplayed()
+        snapshot("rail_option_b.png")
+
+        // Filter by the SESSION: the MD scenario stays, the rfq one goes.
+        composeTestRule.onNodeWithTag("rail-filter").performTextReplacement("MD_CLIENT")
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("scenario-row-sc-md").assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag("scenario-row-sc-shot").assertCountEquals(0)
+
+        // And a query nothing matches gets a sentence, not a pane that looks like deleted scenarios.
+        composeTestRule.onNodeWithTag("rail-filter").performTextReplacement("zzz")
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("rail-filter-empty").assertIsDisplayed()
     }
 }

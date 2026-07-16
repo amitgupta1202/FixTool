@@ -287,6 +287,74 @@ class FixGalleryScreenshotTest {
         snap("fixes_11_accept_all_shape_applied")
     }
 
+    /**
+     * **The mixed failure — both bulk actions, together.** The venue dropped a tag, added a tag AND let two
+     * values drift, which is what a real re-run looks like. Accept-all-shape takes the shape churn (one
+     * edit), the fix plan takes the drift (one edit): two clicks, two footer lines, each its own ⌘Z — and
+     * the order does not matter, because the two act on disjoint rows by construction.
+     */
+    @Test
+    fun `13 shape churn and value drift repaired together`() {
+        composeTestRule.surface(
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(6, Matcher.Exact("1.09244")),
+                    FieldExpectation(151, Matcher.Numeric(0.0)),
+                    FieldExpectation(58, Matcher.Exact("filled")),
+                ),
+                messageType = "8",
+                mode = MatchMode.STRICT,
+            ),
+            wireView(35 to "8", 6 to "1.09139", 151 to "500000", 2376 to "Y"),
+            height = 420.dp,
+        )
+        composeTestRule.onNodeWithTag("diff-accept-shape").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-fix-plan").assertIsDisplayed()
+        snap("fixes_13_mixed_failure_both_offers")
+
+        click("diff-accept-shape")
+        snap("fixes_13_mixed_failure_shape_accepted")
+
+        click("diff-fix-plan")
+        click("diff-fix-apply")
+        snap("fixes_13_mixed_failure_both_applied")
+    }
+
+    /**
+     * **The whole matcher vocabulary on one screen** — every kind a row can assert, green against the same
+     * reply, plus the reference's amber third state. Not a fix, but the palette every fix writes into:
+     * `exact`, `presence`, `absent`, `oneOf` (the value must be one of a set), `regex` (full-match — a
+     * *contains* is `.*substring.*`), `numeric ± tolerance`, `temporal ~now`, and the cross-step `reference`.
+     */
+    @Test
+    fun `14 the matcher vocabulary`() {
+        composeTestRule.surface(
+            open(
+                FieldExpectation(35, Matcher.Exact("8")),
+                FieldExpectation(11, Matcher.Regex("ORD-[0-9a-f]+")),
+                FieldExpectation(17, Matcher.Reference("\${id0}")),
+                FieldExpectation(37, Matcher.Presence),
+                FieldExpectation(150, Matcher.OneOf(listOf("0", "1", "2"))),
+                FieldExpectation(151, Matcher.Numeric(500000.0, 1000.0)),
+                FieldExpectation(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)),
+                FieldExpectation(58, Matcher.Absent),
+            ),
+            wireView(
+                35 to "8",
+                11 to "ORD-9f3a",
+                17 to "EXEC1784207189117",
+                37 to "FX1784206943508",
+                150 to "2",
+                151 to "499500",
+                60 to "20260714-09:35:44",
+            ),
+            height = 420.dp,
+        )
+        composeTestRule.onNodeWithTag("matcher-150-0").assertIsDisplayed()
+        snap("fixes_00_matcher_vocabulary")
+    }
+
     /** "Re-seed from reference": the step rebuilt from the reply — with the echo reference kept, not flattened. */
     @Test
     fun `12 reseed from the reference`() {

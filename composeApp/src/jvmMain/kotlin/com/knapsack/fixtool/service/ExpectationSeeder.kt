@@ -103,6 +103,17 @@ object ExpectationSeeder {
                 )
             }
 
+    /**
+     * **May this field honestly carry a numeric tolerance?** The same families [seedMatcher] seeds
+     * `Numeric` from — prices, quantities, amounts — and nothing else. This is the one decider the fix
+     * plan's bulk loosen consults, and it is the seeder's on purpose: an enum-coded int (`PartyRole(452)`,
+     * `QuoteStatus(297)`) parses as a number just fine, and `4 ± 3` over it is a matcher that accepts
+     * seven different meanings while reading like a tolerance. The type system knows which ints are
+     * codes; a second opinion here would eventually disagree with the seed.
+     */
+    fun numericFamily(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
+        fieldTypeName(tag, dictionary) in NUMERIC_TYPES
+
     private fun seedMatcher(tag: Int, value: String, dictionary: FixDictionaryAdapter?): Matcher {
         val fieldType = fieldTypeName(tag, dictionary)
         return when {

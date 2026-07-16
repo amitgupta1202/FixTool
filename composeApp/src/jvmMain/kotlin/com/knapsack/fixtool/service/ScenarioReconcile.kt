@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
+import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.service.compare.EntrySource
 import com.knapsack.fixtool.service.compare.GroupOverlay
 import com.knapsack.fixtool.service.compare.NO_ANCHOR
@@ -239,6 +240,214 @@ object ScenarioReconcile {
     /** True when [drop] would take more than the one row — the view has to say so before it happens. */
     fun dropTakesWholeTag(draft: Expectation, index: Int): Boolean =
         draft.fields.count { it.tag == draft.fields[index].tag } > 1
+
+    // ------------------------------------------------------------------ the covering band, and the fix plan
+
+    /**
+     * The smallest numeric band that covers both the expectation and the reply — the arithmetic behind the
+     * per-row `±` offer **and** the fix plan's default, in one place so the two cannot come to disagree
+     * about what "covers" means.
+     *
+     * The subtraction runs on the decimal *strings*, because a double subtraction would put
+     * `0.9149000000000001` in the tooltip and then in the scenario file. But the band must pass THE
+     * EVALUATOR'S arithmetic, which is plain doubles: `abs(a - expected)` is not the decimal difference
+     * (2.0 vs 1.9 differs from 0.1d by ~6 ulps, on the failing side). The pretty decimal is kept where it
+     * already covers that; where rounding leaves it short, the evaluator's own difference is the tolerance
+     * — ugly digits, but a Loosen that leaves the row red is a broken button.
+     *
+     * Null where there is no band to speak of: a matcher that is not Exact/Numeric, a side that does not
+     * parse, or two sides that are already the same number (that is a formatting difference, not a value
+     * difference, and [fixPlan] answers it separately — a band of ±0 "covering both sides" would be a
+     * tooltip that describes nothing).
+     */
+    data class CoveringBand(val matcher: Matcher.Numeric, val expectedText: String, val decimalTolerance: String)
+
+    fun coveringBand(current: Matcher, actualText: String?): CoveringBand? {
+        if (actualText == null) return null
+        val expectedText =
+            when (current) {
+                is Matcher.Exact -> current.value
+                is Matcher.Numeric -> decimalText(current.expected)
+                else -> return null
+            }
+        val expected = expectedText.toBigDecimalOrNull() ?: return null
+        val actual = actualText.toBigDecimalOrNull() ?: return null
+        if (expected.compareTo(actual) == 0) return null
+        val decimalTolerance = (expected - actual).abs().stripTrailingZeros()
+        val doubleDifference = kotlin.math.abs(expected.toDouble() - actual.toDouble())
+        val tolerance = maxOf(decimalTolerance.toDouble(), doubleDifference)
+        return CoveringBand(
+            matcher = Matcher.Numeric(expected.toDouble(), tolerance),
+            expectedText = expected.toPlainString(),
+            decimalTolerance = decimalTolerance.toPlainString(),
+        )
+    }
+
+    /** A double as the decimal it came from: no trailing `.0` on an integer, no scientific notation. */
+    fun decimalText(d: Double): String =
+        if (d == d.toLong().toDouble()) {
+            d.toLong().toString()
+        } else {
+            // Via toString (shortest round-trip decimal), never BigDecimal(double) — which would expand
+            // 1.9999 to its full binary form and put fifty digits in the tooltip.
+            java.math.BigDecimal(d.toString()).stripTrailingZeros().toPlainString()
+        }
+
+    /**
+     * How the fix plan chooses each numeric band. [CoverBoth] asks each row for the smallest band covering
+     * its own gap — every proposal repairs, by construction. [Uniform] is the knob: one tolerance for every
+     * numeric row, and a row the tolerance does not reach is **marked, never hidden** — a policy that
+     * quietly skipped the rows it cannot fix would report a plan that "fixes everything" over one that
+     * does not.
+     */
+    sealed interface FixTolerance {
+        object CoverBoth : FixTolerance
+
+        data class Uniform(val tolerance: Double) : FixTolerance
+    }
+
+    /**
+     * One proposed edit of a fix plan: the row, what it asserts today, what the plan would write, why —
+     * and whether the row would actually pass afterwards. The reason is a sentence because every offer on
+     * the surface carries one; a bulk edit with less explanation than a single click would be the bulk
+     * button teaching the author to stop reading.
+     */
+    data class PlannedFix(
+        val index: Int,
+        val tag: Int,
+        val name: String,
+        val current: Matcher,
+        val proposed: Matcher,
+        val reason: String,
+        val repairs: Boolean,
+    )
+
+    /**
+     * **The fix plan: widen the bands until the reply fits — and touch nothing else.**
+     *
+     * The bulk answer to a re-run where the venue's *values drifted inside their meaning* — a fill price a
+     * pip away, a timestamp outside its ±60s — which is the one failure class the per-row `±` repairs one
+     * click at a time. Everything the plan may touch is a row that already **is** a tolerance (a `Numeric`,
+     * an anchored `~now` temporal) or that the seeder would have made one (an `Exact` on a price/qty/amount
+     * field, per [ExpectationSeeder.numericFamily] — the same decider, so the plan can never call numeric
+     * what the seed called a code).
+     *
+     * What it must never do is decided by what it is given:
+     * - **enum-coded ints** — `452 exact 4` failing as `1` is a role change, not drift; not in the numeric
+     *   family, so no proposal exists for it;
+     * - **rows the engine proved moved** — repaired by Accept-new-order as a unit, never per-row (D1);
+     * - **references, unjudged rows, shape changes** (missing/unexpected/reordered) — the first two cannot
+     *   be judged here, the rest are [acceptEveryShapeChange]'s territory and value-blind by design;
+     * - **rebasing** — a proposal keeps the author's baseline and widens around it. Moving the baseline to
+     *   this run's value is Accept-actual, per row, deliberately.
+     */
+    fun fixPlan(
+        draft: Expectation,
+        reference: ReferenceMessage,
+        dictionary: FixDictionaryAdapter?,
+        tolerance: FixTolerance = FixTolerance.CoverBoth,
+        referenceResolver: (String) -> String? = { null },
+    ): List<PlannedFix> {
+        val moved = (reorder(draft, reference, referenceResolver) as? Reorder.Possible)?.moved.orEmpty()
+        return rows(draft, reference, dictionary, referenceResolver).mapNotNull { row ->
+            val index = row.index ?: return@mapNotNull null
+            if (row.passed || row.unknown || index in moved) return@mapNotNull null
+            if (row.status != TagStatus.VALUE) return@mapNotNull null
+            val name = dictionary?.getFieldName(row.tag) ?: ""
+            when (val matcher = row.matcher) {
+                is Matcher.Temporal -> temporalFix(index, name, row, matcher, reference.anchorInstant)
+                is Matcher.Numeric -> numericFix(index, name, row, matcher, tolerance)
+                is Matcher.Exact ->
+                    if (ExpectationSeeder.numericFamily(row.tag, dictionary)) {
+                        numericFix(index, name, row, matcher, tolerance)
+                    } else {
+                        null
+                    }
+                else -> null
+            }
+        }
+    }
+
+    private fun numericFix(
+        index: Int,
+        name: String,
+        row: Row,
+        current: Matcher,
+        mode: FixTolerance,
+    ): PlannedFix? {
+        val actualText = row.actual ?: return null
+        val actual = actualText.toDoubleOrNull() ?: return null
+        val expected =
+            when (current) {
+                is Matcher.Numeric -> current.expected
+                is Matcher.Exact -> current.value.toDoubleOrNull() ?: return null
+                else -> return null
+            }
+        // The same number in different clothes — `1.0` against `1.00` — is an Exact row failing over
+        // formatting. No band is needed and none would read sensibly; `numeric ±0` is the repair, because
+        // numeric parses both sides and a venue that pads its decimals stops mattering.
+        if (expected == actual) {
+            val proposed = Matcher.Numeric(expected, 0.0)
+            if (proposed == current) return null
+            return PlannedFix(
+                index, row.tag, name, current, proposed,
+                reason = "the same number, formatted differently — numeric compares values, not text",
+                repairs = true,
+            )
+        }
+        return when (mode) {
+            is FixTolerance.CoverBoth -> {
+                val band = coveringBand(current, actualText) ?: return null
+                PlannedFix(
+                    index, row.tag, name, current, band.matcher,
+                    reason = "${band.expectedText} ± ${band.decimalTolerance} is the smallest band covering both sides",
+                    repairs = true,
+                )
+            }
+            is FixTolerance.Uniform -> {
+                val proposed = Matcher.Numeric(expected, mode.tolerance)
+                val repairs = ExpectationEvaluator.satisfies(proposed, actualText)
+                PlannedFix(
+                    index, row.tag, name, current, proposed,
+                    reason =
+                        if (repairs) {
+                            "± ${decimalText(mode.tolerance)} covers the reply's $actualText"
+                        } else {
+                            "± ${decimalText(mode.tolerance)} does not reach the reply's $actualText — this row stays red"
+                        },
+                    repairs = repairs,
+                )
+            }
+        }
+    }
+
+    /**
+     * The steps a widened `~now` is offered at. Friendly numbers, because `±83s` in a scenario file reads
+     * as a measurement where `±120s` reads as a decision — and the next run's skew is not this run's, so
+     * the headroom the next step up buys is the point. Beyond a day, no rung: a timestamp a day from its
+     * anchor is not clock drift, and widening over it would assert nothing.
+     */
+    private val TEMPORAL_LADDER = listOf(60L, 120L, 300L, 600L, 1800L, 3600L, 7200L, 86400L)
+
+    private fun temporalFix(
+        index: Int,
+        name: String,
+        row: Row,
+        current: Matcher.Temporal,
+        anchor: Instant?,
+    ): PlannedFix? {
+        if (current.kind != TemporalKind.NOW_WITHIN_TOLERANCE) return null // TODAY has no band to widen
+        if (anchor == null) return null // unanchored is unjudged, and never got here — belt to that braces
+        val actualText = row.actual ?: return null
+        val instant = ExpectationEvaluator.parseTimestamp(actualText) { anchor } ?: return null
+        val skew = kotlin.math.abs(instant.epochSecond - anchor.epochSecond)
+        val widened = TEMPORAL_LADDER.firstOrNull { it >= skew && it > current.toleranceSeconds } ?: return null
+        return PlannedFix(
+            index, row.tag, name, current, Matcher.Temporal(current.kind, widened),
+            reason = "the reply's moment is ${skew}s from the reference's — ±${widened}s covers it with headroom",
+            repairs = true,
+        )
+    }
 
     /**
      * Assert a field the reply carried and the expectation never mentioned.

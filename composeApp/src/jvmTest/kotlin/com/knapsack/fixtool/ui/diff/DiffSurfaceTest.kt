@@ -412,6 +412,34 @@ class DiffSurfaceTest {
         snapshot("diff_surface_asserts_nothing.png")
     }
 
+    // ----- the fix plan -----------------------------------------------------------------------------------
+
+    /**
+     * The verdict bar offers the plan only where one exists, the sheet previews it row by row, and Apply
+     * stages the whole plan as one edit. Here the only widenable failure is 151 — the moved parties, the
+     * missing 58, the added 2376 and the reference 11 are all outside the plan's reach, which is the point.
+     */
+    @Test
+    fun `the fix plan previews from the verdict bar and stages as one edit`() {
+        composeTestRule.surface(captured, reply)
+
+        composeTestRule.onNodeWithTag("diff-fix-plan").performClick()
+        composeTestRule.onNodeWithTag("diff-fix-sheet").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-fix-row-151").assertIsDisplayed()
+        snapshot("diff_surface_fix_plan.png")
+
+        composeTestRule.onNodeWithTag("diff-fix-apply").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("diff-staged").assertTextEquals("1")
+        composeTestRule
+            .onNodeWithTag("diff-staged-labels")
+            .assertTextContains("Loosened 1 row to fit the reply", substring = true)
+        // Nothing widenable remains, so the affordance goes with the need — the sheet closed with the apply.
+        composeTestRule.onAllNodesWithTag("diff-fix-plan").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("diff-fix-sheet").assertCountEquals(0)
+    }
+
     // ----- authoring: the assertion no row can host -------------------------------------------------------
 
     /**

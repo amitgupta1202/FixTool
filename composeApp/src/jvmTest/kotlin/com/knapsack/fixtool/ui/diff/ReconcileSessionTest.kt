@@ -799,4 +799,38 @@ class ReconcileSessionTest {
             "the contradicted absent row is exactly one failure — the wire's 58 is spoken for, not an extra on top",
         )
     }
+
+    // ----- the fix plan -----------------------------------------------------------------------------------
+
+    /**
+     * The plan was previewed row by row before it was applied, so it is **one edit**: one line in the
+     * footer, one ⌘Z — undoing it row by row would walk back through decisions the author made as one.
+     */
+    @Test
+    fun `the fix plan applies as one snapshot, repairs every planned row, and one undo removes it whole`() {
+        val drifted =
+            Expectation(
+                listOf(
+                    FieldExpectation(35, Matcher.Exact("8")),
+                    FieldExpectation(6, Matcher.Numeric(1.09087)),
+                    FieldExpectation(31, Matcher.Numeric(1.09087)),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val s = session(drifted, wireView(35 to "8", 6 to "1.09152", 31 to "1.09152"))
+
+        val plan = s.fixPlan()
+        assertEquals(listOf(6, 31), plan.map { it.tag })
+        assertTrue(plan.all { it.repairs })
+
+        val before = s.draft
+        assertIs<EditResult.Applied>(s.apply(EditOp.fixPlan(plan)))
+        assertEquals(1, s.staged, "two rows widened, one edit staged")
+        assertEquals(listOf("Loosened 2 rows to fit the reply"), s.stagedLabels)
+        assertEquals(0, s.model.verdict.attention, "every planned row now passes")
+
+        s.undo()
+        assertEquals(before, s.draft, "one undo, and the plan is gone whole — byte-for-byte")
+    }
 }

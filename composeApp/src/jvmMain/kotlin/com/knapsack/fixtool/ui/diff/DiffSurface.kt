@@ -52,6 +52,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.TagStatus
+import com.knapsack.fixtool.service.ExpectationEvaluator
+import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.compare.ChunkKind
 import com.knapsack.fixtool.service.compare.EntrySource
 import com.knapsack.fixtool.service.compare.ReferenceMessage
@@ -71,6 +74,7 @@ import com.knapsack.fixtool.ui.AppTooltip
 import com.knapsack.fixtool.ui.MATCHER_TYPES
 import com.knapsack.fixtool.ui.MatcherEditor
 import com.knapsack.fixtool.ui.SlimButton
+import com.knapsack.fixtool.ui.SlimLabeled
 import com.knapsack.fixtool.ui.SlimTagPicker
 
 /**
@@ -166,7 +170,19 @@ fun DiffSurface(
                 onCancel = { pasting = false },
             )
         }
-        VerdictLine(model, session.reference.provenance, open = session.draft.mode == MatchMode.OPEN)
+        // The fix plan: computed once per (draft, reference) — the two things it is a function of, and both
+        // cheap to compare — so the verdict bar can say "± fix N…" without re-walking the diff on every
+        // recomposition. Keying on the model would deep-compare its whole line tree per frame of a drag.
+        val fixable = remember(session.draft, session.reference) { session.fixPlan() }
+        var fixing by remember { mutableStateOf(false) }
+        VerdictLine(
+            model,
+            session.reference.provenance,
+            open = session.draft.mode == MatchMode.OPEN,
+            fixable = if (fixing) 0 else fixable.size,
+            onFix = { fixing = true },
+        )
+        if (fixing) FixPlanSheet(session) { fixing = false }
         // The engine knows exactly why it is not offering a move, and it used to keep that to itself. An
         // author looking at a group full of red rows with no re-order on offer concludes — reasonably — that
         // re-ordering was never built. That is what happened. Now it says.
@@ -393,7 +409,14 @@ private const val MODE_TOOLTIP =
  * replaces, so the two can never come to disagree about how many rows are red.
  */
 @Composable
-private fun VerdictLine(model: DiffModel, provenance: ReferenceMessage.Provenance, open: Boolean) {
+private fun VerdictLine(
+    model: DiffModel,
+    provenance: ReferenceMessage.Provenance,
+    open: Boolean,
+    /** How many rows the fix plan could widen — 0 draws no affordance, including while the sheet is open. */
+    fixable: Int = 0,
+    onFix: () -> Unit = {},
+) {
     val v = model.verdict
     // Red is a claim, and it may only be made about the message the step is actually ABOUT. Against a message
     // the author bound by hand, rows that do not hold are amber: something to look at, not an accusation.
@@ -443,6 +466,130 @@ private fun VerdictLine(model: DiffModel, provenance: ReferenceMessage.Provenanc
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false).testTag("diff-shape-or-behaviour"),
             )
+        }
+        if (fixable > 0) {
+            AppTooltip(
+                "Fix plan — widen the numeric and temporal bands until the reply fits. Previewed row by row " +
+                    "before anything is staged; enum-coded fields, moved entries and references are never touched",
+            ) {
+                SlimButton(
+                    "± fix $fixable…",
+                    onClick = onFix,
+                    color = AppTheme.Colors.warning,
+                    modifier = Modifier.padding(start = 8.dp).testTag("diff-fix-plan"),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * **The fix plan, previewed.** Every row the plan would touch, what it asserts today, what it would assert
+ * instead, and the engine's sentence for why — before one edit is staged. The knob narrows the policy: blank
+ * asks each row for the smallest band covering its own gap (always green afterwards); a value applies one
+ * tolerance to every numeric row, and a row the value does not reach is **marked red in the preview**, not
+ * dropped from it — a plan that hides the rows it cannot fix is a plan that lies about what "apply" does.
+ * Applying stages the whole plan as one edit: one line in the footer, one ⌘Z.
+ */
+@Composable
+private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
+    var toleranceText by remember { mutableStateOf("") }
+    val uniform = toleranceText.trim().toDoubleOrNull()?.takeIf { it >= 0 }
+    val mode =
+        if (uniform != null) {
+            ScenarioReconcile.FixTolerance.Uniform(uniform)
+        } else {
+            ScenarioReconcile.FixTolerance.CoverBoth
+        }
+    // Keyed on what the plan is a function of — the draft, the reference, the knob — not on the model,
+    // whose deep equality would run on every keystroke into the tolerance field.
+    val plan = remember(session.draft, session.reference, mode) { session.fixPlan(mode) }
+    val stillRed = plan.count { !it.repairs }
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.surfaceVariant)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("diff-fix-sheet"),
+    ) {
+        Text(
+            "FIX PLAN — WIDEN THE BANDS UNTIL THE REPLY FITS · PREVIEWED HERE, STAGED AS ONE EDIT",
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+            SlimLabeled("numeric tolerance ±") {
+                SlimField(
+                    value = toleranceText,
+                    onValueChange = { toleranceText = it },
+                    monospace = true,
+                    modifier = Modifier.width(90.dp).testTag("diff-fix-tolerance"),
+                )
+            }
+            Text(
+                "blank = the smallest band covering each row's own gap",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        plan.forEach { fix ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp).testTag("diff-fix-row-${fix.tag}"),
+            ) {
+                Text("${fix.tag}", color = AppTheme.Colors.tagNumber, fontFamily = FontFamily.Monospace, fontSize = 10.sp, modifier = Modifier.width(44.dp))
+                Text(fix.name, color = AppTheme.Colors.fieldName, fontSize = 10.sp, maxLines = 1, modifier = Modifier.width(120.dp))
+                Text(ExpectationEvaluator.describe(fix.current), color = AppTheme.Colors.textSecondary, fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
+                Text("  →  ", color = AppTheme.Colors.textDisabled, fontSize = 10.sp)
+                Text(
+                    ExpectationEvaluator.describe(fix.proposed),
+                    color = if (fix.repairs) AppTheme.Colors.success else AppTheme.Colors.error,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                )
+                Text(
+                    "  ${fix.reason}",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 6.dp),
+                )
+            }
+        }
+        if (plan.isEmpty()) {
+            Text(
+                "Nothing left that widening would fix — the remaining failures are shape changes or value " +
+                    "regressions, which this plan deliberately does not touch.",
+                color = AppTheme.Colors.warning,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+            SlimButton("Cancel", onClick = onClose, color = AppTheme.Colors.textSecondary)
+            SlimButton(
+                "Apply ${plan.size}",
+                onClick = {
+                    session.apply(EditOp.fixPlan(plan))
+                    onClose()
+                },
+                enabled = plan.isNotEmpty(),
+                color = AppTheme.Colors.primary,
+                modifier = Modifier.padding(start = 6.dp).testTag("diff-fix-apply"),
+            )
+            if (stillRed > 0) {
+                Text(
+                    "  $stillRed ${if (stillRed == 1) "row drifts" else "rows drift"} beyond ± ${toleranceText.trim()} and would stay red",
+                    color = AppTheme.Colors.warning,
+                    fontSize = 10.sp,
+                    modifier = Modifier.testTag("diff-fix-still-red"),
+                )
+            }
         }
     }
 }

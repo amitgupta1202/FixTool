@@ -144,6 +144,16 @@ class EditOp(
                 ScenarioReconcile.acceptEveryShapeChange(it, message, dictionary)
             }
 
+        /**
+         * The fix plan, applied whole — **one snapshot, one ⌘Z**, like [acceptAllShape]. The plan was
+         * previewed row by row before this op existed, so undoing it row by row would be walking back
+         * through decisions the author made as one.
+         */
+        fun fixPlan(fixes: List<ScenarioReconcile.PlannedFix>) =
+            pure("Loosened ${fixes.size} ${if (fixes.size == 1) "row" else "rows"} to fit the reply") { draft ->
+                fixes.fold(draft) { d, fix -> ScenarioReconcile.loosen(d, fix.index, fix.proposed) }
+            }
+
         fun reseed(message: MessageView, dictionary: FixDictionaryAdapter?) =
             pure("Re-seeded the step") { ScenarioReconcile.reseed(it, message, dictionary) }
 
@@ -555,6 +565,14 @@ class ReconcileSession(
     fun verdictOf(candidate: Expectation): Verdict = build(candidate).verdict
 
     /**
+     * The fix plan for the current draft against the current reference — the sheet's preview, recomputed
+     * when the knob moves. Asks the engine and stages nothing; applying is [EditOp.fixPlan], one snapshot.
+     */
+    fun fixPlan(
+        tolerance: ScenarioReconcile.FixTolerance = ScenarioReconcile.FixTolerance.CoverBoth,
+    ): List<ScenarioReconcile.PlannedFix> = ScenarioReconcile.fixPlan(draft, reference, dictionary, tolerance, resolver)
+
+    /**
      * [draft] shadows the property on purpose: [verdictOf] builds this for a candidate that is not staged.
      *
      * The body moved to the top-level [buildDiffModel] so the plain diff **viewer** can share it (Phase 7, G2):
@@ -716,46 +734,21 @@ class ReconcileSession(
     /**
      * `±` — widen this row to a numeric band that covers both the expectation and the reply, for a value
      * that legitimately varies per run (a fill price, a remaining quantity). Offered only where both sides
-     * are numbers and the matcher is Exact/Numeric; the arithmetic runs on the decimal *strings*, because a
-     * double subtraction would put `0.9149000000000001` in the tooltip and then in the scenario file.
+     * are numbers and the matcher is Exact/Numeric. The arithmetic lives in
+     * [ScenarioReconcile.coveringBand], shared with the fix plan's bulk loosen — one decider for what
+     * "covers both sides" means, including the decimal-vs-double ulp trap documented there.
      */
     private fun loosenOffer(index: Int, row: ScenarioReconcile.Row): Offer? {
-        val actualText = row.actual ?: return null
-        val expectedText =
-            when (val m = row.matcher) {
-                is Matcher.Exact -> m.value
-                is Matcher.Numeric -> decimalText(m.expected)
-                else -> return null
-            }
-        val expected = expectedText.toBigDecimalOrNull() ?: return null
-        val actual = actualText.toBigDecimalOrNull() ?: return null
-        if (expected.compareTo(actual) == 0) return null
-        val decimalTolerance = (expected - actual).abs().stripTrailingZeros()
-        // The band must pass THE EVALUATOR'S arithmetic, which is plain doubles: abs(a - expected) is not
-        // the decimal difference (2.0 vs 1.9 differs from 0.1d by ~6 ulps, on the failing side). The pretty
-        // decimal is kept where it already covers that; where rounding leaves it short, the evaluator's own
-        // difference is the tolerance — ugly digits, but a Loosen that leaves the row red is a broken button.
-        val doubleDifference = kotlin.math.abs(expected.toDouble() - actual.toDouble())
-        val tolerance = maxOf(decimalTolerance.toDouble(), doubleDifference)
-        val matcher = Matcher.Numeric(expected.toDouble(), tolerance)
+        val matcher = row.matcher ?: return null
+        val band = ScenarioReconcile.coveringBand(matcher, row.actual) ?: return null
         return Offer(
             OfferKind.LOOSEN,
             "±",
-            "Loosen — ${expected.toPlainString()} ± ${decimalTolerance.toPlainString()} covers both sides, " +
+            "Loosen — ${band.expectedText} ± ${band.decimalTolerance} covers both sides, " +
                 "for a value that varies per run (a fill price, a remaining quantity)",
-            EditOp.loosen(index, row.tag, matcher),
+            EditOp.loosen(index, row.tag, band.matcher),
         )
     }
-
-    /** A double as the decimal it came from: no trailing `.0` on an integer, no scientific notation. */
-    private fun decimalText(d: Double): String =
-        if (d == d.toLong().toDouble()) {
-            d.toLong().toString()
-        } else {
-            // Via toString (shortest round-trip decimal), never BigDecimal(double) — which would expand
-            // 1.9999 to its full binary form and put fifty digits in the tooltip.
-            java.math.BigDecimal(d.toString()).stripTrailingZeros().toPlainString()
-        }
 
     /**
      * Dropping a row of a **repeated** tag takes the tag's rows with it, all of them — or the survivors would

@@ -1,10 +1,84 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
+import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class FixMessageHelperTest {
+    /**
+     * The loaded dictionary's own header section decides what is a header field — not the static
+     * per-version list alone. Venue dialects add custom header fields (a routing tag, a desk id);
+     * classified by the static list they landed in the body, the wire changed, and the venue answered
+     * "tag specified out of required order" while Validate — which reads the same dictionary — saw
+     * nothing wrong. Send and Validate must read the same message.
+     */
+    @Test
+    fun `a custom header field from the venue dictionary is serialized in the header`() {
+        val dictFile = java.io.File.createTempFile("venue_dialect", ".xml")
+        try {
+            dictFile.writeText(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<fix major="4" minor="4">
+    <header>
+        <field name="BeginString" number="8" type="STRING" required="Y"/>
+        <field name="BodyLength" number="9" type="LENGTH" required="Y"/>
+        <field name="MsgType" number="35" type="STRING" required="Y"/>
+        <field name="SenderCompID" number="49" type="STRING" required="Y"/>
+        <field name="TargetCompID" number="56" type="STRING" required="Y"/>
+        <field name="MsgSeqNum" number="34" type="SEQNUM" required="Y"/>
+        <field name="SendingTime" number="52" type="UTCTIMESTAMP" required="Y"/>
+        <field name="RouteID" number="5001" type="STRING" required="N"/>
+    </header>
+    <trailer>
+        <field name="CheckSum" number="10" type="STRING" required="Y"/>
+    </trailer>
+    <messages>
+        <message name="NewOrderSingle" msgtype="D" msgcat="app">
+            <field name="ClOrdID" number="11" required="Y"/>
+            <field name="Symbol" number="55" required="Y"/>
+            <field name="Side" number="54" required="Y"/>
+            <field name="OrderQty" number="38" required="Y"/>
+            <field name="OrdType" number="40" required="Y"/>
+        </message>
+    </messages>
+    <fields>
+        <field name="BeginString" number="8" type="STRING"/>
+        <field name="BodyLength" number="9" type="LENGTH"/>
+        <field name="CheckSum" number="10" type="STRING"/>
+        <field name="ClOrdID" number="11" type="STRING"/>
+        <field name="MsgSeqNum" number="34" type="SEQNUM"/>
+        <field name="MsgType" number="35" type="STRING"/>
+        <field name="OrderQty" number="38" type="QTY"/>
+        <field name="OrdType" number="40" type="CHAR"/>
+        <field name="SenderCompID" number="49" type="STRING"/>
+        <field name="SendingTime" number="52" type="UTCTIMESTAMP"/>
+        <field name="Side" number="54" type="CHAR"/>
+        <field name="Symbol" number="55" type="STRING"/>
+        <field name="TargetCompID" number="56" type="STRING"/>
+        <field name="RouteID" number="5001" type="STRING"/>
+    </fields>
+</fix>""",
+            )
+            val dictionary = FixDictionaryAdapter.fromFile(dictFile)
+            assertTrue(dictionary.isLoaded(), "the venue dialect must load")
+
+            val message = "35=D|11=ORD-1|55=EUR/USD|54=1|38=100|40=1|5001=DESK-7|".toQuickFixMessageManual(dictionary)
+
+            assertTrue(
+                message.header.isSetField(5001),
+                "the dictionary's header section says 5001 is a header field — the static FIX44 list must not overrule it",
+            )
+            assertFalse(message.isSetField(5001), "and it must not also ride in the body")
+            assertEquals("DESK-7", message.header.getString(5001))
+        } finally {
+            dictFile.delete()
+        }
+    }
+
     @Test
     fun testNormalizeTraditionalFormat() {
         val input = "35=D|49=SENDER|56=TARGET|"

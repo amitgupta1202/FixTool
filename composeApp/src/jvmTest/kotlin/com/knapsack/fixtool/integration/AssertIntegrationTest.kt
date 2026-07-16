@@ -181,6 +181,24 @@ class AssertIntegrationTest {
         )
     }
 
+    /**
+     * POST /validate is handed captured frames, not just editor drafts. The verdict stays a content
+     * verdict (a stale frame is recomputed at send) — but a frame that disagrees with its own bytes
+     * must be *said*, or an operator concludes a garbled capture is well-formed from the one surface
+     * whose whole job is that verdict.
+     */
+    @Test
+    fun `validate says when a frame disagrees with its own bytes`() {
+        val garbled =
+            """{"raw":"8=FIX.4.4|9=44|35=0|49=SENDER|56=TARGET|34=1|52=20250101-12:00:00|10=007|"}"""
+        val resp = obj(post("/validate", garbled))
+        val warnings = resp["warnings"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
+        assertTrue(
+            warnings.any { it.contains("CheckSum(10)") || it.contains("BodyLength(9)") },
+            "a frame its own arithmetic disproves must be named to the caller: $resp",
+        )
+    }
+
     @Test
     fun `assert is reachable over the MCP transport`() {
         connectAcceptorAndClient()

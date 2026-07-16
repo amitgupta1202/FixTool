@@ -1469,6 +1469,9 @@ class ControlServer(
         return buildJsonObject {
             put("isValid", result.isValid)
             put("errors", buildJsonArray { result.errors.forEach { add(it) } })
+            if (result.warnings.isNotEmpty()) {
+                put("warnings", buildJsonArray { result.warnings.forEach { add(it) } })
+            }
         }
     }
 

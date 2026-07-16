@@ -61,6 +61,12 @@ object ScenarioReconcile {
          * destroyed, and the scenario passes for the wrong reason on every future run.
          */
         val unknown: Boolean = false,
+        /**
+         * **The other end of a move.** The reply carries this field, and the row asserting its tag is
+         * unpaired elsewhere — one divergence, reported once, by that row. This line exists so the right
+         * column stays the reply, whole and in wire order; it is counted by nothing and offered nothing.
+         */
+        val ghost: Boolean = false,
     ) {
         /** A field the reply carried that the expectation never mentions. */
         val unasserted: Boolean get() = matcher == null
@@ -110,6 +116,7 @@ object ScenarioReconcile {
                 status = d.result.status,
                 passed = d.result.passed,
                 wireIndex = d.alignment.wireIndex,
+                ghost = d.ghost,
                 unknown =
                     (d.alignment.row?.matcher as? Matcher.Reference)
                         ?.let { referenceResolver(it.expression) == null } ?: false,
@@ -1421,7 +1428,10 @@ object ScenarioReconcile {
             progressed = true
             while (progressed) {
                 progressed = false
-                val added = rows(next, message, dictionary).firstOrNull { it.unasserted && it.wireIndex != null }
+                // Never a ghost: its field is already asserted by the moved row the final re-order is about
+                // to relocate, and asserting it here would seed a second row contending for one field.
+                val added =
+                    rows(next, message, dictionary).firstOrNull { it.unasserted && !it.ghost && it.wireIndex != null }
                 if (added != null) {
                     next = addAssertion(next, message, added.wireIndex!!, dictionary)
                     progressed = true

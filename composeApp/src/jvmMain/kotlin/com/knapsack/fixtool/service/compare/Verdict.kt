@@ -238,7 +238,9 @@ data class Verdict(
                             !moved(it) &&
                             (it.status == TagStatus.VALUE || it.status == TagStatus.INVALID)
                     },
-                added = rows.count { it.unasserted && it.wireIndex != null },
+                // Never a ghost: it is the other end of a move, and the moved row is already in the count.
+                // Adding it here counts one divergence twice — the exact inflation this class exists to stop.
+                added = rows.count { it.unasserted && !it.ghost && it.wireIndex != null },
                 addedAreFailures = mode == MatchMode.STRICT,
                 missing = rows.count { !it.passed && !moved(it) && it.status == TagStatus.MISSING },
                 movedRows = rows.count { moved(it) },
@@ -264,6 +266,8 @@ data class Verdict(
          */
         fun canAcceptShape(rows: List<ScenarioReconcile.Row>, mode: MatchMode): Boolean =
             rows.any { ScenarioReconcile.isShapeChange(it) } ||
-                (mode == MatchMode.STRICT && rows.any { it.unasserted && it.wireIndex != null })
+                // A ghost is not a tag the venue added — the moved row asserting it is the shape change,
+                // and it is already counted by the first clause.
+                (mode == MatchMode.STRICT && rows.any { it.unasserted && !it.ghost && it.wireIndex != null })
     }
 }

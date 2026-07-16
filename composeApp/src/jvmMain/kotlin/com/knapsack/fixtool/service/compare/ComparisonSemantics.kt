@@ -350,6 +350,11 @@ private open class SequenceSemantics(
      */
     private fun kindOf(row: ScenarioReconcile.Row, moved: Set<Int>): ChunkKind =
         when {
+            // A ghost is the moved row's other end — the divergence is that row's to report, and it does.
+            // SAME: paired in place, nothing here to act on, and `n`/`p` walk past it to the row that owns
+            // the failure. RIGHT_ONLY would colour it as a tag the venue added, which is the double-report
+            // the ghost exists to avoid.
+            row.ghost -> ChunkKind.SAME
             row.unasserted -> ChunkKind.RIGHT_ONLY
             // Moved is asked BEFORE unjudgeable, because a row the engine proved moved is a row Accept-new-order
             // is about to relocate — whatever the diff can or cannot say about its value. An echoed id inside a

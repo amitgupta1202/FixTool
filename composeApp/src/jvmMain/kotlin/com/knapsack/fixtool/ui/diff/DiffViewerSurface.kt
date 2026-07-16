@@ -356,7 +356,13 @@ private fun ViewerRow(line: DiffLine, depth: Int, session: DiffViewerSession) {
     ) {
         Box(modifier = Modifier.weight(LEFT_WEIGHT).padding(start = (depth * 10).dp)) {
             val a = line.leftField(session.dictionary)
-            if (a == null) Gap("only in B") else FieldValueCell(a, line.kind, unjudged = false)
+            // A ghost's field is in BOTH messages — A merely carries it somewhere else, on the line that
+            // reports the move. "only in B" would claim A never sent it, two lines from where A did.
+            if (a == null) {
+                Gap(if (line.row.ghost) "elsewhere in A" else "only in B")
+            } else {
+                FieldValueCell(a, line.kind, unjudged = false)
+            }
         }
         Box(modifier = Modifier.width(GUTTER), contentAlignment = Alignment.Center) { ViewerGutter(line) }
         Box(modifier = Modifier.weight(1f)) {
@@ -379,14 +385,21 @@ private fun Gap(text: String) {
 @Composable
 private fun ViewerGutter(line: DiffLine) {
     val (glyph, color) =
-        when (line.kind) {
-            ChunkKind.SAME -> "=" to AppTheme.Colors.textDisabled
-            // Only a VALUE mismatch is an error (red). A +A/+B marker takes its own side's chip colour — A is
-            // info, B is warning — so each reads as "present on that side", not as a value error (U3).
-            ChunkKind.VALUE -> "≠" to AppTheme.Colors.error
-            ChunkKind.LEFT_ONLY -> "+A" to AppTheme.Colors.info
-            ChunkKind.RIGHT_ONLY -> "+B" to AppTheme.Colors.warning
-            ChunkKind.MOVED -> "" to Color.Transparent
+        when {
+            // A ghost faces B's field while A's line for the same tag sits elsewhere — `=` would say the
+            // two sides agree here, and they do not. The gap text carries the meaning; the gutter is quiet.
+            line.row.ghost -> "" to Color.Transparent
+            else ->
+                when (line.kind) {
+                    ChunkKind.SAME -> "=" to AppTheme.Colors.textDisabled
+                    // Only a VALUE mismatch is an error (red). A +A/+B marker takes its own side's chip
+                    // colour — A is info, B is warning — so each reads as "present on that side", not as a
+                    // value error (U3).
+                    ChunkKind.VALUE -> "≠" to AppTheme.Colors.error
+                    ChunkKind.LEFT_ONLY -> "+A" to AppTheme.Colors.info
+                    ChunkKind.RIGHT_ONLY -> "+B" to AppTheme.Colors.warning
+                    ChunkKind.MOVED -> "" to Color.Transparent
+                }
         }
     if (glyph.isNotBlank()) {
         Text(

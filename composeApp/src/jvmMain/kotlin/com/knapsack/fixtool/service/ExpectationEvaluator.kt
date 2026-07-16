@@ -72,6 +72,13 @@ object ExpectationEvaluator {
         /** Which occurrence of [tag] this is — of the message where paired, of the expectation where not. */
         val occurrence: Int,
         val actual: String?,
+        /**
+         * **The other end of a move.** The reply carries this field, and the row asserting its tag is
+         * unpaired elsewhere — one divergence, and that row is the one reporting it. This line exists so
+         * the right column stays the reply, whole and in wire order; it is judged by nobody and counted
+         * by nothing.
+         */
+        val ghost: Boolean = false,
     )
 
     /**
@@ -86,7 +93,9 @@ object ExpectationEvaluator {
         now: () -> Instant = { Instant.now() },
     ): List<TagResult> =
         diff(message, expectation, referenceResolver, now)
-            .filterNot { it.unasserted && expectation.mode == MatchMode.OPEN }
+            // A ghost is display, not judgement — in EITHER mode. The unpaired row it echoes is the one
+            // result the runner reports about that divergence.
+            .filterNot { it.ghost || (it.unasserted && expectation.mode == MatchMode.OPEN) }
             .map { it.result }
 
     /** One line of the diff: where a row landed, and the verdict on it. */
@@ -96,6 +105,9 @@ object ExpectationEvaluator {
     ) {
         /** A field the reply carried that no row mentions. OPEN ignores it; the reconcile view offers it. */
         val unasserted: Boolean get() = alignment.row == null
+
+        /** The other end of a move — see [Alignment.ghost]. Shown for completeness, counted nowhere. */
+        val ghost: Boolean get() = alignment.ghost
     }
 
     /**
@@ -154,21 +166,29 @@ object ExpectationEvaluator {
             cursor = at + 1
         }
 
-        // A tag is not reported as an extra when the expectation has *already spoken about it* — either
-        // through an `absent` row (whose failure says the tag is present; saying it twice reads as two
-        // problems) or through a row that could not be paired, which is the same field reported as
-        // MOVED. STRICT used to emit both for a reordered tag, with contradictory text: "expected
-        // <absent>, actual Y" beside "expected presence — present, but not in this position".
-        val absentRows =
+        // A tag is not reported as an extra when the expectation has *already spoken about it*. An `absent`
+        // row speaks for every occurrence (its failure says the tag is present; saying it twice reads as
+        // two problems). A row that could not be paired speaks for exactly ONE occurrence — the same field
+        // it reports as MOVED. STRICT used to emit both for a reordered tag, with contradictory text:
+        // "expected <absent>, actual Y" beside "expected presence — present, but not in this position".
+        //
+        // But spoken for is not invisible. The field the venue sent is still there, and swallowing it made
+        // the right column read as a message no venue sent — and, when the moved value had ALSO changed, it
+        // hid the one piece of evidence that distinguishes "the venue dropped a field" from "the venue moved
+        // it and changed it". So the occurrence an unpaired row speaks for is emitted as a GHOST: shown at
+        // its wire position, judged by nobody, counted by nothing. And the credit is per-occurrence, not
+        // per-tag — one unpaired row must not amnesty every unclaimed occurrence of its tag, or a genuine
+        // extra rides in under a move's excuse.
+        val absentTags =
             expectation.fields
                 .filter { it.matcher is Matcher.Absent }
-                .map { it.tag }
-        val unpairedRows =
-            expectation.fields
-                .withIndex()
-                .filter { it.index !in claimOf.keys }
-                .map { it.value.tag }
-        val spokenFor = (absentRows + unpairedRows).toSet()
+                .mapTo(mutableSetOf()) { it.tag }
+        val ghostCredits = HashMap<Int, Int>()
+        for ((index, row) in expectation.fields.withIndex()) {
+            if (row.matcher !is Matcher.Absent && index !in claimOf.keys) {
+                ghostCredits.merge(row.tag, 1, Int::plus)
+            }
+        }
 
         // Emit in reading order: each row where it sits, with the reply's unclaimed fields interleaved
         // at the position they actually occupy — so the result reads like a diff, top to bottom.
@@ -178,8 +198,15 @@ object ExpectationEvaluator {
         fun emitExtrasBefore(limit: Int) {
             while (emittedUpTo < limit) {
                 val w = emittedUpTo++
-                if (claimedBy[w] == null && wire[w].first !in spokenFor && wire[w].first !in NEVER_ASSERTED) {
-                    out += Alignment(null, null, w, wire[w].first, occurrenceAt(wire, w), wire[w].second)
+                if (claimedBy[w] != null || wire[w].first in NEVER_ASSERTED) continue
+                val tag = wire[w].first
+                when {
+                    tag in absentTags -> Unit // the absent row already faces it, and speaks for the whole tag
+                    (ghostCredits[tag] ?: 0) > 0 -> {
+                        ghostCredits[tag] = ghostCredits.getValue(tag) - 1
+                        out += Alignment(null, null, w, tag, occurrenceAt(wire, w), wire[w].second, ghost = true)
+                    }
+                    else -> out += Alignment(null, null, w, tag, occurrenceAt(wire, w), wire[w].second)
                 }
             }
         }
@@ -218,6 +245,27 @@ object ExpectationEvaluator {
     ): TagResult {
         val row = a.row
         if (row == null) {
+            if (a.ghost) {
+                // The other end of a move. The unpaired row reports the divergence — this line only keeps
+                // the right column whole, so it passes, and the sentence says what it is. In STRICT it also
+                // says what it becomes: drop the row that speaks for it and this field is an unexpected
+                // extra, which is a consequence the author cannot otherwise see from here.
+                val sentence = "sent here — the row asserting ${a.tag} sits elsewhere in the expectation"
+                return TagResult(
+                    a.tag,
+                    "spoken for",
+                    if (expectation.mode == MatchMode.STRICT) {
+                        "$sentence; unclaimed, STRICT counts it as an unexpected extra"
+                    } else {
+                        sentence
+                    },
+                    a.actual,
+                    passed = true,
+                    index = null,
+                    occurrence = a.occurrence,
+                    status = TagStatus.UNEXPECTED,
+                )
+            }
             // A field the reply carried that no row mentions. OPEN was told to tolerate exactly this, so
             // it is not a failure there — but it is still a *row of the diff*, and the reconcile view
             // needs it to offer "Add assertion". Only STRICT calls it a failure.

@@ -33,10 +33,36 @@ object ExpectationSeeder {
 
     /**
      * Tags asserted for their presence, never their value: the venue-assigned identifiers whose value
-     * is random (OrderID, ExecID) and the addressing/origin tags whose value belongs to the
-     * environment rather than the behaviour (see [SessionTags.VALUE_NOT_PORTABLE]).
+     * is minted fresh by the venue on every reply, and the addressing/origin tags whose value belongs
+     * to the environment rather than the behaviour (see [SessionTags.VALUE_NOT_PORTABLE]).
+     *
+     * The venue-assigned set covers standard FIX across the flows FixTool's clients actually run —
+     * not just the order lifecycle. Seeding any of these Exact made every captured scenario in that
+     * flow fail its own first replay, deterministically: a fresh QuoteID per Quote is what a quoting
+     * venue *is*. A tag here that a send once minted still becomes a Reference check — capture's echo
+     * correlation replaces the seeded matcher, so presence is only the answer when nothing better is.
      */
-    private val PRESENCE_TAGS = setOf(37, 17) + SessionTags.VALUE_NOT_PORTABLE // OrderID, ExecID
+    private val PRESENCE_TAGS =
+        setOf(
+            37, // OrderID
+            17, // ExecID
+            19, // ExecRefID — refers to the venue's own prior ExecID (busts/corrections)
+            117, // QuoteID — minted per Quote by whichever side quotes (RFQ)
+            198, // SecondaryOrderID
+            278, // MDEntryID — market-data entry handles, new per snapshot
+            527, // SecondaryExecID
+            880, // TrdMatchID — the venue's match-engine id (post-trade)
+            1003, // TradeID
+        ) + SessionTags.VALUE_NOT_PORTABLE
+
+    /**
+     * Quote/order lifetime stamps: a UTCTIMESTAMP whose *meaning* is "a moment shortly after sending",
+     * so neither of the type rule's answers is right — Temporal(~now) reds on any quote that lives
+     * longer than the tolerance, and Exact reds on everything for ever. Presence: the venue said how
+     * long it is good for, and that it says so is the behaviour. (The send side has its own rule —
+     * see ScenarioCapture: a *replayed* expiry must lie in the future, not at `now`.)
+     */
+    private val LIFETIME_TAGS = setOf(62, 126) // ValidUntilTime, ExpireTime
 
     /** Default tolerances per numeric family. 0 still ignores formatting (parsed as numbers). */
     private const val DEFAULT_NUMERIC_TOLERANCE = 0.0
@@ -85,6 +111,8 @@ object ExpectationSeeder {
             // the old message's, minutes or hours in the past. Every resend scenario went red on every
             // run, on the environment it was captured on.
             tag in PRESENCE_TAGS -> Matcher.Presence
+            // Also ahead of the type rules, for the mirror reason: an expiry is deliberately NOT ~now.
+            tag in LIFETIME_TAGS -> Matcher.Presence
             fieldType in TIMESTAMP_TYPES ->
                 Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, DEFAULT_TIME_TOLERANCE_SECONDS)
             // Only *current* UTC dates land here (an MDEntryDate on a live snapshot is today's date). Business

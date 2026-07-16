@@ -1199,6 +1199,16 @@ class FixMessageViewModel(
                 NotificationType.WARNING,
             )
         }
+        // Without a dictionary only TransactTime(60) and the quote lifetimes are parameterized — every
+        // other timestamp replays the captured value, which venues enforcing freshness reject. Said at
+        // capture time, where loading a dictionary still fixes the scenario about to be made.
+        if (dictionary == null) {
+            showNotification(
+                "No dictionary loaded — timestamps beyond TransactTime(60) will not be parameterized " +
+                    "and will replay stale. Load the venue's dictionary before capturing.",
+                NotificationType.WARNING,
+            )
+        }
         // A DRAFT, not a file. This used to save first and open the editor second, which grew a pile of
         // identical "Captured scenario" files out of every curious click — the author never asked for a
         // file, they asked to look. The editor opens dirty (the draft's seed is empty), so the capture
@@ -2265,6 +2275,13 @@ class FixMessageViewModel(
         if (selection.isEmpty()) {
             showNotification("No messages selected to capture", NotificationType.ERROR)
             return null
+        }
+        if (dictionary == null) {
+            showNotification(
+                "No dictionary loaded — timestamps beyond TransactTime(60) will not be parameterized " +
+                    "and will replay stale. Load the venue's dictionary before capturing.",
+                NotificationType.WARNING,
+            )
         }
         val scenario =
             ScenarioCapture.captureFrom(

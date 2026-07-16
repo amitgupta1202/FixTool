@@ -35,8 +35,41 @@ object ScenarioCapture {
     /** Transport/session header+trailer tags the framework re-stamps on send; dropped from Send raw. */
     private val TRANSPORT_TAGS = SessionTags.REWRITTEN_ON_SEND
 
-    /** Client-originated correlation id tags: parameterized on send, echo-matched on responses. */
-    private val ID_TAGS = setOf(11, 41, 131, 526, 583)
+    /**
+     * Client-originated correlation id tags: parameterized on send (a fresh id per run, because venues
+     * enforce uniqueness on these), echo-matched on responses, and seeded as bind constraints.
+     *
+     * Standard FIX across the flows FixTool's clients run — order lifecycle, RFQ (both sides),
+     * market data, security definition, post-trade. A correlation id missing from this list meant a
+     * replay re-sent the *captured* id verbatim: rejected as a duplicate by any venue that enforces
+     * uniqueness, and unbound from this run's own reply on a busy session. A tag may sit in this set
+     * *and* in the seeder's presence set (QuoteID does): when a send minted the value the echo check
+     * wins (capture rewrites the row to a Reference), and presence is the answer only for a value
+     * this scenario never minted — the venue's own.
+     */
+    private val ID_TAGS =
+        setOf(
+            11, // ClOrdID
+            41, // OrigClOrdID
+            66, // ListID
+            70, // AllocID
+            117, // QuoteID — client-minted when this side is the quoter (dealer-side RFQ)
+            131, // QuoteReqID
+            262, // MDReqID
+            320, // SecurityReqID
+            335, // TradSesReqID
+            526, // SecondaryClOrdID
+            571, // TradeReportID — client-minted on TradeCaptureReport submission
+            583, // ClOrdLinkID
+            693, // QuoteRespID
+        )
+
+    /**
+     * Lifetime stamps on a **send**: replayed verbatim they are stale (an expired quote is rejected on
+     * arrival), and stamped `now` they are *already* expired. A short future offset keeps the replay
+     * honest on any venue; the author tunes it in the editor if their flow needs longer.
+     */
+    private val LIFETIME_TAGS = setOf(62, 126) // ValidUntilTime, ExpireTime
 
     /** A session's title + the messages observed on it. */
     data class CapturedSession(val title: String, val messages: List<FixMessage>)
@@ -369,6 +402,10 @@ object ScenarioCapture {
             if (tag in TRANSPORT_TAGS) continue
             val out = when {
                 tag == 35 -> value
+                // Before the general timestamp rule: an expiry stamped "now" is expired on arrival.
+                // Unconditional, like tag 60 in isTimestamp: these are UTCTIMESTAMP by the spec, and a
+                // dictionary-less capture still must not replay a stale quote lifetime.
+                tag in LIFETIME_TAGS -> FUTURE_EXPR
                 isTimestamp(tag, dictionary) -> NOW_EXPR
                 tag in ID_TAGS && value.isNotBlank() -> idExpr(value, refByValue)
                 else -> value
@@ -378,13 +415,20 @@ object ScenarioCapture {
         return ScenarioStep.Send(raw.toString(), entry.session, origin = entry.originOfStep())
     }
 
-    /** First send of a value mints a fresh scenario variable; a re-send references the same one. */
+    /**
+     * First send of a value mints a fresh scenario variable; a re-send references the same one.
+     *
+     * The mint is 20 hex chars, not a full 36-char UUID: correlation ids are Strings in the spec but
+     * venues cap them in practice (20 is a common ClOrdID limit), and a default that only some venues
+     * accept is not a default. 80 bits of the UUID keeps it collision-safe; the author widens or
+     * reshapes the expression in the editor when their venue allows more.
+     */
     private fun idExpr(value: String, refByValue: MutableMap<String, String>): String {
         val existing = refByValue[value]
         if (existing != null) return existing
         val varName = "id${refByValue.size}"
         refByValue[value] = "\${$varName}"
-        return "\${$varName = UUID.randomUUID()}"
+        return "\${$varName = UUID.randomUUID().toString().replace(\"-\", \"\").take(20)}"
     }
 
     private fun expectStep(
@@ -461,4 +505,8 @@ object ScenarioCapture {
      */
     private const val NOW_EXPR =
         "\${LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"
+
+    /** A lifetime stamp's replay value: shortly in the future, so the quote/order is alive on arrival. */
+    private const val FUTURE_EXPR =
+        "\${LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"
 }

@@ -6,7 +6,9 @@ import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.withIds
@@ -344,5 +346,86 @@ class ReferenceSlotTest {
         assertEquals(0, session.staged, "a swap is not an edit: it stages nothing, dirties nothing (P8)")
         assertFalse(session.isDirty)
         assertFalse(session.canUndo, "and there is nothing to undo, because nothing was done")
+    }
+
+    // ---------------------------------------------------------------- the scope travels with THIS_RUN
+
+    /**
+     * **The run's variables ride the THIS_RUN reference — and only while the report stands for this
+     * scenario.** Dismiss the report and a re-bound THIS_RUN carries no scope: the wire may still be
+     * around (`thisRunWire` outlives the report), but the values that judged it are gone, and pretending
+     * otherwise would resolve `${id0}` rows against a claim nobody can stand behind.
+     */
+    @Test
+    fun `a THIS_RUN reference carries the run's scope, and loses it when the report is dismissed`() {
+        val onDisk = saved()
+        val stepId = onDisk.withIds().steps[1].stepId
+        val failing = message(wire("8=FIX.4.4", "35=8", "11=ORD-1", "150=F", "10=000"))
+        viewModel.openScenarioEditor(onDisk)
+        viewModel.noteScenarioRun(onDisk)
+        viewModel.setAssertionResults(mapOf(failing to StepResult(1, "expect", "steps", false, stepId = stepId)))
+        viewModel.publishScenarioResult(
+            ScenarioResult(
+                onDisk.name,
+                passed = false,
+                steps = emptyList(),
+                variables = listOf(ScenarioVariable("id0", "ORD-1", stepId)),
+            ),
+        )
+        viewModel.openDiffWindow(onDisk, stepId, thisRunWire = failing.wireRaw)
+        val window = onlyWindow()
+        assertEquals(
+            listOf(ScenarioVariable("id0", "ORD-1", stepId)),
+            window.session!!.reference.variables,
+            "the slot holds the run's own bytes, so it holds the run's own scope",
+        )
+
+        viewModel.dismissRunResult()
+        assertTrue(viewModel.selectReference(window, ReferenceOption.Kind.THIS_RUN))
+        assertEquals(
+            emptyList(),
+            onlyWindow().session!!.reference.variables,
+            "no report, no scope — the wire alone does not entitle the rows to values",
+        )
+    }
+
+    /** Someone else's run must not put values under this scenario's names. */
+    @Test
+    fun `another scenario's report lends this window no scope`() {
+        val onDisk = saved()
+        val window = openDiff(onDisk)
+        // A different scenario runs, minting a name this scenario also uses.
+        viewModel.noteScenarioRun(scenario().copy(id = "sc-2", name = "other"))
+        viewModel.publishScenarioResult(
+            ScenarioResult("other", passed = true, steps = emptyList(), variables = listOf(ScenarioVariable("id0", "THEIRS"))),
+        )
+        assertTrue(viewModel.selectReference(window.copy(thisRunWire = goldenWire), ReferenceOption.Kind.THIS_RUN))
+        assertEquals(
+            emptyList(),
+            onlyWindow().session!!.reference.variables,
+            "sc-2's scope on sc-1's bytes would judge \${id0} rows against a run they were never part of",
+        )
+    }
+
+    /** A landing run re-binds the slot (V9/S2) — and its scope arrives in the same move as its bytes. */
+    @Test
+    fun `a landing run re-binds the slot with its scope aboard`() {
+        val onDisk = saved()
+        openDiff(onDisk) // bound to the golden: a slot the run owns, so the landing run may replace it
+        val failing = message(wire("8=FIX.4.4", "35=8", "11=ORD-1", "150=F", "10=000"))
+        viewModel.noteScenarioRun(onDisk)
+        viewModel.setAssertionResults(
+            mapOf(failing to StepResult(1, "expect", "steps", false, stepId = onlyWindow().stepId)),
+        )
+        viewModel.publishScenarioResult(
+            ScenarioResult(onDisk.name, passed = false, steps = emptyList(), variables = listOf(ScenarioVariable("id0", "ORD-1"))),
+        )
+        val session = onlyWindow().session!!
+        assertEquals(ReferenceMessage.Provenance.THIS_RUN, session.reference.provenance)
+        assertEquals(
+            "ORD-1",
+            session.reference.variables.single().value,
+            "wire and scope travel as one unit, or the judgments lie",
+        )
     }
 }

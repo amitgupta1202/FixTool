@@ -4,11 +4,15 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -17,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -180,6 +185,80 @@ fun VarBadges(minted: List<String>, referenced: List<String>, colors: Map<String
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         minted.forEach { VarBadge(it, colors[it] ?: AppTheme.Colors.primary, minted = true, modifier = Modifier.padding(end = 3.dp)) }
         referenced.forEach { VarBadge(it, colors[it] ?: AppTheme.Colors.primary, minted = false, modifier = Modifier.padding(end = 3.dp)) }
+    }
+}
+
+/**
+ * One chip of a [VariablesStrip]: a variable's name, the value a run left in it (null when there is no
+ * run to ask), and whether it is the warning kind — referenced somewhere, minted nowhere, which the
+ * engine leaves **literal on the wire**: ten silent characters of `${idO}` in a real FIX field.
+ */
+data class VariableChipData(
+    val name: String,
+    val value: String?,
+    val warning: Boolean = false,
+    val tooltip: String = "",
+)
+
+/** `a1b2c3d4e5f6a7b8…` — enough of a value to recognise it in a grid row, no more. */
+fun shortValue(value: String, max: Int = 18): String = if (value.length <= max) value else value.take(max - 1) + "…"
+
+/**
+ * **The variables of a scenario (or of a run), on one line.** The step badges say which step touches a
+ * name; this strip is the other half of the answer — what the names *are*, what the last run left in
+ * them, and which of them are typos nothing ever mints. In the diff window the chips are clickable and
+ * highlight every row that references or carries the variable; in the editor they are informational.
+ */
+@Composable
+fun VariablesStrip(
+    chips: List<VariableChipData>,
+    colors: Map<String, Color>,
+    highlighted: String? = null,
+    onToggle: ((String) -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    if (chips.isEmpty()) return
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.horizontalScroll(rememberScrollState()).testTag("variables-strip"),
+    ) {
+        Text("VARIABLES", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, modifier = Modifier.padding(end = 6.dp))
+        chips.forEach { chip ->
+            val color = if (chip.warning) AppTheme.Colors.warning else colors[chip.name] ?: AppTheme.Colors.primary
+            AppTooltip(chip.tooltip) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                        Modifier
+                            .padding(end = 4.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(AppTheme.Colors.surfaceHeader)
+                            .then(if (chip.name == highlighted) Modifier.border(1.dp, color, RoundedCornerShape(3.dp)) else Modifier)
+                            .then(if (onToggle != null) Modifier.clickable { onToggle(chip.name) } else Modifier)
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                            .testTag("variable-chip-${chip.name}"),
+                ) {
+                    Text(
+                        text = (if (chip.warning) "⚠ " else "●") + chip.name,
+                        color = color,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    when {
+                        chip.warning ->
+                            Text(" never minted", color = color, fontSize = 9.sp)
+                        chip.value != null ->
+                            Text(
+                                " = ${shortValue(chip.value)}",
+                                color = AppTheme.Colors.textSecondary,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                    }
+                }
+            }
+        }
     }
 }
 

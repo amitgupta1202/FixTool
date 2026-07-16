@@ -1,8 +1,10 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.ScenarioResult
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Test
@@ -17,6 +19,32 @@ import kotlin.test.assertTrue
  * pre-existing consumers keep parsing.
  */
 class ScenarioReportTest {
+    /**
+     * `variables` is additive in exactly the way `path` was: present only when the run minted something,
+     * absent (not an empty array) otherwise, so a report from a scenario with no `${...}` — and every
+     * pre-scope consumer — keeps its byte-for-byte shape.
+     */
+    @Test
+    fun `variables are reported with their values and minting step, and the key is absent without them`() {
+        val bare = ScenarioResult("s", true, steps = listOf(StepResult(0, "send", "steps", true)))
+        assertNull(ScenarioReport.toJson(bare)["variables"], "no scope, no key")
+
+        val scoped =
+            bare.copy(
+                variables =
+                    listOf(
+                        ScenarioVariable("id0", "A1B2", "step-uuid"),
+                        ScenarioVariable("sym", "EURUSD", null),
+                    ),
+            )
+        val json = ScenarioReport.toJson(scoped)["variables"]!!.jsonArray
+        assertEquals(2, json.size)
+        assertEquals("id0", json[0].jsonObject["name"]?.jsonPrimitive?.content)
+        assertEquals("A1B2", json[0].jsonObject["value"]?.jsonPrimitive?.content)
+        assertEquals("step-uuid", json[0].jsonObject["mintedAtStepId"]?.jsonPrimitive?.content)
+        assertNull(json[1].jsonObject["mintedAtStepId"], "an unattributed mint carries no id key")
+    }
+
     @Test
     fun `tag json says which row failed and which occurrence it checked`() {
         // Two party entries fail on the same tag. Without the row index and the occurrence, the report

@@ -59,6 +59,7 @@ import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.ScenarioAnnotations
@@ -186,6 +187,8 @@ fun ScenarioEditor(
     /** Where the cursor sits, hoisted for the same reason. Seeded from here; reported through [onSelectStep]. */
     selectedStep: Int? = null,
     onSelectStep: (Int) -> Unit = {},
+    /** The last run's scope, when the run report stands for THIS scenario — the strip shows the values. */
+    runVariables: List<ScenarioVariable> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     var name by remember { mutableStateOf(initial.name) }
@@ -250,6 +253,37 @@ fun ScenarioEditor(
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 6.dp),
             )
         }
+        // The scenario's variables, on one line: every minted name (with the value the last run left, when
+        // there is one), and — in warning colors — every name referenced but never minted, which the engine
+        // would leave literal on the wire. The per-step badges say who touches a name; this says what it IS.
+        val mintedNames = stepVars.flatMap { it.minted }.distinct()
+        val unminted = ScenarioAnnotations.unminted(builtSteps)
+        val runValues = runVariables.associate { it.name to it.value }
+        VariablesStrip(
+            chips =
+                mintedNames.map { name ->
+                    VariableChipData(
+                        name = name,
+                        value = runValues[name],
+                        tooltip =
+                            runValues[name]?.let { "\${$name} = $it (last run)" }
+                                ?: "\${$name} — values appear here after a run",
+                    )
+                } +
+                    unminted.map { name ->
+                        VariableChipData(
+                            name = name,
+                            value = null,
+                            warning = true,
+                            tooltip =
+                                "\${$name} is referenced but no step mints it — the engine leaves an unknown " +
+                                    "\${...} literal on the wire, so this is almost certainly a typo. Mint it in " +
+                                    "a Send (\${$name = ...}) or fix the reference.",
+                        )
+                    },
+            colors = varColors,
+            modifier = Modifier.padding(start = 12.dp, top = 2.dp, bottom = 4.dp),
+        )
         // Deep-link orientation: say why the editor opened where it did. The failure itself is repaired in the
         // diff, which is its own tab — this list is the scenario's *shape*, not its assertions.
         if (focusStep != null) {

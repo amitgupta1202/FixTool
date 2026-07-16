@@ -195,6 +195,12 @@ idiom is `11=${clOrdId = uuid}` in the send, then `{"type":"reference","expressi
 assert the echo. `/scenarios/capture` (MCP: `fixtool_capture_scenario`) records a live flow into a
 scenario that is already parameterized this way, which is usually faster than authoring one by hand.
 
+The run report says what that scope ended up holding: when the run minted anything, the report JSON
+carries an additive `variables: [{name, value, mintedAtStepId?}]` (mint order; the key is absent for
+a run that minted nothing, so pre-existing consumers keep parsing). `/scenarios/reconcile`'s `open`
+response repeats it, so an agent repairing a `reference` row sees what `${id0}` actually held this
+run — the same data the diff window's variables strip shows the human.
+
 ```bash
 # run a book-a-trade flow and get a pass/fail report (no AI in the loop)
 curl -s -XPOST $B/scenarios/run -d '{"scenario":{

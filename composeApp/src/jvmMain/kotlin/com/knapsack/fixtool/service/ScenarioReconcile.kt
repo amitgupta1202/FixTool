@@ -83,11 +83,12 @@ object ScenarioReconcile {
         referenceResolver: (String) -> String? = { null },
         now: () -> Instant = { Instant.now() },
     ): List<Row> {
-        // Outside a run there is no scope, so a reference resolves to nothing. That is not the row failing.
-        val resolves = draft.fields.any { it.matcher is Matcher.Reference } &&
-            draft.fields.filterIsInstance<FieldExpectation>()
-                .mapNotNull { (it.matcher as? Matcher.Reference)?.expression }
-                .any { referenceResolver(it) != null }
+        // A reference the resolver cannot answer is not the row failing — outside a run there is no scope,
+        // and even WITH a run's scope in hand (it rides on the reference message now) a `${out.D.11}`
+        // history expression still has no session to be answered from. Judged row by row: the rows the
+        // scope covers get their real verdict, and each row it cannot cover stays unjudged. The old
+        // any-reference-resolves flag judged ALL reference rows the moment ONE resolved — with a partial
+        // resolver that is a confident red about an expression nobody evaluated ("unknown, never false").
         return ExpectationEvaluator.diff(message, draft, referenceResolver, now).map { d ->
             Row(
                 index = d.alignment.index,
@@ -109,7 +110,9 @@ object ScenarioReconcile {
                 status = d.result.status,
                 passed = d.result.passed,
                 wireIndex = d.alignment.wireIndex,
-                unknown = d.alignment.row?.matcher is Matcher.Reference && !resolves,
+                unknown =
+                    (d.alignment.row?.matcher as? Matcher.Reference)
+                        ?.let { referenceResolver(it.expression) == null } ?: false,
             )
         }
     }

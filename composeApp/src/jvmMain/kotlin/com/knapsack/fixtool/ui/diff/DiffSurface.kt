@@ -76,6 +76,9 @@ import com.knapsack.fixtool.ui.MatcherEditor
 import com.knapsack.fixtool.ui.SlimButton
 import com.knapsack.fixtool.ui.SlimLabeled
 import com.knapsack.fixtool.ui.SlimTagPicker
+import com.knapsack.fixtool.ui.VariableChipData
+import com.knapsack.fixtool.ui.VariablesStrip
+import com.knapsack.fixtool.ui.varColorMap
 
 /**
  * **A failed step as a diff you can edit.** The one surface in the app that authors an assertion.
@@ -119,6 +122,8 @@ fun DiffSurface(
     onDisarm: () -> Unit = {},
     /** This step was authored or repaired against a paste, and the badge says so wherever it shows (S3, S4). */
     pastedOrigin: Boolean = false,
+    /** "Step 3" for a `mintedAtStepId`, when the host can say — the strip's chips carry it in their tooltip. */
+    mintedAtLabel: (String?) -> String? = { null },
 ) {
     val model = session.model
     var pasting by remember { mutableStateOf(false) }
@@ -191,6 +196,32 @@ fun DiffSurface(
         // here — and either way it is the engine's sentence, which names the assertion the move would have
         // quietly re-aimed. A refused action says why. It does not simply fail to happen.
         session.refusal?.let { RefusedMove(it) { session.clearRefusal() } }
+        // The run's scope, when the slot holds a run's own message. Clicking a chip highlights every row
+        // that references the name or carries its value — the fastest answer to "where did ${id0} go".
+        val scope = session.reference.variables
+        if (scope.isNotEmpty()) {
+            VariablesStrip(
+                chips =
+                    scope.map { v ->
+                        VariableChipData(
+                            name = v.name,
+                            value = v.value,
+                            tooltip =
+                                buildString {
+                                    append("\${${v.name}} = ${v.value}")
+                                    mintedAtLabel(v.mintedAtStepId)?.let { append("\nminted by $it") }
+                                    append("\nclick to highlight rows that reference or carry it")
+                                },
+                        )
+                    },
+                colors = varColorMap(scope.map { it.name }),
+                highlighted = session.highlightedVariable,
+                onToggle = { name ->
+                    session.highlightedVariable = if (session.highlightedVariable == name) null else name
+                },
+                modifier = Modifier.padding(horizontal = ROW_PADDING, vertical = 2.dp),
+            )
+        }
         ColumnHeaders(session, session.reference.label)
         DiffBody(session, model, focusTag, dragging, focusRequester) { dragging = it }
         DiffFooter(session)
@@ -936,15 +967,24 @@ private fun DiffRow(
     onSelect: () -> Unit,
     handlers: DragHandlers,
 ) {
+    // The strip's highlight: a border in the variable's own color, on top of whatever tint the row earns —
+    // the highlight says "this line is about ${id0}", it must not repaint what the line IS.
+    val highlightColor =
+        if (session.highlights(line)) {
+            varColorMap(session.reference.variables.map { it.name })[session.highlightedVariable]
+        } else {
+            null
+        }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
             Modifier
                 .fillMaxWidth()
                 .background(if (selected) DiffPalette.selectedRow else rowTint(line))
+                .then(if (highlightColor != null) Modifier.border(1.dp, highlightColor) else Modifier)
                 .selectable(onSelect)
                 .padding(horizontal = ROW_PADDING, vertical = 2.dp)
-                .testTag("diff-row"),
+                .testTag(if (highlightColor != null) "diff-row-highlighted" else "diff-row"),
     ) {
         Box(modifier = Modifier.weight(LEFT_WEIGHT)) { LeftCell(session, line, depth, handlers) }
         Box(modifier = Modifier.width(GUTTER), contentAlignment = Alignment.Center) { Gutter(session, line) }

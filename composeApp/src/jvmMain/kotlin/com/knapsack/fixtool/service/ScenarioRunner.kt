@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.withIds
@@ -81,22 +82,30 @@ class ScenarioRunner(
         val scope = mutableMapOf<String, String>()
         val consumed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
         val results = mutableListOf<StepResult>()
+        // Which step wrote each name. Diffed around every step rather than instrumented into the template
+        // evaluator, which does not know steps exist; first writer wins, matching the scope's own semantics.
+        val mintedBy = mutableMapOf<String, String?>()
+
+        fun ran(step: ScenarioStep, r: StepResult): StepResult {
+            scope.keys.forEach { name -> mintedBy.putIfAbsent(name, step.stepId.ifBlank { null }) }
+            return r
+        }
 
         var abort = false
         for ((i, step) in scenario.setup.withIndex()) {
-            val r = runStep(step, i, "setup", scope, consumed)
+            val r = ran(step, runStep(step, i, "setup", scope, consumed))
             results += r
             if (!r.passed) { abort = true; break }
         }
         if (!abort) {
             for ((i, step) in scenario.steps.withIndex()) {
-                val r = runStep(step, i, "steps", scope, consumed)
+                val r = ran(step, runStep(step, i, "steps", scope, consumed))
                 results += r
                 if (!r.passed) break
             }
         }
         for ((i, step) in scenario.teardown.withIndex()) {
-            results += runStep(step, i, "teardown", scope, consumed)
+            results += ran(step, runStep(step, i, "teardown", scope, consumed))
         }
         // Teardown is best-effort cleanup — a teardown Expect/Wait that times out, or a ClearMessages whose
         // tab was closed mid-run, must not flip an otherwise-green verdict. Judge on the setup/steps phases
@@ -104,7 +113,9 @@ class ScenarioRunner(
         // report, it just does not decide pass/fail. Vacuously true over an empty `results`, but preflight
         // has already rejected the zero-step scenario before we get here.
         val passed = results.none { it.phase != "teardown" && !it.passed }
-        return ScenarioResult(scenario.name, passed, results)
+        // The final scope, in mint order (the scope map is insertion-ordered) — see [ScenarioVariable].
+        val variables = scope.map { (name, value) -> ScenarioVariable(name, value, mintedBy[name]) }
+        return ScenarioResult(scenario.name, passed, results, variables)
     }
 
     /** Non-null = the reason this scenario cannot run at all. */

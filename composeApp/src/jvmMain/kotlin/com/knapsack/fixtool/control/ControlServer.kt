@@ -977,6 +977,14 @@ class ControlServer(
                     put("scenario", result.scenario)
                     put("step", step.stepIndex + 1)
                     put("stepId", step.stepId)
+                    // The run's scope, so an agent reconciling a reference row sees what `${id0}` held —
+                    // the same variables the diff window's strip shows, from the same report.
+                    if (result.variables.isNotEmpty()) {
+                        put(
+                            "variables",
+                            buildJsonArray { result.variables.forEach { add(ScenarioReport.variableToJson(it)) } },
+                        )
+                    }
                 }
             }
         }

@@ -179,6 +179,14 @@ private fun DiffWindowBody(viewModel: FixMessageViewModel, state: DiffWindowStat
         armed = armedSlot == state.id,
         onDisarm = { viewModel.disarmReferenceSlot() },
         pastedOrigin = step.origin == StepOrigin.PASTED,
+        // "minted by Step 3" on the strip's chips — resolved against the draft, so the label follows the
+        // step to its new slot when the author reorders.
+        mintedAtLabel = { stepId ->
+            stepId
+                ?.let { id -> draft.steps.indexOfFirst { it.stepId == id } }
+                ?.takeIf { it >= 0 }
+                ?.let { "Step ${it + 1}" }
+        },
         onCancel = {
             // Cancel puts the expectation back exactly as it was found — in the *draft*, which is where the
             // session has been writing all along — and then the window has nothing left to say.

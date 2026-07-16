@@ -307,6 +307,30 @@ object FixMessageTemplate {
     private val VARIABLE_REGEX = """^[a-zA-Z_][a-zA-Z0-9_]*$""".toRegex()
 
     /**
+     * A resolver over a **finished run's scope alone** — no session history, no script engine, no minting.
+     *
+     * This is what the reconcile view judges `reference` rows with when its right-hand side is the run's own
+     * message: the run's final scope travels with those bytes (see `ReferenceMessage.variables`), and a
+     * `${id0}` row resolves to exactly what the runner resolved it to. Anything this cannot answer from the
+     * map — a `${out.D.11}` history reference, a name the run never minted — answers **null**, and the row
+     * renders *unjudged* rather than failed: outside a run there is no session moment and no script scope,
+     * and inventing either would manufacture a verdict about bytes nobody judged ("unknown, never false").
+     * An expression with no `${...}` at all resolves to itself, exactly as [evaluate] would leave it.
+     */
+    fun scopeResolver(variables: Map<String, String>): (String) -> String? =
+        resolver@{ expression ->
+            var resolvedAll = true
+            val out =
+                EXPRESSION_REGEX.replace(expression) { match ->
+                    val name = match.groupValues[1].trim()
+                    val value = if (VARIABLE_REGEX.matches(name)) variables[name] else null
+                    if (value == null) resolvedAll = false
+                    value ?: match.value
+                }
+            if (resolvedAll) out else null
+        }
+
+    /**
      * Evaluates a single Kotlin expression and returns its string value.
      * Supports variable assignments and references.
      */

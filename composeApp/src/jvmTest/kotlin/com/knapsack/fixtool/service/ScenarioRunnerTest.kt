@@ -8,8 +8,10 @@ import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.Test
 import quickfix.Message
 import java.time.LocalDateTime
@@ -374,6 +376,62 @@ class ScenarioRunnerTest {
         val result = run(host, scenario(step))
         assertFalse(result.passed)
         assertTrue(result.steps.single().detail!!.contains("fewer than 2"), "detail: ${result.steps.single().detail}")
+    }
+
+    /**
+     * The run's final scope comes out on the result, each name attributed to the step that minted it —
+     * not to a later step that merely referenced it. This is what the report, the editor strip, and the
+     * diff window's THIS_RUN reference all read; before it existed the scope died with the run and every
+     * `${id0}` was invisible at exactly the moment an author was staring at a reference row.
+     */
+    @Test
+    fun `the final scope is reported, each name attributed to the step that minted it`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8"))
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=D|11=\${id0 = \"A1\"}|", session = "s"),
+                ScenarioStep.Send("35=D|41=\${id0}|", session = "s"),
+                expect("8", FieldExpectation(35, Matcher.Exact("8"))),
+            )
+        val result = run(host, scenario)
+        assertTrue(result.passed, "scenario should pass: ${result.steps}")
+        val identified = scenario.withIds()
+        assertEquals(
+            listOf(ScenarioVariable("id0", "A1", identified.steps[0].stepId)),
+            result.variables,
+            "one mint, attributed to the Send that made it",
+        )
+    }
+
+    @Test
+    fun `a run that mints nothing reports no variables`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8"))
+        val result = run(host, scenario(expect("8", FieldExpectation(35, Matcher.Exact("8")))))
+        assertTrue(result.passed)
+        assertEquals(emptyList(), result.variables, "no `\${...}` mints, no variables — the pre-scope shape")
+    }
+
+    /**
+     * The `steps` phase stops at the first failure, and the reported scope is exactly what the failing
+     * step was judged with: mints from before and at the failure are in it, mints from the steps the run
+     * never reached are not. That correspondence is what lets the reconcile view resolve `${...}` rows
+     * with this scope and claim the verdicts match the runner's.
+     */
+    @Test
+    fun `the scope of an aborted run holds what was minted before the failure and nothing after`() {
+        val host = FakeHost()
+        // No inbox at all: the expect times out.
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=D|11=\${id0 = \"A1\"}|", session = "s"),
+                expectWith(timeoutMs = 50, FieldExpectation(35, Matcher.Exact("8"))),
+                ScenarioStep.Send("35=D|11=\${id1 = \"B2\"}|", session = "s"),
+            )
+        val result = run(host, scenario)
+        assertFalse(result.passed)
+        assertEquals(listOf("id0"), result.variables.map { it.name }, "id1's Send never ran, so id1 was never minted")
     }
 
     // ----------------------------------------------------------------- helpers

@@ -48,6 +48,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -1053,13 +1054,21 @@ class ControlServer(
                     return errorObject("invalid scenario: ${e.message}")
                 }
             }
+        // A throwaway remap for THIS run only: `sessions` is {from: to} over the scenario's session
+        // names. Nothing is persisted — an environment a flow should keep is a saved copy of the
+        // scenario (the rail's "Save as scenario…"), because environments diverge in data and each
+        // copy must reconcile independently. This parameter is for the run that must not leave one.
+        val sessionMap =
+            body["sessions"]?.jsonObject?.entries?.associate { (from, to) ->
+                from to (to.jsonPrimitive.contentOrNull ?: return errorObject("sessions['$from'] must be a session name"))
+            } ?: emptyMap()
         // The same run the Run button performs — one run slot, one choreography, one verdict published the
         // same way. This endpoint used to keep its own copy of that sequence and had quietly dropped the
         // last step of it, so an agent-driven run left the rail's run report (and the only route to the
         // diff window) blank. Null = the slot is taken; a UI run and a control run would otherwise
         // consume each other's messages.
         val result =
-            viewModel.runScenarioBlocking(scenario)
+            viewModel.runScenarioBlocking(scenario, sessionMap)
                 ?: return errorObject("a scenario run is already in progress")
         return if (body["format"]?.jsonPrimitive?.content?.lowercase() == "junit") {
             buildJsonObject {

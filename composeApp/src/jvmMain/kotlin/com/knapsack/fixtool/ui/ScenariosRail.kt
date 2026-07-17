@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -78,6 +79,9 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var confirmingDeleteId by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("") }
+    // The scenario a "Save as scenario…" is being authored for — the dialog outlives the hover that opened it.
+    var remapFor by remember { mutableStateOf<Scenario?>(null) }
+    remapFor?.let { RemapScenarioDialog(scenario = it, viewModel = viewModel, onDismiss = { remapFor = null }) }
 
     // A failure the author cannot see is a failure they will not fix: open the tree on the scenario that
     // just failed, at the step it failed on.
@@ -164,6 +168,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         onToggle = { expanded = if (scenario.id in expanded) expanded - scenario.id else expanded + scenario.id },
                         onRequestDelete = { confirmingDeleteId = scenario.id },
                         onDeleted = { confirmingDeleteId = null },
+                        onRemap = { remapFor = scenario },
                     )
                 }
             }
@@ -189,6 +194,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
     onToggle: () -> Unit,
     onRequestDelete: () -> Unit,
     onDeleted: () -> Unit,
+    onRemap: () -> Unit,
 ) {
     val ranThis = run.ran?.id == scenario.id
     item(key = scenario.id) {
@@ -235,6 +241,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
             confirmingDelete = confirmingDelete,
             onToggle = onToggle,
             onRun = { viewModel.runScenario(scenario) },
+            onRemap = onRemap,
             onEdit = { viewModel.openScenarioEditor(scenario) },
             onDuplicate = { viewModel.duplicateScenario(scenario) },
             onRequestDelete = onRequestDelete,
@@ -454,6 +461,8 @@ private fun ScenarioRailRow(
     confirmingDelete: Boolean,
     onToggle: () -> Unit,
     onRun: () -> Unit,
+    /** Opens the "Save as scenario for other sessions" dialog — the environment-copy door. */
+    onRemap: () -> Unit,
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onRequestDelete: () -> Unit,
@@ -509,6 +518,18 @@ private fun ScenarioRailRow(
                         onRun,
                         enabled = runEnabled,
                         tag = "run-${scenario.id}",
+                    )
+                    // The environment door, beside Run because that is where the need arises ("run this on
+                    // QA"): duplicate this scenario with its sessions re-aimed. A dialog, not a menu — the
+                    // copies it creates live in the rail like any other scenario, so there is no second
+                    // list of environments to manage here.
+                    RailIcon(
+                        Icons.Default.ArrowDropDown,
+                        "Save as scenario for other sessions…",
+                        if (runEnabled) AppTheme.Colors.success else AppTheme.Colors.textDisabled,
+                        onRemap,
+                        enabled = runEnabled,
+                        tag = "remap-${scenario.id}",
                     )
                     RailIcon(Icons.Default.Edit, "Edit", AppTheme.Colors.textSecondary, onEdit, tag = "edit-${scenario.id}")
                     RailIcon(Icons.Default.ContentCopy, "Duplicate", AppTheme.Colors.textSecondary, onDuplicate)

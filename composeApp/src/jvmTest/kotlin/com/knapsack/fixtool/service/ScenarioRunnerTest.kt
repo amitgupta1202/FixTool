@@ -313,6 +313,21 @@ class ScenarioRunnerTest {
     }
 
     @Test
+    fun `a session map re-aims the run without the scenario changing`() {
+        val host = FakeHost()
+        // Only the QA pair is up — running "as recorded" would fail preflight on the dev names.
+        host.stateOf = { session -> if (session?.startsWith("qa-") == true) "LOGGED_ON" else null }
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=D|", session = "dev-buyside"),
+                ScenarioStep.Send("35=D|", session = "dev-sellside"),
+            )
+        val result = run(host, scenario, mapOf("dev-buyside" to "qa-buyside", "dev-sellside" to "qa-sellside"))
+        assertTrue(result.passed, "${result.steps}")
+        assertEquals(listOf<String?>("qa-buyside", "qa-sellside"), host.sentTo, "every send must go to the mapped session")
+    }
+
+    @Test
     fun `clear on a session that vanished mid-run fails instead of silently passing`() {
         val host = FakeHost()
         host.clearOk = false
@@ -741,8 +756,8 @@ class ScenarioRunnerTest {
 
     // ----------------------------------------------------------------- helpers
 
-    private fun run(host: FakeHost, scenario: Scenario) =
-        ScenarioRunner(host, pollMs = 10, now = { host.clock }).run(scenario)
+    private fun run(host: FakeHost, scenario: Scenario, sessionMap: Map<String, String> = emptyMap()) =
+        ScenarioRunner(host, pollMs = 10, now = { host.clock }).run(scenario, sessionMap)
 
     /** [run], but recording every (message, verdict) the runner reports — what tints the message grid. */
     private fun runRecordingVerdicts(
@@ -800,6 +815,7 @@ class ScenarioRunnerTest {
     /** Fake host: an in-memory inbox + sent log, a virtual clock advanced by the no-op sleep. */
     private inner class FakeHost : ScenarioHost {
         val sent = mutableListOf<String>()
+        val sentTo = mutableListOf<String?>()
         val inbox = mutableListOf<FixMessage>()
         var clock = 0L
         var stateOf: (String?) -> String? = { "LOGGED_ON" }
@@ -812,6 +828,7 @@ class ScenarioRunnerTest {
 
         override fun send(raw: String, session: String?): Boolean {
             sent += raw
+            sentTo += session
             return true
         }
 

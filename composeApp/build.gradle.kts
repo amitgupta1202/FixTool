@@ -61,6 +61,12 @@ kotlin {
 
             // JNA with ARM64 support for Apple Silicon Macs
             implementation("net.java.dev.jna:jna:5.14.0")
+
+            // Embedded terminal (IntelliJ-style): JediTerm renderer over a pty4j PTY, hosted in a
+            // Compose SwingPanel. Lets QA run `claude` inside FixTool and watch it drive the app via MCP.
+            implementation(libs.jediterm.core)
+            implementation(libs.jediterm.ui)
+            implementation(libs.pty4j)
         }
     }
 }

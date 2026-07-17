@@ -606,6 +606,12 @@ private fun ModeChipMini(mode: MatchMode) {
 private val TAG_COL = 64.dp
 private val NAME_COL = 128.dp
 
+// The Send field grid mirrors the Message Editor's field grid (MessageEditorPanel) so the two editors read
+// as one tool: a fixed tag, a fixed name (FieldNameCell's 120dp default), a fixed-width value, and one
+// flexible help column beside the value — never a flexible value.
+private val SEND_TAG_COL = 48.dp
+private val SEND_VALUE_COL = 180.dp
+
 // The mint button's reserved slot in a Send field row. Kept at a constant width whether or not the button
 // shows, so a row whose value already mints (and therefore has no button) does not stretch its value input
 // wider than its neighbours by the width of the missing control. See [SendDetail].
@@ -772,24 +778,28 @@ private fun SendDetail(
             onChange(step.copy(fields = step.fields.toMutableList().apply { this[i] = newTag to newValue }))
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+            // Same column rhythm as the Message Editor's field grid (MessageEditorPanel): tag, name, a
+            // fixed-width value, then one flexible help column — so the two field editors read as one tool.
             // Tag with dictionary autocomplete: type "ClOrd" or "11" and pick — no code memorizing.
             SlimTagPicker(
                 tag = tag,
                 fields = allFields,
                 onPick = { picked -> update(picked, value) },
-                modifier = Modifier.width(64.dp),
+                modifier = Modifier.width(SEND_TAG_COL),
                 fieldTestTag = "send-tag-$i",
             )
             FieldNameCell(tag, dictionary)
+            // Fixed width, like the Message Editor's value column — the column that flexes is the help beside
+            // it, not the value. As weight(1f) the value stretched into a box the width of the whole pane.
             SlimField(
                 value = value,
                 onValueChange = { text -> update(tag, text) },
                 monospace = true,
                 textColor = AppTheme.Colors.fieldValue,
                 tintBlank = true,
-                modifier = Modifier.weight(1f).padding(start = 4.dp).testTag("send-value-$i"),
+                modifier = Modifier.width(SEND_VALUE_COL).padding(start = 4.dp).testTag("send-value-$i"),
             )
-            ValueHelpCell(tag, value, dictionary, onPick = { picked -> update(tag, picked) })
+            ValueHelpCell(tag, value, dictionary, modifier = Modifier.weight(1f).padding(start = 4.dp), onPick = { picked -> update(tag, picked) })
             // Mint-at-send: give this value a name — same bytes on the wire, but later expects can
             // reference-check the echo and later sends can reuse it. Hidden once the value mints — but the
             // slot is kept at a constant width, so a row whose value already mints (${id = uuid:20}) does
@@ -840,11 +850,12 @@ private fun FieldNameCell(tag: Int, dictionary: FixDictionary?, width: androidx.
  * that the value is a runtime expression.
  */
 @Composable
-private fun ValueHelpCell(tag: Int, value: String, dictionary: FixDictionary?, onPick: (String) -> Unit) {
+private fun ValueHelpCell(tag: Int, value: String, dictionary: FixDictionary?, modifier: Modifier = Modifier, onPick: (String) -> Unit) {
     val enumValues = if (dictionary?.hasFieldValues(tag) == true) dictionary.getFieldEnumValues(tag) else emptyList()
+    // The flexible column: the caller passes weight(1f), matching the Message Editor's description/enum column.
     when {
         value.contains("\${") ->
-            Text("expression", color = AppTheme.Colors.info, fontSize = 10.sp, modifier = Modifier.width(150.dp).padding(start = 4.dp))
+            Text("expression", color = AppTheme.Colors.info, fontSize = 10.sp, maxLines = 1, modifier = modifier)
         enumValues.isNotEmpty() ->
             SlimDropdown(
                 value = value.ifBlank { null },
@@ -852,17 +863,11 @@ private fun ValueHelpCell(tag: Int, value: String, dictionary: FixDictionary?, o
                 onValueChange = { picked -> picked?.let(onPick) },
                 displayText = { v -> enumValues.firstOrNull { it.first == v }?.second?.let { "$v ($it)" } ?: v },
                 placeholder = "pick…",
-                modifier = Modifier.width(150.dp).padding(start = 4.dp),
+                modifier = modifier,
             )
         else -> {
             val description = dictionary?.getFieldValueDescription(tag, value)?.takeIf { it != value } ?: ""
-            Text(
-                description,
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 10.sp,
-                maxLines = 1,
-                modifier = Modifier.width(150.dp).padding(start = 4.dp),
-            )
+            Text(description, color = AppTheme.Colors.textSecondary, fontSize = 10.sp, maxLines = 1, modifier = modifier)
         }
     }
 }

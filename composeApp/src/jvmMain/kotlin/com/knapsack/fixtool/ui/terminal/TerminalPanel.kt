@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.graphics.Color
+import com.jediterm.terminal.TerminalColor
 import com.jediterm.terminal.ui.JediTermWidget
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider
 import com.pty4j.PtyProcessBuilder
@@ -75,7 +76,7 @@ private fun createTerminalWidget(
     workingDir: File,
     env: Map<String, String>,
 ): JediTermWidget {
-    val widget = JediTermWidget(DefaultSettingsProvider())
+    val widget = JediTermWidget(DarkSettingsProvider())
     val shell = System.getenv("SHELL")?.ifBlank { null } ?: "/bin/zsh"
     val pty =
         PtyProcessBuilder(arrayOf(shell, "-l"))
@@ -119,3 +120,14 @@ private fun buildTerminalEnv(
 
 private const val DEFAULT_COLUMNS = 80
 private const val DEFAULT_ROWS = 24
+
+/**
+ * JediTerm ships a white background; this makes the embedded terminal match the app's dark surface
+ * (0xFF1E1E1E). ANSI-coloured text — the shell prompt, TUIs like Claude Code — keeps its own colours;
+ * only the default background and un-coloured foreground change.
+ */
+private class DarkSettingsProvider : DefaultSettingsProvider() {
+    override fun getDefaultBackground(): TerminalColor = TerminalColor(0x1E, 0x1E, 0x1E)
+
+    override fun getDefaultForeground(): TerminalColor = TerminalColor(0xD4, 0xD4, 0xD4)
+}

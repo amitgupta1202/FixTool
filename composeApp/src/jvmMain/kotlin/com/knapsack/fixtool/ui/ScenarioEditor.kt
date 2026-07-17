@@ -69,6 +69,7 @@ import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.ScenarioAnnotations
+import com.knapsack.fixtool.service.mintName
 
 /** Label used in session dropdowns for "no explicit session" (the runner uses the active one). */
 private const val ACTIVE_SESSION = "(active session)"

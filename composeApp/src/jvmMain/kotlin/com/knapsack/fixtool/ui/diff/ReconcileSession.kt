@@ -23,7 +23,7 @@ import com.knapsack.fixtool.service.compare.MessageField
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.SemanticsRegistry
 import com.knapsack.fixtool.service.compare.Verdict
-import com.knapsack.fixtool.ui.mintName
+import com.knapsack.fixtool.service.mintName
 import java.time.Instant
 
 /**

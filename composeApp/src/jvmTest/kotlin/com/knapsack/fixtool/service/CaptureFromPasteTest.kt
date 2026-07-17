@@ -144,16 +144,16 @@ class CaptureFromPasteTest {
         val expect = scenario.steps[1] as ScenarioStep.Expect
 
         // Parameterized exactly as a live capture parameterizes: a fresh id each run, and a fresh timestamp.
-        assertTrue(send.raw.contains("11=\${id0 = uuid:20}"), send.raw)
+        assertTrue(send.raw.contains("11=\${clOrdID = uuid:20}"), send.raw)
         assertTrue(send.raw.contains("60=\${utcnow}"), "the send stamps its own TransactTime, in UTC")
         assertTrue(send.raw.contains("55=EUR/USD"), "and the rest of it is the venue's own bytes")
 
         // The reply's echo is a reference matcher AND a bind constraint, so the step binds to ITS run's reply.
         val echoed = expect.expectation.fields.single { it.tag == 11 }
-        assertEquals(Matcher.Reference("\${id0}"), echoed.matcher)
+        assertEquals(Matcher.Reference("\${clOrdID}"), echoed.matcher)
         val constraints = expect.match?.fields ?: emptyList()
         val bound = constraints.single { it.tag == 11 }
-        assertEquals("\${id0}", bound.value, "and it binds the step to THIS run's reply, not the first of its type")
+        assertEquals("\${clOrdID}", bound.value, "and it binds the step to THIS run's reply, not the first of its type")
 
         // The golden is the venue's bytes as read — pipe and all — because that is what the rows were seeded from.
         assertTrue(expect.expectation.golden!!.contains("58=filled|in full"), "the golden keeps the pipe")

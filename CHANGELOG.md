@@ -5,6 +5,40 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-07-17
+
+### ✨ Added
+
+#### Repeatable Scenarios
+- **Scenario engine**: record a (multi-session) FIX flow and replay it as a repeatable test — a runner, a store, red/green run-results in the session window with per-tag drill-in, and a CI report.
+- **Capture-driven authoring**: capture a live flow (or paste a FIX log) straight into a dedicated Scenarios workbench; every step is badged by source, and the review screen describes the scenario it is about to save.
+- **Assertion vocabulary**: `fixtool_assert` with a matcher vocabulary (exact / regex / numeric & temporal bands / presence), auto-seeding, and assert-the-k-th-occurrence of a tag rather than a fragile group path.
+- **Portable, git-friendly scenarios**: readable `slug--shortid` filenames, a configurable scenarios directory you can point at a git repo, and scenarios that never assert session identity so they move between environments.
+- **Session mappings & save-as**: run a recorded flow against another environment's sessions, with preflight that auto-connects the sessions a run needs; "save as scenario" writes an environment copy rather than sharing mappings.
+- **Variables & scope**: named capture variables per field (`${clOrdID}` not `${id0}`), shorthands `${uuid:N}`, `${utcnow}`, `${..+Nmin}`, `bindAs` to echo a venue's value back, and a visible run scope carried by `THIS_RUN` that outlives the run.
+- **Traffic mode** (a strict run fails on unbound incoming messages) and **muted steps** (skipped by the runner, kept in the file).
+
+#### Diff & Reconcile
+- **The diff surface**: a failed step opens as an editable diff document in its own window — the one surface that repairs an assertion. Reconcile a failure where both sides are visible, move entries by hand with a rule that says why a move is withheld, and follow the crossing connector between paired rows.
+- **Authoring on green**: delete any asserted row or add an absent assertion, plus a **fix plan** that bulk-widens numeric and temporal bands, previewed and staged as one edit.
+- **Chained re-runs**: the pass carries forward — entry-scoped drop, clickable assertion rows, Save & re-run, and row-level deep links.
+- **Plain diff viewer**: a scenario-less, read-only "Diff against…" / "Diff messages…" window with a one-way Seed door.
+
+#### Embedded Terminal
+- **Run Claude inside FixTool**: an embedded terminal docked as a resizable bottom pane drives the app over MCP; minimize it to reclaim space while keeping the session, and it survives a layout reflow. App-matching dark styling and a thin scrollbar.
+
+#### Automation Control Surface
+- New MCP / HTTP endpoints: `fixtool_get_scenario` (read a scenario's full definition), `fixtool_diff` / `POST /scenarios/diff` (open the diff door), relax/constrain assertions at the point of failure, and discoverable template & matcher syntax.
+- **Acceptor auto-response rules** and preflight session auto-connect support self-contained round-trip tests.
+
+### 🔧 Changed
+- Scenarios moved to a dedicated workbench window; the from-scratch UI was removed in favour of capture-driven authoring.
+- The reconcile/authoring surfaces were consolidated so one surface authors an assertion and the verdict is counted once, in one place.
+- Captured timestamps are stamped in UTC; the demo server stamps `TransactTime`/`ValidUntilTime` in UTC.
+
+### 🐛 Fixed
+- Numerous correctness fixes across the diff/reconcile pairing rules (role-swap vs reorder, false greens, ghost interleaving), capture round-trips (pipe values, ambiguous CompIDs, pasted admin messages), STRICT-mode group handling, and the frame parser (a frame ends at `CheckSum(10)`; trailing bytes are refused, not parsed).
+
 ## [1.7.0] - 2026-06-25
 
 ### ✨ Added

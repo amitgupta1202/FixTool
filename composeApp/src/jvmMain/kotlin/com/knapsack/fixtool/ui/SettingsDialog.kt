@@ -60,6 +60,7 @@ fun SettingsDialog(
     var defaultLayout by remember { mutableStateOf(currentSettings.defaultLayout) }
     var connectionProfilesPath by remember { mutableStateOf(currentSettings.connectionProfilesPath) }
     var savedMessagesPath by remember { mutableStateOf(currentSettings.savedMessagesPath) }
+    var scenariosPath by remember { mutableStateOf(currentSettings.scenariosPath) }
     // Latency tracking settings
     var enableLatencyTracking by remember { mutableStateOf(currentSettings.enableLatencyTracking) }
     var captureNetworkInterface by remember { mutableStateOf(currentSettings.captureNetworkInterface) }
@@ -130,6 +131,7 @@ fun SettingsDialog(
                                 defaultLayout = defaults.defaultLayout
                                 connectionProfilesPath = defaults.connectionProfilesPath
                                 savedMessagesPath = defaults.savedMessagesPath
+                                scenariosPath = defaults.scenariosPath
                                 enableLatencyTracking = defaults.enableLatencyTracking
                                 captureNetworkInterface = defaults.captureNetworkInterface
                                 latencyHistorySize = defaults.latencyHistorySize.toString()
@@ -539,6 +541,71 @@ fun SettingsDialog(
                                 color = AppTheme.Colors.error,
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(AppTheme.Spacing.small))
+
+                    // Section: Scenarios Directory — point it at a git repo to version-track scenarios.
+                    Text(
+                        text = "Scenarios Directory",
+                        fontSize = 14.sp,
+                        color = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.small),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SlimTextField(
+                            value = scenariosPath,
+                            onValueChange = { scenariosPath = it },
+                            placeholder = "Default: ~/.fixtool/scenarios",
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        TooltipIconButton(
+                            tooltip = "Browse for Scenarios Directory",
+                            onClick = {
+                                val chooser =
+                                    JFileChooser().apply {
+                                        dialogTitle = "Select Scenarios Directory"
+                                        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                                        if (scenariosPath.isNotBlank()) {
+                                            val d = File(scenariosPath)
+                                            if (d.exists()) currentDirectory = d
+                                        }
+                                    }
+                                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                                    scenariosPath = chooser.selectedFile.absolutePath
+                                }
+                            },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = "Browse",
+                                tint = AppTheme.Colors.primary,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+
+                    // Each scenario is one JSON file named for the scenario (e.g. book-a-trade--3f2a9c1b.json),
+                    // so a git-tracked directory diffs and PRs cleanly. Applied on restart (like the paths above).
+                    if (scenariosPath.isNotBlank()) {
+                        val d = File(scenariosPath)
+                        when {
+                            d.exists() && d.isDirectory ->
+                                Text("✓ Directory exists — one git-friendly JSON per scenario · applied on restart", fontSize = 11.sp, color = AppTheme.Colors.primary)
+                            d.parentFile?.exists() == true ->
+                                Text("⚠ Directory will be created on first save · applied on restart", fontSize = 11.sp, color = AppTheme.Colors.warning)
+                            else ->
+                                Text("⚠ Parent directory does not exist", fontSize = 11.sp, color = AppTheme.Colors.error)
+                        }
+                    } else {
+                        Text("Point this at a git repo to version-track your scenarios · applied on restart", fontSize = 11.sp, color = AppTheme.Colors.textDisabled)
                     }
 
                     HorizontalDivider(
@@ -1778,6 +1845,7 @@ fun SettingsDialog(
                                     defaultLayout = defaultLayout,
                                     connectionProfilesPath = connectionProfilesPath.trim(),
                                     savedMessagesPath = savedMessagesPath.trim(),
+                                    scenariosPath = scenariosPath.trim(),
                                     enableLatencyTracking = enableLatencyTracking,
                                     captureNetworkInterface = captureNetworkInterface.trim(),
                                     latencyHistorySize = latencyHistorySize.toIntOrNull()?.coerceIn(100, 100000) ?: 10000,

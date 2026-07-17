@@ -532,11 +532,12 @@ class ReconcileSessionTest {
      * A passing row has nothing to *repair*, and a row nobody can read has nothing to repair *here* — but
      * deleting an assertion is authoring, not repair, and this surface is the app's only assertion editor.
      * On a fresh capture every row is green against its own golden, and a gutter that answered green with
-     * silence left the author no way to stop asserting anything. So the drop is offered — and **only** the
-     * drop: an Accept-actual or Loosen on a row that is not failing would be a one-click way to be wrong.
+     * silence left the author no way to stop asserting anything. So the authoring edits are offered — the
+     * drop, and the capture (which asserts nothing) — and **only** those: an Accept-actual or Loosen on a
+     * row that is not failing would be a one-click way to be wrong.
      */
     @Test
-    fun `passing and unjudgeable rows are offered the drop, and nothing else`() {
+    fun `passing and unjudgeable rows are offered the authoring edits, and no repair`() {
         val draft =
             Expectation(
                 listOf(
@@ -556,9 +557,9 @@ class ReconcileSessionTest {
         val echo = model.lines.single { it.row.tag == 11 }
         assertTrue(echo.unjudged, "a reference has no scope outside a run — amber, not red")
         assertEquals(
-            listOf(OfferKind.DROP),
+            listOf(OfferKind.DROP, OfferKind.CAPTURE),
             echo.offers.map { it.kind },
-            "deleting is legitimate even on a row this view cannot judge; repairing it is not",
+            "authoring is legitimate even on a row this view cannot judge; repairing it is not",
         )
     }
 
@@ -1052,12 +1053,14 @@ class ReconcileSessionTest {
     // ------------------------------------------------------------------ the capture offer
 
     /**
-     * `↧` on a green row: capture the venue's value into the scope, named from the dictionary, without
-     * changing what the row asserts. Independent of the run scope — authoring against the golden is
-     * exactly where the dealer echo gets wired — and a failing row's business is repair, not wiring.
+     * `↧`: capture the venue's value into the scope, named from the dictionary, without changing what the
+     * row asserts. Independent of the run scope — authoring against the golden is exactly where the
+     * dealer echo gets wired. Offered on red rows too, exactly as the runner captures (a failed row that
+     * paired still captures) — but there the tooltip must say the one thing a red-row click most wants to
+     * believe and must not: that capture is the repair.
      */
     @Test
-    fun `capture is offered on green rows, named from the dictionary, and applying it changes no assertion`() {
+    fun `capture is offered wherever the row paired, named from the dictionary, and changes no assertion`() {
         val expectation =
             Expectation(
                 fields =
@@ -1072,9 +1075,11 @@ class ReconcileSessionTest {
 
         val capture = s.model.lines.single { it.row.tag == 37 }.offers.single { it.kind == OfferKind.CAPTURE }
         assertTrue("\${orderID}" in capture.tooltip, "named from the dictionary before the click: ${capture.tooltip}")
+        assertTrue("Asserts nothing new" in capture.tooltip, "a green row's capture has no warning to carry")
+        val onRed = s.model.lines.single { it.row.tag == 39 }.offers.single { it.kind == OfferKind.CAPTURE }
         assertTrue(
-            s.model.lines.single { it.row.tag == 39 }.offers.none { it.kind == OfferKind.CAPTURE },
-            "39 is red — a failing row's business is repair first",
+            "repairs nothing" in onRed.tooltip,
+            "39 is red — the offer must say it is not the repair: ${onRed.tooltip}",
         )
 
         assertIs<EditResult.Applied>(s.apply(capture.op))
@@ -1111,5 +1116,49 @@ class ReconcileSessionTest {
         val second = s.model.lines.single { it.row.tag == 37 && it.row.occurrence == 1 }
         val capture = second.offers.single { it.kind == OfferKind.CAPTURE }
         assertTrue("\${orderID2}" in capture.tooltip, "suffixed: ${capture.tooltip}")
+    }
+
+    /**
+     * The venue minted a fresh id against a pinned literal — the row an author most wants to capture, and
+     * the one the green-only gate used to hide it on. Capturing stages the wiring and repairs nothing:
+     * the row is exactly as red after the click, which is the screen making the tooltip's point.
+     */
+    @Test
+    fun `capture on a failing row captures the paired value and leaves the row exactly as red`() {
+        val expectation = Expectation(fields = listOf(FieldExpectation(37, Matcher.Exact("VENUE-OLD"))), messageType = "8")
+        val s = ReconcileSession(expectation, ref(wireView(35 to "8", 37 to "VENUE-77")), dictionary)
+
+        val line = s.model.lines.single { it.row.tag == 37 }
+        assertFalse(line.row.passed, "a fresh venue id against a pinned literal: red")
+        assertIs<EditResult.Applied>(s.apply(line.offers.single { it.kind == OfferKind.CAPTURE }.op))
+
+        assertEquals("orderID", s.draft.fields[0].bindAs)
+        assertEquals(expectation.fields[0].matcher, s.draft.fields[0].matcher, "asserts nothing new")
+        assertFalse(s.model.lines.single { it.row.tag == 37 }.row.passed, "capture is not the repair — still red")
+    }
+
+    /**
+     * A stale capture on a row the venue stopped sending must be removable without repairing the row
+     * first — a MISSING row pairs with nothing, so the un-capture is the only capture business it has.
+     */
+    @Test
+    fun `a capture whose tag went missing still offers the un-capture`() {
+        val expectation =
+            Expectation(
+                fields =
+                    listOf(
+                        FieldExpectation(11, Matcher.Presence, bindAs = "clOrdID"),
+                        FieldExpectation(39, Matcher.Exact("0")),
+                    ),
+                messageType = "8",
+            )
+        val s = ReconcileSession(expectation, ref(wireView(35 to "8", 39 to "0")), dictionary)
+
+        val line = s.model.lines.single { it.row.tag == 11 }
+        assertNull(line.row.actual, "the reply no longer carries 11: nothing paired")
+        val stop = line.offers.single { it.kind == OfferKind.CAPTURE }
+        assertTrue("Stop capturing" in stop.tooltip, "nothing paired, so the un-capture is the only offer")
+        assertIs<EditResult.Applied>(s.apply(stop.op))
+        assertNull(s.draft.fields[0].bindAs)
     }
 }

@@ -2064,6 +2064,11 @@ stunnel stunnel.conf</code></pre>
             single <em>Accept new order</em>. Never per-row arrows: moving one row of a repeating group would
             silently swap which occurrence two rows refer to, which is the assert-the-wrong-field failure
             this model exists to make impossible.</li>
+            <li><strong>This environment sends one fewer entry</strong> &mdash; the band's
+            <strong>&#10005;</strong> drops the <em>whole</em> entry in one edit, and the entries below
+            <em>move up one occurrence</em> &mdash; the deliberate mirror of a move. (A per-row <em>Drop</em>
+            stays whole-tag for the same reason arrows are per-entry: deleting a lone row of a repeated tag
+            would silently re-aim its survivors.)</li>
         </ul>
         <p>You can also edit directly &mdash; change a matcher, type a value, or <strong>drag</strong> a row
         or a whole entry into place &mdash; and every edit <strong>re-judges live</strong>: you watch the step
@@ -2071,6 +2076,15 @@ stunnel stunnel.conf</code></pre>
         <strong>&#8984;Z / &#8984;&#8679;Z</strong> walk undo/redo. Nothing is written until you press
         <strong>Save</strong>; <strong>Save &amp; re-run</strong> writes and replays in one click, and the
         rail verdict answers on the spot.</p>
+        <p><strong>The pass carries you to the next failure.</strong> The runner stops at the first failing
+        step, so adapting a scenario to an environment that diverges in several places would otherwise mean
+        returning to the rail to hunt for each &ldquo;Reconcile step&nbsp;N&nbsp;&rarr;&rdquo; in turn. Instead,
+        when <strong>Save &amp; re-run</strong> lands red at a <em>different</em> step, that step's diff opens
+        automatically (or this window re-raises, when the repair didn't take), and on it goes until the run is
+        green &mdash; a green run ends the pass by doing nothing, and the rail's &#10003; is the announcement.
+        Only <strong>Save &amp; re-run</strong> chains like this; a plain rail <strong>Run</strong> pops no
+        windows. A failure with no diff to open &mdash; a timed-out Expect, a failed Send &mdash; pauses the
+        pass with its refusal sentence instead of leaving you guessing.</p>
         <p>The right side is a <strong>slot</strong>, shown as a chip in the header: swap it between
         <em>this run</em>, the <em>golden</em>, a <em>second instance</em> of the same message, a message you
         <em>pick</em> from a grid, or one you <em>paste</em> &mdash; and every row re-judges instantly against
@@ -2106,12 +2120,29 @@ stunnel stunnel.conf</code></pre>
         the wire, but the value now has a name an expect can reference-check.</p>
         <p><strong>Authoring is the same window.</strong> A never-run step opens the identical diff against its
         golden &mdash; same rows, same gutter, same undo &mdash; so building an expectation and repairing one
-        are one surface, not two.</p></li>
+        are one surface, not two. And the flow editor points you at it: a step's <strong>ASSERTS</strong>
+        rows are <em>doors</em> &mdash; click a row and the diff opens scrolled to that tag, ready to edit.</p></li>
     </ol>
     <p>Each step keeps its own <strong>session</strong> (a dropdown in the step detail), so one
     scenario can span multiple sessions &mdash; drive an initiator, assert on an acceptor, correlate
     a quote and a trade conversationally across both. Scenarios are stored one file per scenario
     under <code>~/.fixtool/scenarios/</code>.</p>
+
+    <h3>Same flow, another environment</h3>
+    <p>A flow recorded against <code>dev-buyside</code>/<code>dev-sellside</code> should run against the QA
+    pair without re-authoring every step. The <strong>&#9662;</strong> beside a scenario's <strong>Run</strong>
+    opens <strong>Save as scenario for other sessions&hellip;</strong>: choose where each step's session should
+    re-aim (targets come from your saved <strong>profiles</strong> &mdash; the other environment is usually not
+    connected yet &mdash; and from open sessions), and it saves a <strong>copy</strong> of the scenario with the
+    sessions swapped. A target that isn't connected is fine: the run's <strong>preflight auto-connect</strong>
+    brings its profile up first.</p>
+    <p>A copy, deliberately &mdash; <em>not</em> a shared mapping. Environments diverge in their data, so each
+    environment's scenario has to evolve and reconcile on its own: a QA <em>Accept actual</em> lands in the QA
+    copy, and the original's expectations never hear about it. The copies sit side by side in the rail,
+    filterable by session and git-diffable against each other. (For a throwaway run that persists nothing &mdash;
+    CI, or an agent &mdash; the <a href="#automation">control surface</a> keeps the old form:
+    <code>POST /scenarios/run</code> takes <code>sessions</code> as <code>{from: to}</code> to re-aim a single
+    run, same preflight auto-connect, no copy saved.)</p>
 
     <h3>Comparing two messages &mdash; the plain diff viewer</h3>
     <p>Sometimes you just want to see how two messages differ, with no scenario and no assertion in sight:

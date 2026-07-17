@@ -9,9 +9,14 @@ import androidx.compose.ui.graphics.Color
 import com.jediterm.terminal.TerminalColor
 import com.jediterm.terminal.ui.JediTermWidget
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider
+import com.jediterm.terminal.ui.settings.SettingsProvider
 import com.pty4j.PtyProcessBuilder
 import org.slf4j.LoggerFactory
+import java.awt.Dimension
 import java.io.File
+import javax.swing.JButton
+import javax.swing.JScrollBar
+import javax.swing.plaf.basic.BasicScrollBarUI
 
 private val logger = LoggerFactory.getLogger("TerminalPanel")
 
@@ -76,7 +81,7 @@ private fun createTerminalWidget(
     workingDir: File,
     env: Map<String, String>,
 ): JediTermWidget {
-    val widget = JediTermWidget(DarkSettingsProvider())
+    val widget = DarkJediTermWidget(DarkSettingsProvider())
     val shell = System.getenv("SHELL")?.ifBlank { null } ?: "/bin/zsh"
     val pty =
         PtyProcessBuilder(arrayOf(shell, "-l"))
@@ -130,4 +135,35 @@ private class DarkSettingsProvider : DefaultSettingsProvider() {
     override fun getDefaultBackground(): TerminalColor = TerminalColor(0x1E, 0x1E, 0x1E)
 
     override fun getDefaultForeground(): TerminalColor = TerminalColor(0xD4, 0xD4, 0xD4)
+}
+
+/**
+ * JediTerm's scrollbar is a plain Swing [JScrollBar] that renders light; this hands it a dark UI so it
+ * matches the app instead of showing a white track against the dark terminal.
+ */
+private class DarkJediTermWidget(settings: SettingsProvider) : JediTermWidget(settings) {
+    override fun createScrollBar(): JScrollBar =
+        super.createScrollBar().apply {
+            setUI(DarkScrollBarUI())
+            background = java.awt.Color(0x1E, 0x1E, 0x1E)
+        }
+}
+
+/** A dark, borderless scrollbar UI: dark track, a muted-grey thumb, and no arrow buttons. */
+private class DarkScrollBarUI : BasicScrollBarUI() {
+    override fun configureScrollBarColors() {
+        thumbColor = java.awt.Color(0x50, 0x50, 0x50)
+        trackColor = java.awt.Color(0x1E, 0x1E, 0x1E)
+    }
+
+    override fun createDecreaseButton(orientation: Int): JButton = hiddenButton()
+
+    override fun createIncreaseButton(orientation: Int): JButton = hiddenButton()
+
+    private fun hiddenButton(): JButton =
+        JButton().apply {
+            preferredSize = Dimension(0, 0)
+            minimumSize = Dimension(0, 0)
+            maximumSize = Dimension(0, 0)
+        }
 }

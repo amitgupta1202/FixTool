@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -117,6 +118,9 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 onDiffMessages = { viewModel.openEmptyDiffViewer() },
                 onClose = { viewModel.toggleScenariosRail() },
             )
+            // The rule the editor header now wears, and every other docked pane already did — without it the
+            // title + filter row bled straight into the run status line and the scenario tree.
+            HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
             RunStatusLine(
                 running = running,
                 result = result,

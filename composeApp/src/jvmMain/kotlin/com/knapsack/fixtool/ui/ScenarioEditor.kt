@@ -1165,9 +1165,11 @@ internal fun PaneDivider(onDrag: (Float) -> Unit, testTag: String = "editor-pane
     Box(
         modifier =
             Modifier
-                .width(5.dp)
+                // A single hairline, the width and colour of every other panel separator — not the 5dp
+                // border-coloured bar it used to be, which read as a different, heavier thing.
+                .width(AppTheme.Separators.panelSeparatorWidth)
                 .fillMaxHeight()
-                .background(AppTheme.Colors.border)
+                .background(AppTheme.Separators.color)
                 .pointerHoverIcon(PointerIcon(java.awt.Cursor(java.awt.Cursor.E_RESIZE_CURSOR)))
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->

@@ -42,6 +42,17 @@ sealed interface ScenarioStep {
     val stepId: String
 
     /**
+     * **Parked, not deleted.** The runner skips a muted step entirely — nothing sent, nothing consumed,
+     * no verdict — and the scenario's pass/fail is judged over the steps that ran. Muting is how an author
+     * keeps a step's shape (its session, its assertions, its place in the flow) while a venue leg is down
+     * or a flow is being bisected, without paying the delete-and-reauthor round trip.
+     *
+     * Additive and default-omitting on disk, the same bargain as [stepId] and [origin]: a file that never
+     * muted anything never grows the key.
+     */
+    val muted: Boolean get() = false
+
+    /**
      * **Where the bytes behind this step came from** — and it is a claim about trust, not about history.
      *
      * FixTool watched a live capture arrive on a wire it was connected to. It did not watch a **paste**: a log
@@ -64,6 +75,7 @@ sealed interface ScenarioStep {
         override val session: String? = null,
         override val stepId: String = "",
         override val origin: StepOrigin = StepOrigin.LIVE,
+        override val muted: Boolean = false,
     ) : ScenarioStep
 
     /** Block until a connection state is reached or a matching message arrives (no consume). */
@@ -74,6 +86,7 @@ sealed interface ScenarioStep {
         val timeoutMs: Long = 10_000,
         override val stepId: String = "",
         override val origin: StepOrigin = StepOrigin.LIVE,
+        override val muted: Boolean = false,
     ) : ScenarioStep
 
     /** Await the next not-yet-consumed matching message and assert it against an expectation. */
@@ -85,6 +98,7 @@ sealed interface ScenarioStep {
         val expectation: Expectation,
         override val stepId: String = "",
         override val origin: StepOrigin = StepOrigin.LIVE,
+        override val muted: Boolean = false,
     ) : ScenarioStep
 
     /** Clear a session's observable message log (typical setup step). */
@@ -92,6 +106,7 @@ sealed interface ScenarioStep {
         override val session: String? = null,
         override val stepId: String = "",
         override val origin: StepOrigin = StepOrigin.LIVE,
+        override val muted: Boolean = false,
     ) : ScenarioStep
 
     /** Reset a session's FIX sequence numbers (typical setup step). */
@@ -101,6 +116,7 @@ sealed interface ScenarioStep {
         val target: Int? = null,
         override val stepId: String = "",
         override val origin: StepOrigin = StepOrigin.LIVE,
+        override val muted: Boolean = false,
     ) : ScenarioStep
 }
 
@@ -144,6 +160,16 @@ fun ScenarioStep.withStepId(id: String): ScenarioStep =
         is ScenarioStep.Expect -> copy(stepId = id)
         is ScenarioStep.ClearMessages -> copy(stepId = id)
         is ScenarioStep.ResetSeqNum -> copy(stepId = id)
+    }
+
+/** The same step, parked or un-parked. See [ScenarioStep.muted]. */
+fun ScenarioStep.withMuted(muted: Boolean): ScenarioStep =
+    when (this) {
+        is ScenarioStep.Send -> copy(muted = muted)
+        is ScenarioStep.Wait -> copy(muted = muted)
+        is ScenarioStep.Expect -> copy(muted = muted)
+        is ScenarioStep.ClearMessages -> copy(muted = muted)
+        is ScenarioStep.ResetSeqNum -> copy(muted = muted)
     }
 
 /** The same step, said to have come from somewhere else. See [ScenarioStep.origin]. */

@@ -82,7 +82,7 @@ class ExpectStepFormScreenshotTest {
                     sessionOptions = listOf("DEMO1"),
                     onSave = {},
                     selectedStep = 1,
-                    onOpenDiff = {},
+                    onOpenDiff = { _, _ -> },
                 )
             }
         }

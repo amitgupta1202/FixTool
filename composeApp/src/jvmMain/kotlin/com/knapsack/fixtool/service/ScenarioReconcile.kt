@@ -1062,6 +1062,44 @@ object ScenarioReconcile {
     }
 
     /**
+     * Drop a whole entry — the repair for "this environment sends one fewer party".
+     *
+     * [drop] refuses to take a single row of a repeated tag precisely because deleting it silently re-aims
+     * the survivors. Deleting an ENTRY re-aims its later siblings too — and there it is the point: the
+     * entry is gone from this venue's replies, so the siblings that remain must move up one occurrence to
+     * describe the entries that remain. What makes it honest where the row delete is not: the whole entry
+     * goes at once — its delimiter and every row under it — so no entry is ever left half-described, and
+     * the re-judge the surface runs on every edit shows immediately which occurrences the survivors now
+     * face. Without this, "QA has one less party" meant either dropping every row of each of the entry's
+     * tags (taking the other parties' assertions with them) or a full re-seed (losing every hand-tuned
+     * matcher on every other row). Both were the wrong surgery for a one-entry difference.
+     */
+    fun dropEntry(draft: Expectation, overlay: GroupOverlay?, entry: IntRange): MoveResult {
+        if (siblingRunsOf(draft, overlay).none { entry in it }) {
+            return MoveResult.Refused(
+                "These rows are not an entry. An entry begins where its first field does — a run that " +
+                    "begins one row late is the tail of one entry welded to the head of the next. Only an " +
+                    "entry may be dropped whole.",
+            )
+        }
+        // Same rule as the entry move: a bare run of one repeated tag that the heuristic bracketed is not
+        // an entry, and "dropping" it is the per-row delete wearing a band's clothes — the exact silent
+        // re-aim [drop]'s whole-tag rule exists to prevent. Where the dictionary says the one-field entry
+        // is real (NoMDEntryTypes), it drops like any entry.
+        if (entry.count() == 1 &&
+            draft.fields.count { it.tag == draft.fields[entry.first].tag } > 1 &&
+            !dictated(overlay, entry)
+        ) {
+            return MoveResult.Refused(
+                "This is a bare run of tag ${draft.fields[entry.first].tag}, not a dictionary entry — " +
+                    "deleting one row of it would silently re-aim which occurrence every row below it " +
+                    "checks. Drop the tag (which takes all of its rows), or loosen the rows instead.",
+            )
+        }
+        return MoveResult.Applied(draft.copy(fields = draft.fields.filterIndexed { index, _ -> index !in entry }))
+    }
+
+    /**
      * **Every row still asserts the occurrence it asserted before.** The one thing a per-row move may never
      * change, and the reason an entry move is allowed to change it: there, the whole entry crosses, so the
      * rows that jointly describe one party keep describing it.

@@ -191,8 +191,11 @@ fun ScenarioEditor(
     onSave: (Scenario) -> Unit,
     /** Step index the deep-link landed on (the step a run failed at); null outside one. Not the selection. */
     focusStep: Int? = null,
-    /** Opens the diff for a step, by its id — the one surface that authors or repairs an assertion. */
-    onOpenDiff: ((String) -> Unit)? = null,
+    /**
+     * Opens the diff for a step, by its id — the one surface that authors or repairs an assertion. The
+     * tag, when given, is the row the author clicked: the diff opens scrolled to it.
+     */
+    onOpenDiff: ((String, Int?) -> Unit)? = null,
     /**
      * The scenario as it now stands, emitted on every change.
      *
@@ -401,7 +404,7 @@ fun ScenarioEditor(
                             sessionOptions = sessionOptions,
                             sessionColor = sessionColors[steps[selectedIdx].session] ?: AppTheme.Colors.textDisabled,
                             onChange = { steps[selectedIdx] = it },
-                            onOpenDiff = onOpenDiff?.let { open -> { open(steps[selectedIdx].stepId) } },
+                            onOpenDiff = onOpenDiff?.let { open -> { tag -> open(steps[selectedIdx].stepId, tag) } },
                             takenNames = allMintedNames.toSet(),
                         )
                     }
@@ -673,8 +676,8 @@ private fun StepDetail(
     sessionOptions: List<String>,
     sessionColor: androidx.compose.ui.graphics.Color,
     onChange: (EditStep) -> Unit,
-    /** Opens this step's diff, when it is an Expect. See [AssertionsDoor]. */
-    onOpenDiff: (() -> Unit)? = null,
+    /** Opens this step's diff, when it is an Expect — at the clicked row's tag when there is one. */
+    onOpenDiff: ((Int?) -> Unit)? = null,
     /** Names the scenario already mints anywhere — a fresh mint must not silently re-assign one. */
     takenNames: Set<String> = emptySet(),
 ) {
@@ -921,7 +924,7 @@ private fun ExpectDetail(
     sessionColor: androidx.compose.ui.graphics.Color,
     onChange: (EditStep) -> Unit,
     /** Opens this step's diff — the one surface that can author or repair an assertion. */
-    onOpenDiff: (() -> Unit)? = null,
+    onOpenDiff: ((Int?) -> Unit)? = null,
 ) {
     DetailSection("RECEIVES") {
         // One sentence, one left edge: "incoming on <session> · waits up to <10> s". The field labels this
@@ -993,11 +996,19 @@ private const val DOOR_PREVIEW_ROWS = 8
  * open another window to interpret.
  */
 @Composable
-private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDiff: (() -> Unit)?) {
+private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDiff: ((Int?) -> Unit)?) {
     val rows = step.expectation.fields
     DetailSection(
         "ASSERTS",
-        dim = if (rows.isNotEmpty()) "— ${rows.size} ${if (rows.size == 1) "ROW" else "ROWS"} · EDITED IN THE DIFF" else null,
+        // "EDITED IN THE DIFF" alone read as a fact about elsewhere, not an instruction — the tool's most
+        // informed user concluded editing did not exist. Say what the click does, on the thing to click.
+        dim =
+            if (rows.isNotEmpty()) {
+                "— ${rows.size} ${if (rows.size == 1) "ROW" else "ROWS"}" +
+                    if (onOpenDiff != null) " · CLICK A ROW TO EDIT IT" else ""
+            } else {
+                null
+            },
     ) {
         if (rows.isEmpty()) {
             Text(
@@ -1016,7 +1027,15 @@ private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDif
         // window to see the meaning of. The diff stays the ONE surface that edits them (the door below).
         // Same columns as the constraint grid above: the two show the same shape of data.
         rows.take(DOOR_PREVIEW_ROWS).forEach { fe ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier =
+                    Modifier
+                        .padding(top = 2.dp)
+                        // The row IS the door: clicking it opens the diff scrolled to this tag, which is
+                        // the gesture "I want to change this value" actually is.
+                        .let { m -> if (onOpenDiff != null) m.clickable { onOpenDiff(fe.tag) }.testTag("assert-row-${fe.tag}") else m },
+            ) {
                 Text("${fe.tag}", color = AppTheme.Colors.tagNumber, fontSize = 10.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(TAG_COL))
                 Text(
                     dictionary?.getFieldName(fe.tag) ?: "",
@@ -1047,7 +1066,7 @@ private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDif
         if (onOpenDiff != null) {
             SlimButton(
                 text = "Edit assertions ⧉",
-                onClick = onOpenDiff,
+                onClick = { onOpenDiff(null) },
                 color = AppTheme.Colors.primary,
                 modifier = Modifier.padding(top = 8.dp).testTag("open-diff"),
             )

@@ -310,6 +310,40 @@ class ScenarioWorkspaceTest {
         assertNotNull(viewModel.scenarioDraft("sc-1"), "and the draft stays, held by the editor tab")
     }
 
+    /**
+     * **The reconcile pass, carried to the next failure.** The runner stops at the first failing step, so a
+     * scenario diverging from its environment in several places surfaces one step per run — and the loop
+     * (Save & re-run → [FixMessageViewModel.continueReconcilePass]) must open the new failure's diff rather
+     * than leave the author back at the rail hunting for the link.
+     */
+    @Test
+    fun `a failed re-run carries the pass to the failing step's diff`() {
+        val onDisk = saved()
+        val stepId = onDisk.withIds().steps[1].stepId
+        val failing = message(wire("150=0"))
+        viewModel.noteScenarioRun(onDisk)
+        val failure = StepResult(1, "expect", "steps", false, stepId = stepId)
+        viewModel.setAssertionResults(mapOf(failing to failure))
+        viewModel.publishScenarioResult(ScenarioResult(onDisk.name, passed = false, steps = listOf(failure)))
+
+        viewModel.continueReconcilePass(viewModel.scenarioResult.value!!)
+
+        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1", stepId))
+        assertNotNull(window, "the loop must open the failing step's diff")
+        assertEquals(failing.wireRaw, window.thisRunWire, "bound to the failure this run produced")
+    }
+
+    /** A green run ends the pass by doing nothing — the rail's ✓ is the announcement, not another window. */
+    @Test
+    fun `a green re-run ends the pass without opening anything`() {
+        val onDisk = saved()
+        viewModel.noteScenarioRun(onDisk)
+
+        viewModel.continueReconcilePass(ScenarioResult(onDisk.name, passed = true, steps = emptyList()))
+
+        assertTrue(viewModel.openDiffWindows.value.isEmpty(), "nothing failed, so nothing opens")
+    }
+
     /** The venue's bytes, SOH-delimited — never the `|` display string, which is not what the engine reads. */
     private fun wire(execType: String): String =
         listOf("8=FIX.4.4", "35=8", "11=X", execType, "10=000")

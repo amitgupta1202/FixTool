@@ -328,6 +328,42 @@ class ShorthandTemplateExpanderTest {
         assertEquals("\${UUID.randomUUID().toString()}", expanded)
     }
 
+    @Test
+    fun `test uuid length shorthand expands to truncated dashless uuid`() {
+        val template = "\${uuid:20}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${UUID.randomUUID().toString().replace(\"-\", \"\").take(20)}", expanded)
+    }
+
+    @Test
+    fun `test uuid length shorthand in variable assignment`() {
+        // What capture mints: the shorthand must expand to exactly the longhand it replaced,
+        // so a re-captured scenario puts the same shape on the wire as one captured last month.
+        val template = "\${id0 = uuid:20}"
+        val expanded = ShorthandTemplateExpander.expand(template, null)
+        assertEquals("\${id0 = UUID.randomUUID().toString().replace(\"-\", \"\").take(20)}", expanded)
+    }
+
+    @Test
+    fun `test uuid length shorthand out of range passes through and validates with error`() {
+        // 33 > the 32 hex chars a dash-less UUID holds: expand leaves it alone, validate names it.
+        val template = "\${uuid:33}"
+        assertEquals(template, ShorthandTemplateExpander.expand(template, null))
+        val errors = ShorthandTemplateExpander.validateShorthand(template, null)
+        assertTrue(errors.any { it.contains("uuid:N") }, "expected a uuid:N range error, got $errors")
+    }
+
+    @Test
+    fun `test uuid length shorthand zero validates with error`() {
+        val errors = ShorthandTemplateExpander.validateShorthand("\${id0 = uuid:0}", null)
+        assertTrue(errors.any { it.contains("uuid:N") }, "expected a uuid:N range error, got $errors")
+    }
+
+    @Test
+    fun `test uuid length shorthand in range validates clean`() {
+        assertTrue(ShorthandTemplateExpander.validateShorthand("\${id0 = uuid:20}", null).isEmpty())
+    }
+
     // ===== Timestamp Shorthand Tests =====
 
     @Test

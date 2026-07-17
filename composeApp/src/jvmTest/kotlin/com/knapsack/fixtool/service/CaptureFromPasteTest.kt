@@ -144,7 +144,7 @@ class CaptureFromPasteTest {
         val expect = scenario.steps[1] as ScenarioStep.Expect
 
         // Parameterized exactly as a live capture parameterizes: a fresh id each run, and a fresh timestamp.
-        assertTrue(send.raw.contains("11=\${id0 = UUID.randomUUID()"), send.raw)
+        assertTrue(send.raw.contains("11=\${id0 = uuid:20}"), send.raw)
         assertTrue(send.raw.contains("60=\${LocalDateTime.now"), "the send stamps its own TransactTime")
         assertTrue(send.raw.contains("55=EUR/USD"), "and the rest of it is the venue's own bytes")
 

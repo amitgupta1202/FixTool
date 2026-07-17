@@ -460,13 +460,17 @@ object ScenarioCapture {
      * venues cap them in practice (20 is a common ClOrdID limit), and a default that only some venues
      * accept is not a default. 80 bits of the UUID keeps it collision-safe; the author widens or
      * reshapes the expression in the editor when their venue allows more.
+     *
+     * Written as the `uuid:20` shorthand, not the Kotlin longhand it expands to — the value cell is
+     * 24dp tall and `UUID.randomUUID().toString().replace("-", "").take(20)` is a sentence. Same bytes
+     * on the wire: [ShorthandTemplateExpander] expands it to exactly the old expression at send time.
      */
     private fun idExpr(value: String, refByValue: MutableMap<String, String>): String {
         val existing = refByValue[value]
         if (existing != null) return existing
         val varName = "id${refByValue.size}"
         refByValue[value] = "\${$varName}"
-        return "\${$varName = UUID.randomUUID().toString().replace(\"-\", \"\").take(20)}"
+        return "\${$varName = uuid:20}"
     }
 
     private fun expectStep(

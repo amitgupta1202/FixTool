@@ -26,6 +26,7 @@ The two mini-languages an agent needs to author messages and scenarios: **templa
 | Expression | Produces |
 | --- | --- |
 | `${uuid}` | a fresh UUID |
+| `${uuid:20}` | a fresh dash-less UUID truncated to N chars (1–32) — what capture mints for correlation ids, short enough for venues that cap ClOrdID length |
 | `${now}` | current UTC timestamp, `yyyyMMdd-HH:mm:ss.SSS` |
 | `${now:yyyyMMdd}` | `now` in a custom `DateTimeFormatter` pattern |
 | `${now+1h}`, `${now-2d}` | offset from now — units `h` (hours), `d` (days), `w` (weeks), `m` (months), `y` (years) |

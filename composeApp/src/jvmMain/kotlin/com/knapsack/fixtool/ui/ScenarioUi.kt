@@ -204,24 +204,6 @@ data class VariableChipData(
 fun shortValue(value: String, max: Int = 18): String = if (value.length <= max) value else value.take(max - 1) + "…"
 
 /**
- * A variable name for tag [tag]: `quoteReqID` from the dictionary's field name, `tag131` without one —
- * suffixed (`quoteReqID2`) rather than reused on collision, because reusing a name is an assignment
- * that silently re-aims every existing `${quoteReqID}`.
- */
-fun mintName(tag: Int, fieldName: String?, taken: Set<String>): String {
-    val base =
-        fieldName
-            ?.filter { it.isLetterOrDigit() }
-            ?.takeIf { it.isNotBlank() }
-            ?.replaceFirstChar { it.lowercase() }
-            ?: "tag$tag"
-    if (base !in taken) return base
-    var n = 2
-    while ("$base$n" in taken) n++
-    return "$base$n"
-}
-
-/**
  * **The variables of a scenario (or of a run), on one line.** The step badges say which step touches a
  * name; this strip is the other half of the answer — what the names *are*, what the last run left in
  * them, and which of them are typos nothing ever mints. In the diff window the chips are clickable and

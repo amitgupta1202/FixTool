@@ -175,29 +175,29 @@ class ScenarioCaptureTest {
         // QuoteRequest: QuoteReqID parameterized to a fresh scenario variable; transport tags stripped.
         assertTrue(sendR.raw.contains("35=R"))
         assertTrue(
-            sendR.raw.contains("131=\${id0 = uuid:20}"),
-            "QuoteReqID should mint a 20-char variable (venue id caps); got ${sendR.raw}",
+            sendR.raw.contains("131=\${quoteReqID = uuid:20}"),
+            "QuoteReqID should mint a 20-char variable named for the field (venue id caps); got ${sendR.raw}",
         )
         assertTrue(!sendR.raw.contains("49=") && !sendR.raw.contains("8=FIX"), "transport tags should be stripped")
 
         // Quote echoes QR-1 -> reference matcher on the same scenario variable.
-        assertEquals(Matcher.Reference("\${id0}"), matcher(expectS, 131))
+        assertEquals(Matcher.Reference("\${quoteReqID}"), matcher(expectS, 131))
         // ...and the echo also BINDS the step: on a busy session this Expect must pick the quote
         // answering this run's request, not the first quote of any kind.
-        assertEquals(listOf(com.knapsack.fixtool.model.scenario.TagValue(131, "\${id0}")), expectS.match?.fields)
+        assertEquals(listOf(com.knapsack.fixtool.model.scenario.TagValue(131, "\${quoteReqID}")), expectS.match?.fields)
 
         // NewOrderSingle: fresh ClOrdID variable, and it re-uses the quote's variable for QuoteReqID
         // (cross-session correlation), plus a templated TransactTime.
-        assertTrue(sendD.raw.contains("11=\${id1 = uuid:20}"), "ClOrdID should mint a variable; got ${sendD.raw}")
-        assertTrue(sendD.raw.contains("131=\${id0}"), "QuoteReqID should re-reference the quote variable across sessions; got ${sendD.raw}")
+        assertTrue(sendD.raw.contains("11=\${clOrdID = uuid:20}"), "ClOrdID should mint a variable; got ${sendD.raw}")
+        assertTrue(sendD.raw.contains("131=\${quoteReqID}"), "QuoteReqID should re-reference the quote variable across sessions; got ${sendD.raw}")
         assertTrue(
             sendD.raw.contains("60=\${utcnow}"),
             "TransactTime should be templated as the utcnow shorthand (UTC); got ${sendD.raw}",
         )
 
         // ExecutionReport echoes both ids -> reference matchers (cross-session for QR-1).
-        assertEquals(Matcher.Reference("\${id1}"), matcher(expect8, 11))
-        assertEquals(Matcher.Reference("\${id0}"), matcher(expect8, 131))
+        assertEquals(Matcher.Reference("\${clOrdID}"), matcher(expect8, 11))
+        assertEquals(Matcher.Reference("\${quoteReqID}"), matcher(expect8, 131))
         // a smart-seeded field survives where there's no echo (TransactTime -> temporal).
         assertTrue(matcher(expect8, 60) is Matcher.Temporal, "TransactTime should smart-seed temporal")
     }
@@ -235,8 +235,8 @@ class ScenarioCaptureTest {
 
         assertEquals(2, scenario.steps.size)
         val sendStep = scenario.steps[0] as ScenarioStep.Send
-        assertTrue(sendStep.raw.contains("11=\${id0 = uuid:20}"), "curated send should mint id0; got ${sendStep.raw}")
-        assertEquals(Matcher.Reference("\${id0}"), matcher(scenario.steps[1] as ScenarioStep.Expect, 11))
+        assertTrue(sendStep.raw.contains("11=\${clOrdID = uuid:20}"), "curated send should mint the ClOrdID variable; got ${sendStep.raw}")
+        assertEquals(Matcher.Reference("\${clOrdID}"), matcher(scenario.steps[1] as ScenarioStep.Expect, 11))
         assertEquals(listOf("A"), scenario.setup.filterIsInstance<ScenarioStep.ClearMessages>().map { it.session })
     }
 
@@ -393,7 +393,7 @@ class ScenarioCaptureTest {
      * FixTool holds the initiator session and the responder session; the scenario drives the whole
      * conversation. The crux is the responder's OUTGOING Quote echoing the initiator's QuoteReqID: the
      * value was minted by the scenario's *own* step 1, so capture must emit a REUSE of that variable —
-     * `131=${id0}` — never a fresh mint (which would answer a request nobody made) and never the
+     * `131=${quoteReqID}` — never a fresh mint (which would answer a request nobody made) and never the
      * captured literal (which would collide on the next run).
      *
      * This is the case that does NOT need receive→send variable capture: the id is born inside the
@@ -431,23 +431,23 @@ class ScenarioCaptureTest {
         val expectQuote = scenario.steps[3] as ScenarioStep.Expect
 
         // Step 1 mints the QuoteReqID; step 2 (the responder's inbox) checks and binds on the echo.
-        assertTrue(sendRequest.raw.contains("131=\${id0 = uuid:20}"), sendRequest.raw)
-        assertEquals(Matcher.Reference("\${id0}"), matcher(expectRequest, 131))
+        assertTrue(sendRequest.raw.contains("131=\${quoteReqID = uuid:20}"), sendRequest.raw)
+        assertEquals(Matcher.Reference("\${quoteReqID}"), matcher(expectRequest, 131))
         assertEquals(
-            listOf(com.knapsack.fixtool.model.scenario.TagValue(131, "\${id0}")),
+            listOf(com.knapsack.fixtool.model.scenario.TagValue(131, "\${quoteReqID}")),
             expectRequest.match?.fields,
         )
 
-        // THE CRUX: the responder's outgoing Quote REUSES ${id0} — the same variable, across sessions
-        // and across a direction flip — and mints only its own QuoteID.
-        assertTrue(sendQuote.raw.contains("131=\${id0}"), "the quote answers THIS run's request; got ${sendQuote.raw}")
-        assertTrue(!sendQuote.raw.contains("131=\${id0 = "), "a re-mint would answer a request nobody made")
-        assertTrue(sendQuote.raw.contains("117=\${id1 = uuid:20}"), "the quoter mints its own QuoteID; got ${sendQuote.raw}")
+        // THE CRUX: the responder's outgoing Quote REUSES ${quoteReqID} — the same variable, across
+        // sessions and across a direction flip — and mints only its own QuoteID.
+        assertTrue(sendQuote.raw.contains("131=\${quoteReqID}"), "the quote answers THIS run's request; got ${sendQuote.raw}")
+        assertTrue(!sendQuote.raw.contains("131=\${quoteReqID = "), "a re-mint would answer a request nobody made")
+        assertTrue(sendQuote.raw.contains("117=\${quoteID = uuid:20}"), "the quoter mints its own QuoteID; got ${sendQuote.raw}")
 
         // And the initiator's inbox checks both echoes — 117 sits in the presence set too, and the echo
         // check must win over presence for a value this scenario minted itself.
-        assertEquals(Matcher.Reference("\${id0}"), matcher(expectQuote, 131))
-        assertEquals(Matcher.Reference("\${id1}"), matcher(expectQuote, 117))
+        assertEquals(Matcher.Reference("\${quoteReqID}"), matcher(expectQuote, 131))
+        assertEquals(Matcher.Reference("\${quoteID}"), matcher(expectQuote, 117))
     }
 
     /**
@@ -469,18 +469,18 @@ class ScenarioCaptureTest {
         val scenario = ScenarioCapture.captureFrom("sc-md", "md and quote", null, candidates, dictionary)
 
         val sendV = scenario.steps[0] as ScenarioStep.Send
-        assertTrue(sendV.raw.contains("262=\${id0 = uuid:20}"), "MDReqID must mint a fresh id per run; got ${sendV.raw}")
+        assertTrue(sendV.raw.contains("262=\${mDReqID = uuid:20}"), "MDReqID must mint a fresh id per run; got ${sendV.raw}")
 
         val expectW = scenario.steps[1] as ScenarioStep.Expect
-        assertEquals(Matcher.Reference("\${id0}"), matcher(expectW, 262), "the snapshot's MDReqID echo is a reference check")
+        assertEquals(Matcher.Reference("\${mDReqID}"), matcher(expectW, 262), "the snapshot's MDReqID echo is a reference check")
         assertEquals(
-            listOf(com.knapsack.fixtool.model.scenario.TagValue(262, "\${id0}")),
+            listOf(com.knapsack.fixtool.model.scenario.TagValue(262, "\${mDReqID}")),
             expectW.match?.fields,
             "and it binds the Expect to this run's snapshot, not the first W of any kind",
         )
 
         val sendS = scenario.steps[2] as ScenarioStep.Send
-        assertTrue(sendS.raw.contains("117=\${id1 = uuid:20}"), "a dealer-minted QuoteID is fresh per run; got ${sendS.raw}")
+        assertTrue(sendS.raw.contains("117=\${quoteID = uuid:20}"), "a dealer-minted QuoteID is fresh per run; got ${sendS.raw}")
         assertTrue(
             sendS.raw.contains("62=\${utcnow+5min}"),
             "a replayed ValidUntilTime lies in the future — not verbatim (stale), not now (expired); got ${sendS.raw}",

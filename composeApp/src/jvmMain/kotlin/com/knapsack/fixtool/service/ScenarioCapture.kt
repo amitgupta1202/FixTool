@@ -280,6 +280,9 @@ object ScenarioCapture {
     ): Scenario {
         // capturedValue -> "${varName}" reference, scenario-wide (so a response on any session can echo it).
         val refByValue = mutableMapOf<String, String>()
+        // The names those refs wear, so a second mint in this capture cannot collide with the first — the
+        // same taken-set the hand-mint and diff-mint keep. See [mintName].
+        val takenNames = mutableSetOf<String>()
         val steps = mutableListOf<ScenarioStep>()
         // Each Expect step paired with the message it was seeded from, so the post-pass below can compare the
         // bytes of two same-type replies and seed a discriminator that tells them apart.
@@ -290,7 +293,7 @@ object ScenarioCapture {
             // The review refuses the save before this, by name; this is the engine keeping the same rule.
             if (candidate.direction == null) continue
             if (candidate.outgoing) {
-                steps += sendStep(candidate, dictionary, refByValue)
+                steps += sendStep(candidate, dictionary, refByValue, takenNames)
             } else {
                 expectCandidates += steps.size to candidate
                 steps += expectStep(candidate, dictionary, refByValue)
@@ -432,6 +435,7 @@ object ScenarioCapture {
         entry: Candidate,
         dictionary: FixDictionaryAdapter?,
         refByValue: MutableMap<String, String>,
+        takenNames: MutableSet<String>,
     ): ScenarioStep.Send {
         val fields = entry.fields.filter { (tag, _) -> tag !in TRANSPORT_TAGS }.map { (tag, value) ->
             val out = when {
@@ -441,7 +445,7 @@ object ScenarioCapture {
                 // dictionary-less capture still must not replay a stale quote lifetime.
                 tag in LIFETIME_TAGS -> FUTURE_EXPR
                 isTimestamp(tag, dictionary) -> NOW_EXPR
-                tag in ID_TAGS && value.isNotBlank() -> idExpr(value, refByValue)
+                tag in ID_TAGS && value.isNotBlank() -> idExpr(tag, value, refByValue, takenNames, dictionary)
                 else -> value
             }
             tag to out
@@ -464,13 +468,25 @@ object ScenarioCapture {
      * Written as the `uuid:20` shorthand, not the Kotlin longhand it expands to — the value cell is
      * 24dp tall and `UUID.randomUUID().toString().replace("-", "").take(20)` is a sentence. Same bytes
      * on the wire: [ShorthandTemplateExpander] expands it to exactly the old expression at send time.
+     *
+     * The variable's **name** is the field's own: ClOrdID -> `${clOrdID}`, QuoteReqID -> `${quoteReqID}`,
+     * `tag131` only where no dictionary is loaded — the exact rule [mintName] gives the hand-mint ● button
+     * and the diff, so all three mint paths agree and the reference dropdown reads in the venue's
+     * vocabulary rather than `id0`, `id1`, `id2`. Correlated across the flow by captured VALUE, so a
+     * re-send of the same id reuses the same name whatever field it lands in.
      */
-    private fun idExpr(value: String, refByValue: MutableMap<String, String>): String {
-        val existing = refByValue[value]
-        if (existing != null) return existing
-        val varName = "id${refByValue.size}"
-        refByValue[value] = "\${$varName}"
-        return "\${$varName = uuid:20}"
+    private fun idExpr(
+        tag: Int,
+        value: String,
+        refByValue: MutableMap<String, String>,
+        takenNames: MutableSet<String>,
+        dictionary: FixDictionaryAdapter?,
+    ): String {
+        refByValue[value]?.let { return it }
+        val name = mintName(tag, dictionary?.getFieldName(tag), takenNames)
+        takenNames += name
+        refByValue[value] = "\${$name}"
+        return "\${$name = uuid:20}"
     }
 
     private fun expectStep(

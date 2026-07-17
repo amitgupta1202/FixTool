@@ -531,10 +531,14 @@ private fun ScenarioRailRow(
     // author was not looking at. Hover (or an in-flight delete confirm) brings them back, on that row only.
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    // Hoisted above the hover branch on purpose: the open menu overlays the row, so the pointer moving
+    // into it ends the hover — and state owned by the hover branch would unmount with it, closing the
+    // menu the instant anyone reached for an item. Open menu = the actions stay, like a delete confirm.
+    var runOnOpen by remember { mutableStateOf(false) }
     val bg =
         when {
             verdict == RailVerdict.FAILED -> AppTheme.Colors.error.copy(alpha = 0.10f)
-            hovered || confirmingDelete -> AppTheme.Colors.surfaceVariant
+            hovered || confirmingDelete || runOnOpen -> AppTheme.Colors.surfaceVariant
             else -> androidx.compose.ui.graphics.Color.Transparent
         }
     Column(
@@ -567,7 +571,7 @@ private fun ScenarioRailRow(
                     SlimButton("Delete", onClick = onConfirmDelete, color = AppTheme.Colors.error, modifier = Modifier.testTag("confirm-delete"))
                     SlimButton("Cancel", onClick = onCancelDelete, color = AppTheme.Colors.textSecondary)
                 }
-                hovered -> {
+                hovered || runOnOpen -> {
                     RailIcon(
                         Icons.Default.PlayArrow,
                         "Run",
@@ -579,30 +583,29 @@ private fun ScenarioRailRow(
                     // Run, re-aimed: the same scenario against another environment's sessions, through a
                     // saved mapping — or a new one. Plain ▸ Run above stays exactly "as recorded".
                     Box {
-                        var runOn by remember { mutableStateOf(false) }
                         RailIcon(
                             Icons.Default.ArrowDropDown,
                             "Run on…",
                             if (runEnabled) AppTheme.Colors.success else AppTheme.Colors.textDisabled,
-                            { runOn = true },
+                            { runOnOpen = true },
                             enabled = runEnabled,
                             tag = "run-on-${scenario.id}",
                         )
-                        DropdownMenu(expanded = runOn, onDismissRequest = { runOn = false }) {
+                        DropdownMenu(expanded = runOnOpen, onDismissRequest = { runOnOpen = false }) {
                             mappings.forEach { mapping ->
                                 MappingMenuItem(
                                     mapping = mapping,
                                     lastUsed = mapping.id == lastUsedMappingId,
                                     tag = "run-on-${scenario.id}-${mapping.id}",
                                     onPick = {
-                                        runOn = false
+                                        runOnOpen = false
                                         onRunWith(mapping)
                                     },
                                     onDelete = { onDeleteMapping(mapping) },
                                 )
                             }
                             RailMenuItem("New mapping…", tag = "run-on-new-${scenario.id}") {
-                                runOn = false
+                                runOnOpen = false
                                 onNewMapping()
                             }
                         }

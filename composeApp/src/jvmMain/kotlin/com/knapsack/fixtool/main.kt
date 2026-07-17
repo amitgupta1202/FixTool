@@ -20,8 +20,6 @@ import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.ui.App
 import com.knapsack.fixtool.ui.diff.DiffViewerWindow
 import com.knapsack.fixtool.ui.diff.DiffWindow
-import com.knapsack.fixtool.ui.terminal.TerminalController
-import com.knapsack.fixtool.ui.terminal.TerminalWindow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
@@ -169,20 +167,5 @@ fun main() {
             }
         }
 
-        // Embedded terminal: shown/hidden from the toolbar's Terminal button via TerminalController. It
-        // injects THIS instance's control endpoint so a `claude` run inside it drives this FixTool — no
-        // port to configure. The env port (developer override) wins, else the Settings port.
-        viewModelRef?.let { viewModel ->
-            if (TerminalController.visible) {
-                val port =
-                    System.getenv("FIXTOOL_CONTROL_PORT")?.toIntOrNull()
-                        ?: viewModel.appSettings.automationControlPort
-                TerminalWindow(
-                    controlUrl = "http://127.0.0.1:$port",
-                    controlToken = System.getenv("FIXTOOL_CONTROL_TOKEN")?.ifBlank { null },
-                    onClose = { TerminalController.hide() },
-                )
-            }
-        }
     }
 }

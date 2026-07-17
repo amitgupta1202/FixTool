@@ -36,6 +36,9 @@ fun TerminalPanel(
     // Hold the widget so we can tear the PTY down when this leaves composition (window closed),
     // rather than leaking a shell process per open/close.
     val widgetHolder = remember { arrayOfNulls<JediTermWidget>(1) }
+    // Focus the terminal once, the first time it's laid out — not on every recomposition, so resizing
+    // the docked pane doesn't keep yanking focus back mid-drag.
+    val didInitialFocus = remember { booleanArrayOf(false) }
     DisposableEffect(Unit) {
         onDispose {
             runCatching { widgetHolder[0]?.close() }
@@ -55,8 +58,9 @@ fun TerminalPanel(
         // keyboard focus to the embedded Swing component by itself (the JediTerm cursor stays hollow
         // and keystrokes never arrive). Pushing focus down to JediTerm's inner panel here bridges it.
         update = { widget ->
-            javax.swing.SwingUtilities.invokeLater {
-                widget.terminalPanel.requestFocusInWindow()
+            if (!didInitialFocus[0]) {
+                didInitialFocus[0] = true
+                javax.swing.SwingUtilities.invokeLater { widget.terminalPanel.requestFocusInWindow() }
             }
         },
     )

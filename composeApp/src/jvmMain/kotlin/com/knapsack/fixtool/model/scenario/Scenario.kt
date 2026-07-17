@@ -192,6 +192,34 @@ fun ScenarioStep.withStepId(id: String): ScenarioStep =
         is ScenarioStep.ResetSeqNum -> copy(stepId = id)
     }
 
+/** The same step, aimed at another session. Identity is untouched — see [Scenario.withSessions]. */
+fun ScenarioStep.withSession(session: String?): ScenarioStep =
+    when (this) {
+        is ScenarioStep.Send -> copy(session = session)
+        is ScenarioStep.Wait -> copy(session = session)
+        is ScenarioStep.Expect -> copy(session = session)
+        is ScenarioStep.ClearMessages -> copy(session = session)
+        is ScenarioStep.ResetSeqNum -> copy(session = session)
+    }
+
+/**
+ * The same scenario, aimed at other sessions: every step whose session is a key of [map] now targets
+ * that key's value; sessions the map does not name — including null, the active session — are left
+ * alone. Two callers, two lifetimes: the "save as new scenario" door materializes the result as its
+ * own document (environments diverge in data, so each environment's copy must evolve and reconcile
+ * independently), and the control surface's `sessions` parameter applies it for one run and discards
+ * it. Step identity survives either way — [withIds] mints from position, not content.
+ */
+fun Scenario.withSessions(map: Map<String, String>): Scenario {
+    if (map.isEmpty()) return this
+    fun remap(steps: List<ScenarioStep>): List<ScenarioStep> =
+        steps.map { step ->
+            val to = step.session?.let { map[it] }
+            if (to == null) step else step.withSession(to)
+        }
+    return copy(setup = remap(setup), steps = remap(steps), teardown = remap(teardown))
+}
+
 /** The same step, parked or un-parked. See [ScenarioStep.muted]. */
 fun ScenarioStep.withMuted(muted: Boolean): ScenarioStep =
     when (this) {

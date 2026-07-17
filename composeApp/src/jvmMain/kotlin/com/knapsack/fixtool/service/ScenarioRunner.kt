@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.model.scenario.withIds
+import com.knapsack.fixtool.model.scenario.withSessions
 
 /**
  * The primitives the [ScenarioRunner] needs from its environment. Kept behind an interface so the
@@ -98,8 +99,13 @@ class ScenarioRunner(
      * the ids the runner sees are the ids the same scenario has everywhere else — an un-normalized
      * scenario handed straight to the runner (a test, an inline scenario from the control surface) still
      * reports the ids its saved counterpart would carry.
+     *
+     * [sessionMap] is the control surface's throwaway remap ([Scenario.withSessions]): this one run is
+     * re-aimed, nothing is persisted, and the report still attributes to the scenario as saved. The
+     * durable form of the same idea is a materialized copy — see the ViewModel's save-remapped-copy.
      */
-    fun run(scenario: Scenario): ScenarioResult = runIdentified(scenario.withIds())
+    fun run(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult =
+        runIdentified(scenario.withIds().withSessions(sessionMap))
 
     private fun runIdentified(scenario: Scenario): ScenarioResult {
         // Preflight, by name, before any step runs: a missing/unconnected session otherwise surfaces

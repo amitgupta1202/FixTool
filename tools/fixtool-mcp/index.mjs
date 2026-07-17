@@ -643,11 +643,14 @@ server.tool(
   "Run a scenario deterministically and return a per-step, per-tag pass/fail report. Identify by id " +
     "(from the store) or pass an inline scenario. format=junit returns JUnit XML for CI. When the run " +
     "minted any ${...} variables, the report carries variables:[{name,value,mintedAtStepId?}] — what " +
-    "each name held, in mint order.",
+    "each name held, in mint order. sessions re-aims THIS run at other session names (e.g. the QA pair) " +
+    "without persisting anything; sessions the run needs are auto-connected from saved profiles. To keep " +
+    "an environment durably, save a remapped copy of the scenario instead.",
   {
     id: z.string().optional().describe("saved scenario id"),
     scenario: z.record(z.any()).optional().describe("inline scenario JSON (alternative to id)"),
     format: z.enum(["json", "junit"]).optional().describe("output format; default json"),
+    sessions: z.record(z.string()).optional().describe("throwaway {from: to} session remap applied for this run only"),
   },
   async (args) => {
     const body = {};

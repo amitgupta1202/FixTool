@@ -29,6 +29,7 @@ import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
+import com.knapsack.fixtool.model.scenario.withSessions
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.ExpectationSeeder
@@ -200,13 +201,17 @@ class FixMessageViewModel(
      * the snapshot of what ran can be compared step-for-step against what is on disk. An un-identified
      * snapshot would have no way to say *which* step failed once the author moved it.
      */
-    fun noteScenarioRun(scenario: Scenario) {
+    fun noteScenarioRun(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()) {
+        // The snapshot is the scenario AS SAVED, not as remapped: reconcileRoute's unedited-step guard
+        // compares it against the disk copy, and the control surface's throwaway `sessions` remap is a
+        // run input, not an edit.
         _lastRunScenario.value = scenario.withIds()
         // Which sessions this run is ABOUT — the report's lifetime is tied to theirs (closing one of them
-        // closes the question the report answers). A step with no session runs on whatever is active NOW,
-        // so that title is resolved here, at run start; it is unknowable later.
+        // closes the question the report answers). Through the remap, since those are the sessions the
+        // run actually touched. A step with no session runs on whatever is active NOW, so that title is
+        // resolved here, at run start; it is unknowable later.
         val all = scenario.setup + scenario.steps + scenario.teardown
-        val named = all.mapNotNull { it.sessionOrNull() }
+        val named = all.mapNotNull { it.sessionOrNull() }.map { sessionMap[it] ?: it }
         val active = if (all.any { it.sessionOrNull() == null }) _activeSessionState.value?.title else null
         lastRunSessionTitles = (named + listOfNotNull(active)).toSet()
     }
@@ -1343,6 +1348,21 @@ class FixMessageViewModel(
     }
 
     /**
+     * [duplicateScenario], aimed at other sessions — the "same flow, other environment" door. The copy
+     * is a scenario in its own right, deliberately: environments diverge in data, so each environment's
+     * scenario must evolve and reconcile independently — a QA failure's "Accept actual" lands in the QA
+     * copy and the original's expectations never hear about it. Returns the copy, or null when the save
+     * failed (the service has already notified).
+     */
+    fun duplicateScenarioRemapped(scenario: Scenario, name: String, sessionMap: Map<String, String>): Scenario? {
+        val copy =
+            scenario
+                .copy(id = UUID.randomUUID().toString(), name = name)
+                .withSessions(sessionMap)
+        return if (scenarioService.save(copy)) copy else null
+    }
+
+    /**
      * Where a failed step can be taken, and — when it cannot be taken to the reconcile view — *why not*,
      * in words meant for the author. A refusal that does not say why is how the run report became a dead
      * end in the first place: the tool knew exactly what it was withholding and said nothing.
@@ -2223,9 +2243,9 @@ class FixMessageViewModel(
      * because the alternative is a wiped report with no explanation next to a grid full of red rows.
      */
     @Suppress("TooGenericExceptionCaught")
-    fun runScenarioBlocking(scenario: Scenario): ScenarioResult? {
+    fun runScenarioBlocking(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult? {
         if (!beginScenarioRun()) return null
-        noteScenarioRun(scenario)
+        noteScenarioRun(scenario, sessionMap)
         publishScenarioResult(null)
         setAssertionResults(emptyMap())
         val matched = linkedMapOf<FixMessage, StepResult>()
@@ -2237,7 +2257,7 @@ class FixMessageViewModel(
                         matched[message] = stepResult
                         _assertionResults.value = matched.toMap()
                     },
-                ).run(scenario)
+                ).run(scenario, sessionMap)
             // Published while the run slot is still held: a verdict that lands after the slot is free can
             // land on top of the *next* run's freshly-cleared state, and the report would then name one
             // run while the assertion results underneath it belong to another.

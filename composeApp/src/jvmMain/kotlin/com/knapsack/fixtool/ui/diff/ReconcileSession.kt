@@ -185,6 +185,10 @@ class EditOp(
         /** The entry drag, and the band's ↑/↓. Same validator, larger unit. */
         fun moveEntry(overlay: GroupOverlay?, entry: IntRange, toSlot: Int) =
             moving("Moved the entry") { ScenarioReconcile.moveEntry(it, overlay, entry, toSlot) }
+
+        /** The band's ✕ — the whole entry, gone: the repair for an environment that sends one fewer. */
+        fun dropEntry(overlay: GroupOverlay?, entry: IntRange) =
+            moving("Dropped the entry") { ScenarioReconcile.dropEntry(it, overlay, entry) }
     }
 }
 

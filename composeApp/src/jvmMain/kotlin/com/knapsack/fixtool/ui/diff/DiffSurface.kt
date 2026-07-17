@@ -911,6 +911,16 @@ private fun EntryBand(
                     ),
                 )
             }
+            // The whole entry, gone — "this environment sends one fewer party". Staged and undoable like
+            // every edit; the re-judge shows at once which occurrences the surviving entries now face.
+            AppTooltip("Drop this entry — every row of it, as one edit. The entries below move up one occurrence, which is the point.") {
+                SlimButton(
+                    "✕",
+                    onClick = { session.apply(EditOp.dropEntry(model.overlay, band.entry.rows)) },
+                    color = AppTheme.Colors.error,
+                    modifier = Modifier.padding(start = 2.dp).testTag("entry-drop-${band.entry.rows.first}"),
+                )
+            }
         }
         Box(modifier = Modifier.width(GUTTER), contentAlignment = Alignment.Center) {
             if (offerOrder && model.acceptOrder != null) {

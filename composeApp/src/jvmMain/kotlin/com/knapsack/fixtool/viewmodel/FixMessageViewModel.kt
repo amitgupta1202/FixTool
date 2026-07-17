@@ -56,6 +56,7 @@ import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.RunFailureContext
 import com.knapsack.fixtool.ui.ScenarioDoc
+import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.ui.ScenarioDraft
 import com.knapsack.fixtool.ui.diff.DiffSide
 import com.knapsack.fixtool.ui.diff.DiffViewerSession
@@ -587,9 +588,9 @@ class FixMessageViewModel(
      * of a failure. A step that has failed still opens on its failure, because the window is keyed on the step
      * and the one already holding this run's bytes is the one it finds.
      */
-    fun openDiffForStep(scenarioId: String, stepId: String) {
+    fun openDiffForStep(scenarioId: String, stepId: String, focusTag: Int? = null) {
         val draft = scenarioDraft(scenarioId)?.draft ?: return
-        openDiffWindow(scenario = draft, stepId = stepId)
+        openDiffWindow(scenario = draft, stepId = stepId, focusTag = focusTag)
     }
 
     private fun referenceOf(wire: String, arrivedAt: java.time.Instant?, scenarioId: String): ReferenceMessage {
@@ -2221,11 +2222,36 @@ class FixMessageViewModel(
      * **Save & re-run** — the third click of W1, and the one that closes the loop. Saves the scenario the diff
      * is looking at, runs it, and every open diff re-binds to what comes back (see [rebindDiffWindows]).
      * The shared run slot already enforces one run at a time; the button is disabled while one is in flight.
+     *
+     * And when the re-run fails at a **different** step, the loop carries the author there: the runner stops
+     * at the first failure, so adapting a scenario to an environment that diverges in several places surfaces
+     * one step per run — repair step 3, re-run, meet step 5. Without this, every iteration ended back at the
+     * rail hunting for the "Reconcile step N →" link; now the next failure's diff opens (or the same step's
+     * window re-raises, when the repair didn't take) and the pass continues until the run is green. Chained
+     * only from HERE, deliberately: a run launched from the rail pops no windows at anyone. A failure with no
+     * route (a timed-out Expect, a failed Send) surfaces its refusal sentence instead — the loop pausing with
+     * an explanation, not silently.
      */
+    @Suppress("TooGenericExceptionCaught")
     fun saveAndRerun(scenarioId: String) {
         if (!saveScenario(scenarioId)) return
         val saved = scenarioService.load(scenarioId) ?: return
-        runScenario(saved)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                runScenarioBlocking(saved)?.let { continueReconcilePass(it) }
+            } catch (e: Exception) {
+                logger.error("Scenario run failed: ${e.message}", e, notifyUser = false) // already notified
+            }
+        }
+    }
+
+    /**
+     * The loop's next stop: a failed re-run opens its first failure's diff (or the refusal that explains
+     * why there is none). A green run ends the pass by doing nothing — the rail's ✓ is the announcement.
+     * Public for tests that stage a run's aftermath without running one, like [publishScenarioResult].
+     */
+    fun continueReconcilePass(result: ScenarioResult) {
+        if (!result.passed) result.firstFailure()?.let { openReconcile(it) }
     }
 
     /**

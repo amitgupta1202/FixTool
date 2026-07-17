@@ -74,6 +74,18 @@ class GhostLineTest {
         assertNotNull(farEnd, "before the ghost existed, nothing faced the landing and no connector could draw")
         val item = model.items[farEnd]
         assertTrue(item is DiffItem.Line && item.line.row.ghost, "and the line it finds is the ghost")
+
+        // The connector's far end is the LANDED ROWS — every landing wire index mapped through the line
+        // facing it — never the chunk those lines sit in. The ghost is a SAME line inside the big block of
+        // passing rows; centring the curve on that whole chunk would aim it at the middle of the green rows
+        // instead of at the field that travelled. So the destination must be exactly the ghost, one line.
+        val landedItems = movedChunk.landing.mapNotNull { model.itemFacingWire(it) }
+        assertEquals(listOf(farEnd), landedItems, "the connector lands on the ghost alone, not the passing block")
+        val enclosingChunk = (item as DiffItem.Line).line.chunkId
+        assertTrue(
+            model.itemsOfChunk(enclosingChunk).size > landedItems.size,
+            "the ghost's chunk is the whole passing block — proof that expanding to it would mis-aim the curve",
+        )
     }
 
     @Test

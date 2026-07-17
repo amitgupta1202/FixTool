@@ -150,11 +150,16 @@ internal fun DrawScope.drawMoveConnectors(model: DiffModel, state: LazyListState
         .forEach { chunk ->
             val from = model.itemsOfChunk(chunk.id)
             val ySrc = centreOf(state, from) ?: return@forEach
-            val facing = model.itemFacingWire(chunk.landing.first()) ?: return@forEach
-            val landedChunk = (model.items.getOrNull(facing) as? DiffItem.Line)?.line?.chunkId ?: return@forEach
-            val to = model.itemsOfChunk(landedChunk)
+            // The far end is where the rows *landed* — the lines facing this chunk's landing wire fields —
+            // and NOT the whole chunk those lines happen to sit in. For two entries that swapped, the two
+            // are the same set (each landed row fills its own moved chunk), so this is unchanged. But a
+            // moved row that landed on a GHOST lands on a single SAME line embedded in the big block of
+            // passing rows: expanding to that line's chunk would centre the curve on the middle of every
+            // green row, pointing the connector into empty agreement instead of at the field that travelled.
+            val to = chunk.landing.mapNotNull { model.itemFacingWire(it) }
+            if (to.isEmpty()) return@forEach
             // Off-screen ends leave the viewport in the direction the entry actually went.
-            val yDst = centreOf(state, to) ?: if (facing > from.first()) size.height + stroke * 8 else -stroke * 8
+            val yDst = centreOf(state, to) ?: if (to.first() > from.first()) size.height + stroke * 8 else -stroke * 8
 
             val path =
                 Path().apply {

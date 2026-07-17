@@ -544,11 +544,19 @@ object ScenarioCapture {
      * UTCTimestamp fields are UTC by definition, and a replay stamps them fresh at send time. Taking
      * the system clock's local time put a London capture an hour ahead in summer — a TransactTime the
      * counterparty may reject, and one that fails any temporal assertion echoing it back.
+     *
+     * Written as the `utcnow` shorthand, not the Kotlin longhand it expands to — the value cell is 24dp
+     * tall and the longhand is a sentence (the same argument that moved correlation ids to `uuid:20`).
+     * Same bytes on the wire: [ShorthandTemplateExpander] expands `${utcnow}` to exactly
+     * `LocalDateTime.now(ZoneOffset.UTC).format(...)`. Note `${now}` alone is LOCAL — the very DST bug
+     * above — so capture must reach for `utcnow` by name.
      */
-    private const val NOW_EXPR =
-        "\${LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"
+    private const val NOW_EXPR = "\${utcnow}"
 
-    /** A lifetime stamp's replay value: shortly in the future, so the quote/order is alive on arrival. */
-    private const val FUTURE_EXPR =
-        "\${LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}"
+    /**
+     * A lifetime stamp's replay value: shortly in the future, so the quote/order is alive on arrival.
+     * `utcnow+5min` expands to `LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5).format(...)` — `min` is
+     * minutes, spelled out because a bare `m` is months.
+     */
+    private const val FUTURE_EXPR = "\${utcnow+5min}"
 }

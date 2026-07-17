@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -56,6 +57,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.service.SessionMapping
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.awt.Desktop
 
@@ -78,6 +80,9 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var confirmingDeleteId by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("") }
+    // The scenario a "New mapping…" is being authored for — the dialog outlives the hover that opened it.
+    var mappingFor by remember { mutableStateOf<Scenario?>(null) }
+    mappingFor?.let { SessionMappingDialog(scenario = it, viewModel = viewModel, onDismiss = { mappingFor = null }) }
 
     // A failure the author cannot see is a failure they will not fix: open the tree on the scenario that
     // just failed, at the step it failed on.
@@ -164,6 +169,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         onToggle = { expanded = if (scenario.id in expanded) expanded - scenario.id else expanded + scenario.id },
                         onRequestDelete = { confirmingDeleteId = scenario.id },
                         onDeleted = { confirmingDeleteId = null },
+                        onNewMapping = { mappingFor = scenario },
                     )
                 }
             }
@@ -189,6 +195,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
     onToggle: () -> Unit,
     onRequestDelete: () -> Unit,
     onDeleted: () -> Unit,
+    onNewMapping: () -> Unit,
 ) {
     val ranThis = run.ran?.id == scenario.id
     item(key = scenario.id) {
@@ -210,6 +217,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
         // and a hover flicker is not a reason to read a file.
         val failure = if (ranThis) run.result?.firstFailure() else null
         val inlineRoute = remember(run.result, scenario) { failure?.let { viewModel.reconcileRoute(it) } }
+        val mappings by viewModel.sessionMappings.collectAsState()
+        val lastUsed by viewModel.lastUsedMappings.collectAsState()
         ScenarioRailRow(
             scenario = scenario,
             verdict = scenarioVerdict(scenario, run.ran, run.result, run.running),
@@ -235,6 +244,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
             confirmingDelete = confirmingDelete,
             onToggle = onToggle,
             onRun = { viewModel.runScenario(scenario) },
+            mappings = mappings,
+            lastUsedMappingId = lastUsed[scenario.id],
+            onRunWith = { viewModel.runScenario(scenario, it) },
+            onNewMapping = onNewMapping,
+            onDeleteMapping = { viewModel.deleteSessionMapping(it.id) },
             onEdit = { viewModel.openScenarioEditor(scenario) },
             onDuplicate = { viewModel.duplicateScenario(scenario) },
             onRequestDelete = onRequestDelete,
@@ -427,6 +441,51 @@ private fun RailHeader(
     }
 }
 
+/**
+ * One saved mapping in the "Run on…" menu: pick to run through it, ✕ to delete it. The subtitle is the
+ * mapping itself ("dev-buyside → qa-buyside, …") — the name says *which environment*, the subtitle says
+ * *what that means*, and a wrong mapping is caught by reading, not by running it.
+ */
+@Composable
+private fun MappingMenuItem(
+    mapping: SessionMapping,
+    lastUsed: Boolean,
+    tag: String,
+    onPick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(mapping.name, color = AppTheme.Colors.text, fontSize = 11.sp)
+                        if (lastUsed) {
+                            Text("  · last used", color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
+                        }
+                    }
+                    Text(
+                        mapping.map.entries.joinToString(", ") { (from, to) -> "$from → $to" },
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    "✕",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(start = 8.dp).clickable(onClick = onDelete).testTag("$tag-delete"),
+                )
+            }
+        },
+        onClick = onPick,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+        modifier = Modifier.testTag(tag),
+    )
+}
+
 @Composable
 private fun RailMenuItem(text: String, enabled: Boolean = true, tag: String, onClick: () -> Unit) {
     DropdownMenuItem(
@@ -454,6 +513,13 @@ private fun ScenarioRailRow(
     confirmingDelete: Boolean,
     onToggle: () -> Unit,
     onRun: () -> Unit,
+    /** Every saved session mapping — "Run on…" offers them all; a mapping is not tied to a scenario. */
+    mappings: List<SessionMapping>,
+    /** The mapping this scenario last ran with, marked in the menu so re-running QA is two clicks. */
+    lastUsedMappingId: String?,
+    onRunWith: (SessionMapping) -> Unit,
+    onNewMapping: () -> Unit,
+    onDeleteMapping: (SessionMapping) -> Unit,
     onEdit: () -> Unit,
     onDuplicate: () -> Unit,
     onRequestDelete: () -> Unit,
@@ -510,6 +576,37 @@ private fun ScenarioRailRow(
                         enabled = runEnabled,
                         tag = "run-${scenario.id}",
                     )
+                    // Run, re-aimed: the same scenario against another environment's sessions, through a
+                    // saved mapping — or a new one. Plain ▸ Run above stays exactly "as recorded".
+                    Box {
+                        var runOn by remember { mutableStateOf(false) }
+                        RailIcon(
+                            Icons.Default.ArrowDropDown,
+                            "Run on…",
+                            if (runEnabled) AppTheme.Colors.success else AppTheme.Colors.textDisabled,
+                            { runOn = true },
+                            enabled = runEnabled,
+                            tag = "run-on-${scenario.id}",
+                        )
+                        DropdownMenu(expanded = runOn, onDismissRequest = { runOn = false }) {
+                            mappings.forEach { mapping ->
+                                MappingMenuItem(
+                                    mapping = mapping,
+                                    lastUsed = mapping.id == lastUsedMappingId,
+                                    tag = "run-on-${scenario.id}-${mapping.id}",
+                                    onPick = {
+                                        runOn = false
+                                        onRunWith(mapping)
+                                    },
+                                    onDelete = { onDeleteMapping(mapping) },
+                                )
+                            }
+                            RailMenuItem("New mapping…", tag = "run-on-new-${scenario.id}") {
+                                runOn = false
+                                onNewMapping()
+                            }
+                        }
+                    }
                     RailIcon(Icons.Default.Edit, "Edit", AppTheme.Colors.textSecondary, onEdit, tag = "edit-${scenario.id}")
                     RailIcon(Icons.Default.ContentCopy, "Duplicate", AppTheme.Colors.textSecondary, onDuplicate)
                     // A breath before the destructive one: Delete sat flush against Duplicate at 18dp

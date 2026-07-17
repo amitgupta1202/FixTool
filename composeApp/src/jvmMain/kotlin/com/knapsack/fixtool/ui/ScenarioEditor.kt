@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -255,6 +256,12 @@ fun ScenarioEditor(
                 SlimField(name, { name = it }, modifier = Modifier.width(280.dp).testTag("scenario-name"))
             }
             Row(modifier = Modifier.weight(1f)) {}
+            // Setup used to stand on its own row below the header, spending a whole line on one quiet
+            // sentence. It rides in the header's empty span now — a reclaimed line — beside Save, where
+            // the wipe warning sits next to the button that launches the run it warns about.
+            if (initial.setup.isNotEmpty()) {
+                SetupSummary(initial.setup, dictionary, modifier = Modifier.padding(end = 12.dp))
+            }
             SlimButton(
                 text = "Save scenario",
                 onClick = { onSave(built) },
@@ -263,27 +270,9 @@ fun ScenarioEditor(
                 modifier = Modifier.testTag("editor-save"),
             )
         }
-        if (initial.setup.isNotEmpty()) {
-            val clears = initial.setup.any { it is ScenarioStep.ClearMessages }
-            // One quiet line, not a standing paragraph: what setup does is a lesson paid once, so the
-            // enumeration folds behind the ⓘ (the app's one idiom for that). The wipe warning is the
-            // load-bearing part and stays on the line — at a whisper, not a sentence.
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, top = 2.dp)) {
-                Text(
-                    "setup: ${initial.setup.size} ${if (initial.setup.size == 1) "step" else "steps"} before the flow" +
-                        (if (clears) " · wipes the session log each run" else ""),
-                    color = AppTheme.Colors.textDisabled,
-                    fontSize = 9.5.sp,
-                    modifier = Modifier.testTag("setup-summary"),
-                )
-                HintIcon(
-                    "Setup runs before the steps on every run: " +
-                        initial.setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") } +
-                        (if (clears) ". Clearing gives each run a deterministic starting point — and erases the session's message log." else "."),
-                    modifier = Modifier.padding(start = 5.dp).testTag("setup-help"),
-                )
-            }
-        }
+        // The rule every other pane header wears (Message Details, Connection, Settings). Without it the
+        // toolbar bled straight into the variables strip and the step list — five stacked rows, no seam.
+        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
         // The scenario's variables, on one line: every minted name (with the value the last run left, when
         // there is one), and — in warning colors — every name referenced but never minted, which the engine
         // would leave literal on the wire. The per-step badges say who touches a name; this says what it IS.
@@ -417,6 +406,31 @@ fun ScenarioEditor(
                 }
             }
         }
+    }
+}
+
+/**
+ * The setup's one-line summary, worn in the header row. What setup *does* is a lesson paid once, so the
+ * step enumeration folds behind the ⓘ (the app's one idiom for that); the wipe warning is the load-bearing
+ * part and stays on the line, at a whisper. Extracted so the header row reads as a row, not a paragraph.
+ */
+@Composable
+private fun SetupSummary(setup: List<ScenarioStep>, dictionary: FixDictionary?, modifier: Modifier = Modifier) {
+    val clears = setup.any { it is ScenarioStep.ClearMessages }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
+        Text(
+            "setup: ${setup.size} ${if (setup.size == 1) "step" else "steps"} before the flow" +
+                (if (clears) " · wipes the session log each run" else ""),
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 9.5.sp,
+            modifier = Modifier.testTag("setup-summary"),
+        )
+        HintIcon(
+            "Setup runs before the steps on every run: " +
+                setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") } +
+                (if (clears) ". Clearing gives each run a deterministic starting point — and erases the session's message log." else "."),
+            modifier = Modifier.padding(start = 5.dp).testTag("setup-help"),
+        )
     }
 }
 

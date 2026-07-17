@@ -11,6 +11,8 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
  * - `${out.R.131}` or `${out.R.QuoteReqID}` → explicit outgoing
  * - `${D.11.0}` → repeating group access (first occurrence)
  * - `${uuid}` → UUID.randomUUID().toString()
+ * - `${uuid:20}` → a dash-less UUID truncated to 20 chars (what capture mints for correlation ids —
+ *   short enough for venues that cap ClOrdID length)
  * - `${now}` → current timestamp in FIX format (yyyyMMdd-HH:mm:ss.SSS)
  * - `${now:pattern}` → current timestamp with custom pattern (e.g., ${now:yyyyMMdd})
  * - `${now+1h}` → timestamp 1 hour from now (supports: h=hours, d=days, w=weeks, m=months, y=years)
@@ -36,6 +38,12 @@ object ShorthandTemplateExpander {
 
     // Pattern: uuid (case insensitive)
     private val UUID_PATTERN = """^\s*uuid\s*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // Pattern: uuid:N — a dash-less UUID truncated to N chars (same shape capture has always minted)
+    private val UUID_LEN_PATTERN = """^\s*uuid:(\d+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
+
+    // A dash-less UUID holds 32 hex chars; asking for more (or zero) is a typo worth naming.
+    private val UUID_LEN_RANGE = 1..32
 
     // Pattern: now (case insensitive) - using 'now' instead of 'ts' to avoid conflict with variable names
     private val TIMESTAMP_PATTERN = """^\s*now\s*$""".toRegex(RegexOption.IGNORE_CASE)
@@ -115,6 +123,11 @@ object ShorthandTemplateExpander {
                 if (UUID_PATTERN.matches(value)) {
                     return "$varName = UUID.randomUUID().toString()"
                 }
+                UUID_LEN_PATTERN.matchEntire(value)?.let { m ->
+                    val n = m.groupValues[1].toIntOrNull()
+                    // Out of range falls through unchanged, so validateShorthand can name the typo.
+                    if (n != null && n in UUID_LEN_RANGE) return "$varName = ${expandUuidLen(n)}"
+                }
                 if (TIMESTAMP_PATTERN.matches(value)) {
                     return """$varName = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))"""
                 }
@@ -145,6 +158,12 @@ object ShorthandTemplateExpander {
         // Try UUID shorthand: ${uuid}
         if (UUID_PATTERN.matches(expression)) {
             return "UUID.randomUUID().toString()"
+        }
+
+        // Try truncated UUID shorthand: ${uuid:20}
+        UUID_LEN_PATTERN.matchEntire(expression)?.let { m ->
+            val n = m.groupValues[1].toIntOrNull()
+            if (n != null && n in UUID_LEN_RANGE) return expandUuidLen(n)
         }
 
         // Try timestamp shorthand: ${now}
@@ -283,6 +302,12 @@ object ShorthandTemplateExpander {
     }
 
     /**
+     * A fresh dash-less UUID cut to [n] chars — byte-for-byte the expression capture used to write out
+     * longhand, so a scenario re-authored with the shorthand puts the same shape on the wire.
+     */
+    private fun expandUuidLen(n: Int): String = """UUID.randomUUID().toString().replace("-", "").take($n)"""
+
+    /**
      * Expands timestamp with offset to Kotlin expression.
      * Handles units: h (hours), d (days), w (weeks), m (months), y (years)
      */
@@ -334,6 +359,18 @@ object ShorthandTemplateExpander {
                         "timestamp"
                     }}.",
                 )
+            }
+
+            // A uuid:N whose N cannot mean anything: named here, because expand() left it alone and the
+            // evaluator would otherwise report it as an inscrutable Kotlin error.
+            UUID_LEN_PATTERN.matchEntire(expression.substringAfter("=").trim())?.let { m ->
+                val n = m.groupValues[1].toIntOrNull()
+                if (n == null || n !in UUID_LEN_RANGE) {
+                    errors.add(
+                        "\${uuid:N} needs N between ${UUID_LEN_RANGE.first} and ${UUID_LEN_RANGE.last} " +
+                            "(a dash-less UUID has 32 chars), got '\${$expression}'",
+                    )
+                }
             }
 
             // Check each shorthand pattern

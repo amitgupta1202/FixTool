@@ -42,8 +42,9 @@ import com.knapsack.fixtool.service.ScenarioAnnotations
 import com.knapsack.fixtool.service.ScenarioCapture
 import java.time.format.DateTimeFormatter
 
-/** Recognizes the expressions the capturer emits, for the "what this becomes" preview chips. */
-private val MINT_EXPR = Regex("^\\$\\{(\\w+) = UUID\\.randomUUID\\(\\).*}$")
+/** Recognizes the expressions the capturer emits, for the "what this becomes" preview chips —
+ *  both today's `uuid`/`uuid:20` shorthand and the Kotlin longhand older scenarios still carry. */
+private val MINT_EXPR = Regex("^\\$\\{(\\w+) = (?:uuid\\b|UUID\\.randomUUID\\(\\)).*}$")
 private val REF_EXPR = Regex("^\\$\\{(\\w+)}$")
 private val TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 

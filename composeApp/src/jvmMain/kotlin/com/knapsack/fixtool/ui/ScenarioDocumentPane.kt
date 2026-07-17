@@ -160,6 +160,8 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                             // surface, whichever message the slot happens to hold.
                             onOpenDiff = { stepId -> viewModel.openDiffForStep(doc.scenarioId, stepId) },
                             onSelectStep = { index -> viewModel.updateEditorDocument(doc.id) { it.copy(selectedStep = index) } },
+                            split = doc.split,
+                            onSplitChange = { ratio -> viewModel.updateEditorDocument(doc.id) { it.copy(split = ratio) } },
                             onChange = { edited -> viewModel.updateScenarioDraft(doc.scenarioId) { it.copy(draft = edited) } },
                             onSave = { edited -> viewModel.saveScenarioDocument(edited) },
                         )

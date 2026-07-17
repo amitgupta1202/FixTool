@@ -61,7 +61,11 @@ fun SlimField(
                 .let { if (singleLine) it.height(24.dp) else it.heightIn(min = 24.dp) }
                 .background(background, slimShape)
                 .border(1.dp, if (isFocused) AppTheme.Colors.primary else AppTheme.Colors.border, slimShape)
-                .padding(horizontal = 4.dp, vertical = 5.dp),
+                // Single-line: no vertical padding — the decoration box centers the line instead. A 10sp
+                // line measures taller than 24dp minus two 5dp pads, and BasicTextField top-aligns, so the
+                // fixed pad was clipping the lower half of the text (the rail's "filter…" showed as tops).
+                .padding(horizontal = 4.dp)
+                .let { if (singleLine) it else it.padding(vertical = 5.dp) },
         textStyle =
             TextStyle(
                 fontSize = 10.sp,
@@ -73,7 +77,10 @@ fun SlimField(
         cursorBrush = SolidColor(AppTheme.Colors.primary),
         interactionSource = interactionSource,
         decorationBox = { inner ->
-            Box {
+            Box(
+                contentAlignment = Alignment.CenterStart,
+                modifier = if (singleLine) Modifier.fillMaxHeight() else Modifier,
+            ) {
                 if (value.isEmpty() && placeholder.isNotEmpty()) {
                     Text(
                         placeholder,

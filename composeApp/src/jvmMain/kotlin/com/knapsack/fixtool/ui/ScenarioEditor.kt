@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -60,6 +64,7 @@ import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
+import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.ScenarioAnnotations
@@ -95,12 +100,18 @@ data class EditStep(
     val sender: Int? = null,
     val target: Int? = null,
     val stepId: String = "",
+    /** See [ScenarioStep.origin]. Carried through the editor — a save must not launder a paste into LIVE. */
+    val origin: StepOrigin = StepOrigin.LIVE,
+    /** See [ScenarioStep.muted]. */
+    val muted: Boolean = false,
 )
 
 fun ScenarioStep.toEditStep(): EditStep =
     when (this) {
-        is ScenarioStep.Send -> EditStep(StepKind.SEND, session, fields = FixMessageHelper.parseFixMessage(raw), stepId = stepId)
-        is ScenarioStep.Wait -> EditStep(StepKind.WAIT, session, state = state ?: "", match = match, timeoutMs = timeoutMs, stepId = stepId)
+        is ScenarioStep.Send ->
+            EditStep(StepKind.SEND, session, fields = FixMessageHelper.parseFixMessage(raw), stepId = stepId, origin = origin, muted = muted)
+        is ScenarioStep.Wait ->
+            EditStep(StepKind.WAIT, session, state = state ?: "", match = match, timeoutMs = timeoutMs, stepId = stepId, origin = origin, muted = muted)
         is ScenarioStep.Expect ->
             EditStep(
                 StepKind.EXPECT,
@@ -110,18 +121,21 @@ fun ScenarioStep.toEditStep(): EditStep =
                 timeoutMs = timeoutMs,
                 expectation = expectation,
                 stepId = stepId,
+                origin = origin,
+                muted = muted,
             )
-        is ScenarioStep.ClearMessages -> EditStep(StepKind.CLEAR, session, stepId = stepId)
-        is ScenarioStep.ResetSeqNum -> EditStep(StepKind.RESET, session, sender = sender, target = target, stepId = stepId)
+        is ScenarioStep.ClearMessages -> EditStep(StepKind.CLEAR, session, stepId = stepId, origin = origin, muted = muted)
+        is ScenarioStep.ResetSeqNum ->
+            EditStep(StepKind.RESET, session, sender = sender, target = target, stepId = stepId, origin = origin, muted = muted)
     }
 
 fun EditStep.toStep(): ScenarioStep =
     when (kind) {
-        StepKind.SEND -> ScenarioStep.Send(FixMessageHelper.joinFields(fields), session, stepId)
-        StepKind.WAIT -> ScenarioStep.Wait(session, state.ifBlank { null }, match, timeoutMs, stepId)
-        StepKind.EXPECT -> ScenarioStep.Expect(session, direction, match, timeoutMs, expectation, stepId)
-        StepKind.CLEAR -> ScenarioStep.ClearMessages(session, stepId)
-        StepKind.RESET -> ScenarioStep.ResetSeqNum(session, sender, target, stepId)
+        StepKind.SEND -> ScenarioStep.Send(FixMessageHelper.joinFields(fields), session, stepId, origin, muted)
+        StepKind.WAIT -> ScenarioStep.Wait(session, state.ifBlank { null }, match, timeoutMs, stepId, origin, muted)
+        StepKind.EXPECT -> ScenarioStep.Expect(session, direction, match, timeoutMs, expectation, stepId, origin, muted)
+        StepKind.CLEAR -> ScenarioStep.ClearMessages(session, stepId, origin, muted)
+        StepKind.RESET -> ScenarioStep.ResetSeqNum(session, sender, target, stepId, origin, muted)
     }
 
 /**
@@ -187,6 +201,9 @@ fun ScenarioEditor(
     /** Where the cursor sits, hoisted for the same reason. Seeded from here; reported through [onSelectStep]. */
     selectedStep: Int? = null,
     onSelectStep: (Int) -> Unit = {},
+    /** The list/detail divider, hoisted for the same reason again. See [ScenarioDoc.Editor.split]. */
+    split: Float = 0.60f,
+    onSplitChange: (Float) -> Unit = {},
     /** The last run's scope, when the run report stands for THIS scenario — the strip shows the values. */
     runVariables: List<ScenarioVariable> = emptyList(),
     modifier: Modifier = Modifier,
@@ -226,10 +243,16 @@ fun ScenarioEditor(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 4.dp)) {
-            Text("Edit scenario", color = AppTheme.Colors.text, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        // The register every pane header speaks (Message Details: 11sp, plain weight) — this row wore the
+        // app's one 14sp SemiBold, a heading from some other tool. Padding gives the row the same breathing
+        // room as the header strips it now matches.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 2.dp, bottom = 4.dp),
+        ) {
+            Text("Edit scenario", color = AppTheme.Colors.text, fontSize = 11.sp)
             SlimLabeled("Name", modifier = Modifier.padding(start = 16.dp)) {
-                SlimField(name, { name = it }, modifier = Modifier.width(240.dp).testTag("scenario-name"))
+                SlimField(name, { name = it }, modifier = Modifier.width(280.dp).testTag("scenario-name"))
             }
             Row(modifier = Modifier.weight(1f)) {}
             SlimButton(
@@ -242,22 +265,36 @@ fun ScenarioEditor(
         }
         if (initial.setup.isNotEmpty()) {
             val clears = initial.setup.any { it is ScenarioStep.ClearMessages }
-            Text(
-                "Setup (runs first): " +
-                    initial.setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") } +
-                    // The side effect worth a warning: the author's session log is wiped by every run, and
-                    // nothing else on this screen says so.
-                    (if (clears) " — wipes the session's message log on every run" else ""),
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 10.sp,
-                modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 6.dp),
-            )
+            // One quiet line, not a standing paragraph: what setup does is a lesson paid once, so the
+            // enumeration folds behind the ⓘ (the app's one idiom for that). The wipe warning is the
+            // load-bearing part and stays on the line — at a whisper, not a sentence.
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, top = 2.dp)) {
+                Text(
+                    "setup: ${initial.setup.size} ${if (initial.setup.size == 1) "step" else "steps"} before the flow" +
+                        (if (clears) " · wipes the session log each run" else ""),
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 9.5.sp,
+                    modifier = Modifier.testTag("setup-summary"),
+                )
+                HintIcon(
+                    "Setup runs before the steps on every run: " +
+                        initial.setup.joinToString("; ") { stepLabel(it, dictionary) + (it.sessionOrNull()?.let { s -> " [$s]" } ?: "") } +
+                        (if (clears) ". Clearing gives each run a deterministic starting point — and erases the session's message log." else "."),
+                    modifier = Modifier.padding(start = 5.dp).testTag("setup-help"),
+                )
+            }
         }
         // The scenario's variables, on one line: every minted name (with the value the last run left, when
         // there is one), and — in warning colors — every name referenced but never minted, which the engine
         // would leave literal on the wire. The per-step badges say who touches a name; this says what it IS.
-        val mintedNames = stepVars.flatMap { it.minted }.distinct()
-        val unminted = ScenarioAnnotations.unminted(builtSteps)
+        // Judged over the steps that will RUN: a muted Send's mint does not happen, so an active reference
+        // to it is exactly the leaves-a-literal problem this strip warns about.
+        val activeSteps = builtSteps.filterNot { it.muted }
+        val mintedNames = builtSteps.zip(stepVars).filterNot { (s, _) -> s.muted }.flatMap { (_, v) -> v.minted }.distinct()
+        // Muted mints stay RESERVED even while they do not run: a fresh mint that took a parked step's
+        // name would collide with it the moment the step is unmuted.
+        val allMintedNames = stepVars.flatMap { it.minted }.distinct()
+        val unminted = ScenarioAnnotations.unminted(activeSteps)
         val runValues = runVariables.associate { it.name to it.value }
         VariablesStrip(
             chips =
@@ -298,13 +335,13 @@ fun ScenarioEditor(
             androidx.compose.foundation.lazy.rememberLazyListState(
                 initialFirstVisibleItemIndex = (focusStep ?: 0).coerceAtLeast(0),
             )
-        // The split is draggable, and it starts narrow on the left. The step list is a column of short labels;
-        // the right-hand pane holds the reconcile diff, which is a six-column table and wants every dp it can
-        // get. A fixed 46/54 gave the diff less room than the list and no way to take any back.
-        var split by remember { mutableStateOf(0.34f) }
+        // Draggable, seeded from the hoisted value so the author's drag survives a tab switch. 60/40 by
+        // default: the step list is a column of sentences (labels, session badges, var chips) and was
+        // truncating them all at the old 34%; the detail pane reflows, and the divider gives room back.
+        var splitState by remember { mutableStateOf(split.coerceIn(0.18f, 0.80f)) }
         var paneWidth by remember { mutableStateOf(0) }
         Row(modifier = Modifier.weight(1f).fillMaxWidth().onSizeChanged { paneWidth = it.width }) {
-            Column(modifier = Modifier.weight(split).fillMaxHeight()) {
+            Column(modifier = Modifier.weight(splitState).fillMaxHeight()) {
                 LazyColumn(state = stepListState, verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                     itemsIndexed(steps) { i, step ->
                         StepRow(
@@ -335,6 +372,7 @@ fun ScenarioEditor(
                                     }
                                 }
                             },
+                            onToggleMute = { steps[i] = steps[i].copy(muted = !steps[i].muted) },
                             onRemove = {
                                 steps.removeAt(i)
                                 stepIds.removeAt(i)
@@ -345,11 +383,16 @@ fun ScenarioEditor(
                 }
                 AddStepBar(onAdd = ::insertStep)
             }
-            PaneDivider(onDrag = { dx -> if (paneWidth > 0) split = (split + dx / paneWidth).coerceIn(0.18f, 0.70f) })
+            PaneDivider(onDrag = { dx ->
+                if (paneWidth > 0) {
+                    splitState = (splitState + dx / paneWidth).coerceIn(0.18f, 0.80f)
+                    onSplitChange(splitState)
+                }
+            })
             Column(
                 modifier =
                     Modifier
-                        .weight(1f - split)
+                        .weight(1f - splitState)
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState())
                         .padding(start = 12.dp),
@@ -366,7 +409,7 @@ fun ScenarioEditor(
                             sessionColor = sessionColors[steps[selectedIdx].session] ?: AppTheme.Colors.textDisabled,
                             onChange = { steps[selectedIdx] = it },
                             onOpenDiff = onOpenDiff?.let { open -> { open(steps[selectedIdx].stepId) } },
-                            takenNames = mintedNames.toSet(),
+                            takenNames = allMintedNames.toSet(),
                         )
                     }
                 } else {
@@ -391,6 +434,7 @@ private fun StepRow(
     canMoveDown: Boolean,
     onSelect: () -> Unit,
     onMove: (Int) -> Unit,
+    onToggleMute: () -> Unit,
     onRemove: () -> Unit,
 ) {
     val bg = if (selected) AppTheme.Colors.selectionPrimary else AppTheme.Colors.surfaceVariant
@@ -414,12 +458,26 @@ private fun StepRow(
         }
         Text(
             text = built?.let { stepLabel(it, dictionary) } ?: step.kind.name.lowercase(),
-            color = AppTheme.Colors.text,
+            // A muted step keeps its row and dims its voice: the shape stays readable, the state is plain.
+            color = if (step.muted) AppTheme.Colors.textDisabled else AppTheme.Colors.text,
             fontSize = 11.sp,
             maxLines = 1,
         )
+        if (step.muted) MutedChip()
         if (vars != null) VarBadges(vars.minted, vars.referenced, varColors, modifier = Modifier.padding(start = 8.dp))
         Row(modifier = Modifier.weight(1f)) {}
+        TooltipIconButton(
+            tooltip = if (step.muted) "Unmute — the runner executes this step again" else "Mute — keep the step, but skip it on every run",
+            onClick = onToggleMute,
+            modifier = Modifier.size(22.dp).testTag("mute-step-$index"),
+        ) {
+            Icon(
+                if (step.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                contentDescription = if (step.muted) "Unmute step" else "Mute step",
+                tint = if (step.muted) AppTheme.Colors.warning else AppTheme.Colors.textSecondary,
+                modifier = Modifier.size(12.dp),
+            )
+        }
         IconButton(onClick = { onMove(-1) }, enabled = canMoveUp, modifier = Modifier.size(22.dp)) {
             Icon(Icons.Default.ArrowUpward, contentDescription = "Up", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
         }
@@ -429,6 +487,28 @@ private fun StepRow(
         IconButton(onClick = onRemove, modifier = Modifier.size(22.dp)) {
             Icon(Icons.Default.Delete, contentDescription = "Remove", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
         }
+    }
+}
+
+/**
+ * The parked state, worn where the mode chip pattern already lives. The tooltip is the lesson: muting is
+ * skip-without-delete, and the un-park is one click away in the row.
+ */
+@Composable
+private fun MutedChip() {
+    AppTooltip("The runner skips this step — nothing is sent, nothing is asserted. Its place, session and assertions are kept; unmute with the speaker icon.") {
+        Text(
+            "MUTED",
+            color = AppTheme.Colors.warning,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+            modifier =
+                Modifier
+                    .padding(start = 8.dp)
+                    .border(1.dp, AppTheme.Colors.warning.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                    .padding(horizontal = 6.dp, vertical = 1.dp),
+        )
     }
 }
 
@@ -549,6 +629,7 @@ private fun StepDetail(
             overflow = TextOverflow.Ellipsis,
         )
         if (step.kind == StepKind.EXPECT) ModeChipMini(step.expectation.mode)
+        if (step.muted) MutedChip()
     }
     // The Expect form carries its session inside RECEIVES — the transport facts, together. Every other kind
     // keeps the plain labeled row until it adopts the same sections, or the editor speaks two dialects.
@@ -647,8 +728,9 @@ private fun SendDetail(
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
         Text("Fields", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
         HintIcon(
-            "Values may use \${...} expressions: \${id = UUID.randomUUID()} mints an id, \${id} reuses it, " +
-                "\${LocalDateTime.now()...} stamps send time.",
+            "Values may use \${...} expressions: \${id = uuid:20} mints a 20-char id, \${id} reuses it, " +
+                "\${now} stamps send time (\${now:yyyyMMdd} for a custom format). Full Kotlin expressions " +
+                "like \${UUID.randomUUID()} work too.",
             modifier = Modifier.testTag("send-fields-help"),
         )
     }
@@ -762,6 +844,7 @@ private fun ValueHelpCell(tag: Int, value: String, dictionary: FixDictionary?, o
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ExpectDetail(
     step: EditStep,
@@ -774,40 +857,49 @@ private fun ExpectDetail(
 ) {
     DetailSection("RECEIVES") {
         // One sentence, one left edge: "incoming on <session> · waits up to <10> s". The field labels this
-        // row used to wear are the reason its controls started at five different x positions.
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SlimDropdown(
-                value = step.direction,
-                options = listOf("in", "out"),
-                onValueChange = { picked -> picked?.let { onChange(step.copy(direction = it)) } },
-                displayText = { if (it == "out") "outgoing" else "incoming" },
-                modifier = Modifier.width(100.dp),
-            )
-            QuietWord("on")
-            SessionDot(sessionColor)
-            SlimDropdown(
-                value = step.session ?: ACTIVE_SESSION,
-                options = listOf(ACTIVE_SESSION) + sessionOptions,
-                onValueChange = { picked -> onChange(step.copy(session = picked?.takeIf { it != ACTIVE_SESSION })) },
-                displayText = { it },
-                modifier = Modifier.width(180.dp).testTag("session-dropdown"),
-            )
-            QuietWord("· waits up to")
-            // Seconds on screen, milliseconds in the model — "Timeout ms 10000" made the reader do the
-            // arithmetic the field can do. Local text so a half-typed "1.5" is not reformatted mid-keystroke.
-            var seconds by remember { mutableStateOf(secondsText(step.timeoutMs)) }
-            SlimField(
-                seconds,
-                { typed ->
-                    seconds = typed
-                    typed.trim().toDoubleOrNull()?.takeIf { it >= 0 }?.let {
-                        onChange(step.copy(timeoutMs = (it * 1000).toLong()))
-                    }
-                },
-                monospace = true,
-                modifier = Modifier.width(52.dp).testTag("expect-timeout"),
-            )
-            QuietWord("s")
+        // row used to wear are the reason its controls started at five different x positions. A FlowRow, not
+        // a Row: the step list defaults to 60% of the editor now, and a sentence that cannot wrap responds
+        // to a narrow detail pane by pushing its own timeout out of view.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SlimDropdown(
+                    value = step.direction,
+                    options = listOf("in", "out"),
+                    onValueChange = { picked -> picked?.let { onChange(step.copy(direction = it)) } },
+                    displayText = { if (it == "out") "outgoing" else "incoming" },
+                    modifier = Modifier.width(100.dp),
+                )
+                QuietWord("on")
+                SessionDot(sessionColor)
+                SlimDropdown(
+                    value = step.session ?: ACTIVE_SESSION,
+                    options = listOf(ACTIVE_SESSION) + sessionOptions,
+                    onValueChange = { picked -> onChange(step.copy(session = picked?.takeIf { it != ACTIVE_SESSION })) },
+                    displayText = { it },
+                    modifier = Modifier.width(180.dp).testTag("session-dropdown"),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                QuietWord("· waits up to")
+                // Seconds on screen, milliseconds in the model — "Timeout ms 10000" made the reader do the
+                // arithmetic the field can do. Local text so a half-typed "1.5" is not reformatted mid-keystroke.
+                var seconds by remember { mutableStateOf(secondsText(step.timeoutMs)) }
+                SlimField(
+                    seconds,
+                    { typed ->
+                        seconds = typed
+                        typed.trim().toDoubleOrNull()?.takeIf { it >= 0 }?.let {
+                            onChange(step.copy(timeoutMs = (it * 1000).toLong()))
+                        }
+                    },
+                    monospace = true,
+                    modifier = Modifier.width(52.dp).testTag("expect-timeout"),
+                )
+                QuietWord("s")
+            }
         }
     }
     MatchEditor(step.match, dictionary, onChange = { onChange(step.copy(match = it)) })

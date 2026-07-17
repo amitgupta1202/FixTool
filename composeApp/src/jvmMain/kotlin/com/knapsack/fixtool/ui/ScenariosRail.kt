@@ -192,9 +192,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
         // The second line is what tells four scenarios named "Captured scenario" apart: the sessions each
         // drives, the step count, and the day its file last changed.
         val sessions = scenario.steps.mapNotNull { it.sessionOrNull() }.distinct()
+        val mutedCount = scenario.steps.count { it.muted }
         val meta =
             buildList {
-                add("${scenario.steps.size} ${if (scenario.steps.size == 1) "step" else "steps"}")
+                add(
+                    "${scenario.steps.size} ${if (scenario.steps.size == 1) "step" else "steps"}" +
+                        if (mutedCount > 0) " ($mutedCount muted)" else "",
+                )
                 if (sessions.isNotEmpty()) add(sessions.joinToString(" → "))
                 modifiedLabel(modifiedAt)?.let { add(it) }
             }.joinToString(" · ")
@@ -207,10 +211,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
             scenario = scenario,
             verdict = scenarioVerdict(scenario, run.ran, run.result, run.running),
             // How many of this scenario's steps passed, once it has run — counted over the `steps` phase
-            // only; setup and teardown are not what the author is asking about.
+            // only; setup and teardown are not what the author is asking about. The denominator counts the
+            // steps that RUN: two muted steps out of five must read "3/3", not a 3/5 that looks like a miss.
             fraction =
                 if (ranThis && run.result != null) {
-                    "${run.result.steps.count { it.passed && it.phase == "steps" }}/${scenario.steps.size}"
+                    "${run.result.steps.count { it.passed && it.phase == "steps" }}/${scenario.steps.count { !it.muted }}"
                 } else {
                     null
                 },
@@ -248,8 +253,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
                 result = stepResult,
                 // Not reached, and it must SAY so: a bare "–" reads as "it ran, and there was nothing to
                 // report". The runner stops at the first failure, so every step below one has not been
-                // judged at all.
-                unreached = ranThis && !run.running && run.result != null && stepResult == null,
+                // judged at all. A muted step also has no result, but "not reached" would be the wrong
+                // sentence about it — the runner never meant to reach it.
+                unreached = ranThis && !run.running && run.result != null && stepResult == null && !step.muted,
                 route =
                     remember(run.result, scenario, stepResult) {
                         stepResult?.takeIf { !it.passed }?.let { viewModel.reconcileRoute(it) }
@@ -342,11 +348,12 @@ private fun RailHeader(
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            // The register every docked pane speaks ("Message Details", "Connection"): title case, 11sp,
+            // plain weight. This one said SCENARIOS in 10sp small caps — the only pane that shouted.
             Text(
-                "SCENARIOS",
-                color = AppTheme.Colors.textSecondary,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 10.sp,
+                "Scenarios",
+                color = AppTheme.Colors.text,
+                fontSize = 11.sp,
                 modifier = Modifier.weight(1f),
             )
             TooltipIconButton(tooltip = "Hide the Scenarios rail", onClick = onClose, modifier = Modifier.size(20.dp)) {
@@ -614,11 +621,18 @@ private fun StepRailRow(
                 .testTag("rail-step-$index"),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            VerdictGlyph(verdict, modifier = Modifier.padding(end = 4.dp))
+            // ⊘, not a verdict glyph: a muted step has no verdict and never will — that is what muted means.
+            if (step.muted) {
+                Text("⊘", color = AppTheme.Colors.textDisabled, fontSize = 11.sp, modifier = Modifier.padding(end = 4.dp))
+            } else {
+                VerdictGlyph(verdict, modifier = Modifier.padding(end = 4.dp))
+            }
             Text("${index + 1}", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
             Text(
-                text = stepLabel(step, dictionary) + if (unreached) " — not reached" else "",
-                color = if (unreached) AppTheme.Colors.textDisabled else AppTheme.Colors.textSecondary,
+                text =
+                    stepLabel(step, dictionary) +
+                        if (step.muted) " — muted" else if (unreached) " — not reached" else "",
+                color = if (unreached || step.muted) AppTheme.Colors.textDisabled else AppTheme.Colors.textSecondary,
                 fontSize = 10.sp,
                 maxLines = 1,
                 // Ellipsis, not the hard clip that cut "· 17 tags" to "· 17" against the Reconcile button.

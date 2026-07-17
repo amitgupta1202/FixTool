@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -51,5 +52,27 @@ class ScenarioEditStepTest {
         assertEquals(wait, wait.toEditStep().toStep())
         assertEquals(clear, clear.toEditStep().toStep())
         assertEquals(reset, reset.toEditStep().toStep())
+    }
+
+    /**
+     * Muted and origin ride the same round trip. Origin is the one with teeth: `toStep()` used to build
+     * every step with the default LIVE, so saving a scenario whose steps were PASTED quietly laundered
+     * the provenance badge away — the exact "more trust than the bytes carry" the badge exists to stop.
+     */
+    @Test
+    fun `muted and origin survive the editor round-trip on every step kind`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|11=X|", "A", origin = StepOrigin.PASTED, muted = true),
+            ScenarioStep.Wait("A", "LOGGED_ON", null, 3_000, origin = StepOrigin.PASTED, muted = true),
+            ScenarioStep.Expect(
+                session = "A",
+                expectation = Expectation(emptyList()),
+                origin = StepOrigin.PASTED,
+                muted = true,
+            ),
+            ScenarioStep.ClearMessages("A", origin = StepOrigin.PASTED, muted = true),
+            ScenarioStep.ResetSeqNum("A", sender = 1, target = 2, origin = StepOrigin.PASTED, muted = true),
+        )
+        steps.forEach { step -> assertEquals(step, step.toEditStep().toStep()) }
     }
 }

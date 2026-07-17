@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,23 +58,31 @@ fun TerminalDock(
                 ?: File(System.getProperty("user.home"))
         }
     var heightDp by remember { mutableStateOf(320.dp) }
+    val minimized = TerminalController.minimized
 
     Column(modifier.fillMaxWidth()) {
-        // 1px top border that doubles as the resize handle — drag up to grow, down to shrink. Matches
-        // the app's other 1dp dividers.
+        // 1px top border. Expanded, it doubles as the resize handle — drag up to grow, down to shrink;
+        // minimized there is no body to size, so it is a plain divider. Matches the app's other 1dp lines.
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .height(1.dp)
                     .background(Color(0xFF3A3A3A))
-                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures { change, dragAmount ->
-                            change.consume()
-                            heightDp = (heightDp - with(density) { dragAmount.toDp() }).coerceIn(120.dp, 720.dp)
-                        }
-                    },
+                    .then(
+                        if (minimized) {
+                            Modifier
+                        } else {
+                            Modifier
+                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
+                                .pointerInput(Unit) {
+                                    detectVerticalDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        heightDp = (heightDp - with(density) { dragAmount.toDp() }).coerceIn(120.dp, 720.dp)
+                                    }
+                                }
+                        },
+                    ),
         )
         // Header — title on the left, close on the right.
         Row(
@@ -96,6 +106,14 @@ fun TerminalDock(
                 modifier = Modifier.padding(start = 6.dp),
             )
             Box(modifier = Modifier.weight(1f))
+            IconButton(onClick = { TerminalController.toggleMinimized() }, modifier = Modifier.size(24.dp)) {
+                Icon(
+                    imageVector = if (minimized) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (minimized) "Restore terminal" else "Minimize terminal",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
             IconButton(onClick = onClose, modifier = Modifier.size(24.dp)) {
                 Icon(
                     imageVector = Icons.Default.Close,
@@ -105,12 +123,13 @@ fun TerminalDock(
                 )
             }
         }
-        // The terminal itself, at the resizable height.
+        // The terminal itself. Minimized it collapses to zero height but stays composed, so the PTY —
+        // and any running claude session — survives; only a real close (onDispose) tears it down.
         TerminalPanel(
             workingDir = workingDir,
             controlUrl = controlUrl,
             controlToken = controlToken,
-            modifier = Modifier.fillMaxWidth().height(heightDp),
+            modifier = Modifier.fillMaxWidth().height(if (minimized) 0.dp else heightDp),
         )
     }
 }

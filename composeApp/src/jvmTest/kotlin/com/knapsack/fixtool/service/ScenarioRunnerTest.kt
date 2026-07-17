@@ -505,6 +505,61 @@ class ScenarioRunnerTest {
         assertEquals("FIRMB", result.variables.single().value)
     }
 
+    // ----------------------------------------------------------------- muted steps
+
+    @Test
+    fun `a muted step is skipped whole - nothing sent, no verdict`() {
+        val host = FakeHost()
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=D|11=PARKED|", session = "s", muted = true),
+                ScenarioStep.Send("35=D|11=LIVE|", session = "s"),
+            )
+        val result = run(host, scenario)
+        assertTrue(result.passed, "${result.steps}")
+        assertEquals(listOf("35=D|11=LIVE|"), host.sent, "the muted send must not reach the wire")
+        assertEquals(1, result.steps.size, "a skipped step reports no verdict — it did not run")
+    }
+
+    @Test
+    fun `a muted expect neither consumes nor judges — the run passes without it`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val scenario =
+            scenario(
+                // Would fail if it ran (39 is "2", not "9") — muting must park the assertion too.
+                expect("8", FieldExpectation(39, Matcher.Exact("9"))).copy(muted = true),
+                expect("8", FieldExpectation(39, Matcher.Exact("2"))),
+            )
+        val result = run(host, scenario)
+        assertTrue(result.passed, "${result.steps}")
+        // The active expect bound the message the muted one would have consumed.
+        assertEquals("2", result.steps.single().tags.single { it.tag == 39 }.actual)
+    }
+
+    @Test
+    fun `preflight ignores a muted step's session — parking the broken leg is what muting is for`() {
+        val host = FakeHost()
+        host.stateOf = { session -> if (session == "down") null else "LOGGED_ON" }
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=D|", session = "down", muted = true),
+                ScenarioStep.Send("35=D|11=OK|", session = "s"),
+            )
+        val result = run(host, scenario)
+        assertTrue(result.passed, "a muted step's missing session must not fail preflight: ${result.steps}")
+    }
+
+    @Test
+    fun `a scenario muted down to nothing is refused, and the refusal says why`() {
+        val host = FakeHost()
+        val scenario = scenario(ScenarioStep.Send("35=D|", session = "s", muted = true))
+        val result = run(host, scenario)
+        assertFalse(result.passed, "an all-muted scenario checks nothing and must not report green")
+        val detail = result.steps.single().detail.orEmpty()
+        assertTrue(detail.contains("muted", ignoreCase = true), "the refusal must name the cause: '$detail'")
+    }
+
     // ----------------------------------------------------------------- helpers
 
     private fun run(host: FakeHost, scenario: Scenario) =

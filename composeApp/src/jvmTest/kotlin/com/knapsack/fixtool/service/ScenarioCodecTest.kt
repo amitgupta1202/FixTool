@@ -365,4 +365,37 @@ class ScenarioCodecTest {
         val noVersion = Json.parseToJsonElement("""{"id":"sc-1","name":"n"}""").jsonObject
         assertEquals(1, ScenarioCodec.fromJson(noVersion).version)
     }
+
+    // ----- muted -------------------------------------------------------------------------------------
+
+    /** Muted survives the round trip on every step kind that can carry it. */
+    @Test
+    fun `muted round-trips through json`() {
+        val scenario =
+            Scenario(
+                id = "sc-m",
+                name = "parked",
+                steps = listOf(
+                    ScenarioStep.Send("35=D|", session = "s", muted = true),
+                    ScenarioStep.Wait(session = "s", state = "LOGGED_ON", muted = true),
+                    ScenarioStep.Expect(session = "s", expectation = Expectation(emptyList()), muted = true),
+                    ScenarioStep.ClearMessages("s", muted = true),
+                    ScenarioStep.ResetSeqNum("s", sender = 1, target = 1, muted = true),
+                ),
+            ).withIds()
+        val back = ScenarioCodec.fromJson(ScenarioCodec.toJson(scenario))
+        assertTrue(back.steps.all { it.muted }, "muted must survive save → load on every step kind")
+    }
+
+    /**
+     * Default-omitting, the same bargain as `stepId` and `origin`: a scenario that never muted anything
+     * writes no `muted` key, so a file that loads today writes byte-identically after this feature.
+     */
+    @Test
+    fun `an unmuted step writes no muted key, and an absent key reads unmuted`() {
+        val scenario = Scenario(id = "sc-m", name = "n", steps = listOf(ScenarioStep.Send("35=D|", session = "s"))).withIds()
+        val step = ScenarioCodec.toJson(scenario)["steps"]!!.jsonArray.single().jsonObject
+        assertNull(step["muted"], "the wire format is frozen except additively")
+        assertFalse(ScenarioCodec.fromJson(ScenarioCodec.toJson(scenario)).steps.single().muted)
+    }
 }

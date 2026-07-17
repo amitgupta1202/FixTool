@@ -91,20 +91,27 @@ class ScenarioRunner(
             return r
         }
 
+        // A muted step is skipped whole: nothing sent, nothing consumed, no StepResult — the run reads
+        // as if the step were not there, which is the promise the editor's mute toggle makes. The index
+        // still counts the muted step, so a result's stepIndex keeps naming the same list position the
+        // editor and the rail show.
         var abort = false
         for ((i, step) in scenario.setup.withIndex()) {
+            if (step.muted) continue
             val r = ran(step, runStep(step, i, "setup", scope, consumed))
             results += r
             if (!r.passed) { abort = true; break }
         }
         if (!abort) {
             for ((i, step) in scenario.steps.withIndex()) {
+                if (step.muted) continue
                 val r = ran(step, runStep(step, i, "steps", scope, consumed))
                 results += r
                 if (!r.passed) break
             }
         }
         for ((i, step) in scenario.teardown.withIndex()) {
+            if (step.muted) continue
             results += ran(step, runStep(step, i, "teardown", scope, consumed))
         }
         // Teardown is best-effort cleanup — a teardown Expect/Wait that times out, or a ClearMessages whose
@@ -121,17 +128,26 @@ class ScenarioRunner(
     /** Non-null = the reason this scenario cannot run at all. */
     @Suppress("ReturnCount")
     private fun preflight(scenario: Scenario): StepResult? {
-        val all = scenario.setup + scenario.steps + scenario.teardown
+        // Only the steps that will run are preflighted: a muted step's session needn't exist, let alone be
+        // LOGGED_ON — parking the broken leg is half of what muting is for.
+        val all = (scenario.setup + scenario.steps + scenario.teardown).filterNot { it.muted }
         // An empty scenario must never report a green. The final verdict passes when no non-teardown step
         // failed, which is vacuously true over an empty result set — so a scenario with no steps at all would
         // report passed on every run while doing and checking nothing, a CI gate that is green precisely
         // because it looked at nothing. A Send-only / Wait-only scenario is deliberately NOT rejected here:
         // it does real work and its result is meaningful (a load driver, or the scope fixtures that assert on
-        // what was sent). Only the degenerate zero-step case is the false green this guards.
+        // what was sent). Only the degenerate zero-step case is the false green this guards — and a scenario
+        // muted down to nothing is the same false green wearing a mute button.
         if (all.isEmpty()) {
+            val everyStepMuted = (scenario.setup + scenario.steps + scenario.teardown).isNotEmpty()
             return preflightFailure(
-                "This scenario has no steps — it would report passed on every run without sending or " +
-                    "checking anything.",
+                if (everyStepMuted) {
+                    "Every step of this scenario is muted — it would report passed on every run without " +
+                        "sending or checking anything. Unmute at least one step."
+                } else {
+                    "This scenario has no steps — it would report passed on every run without sending or " +
+                        "checking anything."
+                },
             )
         }
         // A session whose logon the scenario itself waits for doesn't need to be LOGGED_ON up front.

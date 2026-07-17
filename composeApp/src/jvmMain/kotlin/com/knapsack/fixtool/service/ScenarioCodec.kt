@@ -13,6 +13,7 @@ import com.knapsack.fixtool.service.compare.SemanticsRegistry
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -99,6 +100,8 @@ object ScenarioCodec {
             // origin does not grow the key by being read. Invariant 5 — the wire format is frozen except
             // additively, and a file that loads today loads identically after every phase.
             step.origin.takeIf { it != StepOrigin.LIVE }?.let { put("origin", it.name.lowercase()) }
+            // And once more for muted: only a parked step writes the key.
+            if (step.muted) put("muted", true)
             when (step) {
                 is ScenarioStep.Send -> {
                     put("type", "send"); put("raw", step.raw); step.session?.let { put("session", it) }
@@ -137,8 +140,11 @@ object ScenarioCodec {
         // NOT a refusal, unlike an unknown `mode` (which changes what is checked, and so fails the load).
         // An origin this build does not recognise degrades toward LESS trust: see StepOrigin.from.
         val origin = StepOrigin.from(obj["origin"]?.jsonPrimitive?.contentOrNull)
+        // Absent = not muted: every file written before the key existed is entitled to that reading, and an
+        // unparseable value reads as false rather than silently parking a step the author expects to run.
+        val muted = obj["muted"]?.jsonPrimitive?.booleanOrNull ?: false
         return when (val type = obj["type"]?.jsonPrimitive?.contentOrNull?.lowercase()) {
-            "send" -> ScenarioStep.Send(raw = str(obj, "raw"), session = session, stepId = stepId, origin = origin)
+            "send" -> ScenarioStep.Send(raw = str(obj, "raw"), session = session, stepId = stepId, origin = origin, muted = muted)
             "wait" -> ScenarioStep.Wait(
                 session = session,
                 state = obj["state"]?.jsonPrimitive?.contentOrNull,
@@ -146,6 +152,7 @@ object ScenarioCodec {
                 timeoutMs = obj["timeoutMs"]?.jsonPrimitive?.longOrNull ?: 10_000,
                 stepId = stepId,
                 origin = origin,
+                muted = muted,
             )
             "expect" -> ScenarioStep.Expect(
                 session = session,
@@ -155,14 +162,16 @@ object ScenarioCodec {
                 expectation = expectationFromJson(reqObj(obj, "expectation")),
                 stepId = stepId,
                 origin = origin,
+                muted = muted,
             )
-            "clearmessages" -> ScenarioStep.ClearMessages(session, stepId, origin)
+            "clearmessages" -> ScenarioStep.ClearMessages(session, stepId, origin, muted)
             "resetseqnum" -> ScenarioStep.ResetSeqNum(
                 session = session,
                 sender = obj["sender"]?.jsonPrimitive?.intOrNull,
                 target = obj["target"]?.jsonPrimitive?.intOrNull,
                 stepId = stepId,
                 origin = origin,
+                muted = muted,
             )
             else -> throw IllegalArgumentException("unknown step type '$type'")
         }

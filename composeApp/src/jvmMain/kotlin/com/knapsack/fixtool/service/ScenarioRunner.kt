@@ -49,7 +49,24 @@ interface ScenarioHost {
     /** Reset a session's sequence numbers; returns false when the session doesn't exist. */
     fun resetSeqNum(session: String?, sender: Int?, target: Int?): Boolean
 
+    /**
+     * Try to bring [session] up — reconnect it if it exists, else connect the saved profile that
+     * carries its name. [ConnectAttempt.Started] means the attempt is under way, not that logon
+     * succeeded: the runner owns the bounded wait for LOGGED_ON. The default can connect nothing,
+     * so a host without connectivity (a test fake, a read-only surface) keeps the fail-fast preflight.
+     */
+    fun connectSession(session: String?): ConnectAttempt = ConnectAttempt.Failed("this host cannot connect sessions")
+
     fun sleep(ms: Long) = Thread.sleep(ms)
+}
+
+/** The host's answer to [ScenarioHost.connectSession]: an attempt is under way, or why none could be made. */
+sealed interface ConnectAttempt {
+    /** A connect was initiated from [profileName]; the session may still be short of LOGGED_ON. */
+    data class Started(val profileName: String) : ConnectAttempt
+
+    /** No attempt was possible — [reason] is the sentence the report gets. */
+    data class Failed(val reason: String) : ConnectAttempt
 }
 
 /**
@@ -73,6 +90,8 @@ class ScenarioRunner(
      * surplus by racing it. The price is this much wall-clock on every strict run, green or red.
      */
     private val settleMs: Long = 1_000,
+    /** How long preflight waits for a session it auto-connected to come up before giving up. */
+    private val connectTimeoutMs: Long = 10_000,
 ) {
     /**
      * [withIds] first, so every [StepResult] can name the step that produced it. It is deterministic, so
@@ -83,13 +102,15 @@ class ScenarioRunner(
     fun run(scenario: Scenario): ScenarioResult = runIdentified(scenario.withIds())
 
     private fun runIdentified(scenario: Scenario): ScenarioResult {
-        // Fail fast, by name, before touching anything: a missing/unconnected session otherwise
-        // surfaces minutes later as a misleading Expect timeout.
-        preflight(scenario)?.let { return ScenarioResult(scenario.name, false, listOf(it)) }
+        // Preflight, by name, before any step runs: a missing/unconnected session otherwise surfaces
+        // minutes later as a misleading Expect timeout. It gets one recovery attempt first — the host
+        // connects what the scenario needs, and each success is a passing "connect" row in the report,
+        // so an automated run tells the same story a hand-connected one would.
+        val results = mutableListOf<StepResult>()
+        preflight(scenario, results)?.let { return ScenarioResult(scenario.name, false, results + it) }
 
         val scope = mutableMapOf<String, String>()
         val consumed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
-        val results = mutableListOf<StepResult>()
         // Which step wrote each name. Diffed around every step rather than instrumented into the template
         // evaluator, which does not know steps exist; first writer wins, matching the scope's own semantics.
         val mintedBy = mutableMapOf<String, String?>()
@@ -141,9 +162,9 @@ class ScenarioRunner(
         return ScenarioResult(scenario.name, passed, results, variables)
     }
 
-    /** Non-null = the reason this scenario cannot run at all. */
+    /** Non-null = the reason this scenario cannot run at all. Successful auto-connects append to [results]. */
     @Suppress("ReturnCount")
-    private fun preflight(scenario: Scenario): StepResult? {
+    private fun preflight(scenario: Scenario, results: MutableList<StepResult>): StepResult? {
         // Only the steps that will run are preflighted: a muted step's session needn't exist, let alone be
         // LOGGED_ON — parking the broken leg is half of what muting is for.
         val all = (scenario.setup + scenario.steps + scenario.teardown).filterNot { it.muted }
@@ -173,19 +194,71 @@ class ScenarioRunner(
                 .map { it.session }
                 .toSet()
         val traffic = all.filter { it is ScenarioStep.Send || it is ScenarioStep.Expect }
+        // A session that would once have failed the run right here gets one recovery attempt first: the
+        // host reconnects it (or connects the saved profile carrying its name), and preflight waits —
+        // bounded — for it to come up. ONLY sessions that would have failed are touched: an existing
+        // session whose logon the scenario itself waits for is the scenario's business, not preflight's.
+        val pending = mutableListOf<PendingConnect>()
         for (session in all.map { it.session }.distinct()) {
             val label = session ?: "(active session)"
             val state = host.connectionState(session)
-                ?: return preflightFailure(
-                    "session '$label' not found — connect it, or remap the step's session in the editor, then run again",
-                )
             val needsLogon = traffic.any { it.session == session } && session !in waitCovered
-            if (needsLogon && !state.equals("LOGGED_ON", ignoreCase = true)) {
-                return preflightFailure("session '$label' is $state, not LOGGED_ON — connect it before running")
+            if (sessionReady(state, needsLogon)) continue
+            when (val attempt = host.connectSession(session)) {
+                is ConnectAttempt.Failed -> return preflightFailure(
+                    if (state == null) {
+                        "session '$label' not found, and auto-connect could not bring it up (${attempt.reason}) — " +
+                            "connect it, or remap the step's session in the editor, then run again"
+                    } else {
+                        "session '$label' is $state, not LOGGED_ON, and auto-connect could not bring it up " +
+                            "(${attempt.reason}) — connect it before running"
+                    },
+                )
+                is ConnectAttempt.Started -> pending += PendingConnect(session, label, state, needsLogon, attempt.profileName)
             }
+        }
+        // Every attempt was initiated above before any wait below, so slow logons overlap and one
+        // deadline covers the lot. A session only clear/reset steps touch — or one whose logon the
+        // scenario waits for itself — need merely exist; the rest must reach LOGGED_ON.
+        val deadline = now() + connectTimeoutMs
+        for (p in pending) {
+            var state = host.connectionState(p.session)
+            while (!sessionReady(state, p.needsLogon) && now() < deadline) {
+                host.sleep(pollMs)
+                state = host.connectionState(p.session)
+            }
+            if (!sessionReady(state, p.needsLogon)) {
+                return preflightFailure(
+                    "auto-connect started profile '${p.profileName}' for session '${p.label}', but it did not " +
+                        "reach LOGGED_ON within ${connectTimeoutMs}ms (state=${state ?: "session not found"}). " +
+                        "If the profile is an acceptor, the counterparty must initiate the logon.",
+                )
+            }
+            // Index -1, no stepId: like the preflight failure and the strict-traffic verdict, this is a
+            // run-level row — no scenario step produced it, so none can be blamed for or edited from it.
+            results += StepResult(
+                -1,
+                "connect",
+                "setup",
+                passed = true,
+                detail = "auto-connected session '${p.label}' via profile '${p.profileName}' " +
+                    "(was ${p.wasState ?: "not found"}, now $state)",
+            )
         }
         return null
     }
+
+    private fun sessionReady(state: String?, needsLogon: Boolean): Boolean =
+        state != null && (!needsLogon || state.equals("LOGGED_ON", ignoreCase = true))
+
+    /** A not-ready session whose connect the host has initiated; preflight still owes it a bounded wait. */
+    private data class PendingConnect(
+        val session: String?,
+        val label: String,
+        val wasState: String?,
+        val needsLogon: Boolean,
+        val profileName: String,
+    )
 
     private fun preflightFailure(detail: String): StepResult =
         StepResult(-1, "preflight", "setup", passed = false, detail = detail)

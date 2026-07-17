@@ -229,6 +229,90 @@ class ScenarioRunnerTest {
     }
 
     @Test
+    fun `preflight auto-connects a missing session and reports it as a passing connect row`() {
+        val host = FakeHost()
+        var up = false
+        var polls = 0
+        host.stateOf = { if (up) "LOGGED_ON" else null }
+        // Started means "under way", not "logged on" — the state flips only after a few polls of the
+        // runner's own bounded wait, which is exactly the gap the wait exists to cover.
+        host.connect = { ConnectAttempt.Started("prof-s") }
+        host.onSleep = { if (++polls >= 3) up = true }
+        val result = run(host, scenario(ScenarioStep.Send("35=D|", session = "s")))
+        assertTrue(result.passed, "the run must proceed once auto-connect brings the session up: ${result.steps}")
+        val connect = result.steps.first()
+        assertEquals("connect", connect.kind)
+        assertTrue(connect.passed)
+        assertTrue(
+            connect.detail!!.contains("prof-s") && connect.detail!!.contains("not found"),
+            "the row must name the profile used and the state it healed: ${connect.detail}",
+        )
+        assertEquals(listOf("35=D|"), host.sent, "the send must run after the auto-connect")
+    }
+
+    @Test
+    fun `preflight reconnects a disconnected session, and the row says what it was`() {
+        val host = FakeHost()
+        var state = "DISCONNECTED"
+        host.stateOf = { state }
+        host.connect = { ConnectAttempt.Started("prof-s") }
+        host.onSleep = { state = "LOGGED_ON" }
+        val result = run(host, scenario(ScenarioStep.Send("35=D|", session = "s")))
+        assertTrue(result.passed, "${result.steps}")
+        val connect = result.steps.first { it.kind == "connect" }
+        assertTrue(connect.detail!!.contains("was DISCONNECTED"), "detail: ${connect.detail}")
+    }
+
+    @Test
+    fun `auto-connect that never reaches LOGGED_ON fails preflight and names the profile`() {
+        val host = FakeHost()
+        // The connect is initiated but the far side never completes the logon — an acceptor whose
+        // counterparty is down looks exactly like this.
+        host.stateOf = { "CONNECTING" }
+        host.connect = { ConnectAttempt.Started("prof-s") }
+        val result = run(host, scenario(ScenarioStep.Send("35=D|", session = "s")))
+        assertFalse(result.passed)
+        val step = result.steps.single()
+        assertEquals("preflight", step.kind)
+        assertTrue(
+            step.detail!!.contains("prof-s") && step.detail!!.contains("did not reach LOGGED_ON"),
+            "detail: ${step.detail}",
+        )
+        assertTrue(host.sent.isEmpty(), "nothing may run when the session never came up")
+    }
+
+    @Test
+    fun `a host that cannot connect keeps the fail-fast preflight, with the reason attached`() {
+        val host = FakeHost()
+        host.stateOf = { null }
+        val result = run(host, scenario(ScenarioStep.Send("35=D|", session = "gone")))
+        assertFalse(result.passed)
+        assertTrue(
+            result.steps.single().detail!!.contains("no auto-connect in this fake"),
+            "the host's reason must reach the report: ${result.steps.single().detail}",
+        )
+    }
+
+    @Test
+    fun `a missing session the scenario itself logs on is connected but not held to LOGGED_ON up front`() {
+        val host = FakeHost()
+        var state: String? = null
+        var sleeps = 0
+        // connectSession creates the session immediately (CONNECTED), but logon completes only later,
+        // during the scenario's own Wait step — preflight must settle for existence and hand over.
+        host.connect = { state = "CONNECTED"; ConnectAttempt.Started("prof-s") }
+        host.onSleep = { if (state != null && ++sleeps >= 2) state = "LOGGED_ON" }
+        host.stateOf = { state }
+        val scenario = scenario(
+            ScenarioStep.Wait(session = "s", state = "LOGGED_ON", timeoutMs = 1_000),
+            ScenarioStep.Send("35=D|", session = "s"),
+        )
+        val result = run(host, scenario)
+        assertTrue(result.passed, "${result.steps}")
+        assertEquals(listOf("connect", "wait", "send"), result.steps.map { it.kind })
+    }
+
+    @Test
     fun `clear on a session that vanished mid-run fails instead of silently passing`() {
         val host = FakeHost()
         host.clearOk = false
@@ -720,6 +804,8 @@ class ScenarioRunnerTest {
         var clock = 0L
         var stateOf: (String?) -> String? = { "LOGGED_ON" }
         var clearOk = true
+        var connect: (String?) -> ConnectAttempt = { ConnectAttempt.Failed("no auto-connect in this fake") }
+        var onSleep: () -> Unit = {}
 
         override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String =
             FixMessageTemplate.evaluate(raw, emptyMap(), emptyMap(), scope, null)
@@ -754,8 +840,11 @@ class ScenarioRunnerTest {
 
         override fun resetSeqNum(session: String?, sender: Int?, target: Int?): Boolean = true
 
+        override fun connectSession(session: String?): ConnectAttempt = connect(session)
+
         override fun sleep(ms: Long) {
             clock += ms
+            onSleep()
         }
     }
 

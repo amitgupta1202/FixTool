@@ -606,6 +606,11 @@ private fun ModeChipMini(mode: MatchMode) {
 private val TAG_COL = 64.dp
 private val NAME_COL = 128.dp
 
+// The mint button's reserved slot in a Send field row. Kept at a constant width whether or not the button
+// shows, so a row whose value already mints (and therefore has no button) does not stretch its value input
+// wider than its neighbours by the width of the missing control. See [SendDetail].
+private val MINT_SLOT_WIDTH = 28.dp
+
 /** The step's timeout as the seconds a human reads, while the model keeps milliseconds. */
 private fun secondsText(ms: Long): String =
     if (ms % 1000L == 0L) {
@@ -786,19 +791,23 @@ private fun SendDetail(
             )
             ValueHelpCell(tag, value, dictionary, onPick = { picked -> update(tag, picked) })
             // Mint-at-send: give this value a name — same bytes on the wire, but later expects can
-            // reference-check the echo and later sends can reuse it. Hidden once the value mints.
-            if (value.isNotBlank() && !ALREADY_MINTS.containsMatchIn(value)) {
-                val name = mintName(tag, dictionary?.getFieldName(tag), takenNames)
-                AppTooltip(
-                    "Mint as \${$name} — the wire bytes do not change, but the value now has a name: an " +
-                        "expect can assert the echo (reference \${$name}) and a later send can reuse it.",
-                ) {
-                    SlimButton(
-                        "●",
-                        onClick = { update(tag, mintFieldValue(value, name)) },
-                        color = AppTheme.Colors.info,
-                        modifier = Modifier.padding(start = 2.dp).testTag("send-mint-$i"),
-                    )
+            // reference-check the echo and later sends can reuse it. Hidden once the value mints — but the
+            // slot is kept at a constant width, so a row whose value already mints (${id = uuid:20}) does
+            // not stretch its value field wider than its neighbours by the width of the missing button.
+            Box(modifier = Modifier.width(MINT_SLOT_WIDTH), contentAlignment = Alignment.Center) {
+                if (value.isNotBlank() && !ALREADY_MINTS.containsMatchIn(value)) {
+                    val name = mintName(tag, dictionary?.getFieldName(tag), takenNames)
+                    AppTooltip(
+                        "Mint as \${$name} — the wire bytes do not change, but the value now has a name: an " +
+                            "expect can assert the echo (reference \${$name}) and a later send can reuse it.",
+                    ) {
+                        SlimButton(
+                            "●",
+                            onClick = { update(tag, mintFieldValue(value, name)) },
+                            color = AppTheme.Colors.info,
+                            modifier = Modifier.testTag("send-mint-$i"),
+                        )
+                    }
                 }
             }
             IconButton(

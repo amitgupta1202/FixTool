@@ -13,8 +13,13 @@ import com.jediterm.terminal.ui.settings.SettingsProvider
 import com.pty4j.PtyProcessBuilder
 import org.slf4j.LoggerFactory
 import java.awt.Dimension
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.Rectangle
+import java.awt.RenderingHints
 import java.io.File
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JScrollBar
 import javax.swing.plaf.basic.BasicScrollBarUI
 
@@ -149,11 +154,47 @@ private class DarkJediTermWidget(settings: SettingsProvider) : JediTermWidget(se
         }
 }
 
-/** A dark, borderless scrollbar UI: dark track, a muted-grey thumb, and no arrow buttons. */
+// Match the app's Compose scrollbar (WindowChrome.kt): a thin, rounded (pill) thumb in the app's
+// scrollbar grey, no visible track, no arrows. ~half the default Swing width.
+private const val SCROLLBAR_WIDTH_PX = 10
+private const val SCROLLBAR_THUMB_INSET_PX = 1
+private val SCROLLBAR_THUMB = java.awt.Color(0x6A, 0x6A, 0x6A) // AppTheme.Colors.scrollbar
+private val SCROLLBAR_THUMB_HOVER = java.awt.Color(0x8A, 0x8A, 0x8A) // AppTheme.Colors.scrollbarHover
+
+/** A thin, app-matching scrollbar UI: rounded grey thumb, invisible dark track, no arrow buttons. */
 private class DarkScrollBarUI : BasicScrollBarUI() {
     override fun configureScrollBarColors() {
-        thumbColor = java.awt.Color(0x50, 0x50, 0x50)
+        thumbColor = SCROLLBAR_THUMB
         trackColor = java.awt.Color(0x1E, 0x1E, 0x1E)
+    }
+
+    override fun getPreferredSize(c: JComponent): Dimension {
+        val base = super.getPreferredSize(c)
+        return if (scrollbar.orientation == JScrollBar.VERTICAL) {
+            Dimension(SCROLLBAR_WIDTH_PX, base.height)
+        } else {
+            Dimension(base.width, SCROLLBAR_WIDTH_PX)
+        }
+    }
+
+    override fun paintThumb(
+        g: Graphics,
+        c: JComponent,
+        thumbBounds: Rectangle,
+    ) {
+        if (thumbBounds.isEmpty || !scrollbar.isEnabled) return
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2.color = if (isThumbRollover) SCROLLBAR_THUMB_HOVER else SCROLLBAR_THUMB
+            val x = thumbBounds.x + SCROLLBAR_THUMB_INSET_PX
+            val y = thumbBounds.y + SCROLLBAR_THUMB_INSET_PX
+            val w = (thumbBounds.width - SCROLLBAR_THUMB_INSET_PX * 2).coerceAtLeast(0)
+            val h = (thumbBounds.height - SCROLLBAR_THUMB_INSET_PX * 2).coerceAtLeast(0)
+            g2.fillRoundRect(x, y, w, h, w, w)
+        } finally {
+            g2.dispose()
+        }
     }
 
     override fun createDecreaseButton(orientation: Int): JButton = hiddenButton()

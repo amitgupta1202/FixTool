@@ -204,7 +204,8 @@ fun ScenarioDocumentArea(viewModel: FixMessageViewModel, modifier: Modifier = Mo
     val confirmingCloseId by viewModel.confirmingCloseId.collectAsState()
     val active = documents.firstOrNull { it.id == activeId } ?: documents.lastOrNull() ?: return
     Column(modifier = modifier.fillMaxSize()) {
-        androidx.compose.material3.HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        // No top rule here: the draggable grid/document separator already draws one directly above this area,
+        // so a divider under it read as a doubled line. The tab strip's surface fill is the header edge.
         Row(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface).padding(horizontal = 6.dp, vertical = 2.dp)) {
             DocumentTabs(
                 tabs = documentTabsOf(documents, workspace),

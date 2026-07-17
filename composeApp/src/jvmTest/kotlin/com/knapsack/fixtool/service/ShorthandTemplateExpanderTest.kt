@@ -1021,6 +1021,109 @@ class ShorthandTemplateExpanderTest {
         assertTrue(errors[0].contains("timestamp"), "Error should suggest timestamp")
         assertTrue(errors[0].contains("\${now}"), "Error should show correct syntax")
     }
+
+    // ===== UTC Timestamp (utcnow) and Minutes Unit Tests =====
+
+    @Test
+    fun `test utcnow shorthand expands to UTC clock`() {
+        val expanded = ShorthandTemplateExpander.expand("\${utcnow}", null)
+        assertEquals(
+            "\${LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}",
+            expanded,
+        )
+    }
+
+    @Test
+    fun `test UTCNOW is case insensitive`() {
+        val expanded = ShorthandTemplateExpander.expand("\${UTCNOW}", null)
+        assertEquals(
+            "\${LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}",
+            expanded,
+        )
+    }
+
+    @Test
+    fun `test now stays local while utcnow is UTC`() {
+        // The distinction the whole feature turns on: the bare keyword is local, the utc-prefixed one is UTC.
+        assertTrue(ShorthandTemplateExpander.expand("\${now}", null).contains("LocalDateTime.now()."))
+        assertTrue(ShorthandTemplateExpander.expand("\${utcnow}", null).contains("LocalDateTime.now(ZoneOffset.UTC)."))
+    }
+
+    @Test
+    fun `test utcnow with custom format`() {
+        val expanded = ShorthandTemplateExpander.expand("\${utcnow:yyyyMMdd}", null)
+        assertEquals("\${LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}", expanded)
+    }
+
+    @Test
+    fun `test utcnow with offset and format`() {
+        val expanded = ShorthandTemplateExpander.expand("\${utcnow+1d:yyyyMMdd}", null)
+        assertEquals("\${LocalDateTime.now(ZoneOffset.UTC).plusDays(1).format(DateTimeFormatter.ofPattern(\"yyyyMMdd\"))}", expanded)
+    }
+
+    @Test
+    fun `test minutes unit on local now`() {
+        // 'min' is minutes; a bare 'm' remains months (asserted by the existing now+1m test).
+        val expanded = ShorthandTemplateExpander.expand("\${now+5min}", null)
+        assertEquals("\${LocalDateTime.now().plusMinutes(5).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test minutes unit minus`() {
+        val expanded = ShorthandTemplateExpander.expand("\${now-30min}", null)
+        assertEquals("\${LocalDateTime.now().minusMinutes(30).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}", expanded)
+    }
+
+    @Test
+    fun `test bare m is still months not minutes`() {
+        // Guards the alternation order: 'min' must be tried before the single-letter class, but a lone 'm'
+        // must not be swallowed by it — 5m is five months, as it always was.
+        val expanded = ShorthandTemplateExpander.expand("\${now+5m}", null)
+        assertTrue(expanded.contains("plusMonths(5)"), "bare m must stay months; got $expanded")
+    }
+
+    @Test
+    fun `test utcnow plus minutes matches what capture mints for lifetime stamps`() {
+        // Byte-for-byte the longhand ScenarioCapture emitted before the shorthand — a re-captured ValidUntilTime
+        // must put the same expression on the wire as one captured last month.
+        val expanded = ShorthandTemplateExpander.expand("\${utcnow+5min}", null)
+        assertEquals(
+            "\${LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}",
+            expanded,
+        )
+    }
+
+    @Test
+    fun `test utcnow in variable assignment`() {
+        val expanded = ShorthandTemplateExpander.expand("\${ts = utcnow}", null)
+        assertEquals(
+            "\${ts = LocalDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}",
+            expanded,
+        )
+    }
+
+    @Test
+    fun `test utcnow offset in variable assignment`() {
+        val expanded = ShorthandTemplateExpander.expand("\${expiry = utcnow+5min}", null)
+        assertEquals(
+            "\${expiry = LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5).format(DateTimeFormatter.ofPattern(\"yyyyMMdd-HH:mm:ss.SSS\"))}",
+            expanded,
+        )
+    }
+
+    @Test
+    fun `test utcnow validates clean`() {
+        assertTrue(ShorthandTemplateExpander.validateShorthand("\${utcnow}", null).isEmpty())
+        assertTrue(ShorthandTemplateExpander.validateShorthand("\${utcnow+5min}", null).isEmpty())
+    }
+
+    @Test
+    fun `test utcnow as variable name is flagged reserved`() {
+        val errors = ShorthandTemplateExpander.validateShorthand("\${utcnow = x}", null)
+        assertTrue(errors.isNotEmpty(), "Should return error for utcnow as variable name")
+        assertTrue(errors[0].contains("utcnow"), "Error should mention utcnow")
+        assertTrue(errors[0].contains("reserved"), "Error should mention reserved")
+    }
 }
 
 /**

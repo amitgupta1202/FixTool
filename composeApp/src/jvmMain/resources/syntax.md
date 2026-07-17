@@ -27,9 +27,10 @@ The two mini-languages an agent needs to author messages and scenarios: **templa
 | --- | --- |
 | `${uuid}` | a fresh UUID |
 | `${uuid:20}` | a fresh dash-less UUID truncated to N chars (1–32) — what capture mints for correlation ids, short enough for venues that cap ClOrdID length |
-| `${now}` | current UTC timestamp, `yyyyMMdd-HH:mm:ss.SSS` |
+| `${now}` | current **local** timestamp, `yyyyMMdd-HH:mm:ss.SSS` |
+| `${utcnow}` | current **UTC** timestamp — what capture mints for UTCTimestamp fields (TransactTime, …) so a replay's stamp does not carry your local offset; takes the same `:pattern` and offsets as `now` |
 | `${now:yyyyMMdd}` | `now` in a custom `DateTimeFormatter` pattern |
-| `${now+1h}`, `${now-2d}` | offset from now — units `h` (hours), `d` (days), `w` (weeks), `m` (months), `y` (years) |
+| `${now+1h}`, `${utcnow+5min}` | offset — units `min` (minutes), `h` (hours), `d` (days), `w` (weeks), `m` (months), `y` (years); `min` is minutes, a bare `m` is months |
 | `${now+1d:yyyyMMdd}` | offset *and* custom pattern |
 
 **Message references** — read a tag off the latest message of a given type on this session:
@@ -183,7 +184,7 @@ language than §1 — plain replacement, no variables, offsets or message refere
 | --- | --- |
 | `${req.<tag>}` | that tag echoed from the request, e.g. `${req.11}` |
 | `${uuid}` | a fresh UUID |
-| `${now}` | current UTC timestamp |
+| `${now}` | current local timestamp (`${utcnow}` for UTC) |
 
 ```json
 {"whenMsgType": "D",

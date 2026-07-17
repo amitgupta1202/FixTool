@@ -191,8 +191,8 @@ class ScenarioCaptureTest {
         assertTrue(sendD.raw.contains("11=\${id1 = uuid:20}"), "ClOrdID should mint a variable; got ${sendD.raw}")
         assertTrue(sendD.raw.contains("131=\${id0}"), "QuoteReqID should re-reference the quote variable across sessions; got ${sendD.raw}")
         assertTrue(
-            sendD.raw.contains("60=\${LocalDateTime.now(ZoneOffset.UTC)"),
-            "TransactTime should be templated, and in UTC; got ${sendD.raw}",
+            sendD.raw.contains("60=\${utcnow}"),
+            "TransactTime should be templated as the utcnow shorthand (UTC); got ${sendD.raw}",
         )
 
         // ExecutionReport echoes both ids -> reference matchers (cross-session for QR-1).
@@ -482,7 +482,7 @@ class ScenarioCaptureTest {
         val sendS = scenario.steps[2] as ScenarioStep.Send
         assertTrue(sendS.raw.contains("117=\${id1 = uuid:20}"), "a dealer-minted QuoteID is fresh per run; got ${sendS.raw}")
         assertTrue(
-            sendS.raw.contains("62=\${LocalDateTime.now(ZoneOffset.UTC).plusMinutes(5)"),
+            sendS.raw.contains("62=\${utcnow+5min}"),
             "a replayed ValidUntilTime lies in the future — not verbatim (stale), not now (expired); got ${sendS.raw}",
         )
     }

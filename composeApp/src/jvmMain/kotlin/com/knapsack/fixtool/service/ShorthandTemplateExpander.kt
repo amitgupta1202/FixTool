@@ -13,10 +13,14 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
  * - `${uuid}` → UUID.randomUUID().toString()
  * - `${uuid:20}` → a dash-less UUID truncated to 20 chars (what capture mints for correlation ids —
  *   short enough for venues that cap ClOrdID length)
- * - `${now}` → current timestamp in FIX format (yyyyMMdd-HH:mm:ss.SSS)
+ * - `${now}` → current **local** timestamp in FIX format (yyyyMMdd-HH:mm:ss.SSS)
+ * - `${utcnow}` → current **UTC** timestamp — what capture mints for UTCTimestamp fields (TransactTime,
+ *   ValidUntilTime, …), so a replay's stamp does not carry the capturer's local offset. Takes the same
+ *   `:pattern` and `+/-` offsets as `now`.
  * - `${now:pattern}` → current timestamp with custom pattern (e.g., ${now:yyyyMMdd})
- * - `${now+1h}` → timestamp 1 hour from now (supports: h=hours, d=days, w=weeks, m=months, y=years)
+ * - `${now+1h}` → timestamp 1 hour from now (units: min=minutes, h=hours, d=days, w=weeks, m=months, y=years)
  * - `${now-2d}` → timestamp 2 days ago
+ * - `${utcnow+5min}` → UTC timestamp 5 minutes from now (min is minutes; a bare `m` is months)
  * - `${now+1d:yyyyMMdd}` → timestamp with offset and custom format
  *
  * Non-shorthand expressions pass through unchanged for backwards compatibility.
@@ -45,24 +49,28 @@ object ShorthandTemplateExpander {
     // A dash-less UUID holds 32 hex chars; asking for more (or zero) is a typo worth naming.
     private val UUID_LEN_RANGE = 1..32
 
-    // Pattern: now (case insensitive) - using 'now' instead of 'ts' to avoid conflict with variable names
-    private val TIMESTAMP_PATTERN = """^\s*now\s*$""".toRegex(RegexOption.IGNORE_CASE)
+    // Pattern: now / utcnow (case insensitive). 'now' is local; the optional 'utc' prefix is the UTC clock
+    // (LocalDateTime.now(ZoneOffset.UTC)) — what capture mints so a replayed UTCTimestamp does not drift by
+    // the capturer's local offset. 'now' (not 'ts') keeps it clear of variable names.
+    private val TIMESTAMP_PATTERN = """^\s*(utc)?now\s*$""".toRegex(RegexOption.IGNORE_CASE)
 
-    // Pattern: now:pattern (custom format)
-    private val TIMESTAMP_FORMAT_PATTERN = """^\s*now:(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
+    // Pattern: now:pattern / utcnow:pattern (custom format)
+    private val TIMESTAMP_FORMAT_PATTERN = """^\s*(utc)?now:(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
 
-    // Pattern: now+1h, now-2d, NOW+3w, etc. (offset without format)
-    private val TIMESTAMP_OFFSET_PATTERN = """^\s*now\s*([+-])\s*(\d+)\s*([hdwmy])\s*$""".toRegex(RegexOption.IGNORE_CASE)
+    // Pattern: now+1h, utcnow+5min, NOW-2d, etc. (offset without format). 'min' is minutes — spelled out and
+    // matched first so 5min never reads as 5 months; a bare 'm' is still months.
+    private val TIMESTAMP_OFFSET_PATTERN = """^\s*(utc)?now\s*([+-])\s*(\d+)\s*(min|[hdwmy])\s*$""".toRegex(RegexOption.IGNORE_CASE)
 
-    // Pattern: now+1d:yyyyMMdd, now-1w:yyyy-MM-dd (offset with custom format)
-    private val TIMESTAMP_OFFSET_FORMAT_PATTERN = """^\s*now\s*([+-])\s*(\d+)\s*([hdwmy]):(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
+    // Pattern: now+1d:yyyyMMdd, utcnow+5min:yyyyMMdd (offset with custom format)
+    private val TIMESTAMP_OFFSET_FORMAT_PATTERN = """^\s*(utc)?now\s*([+-])\s*(\d+)\s*(min|[hdwmy]):(.+)\s*$""".toRegex(RegexOption.IGNORE_CASE)
 
     // Pattern to detect variable assignment with shorthand keywords as variable name
-    // e.g., ${uuid = something} or ${now = something}
-    private val SHORTHAND_VAR_ASSIGNMENT_PATTERN = """^\s*(uuid|now)\s*=.*$""".toRegex(RegexOption.IGNORE_CASE)
+    // e.g., ${uuid = something} or ${now = something}. 'utcnow' is matched before 'now' so the longer
+    // keyword wins the alternation.
+    private val SHORTHAND_VAR_ASSIGNMENT_PATTERN = """^\s*(uuid|utcnow|now)\s*=.*$""".toRegex(RegexOption.IGNORE_CASE)
 
     // Reserved shorthand keywords that cannot be used as variable names
-    private val SHORTHAND_KEYWORDS = setOf("uuid", "now")
+    private val SHORTHAND_KEYWORDS = setOf("uuid", "now", "utcnow")
 
     // Keywords and patterns that should NOT be treated as shorthand
     // (to avoid false matches with Kotlin expressions)
@@ -128,27 +136,19 @@ object ShorthandTemplateExpander {
                     // Out of range falls through unchanged, so validateShorthand can name the typo.
                     if (n != null && n in UUID_LEN_RANGE) return "$varName = ${expandUuidLen(n)}"
                 }
-                if (TIMESTAMP_PATTERN.matches(value)) {
-                    return """$varName = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))"""
+                TIMESTAMP_PATTERN.matchEntire(value)?.let { m ->
+                    return "$varName = ${expandTimestamp(m.utc(), null, null, null, null)}"
                 }
-                TIMESTAMP_FORMAT_PATTERN.matchEntire(value)?.let { match ->
-                    val pattern = match.groupValues[1].trim()
-                    return """$varName = LocalDateTime.now().format(DateTimeFormatter.ofPattern("$pattern"))"""
+                TIMESTAMP_FORMAT_PATTERN.matchEntire(value)?.let { m ->
+                    return "$varName = ${expandTimestamp(m.utc(), null, null, null, m.groupValues[2].trim())}"
                 }
-                // Check for timestamp offset: now+1d, now-2h, etc.
-                TIMESTAMP_OFFSET_PATTERN.matchEntire(value)?.let { match ->
-                    val sign = match.groupValues[1]
-                    val amount = match.groupValues[2].toLong()
-                    val unit = match.groupValues[3]
-                    return "$varName = ${expandTimestampWithOffset(sign, amount, unit, null)}"
+                // Check for timestamp offset: now+1d, utcnow+5min, etc.
+                TIMESTAMP_OFFSET_PATTERN.matchEntire(value)?.let { m ->
+                    return "$varName = ${expandTimestamp(m.utc(), m.groupValues[2], m.groupValues[3].toLong(), m.groupValues[4], null)}"
                 }
                 // Check for timestamp offset with format: now+1d:yyyyMMdd
-                TIMESTAMP_OFFSET_FORMAT_PATTERN.matchEntire(value)?.let { match ->
-                    val sign = match.groupValues[1]
-                    val amount = match.groupValues[2].toLong()
-                    val unit = match.groupValues[3]
-                    val pattern = match.groupValues[4].trim()
-                    return "$varName = ${expandTimestampWithOffset(sign, amount, unit, pattern)}"
+                TIMESTAMP_OFFSET_FORMAT_PATTERN.matchEntire(value)?.let { m ->
+                    return "$varName = ${expandTimestamp(m.utc(), m.groupValues[2], m.groupValues[3].toLong(), m.groupValues[4], m.groupValues[5].trim())}"
                 }
             }
             // Not a shorthand assignment, return unchanged
@@ -166,32 +166,24 @@ object ShorthandTemplateExpander {
             if (n != null && n in UUID_LEN_RANGE) return expandUuidLen(n)
         }
 
-        // Try timestamp shorthand: ${now}
-        if (TIMESTAMP_PATTERN.matches(expression)) {
-            return """LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS"))"""
+        // Try timestamp shorthand: ${now}, ${utcnow}
+        TIMESTAMP_PATTERN.matchEntire(expression)?.let { m ->
+            return expandTimestamp(m.utc(), null, null, null, null)
         }
 
-        // Try timestamp with custom format: ${now:pattern}
-        TIMESTAMP_FORMAT_PATTERN.matchEntire(expression)?.let { match ->
-            val pattern = match.groupValues[1].trim()
-            return """LocalDateTime.now().format(DateTimeFormatter.ofPattern("$pattern"))"""
+        // Try timestamp with custom format: ${now:pattern}, ${utcnow:pattern}
+        TIMESTAMP_FORMAT_PATTERN.matchEntire(expression)?.let { m ->
+            return expandTimestamp(m.utc(), null, null, null, m.groupValues[2].trim())
         }
 
-        // Try timestamp offset: ${now+1h}, ${now-2d}, etc.
-        TIMESTAMP_OFFSET_PATTERN.matchEntire(expression)?.let { match ->
-            val sign = match.groupValues[1]
-            val amount = match.groupValues[2].toLong()
-            val unit = match.groupValues[3]
-            return expandTimestampWithOffset(sign, amount, unit, null)
+        // Try timestamp offset: ${now+1h}, ${utcnow+5min}, etc.
+        TIMESTAMP_OFFSET_PATTERN.matchEntire(expression)?.let { m ->
+            return expandTimestamp(m.utc(), m.groupValues[2], m.groupValues[3].toLong(), m.groupValues[4], null)
         }
 
         // Try timestamp offset with format: ${now+1d:yyyyMMdd}
-        TIMESTAMP_OFFSET_FORMAT_PATTERN.matchEntire(expression)?.let { match ->
-            val sign = match.groupValues[1]
-            val amount = match.groupValues[2].toLong()
-            val unit = match.groupValues[3]
-            val pattern = match.groupValues[4].trim()
-            return expandTimestampWithOffset(sign, amount, unit, pattern)
+        TIMESTAMP_OFFSET_FORMAT_PATTERN.matchEntire(expression)?.let { m ->
+            return expandTimestamp(m.utc(), m.groupValues[2], m.groupValues[3].toLong(), m.groupValues[4], m.groupValues[5].trim())
         }
 
         // Try explicit incoming: ${in.D.11}
@@ -307,22 +299,37 @@ object ShorthandTemplateExpander {
      */
     private fun expandUuidLen(n: Int): String = """UUID.randomUUID().toString().replace("-", "").take($n)"""
 
+    /** True when the timestamp keyword carried the `utc` prefix — group 1 of every timestamp pattern. */
+    private fun MatchResult.utc(): Boolean = groupValues[1].isNotEmpty()
+
     /**
-     * Expands timestamp with offset to Kotlin expression.
-     * Handles units: h (hours), d (days), w (weeks), m (months), y (years)
+     * Builds a LocalDateTime expression: local or UTC clock, an optional +/- offset, and a format.
+     *
+     * `${now}` is the local clock (unchanged); `${utcnow}` is `LocalDateTime.now(ZoneOffset.UTC)` — what
+     * capture mints for UTCTimestamp fields so a replay's stamp does not carry the capturer's local offset.
+     * Units: min=minutes, h/d/w/m/y = hours/days/weeks/months/years (m is months — minutes is `min`). Passing
+     * `sign`/`amount`/`unit` all null yields the bare clock with no offset.
      */
-    private fun expandTimestampWithOffset(sign: String, amount: Long, unit: String, pattern: String?): String {
-        val method =
-            when (unit.lowercase()) {
-                "h" -> if (sign == "+") "plusHours" else "minusHours"
-                "d" -> if (sign == "+") "plusDays" else "minusDays"
-                "w" -> if (sign == "+") "plusWeeks" else "minusWeeks"
-                "m" -> if (sign == "+") "plusMonths" else "minusMonths"
-                "y" -> if (sign == "+") "plusYears" else "minusYears"
-                else -> error("Unknown time unit: $unit")
+    private fun expandTimestamp(utc: Boolean, sign: String?, amount: Long?, unit: String?, pattern: String?): String {
+        val nowCall = if (utc) "LocalDateTime.now(ZoneOffset.UTC)" else "LocalDateTime.now()"
+        val offset =
+            if (sign != null && amount != null && unit != null) {
+                val method =
+                    when (unit.lowercase()) {
+                        "min" -> if (sign == "+") "plusMinutes" else "minusMinutes"
+                        "h" -> if (sign == "+") "plusHours" else "minusHours"
+                        "d" -> if (sign == "+") "plusDays" else "minusDays"
+                        "w" -> if (sign == "+") "plusWeeks" else "minusWeeks"
+                        "m" -> if (sign == "+") "plusMonths" else "minusMonths"
+                        "y" -> if (sign == "+") "plusYears" else "minusYears"
+                        else -> error("Unknown time unit: $unit")
+                    }
+                ".$method($amount)"
+            } else {
+                ""
             }
         val formatPattern = pattern ?: "yyyyMMdd-HH:mm:ss.SSS"
-        return """LocalDateTime.now().$method($amount).format(DateTimeFormatter.ofPattern("$formatPattern"))"""
+        return """$nowCall$offset.format(DateTimeFormatter.ofPattern("$formatPattern"))"""
     }
 
     /**

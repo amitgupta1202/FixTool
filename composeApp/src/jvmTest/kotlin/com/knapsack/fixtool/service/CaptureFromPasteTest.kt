@@ -145,7 +145,7 @@ class CaptureFromPasteTest {
 
         // Parameterized exactly as a live capture parameterizes: a fresh id each run, and a fresh timestamp.
         assertTrue(send.raw.contains("11=\${id0 = uuid:20}"), send.raw)
-        assertTrue(send.raw.contains("60=\${LocalDateTime.now"), "the send stamps its own TransactTime")
+        assertTrue(send.raw.contains("60=\${utcnow}"), "the send stamps its own TransactTime, in UTC")
         assertTrue(send.raw.contains("55=EUR/USD"), "and the rest of it is the venue's own bytes")
 
         // The reply's echo is a reference matcher AND a bind constraint, so the step binds to ITS run's reply.

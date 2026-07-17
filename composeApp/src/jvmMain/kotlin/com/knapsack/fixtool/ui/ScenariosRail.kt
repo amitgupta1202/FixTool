@@ -489,6 +489,7 @@ private fun ScenarioRailRow(
                 text = scenario.name,
                 color = AppTheme.Colors.text,
                 fontSize = 12.sp,
+                fontWeight = FontWeight.Light,
                 maxLines = 1,
                 // The rail is narrow and scenario names are sentences. Truncating without saying so reads as
                 // a name that simply ends there.

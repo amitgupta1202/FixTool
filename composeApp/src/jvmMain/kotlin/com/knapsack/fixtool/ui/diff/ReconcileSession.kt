@@ -754,14 +754,15 @@ class ReconcileSession(
             // loosen that would mean anything — but deleting an assertion is *authoring*, not repair, and the
             // author who has just captured a step is looking at a wall of green rows over an expectation that
             // asserts more than they mean. This surface is the app's only assertion editor, so the drop is
-            // offered on every asserted row; everything else stays gated on there being a failure to fix.
+            // offered on every asserted row, and the capture wherever a value paired — both assert nothing.
+            // The repairs stay gated on there being a failure to fix.
             if (row.unknown || row.passed) {
                 // A GREEN row can still be a landmine: an Exact pinning a value that IS one of the run's
                 // variables passes today precisely because the id was minted today — and is red on every
                 // run after. The track offer is the defusal, and the passing row is where it matters most.
                 if (row.passed) trackOffer(index, row)?.let { add(it) }
                 add(dropOffer(index, row.tag, message))
-                if (row.passed) captureOffer(index, row)?.let { add(it) }
+                captureOffer(index, row)?.let { add(it) }
                 return@buildList
             }
 
@@ -786,6 +787,11 @@ class ReconcileSession(
                     // because a silent tolerance on a price is a regression the scenario stops catching.
                     loosenOffer(index, row)?.let { add(it) }
                     add(dropOffer(index, row.tag, message))
+                    // Capture rides on red rows too. The runner captures what a row PAIRED with whether or
+                    // not it passed (teardown runs after a failure and may need the venue's id), and the id
+                    // an author most wants to capture is exactly the one going red against a pinned literal
+                    // every run. It is last because it repairs nothing — the tooltip says so.
+                    captureOffer(index, row)?.let { add(it) }
                 }
                 TagStatus.MISSING -> {
                     if (ScenarioReconcile.canAssertAbsent(draft, message, index)) {
@@ -799,6 +805,10 @@ class ReconcileSession(
                         )
                     }
                     add(dropOffer(index, row.tag, message))
+                    // Only ever the UN-capture here — nothing paired, so there is nothing to capture — and
+                    // it matters: a stale capture on a row the venue stopped sending must be removable
+                    // without repairing the row first, or it is stranded behind its own failure.
+                    captureOffer(index, row)?.let { add(it) }
                 }
                 else -> Unit // moved, or a status with no honest per-row repair
             }
@@ -808,12 +818,15 @@ class ReconcileSession(
     /**
      * `↧` — capture the value this row pairs with into the run's scope (see [FieldExpectation.bindAs]):
      * the receive→send half of correlation, for a value the **venue** chose that a later send must echo
-     * back. Offered on **green rows only** — a venue-assigned id is Presence-seeded and green, and a
-     * failing row's business is repair first; wiring a correlation through a value the step disputes
-     * would capture a value nobody has agreed is right. Independent of the run scope on purpose:
+     * back. Offered wherever the row **paired with a value** — pass or fail, which is the runner's own
+     * stance: it captures what a row paired with whether or not the row passed, because teardown runs
+     * after a failure and may need the venue's id. The one thing capture is NOT is a repair — it asserts
+     * nothing, so on a failing row the tooltip says the red stays until the repair beside it is taken,
+     * and the row on screen stays red to make the same point. Independent of the run scope on purpose:
      * authoring against the golden is exactly where the dealer echo gets wired. The name is derived from
      * the dictionary (`quoteReqID`), collision-suffixed, and the tooltip says it before the click; a row
-     * already capturing is offered the un-capture instead.
+     * already capturing is offered the un-capture instead — on every status, including MISSING, so a
+     * stale capture is never stranded behind its own failure.
      */
     private fun captureOffer(index: Int, row: ScenarioReconcile.Row): Offer? {
         val current = draft.fields.getOrNull(index)?.bindAs
@@ -828,13 +841,18 @@ class ReconcileSession(
         }
         val actual = row.actual ?: return null
         val name = captureName(row.tag)
-        return Offer(
-            OfferKind.CAPTURE,
-            "↧",
-            "Capture as \${$name} — the venue chose this value ($actual); capturing it lets a later send " +
-                "or bind predicate echo it back as \${$name}. Asserts nothing new.",
-            EditOp.captureAs(index, row.tag, name),
-        )
+        val tooltip =
+            if (row.passed || row.unknown) {
+                "Capture as \${$name} — the venue chose this value ($actual); capturing it lets a later " +
+                    "send or bind predicate echo it back as \${$name}. Asserts nothing new."
+            } else {
+                // The red-row wording carries the warning the green-only gate used to enforce: capture is
+                // not the repair, and clicking it must not read as one.
+                "Capture as \${$name} — the venue chose this value ($actual). A failed row that paired " +
+                    "still captures (teardown may need it), but capture repairs nothing: this row stays " +
+                    "red until repaired."
+            }
+        return Offer(OfferKind.CAPTURE, "↧", tooltip, EditOp.captureAs(index, row.tag, name))
     }
 
     /** [mintName], with what this surface can see taken: the run's scope and the draft's own captures. */

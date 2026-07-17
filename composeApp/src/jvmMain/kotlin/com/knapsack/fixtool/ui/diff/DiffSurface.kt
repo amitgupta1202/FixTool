@@ -738,9 +738,11 @@ private fun Header(text: String, modifier: Modifier) {
 
 // --------------------------------------------------------------------------------------------- the body
 
-// Wide enough for three offers side by side («, ±, ×) — at 56dp the third was clipped away, which is not
-// a smaller button, it is a repair the author cannot see exists.
-internal val GUTTER = 84.dp
+// Wide enough for five offers side by side ($, «, ±, ×, ↧) — a red numeric row whose value is also a run
+// variable carries all of them now that capture rides on failing rows. At 56dp the third of three was
+// clipped away, which is not a smaller button, it is a repair the author cannot see exists; the same
+// arithmetic (28dp per offer) says five need this.
+internal val GUTTER = 140.dp
 internal val ROW_PADDING = 12.dp
 
 // The left column is the EDITABLE one — a chip, a value field, sometimes a tolerance — and the right is read-

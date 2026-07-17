@@ -246,19 +246,15 @@ object ExpectationEvaluator {
         val row = a.row
         if (row == null) {
             if (a.ghost) {
-                // The other end of a move. The unpaired row reports the divergence — this line only keeps
-                // the right column whole, so it passes, and the sentence says what it is. In STRICT it also
-                // says what it becomes: drop the row that speaks for it and this field is an unexpected
-                // extra, which is a consequence the author cannot otherwise see from here.
-                val sentence = "sent here — the row asserting ${a.tag} sits elsewhere in the expectation"
+                // The other end of a move — the mirror of the moved row's own "present in the reply — but
+                // not in this position". Kept short on purpose: the crossing connector already shows where
+                // the two ends are, so the words only name what this end is. STRICT adds the one thing the
+                // connector cannot show — that an unclaimed field here counts as an extra.
+                val sentence = "asserted, but not in this position"
                 return TagResult(
                     a.tag,
                     "spoken for",
-                    if (expectation.mode == MatchMode.STRICT) {
-                        "$sentence; unclaimed, STRICT counts it as an unexpected extra"
-                    } else {
-                        sentence
-                    },
+                    if (expectation.mode == MatchMode.STRICT) "$sentence (a STRICT extra)" else sentence,
                     a.actual,
                     passed = true,
                     index = null,

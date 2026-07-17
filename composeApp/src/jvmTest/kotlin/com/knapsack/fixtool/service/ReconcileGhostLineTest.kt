@@ -112,20 +112,15 @@ class ReconcileGhostLineTest {
     }
 
     @Test
-    fun `the ghost's sentence names the STRICT consequence — and only under STRICT`() {
+    fun `the ghost's note is short, and names the STRICT consequence only under STRICT`() {
         val strict = ScenarioReconcile.rows(movedRow, wire, dictionary = null).single { it.ghost }
-        assertTrue(
-            "unexpected extra" in strict.reason,
-            "STRICT must say what the field becomes if the moved row is dropped: ${strict.reason}",
-        )
+        assertEquals("asserted, but not in this position (a STRICT extra)", strict.reason)
 
         val open =
             ScenarioReconcile.rows(movedRow.copy(mode = MatchMode.OPEN), wire, dictionary = null).single { it.ghost }
-        assertFalse(
-            "unexpected extra" in open.reason,
-            "OPEN ignores unclaimed tags; threatening the author with an extra would be false: ${open.reason}",
-        )
-        assertTrue("sits elsewhere" in open.reason, "the sentence says what the line is: ${open.reason}")
+        // OPEN ignores unclaimed tags, so threatening the author with an extra would be false.
+        assertEquals("asserted, but not in this position", open.reason)
+        assertFalse("STRICT" in open.reason || "extra" in open.reason, "no STRICT threat in OPEN: ${open.reason}")
     }
 
     @Test

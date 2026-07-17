@@ -8,6 +8,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.compare.SemanticsRegistry
 import kotlinx.serialization.json.JsonArray
@@ -43,6 +44,9 @@ object ScenarioCodec {
             put("id", scenario.id)
             put("name", scenario.name)
             scenario.profile?.let { put("profile", it) }
+            // Additive and default-omitting, the stepId/origin/muted bargain again: a file that never went
+            // strict never grows the key, and every pre-traffic file keeps loading (and re-saving) unchanged.
+            scenario.traffic.takeIf { it != TrafficMode.OPEN }?.let { put("traffic", it.name.lowercase()) }
             put("setup", buildJsonArray { scenario.setup.forEach { add(stepToJson(it)) } })
             put("steps", buildJsonArray { scenario.steps.forEach { add(stepToJson(it)) } })
             put("teardown", buildJsonArray { scenario.teardown.forEach { add(stepToJson(it)) } })
@@ -79,6 +83,7 @@ object ScenarioCodec {
             teardown = obj["teardown"]?.jsonArray?.map { stepFromJson(it.jsonObject) } ?: emptyList(),
             userTags = obj["userTags"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
             version = version,
+            traffic = trafficFrom(obj["traffic"]?.jsonPrimitive?.contentOrNull),
         ).withIds()
     }
 
@@ -278,6 +283,24 @@ object ScenarioCodec {
      * An *absent* mode is not unknown: it is the model's default, and files written before the key existed
      * are entitled to it.
      */
+    /**
+     * The same stance as [modeFrom], for the same reason at the stream level: reading an unknown traffic
+     * mode as OPEN is the quietest possible way to weaken a scenario — "and nothing else" silently stops
+     * being checked while every run keeps passing. Absent is not unknown: it is the model default, and
+     * every file written before the key existed is entitled to it.
+     */
+    private fun trafficFrom(raw: String?): TrafficMode =
+        when (raw?.lowercase()) {
+            null -> TrafficMode.OPEN
+            "open" -> TrafficMode.OPEN
+            "strict" -> TrafficMode.STRICT
+            else -> throw IllegalArgumentException(
+                "unknown traffic mode '$raw' — this scenario was written by something that knows a stream " +
+                    "check this build does not, and guessing at it would silently change what the scenario " +
+                    "checks. Known traffic modes: strict, open.",
+            )
+        }
+
     private fun modeFrom(raw: String?): MatchMode =
         when (raw?.lowercase()) {
             null -> MatchMode.OPEN

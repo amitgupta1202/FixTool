@@ -140,6 +140,49 @@ OPEN also supports the negative assertion: a row whose matcher is `absent` asser
 
 ---
 
+## Traffic: the same two modes, one level up
+
+Everything above judges **one reply against one expectation**. The run has a second, stream-level
+question the field-level modes cannot ask: *did the venue send anything the scenario never
+mentions?* Each Expect binds one message; the leftovers were historically never examined, so a
+venue that volunteered an extra ExecutionReport — a fill racing the cancel it acknowledged, a
+third quote where the flow defines two — passed every run with the surplus sitting unread in the
+grid.
+
+`traffic` on the scenario (`"open"` | `"strict"`, default open — additive on disk, written only
+when strict) is the stream-level counterpart of the expectation's `mode`, with the same names
+because it is the same idea:
+
+- **open** — the historical semantics: an incoming message no Expect binds is ignored. "The venue
+  said at least this much."
+- **strict** — after the last main-phase step, the runner listens for a **settle window** (~1s —
+  absence is a claim about time; the check can only ever mean "nothing else *by then*"), then
+  fails the run if any incoming **application-level** message on a session the setup/steps phases
+  touch was never bound by an Expect. "…and nothing else."
+
+The verdict is one extra `traffic` row in the report — green when nothing was over, red naming
+the surplus — and every unbound message is tinted in the grid through the same channel as an
+Expect verdict. There is no reconcile route from that red: there is no expectation to repair, and
+the offered fixes are the true ones (add an Expect for what the venue now sends, or set traffic
+back to open).
+
+Rules that keep strict honest rather than noisy:
+
+- **Session administration is exempt** — Heartbeat, TestRequest, ResendRequest, SequenceReset,
+  Logon — exactly as the envelope tags are exempt from a STRICT expectation's extras. Logout and
+  session-level Reject are deliberately **not** exempt: a goodbye nobody asked for is precisely
+  the surplus this mode exists to report.
+- **Judged only on an otherwise-green run.** After a failed step, every message its successors
+  never got to bind is "unexpected", and a wall of strays pointing away from the real failure is
+  worse than not judging. A red run stays exactly as red as its first failure made it.
+- **Teardown is out of scope**, on both sides: the check runs before teardown (whose own sends
+  provoke traffic that is nobody's surplus), and teardown-only sessions are not judged.
+- **`clearMessages` is the escape hatch** — cleared history is gone, so a scenario can clear
+  after a deliberately noisy setup and hold only the interesting phase to strict account.
+- **Muting an Expect under strict traffic fails the run** on the message that Expect would have
+  bound. This is the mute contract ("the run reads as if the step were not there") composed with
+  the strict contract ("nothing unasked-for arrived") — both kept, no special case.
+
 ## What this model cannot do
 
 It cannot silently assert the wrong field.

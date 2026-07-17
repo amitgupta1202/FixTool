@@ -93,6 +93,19 @@ class ScenarioEditorTest {
         assertEquals(Matcher.Reference("\${id0}"), expect.expectation.fields.first { it.tag == 11 }.matcher)
     }
 
+    /** The header chip toggles the stream-level mode, and an untouched editor saves it back unchanged. */
+    @Test
+    fun `the traffic chip toggles strict and the save carries it`() {
+        var saved: Scenario? = null
+        render { saved = it }
+        composeTestRule.onNodeWithTag("traffic-mode-chip").assertTextEquals("TRAFFIC OPEN")
+        composeTestRule.onNodeWithTag("traffic-mode-chip").performClick()
+        composeTestRule.onNodeWithTag("traffic-mode-chip").assertTextEquals("TRAFFIC STRICT")
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(com.knapsack.fixtool.model.scenario.TrafficMode.STRICT, saved!!.traffic)
+    }
+
     @Test
     fun `tags are pickable by field name from the dictionary`() {
         var saved: Scenario? = null

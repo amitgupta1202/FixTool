@@ -269,7 +269,8 @@ object McpTools {
             tool(
                 "fixtool_save_scenario",
                 "Save a repeatable scenario (an ordered sequence of sends + assertions a deterministic runner " +
-                    "replays). Body is the scenario JSON: {name, profile?, userTags?, setup?:[step], steps:[step], " +
+                    "replays). Body is the scenario JSON: {name, profile?, userTags?, traffic?, setup?:[step], " +
+                    "steps:[step], " +
                     "teardown?:[step]}. A step is {type, ...}: send {raw, session?}; wait {session?, state?, match?, " +
                     "timeoutMs?}; expect {session?, direction?, match?, timeoutMs?, expectation:{messageType?, mode?, " +
                     "fields:[{tag, matcher}]}}; clearMessages {session?}; resetSeqNum {session?, sender?, " +
@@ -277,13 +278,17 @@ object McpTools {
                     "PARAMETERIZE IT: a send's raw, a match value and a reference matcher all resolve \${...} " +
                     "expressions — always, with no resolve flag — over one variable scope that persists across every " +
                     "step. The idiom is 11=\${clOrdId = uuid} in the send, then assert the echo with " +
-                    "{\"type\":\"reference\",\"expression\":\"\${clOrdId}\"}. Call fixtool_syntax for the full " +
+                    "{\"type\":\"reference\",\"expression\":\"\${clOrdId}\"}. traffic:\"strict\" additionally " +
+                    "fails the run if, after the last step (plus a settle window), any incoming application-level " +
+                    "message was never bound by an expect — \"the venue sent nothing else\" (session admin exempt; " +
+                    "default \"open\" ignores unbound messages). Call fixtool_syntax for the full " +
                     "grammar, or fixtool_capture_scenario to record one that is already correctly templated.",
                 props(
                     "name" to string("scenario name"),
                     "id" to string("existing scenario id to update"),
                     "profile" to string("connection profile id/name this scenario targets"),
                     "userTags" to arraySchema(string(), "organising tags (also used for per-profile filtering)"),
+                    "traffic" to enumStr("open", "strict"),
                     "setup" to arraySchema(objectSchema("ScenarioStep run before steps"), "setup steps"),
                     "steps" to arraySchema(objectSchema("ScenarioStep"), "the ordered steps"),
                     "teardown" to arraySchema(objectSchema("ScenarioStep run after steps, even on failure"), "teardown steps"),

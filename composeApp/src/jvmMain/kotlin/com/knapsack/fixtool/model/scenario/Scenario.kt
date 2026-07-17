@@ -19,7 +19,37 @@ data class Scenario(
     val teardown: List<ScenarioStep> = emptyList(),
     val userTags: List<String> = emptyList(),
     val version: Int = 1,
+    /** Stream-level counterpart of [Expectation.mode]. Additive on disk — written only when STRICT. */
+    val traffic: TrafficMode = TrafficMode.OPEN,
 )
+
+/**
+ * How the run judges the messages its Expect steps did **not** bind — [MatchMode] one level up.
+ *
+ * A field-level [Expectation] answers "is this reply the message I expect"; nothing at that level can
+ * answer "and the venue sent nothing else". Every Expect binds one message and the leftovers were simply
+ * never examined, so a run whose venue volunteered an extra ExecutionReport — a fill racing the cancel it
+ * acknowledged, a third quote where the flow defines two — reported green while the surplus sat unread in
+ * the grid.
+ */
+enum class TrafficMode {
+    /**
+     * The historical (and default) semantics: an incoming message no Expect binds is ignored. The
+     * stream-level "the venue said at least this much" — tolerant of chatter, and the right mode for a
+     * flow asserted mid-traffic or a venue that volunteers noise the scenario has no stake in.
+     */
+    OPEN,
+
+    /**
+     * "…and nothing else." After the last main-phase step (plus a settle window, because absence is a
+     * claim about time), any incoming **application-level** message the run's Expects never bound fails
+     * the run, by name. Session administration — Heartbeat, TestRequest, ResendRequest, SequenceReset,
+     * Logon — is exempt, exactly as the envelope is exempt from a STRICT expectation; an unbound Logout
+     * or session Reject is *not* exempt, because an unasked-for goodbye is precisely the kind of extra
+     * this mode exists to report.
+     */
+    STRICT,
+}
 
 /** One step of a scenario. Every step targets a [session] (null = the active session). */
 sealed interface ScenarioStep {

@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.Test
 import quickfix.Message
@@ -558,6 +559,100 @@ class ScenarioRunnerTest {
         assertFalse(result.passed, "an all-muted scenario checks nothing and must not report green")
         val detail = result.steps.single().detail.orEmpty()
         assertTrue(detail.contains("muted", ignoreCase = true), "the refusal must name the cause: '$detail'")
+    }
+
+    // ----------------------------------------------------------------- strict traffic
+
+    @Test
+    fun `strict traffic fails a green run on an incoming message no expect bound`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2")) // the surplus: nobody expects the second ER
+        val reported = mutableListOf<Pair<FixMessage, StepResult>>()
+        val result =
+            runRecordingVerdicts(
+                host,
+                scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT),
+                reported,
+            )
+        assertFalse(result.passed, "the unbound ExecutionReport must fail a strict run: ${result.steps}")
+        val verdict = result.steps.single { it.kind == "traffic" }
+        assertFalse(verdict.passed)
+        assertEquals("steps", verdict.phase, "the verdict must decide pass/fail, so it cannot ride in teardown")
+        assertTrue(verdict.detail.orEmpty().contains("never bound"), "the detail must say what the red means: '${verdict.detail}'")
+        // The surplus is marked in the grid through the same channel as an Expect verdict — the report must
+        // never say "1 unexpected message" over a grid where nothing is tinted.
+        val stray = reported.single { !it.second.passed && it.second.kind == "traffic" }
+        assertEquals("2", stray.first.let { m -> viewTags[m]?.get(39) }, "the marked message is the unbound one")
+    }
+
+    @Test
+    fun `strict traffic passes, and says so, when every incoming message was bound`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
+        val result =
+            run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT))
+        assertTrue(result.passed, "${result.steps}")
+        // A green row, not silence: the run checked something here, and the report says so.
+        assertTrue(result.steps.single { it.kind == "traffic" }.passed)
+    }
+
+    @Test
+    fun `strict traffic ignores session administration but not an unasked-for logout`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.inbox += incoming("0", mapOf(35 to "0")) // heartbeat: the stream's envelope, never a surplus
+        val green =
+            run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT))
+        assertTrue(green.passed, "a heartbeat must never fail a strict run: ${green.steps}")
+
+        host.inbox += incoming("5", mapOf(35 to "5")) // a goodbye nobody asked for IS the surplus
+        val red =
+            run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT))
+        assertFalse(red.passed, "an unbound Logout is exactly what strict traffic exists to report")
+    }
+
+    @Test
+    fun `strict traffic is not judged on a run that already failed`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val result =
+            run(
+                host,
+                // The first expect fails on its value; the second ER is then unbound — but blaming it would
+                // point away from the real failure, so the stream verdict must not pile on.
+                scenario(expect("8", FieldExpectation(39, Matcher.Exact("9")))).copy(traffic = TrafficMode.STRICT),
+            )
+        assertFalse(result.passed)
+        assertTrue(result.steps.none { it.kind == "traffic" }, "no stream verdict on an already-red run: ${result.steps}")
+    }
+
+    @Test
+    fun `open traffic stays the default and reports no stream verdict`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2")) // unbound, and under OPEN nobody's business
+        val result = run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))))
+        assertTrue(result.passed, "OPEN must keep the historical semantics: ${result.steps}")
+        assertTrue(result.steps.none { it.kind == "traffic" }, "skipped means no row — the check did not run")
+    }
+
+    @Test
+    fun `muting an expect under strict traffic fails the run on the message it would have bound`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val scenario =
+            scenario(
+                expect("8", FieldExpectation(39, Matcher.Exact("0"))),
+                expect("8", FieldExpectation(39, Matcher.Exact("2"))).copy(muted = true),
+            ).copy(traffic = TrafficMode.STRICT)
+        val result = run(host, scenario)
+        // The mute contract ("as if the step were not there") composed with the strict contract ("nothing
+        // unasked-for arrived"): a scenario without that expect SHOULD fail strict on the extra reply.
+        assertFalse(result.passed, "the parked expect's message is unbound, and strict says so: ${result.steps}")
+        assertFalse(result.steps.single { it.kind == "traffic" }.passed)
     }
 
     // ----------------------------------------------------------------- helpers

@@ -103,12 +103,28 @@ internal fun buildDiffModel(
 private fun itemsOf(lines: List<DiffLine>, overlay: GroupOverlay, referenceOverlay: GroupOverlay): List<DiffItem> {
     val hues = overlay.entries.withIndex().associate { (i, e) -> e to i }
     val depths = overlay.entries.associateWith { e -> overlay.entries.count { e.rows.first in it.rows } }
+
+    // **A wire-only line inside an entry does not break its band.**
+    //
+    // A ghost — or an unasserted extra — is a field the venue sent that the expectation lists elsewhere, so
+    // it carries no entry of its own and can land *among* an entry's rows (an occurrence spoken-for by a row
+    // that moved). Keyed on `line.entry` alone, that stray line closes the open band and the entry's next
+    // row re-opens it: one party rendered as two bands with the same label and the ghost wedged between
+    // them. So carry the surrounding entry across the gap — a null-entry line between an entry's first and
+    // last row belongs to that entry's band. A stray line that is genuinely *between* two entries keeps its
+    // null and sits, un-banded, where wire order puts it.
+    val effective = lines.map { it.entry }.toMutableList()
+    overlay.entries.forEach { e ->
+        val own = lines.indices.filter { lines[it].entry == e }
+        if (own.isNotEmpty()) for (i in own.first()..own.last()) if (effective[i] == null) effective[i] = e
+    }
+
     val out = mutableListOf<DiffItem>()
     var open: EntryNode? = null
     var movedSeen = false
 
-    lines.forEach { line ->
-        val entry = line.entry
+    lines.forEachIndexed { i, line ->
+        val entry = effective[i]
         if (entry != null && entry != open) {
             val moved = line.kind == ChunkKind.MOVED
             out +=

@@ -48,7 +48,6 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -1054,25 +1053,13 @@ class ControlServer(
                     return errorObject("invalid scenario: ${e.message}")
                 }
             }
-        // Re-aim the run without editing the scenario: `sessions` is an inline {from: to} map, `mapping`
-        // names a saved one (by name or id). Both present = inline entries win, over the named base.
-        val named =
-            body["mapping"]?.jsonPrimitive?.content?.let { key ->
-                viewModel.sessionMappings.value.firstOrNull { it.id == key || it.name == key }
-                    ?: return errorObject("session mapping not found: $key")
-            }
-        val inline =
-            body["sessions"]?.jsonObject?.entries?.associate { (from, to) ->
-                from to (to.jsonPrimitive.contentOrNull ?: return errorObject("sessions['$from'] must be a session name"))
-            }
-        val sessionMap = (named?.map ?: emptyMap()) + (inline ?: emptyMap())
         // The same run the Run button performs — one run slot, one choreography, one verdict published the
         // same way. This endpoint used to keep its own copy of that sequence and had quietly dropped the
         // last step of it, so an agent-driven run left the rail's run report (and the only route to the
         // diff window) blank. Null = the slot is taken; a UI run and a control run would otherwise
         // consume each other's messages.
         val result =
-            viewModel.runScenarioBlocking(scenario, sessionMap)
+            viewModel.runScenarioBlocking(scenario)
                 ?: return errorObject("a scenario run is already in progress")
         return if (body["format"]?.jsonPrimitive?.content?.lowercase() == "junit") {
             buildJsonObject {

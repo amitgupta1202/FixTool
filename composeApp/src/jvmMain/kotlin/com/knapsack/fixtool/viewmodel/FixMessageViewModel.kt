@@ -44,8 +44,6 @@ import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.SessionIdentityResolver
-import com.knapsack.fixtool.service.SessionMapping
-import com.knapsack.fixtool.service.SessionMappingService
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
@@ -201,20 +199,14 @@ class FixMessageViewModel(
      * Identified on the way in, with the same deterministic assignment the runner and the codec use, so
      * the snapshot of what ran can be compared step-for-step against what is on disk. An un-identified
      * snapshot would have no way to say *which* step failed once the author moved it.
-     *
-     * The snapshot is the scenario **as saved, not as remapped**: [reconcileRoute]'s unedited-step guard
-     * compares this snapshot against the disk copy, and a [sessionMap] is a run input, not an edit — the
-     * remapped step must not read as "changed since this run". The session *titles*, by contrast, go
-     * through the map: they name what the run was ABOUT, and a remapped run is about the mapped-to
-     * sessions (closing one of those is what invalidates the report).
      */
-    fun noteScenarioRun(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()) {
+    fun noteScenarioRun(scenario: Scenario) {
         _lastRunScenario.value = scenario.withIds()
         // Which sessions this run is ABOUT — the report's lifetime is tied to theirs (closing one of them
         // closes the question the report answers). A step with no session runs on whatever is active NOW,
         // so that title is resolved here, at run start; it is unknowable later.
         val all = scenario.setup + scenario.steps + scenario.teardown
-        val named = all.mapNotNull { it.sessionOrNull() }.map { sessionMap[it] ?: it }
+        val named = all.mapNotNull { it.sessionOrNull() }
         val active = if (all.any { it.sessionOrNull() == null }) _activeSessionState.value?.title else null
         lastRunSessionTitles = (named + listOfNotNull(active)).toSet()
     }
@@ -1624,33 +1616,6 @@ class FixMessageViewModel(
         )
     }
 
-    // Run-time session remapping — named mappings ("QA" = {dev-buyside → qa-buyside, …}). App-local,
-    // never in the scenarios directory: scenarios are shared documents, and which environment one
-    // person pointed them at last is neither shared nor a property of the document.
-    private val sessionMappingService by lazy {
-        SessionMappingService(
-            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-            customPath = resolveStoragePath("", "session_mappings.json"),
-        )
-    }
-    private val _sessionMappings = MutableStateFlow<List<SessionMapping>>(emptyList())
-    val sessionMappings: StateFlow<List<SessionMapping>> = _sessionMappings.asStateFlow()
-
-    // scenario id → mapping id of its last remapped run. State, not a disk read per composition —
-    // the rail reads this on every row it draws.
-    private val _lastUsedMappings = MutableStateFlow<Map<String, String>>(emptyMap())
-    val lastUsedMappings: StateFlow<Map<String, String>> = _lastUsedMappings.asStateFlow()
-
-    fun saveSessionMapping(mapping: SessionMapping) {
-        sessionMappingService.saveMapping(mapping)?.let { _sessionMappings.value = it }
-    }
-
-    fun deleteSessionMapping(id: String) {
-        sessionMappingService.deleteMapping(id)?.let { _sessionMappings.value = it }
-        // The delete pruned last-used entries pointing at the deleted mapping; re-read rather than replicate.
-        _lastUsedMappings.value = sessionMappingService.loadLastUsed()
-    }
-
     /**
      * Resolves where a JSON store (connection profiles, saved messages) is kept. An explicit
      * setting always wins. Otherwise, when constructed with a [testSettingsDir] the store is kept
@@ -1728,8 +1693,6 @@ class FixMessageViewModel(
         // fixtool_save_scenario) do not come through here at all.
         scenarioService.onChanged = { refreshScenarios() }
         refreshScenarios()
-        _sessionMappings.value = sessionMappingService.loadMappings()
-        _lastUsedMappings.value = sessionMappingService.loadLastUsed()
 
         // Initialize global view mode from settings
         _viewMode.value =
@@ -2260,9 +2223,9 @@ class FixMessageViewModel(
      * because the alternative is a wiped report with no explanation next to a grid full of red rows.
      */
     @Suppress("TooGenericExceptionCaught")
-    fun runScenarioBlocking(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult? {
+    fun runScenarioBlocking(scenario: Scenario): ScenarioResult? {
         if (!beginScenarioRun()) return null
-        noteScenarioRun(scenario, sessionMap)
+        noteScenarioRun(scenario)
         publishScenarioResult(null)
         setAssertionResults(emptyMap())
         val matched = linkedMapOf<FixMessage, StepResult>()
@@ -2274,7 +2237,7 @@ class FixMessageViewModel(
                         matched[message] = stepResult
                         _assertionResults.value = matched.toMap()
                     },
-                ).run(scenario, sessionMap)
+                ).run(scenario)
             // Published while the run slot is still held: a verdict that lands after the slot is free can
             // land on top of the *next* run's freshly-cleared state, and the report would then name one
             // run while the assertion results underneath it belong to another.
@@ -2288,15 +2251,11 @@ class FixMessageViewModel(
         }
     }
 
-    /** [mapping] re-aims the run without editing the scenario, and is remembered per scenario for the rail. */
     @Suppress("TooGenericExceptionCaught")
-    fun runScenario(scenario: Scenario, mapping: SessionMapping? = null) {
+    fun runScenario(scenario: Scenario) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                if (mapping != null) {
-                    sessionMappingService.noteUsed(scenario.id, mapping.id)?.let { _lastUsedMappings.value = it }
-                }
-                runScenarioBlocking(scenario, mapping?.map ?: emptyMap())
+                runScenarioBlocking(scenario)
             } catch (e: Exception) {
                 logger.error("Scenario run failed: ${e.message}", e, notifyUser = false) // already notified
             }

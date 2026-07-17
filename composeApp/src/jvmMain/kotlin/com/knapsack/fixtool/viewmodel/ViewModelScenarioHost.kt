@@ -2,6 +2,7 @@ package com.knapsack.fixtool.viewmodel
 
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.service.ConnectAttempt
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MessageView
@@ -83,6 +84,38 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
         return true
     }
 
+    override fun connectSession(session: String?): ConnectAttempt =
+        onEdt {
+            val sess = resolveSession(session)
+            if (sess != null) {
+                // The session exists but is down: reconnect through its own profile, which re-resolves
+                // config edits the same way the Connect button does.
+                val profile = viewModel.profileForSession(sess)
+                    ?: return@onEdt ConnectAttempt.Failed("session '${sess.title}' has no saved connection profile to reconnect from")
+                viewModel.connectProfile(profile.id, profile)
+                ConnectAttempt.Started(profile.name)
+            } else {
+                val key = session
+                    ?: return@onEdt ConnectAttempt.Failed("no session exists and the step names none, so no profile can be looked up")
+                // A multi-session slot is titled "Name [n]"; connecting profile "Name" creates every slot.
+                val base = key.replace(SLOT_SUFFIX, "")
+                val matches =
+                    viewModel.connectionProfiles
+                        .filter { it.id == key || it.name == key || it.name == base }
+                        .distinctBy { it.id }
+                when {
+                    matches.isEmpty() -> ConnectAttempt.Failed("no saved connection profile named '$key'")
+                    matches.size > 1 ->
+                        ConnectAttempt.Failed("${matches.size} saved profiles answer to '$key' — connect the right one manually")
+                    else -> {
+                        val profile = matches.single()
+                        viewModel.connectProfile(profile.id, profile)
+                        ConnectAttempt.Started(profile.name)
+                    }
+                }
+            }
+        }
+
     private fun byType(msgs: List<FixMessage>, incoming: Boolean): Map<String, FixMessage> {
         val want = if (incoming) FixMessage.Direction.INCOMING else FixMessage.Direction.OUTGOING
         return msgs.filter { it.direction == want }.associateBy { it.messageType }
@@ -97,6 +130,11 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
                 else -> list.firstOrNull { it.id == key || it.title == key }
             }
         }
+
+    private companion object {
+        /** The " [n]" tail a multi-session slot's title wears over its profile's name. */
+        val SLOT_SUFFIX = Regex("""\s\[\d+]$""")
+    }
 
     private fun <T> onEdt(block: () -> T): T {
         if (SwingUtilities.isEventDispatchThread()) return block()

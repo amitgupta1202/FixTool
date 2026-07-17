@@ -1647,6 +1647,13 @@ class FixMessageViewModel(
 
     private fun profileIdForSessionIndex(index: Int): String? = profileToSessionMap.entries.find { index in it.value }?.key
 
+    /** The saved profile that owns [session], or null for a session no profile claims. */
+    fun profileForSession(session: FixMessageSession): FixConnectionProfile? {
+        val index = _sessions.indexOf(session)
+        if (index < 0) return null
+        return profileIdForSessionIndex(index)?.let { id -> _connectionProfiles.find { it.id == id } }
+    }
+
     // Demo server state
     val demoServerRunning: StateFlow<Boolean> = DemoServerManager.isRunning
 

@@ -126,6 +126,19 @@ fun App(
             var searchResultsPanelHeight by remember { mutableStateOf(200.dp) } // Height of search results pane at bottom
             var latencyPanelSplitRatio by remember { mutableStateOf(0.25f) } // Latency panel width (25%)
 
+            // The docked terminal is hosted as *movable* content. TABS and the two SPLIT branches each place
+            // it at a different call site, and closing the last side panel switches SPLIT branches. Composed
+            // three times, that switch would dispose one instance and create another — tearing down the PTY
+            // and killing a running `claude` session. movableContentOf moves the single terminal node between
+            // call sites instead, so the widget, its PTY and the session survive; TerminalPanel's onDispose
+            // then only fires on a real close (the terminal is hidden, or the app exits).
+            val terminalSlot =
+                remember {
+                    movableContentOf {
+                        TerminalDockSlot(viewModel.appSettings.automationControlPort)
+                    }
+                }
+
             Box(
                 modifier =
                     modifier
@@ -397,7 +410,7 @@ fun App(
 
                                         // Docked terminal — bottom of the centre pane, so it's only as
                                         // wide as the message area (shrinks when side panels open).
-                                        TerminalDockSlot(viewModel.appSettings.automationControlPort)
+                                        terminalSlot()
                                     }
 
                                     // Message detail panel (if shown)
@@ -669,7 +682,7 @@ fun App(
                                             }
 
                                             // Docked terminal — bottom of the centre pane (shrinks with side panels).
-                                            TerminalDockSlot(viewModel.appSettings.automationControlPort)
+                                            terminalSlot()
                                         }
 
                                         // Message detail panel (if shown)
@@ -887,7 +900,7 @@ fun App(
                                     }
 
                                     // Docked terminal — bottom of the centre pane (shrinks with side panels).
-                                    TerminalDockSlot(viewModel.appSettings.automationControlPort)
+                                    terminalSlot()
                                 }
                             }
                         }

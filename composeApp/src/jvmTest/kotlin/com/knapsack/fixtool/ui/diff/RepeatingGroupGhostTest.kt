@@ -223,7 +223,7 @@ class RepeatingGroupGhostTest {
             ),
         )
 
-        File("/private/tmp/claude-501/-Users-amitgupta-FixTool/f2b11810-fd5b-4df2-ac82-05d1eef8ba9e/scratchpad/repeating_group_render.txt")
+        File(System.getProperty("java.io.tmpdir"), "repeating_group_render.txt")
             .writeText(out.toString())
     }
 }

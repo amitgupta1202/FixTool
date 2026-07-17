@@ -106,7 +106,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     // Slim interactive targets, as the workbench had: Material3's 48dp minimum is a touch-screen convention
     // that would leave this rail room for a name and nothing else.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 20.dp) {
-        Column(modifier = modifier.fillMaxSize().background(AppTheme.Colors.surface).testTag("scenarios-rail")) {
+        Column(modifier = modifier.fillMaxSize().background(AppTheme.Colors.background).testTag("scenarios-rail")) {
             RailHeader(
                 running = running,
                 filter = filter,
@@ -118,8 +118,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 onDiffMessages = { viewModel.openEmptyDiffViewer() },
                 onClose = { viewModel.toggleScenariosRail() },
             )
-            // The rule the editor header now wears, and every other docked pane already did — without it the
-            // title + filter row bled straight into the run status line and the scenario tree.
+            // Header block closed off from the list: the controls above, the run status and tree below.
             HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
             RunStatusLine(
                 running = running,
@@ -350,16 +349,17 @@ private fun RailHeader(
     onDiffMessages: () -> Unit,
     onClose: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            // The register every docked pane speaks ("Message Details", "Connection"): title case, 11sp,
-            // plain weight. This one said SCENARIOS in 10sp small caps — the only pane that shouted.
-            Text(
-                "Scenarios",
-                color = AppTheme.Colors.text,
-                fontSize = 11.sp,
-                modifier = Modifier.weight(1f),
-            )
+    // The docked-pane header every other pane speaks (Message Editor, Connection, Message Details): a top
+    // rule, the title in a surface-filled bar, a bottom rule — then the controls below. The rail skipped the
+    // fill and the rules and painted its whole body surface, so it read looser and flatter than its neighbours.
+    Column(modifier = Modifier.fillMaxWidth()) {
+        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface).padding(horizontal = 6.dp, vertical = 4.dp),
+        ) {
+            // The register every docked pane speaks ("Message Details", "Connection"): title case, 11sp, plain.
+            Text("Scenarios", color = AppTheme.Colors.text, fontSize = 11.sp, modifier = Modifier.weight(1f))
             TooltipIconButton(tooltip = "Hide the Scenarios rail", onClick = onClose, modifier = Modifier.size(20.dp)) {
                 Icon(
                     Icons.Default.Close,
@@ -369,12 +369,13 @@ private fun RailHeader(
                 )
             }
         }
-        // One control row where five buttons used to wrap onto two lines: the filter (which a list this
-        // size had earned), one way in to the three ways of creating a scenario, and the utilities behind ⋯.
+        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        // The controls, below the header bar as the Message Editor's toolbar sits below its title: the filter
+        // (which a list this size had earned), one way in to the three ways of creating a scenario, and ⋯.
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
             SlimField(
                 value = filter,

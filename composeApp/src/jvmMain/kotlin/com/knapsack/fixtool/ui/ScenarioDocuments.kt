@@ -91,6 +91,13 @@ sealed interface ScenarioDoc {
         /** Where the author's cursor is — kept out here so that switching tabs does not move it. */
         val selectedStep: Int? = null,
         /**
+         * The step-list/detail divider, as the author dragged it — kept out here for the same reason as
+         * the cursor: a split that lived in the composable's `remember` snapped back to the default on
+         * every glance at the session grid. 60/40 to start: the step list is a column of sentences and
+         * earns the room; the divider is still draggable when the detail pane needs it back.
+         */
+        val split: Float = 0.60f,
+        /**
          * Bumped by every deep-link into this document, and the composable is keyed on it.
          *
          * A tab that is already open has already seeded its cursor, and a prop cannot move it — so a second

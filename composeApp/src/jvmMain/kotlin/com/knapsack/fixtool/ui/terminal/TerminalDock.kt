@@ -58,12 +58,13 @@ fun TerminalDock(
     var heightDp by remember { mutableStateOf(320.dp) }
 
     Column(modifier.fillMaxWidth()) {
-        // Resize grip — drag up to grow the terminal, down to shrink it.
+        // 1px top border that doubles as the resize handle — drag up to grow, down to shrink. Matches
+        // the app's other 1dp dividers.
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(6.dp)
+                    .height(1.dp)
                     .background(Color(0xFF3A3A3A))
                     .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
                     .pointerInput(Unit) {
@@ -110,6 +111,23 @@ fun TerminalDock(
             controlUrl = controlUrl,
             controlToken = controlToken,
             modifier = Modifier.fillMaxWidth().height(heightDp),
+        )
+    }
+}
+
+/**
+ * Renders [TerminalDock] when the terminal is toggled on, computing the control URL from the env
+ * (developer override) or the given Settings [automationControlPort]. Drop this at the bottom of the
+ * centre content column so the dock is only as wide as the message area — like the search-results pane.
+ */
+@Composable
+fun TerminalDockSlot(automationControlPort: Int) {
+    if (TerminalController.visible) {
+        val port = System.getenv("FIXTOOL_CONTROL_PORT")?.toIntOrNull() ?: automationControlPort
+        TerminalDock(
+            controlUrl = "http://127.0.0.1:$port",
+            controlToken = System.getenv("FIXTOOL_CONTROL_TOKEN")?.ifBlank { null },
+            onClose = { TerminalController.hide() },
         )
     }
 }

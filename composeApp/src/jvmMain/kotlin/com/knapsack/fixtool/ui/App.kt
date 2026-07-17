@@ -24,7 +24,7 @@ import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.terminal.TerminalController
-import com.knapsack.fixtool.ui.terminal.TerminalDock
+import com.knapsack.fixtool.ui.terminal.TerminalDockSlot
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.slf4j.LoggerFactory
@@ -394,6 +394,10 @@ fun App(
                                                 )
                                             }
                                         }
+
+                                        // Docked terminal — bottom of the centre pane, so it's only as
+                                        // wide as the message area (shrinks when side panels open).
+                                        TerminalDockSlot(viewModel.appSettings.automationControlPort)
                                     }
 
                                     // Message detail panel (if shown)
@@ -663,6 +667,9 @@ fun App(
                                                     )
                                                 }
                                             }
+
+                                            // Docked terminal — bottom of the centre pane (shrinks with side panels).
+                                            TerminalDockSlot(viewModel.appSettings.automationControlPort)
                                         }
 
                                         // Message detail panel (if shown)
@@ -878,23 +885,12 @@ fun App(
                                             )
                                         }
                                     }
+
+                                    // Docked terminal — bottom of the centre pane (shrinks with side panels).
+                                    TerminalDockSlot(viewModel.appSettings.automationControlPort)
                                 }
                             }
                         }
-                    }
-
-                    // Docked terminal — a resizable pane at the bottom of the main content, toggled by
-                    // the toolbar's Terminal button. It injects this instance's control endpoint so a
-                    // `claude` run inside drives this FixTool over MCP with no port to configure.
-                    if (TerminalController.visible) {
-                        val terminalPort =
-                            System.getenv("FIXTOOL_CONTROL_PORT")?.toIntOrNull()
-                                ?: viewModel.appSettings.automationControlPort
-                        TerminalDock(
-                            controlUrl = "http://127.0.0.1:$terminalPort",
-                            controlToken = System.getenv("FIXTOOL_CONTROL_TOKEN")?.ifBlank { null },
-                            onClose = { TerminalController.hide() },
-                        )
                     }
                 }
 

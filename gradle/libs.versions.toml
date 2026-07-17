@@ -3,8 +3,13 @@ androidx-lifecycle = "2.10.0"
 composeHotReload = "1.1.1"
 composeMultiplatform = "1.9.3"
 detekt = "1.23.8"
+# Pinned to 3.70 (not latest 3.73): 3.70 is the newest JediTerm built with Kotlin 2.1.x, so its
+# module metadata is readable by this project's Kotlin 2.2.21 compiler and it needs only stdlib
+# 2.1.21. 3.73 jumped to Kotlin 2.4.0 metadata, which the 2.2.21 compiler refuses to read.
+jediterm = "3.70"
 junit = "4.13.2"
 kotlin = "2.2.21"
+pty4j = "0.13.10"
 kotlinx-coroutines = "1.11.0"
 kotlinx-serialization = "1.9.0"
 ktlint = "12.1.2"
@@ -26,6 +31,10 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 quickfixj-core = { module = "org.quickfixj:quickfixj-core", version.ref = "quickfixj" }
 quickfixj-messages-all = { module = "org.quickfixj:quickfixj-messages-all", version.ref = "quickfixj" }
+# Embedded terminal (IntelliJ-style): JediTerm renderer + pty4j PTY backend
+jediterm-core = { module = "org.jetbrains.jediterm:jediterm-core", version.ref = "jediterm" }
+jediterm-ui = { module = "org.jetbrains.jediterm:jediterm-ui", version.ref = "jediterm" }
+pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref = "pty4j" }
 
 [plugins]
 composeHotReload = { id = "org.jetbrains.compose.hot-reload", version.ref = "composeHotReload" }

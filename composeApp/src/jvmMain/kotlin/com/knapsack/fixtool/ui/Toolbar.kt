@@ -61,6 +61,8 @@ fun Toolbar(
     onOpenHelp: (() -> Unit)? = null,
     onOpenScenarios: (() -> Unit)? = null,
     onCaptureScenario: (() -> Unit)? = null,
+    showTerminal: Boolean = false,
+    onToggleTerminal: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -317,6 +319,25 @@ fun Toolbar(
             Spacer(modifier = Modifier.width(8.dp))
         }
 
+        // Embedded terminal — a primary action, sat right of Quick Connect: opens a terminal where QA can
+        // run `claude` and watch it drive FixTool over MCP without leaving the app.
+        if (onToggleTerminal != null) {
+            TooltipIconButton(
+                tooltip = if (showTerminal) "Terminal (click to hide)" else "Terminal (click to show)",
+                onClick = onToggleTerminal,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Terminal,
+                    contentDescription = "Terminal",
+                    tint = toggleActiveColor(showTerminal, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
+                    modifier = tooltipIconModifier,
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
         // Capture scenario — turn the whole flow across all sessions into an editable scenario. It lives with the
         // other all-sessions *actions* (search / separator / clear), not the left pane-toggles: it is a one-shot
         // that opens the editor directly (curation is editing — there is no separate read-only review screen).
@@ -430,7 +451,9 @@ fun Toolbar(
                     imageVector =
                         when (globalSessionViewMode) {
                             FixMessageSession.ViewMode.RAW -> Icons.Default.Apps
-                            FixMessageSession.ViewMode.PARSED -> Icons.Default.Terminal
+                            // Subject (raw-text lines), not Terminal — the Terminal glyph now belongs to the
+                            // embedded terminal button; this "Terminal View" is really the raw FIX text view.
+                            FixMessageSession.ViewMode.PARSED -> Icons.Default.Subject
                         },
                     contentDescription = "Toggle View for All Sessions",
                     tint = AppTheme.Colors.textSecondary,

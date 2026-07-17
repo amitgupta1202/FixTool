@@ -23,6 +23,7 @@ import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
+import com.knapsack.fixtool.ui.terminal.TerminalController
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.slf4j.LoggerFactory
@@ -191,6 +192,8 @@ fun App(
                         onOpenHelp = { viewModel.toggleHelpDialog() },
                         onOpenScenarios = { viewModel.toggleScenariosRail() },
                         onCaptureScenario = { viewModel.captureAllSessionsToEditor() },
+                        showTerminal = TerminalController.visible,
+                        onToggleTerminal = { TerminalController.toggle() },
                     )
 
                     // Settings Dialog

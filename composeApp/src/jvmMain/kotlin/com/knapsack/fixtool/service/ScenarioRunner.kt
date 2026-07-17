@@ -9,6 +9,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.model.scenario.withIds
 
 /**
@@ -65,6 +66,13 @@ class ScenarioRunner(
     private val now: () -> Long = { System.currentTimeMillis() },
     /** Called when an Expect step binds to a live message, so the UI can tint that row green/red. */
     private val onExpectMatched: (FixMessage, StepResult) -> Unit = { _, _ -> },
+    /**
+     * How long a [TrafficMode.STRICT] run listens after its last main-phase step before judging that
+     * nothing else came. "The venue sent nothing extra" is a claim about time — the check can only ever
+     * mean "nothing extra by then" — and a check at the instant the last Expect binds would miss the
+     * surplus by racing it. The price is this much wall-clock on every strict run, green or red.
+     */
+    private val settleMs: Long = 1_000,
 ) {
     /**
      * [withIds] first, so every [StepResult] can name the step that produced it. It is deterministic, so
@@ -109,6 +117,14 @@ class ScenarioRunner(
                 results += r
                 if (!r.passed) break
             }
+        }
+        // The stream-level verdict, judged before teardown (whose own sends provoke traffic that is
+        // nobody's surplus) and only on a run that is otherwise green: after a failed step, every message
+        // its successors never got to bind is "unexpected", and a wall of strays pointing away from the
+        // real failure is worse than not judging. Skipped entirely under OPEN — no result row, because
+        // the check did not run, not because it passed.
+        if (scenario.traffic == TrafficMode.STRICT && results.all { it.passed }) {
+            results += trafficCheck(scenario, consumed)
         }
         for ((i, step) in scenario.teardown.withIndex()) {
             if (step.muted) continue
@@ -340,6 +356,51 @@ class ScenarioRunner(
         return result
     }
 
+    /**
+     * The [TrafficMode.STRICT] verdict: listens for [settleMs], then reports every incoming
+     * application-level message the run's Expects never bound — or one green row saying there were none.
+     * A green row, not silence: the run *checked* something here, and a report line is how it says so.
+     *
+     * Scope is the sessions the setup/steps phases touch (teardown's are not judged — its traffic happens
+     * after this verdict), deduplicated by message identity because `null` and a named session can be the
+     * same underlying tab. The verdict is a run-level claim, so like preflight it wears index -1 and no
+     * stepId — the rail names it by kind, and no reconcile route is offered for it (there is no
+     * expectation to repair; the fix is an Expect for the surplus, or [TrafficMode.OPEN]).
+     */
+    private fun trafficCheck(scenario: Scenario, consumed: Set<FixMessage>): StepResult {
+        val settled = now() + settleMs
+        while (now() < settled) host.sleep(pollMs)
+        val sessions = (scenario.setup + scenario.steps).filterNot { it.muted }.map { it.session }.distinct()
+        val strays = mutableListOf<FixMessage>()
+        val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
+        for (session in sessions) {
+            host.messages(session)
+                .filter { it.direction == FixMessage.Direction.INCOMING }
+                .filterNot { it in consumed || it.messageType in SESSION_ADMIN_TYPES }
+                .forEach { if (seen.add(it)) strays += it }
+        }
+        if (strays.isEmpty()) {
+            return StepResult(-1, "traffic", "steps", passed = true, detail = "no unexpected incoming messages (settled ${settleMs}ms)")
+        }
+        val listed = strays.take(MAX_LISTED_STRAYS).joinToString(", ") { it.messageType } +
+            (if (strays.size > MAX_LISTED_STRAYS) " +${strays.size - MAX_LISTED_STRAYS} more" else "")
+        val result = StepResult(
+            -1,
+            "traffic",
+            "steps",
+            passed = false,
+            detail =
+                "traffic is strict, and ${strays.size} incoming message(s) were never bound by any expect: " +
+                    "$listed. Every unbound message is marked in the grid. Add an expect for what the venue " +
+                    "now sends, or set the scenario's traffic back to open.",
+        )
+        // Through the SAME channel as an Expect verdict, for the same reason as the no-wire-bytes red:
+        // this is what tints the surplus in the grid. Without it the report says "3 unexpected messages"
+        // over a grid where nothing is marked, and the tester is left hunting for which three.
+        strays.forEach { onExpectMatched(it, result) }
+        return result
+    }
+
     /** Resolves `${...}` in the predicate's constraint values against the scenario scope. */
     private fun resolveMatch(predicate: MatchPredicate, session: String?, scope: Map<String, String>): MatchPredicate {
         if (predicate.fields.none { it.value.contains("\${") }) return predicate
@@ -415,4 +476,18 @@ class ScenarioRunner(
             "out", "outgoing" -> msg.direction == FixMessage.Direction.OUTGOING
             else -> true
         }
+
+    private companion object {
+        /**
+         * The envelope of the stream: session administration a venue may send any number of times without
+         * it meaning anything about the flow under test — the [TrafficMode.STRICT] counterpart of the
+         * header/trailer tags a STRICT expectation never counts as extras. Deliberately NOT here: Logout
+         * (5) and session Reject (3). A goodbye or a session-level refusal nobody asked for is exactly the
+         * surplus a strict run exists to report.
+         */
+        val SESSION_ADMIN_TYPES = setOf("0", "1", "2", "4", "A")
+
+        /** Strays named in the detail line before "+N more" — the grid marks every one regardless. */
+        const val MAX_LISTED_STRAYS = 6
+    }
 }

@@ -550,7 +550,10 @@ server.tool(
     "step. The idiom is 11=${clOrdId = uuid} in the send, then assert the echo with " +
     '{"type":"reference","expression":"${clOrdId}"}. The REVERSE (venue chooses the value): an ' +
     'expectation row may carry bindAs — {"tag":131,"matcher":{"type":"presence"},"bindAs":"qr"} ' +
-    "captures the paired value into the scope, and a later send echoes it with 131=${qr}. Call " +
+    'captures the paired value into the scope, and a later send echoes it with 131=${qr}. ' +
+    'traffic:"strict" additionally fails the run if, after the last step (plus a settle window), any ' +
+    'incoming application-level message was never bound by an expect — "the venue sent nothing else" ' +
+    '(session admin exempt; default "open" ignores unbound messages). Call ' +
     "fixtool_syntax for the full grammar, or fixtool_capture_scenario to record one that is already " +
     "correctly templated.",
   {
@@ -558,6 +561,10 @@ server.tool(
     id: z.string().optional().describe("existing scenario id to update"),
     profile: z.string().optional().describe("connection profile id/name this scenario targets"),
     userTags: z.array(z.string()).optional().describe("organising tags (also per-profile filtering)"),
+    traffic: z
+      .enum(["open", "strict"])
+      .optional()
+      .describe("stream-level mode: strict = no unbound incoming app messages; default open"),
     setup: z.array(z.record(z.any())).optional().describe("steps run before steps"),
     steps: z.array(z.record(z.any())).describe("the ordered steps"),
     teardown: z.array(z.record(z.any())).optional().describe("steps run after steps, even on failure"),

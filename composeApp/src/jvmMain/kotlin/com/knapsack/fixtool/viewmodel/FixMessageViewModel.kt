@@ -1394,6 +1394,16 @@ class FixMessageViewModel(
      */
     @Suppress("ReturnCount") // One guard per reason, each with its own sentence. Nesting them reads far worse.
     fun reconcileRoute(step: StepResult): ReconcileRoute {
+        // The strict-traffic verdict marks messages no Expect ever bound, so there is no expectation to
+        // open a diff against — the generic refusal below would be true but useless. Say what the mark
+        // means and what the two real fixes are.
+        if (step.kind == "traffic") {
+            return ReconcileRoute.Refused(
+                "This message arrived unexpectedly — the scenario's traffic is strict and no expect step " +
+                    "bound it. There is no assertion to reconcile: add an expect for it, or set the " +
+                    "scenario's traffic back to open.",
+            )
+        }
         if (!step.isEditableExpect()) {
             return ReconcileRoute.Refused(
                 "Only an Expect in the scenario's main steps can be reconciled — this failure is a " +

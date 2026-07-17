@@ -67,6 +67,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.ScenarioAnnotations
 import com.knapsack.fixtool.service.mintName
@@ -211,6 +212,7 @@ fun ScenarioEditor(
     modifier: Modifier = Modifier,
 ) {
     var name by remember { mutableStateOf(initial.name) }
+    var traffic by remember { mutableStateOf(initial.traffic) }
     val steps = remember { mutableStateListOf<EditStep>().apply { addAll(initial.steps.map { it.toEditStep() }) } }
     // A stable id per step. The detail editor seeds its drafts once per step and must not re-seed on
     // every keystroke, so it is keyed — but an index is not an identity: delete a step above the
@@ -223,7 +225,7 @@ fun ScenarioEditor(
     }
 
     val builtSteps = steps.map { it.toStep() }
-    val built = initial.copy(name = name, steps = builtSteps)
+    val built = initial.copy(name = name, steps = builtSteps, traffic = traffic)
     // By value, not by every recomposition: an untouched editor emits its seed once and then stays quiet.
     LaunchedEffect(built) { onChange(built) }
 
@@ -256,6 +258,7 @@ fun ScenarioEditor(
             SlimLabeled("Name", modifier = Modifier.padding(start = 16.dp)) {
                 SlimField(name, { name = it }, modifier = Modifier.width(280.dp).testTag("scenario-name"))
             }
+            TrafficChip(traffic, onToggle = { traffic = if (traffic == TrafficMode.OPEN) TrafficMode.STRICT else TrafficMode.OPEN })
             Row(modifier = Modifier.weight(1f)) {}
             // Setup used to stand on its own row below the header, spending a whole line on one quiet
             // sentence. It rides in the header's empty span now — a reclaimed line — beside Save, where
@@ -581,6 +584,42 @@ private fun QuietWord(text: String) {
 @Composable
 private fun SessionDot(color: androidx.compose.ui.graphics.Color) {
     Box(modifier = Modifier.size(7.dp).background(color, CircleShape))
+}
+
+/**
+ * The scenario's stream-level mode, worn (and toggled) in the editor header. The same STRICT/OPEN
+ * dress as the per-step [ModeChipMini] — deliberately, they are the same idea at two levels — with a
+ * "TRAFFIC" prefix so the header chip cannot be misread as some step's expectation mode.
+ */
+@Composable
+private fun TrafficChip(mode: TrafficMode, onToggle: () -> Unit) {
+    val strict = mode == TrafficMode.STRICT
+    val colour = if (strict) AppTheme.Colors.warning else AppTheme.Colors.info
+    AppTooltip(
+        if (strict) {
+            "Traffic is STRICT: after the last step (plus a 1s settle window) any incoming application " +
+                "message no expect bound fails the run. Session admin (heartbeats, test requests, logon) " +
+                "is exempt. Click for OPEN."
+        } else {
+            "Traffic is OPEN: incoming messages no expect binds are ignored — the venue may say more than " +
+                "the scenario checks. Click for STRICT, which also asserts the venue sent nothing else."
+        },
+    ) {
+        Text(
+            if (strict) "TRAFFIC STRICT" else "TRAFFIC OPEN",
+            color = colour,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+            modifier =
+                Modifier
+                    .padding(start = 12.dp)
+                    .border(1.dp, colour.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .testTag("traffic-mode-chip"),
+        )
+    }
 }
 
 /** The expectation's mode, worn as a chip beside the title — displayed here, edited in the diff. */

@@ -13,6 +13,7 @@ import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TemporalKind
+import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.model.scenario.validationError
 import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.Test
@@ -397,5 +398,37 @@ class ScenarioCodecTest {
         val step = ScenarioCodec.toJson(scenario)["steps"]!!.jsonArray.single().jsonObject
         assertNull(step["muted"], "the wire format is frozen except additively")
         assertFalse(ScenarioCodec.fromJson(ScenarioCodec.toJson(scenario)).steps.single().muted)
+    }
+
+    // ----- traffic -----------------------------------------------------------------------------------
+
+    @Test
+    fun `strict traffic round-trips through json`() {
+        val scenario =
+            Scenario(id = "sc-t", name = "n", steps = listOf(ScenarioStep.Send("35=D|", session = "s")), traffic = TrafficMode.STRICT)
+        val json = ScenarioCodec.toJson(scenario)
+        assertEquals("strict", json["traffic"]!!.jsonPrimitive.content)
+        assertEquals(TrafficMode.STRICT, ScenarioCodec.fromJson(json).traffic)
+    }
+
+    /** The stepId/origin/muted bargain again: a scenario that never went strict never grows the key. */
+    @Test
+    fun `open traffic writes no key, and an absent key reads open`() {
+        val scenario = Scenario(id = "sc-t", name = "n", steps = listOf(ScenarioStep.Send("35=D|", session = "s")))
+        assertNull(ScenarioCodec.toJson(scenario)["traffic"], "the wire format is frozen except additively")
+        val noKey = Json.parseToJsonElement("""{"id":"sc-t","name":"n"}""").jsonObject
+        assertEquals(TrafficMode.OPEN, ScenarioCodec.fromJson(noKey).traffic)
+    }
+
+    /**
+     * The `modeFrom` stance at the stream level: reading an unknown traffic mode as OPEN would be the
+     * quietest possible way to weaken a scenario — "and nothing else" silently stops being checked while
+     * every run keeps passing. So it fails the load, by name.
+     */
+    @Test
+    fun `a traffic mode the build does not know fails the load, by name`() {
+        val typo = Json.parseToJsonElement("""{"id":"sc-t","name":"n","traffic":"stric"}""").jsonObject
+        val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.fromJson(typo) }
+        assertTrue("stric" in why.message!!, "the refusal must name the mode it could not read: ${why.message}")
     }
 }

@@ -47,14 +47,27 @@ class FixDictionaryAdapter private constructor(
         }
 
     /**
-     * Checks if a field tag represents a group/repeating group
+     * Checks if a field tag represents a group/repeating group count field.
      * Note: QuickFIX requires message type to check groups, but for UI purposes
-     * we use a heuristic based on field name starting with "No"
+     * we use a heuristic based on field name starting with "No" — qualified by the
+     * field's declared type, because the name alone is not enough: `NotAffectedOrderID`,
+     * `NotifyBrokerOfCredit` and `NotionalPercentageOutstanding` all start with "No"
+     * and none of them counts anything. A count field is typed NUMINGROUP, or INT in
+     * the pre-4.3 dictionaries that predate the NUMINGROUP type; any other declared
+     * type vetoes the name. A field the dictionary names but does not type keeps the
+     * name's answer.
      */
     fun isGroupTag(tag: Int): Boolean {
         val fieldName = getFieldName(tag) ?: return false
         // Most FIX repeating group count fields start with "No" (e.g., NoMDEntries, NoPartyIDs)
-        return fieldName.startsWith("No", ignoreCase = false)
+        if (!fieldName.startsWith("No", ignoreCase = false)) return false
+        val type =
+            try {
+                dataDictionary?.getFieldType(tag) ?: transportDictionary?.getFieldType(tag)
+            } catch (e: Exception) {
+                null
+            }
+        return type == null || type == quickfix.FieldType.NUMINGROUP || type == quickfix.FieldType.INT
     }
 
     companion object {

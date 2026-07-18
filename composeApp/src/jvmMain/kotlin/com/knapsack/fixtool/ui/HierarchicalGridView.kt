@@ -257,7 +257,7 @@ fun HierarchicalGridView(
     val coroutineScope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
 
-    // Track which messages are expanded (key: message timestamp-index for uniqueness)
+    // Track which messages are expanded (key: AppMessage.uid — position-independent, see getMessageId)
     val expandedMessages = remember { mutableStateMapOf<String, Boolean>() }
 
     // Track which groups are expanded (key: "messageId_groupKey")
@@ -267,13 +267,16 @@ fun HierarchicalGridView(
     val selectedMessageIds = remember { mutableStateSetOf<String>() }
     var lastClickedIndex by remember { mutableStateOf<Int?>(null) }
 
-    // Helper function to get message ID
-    fun getMessageId(message: AppMessage, index: Int): String = "${message.timestamp}-$index"
+    // Helper function to get message ID.
+    // Keyed on the message's own identity, never its list position: the session list is a ring
+    // buffer, so an index-derived key changes for every surviving row once the buffer fills, which
+    // both thrashes LazyColumn and reattaches expansion/selection to the wrong messages.
+    fun getMessageId(message: AppMessage): String = message.uid.toString()
 
     // Helper to get selected FixMessages in order
     fun getSelectedFixMessages(): List<FixMessage> =
-        messages.mapIndexedNotNull { index, msg ->
-            if (msg is FixMessage && selectedMessageIds.contains(getMessageId(msg, index))) msg else null
+        messages.mapNotNull { msg ->
+            if (msg is FixMessage && selectedMessageIds.contains(getMessageId(msg))) msg else null
         }
 
     // Clear multi-selection
@@ -299,7 +302,7 @@ fun HierarchicalGridView(
 
         messages.forEachIndexed { index, message ->
             if (message is FixMessage && index in range) {
-                val messageId = getMessageId(message, index)
+                val messageId = getMessageId(message)
                 selectedMessageIds.add(messageId)
             }
         }
@@ -341,9 +344,9 @@ fun HierarchicalGridView(
 
     // Select all messages
     fun selectAll() {
-        messages.forEachIndexed { index, message ->
+        messages.forEach { message ->
             if (message is FixMessage) {
-                selectedMessageIds.add(getMessageId(message, index))
+                selectedMessageIds.add(getMessageId(message))
             }
         }
     }
@@ -703,11 +706,13 @@ fun HierarchicalGridView(
                     ) {
                         // Checkbox column for Select All
                         val allFixMessages = messages.filterIsInstance<FixMessage>()
+                        // Identity-keyed, so no `messages.indexOf(msg)` per element: that was an O(N^2)
+                        // scan on every header recomposition, and it resolved by equality, so two
+                        // identical messages both reported the first one's index.
                         val allSelected =
                             allFixMessages.isNotEmpty() &&
                                 allFixMessages.all { msg ->
-                                    val idx = messages.indexOf(msg)
-                                    selectedMessageIds.contains(getMessageId(msg, idx))
+                                    selectedMessageIds.contains(getMessageId(msg))
                                 }
                         val someSelected = selectedMessageIds.isNotEmpty() && !allSelected
 
@@ -967,7 +972,7 @@ fun HierarchicalGridView(
                         contentPadding = PaddingValues(bottom = 16.dp),
                     ) {
                         messages.forEachIndexed { index, message ->
-                            val messageId = "${message.timestamp}-$index"
+                            val messageId = getMessageId(message)
                             val isExpanded = expandedMessages[messageId] ?: false
 
                             when (message) {

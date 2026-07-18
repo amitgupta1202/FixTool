@@ -397,9 +397,12 @@ fun HierarchicalGridView(
     // Auto-scroll state
     var autoScroll by remember { mutableStateOf(true) }
 
-    // Track if user is at the bottom
-    val isAtBottom by derivedStateOf {
-        !listState.canScrollForward
+    // Track if user is at the bottom.
+    // remember is load-bearing: without it a fresh DerivedState is allocated on every
+    // recomposition, so the caching derivedStateOf exists to provide never happens and the
+    // dependency on listState is re-subscribed each time.
+    val isAtBottom by remember(listState) {
+        derivedStateOf { !listState.canScrollForward }
     }
 
     // When a new message arrives, scroll to bottom if autoScroll is enabled
@@ -485,8 +488,7 @@ fun HierarchicalGridView(
         messages.filterIsInstance<FixMessage>().takeLast(100).forEach { msg ->
             when (columnKey) {
                 "Time" -> {
-                    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
-                    contentSamples.add(msg.timestamp.format(timeFormatter))
+                    contentSamples.add(msg.timestamp.format(GRID_TIME_FORMATTER))
                 }
 
                 "Dir" -> {} // Already handled above
@@ -1129,7 +1131,7 @@ fun MessageSummaryRow(
     // Match session coloring: blue for outgoing, red for incoming rejects, green for other incoming
     val directionColor = getDirectionColor(message, appSettings)
 
-    val timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+    val timeFormatter = GRID_TIME_FORMATTER
     val msgTypeDesc = dictionary.getFieldValueDescription(35, message.messageType) ?: message.messageType
 
     // Check if this message was recently sent (outgoing message within a few milliseconds of the sent timestamp)
@@ -1477,6 +1479,13 @@ fun MessageSummaryRow(
  * they differ; this alias is what the width arithmetic and its test read.
  */
 internal const val EXPANDED_GRID_INDENT_STEP = FixIndent.GRID_STEP
+
+/**
+ * Hoisted out of the row composable: this was allocated per visible row per recomposition, and
+ * `DateTimeFormatter.ofPattern` re-parses the pattern string on every call. The formatter is
+ * immutable and thread-safe, so one instance serves every row.
+ */
+private val GRID_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 
 private const val EXPANDED_GRID_CHAR_WIDTH = 7 // pixels per character approximately
 private const val EXPANDED_GRID_CELL_PADDING = 16

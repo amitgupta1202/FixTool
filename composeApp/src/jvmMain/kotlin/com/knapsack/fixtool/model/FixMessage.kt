@@ -3,11 +3,33 @@ package com.knapsack.fixtool.model
 import quickfix.Message
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicLong
 
 sealed class AppMessage(
     open val timestamp: LocalDateTime,
 ) {
+    /**
+     * Identity for UI keying — unique per instance, stable for the instance's whole life, and
+     * **independent of the message's position in any list**.
+     *
+     * The grid previously keyed rows on `"$timestamp-$index"`. The session list is a ring buffer
+     * (`FixMessageSession.addMessage` drops the head at `bufferSize`), so the moment the buffer is
+     * full every surviving message's index shifts by one and *every* key changes. That is not only a
+     * LazyColumn thrash — `expandedMessages` and `selectedMessageIds` are keyed by the same string,
+     * so expansion and selection silently reattach to whichever row inherited the old index.
+     * Timestamp alone is no better: two messages inside the same millisecond collide.
+     *
+     * Deliberately declared in the class body, not the constructor, so it stays out of the data
+     * subclasses' generated `equals`/`hashCode`/`copy`. Two messages with identical content must
+     * still compare equal — `message == selectedMessage` in the grid depends on it.
+     */
+    val uid: Long = nextUid.getAndIncrement()
+
     abstract fun toDisplayString(): String
+
+    private companion object {
+        val nextUid = AtomicLong(0L)
+    }
 }
 
 data class Separator(
@@ -59,7 +81,7 @@ data class FixMessage(
     }
 
     override fun toDisplayString(): String {
-        val time = timestamp.format(DateTimeFormatter.ofPattern("HH:mm:ss.SSS"))
+        val time = timestamp.format(DISPLAY_TIME_FORMAT)
         val dir = if (direction == Direction.INCOMING) "<<" else ">>"
         return "$time $dir [$messageType] $rawMessage"
     }
@@ -90,6 +112,12 @@ data class FixMessage(
         }
 
     companion object {
+        /**
+         * Hoisted: `toDisplayString` runs per visible row per frame, and once per message in every
+         * filter and search pass. `DateTimeFormatter.ofPattern` re-parses the pattern on each call.
+         */
+        private val DISPLAY_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+
         fun parseMessageType(raw: String): String {
             // Extract message type from tag 35
             // Match everything that is NOT a SOH character (\x01) or pipe (|)

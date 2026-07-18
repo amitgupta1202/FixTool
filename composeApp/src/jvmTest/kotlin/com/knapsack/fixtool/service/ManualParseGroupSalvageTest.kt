@@ -5,6 +5,7 @@ import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * A repeating group the dictionary does not define must survive the manual parse whole.
@@ -70,6 +71,47 @@ class ManualParseGroupSalvageTest {
 
         assertEquals("FIRMB", msg.getString(9001))
         assertEquals("4", msg.getString(9002))
+    }
+
+    /**
+     * A count of zero is a venue saying "no parties", and it must survive the parse.
+     *
+     * Only `addGroup` writes a group's count back onto the message, so a count that built no group
+     * was stepped over and never set — `453=0` arrived on the wire and left the parser having never
+     * existed, invisible in the pane whose whole job is showing what arrived.
+     */
+    @Test
+    fun `a group count of zero stays on the message`() {
+        val raw = "8=FIX.4.4|35=8|453=0|55=EURUSD|10=000|"
+
+        val msg = raw.toQuickFixMessageManual(dictionary())
+
+        assertTrue(msg.isSetField(453), "453=0 was on the wire and must still be on the message")
+        assertEquals("0", msg.getString(453))
+        assertEquals(0, msg.getGroupCount(453), "and it builds no entries")
+    }
+
+    /**
+     * A count that is not a number at all is a **defect**, and erasing it is the one thing this tool
+     * must not do — a venue sending `453=X` is exactly what an author is here to find.
+     */
+    @Test
+    fun `a malformed group count is preserved rather than erased`() {
+        val raw = "8=FIX.4.4|35=8|453=X|55=EURUSD|10=000|"
+
+        val msg = raw.toQuickFixMessageManual(dictionary())
+
+        assertEquals("X", msg.getString(453), "the venue's malformed count must reach the author intact")
+    }
+
+    /** A count the venue overstates is reported as the venue sent it, not corrected to what was found. */
+    @Test
+    fun `an overstated group count is not silently corrected`() {
+        val raw = "8=FIX.4.4|35=8|453=3|448=FIRMA|452=1|448=FIRMB|452=4|10=000|"
+
+        val msg = raw.toQuickFixMessageManual(dictionary())
+
+        assertEquals("3", msg.getString(453), "the wire said three; a tool that shows two has hidden the defect")
     }
 
     /**

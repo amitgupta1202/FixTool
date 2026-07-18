@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.service.groupCountSafe
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.time.format.DateTimeFormatter
 
@@ -525,7 +526,7 @@ private fun extractTopLevelFieldValue(message: FixMessage, tag: Int): String {
             // Check if it's a repeating group (we want to skip these)
             val groupCount =
                 try {
-                    qfMessage.getGroupCount(tag)
+                    qfMessage.groupCountSafe(tag)
                 } catch (e: Exception) {
                     0
                 }

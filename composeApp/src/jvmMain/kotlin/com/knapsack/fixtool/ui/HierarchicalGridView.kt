@@ -41,6 +41,7 @@ import com.knapsack.fixtool.model.AppMessage
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.Separator
+import com.knapsack.fixtool.service.groupCountSafe
 import kotlinx.coroutines.launch
 import quickfix.Field
 import quickfix.FieldMap
@@ -1510,7 +1511,7 @@ internal fun calculateExpandedGridWidths(
 
             val groupCount =
                 try {
-                    fieldMap.getGroupCount(tag)
+                    fieldMap.groupCountSafe(tag)
                 } catch (e: Exception) {
                     0 // Not a group
                 }
@@ -1626,7 +1627,7 @@ private fun LazyListScope.renderFieldMap(
 
         // Check if this is a repeating group
         try {
-            val groupCount = fieldMap.getGroupCount(tag)
+            val groupCount = fieldMap.groupCountSafe(tag)
             if (groupCount > 0) {
                 // This is a repeating group
                 val groupKey = "$parentKey/${tag}_$groupCount"
@@ -2149,7 +2150,7 @@ private fun extractTopLevelFieldValue(message: quickfix.Message, tag: Int): Stri
             // Check if it's a repeating group (we want to skip these)
             val groupCount =
                 try {
-                    message.getGroupCount(tag)
+                    message.groupCountSafe(tag)
                 } catch (e: Exception) {
                     0
                 }

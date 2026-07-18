@@ -21,11 +21,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.terminal.TerminalController
 import com.knapsack.fixtool.ui.terminal.TerminalDockSlot
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.slf4j.LoggerFactory
 import java.awt.Cursor
@@ -45,6 +48,14 @@ fun App(
             // Expose viewModel reference to parent
             LaunchedEffect(viewModel) {
                 onViewModelCreated(viewModel)
+            }
+
+            // Bring the Kotlin script engine up now, on a background thread, rather than leaving the
+            // first template expression to pay for it. That first eval costs ~1.4s and would
+            // otherwise freeze the window mid-use. Dispatchers.Default keeps it off the EDT, so it
+            // overlaps the rest of startup instead of blocking the first frame.
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.Default) { FixMessageTemplate.warmUp() }
             }
 
             // Initialize layout from settings

@@ -38,6 +38,7 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
+import com.knapsack.fixtool.service.compare.GroupOverlay
 import com.knapsack.fixtool.util.NotifyingLogger
 import java.awt.Cursor
 import java.awt.Toolkit
@@ -1975,175 +1976,44 @@ fun MessageEditorPanel(
 }
 
 /**
- * Calculate indent levels and instance transitions for all fields based on repeating group structure.
- * Returns a pair of lists: (indent levels, show instance header)
- * Show instance header is the instance number (1-based) if this field is the FIRST field of a new group instance.
+ * Indent level and instance number for every row, derived from [GroupOverlay] — the same
+ * dictionary-driven structure the reconcile diff bands, so the editor and the diff cannot disagree
+ * about where an entry begins. (This replaced a hand-rolled state machine that guessed each group's
+ * shape from its first instance: a single-instance group never finished "learning" and swallowed
+ * the rest of the body, an optional field present in only one instance truncated the group, and a
+ * sibling group after a one-instance group rendered as a nested one.)
  *
- * This follows the same logic as MessageDetailPanel:
- * - Group tags (NoXxx) define the start of a repeating group
- * - The value of the group tag indicates how many instances follow
- * - All fields in each instance get the same indent level
- * - The first field of each instance shows an instance header like [1], [2], etc.
- * - Nested groups (groups within groups) increase the indent level further
- * - When a tag doesn't fit the expected group pattern, we close the group
+ * A row's indent is the number of overlay entries containing it: a top-level field — and every
+ * group's count row — sits at 0, a party's fields at 1, a party's sub-ids at 2. The first row of an
+ * entry carries its 1-based instance number, which the row renders as `[n]`. Groups the dictionary
+ * defines are bracketed exactly (delimiter to delimiter, nested via each group's own scoped
+ * dictionary); groups it has never heard of fall back to the overlay's period-detection guess, flat.
+ *
+ * Rows the overlay cannot place — a blank row mid-edit, a non-numeric tag — inherit the indent above
+ * them rather than snapping to 0 under the author's cursor, and are invisible to the walk, so a
+ * half-typed row does not split the entry it sits in.
  */
-private fun calculateIndentLevels(fields: List<FixField>, dictionary: FixDictionary): Pair<List<Int>, List<Int?>> {
+internal fun calculateIndentLevels(fields: List<FixField>, dictionary: FixDictionary): Pair<List<Int>, List<Int?>> {
+    val numbered = fields.withIndex().mapNotNull { (row, f) -> f.tag.toIntOrNull()?.let { tag -> row to (tag to f.value) } }
+    val overlay =
+        GroupOverlay.build(
+            numbered.map { (_, field) -> field.first to field.second.takeIf { it.isNotBlank() } },
+            numbered.firstOrNull { it.second.first == 35 }?.second?.second,
+            dictionary,
+        )
+    val posOf = numbered.withIndex().associate { (pos, n) -> n.first to pos }
+
     val indentLevels = mutableListOf<Int>()
     val instanceNumbers = mutableListOf<Int?>()
-    var currentIndent = 0
-
-    // Stack of active groups: (groupTag, groupCount, fieldsPerInstance, currentInstance, groupFieldTags)
-    data class GroupState(
-        val groupTag: Int,
-        val totalInstances: Int,
-        var fieldsPerInstance: Int, // Number of fields in each group instance (learned from first instance)
-        var currentInstance: Int, // Which instance we're currently in (1-based)
-        var fieldsInCurrentInstance: Int, // How many fields we've seen in current instance
-        val groupFieldTags: MutableSet<Int>, // Tags that belong to this group (learned from first instance)
-    )
-
-    val groupStack = mutableListOf<GroupState>()
-
-    var i = 0
-    while (i < fields.size) {
-        val field = fields[i]
-        val tagInt = field.tag.toIntOrNull()
-
-        if (tagInt == null) {
-            indentLevels.add(currentIndent)
+    fields.indices.forEach { row ->
+        val pos = posOf[row]
+        if (pos == null) {
+            indentLevels.add(indentLevels.lastOrNull() ?: 0)
             instanceNumbers.add(null)
-            i++
-            continue
-        }
-
-        // Check if this is a group tag (NoXxx fields)
-        val isGroupTag = dictionary.isGroupTag(tagInt)
-
-        if (isGroupTag) {
-            val groupCount = field.value.toIntOrNull() ?: 0
-
-            // Add the group tag itself at current indent level (no instance number for group tags)
-            indentLevels.add(currentIndent)
-            instanceNumbers.add(null)
-
-            if (groupCount > 0) {
-                // Start a new group
-                val newGroup =
-                    GroupState(
-                        groupTag = tagInt,
-                        totalInstances = groupCount,
-                        fieldsPerInstance = -1, // Will be learned from first instance
-                        currentInstance = 1,
-                        fieldsInCurrentInstance = 0,
-                        groupFieldTags = mutableSetOf(),
-                    )
-                groupStack.add(newGroup)
-                currentIndent++
-            }
-
-            i++
-            continue
-        }
-
-        // Regular field - check if it belongs to an active group
-        if (groupStack.isNotEmpty()) {
-            val currentGroup = groupStack.last()
-
-            // Check if this is a structural/header field that should close all groups
-            val isStructuralField = tagInt in setOf(8, 9, 35, 49, 56, 34, 52, 10)
-
-            if (isStructuralField) {
-                // Close all groups and add this field at indent 0
-                groupStack.clear()
-                currentIndent = 0
-                indentLevels.add(0)
-                instanceNumbers.add(null)
-                i++
-                continue
-            }
-
-            // Check if this field belongs to the current group
-            val belongsToGroup =
-                if (currentGroup.fieldsPerInstance == -1) {
-                    // Still learning the first instance - accept any non-group, non-structural field
-                    true
-                } else {
-                    // We know the group structure - check if this tag is in the expected set
-                    tagInt in currentGroup.groupFieldTags
-                }
-
-            if (belongsToGroup) {
-                // This field is part of the current group instance
-                indentLevels.add(currentIndent)
-
-                // Only show instance number on the FIRST field of each instance
-                val isFirstFieldOfInstance = currentGroup.fieldsInCurrentInstance == 0
-                instanceNumbers.add(if (isFirstFieldOfInstance) currentGroup.currentInstance else null)
-
-                // Track this tag for the group
-                if (currentGroup.fieldsPerInstance == -1) {
-                    currentGroup.groupFieldTags.add(tagInt)
-                }
-
-                currentGroup.fieldsInCurrentInstance++
-
-                // Check if we've completed the first instance (learning phase)
-                if (currentGroup.fieldsPerInstance == -1) {
-                    // Look ahead to see if the next field starts a new instance or exits the group
-                    if (i + 1 < fields.size) {
-                        val nextField = fields[i + 1]
-                        val nextTagInt = nextField.tag.toIntOrNull()
-
-                        if (nextTagInt != null) {
-                            // If next tag is in our group tags or is a new group tag, we've learned the pattern
-                            val nextIsInGroup = nextTagInt in currentGroup.groupFieldTags
-                            val nextIsGroupTag = dictionary.isGroupTag(nextTagInt)
-                            val nextIsStructural = nextTagInt in setOf(8, 9, 35, 49, 56, 34, 52, 10)
-
-                            if (nextIsInGroup || nextIsGroupTag || nextIsStructural) {
-                                // We've seen all fields in the first instance
-                                currentGroup.fieldsPerInstance = currentGroup.fieldsInCurrentInstance
-                                currentGroup.currentInstance = 2
-                                currentGroup.fieldsInCurrentInstance = 0
-                            }
-                        } else if (i + 1 == fields.size) {
-                            // Last field in the list - finalize first instance
-                            currentGroup.fieldsPerInstance = currentGroup.fieldsInCurrentInstance
-                        }
-                    } else {
-                        // Last field in the list
-                        currentGroup.fieldsPerInstance = currentGroup.fieldsInCurrentInstance
-                    }
-                } else {
-                    // Check if we've completed an instance
-                    if (currentGroup.fieldsInCurrentInstance >= currentGroup.fieldsPerInstance) {
-                        currentGroup.currentInstance++
-                        currentGroup.fieldsInCurrentInstance = 0
-
-                        // Check if we've completed all instances
-                        if (currentGroup.currentInstance > currentGroup.totalInstances) {
-                            // Group is complete - pop it from the stack
-                            groupStack.removeLast()
-                            currentIndent--
-                        }
-                    }
-                }
-
-                i++
-                continue
-            } else {
-                // This field doesn't belong to the current group
-                // Close the current group and try again
-                groupStack.removeLast()
-                currentIndent--
-                // Don't increment i - re-process this field with the new state
-                continue
-            }
         } else {
-            // No active group - add at indent level 0
-            indentLevels.add(0)
-            instanceNumbers.add(null)
-            i++
+            indentLevels.add(overlay.entries.count { pos in it.rows })
+            val entry = overlay.entryAt(pos)
+            instanceNumbers.add(if (entry != null && entry.rows.first == pos) entry.entryIndex + 1 else null)
         }
     }
 

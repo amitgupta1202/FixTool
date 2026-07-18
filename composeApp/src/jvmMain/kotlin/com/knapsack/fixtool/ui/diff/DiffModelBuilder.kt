@@ -102,7 +102,8 @@ internal fun buildDiffModel(
  */
 private fun itemsOf(lines: List<DiffLine>, overlay: GroupOverlay, referenceOverlay: GroupOverlay): List<DiffItem> {
     val hues = overlay.entries.withIndex().associate { (i, e) -> e to i }
-    val depths = overlay.entries.associateWith { e -> overlay.entries.count { e.rows.first in it.rows } }
+    // Depth is the overlay's own answer — see GroupOverlay.depthAt, the one definition every surface reads.
+    val depths = overlay.entries.associateWith { overlay.depthOf(it) }
 
     // **A wire-only line inside an entry does not break its band.**
     //

@@ -2011,9 +2011,8 @@ internal fun calculateIndentLevels(fields: List<FixField>, dictionary: FixDictio
             indentLevels.add(indentLevels.lastOrNull() ?: 0)
             instanceNumbers.add(null)
         } else {
-            indentLevels.add(overlay.entries.count { pos in it.rows })
-            val entry = overlay.entryAt(pos)
-            instanceNumbers.add(if (entry != null && entry.rows.first == pos) entry.entryIndex + 1 else null)
+            indentLevels.add(overlay.depthAt(pos))
+            instanceNumbers.add(overlay.entryOpenedAt(pos)?.let { it.entryIndex + 1 })
         }
     }
 
@@ -2086,7 +2085,7 @@ private fun FieldEditorRow(
                     Modifier
                         .fillMaxWidth()
                         .background(AppTheme.Colors.surfaceHeader)
-                        .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                        .padding(start = FixIndent.start(indentLevel, FixIndent.DETAIL_STEP, FixIndent.DETAIL_BASE), end = 8.dp, top = 4.dp, bottom = 4.dp),
             ) {
                 Text(
                     text = "[$instanceNumber]",
@@ -2122,7 +2121,7 @@ private fun FieldEditorRow(
         ) {
             // Add indent spacing before everything (including eye icon)
             if (indentLevel > 0) {
-                Spacer(modifier = Modifier.width((indentLevel * 8).dp))
+                Spacer(modifier = Modifier.width(FixIndent.start(indentLevel, FixIndent.DETAIL_STEP)))
             }
 
             // Eye icon to toggle exclusion (or show managed status)

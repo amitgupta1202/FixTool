@@ -33,6 +33,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TemporalKind
+import com.knapsack.fixtool.service.ScenarioAnnotations
 
 /**
  * Shared visual vocabulary of the Scenarios workbench: session color badges, direction glyphs,
@@ -163,28 +164,98 @@ fun DirectionGlyph(outgoing: Boolean, modifier: Modifier = Modifier) {
  * A correlation-variable badge: filled when this step *mints* the id, outlined-ish (dimmed) when it
  * *reuses/checks* it. The same id keeps the same color everywhere it appears — that continuity is
  * what makes cross-session correlation visible.
+ *
+ * The glyph alone is undiscoverable — ● and ○ are learnable only once someone tells you — so a badge
+ * with a [tooltip] says the thing in words, and says it as the *cross-reference* (which other step is
+ * the counterpart), which is the question a reader has when they are about to delete or mute a step.
  */
 @Composable
-fun VarBadge(name: String, color: Color, minted: Boolean, modifier: Modifier = Modifier) {
-    Text(
-        text = if (minted) "●$name" else "○$name",
-        color = color,
-        fontSize = 10.sp,
-        fontFamily = FontFamily.Monospace,
-        fontWeight = if (minted) FontWeight.Bold else FontWeight.Normal,
-        modifier = modifier
-            .clip(RoundedCornerShape(3.dp))
-            .background(AppTheme.Colors.surfaceHeader)
-            .padding(horizontal = 4.dp, vertical = 1.dp),
-    )
+fun VarBadge(name: String, color: Color, minted: Boolean, tooltip: String = "", modifier: Modifier = Modifier) {
+    val badge =
+        @Composable {
+            Text(
+                text = if (minted) "●$name" else "○$name",
+                color = color,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = if (minted) FontWeight.Bold else FontWeight.Normal,
+                modifier = (if (tooltip.isBlank()) modifier else Modifier)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(AppTheme.Colors.surfaceHeader)
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
+            )
+        }
+    if (tooltip.isBlank()) badge() else AppTooltip(tooltip, modifier = modifier) { badge() }
 }
 
-/** The badges for one step: minted ids first (filled), then referenced ids (hollow). */
+/**
+ * The words behind one badge's glyph, as a cross-reference to the counterpart step. A minted badge
+ * names who reads the value; a referencing badge names who writes it — including the case where the
+ * only writer is parked, which is the same leaves-a-literal hazard the variables strip warns about.
+ */
+fun varBadgeTooltip(name: String, minted: Boolean, sites: ScenarioAnnotations.VarSites?): String {
+    fun steps(indices: List<Int>) = indices.joinToString(", ") { "${it + 1}" }
+    val readers = sites?.referencedAt.orEmpty()
+    val writers = sites?.mintedAt.orEmpty()
+    return if (minted) {
+        val mints =
+            if (sites?.mintedFromReply == true) {
+                "Mints \${$name} from the venue's reply — the value is captured off the incoming message."
+            } else {
+                "Mints \${$name} — the value is captured here and put on the wire."
+            }
+        val used =
+            if (readers.isEmpty()) {
+                " Nothing references it yet."
+            } else {
+                " Referenced by step${if (readers.size > 1) "s" else ""} ${steps(readers)}."
+            }
+        mints + used
+    } else {
+        when {
+            writers.isEmpty() ->
+                "References \${$name}, which no step mints — the engine leaves the literal \${$name} on the wire."
+            sites?.allMintsMuted == true ->
+                "References \${$name}, but its only mint (step${if (writers.size > 1) "s" else ""} ${steps(writers)}) is " +
+                    "muted — the mint never runs, so this ships the literal \${$name} on the wire."
+            else ->
+                "References \${$name}, minted at step${if (writers.size > 1) "s" else ""} ${steps(writers)}. " +
+                    "Delete or mute that step and this reference ships the literal \${$name} on the wire."
+        }
+    }
+}
+
+/**
+ * The badges for one step: minted ids first (filled), then referenced ids (hollow). Pass [sites] to
+ * give each badge its cross-reference tooltip; without it the badges are silent, as they were.
+ */
 @Composable
-fun VarBadges(minted: List<String>, referenced: List<String>, colors: Map<String, Color>, modifier: Modifier = Modifier) {
+fun VarBadges(
+    minted: List<String>,
+    referenced: List<String>,
+    colors: Map<String, Color>,
+    sites: Map<String, ScenarioAnnotations.VarSites> = emptyMap(),
+    modifier: Modifier = Modifier,
+) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        minted.forEach { VarBadge(it, colors[it] ?: AppTheme.Colors.primary, minted = true, modifier = Modifier.padding(end = 3.dp)) }
-        referenced.forEach { VarBadge(it, colors[it] ?: AppTheme.Colors.primary, minted = false, modifier = Modifier.padding(end = 3.dp)) }
+        minted.forEach {
+            VarBadge(
+                it,
+                colors[it] ?: AppTheme.Colors.primary,
+                minted = true,
+                tooltip = sites[it]?.let { s -> varBadgeTooltip(it, minted = true, sites = s) }.orEmpty(),
+                modifier = Modifier.padding(end = 3.dp),
+            )
+        }
+        referenced.forEach {
+            VarBadge(
+                it,
+                colors[it] ?: AppTheme.Colors.primary,
+                minted = false,
+                tooltip = sites[it]?.let { s -> varBadgeTooltip(it, minted = false, sites = s) }.orEmpty(),
+                modifier = Modifier.padding(end = 3.dp),
+            )
+        }
     }
 }
 

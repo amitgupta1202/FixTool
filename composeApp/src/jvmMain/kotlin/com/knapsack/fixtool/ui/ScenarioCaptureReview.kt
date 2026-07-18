@@ -89,6 +89,19 @@ fun ScenarioCaptureReview(
             ScenarioCapture.captureFrom("preview", "preview", null, selection, dictionary).steps
         }
     val stepVars = remember(previewSteps) { ScenarioAnnotations.annotate(previewSteps) }
+    // The badge tooltips cite row numbers, and here a row is not its step: excluded and undirected rows
+    // make no step at all. Translate the step-indexed sites onto the rows the reader is looking at, or a
+    // tooltip would point at some other candidate entirely.
+    val varSites =
+        remember(previewSteps, state.included) {
+            val rowOfStep = candidates.indices.filter { state.includes(it) && candidates[it].direction != null }
+            ScenarioAnnotations.sites(previewSteps).mapValues { (_, sites) ->
+                sites.copy(
+                    mintedAt = sites.mintedAt.mapNotNull { rowOfStep.getOrNull(it) },
+                    referencedAt = sites.referencedAt.mapNotNull { rowOfStep.getOrNull(it) },
+                )
+            }
+        }
     val varColors = varColorMap(stepVars.flatMap { it.minted })
     val sessionColors = sessionColorMap(candidates.map { it.session })
 
@@ -200,6 +213,7 @@ fun ScenarioCaptureReview(
                         // An undirected row makes no step yet, so it has no vars — and the step indices below it
                         // have not shifted, because captureFrom skips it too.
                         vars = if (isIncluded && candidate.direction != null) stepVars.getOrNull(stepIndexOf(i)) else null,
+                        varSites = varSites,
                         varColors = varColors,
                         onToggle = { include(i, it) },
                         onSelect = { select(i) },
@@ -262,6 +276,7 @@ private fun CandidateRow(
     selected: Boolean,
     sessionColor: androidx.compose.ui.graphics.Color,
     vars: ScenarioAnnotations.StepVars?,
+    varSites: Map<String, ScenarioAnnotations.VarSites>,
     varColors: Map<String, androidx.compose.ui.graphics.Color>,
     onToggle: (Boolean) -> Unit,
     onSelect: () -> Unit,
@@ -303,7 +318,7 @@ private fun CandidateRow(
             )
         }
         if (vars != null) {
-            VarBadges(vars.minted, vars.referenced, varColors, modifier = Modifier.padding(start = 8.dp))
+            VarBadges(vars.minted, vars.referenced, varColors, varSites, modifier = Modifier.padding(start = 8.dp))
         }
         Row(modifier = Modifier.weight(1f)) {}
         Text(candidate.timestamp.format(TIME_FMT), color = AppTheme.Colors.textDisabled, fontSize = 10.sp, fontFamily = FontFamily.Monospace)

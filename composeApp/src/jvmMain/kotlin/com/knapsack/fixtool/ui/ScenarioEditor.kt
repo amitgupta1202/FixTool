@@ -233,6 +233,7 @@ fun ScenarioEditor(
     LaunchedEffect(built) { onChange(built) }
 
     val stepVars = ScenarioAnnotations.annotate(builtSteps)
+    val varSites = ScenarioAnnotations.sites(builtSteps)
     val varColors = varColorMap(stepVars.flatMap { it.minted })
     val sessionColors = sessionColorMap(steps.mapNotNull { it.session } + sessionOptions)
 
@@ -348,6 +349,7 @@ fun ScenarioEditor(
                             selected = i == selectedIdx,
                             sessionColor = sessionColors[step.session] ?: AppTheme.Colors.textDisabled,
                             vars = stepVars.getOrNull(i),
+                            varSites = varSites,
                             varColors = varColors,
                             canMoveUp = i > 0,
                             canMoveDown = i < steps.size - 1,
@@ -450,6 +452,7 @@ private fun StepRow(
     selected: Boolean,
     sessionColor: androidx.compose.ui.graphics.Color,
     vars: ScenarioAnnotations.StepVars?,
+    varSites: Map<String, ScenarioAnnotations.VarSites>,
     varColors: Map<String, androidx.compose.ui.graphics.Color>,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
@@ -485,7 +488,7 @@ private fun StepRow(
             maxLines = 1,
         )
         if (step.muted) MutedChip()
-        if (vars != null) VarBadges(vars.minted, vars.referenced, varColors, modifier = Modifier.padding(start = 8.dp))
+        if (vars != null) VarBadges(vars.minted, vars.referenced, varColors, varSites, modifier = Modifier.padding(start = 8.dp))
         Row(modifier = Modifier.weight(1f)) {}
         TooltipIconButton(
             tooltip = if (step.muted) "Unmute — the runner executes this step again" else "Mute — keep the step, but skip it on every run",

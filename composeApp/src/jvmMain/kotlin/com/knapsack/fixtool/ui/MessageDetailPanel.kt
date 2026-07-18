@@ -43,6 +43,7 @@ import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.groupCountSafe
 import quickfix.Field
 import quickfix.FieldMap
 import java.awt.Cursor
@@ -962,7 +963,7 @@ private fun LazyListScope.renderFieldMap(
 
         // Check if this is a repeating group
         try {
-            val groupCount = fieldMap.getGroupCount(tag)
+            val groupCount = fieldMap.groupCountSafe(tag)
             if (groupCount > 0) {
                 // This is a repeating group count field
                 val groupKey =
@@ -1382,7 +1383,7 @@ private fun LazyListScope.renderIdentityInstance(
 /** Returns the repeating-group count for [tag] in [fieldMap], or 0 when [tag] is not a group. */
 private fun groupCountOrZero(fieldMap: FieldMap, tag: Int): Int =
     try {
-        fieldMap.getGroupCount(tag)
+        fieldMap.groupCountSafe(tag)
     } catch (e: Exception) {
         0
     }
@@ -1564,7 +1565,7 @@ private fun fieldMapMatchesSearch(
 
         // Check if this is a nested group and any of its children match
         try {
-            val groupCount = fieldMap.getGroupCount(tag)
+            val groupCount = fieldMap.groupCountSafe(tag)
             if (groupCount > 0) {
                 if (groupMatchesSearch(
                         fieldMap = fieldMap,
@@ -1616,7 +1617,7 @@ private fun collectGroupKeysFromFieldMap(
         val tag = field.tag
 
         try {
-            val groupCount = fieldMap.getGroupCount(tag)
+            val groupCount = fieldMap.groupCountSafe(tag)
             if (groupCount > 0) {
                 val groupKey =
                     if (parentKey.isEmpty()) {

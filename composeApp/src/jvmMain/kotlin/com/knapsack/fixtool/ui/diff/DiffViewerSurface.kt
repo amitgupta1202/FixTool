@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.service.compare.ChunkKind
 import com.knapsack.fixtool.ui.AppTheme
+import com.knapsack.fixtool.ui.FixIndent
 
 /**
  * **The plain diff viewer — the same two-sided diff as [DiffSurface], with the writing removed.**
@@ -354,7 +355,7 @@ private fun ViewerRow(line: DiffLine, depth: Int, session: DiffViewerSession) {
                 .padding(horizontal = ROW_PADDING, vertical = 2.dp)
                 .testTag("diff-viewer-row"),
     ) {
-        Box(modifier = Modifier.weight(LEFT_WEIGHT).padding(start = (depth * 10).dp)) {
+        Box(modifier = Modifier.weight(LEFT_WEIGHT).padding(start = FixIndent.start(depth, FixIndent.DIFF_STEP))) {
             val a = line.leftField(session.dictionary)
             // A ghost's field is in BOTH messages — A merely carries it somewhere else, on the line that
             // reports the move. "only in B" would claim A never sent it, two lines from where A did.
@@ -422,7 +423,7 @@ private fun ViewerBand(band: DiffItem.Band) {
             Modifier
                 .fillMaxWidth()
                 .background(fill)
-                .padding(start = (band.depth * 10).dp)
+                .padding(start = FixIndent.start(band.depth, FixIndent.DIFF_STEP))
                 .padding(horizontal = ROW_PADDING, vertical = 2.dp)
                 .testTag(if (band.moved) "viewer-moved-band" else "viewer-entry-band"),
     ) {

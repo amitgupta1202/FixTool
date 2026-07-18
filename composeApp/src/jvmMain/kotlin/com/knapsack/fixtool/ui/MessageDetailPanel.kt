@@ -656,7 +656,7 @@ private fun FieldRow(
                     } else {
                         mod
                     }
-                }.padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                }.padding(start = FixIndent.start(indentLevel, FixIndent.DETAIL_STEP, FixIndent.DETAIL_BASE), end = 8.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = if (isExpanded) Alignment.Top else Alignment.CenterVertically,
     ) {
         // Tag number
@@ -755,7 +755,7 @@ private fun FieldRow(
             color = AppTheme.Colors.error,
             fontSize = 10.sp,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.fillMaxWidth().padding(start = (8 + indentLevel * 8 + 39).dp, end = 8.dp, bottom = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = FixIndent.start(indentLevel, FixIndent.DETAIL_STEP, FixIndent.DETAIL_BASE + 39), end = 8.dp, bottom = 4.dp),
         )
     }
     }
@@ -801,7 +801,7 @@ private fun GroupHeaderRow(
                 .fillMaxWidth()
                 .background(groupHeaderBackgroundColor)
                 .clickable { onToggle() }
-                .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = FixIndent.start(indentLevel, FixIndent.DETAIL_STEP, FixIndent.DETAIL_BASE), end = 8.dp, top = 6.dp, bottom = 6.dp),
     ) {
         // Tag number (aligned with FieldRow tag column)
         Text(
@@ -844,7 +844,7 @@ private fun GroupInstanceHeader(
             Modifier
                 .fillMaxWidth()
                 .background(groupInstanceBackgroundColor)
-                .padding(start = (8 + indentLevel * 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                .padding(start = FixIndent.start(indentLevel, FixIndent.DETAIL_STEP, FixIndent.DETAIL_BASE), end = 8.dp, top = 4.dp, bottom = 4.dp),
     ) {
         Text(
             text = "[$instanceNumber]",

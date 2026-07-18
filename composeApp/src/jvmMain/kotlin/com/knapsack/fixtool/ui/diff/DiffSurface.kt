@@ -66,6 +66,7 @@ import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.compare.ChunkKind
 import com.knapsack.fixtool.service.compare.EntrySource
 import com.knapsack.fixtool.service.compare.ReferenceMessage
+import com.knapsack.fixtool.ui.FixIndent
 import com.knapsack.fixtool.ui.SlimField
 import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.service.compare.ReferenceOption
@@ -876,7 +877,7 @@ private fun EntryBand(
                 .background(
                     fill,
                 ).selectable(onSelect)
-                .padding(start = (band.depth * 10).dp)
+                .padding(start = FixIndent.start(band.depth, FixIndent.DIFF_STEP))
                 .padding(horizontal = ROW_PADDING, vertical = 2.dp)
                 .testTag(if (band.moved) "moved-band" else "entry-band"),
     ) {
@@ -1009,7 +1010,7 @@ private fun DiffRow(
 @Composable
 private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, handlers: DragHandlers) {
     if (line.leftIsGap) {
-        Row(modifier = Modifier.fillMaxWidth().background(DiffPalette.gap).padding(start = (depth * 10).dp)) {
+        Row(modifier = Modifier.fillMaxWidth().background(DiffPalette.gap).padding(start = FixIndent.start(depth, FixIndent.DIFF_STEP))) {
             // A ghost's gap carries the engine's own note — "asserted, but not in this position" — the
             // mirror of the moved row's right-hand "present in the reply — but not in this position", in the
             // same amber, so the two ends of one move read as one story. "not asserted" here would accuse the
@@ -1026,7 +1027,7 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, hand
     }
     val row = line.row
     val index = row.index
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = (depth * 10).dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = FixIndent.start(depth, FixIndent.DIFF_STEP))) {
         // Every row of the expectation is draggable, and every drop is put to the engine. A row that may not
         // go where it was dropped is refused *there*, with the reason at the cursor — not by a handle that
         // was never drawn, which would leave the author to work out for themselves that it could not be done.

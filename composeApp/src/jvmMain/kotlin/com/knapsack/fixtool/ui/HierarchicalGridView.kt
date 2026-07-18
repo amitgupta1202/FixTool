@@ -1457,8 +1457,12 @@ fun MessageSummaryRow(
     }
 }
 
-/** Horizontal offset the expanded grid adds to a row's Tag cell for each level of group nesting. */
-internal const val EXPANDED_GRID_INDENT_STEP = 16
+/**
+ * Horizontal offset the expanded grid adds to a row's Tag cell for each level of group nesting.
+ * The value lives in [FixIndent], with the other surfaces' steps beside it and the note on why
+ * they differ; this alias is what the width arithmetic and its test read.
+ */
+internal const val EXPANDED_GRID_INDENT_STEP = FixIndent.GRID_STEP
 
 private const val EXPANDED_GRID_CHAR_WIDTH = 7 // pixels per character approximately
 private const val EXPANDED_GRID_CELL_PADDING = 16
@@ -1492,7 +1496,7 @@ internal fun calculateExpandedGridWidths(
         fieldMap: FieldMap,
         indentLevel: Int,
     ) {
-        val indent = indentLevel * EXPANDED_GRID_INDENT_STEP
+        val indent = FixIndent.startValue(indentLevel, FixIndent.GRID_STEP)
         val iterator = fieldMap.iterator()
         while (iterator.hasNext()) {
             @Suppress("UNCHECKED_CAST")
@@ -1721,7 +1725,7 @@ private fun HierarchicalFieldRow(
     val rawValueDesc = dictionary.getFieldValueDescription(tag, value)
     // Only show value description if it differs from the value
     val valueDesc = if (rawValueDesc != null && rawValueDesc != value) rawValueDesc else ""
-    val indent = (indentLevel * EXPANDED_GRID_INDENT_STEP).dp
+    val indent = FixIndent.start(indentLevel, FixIndent.GRID_STEP)
 
     val totalWidth =
         (columnWidths["IconColumn"] ?: 40.dp) +
@@ -1922,7 +1926,7 @@ private fun HierarchicalGroupHeaderRow(
     columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
 ) {
     val fieldName = dictionary.getFieldName(tag) ?: tag.toString()
-    val indent = (indentLevel * EXPANDED_GRID_INDENT_STEP).dp
+    val indent = FixIndent.start(indentLevel, FixIndent.GRID_STEP)
 
     val totalWidth =
         (columnWidths["IconColumn"] ?: 40.dp) +
@@ -2068,7 +2072,7 @@ private fun HierarchicalGroupInstanceHeader(
     indentLevel: Int,
     columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
 ) {
-    val indent = (indentLevel * EXPANDED_GRID_INDENT_STEP).dp
+    val indent = FixIndent.start(indentLevel, FixIndent.GRID_STEP)
 
     val totalWidth =
         (columnWidths["IconColumn"] ?: 40.dp) +

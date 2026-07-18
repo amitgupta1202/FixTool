@@ -130,40 +130,62 @@ class ScenarioAnnotationsTest {
         )
         val sites = ScenarioAnnotations.sites(steps).getValue("id0")
         assertEquals(listOf(0), sites.mintedAt)
+        assertEquals(emptyList(), sites.capturedAt)
         assertEquals(listOf(1, 2), sites.referencedAt)
-        assertEquals(false, sites.mintedFromReply)
-        assertEquals(false, sites.allMintsMuted)
+        assertEquals(false, sites.allWritesMuted)
     }
 
-    /** A `bindAs` mint is captured off the reply, and the tooltip has to say so — a Send mint is not. */
+    /**
+     * The two ways a variable gets a value are different acts, and the badges now say so: a Send mints
+     * a value we chose, an Expect's `bindAs` captures one the venue chose. Same name, opposite origin.
+     */
     @Test
-    fun `sites distinguishes a reply-side mint from a wire-side one`() {
+    fun `sites separates a captured write from a minted one`() {
         val steps = listOf(
             ScenarioStep.Expect(
                 expectation = Expectation(fields = listOf(FieldExpectation(131, Matcher.Presence, bindAs = "qr")), messageType = "R"),
             ),
             ScenarioStep.Send("35=S|131=\${qr}|", "A"),
         )
-        assertEquals(true, ScenarioAnnotations.sites(steps).getValue("qr").mintedFromReply)
+        val sites = ScenarioAnnotations.sites(steps).getValue("qr")
+        assertEquals(emptyList(), sites.mintedAt)
+        assertEquals(listOf(0), sites.capturedAt)
+        assertEquals(listOf(0), sites.writtenAt)
+    }
+
+    /** A step's writes are all one kind, so the badge row needs one flag — and an Expect that captures nothing does not get it. */
+    @Test
+    fun `annotate marks a capturing step's writes as reply-side, and only a capturing step's`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A"),
+            ScenarioStep.Expect(
+                expectation = Expectation(fields = listOf(FieldExpectation(131, Matcher.Presence, bindAs = "qr")), messageType = "R"),
+            ),
+            expect(FieldExpectation(11, Matcher.Reference("\${id0}"))),
+        )
+        val vars = ScenarioAnnotations.annotate(steps)
+        assertEquals(false, vars[0].fromReply)
+        assertEquals(true, vars[1].fromReply)
+        assertEquals(false, vars[2].fromReply)
     }
 
     /**
-     * A name whose every mint is parked does not get minted on a run, so a live reference to it ships
+     * A name whose every write is parked does not get written on a run, so a live reference to it ships
      * the literal — the same judgement the variables strip makes, available to the badge that sits on
      * the referencing step.
      */
     @Test
-    fun `sites flags a name whose only mint is muted`() {
+    fun `sites flags a name whose only write is muted`() {
         val steps = listOf(
             ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A", muted = true),
             ScenarioStep.Send("35=F|41=\${id0}|", "A"),
         )
-        assertEquals(true, ScenarioAnnotations.sites(steps).getValue("id0").allMintsMuted)
+        assertEquals(true, ScenarioAnnotations.sites(steps).getValue("id0").allWritesMuted)
     }
 
-    /** One live mint is enough: a second, parked mint of the same name does not make it a hazard. */
+    /** One live write is enough: a second, parked write of the same name does not make it a hazard. */
     @Test
-    fun `sites does not flag a name that keeps one live mint`() {
+    fun `sites does not flag a name that keeps one live write`() {
         val steps = listOf(
             ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A", muted = true),
             ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A"),
@@ -171,15 +193,30 @@ class ScenarioAnnotationsTest {
         )
         val sites = ScenarioAnnotations.sites(steps).getValue("id0")
         assertEquals(listOf(0, 1), sites.mintedAt)
-        assertEquals(false, sites.allMintsMuted)
+        assertEquals(false, sites.allWritesMuted)
     }
 
-    /** A never-minted name still gets an entry — with no mint, which is what the warning wording needs. */
+    /** Both kinds of write count as writes, and `writtenAt` puts them back in step order. */
     @Test
-    fun `sites keeps a never-minted reference, with no minting step`() {
+    fun `writtenAt merges mints and captures in step order`() {
+        val steps = listOf(
+            ScenarioStep.Expect(
+                expectation = Expectation(fields = listOf(FieldExpectation(11, Matcher.Presence, bindAs = "id0")), messageType = "8"),
+            ),
+            ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A"),
+        )
+        val sites = ScenarioAnnotations.sites(steps).getValue("id0")
+        assertEquals(listOf(1), sites.mintedAt)
+        assertEquals(listOf(0), sites.capturedAt)
+        assertEquals(listOf(0, 1), sites.writtenAt)
+    }
+
+    /** A never-written name still gets an entry — with no write, which is what the warning wording needs. */
+    @Test
+    fun `sites keeps a never-written reference, with no writing step`() {
         val steps = listOf(ScenarioStep.Send("35=D|41=\${idO}|", "A"))
         val sites = ScenarioAnnotations.sites(steps).getValue("idO")
-        assertEquals(emptyList(), sites.mintedAt)
+        assertEquals(emptyList(), sites.writtenAt)
         assertEquals(listOf(0), sites.referencedAt)
     }
 }

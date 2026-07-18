@@ -141,16 +141,17 @@ class ScenarioCaptureReviewTest {
     fun `correlation badges follow the selection`() {
         render { _, _ -> true }
         // With the stale order excluded, QR-1 mints its variable (●tag131 on the QuoteRequest) and its
-        // echoes on the Quote and the cross-session ExecReport carry ○tag131. The name is the field's own,
+        // echoes on the Quote and the cross-session ExecReport carry $tag131 — the gutter's own glyph for
+        // a reference. The name is the field's own,
         // via mintName — this render loads no dictionary, so it is the `tag131` fallback rather than the
         // `quoteReqID` a loaded dictionary would give; the correlation it is testing is the same either way.
         composeTestRule.onNodeWithTag("candidate-check-0").performClick()
         composeTestRule.waitForIdle()
-        assertTrue(composeTestRule.onAllNodesWithText("○tag131").fetchSemanticsNodes().size >= 2)
+        assertTrue(composeTestRule.onAllNodesWithText("\$tag131").fetchSemanticsNodes().size >= 2)
         // Exclude the QuoteRequest that mints it -> the echoes are no longer correlated; badges go.
         composeTestRule.onNodeWithTag("candidate-check-1").performClick()
         composeTestRule.waitForIdle()
-        assertEquals(0, composeTestRule.onAllNodesWithText("○tag131").fetchSemanticsNodes().size)
+        assertEquals(0, composeTestRule.onAllNodesWithText("\$tag131").fetchSemanticsNodes().size)
     }
 
     /**

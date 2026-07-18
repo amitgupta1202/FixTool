@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
@@ -161,24 +162,54 @@ fun DirectionGlyph(outgoing: Boolean, modifier: Modifier = Modifier) {
 }
 
 /**
- * A correlation-variable badge: filled when this step *mints* the id, outlined-ish (dimmed) when it
- * *reuses/checks* it. The same id keeps the same color everywhere it appears — that continuity is
- * what makes cross-session correlation visible.
+ * **What one step does with one variable.** Three things, not two: a Send *mints* a value we chose, an
+ * Expect's `bindAs` *captures* one the venue chose, and either kind can be *referenced* later. The
+ * badges used to collapse the two writes into one filled dot, which lost the only distinction that
+ * matters when a correlation misbehaves — whose value is it.
+ */
+enum class VarRole { MINT, CAPTURE, REFERENCE }
+
+/**
+ * The glyph the diff gutter already teaches for this act: `↧` is the offer that writes a `bindAs`
+ * (`OfferKind.CAPTURE`), `$` is the offer that writes a reference (`OfferKind.TRACK`). A reader who
+ * has repaired one diff has learned these; spending different glyphs on the same ideas in the step
+ * list would have been a second vocabulary for no gain. `●` stays what it was — a minted value.
+ */
+private val VarRole.glyph: String
+    get() = when (this) {
+        VarRole.MINT -> "●"
+        VarRole.CAPTURE -> "↧"
+        VarRole.REFERENCE -> "\$"
+    }
+
+/**
+ * A correlation-variable badge: its [role] glyph and the id, in the id's own color. The same id keeps
+ * the same color everywhere it appears — that continuity is what makes cross-session correlation
+ * visible; the glyph says which end of it this step is.
  *
- * The glyph alone is undiscoverable — ● and ○ are learnable only once someone tells you — so a badge
- * with a [tooltip] says the thing in words, and says it as the *cross-reference* (which other step is
- * the counterpart), which is the question a reader has when they are about to delete or mute a step.
+ * A glyph alone is undiscoverable, so a badge with a [tooltip] says the thing in words, and says it as
+ * the *cross-reference* (which other step is the counterpart), which is the question a reader has when
+ * they are about to delete or mute a step.
  */
 @Composable
-fun VarBadge(name: String, color: Color, minted: Boolean, tooltip: String = "", modifier: Modifier = Modifier) {
+fun VarBadge(name: String, color: Color, role: VarRole, tooltip: String = "", modifier: Modifier = Modifier) {
     val badge =
         @Composable {
             Text(
-                text = if (minted) "●$name" else "○$name",
+                text = role.glyph + name,
                 color = color,
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = if (minted) FontWeight.Bold else FontWeight.Normal,
+                // A write is the load-bearing end of a correlation; a read is not, and reads outnumber
+                // writes in every scenario. Bold the writes so a row's origin is findable at a glance.
+                fontWeight = if (role == VarRole.REFERENCE) FontWeight.Normal else FontWeight.Bold,
+                // **A badge is a word, not a column.** The diff's capture badge sits last in a row of fixed-
+                // width cells, so it inherits whatever few pixels are left — and wrapped one character per
+                // line, drawing `↧orderID` as a vertical stack nobody could read. One line, clipped with an
+                // ellipsis if it must be: a truncated name is still a name, a vertical one is a glitch.
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
                 modifier = (if (tooltip.isBlank()) modifier else Modifier)
                     .clip(RoundedCornerShape(3.dp))
                     .background(AppTheme.Colors.surfaceHeader)
@@ -189,70 +220,66 @@ fun VarBadge(name: String, color: Color, minted: Boolean, tooltip: String = "", 
 }
 
 /**
- * The words behind one badge's glyph, as a cross-reference to the counterpart step. A minted badge
- * names who reads the value; a referencing badge names who writes it — including the case where the
- * only writer is parked, which is the same leaves-a-literal hazard the variables strip warns about.
+ * The words behind one badge's glyph, as a cross-reference to the counterpart step. A write names who
+ * reads the value; a read names who writes it — including the case where the only writer is parked,
+ * which is the same leaves-a-literal hazard the variables strip warns about.
  */
-fun varBadgeTooltip(name: String, minted: Boolean, sites: ScenarioAnnotations.VarSites?): String {
+fun varBadgeTooltip(name: String, role: VarRole, sites: ScenarioAnnotations.VarSites?): String {
     fun steps(indices: List<Int>) = indices.joinToString(", ") { "${it + 1}" }
+    fun plural(indices: List<Int>) = if (indices.size > 1) "s" else ""
     val readers = sites?.referencedAt.orEmpty()
-    val writers = sites?.mintedAt.orEmpty()
-    return if (minted) {
-        val mints =
-            if (sites?.mintedFromReply == true) {
-                "Mints \${$name} from the venue's reply — the value is captured off the incoming message."
-            } else {
-                "Mints \${$name} — the value is captured here and put on the wire."
+    val writers = sites?.writtenAt.orEmpty()
+    val readBy =
+        if (readers.isEmpty()) " Nothing references it yet." else " Referenced by step${plural(readers)} ${steps(readers)}."
+    return when (role) {
+        VarRole.MINT ->
+            "Mints \${$name} — this step chooses the value and puts it on the wire.$readBy"
+        VarRole.CAPTURE ->
+            "Captures \${$name} — the venue chose this value, and this step reads it off the reply.$readBy"
+        VarRole.REFERENCE ->
+            when {
+                writers.isEmpty() ->
+                    "References \${$name}, which no step writes — the engine leaves the literal \${$name} on the wire."
+                sites?.allWritesMuted == true ->
+                    "References \${$name}, but the step${plural(writers)} that write${if (writers.size > 1) "" else "s"} it " +
+                        "(step${plural(writers)} ${steps(writers)}) ${if (writers.size > 1) "are" else "is"} muted — the " +
+                        "write never runs, so this ships the literal \${$name} on the wire."
+                else -> {
+                    // Name the act, not just the step: "captured at step 2" tells a reader the value is the
+                    // venue's, which is the difference between a broken scenario and a venue that changed.
+                    val verb =
+                        when {
+                            sites != null && sites.mintedAt.isEmpty() -> "captured"
+                            sites != null && sites.capturedAt.isEmpty() -> "minted"
+                            else -> "written"
+                        }
+                    "References \${$name}, $verb at step${plural(writers)} ${steps(writers)}. " +
+                        "Delete or mute that step and this reference ships the literal \${$name} on the wire."
+                }
             }
-        val used =
-            if (readers.isEmpty()) {
-                " Nothing references it yet."
-            } else {
-                " Referenced by step${if (readers.size > 1) "s" else ""} ${steps(readers)}."
-            }
-        mints + used
-    } else {
-        when {
-            writers.isEmpty() ->
-                "References \${$name}, which no step mints — the engine leaves the literal \${$name} on the wire."
-            sites?.allMintsMuted == true ->
-                "References \${$name}, but its only mint (step${if (writers.size > 1) "s" else ""} ${steps(writers)}) is " +
-                    "muted — the mint never runs, so this ships the literal \${$name} on the wire."
-            else ->
-                "References \${$name}, minted at step${if (writers.size > 1) "s" else ""} ${steps(writers)}. " +
-                    "Delete or mute that step and this reference ships the literal \${$name} on the wire."
-        }
     }
 }
 
 /**
- * The badges for one step: minted ids first (filled), then referenced ids (hollow). Pass [sites] to
- * give each badge its cross-reference tooltip; without it the badges are silent, as they were.
+ * The badges for one step: what it writes first, then what it reads. Pass [sites] to give each badge
+ * its cross-reference tooltip; without it the badges are silent, as they were.
  */
 @Composable
 fun VarBadges(
-    minted: List<String>,
-    referenced: List<String>,
+    vars: ScenarioAnnotations.StepVars,
     colors: Map<String, Color>,
     sites: Map<String, ScenarioAnnotations.VarSites> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        minted.forEach {
+        // A step's writes are all one kind — it is a Send, which mints, or an Expect, which captures.
+        val writeRole = if (vars.fromReply) VarRole.CAPTURE else VarRole.MINT
+        (vars.minted.map { it to writeRole } + vars.referenced.map { it to VarRole.REFERENCE }).forEach { (name, role) ->
             VarBadge(
-                it,
-                colors[it] ?: AppTheme.Colors.primary,
-                minted = true,
-                tooltip = sites[it]?.let { s -> varBadgeTooltip(it, minted = true, sites = s) }.orEmpty(),
-                modifier = Modifier.padding(end = 3.dp),
-            )
-        }
-        referenced.forEach {
-            VarBadge(
-                it,
-                colors[it] ?: AppTheme.Colors.primary,
-                minted = false,
-                tooltip = sites[it]?.let { s -> varBadgeTooltip(it, minted = false, sites = s) }.orEmpty(),
+                name,
+                colors[name] ?: AppTheme.Colors.primary,
+                role = role,
+                tooltip = sites[name]?.let { varBadgeTooltip(name, role, it) }.orEmpty(),
                 modifier = Modifier.padding(end = 3.dp),
             )
         }

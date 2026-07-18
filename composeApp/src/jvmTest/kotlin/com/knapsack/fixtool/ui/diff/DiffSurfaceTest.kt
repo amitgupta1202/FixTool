@@ -708,9 +708,9 @@ class DiffSurfaceTest {
         snapshot("diff_track_offer_applied.png")
     }
 
-    /** The `↧` glyph on a green row: one click captures the venue's value, and the row wears the ● badge. */
+    /** The `↧` glyph on a green row: one click captures the venue's value, and the row wears the ↧ badge. */
     @Test
-    fun `the capture glyph names the venue's value, and the row wears the mint badge`() {
+    fun `the capture glyph names the venue's value, and the row wears the capture badge`() {
         val draft =
             Expectation(
                 listOf(

@@ -98,6 +98,7 @@ fun ScenarioCaptureReview(
             ScenarioAnnotations.sites(previewSteps).mapValues { (_, sites) ->
                 sites.copy(
                     mintedAt = sites.mintedAt.mapNotNull { rowOfStep.getOrNull(it) },
+                    capturedAt = sites.capturedAt.mapNotNull { rowOfStep.getOrNull(it) },
                     referencedAt = sites.referencedAt.mapNotNull { rowOfStep.getOrNull(it) },
                 )
             }
@@ -318,7 +319,7 @@ private fun CandidateRow(
             )
         }
         if (vars != null) {
-            VarBadges(vars.minted, vars.referenced, varColors, varSites, modifier = Modifier.padding(start = 8.dp))
+            VarBadges(vars, varColors, varSites, modifier = Modifier.padding(start = 8.dp))
         }
         Row(modifier = Modifier.weight(1f)) {}
         Text(candidate.timestamp.format(TIME_FMT), color = AppTheme.Colors.textDisabled, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
@@ -516,11 +517,11 @@ private fun ReplayChip(expression: String, varColors: Map<String, androidx.compo
     val ref = REF_EXPR.find(expression)?.groupValues?.get(1)
     when {
         mint != null -> {
-            VarBadge(mint, varColors[mint] ?: AppTheme.Colors.primary, minted = true)
+            VarBadge(mint, varColors[mint] ?: AppTheme.Colors.primary, VarRole.MINT)
             Text(" fresh id each run", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
         }
         ref != null -> {
-            VarBadge(ref, varColors[ref] ?: AppTheme.Colors.primary, minted = false)
+            VarBadge(ref, varColors[ref] ?: AppTheme.Colors.primary, VarRole.REFERENCE)
             Text(" reuses the id minted earlier", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
         }
         expression.contains("now()") ->
@@ -582,7 +583,7 @@ private fun ExpectPreview(
                 val refVar = ((fe.matcher as? Matcher.Reference)?.expression)?.let { REF_EXPR.find(it)?.groupValues?.get(1) }
                 if (refVar != null) {
                     Text("must echo ", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
-                    VarBadge(refVar, varColors[refVar] ?: AppTheme.Colors.primary, minted = false)
+                    VarBadge(refVar, varColors[refVar] ?: AppTheme.Colors.primary, VarRole.REFERENCE)
                 } else {
                     Text(matcherSummary(fe.matcher, dictionary, tag), color = AppTheme.Colors.fieldName, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                 }

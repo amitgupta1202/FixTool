@@ -115,4 +115,71 @@ class ScenarioAnnotationsTest {
         assertEquals(listOf("qr"), vars[1].referenced)
         assertEquals(emptyList(), ScenarioAnnotations.unminted(steps))
     }
+
+    /**
+     * The badges say what THIS step does with a name; [ScenarioAnnotations.sites] is the other half —
+     * who the counterpart is. That is the question a reader actually has, because it is the one that
+     * decides whether a step is safe to delete or mute.
+     */
+    @Test
+    fun `sites names both ends of a correlation`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A"),
+            expect(FieldExpectation(11, Matcher.Reference("\${id0}"))),
+            ScenarioStep.Send("35=F|41=\${id0}|", "A"),
+        )
+        val sites = ScenarioAnnotations.sites(steps).getValue("id0")
+        assertEquals(listOf(0), sites.mintedAt)
+        assertEquals(listOf(1, 2), sites.referencedAt)
+        assertEquals(false, sites.mintedFromReply)
+        assertEquals(false, sites.allMintsMuted)
+    }
+
+    /** A `bindAs` mint is captured off the reply, and the tooltip has to say so — a Send mint is not. */
+    @Test
+    fun `sites distinguishes a reply-side mint from a wire-side one`() {
+        val steps = listOf(
+            ScenarioStep.Expect(
+                expectation = Expectation(fields = listOf(FieldExpectation(131, Matcher.Presence, bindAs = "qr")), messageType = "R"),
+            ),
+            ScenarioStep.Send("35=S|131=\${qr}|", "A"),
+        )
+        assertEquals(true, ScenarioAnnotations.sites(steps).getValue("qr").mintedFromReply)
+    }
+
+    /**
+     * A name whose every mint is parked does not get minted on a run, so a live reference to it ships
+     * the literal — the same judgement the variables strip makes, available to the badge that sits on
+     * the referencing step.
+     */
+    @Test
+    fun `sites flags a name whose only mint is muted`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A", muted = true),
+            ScenarioStep.Send("35=F|41=\${id0}|", "A"),
+        )
+        assertEquals(true, ScenarioAnnotations.sites(steps).getValue("id0").allMintsMuted)
+    }
+
+    /** One live mint is enough: a second, parked mint of the same name does not make it a hazard. */
+    @Test
+    fun `sites does not flag a name that keeps one live mint`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A", muted = true),
+            ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A"),
+            ScenarioStep.Send("35=F|41=\${id0}|", "A"),
+        )
+        val sites = ScenarioAnnotations.sites(steps).getValue("id0")
+        assertEquals(listOf(0, 1), sites.mintedAt)
+        assertEquals(false, sites.allMintsMuted)
+    }
+
+    /** A never-minted name still gets an entry — with no mint, which is what the warning wording needs. */
+    @Test
+    fun `sites keeps a never-minted reference, with no minting step`() {
+        val steps = listOf(ScenarioStep.Send("35=D|41=\${idO}|", "A"))
+        val sites = ScenarioAnnotations.sites(steps).getValue("idO")
+        assertEquals(emptyList(), sites.mintedAt)
+        assertEquals(listOf(0), sites.referencedAt)
+    }
 }

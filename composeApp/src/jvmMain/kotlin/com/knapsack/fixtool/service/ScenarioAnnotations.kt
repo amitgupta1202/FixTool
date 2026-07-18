@@ -14,6 +14,42 @@ object ScenarioAnnotations {
     /** The variables one step mints/references; parallel to the step list passed to [annotate]. */
     data class StepVars(val minted: List<String>, val referenced: List<String>)
 
+    /**
+     * One variable's whole life across the scenario: the steps that mint it, the steps that read it,
+     * and whether every mint it has is parked. A badge knows its own half of the correlation — this is
+     * the other half, which is what a reader actually wants when deciding whether a step is safe to
+     * delete or mute.
+     */
+    data class VarSites(
+        val mintedAt: List<Int>,
+        val referencedAt: List<Int>,
+        val mintedFromReply: Boolean,
+        val allMintsMuted: Boolean,
+    )
+
+    /**
+     * [VarSites] for every variable the scenario mints or references, keyed by name — 0-based step
+     * indices, in step order.
+     *
+     * `allMintsMuted` follows the same judgement the variables strip makes: a name minted only by
+     * parked steps does not get minted on a run, so a live reference to it is the leaves-a-literal
+     * problem, not a working correlation.
+     */
+    fun sites(steps: List<ScenarioStep>): Map<String, VarSites> {
+        val mints = steps.flatMapIndexed { i, s -> mintedIn(s).map { it to i } }
+        val refs = steps.flatMapIndexed { i, s -> referencedIn(s).map { it to i } }
+        return (mints + refs).map { it.first }.distinct().associateWith { name ->
+            val mintedAt = mints.filter { it.first == name }.map { it.second }.distinct()
+            VarSites(
+                mintedAt = mintedAt,
+                referencedAt = refs.filter { it.first == name }.map { it.second }.distinct(),
+                // A `bindAs` mint reads the value off the venue's reply; a Send mint puts it on the wire.
+                mintedFromReply = mintedAt.any { steps[it] is ScenarioStep.Expect },
+                allMintsMuted = mintedAt.isNotEmpty() && mintedAt.all { steps[it].muted },
+            )
+        }
+    }
+
     private val MINT = Regex("\\$\\{\\s*(\\w+)\\s*=")
     private val REF = Regex("\\$\\{\\s*(\\w+)\\s*}")
 

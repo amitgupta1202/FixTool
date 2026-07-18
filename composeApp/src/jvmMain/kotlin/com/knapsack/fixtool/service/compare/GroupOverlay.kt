@@ -63,6 +63,29 @@ data class GroupOverlay(
     fun entryAt(row: Int): EntryNode? =
         entries.filter { row in it.rows }.minByOrNull { it.rows.last - it.rows.first }
 
+    /**
+     * **How deep [row] sits** — the one definition of indentation depth in the app, for every surface
+     * that reads a message as a flat list of rows.
+     *
+     * It is the number of entries containing the row, which needs no traversal and no accumulator: a
+     * top-level field is in none and sits at 0, a party's field is in the party and sits at 1, a
+     * sub-id's field is in both and sits at 2. A group's **count row is not in its own entries**, so
+     * it sits with the fields around it and the entries it introduces sit one deeper — which is what
+     * makes a nested group's count row line up with its parent's fields.
+     *
+     * The tree-walking surfaces (the detail pane and the expanded grid) reach the same numbers by
+     * carrying an accumulator down `quickfix.Message`'s already-nested `FieldMap`, because a parsed
+     * tree hands them the structure for free. That the two derivations agree is not left to
+     * inspection: `IndentationEquivalenceTest` walks a message both ways and compares.
+     */
+    fun depthAt(row: Int): Int = entries.count { row in it.rows }
+
+    /** The depth of [entry] itself — where its own rows sit, and one deeper than the band above them. */
+    fun depthOf(entry: EntryNode): Int = depthAt(entry.rows.first)
+
+    /** The entry [row] *begins*, when it begins one. Its 1-based instance number is [EntryNode.entryIndex] + 1. */
+    fun entryOpenedAt(row: Int): EntryNode? = entryAt(row)?.takeIf { it.rows.first == row }
+
     /** The entries of the group [entry] belongs to — its siblings, itself included, in order. */
     fun siblingsOf(entry: EntryNode): List<EntryNode> =
         groups.firstNotNullOfOrNull { it.find(entry) } ?: listOf(entry)

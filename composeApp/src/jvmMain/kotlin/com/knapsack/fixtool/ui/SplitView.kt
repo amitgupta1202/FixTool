@@ -25,6 +25,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.AppMessage
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessage.Direction.INCOMING
@@ -760,46 +761,14 @@ private fun SessionPanel(
                 filterShowSeparator,
                 filterMessageTypes,
             ) {
-                messages.filter { message ->
-                    // Direction filter
-                    val directionMatch =
-                        when (message) {
-                            is Separator -> return@filter filterShowSeparator
-                            is FixMessage ->
-                                when (message.direction) {
-                                    INCOMING -> filterShowIncoming
-                                    OUTGOING -> filterShowOutgoing
-                                }
-                        }
-
-                    if (!directionMatch) return@filter false
-
-                    // Message type filter
-                    val messageTypeMatch =
-                        filterMessageTypes.isBlank() ||
-                            run {
-                                val types = filterMessageTypes.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                                types.isEmpty() || types.any { it.equals(message.messageType, ignoreCase = true) }
-                            }
-
-                    if (!messageTypeMatch) return@filter false
-
-                    // Regex filter
-                    val regexMatch =
-                        if (filterRegex.isBlank()) {
-                            true
-                        } else {
-                            try {
-                                val regex = Regex(filterRegex, RegexOption.IGNORE_CASE)
-                                message.toDisplayString().contains(regex)
-                            } catch (e: Exception) {
-                                // If regex is invalid, include the message
-                                true
-                            }
-                        }
-
-                    regexMatch
-                }
+                filterSessionMessages(
+                    messages = messages,
+                    filterRegex = filterRegex,
+                    filterShowIncoming = filterShowIncoming,
+                    filterShowOutgoing = filterShowOutgoing,
+                    filterShowSeparator = filterShowSeparator,
+                    filterMessageTypes = filterMessageTypes,
+                )
             }
 
         // Panel content
@@ -849,3 +818,56 @@ private val iconSize = 16.dp
 private val smallIconSize = 12.dp
 private val buttonSize = 24.dp
 private val textFieldBorderRadius = RoundedCornerShape(2.dp)
+
+/**
+ * The split-view message filter, as a pure function so its behaviour can be pinned by tests.
+ *
+ * The regex and the message-type list are built once here rather than inside the per-message
+ * lambda, where they used to be recompiled and re-split for every message in the session.
+ *
+ * Both "no filter" cases are permissive, which is the long-standing behaviour: a blank regex
+ * matches everything, and so does an invalid one — a half-typed pattern must not blank the view.
+ */
+internal fun filterSessionMessages(
+    messages: List<AppMessage>,
+    filterRegex: String,
+    filterShowIncoming: Boolean,
+    filterShowOutgoing: Boolean,
+    filterShowSeparator: Boolean,
+    filterMessageTypes: String,
+): List<AppMessage> {
+    val compiledRegex =
+        if (filterRegex.isBlank()) {
+            null
+        } else {
+            try {
+                Regex(filterRegex, RegexOption.IGNORE_CASE)
+            } catch (e: Exception) {
+                null
+            }
+        }
+    val wantedTypes = filterMessageTypes.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+    return messages.filter { message ->
+        val directionMatch =
+            when (message) {
+                is Separator -> return@filter filterShowSeparator
+                is FixMessage ->
+                    when (message.direction) {
+                        INCOMING -> filterShowIncoming
+                        OUTGOING -> filterShowOutgoing
+                    }
+            }
+
+        if (!directionMatch) return@filter false
+
+        val messageTypeMatch =
+            filterMessageTypes.isBlank() ||
+                wantedTypes.isEmpty() ||
+                wantedTypes.any { it.equals(message.messageType, ignoreCase = true) }
+
+        if (!messageTypeMatch) return@filter false
+
+        compiledRegex == null || message.toDisplayString().contains(compiledRegex)
+    }
+}

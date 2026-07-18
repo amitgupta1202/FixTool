@@ -108,9 +108,12 @@ fun FixMessageDisplay(
         }
 
     // Track if user is at the bottom
-    // Simple check: if we can't scroll forward (down), we're at the bottom
-    val isAtBottom by derivedStateOf {
-        !listState.canScrollForward
+    // Simple check: if we can't scroll forward (down), we're at the bottom.
+    // remember is load-bearing: without it a fresh DerivedState is allocated on every
+    // recomposition, so the caching derivedStateOf exists to provide never happens and the
+    // dependency on listState is re-subscribed each time.
+    val isAtBottom by remember(listState) {
+        derivedStateOf { !listState.canScrollForward }
     }
 
     // When a new message arrives, scroll to bottom if autoScroll is enabled

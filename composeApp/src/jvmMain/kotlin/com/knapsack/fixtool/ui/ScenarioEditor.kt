@@ -488,7 +488,7 @@ private fun StepRow(
             maxLines = 1,
         )
         if (step.muted) MutedChip()
-        if (vars != null) VarBadges(vars.minted, vars.referenced, varColors, varSites, modifier = Modifier.padding(start = 8.dp))
+        if (vars != null) VarBadges(vars, varColors, varSites, modifier = Modifier.padding(start = 8.dp))
         Row(modifier = Modifier.weight(1f)) {}
         TooltipIconButton(
             tooltip = if (step.muted) "Unmute — the runner executes this step again" else "Mute — keep the step, but skip it on every run",

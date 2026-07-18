@@ -11,41 +11,54 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
  * and cross-*session* — id correlation visible instead of implied.
  */
 object ScenarioAnnotations {
-    /** The variables one step mints/references; parallel to the step list passed to [annotate]. */
-    data class StepVars(val minted: List<String>, val referenced: List<String>)
-
     /**
-     * One variable's whole life across the scenario: the steps that mint it, the steps that read it,
-     * and whether every mint it has is parked. A badge knows its own half of the correlation — this is
-     * the other half, which is what a reader actually wants when deciding whether a step is safe to
-     * delete or mute.
+     * The variables one step writes/references; parallel to the step list passed to [annotate].
+     *
+     * `minted` is every write, either kind. [fromReply] is which kind: a Send *mints* a value we chose
+     * and puts it on the wire; an Expect's `bindAs` *captures* one the venue chose off its reply. One
+     * step's writes are all the same kind — it is a Send or it is an Expect — so one flag says it.
      */
-    data class VarSites(
-        val mintedAt: List<Int>,
-        val referencedAt: List<Int>,
-        val mintedFromReply: Boolean,
-        val allMintsMuted: Boolean,
+    data class StepVars(
+        val minted: List<String>,
+        val referenced: List<String>,
+        val fromReply: Boolean = false,
     )
 
     /**
-     * [VarSites] for every variable the scenario mints or references, keyed by name — 0-based step
+     * One variable's whole life across the scenario: the steps that mint it, the steps that capture it,
+     * the steps that read it, and whether every write it has is parked. A badge knows its own half of
+     * the correlation — this is the other half, which is what a reader actually wants when deciding
+     * whether a step is safe to delete or mute.
+     */
+    data class VarSites(
+        val mintedAt: List<Int>,
+        val capturedAt: List<Int>,
+        val referencedAt: List<Int>,
+        val allWritesMuted: Boolean,
+    ) {
+        /** Every step that puts a value in this variable, either way, in step order. */
+        val writtenAt: List<Int> get() = (mintedAt + capturedAt).sorted()
+    }
+
+    /**
+     * [VarSites] for every variable the scenario writes or references, keyed by name — 0-based step
      * indices, in step order.
      *
-     * `allMintsMuted` follows the same judgement the variables strip makes: a name minted only by
-     * parked steps does not get minted on a run, so a live reference to it is the leaves-a-literal
+     * `allWritesMuted` follows the same judgement the variables strip makes: a name written only by
+     * parked steps does not get written on a run, so a live reference to it is the leaves-a-literal
      * problem, not a working correlation.
      */
     fun sites(steps: List<ScenarioStep>): Map<String, VarSites> {
-        val mints = steps.flatMapIndexed { i, s -> mintedIn(s).map { it to i } }
+        val writes = steps.flatMapIndexed { i, s -> mintedIn(s).map { it to i } }
         val refs = steps.flatMapIndexed { i, s -> referencedIn(s).map { it to i } }
-        return (mints + refs).map { it.first }.distinct().associateWith { name ->
-            val mintedAt = mints.filter { it.first == name }.map { it.second }.distinct()
+        return (writes + refs).map { it.first }.distinct().associateWith { name ->
+            val writtenAt = writes.filter { it.first == name }.map { it.second }.distinct()
             VarSites(
-                mintedAt = mintedAt,
+                // A Send mint chose the value; an Expect's `bindAs` read it off the venue's reply.
+                mintedAt = writtenAt.filterNot { steps[it] is ScenarioStep.Expect },
+                capturedAt = writtenAt.filter { steps[it] is ScenarioStep.Expect },
                 referencedAt = refs.filter { it.first == name }.map { it.second }.distinct(),
-                // A `bindAs` mint reads the value off the venue's reply; a Send mint puts it on the wire.
-                mintedFromReply = mintedAt.any { steps[it] is ScenarioStep.Expect },
-                allMintsMuted = mintedAt.isNotEmpty() && mintedAt.all { steps[it].muted },
+                allWritesMuted = writtenAt.isNotEmpty() && writtenAt.all { steps[it].muted },
             )
         }
     }
@@ -56,11 +69,13 @@ object ScenarioAnnotations {
     fun annotate(steps: List<ScenarioStep>): List<StepVars> {
         val minted = steps.flatMap { mintedIn(it) }.toSet()
         return steps.map { step ->
+            val mints = mintedIn(step)
             StepVars(
-                minted = mintedIn(step),
+                minted = mints,
                 // Only names minted somewhere in this scenario count as correlation references —
                 // this keeps engine expressions like ${LocalDateTime.now()...} out of the badges.
                 referenced = referencedIn(step).filter { it in minted }.distinct(),
+                fromReply = mints.isNotEmpty() && step is ScenarioStep.Expect,
             )
         }
     }

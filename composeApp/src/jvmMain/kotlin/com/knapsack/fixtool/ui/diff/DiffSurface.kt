@@ -78,6 +78,7 @@ import com.knapsack.fixtool.ui.SlimButton
 import com.knapsack.fixtool.ui.SlimLabeled
 import com.knapsack.fixtool.ui.SlimTagPicker
 import com.knapsack.fixtool.ui.VarBadge
+import com.knapsack.fixtool.ui.VarRole
 import com.knapsack.fixtool.ui.VariableChipData
 import com.knapsack.fixtool.ui.VariablesStrip
 import com.knapsack.fixtool.ui.varColorMap
@@ -1052,14 +1053,19 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, hand
                 onChange = { session.apply(EditOp.setMatcher(index, row.tag, it)) },
                 modifier = Modifier.testTag("matcher-${row.tag}-${row.occurrence}"),
             )
-            // A capturing row wears the same filled badge a minting Send does — the ● is "this step
-            // writes ${name}", whichever side of the wire the value came from.
+            // A capturing row wears `↧` — the glyph of the gutter offer that put it here. It used to wear
+            // the minting Send's ●, which said only "this row writes ${name}" and dropped the thing a
+            // reader of a diff most needs: the value is the *venue's*, not ours.
             session.draft.fields.getOrNull(index)?.bindAs?.let { name ->
                 val colors = varColorMap(scope.map { it.name } + session.draft.fields.mapNotNull { it.bindAs })
                 VarBadge(
                     name,
                     colors[name] ?: AppTheme.Colors.primary,
-                    minted = true,
+                    VarRole.CAPTURE,
+                    // This badge sits last in a row of fixed-width cells, so on a narrow window it is the
+                    // one thing with no room left and truncates to nothing. The tooltip is what keeps it
+                    // reachable there — the name is in the footer too, but not on the row that owns it.
+                    tooltip = "Captures \${$name} — when this step runs, the venue's value on this row is read into \${$name}.",
                     modifier = Modifier.padding(start = 4.dp).testTag("capture-badge-${row.tag}-${row.occurrence}"),
                 )
             }

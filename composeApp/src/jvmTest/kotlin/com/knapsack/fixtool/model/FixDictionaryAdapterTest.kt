@@ -232,6 +232,49 @@ class FixDictionaryAdapterTest {
         }
     }
 
+    /**
+     * The "No" prefix alone is not the answer: `NotAffectedOrderID`, `NotifyBrokerOfCredit` and
+     * `NotionalPercentageOutstanding` are all real FIX 5.0 fields, none of them counts anything, and
+     * `NotAffectedOrderID=12345` read as a 12345-entry group indents the rest of the message under a
+     * phantom. The field's declared type settles it: NUMINGROUP counts, INT counts (pre-4.3 dictionaries
+     * type their count fields INT), everything else is a field that happens to start with "No".
+     */
+    @Test
+    fun testIsGroupTagVetoedByFieldType() {
+        val file = File.createTempFile("test_dict_types", ".xml")
+        try {
+            file.writeText(
+                """<?xml version="1.0" encoding="UTF-8"?>
+<fix major="4" minor="4">
+    <header><field name="BeginString" required="Y"/><field name="MsgType" required="Y"/></header>
+    <trailer><field name="CheckSum" required="Y"/></trailer>
+    <messages><message name="Heartbeat" msgtype="0" msgcat="admin"><field name="TestReqID" required="N"/></message></messages>
+    <fields>
+        <field name="BeginString" number="8" type="STRING"/>
+        <field name="CheckSum" number="10" type="STRING"/>
+        <field name="MsgType" number="35" type="STRING"/>
+        <field name="TestReqID" number="112" type="STRING"/>
+        <field name="NotifyBrokerOfCredit" number="208" type="BOOLEAN"/>
+        <field name="NoContraBrokers" number="382" type="INT"/>
+        <field name="NoPartyIDs" number="453" type="NUMINGROUP"/>
+        <field name="NotAffectedOrderID" number="1371" type="STRING"/>
+        <field name="NotionalPercentageOutstanding" number="1451" type="PERCENTAGE"/>
+    </fields>
+</fix>""",
+            )
+            val adapter = FixDictionaryAdapter.fromFile(file)
+            assertTrue(adapter.isLoaded(), "test dictionary must load")
+
+            assertTrue(adapter.isGroupTag(453), "NUMINGROUP-typed No* field is a count field")
+            assertTrue(adapter.isGroupTag(382), "INT-typed No* field is a count field (pre-4.3 dictionaries)")
+            assertTrue(!adapter.isGroupTag(1371), "STRING-typed NotAffectedOrderID is not a count field")
+            assertTrue(!adapter.isGroupTag(208), "BOOLEAN-typed NotifyBrokerOfCredit is not a count field")
+            assertTrue(!adapter.isGroupTag(1451), "PERCENTAGE-typed NotionalPercentageOutstanding is not a count field")
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test
     fun testDictionaryWithMissingFieldsSection() {
         // Given: A dictionary file without proper field names

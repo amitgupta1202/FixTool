@@ -48,6 +48,7 @@ class SearchResultsPaneTest {
 
             // Perform search
             viewModel.setGlobalSearchQuery("AAPL")
+            awaitGlobalSearch()
 
             delay(100) // Wait for search to complete
 
@@ -73,6 +74,7 @@ class SearchResultsPaneTest {
             delay(200)
 
             viewModel.setGlobalSearchQuery("AAPL")
+            awaitGlobalSearch()
 
             delay(100)
 
@@ -103,6 +105,7 @@ class SearchResultsPaneTest {
 
             // Search and pin
             viewModel.setGlobalSearchQuery("AAPL")
+            awaitGlobalSearch()
 
             delay(100)
 
@@ -135,6 +138,7 @@ class SearchResultsPaneTest {
 
             // Search and pin
             viewModel.setGlobalSearchQuery("AAPL")
+            awaitGlobalSearch()
 
             delay(100)
 
@@ -172,6 +176,7 @@ class SearchResultsPaneTest {
 
             // Search
             viewModel.setGlobalSearchQuery("AAPL")
+            awaitGlobalSearch()
 
             delay(100)
 
@@ -195,6 +200,7 @@ class SearchResultsPaneTest {
 
             // Search
             viewModel.setGlobalSearchQuery("AAPL")
+            awaitGlobalSearch()
 
             delay(100)
 
@@ -230,5 +236,16 @@ class SearchResultsPaneTest {
 
         // Add to session
         session.addMessage(fixMessage)
+    }
+    /**
+     * Global search is debounced and runs off the UI thread, so results do not appear on the same
+     * turn the query is set. Wait out the debounce window plus a margin for the scan itself.
+     */
+    private suspend fun awaitGlobalSearch() {
+        delay(GLOBAL_SEARCH_DEBOUNCE_MS + SEARCH_SETTLE_MARGIN_MS)
+    }
+
+    private companion object {
+        const val SEARCH_SETTLE_MARGIN_MS = 400L
     }
 }

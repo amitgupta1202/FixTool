@@ -68,14 +68,21 @@ import com.knapsack.fixtool.ui.sessionOrNull
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -84,6 +91,12 @@ import java.io.File
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+
+/**
+ * How long global search waits for typing to settle before scanning. Exposed so tests can wait out
+ * the same window rather than hard-coding a number that could drift away from this one.
+ */
+internal const val GLOBAL_SEARCH_DEBOUNCE_MS = 200L
 
 class FixMessageViewModel(
     private val testSettingsDir: String? = null,
@@ -1739,6 +1752,9 @@ class FixMessageViewModel(
             _editorSelectedIndices.add(0)
         }
 
+        // Global search scans off the UI thread, debounced — started once, lives with the ViewModel.
+        startGlobalSearchPipeline()
+
         // Set up demo profile management
         DemoServerManager.onDemoProfilesChanged = { demoProfiles ->
             handleDemoProfilesChanged(demoProfiles)
@@ -2424,17 +2440,43 @@ class FixMessageViewModel(
         _pinnedSearchResults.value = emptyList()
     }
 
+    /**
+     * Record what the user typed. The scan itself is debounced and runs off the UI thread — see
+     * [startGlobalSearchPipeline].
+     *
+     * A blank query clears immediately rather than waiting out the debounce: clearing the box
+     * should feel instant, and there is nothing to compute.
+     */
     fun setGlobalSearchQuery(query: String) {
         _globalSearchQuery.value = query
-        performGlobalSearch(query)
-    }
-
-    private fun performGlobalSearch(query: String) {
         if (query.isBlank()) {
             _globalSearchResults.value = emptyList()
-            return
         }
+    }
 
+    /**
+     * Scan every session for [query] on a background dispatcher, debounced.
+     *
+     * This used to run inline on the EDT on every keystroke: every session x up to 1000 messages,
+     * building a display string per message, matching a regex, then sorting the hits on three keys.
+     * `mapLatest` also means a still-running scan is cancelled the moment the next keystroke lands,
+     * so a fast typist no longer queues up a scan per character.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+    private fun startGlobalSearchPipeline() {
+        _globalSearchQuery
+            .debounce(GLOBAL_SEARCH_DEBOUNCE_MS)
+            .mapLatest { query ->
+                if (query.isBlank()) {
+                    emptyList()
+                } else {
+                    withContext(Dispatchers.Default) { computeGlobalSearchResults(query) }
+                }
+            }.onEach { _globalSearchResults.value = it }
+            .launchIn(viewModelScope)
+    }
+
+    private fun computeGlobalSearchResults(query: String): List<SearchResult> {
         val results = mutableListOf<SearchResult>()
         val regex =
             try {
@@ -2502,14 +2544,11 @@ class FixMessageViewModel(
         }
 
         // Sort by timestamp, then MsgSeqNum, then SenderCompID
-        val sortedResults =
-            results.sortedWith(
-                compareBy<SearchResult> { it.message.timestamp }
-                    .thenBy(nullsLast()) { it.msgSeqNum }
-                    .thenBy(nullsLast()) { it.senderCompId },
-            )
-
-        _globalSearchResults.value = sortedResults
+        return results.sortedWith(
+            compareBy<SearchResult> { it.message.timestamp }
+                .thenBy(nullsLast()) { it.msgSeqNum }
+                .thenBy(nullsLast()) { it.senderCompId },
+        )
     }
 
     fun navigateToSearchResult(result: SearchResult) {

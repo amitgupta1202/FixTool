@@ -108,6 +108,8 @@ class GlobalSearchTest {
         // Open dialog and set query
         viewModel.toggleGlobalSearchDialog()
         viewModel.setGlobalSearchQuery("test query")
+        // No await: this test is about the query field and the clear-on-close behaviour, not about
+        // the debounced scan's results.
         assertEquals("test query", viewModel.globalSearchQuery.value)
 
         // Close dialog
@@ -138,6 +140,7 @@ class GlobalSearchTest {
 
             // Search for "ORDER1" which appears in both messages
             viewModel.setGlobalSearchQuery("ORDER1")
+            awaitGlobalSearch()
 
             // Should find messages from both sessions
             val results = viewModel.globalSearchResults.value
@@ -160,6 +163,7 @@ class GlobalSearchTest {
 
             // Search with regex for ORD followed by digits
             viewModel.setGlobalSearchQuery("ORD\\d+")
+            awaitGlobalSearch()
 
             val results = viewModel.globalSearchResults.value
             // Should find at least the messages with ORD pattern
@@ -177,6 +181,7 @@ class GlobalSearchTest {
 
             // Search for something that doesn't exist
             viewModel.setGlobalSearchQuery("NOTFOUND")
+            awaitGlobalSearch()
 
             val results = viewModel.globalSearchResults.value
             assertTrue(results.isEmpty(), "Should return empty results for no matches")
@@ -202,6 +207,7 @@ class GlobalSearchTest {
 
             // Search for "TEST" which will match all messages
             viewModel.setGlobalSearchQuery("TEST")
+            awaitGlobalSearch()
 
             val results = viewModel.globalSearchResults.value
             assertEquals(3, results.size, "Should find all 3 messages")
@@ -228,6 +234,7 @@ class GlobalSearchTest {
             delay(300)
 
             viewModel.setGlobalSearchQuery("SEQTEST")
+            awaitGlobalSearch()
 
             val results = viewModel.globalSearchResults.value
             assertEquals(3, results.size, "Should find all 3 messages")
@@ -252,6 +259,7 @@ class GlobalSearchTest {
             delay(400)
 
             viewModel.setGlobalSearchQuery("SENDERTEST")
+            awaitGlobalSearch()
 
             val results = viewModel.globalSearchResults.value
 
@@ -287,6 +295,7 @@ class GlobalSearchTest {
             delay(200)
 
             viewModel.setGlobalSearchQuery("TEST")
+            awaitGlobalSearch()
 
             val results = viewModel.globalSearchResults.value
             assertEquals(1, results.size)
@@ -311,6 +320,7 @@ class GlobalSearchTest {
             delay(200)
 
             viewModel.setGlobalSearchQuery("TEST")
+            awaitGlobalSearch()
 
             val results = viewModel.globalSearchResults.value
             assertEquals(1, results.size)
@@ -336,6 +346,7 @@ class GlobalSearchTest {
             delay(200)
 
             viewModel.setGlobalSearchQuery("TEST")
+            awaitGlobalSearch()
 
             val results = viewModel.globalSearchResults.value
             assertEquals(2, results.size)
@@ -361,6 +372,7 @@ class GlobalSearchTest {
             delay(200)
 
             viewModel.setGlobalSearchQuery("TEST")
+            awaitGlobalSearch()
             val results = viewModel.globalSearchResults.value
 
             // Navigate to second result (Session2)
@@ -404,5 +416,16 @@ class GlobalSearchTest {
 
         // Add to session
         session.addMessage(fixMessage)
+    }
+    /**
+     * Global search is debounced and runs off the UI thread, so results do not appear on the same
+     * turn the query is set. Wait out the debounce window plus a margin for the scan itself.
+     */
+    private suspend fun awaitGlobalSearch() {
+        delay(GLOBAL_SEARCH_DEBOUNCE_MS + SEARCH_SETTLE_MARGIN_MS)
+    }
+
+    private companion object {
+        const val SEARCH_SETTLE_MARGIN_MS = 400L
     }
 }

@@ -3,6 +3,9 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.service.compare.EntrySource
+import com.knapsack.fixtool.service.compare.GroupNode
+import com.knapsack.fixtool.service.compare.GroupOverlay
 import quickfix.DataDictionary
 import quickfix.FieldMap
 import quickfix.Group
@@ -31,10 +34,14 @@ object FixMessageHelper {
      *
      * @param dataDictionary The FIX data dictionary for parsing
      * @param fixVersion The FIX version to use for header/trailer tag detection (defaults to FIX 4.4)
+     * @param adapter When provided, repeating groups the dictionary does not define are still kept
+     *   whole — see [salvageableGroups]. Without it they collapse to their last instance, because a
+     *   FieldMap can hold one value per tag and every instance writes the same tags.
      */
     fun String.toQuickFixMessageManual(
         dataDictionary: DataDictionary,
         fixVersion: FixVersion = FixVersion.DEFAULT,
+        adapter: FixDictionaryAdapter? = null,
     ): Message {
         // Parse message into tag-value pairs
         val fields = parseFixMessage(this)
@@ -68,11 +75,62 @@ object FixMessageHelper {
             message.trailer.setString(tag, value)
         }
 
-        // Process body fields recursively
+        // Process body fields recursively. Regions the dictionary reads as a repeating group it has
+        // no definition for are carved out first and built as real Group instances — left to
+        // processFields they set the same tags over and over on one FieldMap, and an N-instance
+        // group collapses to its last instance with no diagnostic.
         val bodyFields = fields.filter { !isHeader(it.first) && !isTrailer(it.first) }
-        processFields(bodyFields, 0, message, dataDictionary, msgTypeValue)
+        val salvaged = salvageableGroups(bodyFields, msgTypeValue, adapter).associateBy { it.countRow!! }
+        var i = 0
+        while (i < bodyFields.size) {
+            val group = salvaged[i]
+            if (group == null) {
+                val end = salvaged.keys.filter { it > i }.minOrNull() ?: bodyFields.size
+                processFields(bodyFields.subList(i, end), 0, message, dataDictionary, msgTypeValue)
+                i = end
+            } else {
+                val delimiter = bodyFields[group.entries.first().rows.first].first
+                group.entries.forEach { entry ->
+                    val instance = Group(group.groupTag, delimiter)
+                    processFields(bodyFields.subList(entry.rows.first, entry.rows.last + 1), 0, instance, dataDictionary, msgTypeValue)
+                    message.addGroup(instance)
+                }
+                // addGroup normalised the count to the number of entries found; the wire's own
+                // claim wins, mismatch included — rendering a count the venue never sent would
+                // hide exactly the defect this tool exists to show.
+                message.setString(group.groupTag, bodyFields[group.countRow!!].second)
+                i = group.entries.last().rows.last + 1
+            }
+        }
 
         return message
+    }
+
+    /**
+     * The repeating groups worth rescuing from a flat parse: those the dictionary does **not**
+     * define, whose shape the [GroupOverlay]'s period-detection guess found anyway, and whose count
+     * row names them.
+     *
+     * A venue's custom group — anything in the 5000s a counterparty invented after this dictionary
+     * was cut — is still a repeating group on the wire, and flattening it is not a rendering
+     * blemish but data loss: the flat FieldMap keeps one value per tag, so only the last instance
+     * survives. The count row is required because it is the group's only witness at the top level —
+     * `addGroup` keys the group by its count tag, and without one there is no tag to file the
+     * entries under.
+     *
+     * Dictionary-defined groups are absent deliberately: `processFields` already builds those, with
+     * delimiter tracking the overlay does not need to duplicate.
+     */
+    private fun salvageableGroups(
+        bodyFields: List<Pair<Int, String>>,
+        messageType: String,
+        adapter: FixDictionaryAdapter?,
+    ): List<GroupNode> {
+        if (adapter == null) return emptyList()
+        return GroupOverlay
+            .build(bodyFields, messageType, adapter)
+            .groups
+            .filter { it.source == EntrySource.HEURISTIC && it.countRow != null }
     }
 
     /**
@@ -83,7 +141,7 @@ object FixMessageHelper {
         val dataDictionary =
             dictionaryAdapter.getDataDictionary()
                 ?: throw IllegalStateException("No data dictionary loaded in adapter")
-        return this.toQuickFixMessageManual(dataDictionary, dictionaryAdapter.fixVersion)
+        return this.toQuickFixMessageManual(dataDictionary, dictionaryAdapter.fixVersion, dictionaryAdapter)
     }
 
     /**

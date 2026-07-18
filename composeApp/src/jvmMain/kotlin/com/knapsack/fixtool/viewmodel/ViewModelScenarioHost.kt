@@ -14,13 +14,19 @@ import javax.swing.SwingUtilities
 /**
  * The [ScenarioHost] that bridges a [ScenarioRunner][com.knapsack.fixtool.service.ScenarioRunner] to
  * the live [FixMessageViewModel] — used by both the in-app "Run scenario" action and the
- * `fixtool_run_scenario` control endpoint, so there is a single implementation. All ViewModel /
- * session access is marshalled onto the Swing EDT (Compose state is EDT-bound).
+ * `fixtool_run_scenario` control endpoint, so there is a single implementation. ViewModel state and
+ * every mutation are marshalled onto the Swing EDT (Compose state is EDT-bound).
+ *
+ * A session's message log is the exception: [FixMessageSession.messages] and `connectionState` are
+ * [kotlinx.coroutines.flow.StateFlow]s, not Compose state, so reading `.value` is thread-safe and
+ * needs no EDT hop. That matters because the runner polls these on a 100ms loop — a 30-second
+ * `expect` step is ~300 round-trips, and each one used to drag a full O(N) `filterIsInstance` copy
+ * of the session's message list onto the EDT, freezing the UI for the length of the scenario.
  */
 class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : ScenarioHost {
     override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String {
         val sess = resolveSession(session)
-        val msgs = if (sess == null) emptyList() else onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
+        val msgs = if (sess == null) emptyList() else sess.fixMessages()
         return FixMessageTemplate.evaluate(
             raw,
             byType(msgs, incoming = true),
@@ -41,18 +47,18 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
 
     override fun messages(session: String?): List<FixMessage> {
         val sess = resolveSession(session) ?: return emptyList()
-        return onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
+        return sess.fixMessages()
     }
 
     override fun connectionState(session: String?): String? {
         val sess = resolveSession(session) ?: return null
-        return onEdt { sess.connectionState.value.name }
+        return sess.connectionState.value.name
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
     override fun referenceResolver(session: String?, scope: Map<String, String>): (String) -> String? {
         val sess = resolveSession(session)
-        val msgs = if (sess == null) emptyList() else onEdt { sess.messages.value.filterIsInstance<FixMessage>() }
+        val msgs = if (sess == null) emptyList() else sess.fixMessages()
         val incoming = byType(msgs, incoming = true)
         val outgoing = byType(msgs, incoming = false)
         val dictionary = onEdt { viewModel.dictionary }
@@ -116,20 +122,33 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
             }
         }
 
+    /**
+     * The session's message log, off the EDT. `messages` is a StateFlow, so `.value` is a
+     * thread-safe read of an immutable snapshot — the copy costs the caller's thread, not the UI's.
+     */
+    private fun FixMessageSession.fixMessages(): List<FixMessage> = messages.value.filterIsInstance<FixMessage>()
+
     private fun byType(msgs: List<FixMessage>, incoming: Boolean): Map<String, FixMessage> {
         val want = if (incoming) FixMessage.Direction.INCOMING else FixMessage.Direction.OUTGOING
         return msgs.filter { it.direction == want }.associateBy { it.messageType }
     }
 
-    private fun resolveSession(key: String?): FixMessageSession? =
-        onEdt {
-            val list = viewModel.sessions
-            when {
-                key == null -> list.firstOrNull()
-                key.toIntOrNull() != null -> list.getOrNull(key.toInt())
-                else -> list.firstOrNull { it.id == key || it.title == key }
-            }
+    /**
+     * Session lookup, off the EDT. `viewModel.sessions` is a Compose `SnapshotStateList`, and the
+     * snapshot system serves reads from any thread against a consistent snapshot — so resolving a
+     * session needs no EDT hop either. Keeping one here would have left the runner's 100ms poll
+     * bouncing off the EDT on every iteration even after the expensive copy moved off it.
+     *
+     * Mutations are a different matter and still go through [onEdt].
+     */
+    private fun resolveSession(key: String?): FixMessageSession? {
+        val list = viewModel.sessions
+        return when {
+            key == null -> list.firstOrNull()
+            key.toIntOrNull() != null -> list.getOrNull(key.toInt())
+            else -> list.firstOrNull { it.id == key || it.title == key }
         }
+    }
 
     private companion object {
         /** The " [n]" tail a multi-session slot's title wears over its profile's name. */

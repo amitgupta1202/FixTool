@@ -191,6 +191,77 @@ class GroupOverlayTest {
         return FixDictionaryAdapter.fromFile(file)
     }
 
+    /**
+     * A tag legal both inside the group and after it at message level is absorbed into the last
+     * entry — **greedy, by design**. Nothing on the wire says where such an entry ends (which is
+     * why the spec tells dictionary authors not to write this shape), and greedy is how QuickFIX's
+     * parser and `FixMessageHelper` both resolve it: had the overlay ended the entry early, the
+     * reconcile pane would bracket the same message differently from the detail pane beside it.
+     *
+     * Pinned so that a future "fix" of this case knows it is choosing a side: ending the last entry
+     * at its final dictionary-recognised field is not more correct, it is differently ambiguous —
+     * and it de-synchronises the surfaces the moment it ships.
+     */
+    @Test
+    fun `a trailing field the group also owns joins the last entry, as QuickFIX would read it`() {
+        val overlapping = dictionaryWithTextInParties()
+        val trailing =
+            message(
+                35 to "8",
+                453 to "2",
+                448 to "FIRMA",
+                452 to "1",
+                448 to "FIRMB",
+                452 to "4",
+                58 to "hello",
+            )
+
+        val overlay = GroupOverlay.of(trailing, overlapping)
+
+        assertEquals(
+            listOf(2..3, 4..6),
+            overlay.entries.map { it.rows },
+            "the message-level Text after the group reads as the second party's Text — greedy, matching the parser",
+        )
+        assertEquals(4..6, overlay.entryAt(6)!!.rows)
+    }
+
+    /** A dictionary that allows `Text` both inside `NoPartyIDs` and at message level — the ambiguous shape. */
+    private fun dictionaryWithTextInParties(): FixDictionaryAdapter {
+        val xml =
+            """
+            <fix major="4" minor="4">
+              <header><field name="BeginString" required="Y"/><field name="MsgType" required="Y"/></header>
+              <trailer><field name="CheckSum" required="Y"/></trailer>
+              <messages>
+                <message name="ExecutionReport" msgtype="8" msgcat="app">
+                  <group name="NoPartyIDs" required="N">
+                    <field name="PartyID" required="N"/>
+                    <field name="PartyRole" required="N"/>
+                    <field name="Text" required="N"/>
+                  </group>
+                  <field name="Text" required="N"/>
+                </message>
+              </messages>
+              <fields>
+                <field number="8" name="BeginString" type="STRING"/>
+                <field number="10" name="CheckSum" type="STRING"/>
+                <field number="35" name="MsgType" type="STRING"/>
+                <field number="58" name="Text" type="STRING"/>
+                <field number="448" name="PartyID" type="STRING"/>
+                <field number="452" name="PartyRole" type="INT"/>
+                <field number="453" name="NoPartyIDs" type="NUMINGROUP"/>
+              </fields>
+            </fix>
+            """.trimIndent()
+        val file =
+            File.createTempFile("fixtool-overlap", ".xml").apply {
+                deleteOnExit()
+                writeText(xml)
+            }
+        return FixDictionaryAdapter.fromFile(file)
+    }
+
     /** A field outside every group belongs to no entry, and a move of it is bounded by nothing. */
     @Test
     fun `a top-level field is in no entry`() {

@@ -24,6 +24,13 @@ import quickfix.DataDictionary
  * neighbour and is not a party — a dictionary entry cannot start mid-entry, because the entry starts where
  * the delimiter is.
  *
+ * Entry *starts* are exact; entry *ends* are **greedy**. The last entry runs to the first field its
+ * group's dictionary does not own — so a tag legal both inside the group and after it at message level
+ * is read into the entry, not out of it. That wire is genuinely ambiguous (which is why the spec tells
+ * dictionary authors not to write it), and greedy is how QuickFIX's parser and `FixMessageHelper` both
+ * resolve it: an overlay that ended the entry early would bracket the same message differently from the
+ * detail pane sitting next to it.
+ *
  * Two rules ride along, and both are load-bearing:
  *
  * - **The engine never reads this.** `ExpectationEvaluator` has no dependency on it, and

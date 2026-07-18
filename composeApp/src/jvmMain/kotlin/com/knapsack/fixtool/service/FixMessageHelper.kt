@@ -356,6 +356,17 @@ object FixMessageHelper {
                     } catch (e: Exception) {
                         // If we can't process the group, skip it silently
                     }
+                } else {
+                    // **A count that builds no group is still a field the venue sent.**
+                    //
+                    // Only `addGroup` writes the count back, so a count this branch does not build
+                    // from was stepped over by the `index++` above and never set — it vanished from
+                    // the parsed message, and therefore from the pane that exists to show what
+                    // arrived, and from anything rebuilt out of it. Both shapes that land here are
+                    // ones an author needs to see: `453=0` is a venue saying "no parties", and
+                    // `453=X` is a venue's defect, which a tool for finding venue defects must not
+                    // be the one to erase.
+                    fieldMap.setString(tag, value)
                 }
             } else {
                 // Regular field - just set it

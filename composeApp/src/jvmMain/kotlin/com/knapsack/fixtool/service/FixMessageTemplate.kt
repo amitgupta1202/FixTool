@@ -68,6 +68,33 @@ object FixMessageTemplate {
             ?: error("Kotlin script engine not found.")
     }
 
+    /**
+     * Pay the Kotlin script engine's one-time initialisation up front, off the UI thread.
+     *
+     * Caching the engine in a `lazy` defers that cost; it does not remove it. Measured on the
+     * shipped jars: constructing the engine takes ~140ms and the *first* `eval` a further ~1.4
+     * seconds, loading some 11,000 classes as the embedded Kotlin compiler comes up. Whoever sends
+     * the first template containing a `${...}` expression wears all of it as a frozen window.
+     *
+     * Calling this during startup on a background dispatcher moves the stall to a moment when
+     * nobody is waiting on the UI. Subsequent evaluations cost ~44-82ms each.
+     *
+     * Deliberately *not* paired with a compiled-script cache. `Compilable.compile()` resolves free
+     * identifiers at compile time and materialises them as script properties, so a cached
+     * `CompiledScript` re-evaluated under different bindings silently returns the values it was
+     * compiled with — verified against these jars, including when the variable is absent entirely.
+     * Since `createScriptContext` injects `incoming`, `outgoing` and every scenario variable by
+     * bare name, and bulk-send re-resolves per session across up to 100 sessions, such a cache
+     * would make every session after the first send the first one's values. Speed is not worth a
+     * silent wrong value in a tool used to verify trading messages.
+     */
+    fun warmUp() {
+        val started = System.currentTimeMillis()
+        runCatching { scriptEngine.eval("1") }
+            .onSuccess { logger.debug("Script engine warm-up completed in {}ms", System.currentTimeMillis() - started) }
+            .onFailure { logger.warn("Script engine warm-up failed; first template expression will be slow", it) }
+    }
+
     // Cache extracted message data to avoid re-processing the same messages
     // Key: message object identity, Value: extracted field data
     private val extractedDataCache = java.util.concurrent.ConcurrentHashMap<quickfix.Message, Map<Int, List<String>>>()

@@ -371,6 +371,11 @@ fun HierarchicalGridView(
             }
         }
 
+    // What each expanded message needs of the shared columns, kept per message so the widths can
+    // fit all of them rather than only the one opened last — see fitExpandedGridWidths.
+    val expandedGridWidthContributions =
+        remember { mutableStateMapOf<String, Map<String, androidx.compose.ui.unit.Dp>>() }
+
     // Expanded grid column widths (for the detail view when a message is expanded)
     val expandedGridColumnWidths =
         remember {
@@ -1010,11 +1015,15 @@ fun HierarchicalGridView(
                                                 val wasExpanded = isExpanded
                                                 expandedMessages[messageId] = !isExpanded
 
-                                                // Auto-fit columns when expanding for the first time
+                                                // Auto-fit columns when expanding for the first time,
+                                                // to fit every expanded message rather than only
+                                                // the one just opened — see fitExpandedGridWidths.
                                                 if (!wasExpanded) {
-                                                    val optimalWidths =
+                                                    expandedGridWidthContributions[messageId] =
                                                         calculateExpandedGridWidths(message.quickfixMessage, dictionary)
-                                                    expandedGridColumnWidths.putAll(optimalWidths)
+                                                    expandedGridColumnWidths.putAll(
+                                                        fitExpandedGridWidths(expandedGridWidthContributions.values),
+                                                    )
                                                 }
                                             },
                                             onSelectMessage = onSelectMessage,
@@ -1470,12 +1479,45 @@ private const val EXPANDED_GRID_MIN_COLUMN_WIDTH = 50
 private const val EXPANDED_GRID_MAX_COLUMN_WIDTH = 500
 
 /**
+ * The widths that fit **every** expanded message — the widest requirement per column, not the
+ * newest.
+ *
+ * The grid draws all of its expanded messages through one set of column widths, so those widths are
+ * a property of the whole expanded set and not of whichever message was opened last. Each expansion
+ * used to write its own answer straight over the shared map, which held only while the messages
+ * happened to want the same room: open a deeply nested message, then a shallow one, and the shallow
+ * one's narrower Tag column replaced the wide one the first message was still being drawn with,
+ * putting issue #37 back a second time. A tag clipped in a FIX grid does not read as clipped — 671
+ * shown as "67" reads as tag 67.
+ *
+ * Folding over each expanded message's own contribution — rather than over whatever the shared map
+ * happens to hold — is what keeps the *first* expansion able to fit tightly. Maxing against the
+ * seeded defaults instead would floor every column at them, and a grid that can only ever widen is
+ * not auto-fitting, it is padding.
+ *
+ * A contribution is kept when its message is collapsed, so a column can be wider than the messages
+ * still open strictly need. That is the safe direction to be wrong in, and the alternative —
+ * recomputing on every collapse — buys back whitespace by moving the widths under the author while
+ * they read.
+ */
+internal fun fitExpandedGridWidths(
+    contributions: Collection<Map<String, androidx.compose.ui.unit.Dp>>,
+): Map<String, androidx.compose.ui.unit.Dp> =
+    contributions
+        .flatMap { it.keys }
+        .toSet()
+        .associateWith { column -> contributions.mapNotNull { it[column] }.maxOrNull() ?: 0.dp }
+
+/**
  * Optimal widths for the expanded grid's columns, auto-fitted to one message's content.
  *
  * A row's tag number is drawn inside the fixed-width Tag cell, offset by
  * [EXPANDED_GRID_INDENT_STEP] per level of group nesting, so how much room a tag needs depends on
  * how deep its group sits. Sizing the column on text alone clips the numbers of deeply nested
  * fields — at three levels down, 671 renders as "67" (issue #37).
+ *
+ * This is one message's answer; [fitExpandedGridWidths] combines it with what the other expanded
+ * messages need.
  */
 internal fun calculateExpandedGridWidths(
     message: quickfix.Message,

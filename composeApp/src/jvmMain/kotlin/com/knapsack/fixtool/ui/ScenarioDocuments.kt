@@ -336,15 +336,16 @@ fun stepStripOf(
         if (step !is ScenarioStep.Expect) return@mapIndexedNotNull null
         val status = stepStatusOf(step, workspace.seed.steps.firstOrNull { it.stepId == step.stepId }, results)
         val type = step.expectation.messageType ?: step.match?.messageType ?: ""
-        // A chip saying "4 8" names nothing — 8 is the wire's word for it, not a reader's. The dictionary's
-        // name whole, not abbreviated: every shortening rule invents a word nobody uses ("ExecRepo"), and the
-        // strip scrolls, so length costs nothing that a made-up name would not cost more.
-        val named = type.takeIf { it.isNotBlank() }?.let { typeName(it) ?: it }
+        // **The number, and only the number.** A chip's job is which step, what state, and click to go there;
+        // it is not the place to name the message type. Scenarios run to twelve and fourteen Expects, and a
+        // type name on each pushed the strip into horizontal scroll — at which point the chip the author is
+        // ON can sit off-screen and the strip stops answering the one question it exists for. The type is a
+        // hover away, and the crumb directly beneath already spells out the current step's in full.
         val armed = step.stepId == armedStepId
         StepChip(
             stepId = step.stepId,
             index = index,
-            label = "${index + 1}${named?.let { " $it" } ?: ""}",
+            label = "${index + 1}",
             status = status,
             current = step.stepId == currentStepId,
             armed = armed,
@@ -380,14 +381,21 @@ private fun StepStatus.describe(): String =
         StepStatus.NOT_RUN -> "not run"
     }
 
-/** `2 of 5 failing · 1 repaired, not saved` — the pass in one line, or silence when there is nothing to say. */
+/**
+ * `2 of 12 failing · 1 unsaved` — the pass in one line, or silence when there is nothing to say.
+ *
+ * **Terse on purpose.** It is pinned to the right of the step strip, so every character it spends is a
+ * character of chips the reader cannot see. The count is the part that is always worth its width; the
+ * unsaved-work warning is appended only when there *is* unsaved work, which is the one moment it earns the
+ * room it takes.
+ */
 fun stepStripSummary(chips: List<StepChip>): String {
     if (chips.isEmpty()) return ""
     val failing = chips.count { it.status == StepStatus.FAILING }
     val repaired = chips.count { it.status == StepStatus.REPAIRED }
     val parts = mutableListOf<String>()
     if (failing > 0) parts += "$failing of ${chips.size} failing"
-    if (repaired > 0) parts += "$repaired repaired, not saved"
+    if (repaired > 0) parts += "$repaired unsaved"
     if (parts.isEmpty()) {
         val allGreen = chips.all { it.status == StepStatus.PASSING }
         parts += if (allGreen) "all ${chips.size} passing" else "${chips.size} steps"

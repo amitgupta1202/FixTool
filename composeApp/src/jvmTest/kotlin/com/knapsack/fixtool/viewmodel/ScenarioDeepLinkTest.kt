@@ -20,8 +20,8 @@ import org.junit.Test
 import java.io.File
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -151,7 +151,7 @@ class ScenarioDeepLinkTest {
                 .draft.steps[1]
                 .stepId
         assertNull(viewModel.activeDocumentId.value, "the diff is a window, not the active document")
-        assertEquals(DiffWindowState.diffWindowId(scenario.id, stepId), window.id)
+        assertEquals(DiffWindowState.diffWindowId(scenario.id), window.id)
         assertEquals(scenario.id, window.scenarioId)
         assertEquals(stepId, window.stepId, "by the step's identity, not by where it sits today")
         assertEquals(wireBytes, window.thisRunWire)
@@ -161,7 +161,7 @@ class ScenarioDeepLinkTest {
         val workspace = viewModel.scenarioDraft(scenario.id)!!
         assertEquals(scenario.id, workspace.draft.id)
         assertFalse(workspace.dirty)
-        assertFalse(window.session.isDirty)
+        assertFalse(window.session!!.isDirty)
     }
 
     /**

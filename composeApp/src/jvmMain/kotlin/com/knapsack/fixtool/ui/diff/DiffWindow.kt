@@ -17,6 +17,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
@@ -31,13 +32,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
+import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.ui.AppTheme
+import com.knapsack.fixtool.ui.DiffStepRef
 import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.FixToolWindowChrome
 import com.knapsack.fixtool.ui.NotificationPopupContainer
 import com.knapsack.fixtool.ui.SlimButton
+import com.knapsack.fixtool.ui.stepStripOf
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 
 /**
@@ -116,33 +120,90 @@ fun DiffWindow(viewModel: FixMessageViewModel, state: DiffWindowState, onClose: 
     }
 }
 
-/** `rfq flow v2 · Step 2 · Expect ExecutionReport(8) — FixTool` — a non-main title, so `?window=diff` finds it. */
+/**
+ * `rfq flow v2 · Step 2 of 5 · reconcile — FixTool` — a non-main title, so `?window=diff` finds it, and
+ * `rfq flow v2 · green · reconcile — FixTool` once the pass has ended, so a screenshot-driven client can tell
+ * it is over without reading the body.
+ *
+ * The step in it moves now, because the window's step moves. `?window=<some step text>` still *matches*, but it
+ * no longer addresses a step — see `ControlServer.selectWindow`.
+ */
 @Composable
 private fun diffWindowTitle(viewModel: FixMessageViewModel, state: DiffWindowState): String {
     val workspace by viewModel.openScenarios.collectAsState()
     val draft = workspace[state.scenarioId]?.draft
     val at = draft?.steps?.indexOfFirst { it.stepId == state.stepId } ?: -1
     val name = draft?.name?.ifBlank { null } ?: "scenario"
-    val where = if (at >= 0) "Step ${at + 1}" else "step"
+    val where =
+        when {
+            state.completion != null -> "green"
+            at >= 0 -> "Step ${at + 1} of ${draft?.steps?.size ?: 0}"
+            else -> "step"
+        }
     return "$name · $where · reconcile — FixTool"
 }
 
 /**
- * The window's content: the diff of one step of the scenario's draft. Every keystroke lands in the session,
- * the session writes it into the draft, and nothing reaches disk until Save — which saves the *scenario*,
- * because there is one draft of it however many views are looking at it.
+ * The window's content: **the pass** — a strip of the scenario's steps, and the diff of whichever one is in
+ * view. Every keystroke lands in that step's session, the session writes it into the draft, and nothing reaches
+ * disk until Save — which saves the *scenario*, because there is one draft of it however many views it.
  */
 @Composable
 private fun DiffWindowBody(viewModel: FixMessageViewModel, state: DiffWindowState) {
     val workspace by viewModel.openScenarios.collectAsState()
-    val draft = workspace[state.scenarioId]?.draft ?: return
+    val entry = workspace[state.scenarioId] ?: return
+    val draft = entry.draft
+    val result by viewModel.scenarioResult.collectAsState()
+    val lastRun by viewModel.lastRunScenario.collectAsState()
+    val armedSlot by viewModel.armedReferenceSlot.collectAsState()
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        StepStrip(
+            chips =
+                stepStripOf(
+                    draft = draft,
+                    seed = entry.seed,
+                    currentStepId = state.stepId,
+                    // Another scenario's report must colour nothing — the same gate every other reader of the
+                    // run report applies.
+                    results =
+                        if (lastRun?.id == state.scenarioId) {
+                            result
+                                ?.steps
+                                .orEmpty()
+                                .filter { it.phase == "steps" && it.kind == "expect" }
+                                .associateBy { it.stepId.orEmpty() }
+                        } else {
+                            emptyMap()
+                        },
+                    armedStepId = armedSlot?.takeIf { it.scenarioId == state.scenarioId }?.stepId,
+                ),
+            onSelect = { stepId -> viewModel.showStepInDiffWindow(state.id, stepId) },
+        )
+        if (state.completion != null) {
+            ScenarioGreen(
+                completion = state.completion!!,
+                scenarioName = draft.name.ifBlank { "this scenario" },
+                onDone = { viewModel.requestCloseDiffWindow(state.id) },
+            )
+            return@Column
+        }
+        // Re-keyed on the step: the surface's own remembered view state (a half-finished paste, a drag, which
+        // row has the keyboard) is about the step in front of the author and *should* reset when that changes.
+        // What must survive — the session, with its undo stack — is on the ViewModel and is untouched by this.
+        key(state.stepId) { DiffStepBody(viewModel, state, draft) }
+    }
+}
+
+@Composable
+private fun DiffStepBody(viewModel: FixMessageViewModel, state: DiffWindowState, draft: Scenario) {
     val at = draft.steps.indexOfFirst { it.stepId == state.stepId }
     val step = draft.steps.getOrNull(at) as? ScenarioStep.Expect
     val session = state.session
 
     if (step == null) {
         Text(
-            "The step this diff was opened on is no longer in the scenario. Close this window.",
+            "The step this diff was opened on is no longer in the scenario. Pick another from the strip above.",
             color = AppTheme.Colors.textDisabled,
             fontSize = 12.sp,
             modifier = Modifier.padding(16.dp),
@@ -176,7 +237,7 @@ private fun DiffWindowBody(viewModel: FixMessageViewModel, state: DiffWindowStat
         referenceOptions = viewModel.referenceOptions(state),
         onSelectReference = { kind -> viewModel.selectReference(state, kind) },
         onPasteWire = { paste -> viewModel.bindPastedReference(state, paste) },
-        armed = armedSlot == state.id,
+        armed = armedSlot == DiffStepRef(state.scenarioId, state.stepId),
         onDisarm = { viewModel.disarmReferenceSlot() },
         pastedOrigin = step.origin == StepOrigin.PASTED,
         // "minted by Step 3" on the strip's chips — resolved against the draft, so the label follows the
@@ -187,12 +248,11 @@ private fun DiffWindowBody(viewModel: FixMessageViewModel, state: DiffWindowStat
                 ?.takeIf { it >= 0 }
                 ?.let { "Step ${it + 1}" }
         },
-        onCancel = {
-            // Cancel puts the expectation back exactly as it was found — in the *draft*, which is where the
-            // session has been writing all along — and then the window has nothing left to say.
-            session.discard()
-            viewModel.closeDiffWindow(state.id)
-        },
+        // **This step, and the window stays.** It puts the expectation back exactly as it was found — in the
+        // *draft*, which is where the session has been writing all along. It used to close the window too,
+        // which was honest while a window was one step; now the window holds a whole pass, and closing on it
+        // would throw away every other step the author has repaired. Closing is the × and esc, which ask.
+        onCancel = { session.discard() },
         // C2 — the run-level half of a travelling repair: only this host can see the other steps.
         onSameFixEverywhere = { fix -> viewModel.sameFixEverywhere(state.scenarioId, state.stepId, fix) },
         onApplySameFixEverywhere = { repairs -> viewModel.applySameFixEverywhere(state.scenarioId, repairs) },
@@ -224,7 +284,7 @@ private fun NothingToDiffAgainst(viewModel: FixMessageViewModel, state: DiffWind
         if (pickable != null) {
             SlimButton(
                 text = "Use the message selected in the grid",
-                onClick = { viewModel.bindPickedReference(state, pickable, selected?.timestamp) },
+                onClick = { viewModel.bindPickedReference(state, state.stepId, pickable, selected?.timestamp) },
                 color = AppTheme.Colors.primary,
                 modifier = Modifier.testTag("diff-bind-picked"),
             )

@@ -15,7 +15,7 @@ import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
-import com.knapsack.fixtool.ui.firstFailure
+import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper
@@ -23,17 +23,18 @@ import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
-import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
+import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.service.SessionTags
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.WirePaste
-import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.ui.diff.DiffSide
 import com.knapsack.fixtool.ui.diff.EditOp
+import com.knapsack.fixtool.ui.diff.ReconcileSession
+import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpContext
@@ -106,7 +107,12 @@ class ControlServer(
     private var server: HttpServer? = null
 
     // Tolerant decoder so an agent can post a partial config and let model defaults fill the rest.
-    private val profileJson = Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true }
+    private val profileJson =
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            encodeDefaults = true
+        }
 
     fun start() {
         val httpServer = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), port), 0)
@@ -361,8 +367,9 @@ class ControlServer(
                 viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }?.id
                     ?: return@onEdt errorObject("missing or unknown 'profile'")
             val userTags = userTagsOverride ?: setOf(profileId)
-            val result = viewModel.saveTemplateDirect(profileId, name, fields, userTags, isFavorite, id)
-                ?: return@onEdt errorObject("failed to persist template")
+            val result =
+                viewModel.saveTemplateDirect(profileId, name, fields, userTags, isFavorite, id)
+                    ?: return@onEdt errorObject("failed to persist template")
             buildJsonObject {
                 put("status", if (result.created) "created" else "updated")
                 put("id", result.message.id)
@@ -385,7 +392,8 @@ class ControlServer(
             }
         }
         body["raw"]?.jsonPrimitive?.content?.let { raw ->
-            return FixMessageHelper.parseFixMessage(raw)
+            return FixMessageHelper
+                .parseFixMessage(raw)
                 .map { (tag, value) -> SavedFixField(tag = tag.toString(), value = value) }
         }
         return null
@@ -398,7 +406,10 @@ class ControlServer(
         return onEdt {
             val profileId =
                 profileKey?.let { k -> viewModel.connectionProfiles.firstOrNull { it.id == k || it.name == k }?.id }
-                    ?: viewModel.savedMessages.firstOrNull { it.id == id }?.userTags?.firstOrNull()
+                    ?: viewModel.savedMessages
+                        .firstOrNull { it.id == id }
+                        ?.userTags
+                        ?.firstOrNull()
                     ?: return@onEdt errorObject("could not determine profile for template; pass 'profile'")
             viewModel.deleteSavedMessage(id, profileId)
             buildJsonObject {
@@ -412,8 +423,9 @@ class ControlServer(
     private fun loadTemplate(ex: HttpExchange): JsonElement {
         val id = readJson(ex)["id"]?.jsonPrimitive?.content ?: return errorObject("missing 'id'")
         return onEdt {
-            val template = viewModel.savedMessages.firstOrNull { it.id == id }
-                ?: return@onEdt errorObject("template not found: $id")
+            val template =
+                viewModel.savedMessages.firstOrNull { it.id == id }
+                    ?: return@onEdt errorObject("template not found: $id")
             viewModel.loadEditorMessage(template)
             if (!viewModel.showMessageEditor.value) viewModel.toggleMessageEditor()
             buildJsonObject {
@@ -512,8 +524,9 @@ class ControlServer(
                     .filter { msgType == null || it.messageType == msgType }
                     .filter { directionMatches(it, directionFilter) }
             if (candidates.isEmpty()) return@onEdt errorObject("no matching messages to select")
-            val target = (if (index != null) candidates.getOrNull(index) else candidates.last())
-                ?: return@onEdt errorObject("index out of range (0..${candidates.size - 1})")
+            val target =
+                (if (index != null) candidates.getOrNull(index) else candidates.last())
+                    ?: return@onEdt errorObject("index out of range (0..${candidates.size - 1})")
 
             viewModel.selectMessage(target)
             buildJsonObject {
@@ -778,7 +791,10 @@ class ControlServer(
     private fun saveScenario(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         if (body["name"]?.jsonPrimitive?.content == null) return errorObject("missing 'name'")
-        val id = body["id"]?.jsonPrimitive?.content ?: java.util.UUID.randomUUID().toString()
+        val id =
+            body["id"]?.jsonPrimitive?.content ?: java.util.UUID
+                .randomUUID()
+                .toString()
         val scenario =
             try {
                 ScenarioCodec.fromJson(JsonObject(body + ("id" to JsonPrimitive(id))))
@@ -788,7 +804,16 @@ class ControlServer(
         val existed = viewModel.scenarioService.load(id) != null
         val ok = viewModel.scenarioService.save(scenario)
         return buildJsonObject {
-            put("status", if (!ok) "failed" else if (existed) "updated" else "created")
+            put(
+                "status",
+                if (!ok) {
+                    "failed"
+                } else if (existed) {
+                    "updated"
+                } else {
+                    "created"
+                },
+            )
             put("id", id)
             put("name", scenario.name)
         }
@@ -806,9 +831,10 @@ class ControlServer(
         val chosen =
             if (keys.isNullOrEmpty()) onEdt { viewModel.sessions.toList() } else keys.mapNotNull { resolveSession(it) }
         if (chosen.isEmpty()) return errorObject("no sessions to capture")
-        val captured = chosen.map { sess ->
-            ScenarioCapture.CapturedSession(sess.title, onEdt { sess.messages.value.filterIsInstance<FixMessage>() })
-        }
+        val captured =
+            chosen.map { sess ->
+                ScenarioCapture.CapturedSession(sess.title, onEdt { sess.messages.value.filterIsInstance<FixMessage>() })
+            }
         // scan(), not capture(): a capture is a CLAIM ABOUT COVERAGE, and a message left out has to be
         // reported. The UI honours that (ScenarioCaptureReview's UnreadableNotice); this surface silently
         // discarded them, so an agent writing a CI job was handed a scenario that omits a reply, believes it
@@ -960,6 +986,20 @@ class ControlServer(
      * An index the plan does not propose refuses the whole apply — a partial stage that silently skipped
      * a row would report a repair it did not make.
      */
+
+    /**
+     * The reconcile session for one step, **by slot**. A scenario's diff window holds a slot per step the pass
+     * has visited, and the step this call is about is not necessarily the one the window is showing — reading
+     * the window's current session would be right nearly always and silently wrong the rest of the time, which
+     * is worse than finding nothing.
+     */
+    private fun sessionForStep(stepId: String?): ReconcileSession? =
+        stepId?.let { id ->
+            viewModel.openDiffWindows.value
+                .firstNotNullOfOrNull { it.slots[id] }
+                ?.session
+        }
+
     private fun reconcile(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val at = body["step"]?.jsonPrimitive?.intOrNull
@@ -985,8 +1025,12 @@ class ControlServer(
                 onEdt { viewModel.openReconcile(step) }
                 // The session the open created (or re-aimed) — the same object the sheet drives, so the
                 // plan here and the plan on screen are one computation apart, never two opinions.
-                val session =
-                    onEdt { viewModel.openDiffWindows.value.firstOrNull { it.stepId == step.stepId }?.session }
+                //
+                // Addressed by slot, not by the window's *current* step. The open above has just moved the view
+                // to this step, so reading `window.session` would be right nearly always and silently wrong the
+                // rest of the time — an agent handed another step's fix plan under this step's name. Failing to
+                // find the slot is the honest outcome; guessing is not.
+                val session = onEdt { sessionForStep(step.stepId) }
                 val plan = session?.let { s -> onEdt { s.fixPlan() } }.orEmpty()
                 var staged = 0
                 if (applyFix != null) {
@@ -1079,7 +1123,16 @@ class ControlServer(
                     if (obj["id"] != null) {
                         obj
                     } else {
-                        JsonObject(obj + ("id" to JsonPrimitive(java.util.UUID.randomUUID().toString())))
+                        JsonObject(
+                            obj + (
+                                "id" to
+                                    JsonPrimitive(
+                                        java.util.UUID
+                                            .randomUUID()
+                                            .toString(),
+                                    )
+                            ),
+                        )
                     }
                 try {
                     ScenarioCodec.fromJson(withId)
@@ -1139,7 +1192,11 @@ class ControlServer(
             buildJsonObject {
                 put("status", "ok")
                 put("query", viewModel.detailSearchQuery.value)
-                put("mode", viewModel.detailMatchContextMode.value.name.lowercase())
+                put(
+                    "mode",
+                    viewModel.detailMatchContextMode.value.name
+                        .lowercase(),
+                )
                 put("detailPanelShown", viewModel.showDetailPanel.value)
             }
         }
@@ -1342,11 +1399,13 @@ class ControlServer(
         val id = body["id"]?.jsonPrimitive?.content ?: return errorObject("missing 'id'")
         val sessionKey = body["session"]?.jsonPrimitive?.content
         return onEdt {
-            val template = viewModel.savedMessages.firstOrNull { it.id == id }
-                ?: return@onEdt errorObject("template not found: $id")
+            val template =
+                viewModel.savedMessages.firstOrNull { it.id == id }
+                    ?: return@onEdt errorObject("template not found: $id")
             val index =
                 if (sessionKey != null) {
-                    viewModel.sessions.indexOfFirst { it.id == sessionKey || it.title == sessionKey }
+                    viewModel.sessions
+                        .indexOfFirst { it.id == sessionKey || it.title == sessionKey }
                         .also { if (it < 0) return@onEdt errorObject("session not found: $sessionKey") }
                 } else {
                     viewModel.activeSessionIndex
@@ -1398,7 +1457,9 @@ class ControlServer(
             }
             if (match != null) {
                 val found =
-                    session.messages.value.filterIsInstance<FixMessage>().firstOrNull { matchesMessage(it, match) }
+                    session.messages.value
+                        .filterIsInstance<FixMessage>()
+                        .firstOrNull { matchesMessage(it, match) }
                 if (found != null) {
                     return buildJsonObject {
                         put("status", "matched")
@@ -1413,7 +1474,11 @@ class ControlServer(
 
     private fun matchesMessage(msg: FixMessage, match: JsonObject): Boolean {
         match["messageType"]?.jsonPrimitive?.content?.let { if (msg.messageType != it) return false }
-        match["direction"]?.jsonPrimitive?.content?.lowercase()?.let { if (!directionMatches(msg, it)) return false }
+        match["direction"]
+            ?.jsonPrimitive
+            ?.content
+            ?.lowercase()
+            ?.let { if (!directionMatches(msg, it)) return false }
         val tag = match["tag"]?.jsonPrimitive?.intOrNull
         if (tag != null) {
             val actual = msg.valueOfTag(tag) ?: return false
@@ -1486,8 +1551,9 @@ class ControlServer(
     private fun acceptorRules(ex: HttpExchange): JsonElement {
         val profileKey = queryParams(ex)["profile"] ?: return errorObject("missing 'profile'")
         return onEdt {
-            val profile = viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }
-                ?: return@onEdt errorObject("unknown profile: $profileKey")
+            val profile =
+                viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }
+                    ?: return@onEdt errorObject("unknown profile: $profileKey")
             buildJsonObject {
                 put("profile", profile.name)
                 put("connectionType", profile.config.connectionType.name)
@@ -1591,10 +1657,11 @@ class ControlServer(
                 respondText(ex, HTTP_UNAUTHORIZED, "unauthorized")
                 return
             }
-            val bytes = captureWindowPng(queryParams(ex)["window"]) ?: run {
-                respondText(ex, HTTP_NOT_FOUND, "no window")
-                return
-            }
+            val bytes =
+                captureWindowPng(queryParams(ex)["window"]) ?: run {
+                    respondText(ex, HTTP_NOT_FOUND, "no window")
+                    return
+                }
             ex.responseHeaders.add("Content-Type", "image/png")
             ex.sendResponseHeaders(HTTP_OK, bytes.size.toLong())
             ex.responseBody.use { it.write(bytes) }
@@ -1609,8 +1676,14 @@ class ControlServer(
     /**
      * **Which window `?window=` names.** `main` (or absent) is the main window, by title — never `firstOrNull()`,
      * which is undefined-order once a second window exists. `diff` is the first showing window that is not the
-     * main one; any other value matches a window whose title contains it (so a specific step can be targeted).
-     * Only `Frame`s (the app's real windows) are considered, which also skips heavyweight popups and tooltips.
+     * main one; any other value matches a window whose title contains it (so a specific **scenario** can be
+     * targeted). Only `Frame`s (the app's real windows) are considered, which also skips heavyweight popups
+     * and tooltips.
+     *
+     * **A step can no longer be targeted this way**, and callers should know it rather than find out. A
+     * scenario has exactly one reconcile window and the step in its title is whichever one it is *showing*, so
+     * `?window=Step 3` now means "the window that happens to be on step 3 at this instant" — a match that can
+     * change under a caller that did nothing. Address a scenario; drive the step through the reconcile API.
      */
     private fun selectWindow(selector: String?): Window? {
         val frames = windowProvider().filter { it.isShowing }.filterIsInstance<java.awt.Frame>()
@@ -1737,7 +1810,12 @@ class ControlServer(
         }
 
     private fun mcpInitialize(request: JsonObject): JsonObject {
-        val clientVersion = request["params"]?.jsonObject?.get("protocolVersion")?.jsonPrimitive?.content
+        val clientVersion =
+            request["params"]
+                ?.jsonObject
+                ?.get("protocolVersion")
+                ?.jsonPrimitive
+                ?.content
         return buildJsonObject {
             put("protocolVersion", clientVersion ?: MCP_PROTOCOL_VERSION)
             put("capabilities", buildJsonObject { put("tools", buildJsonObject {}) })

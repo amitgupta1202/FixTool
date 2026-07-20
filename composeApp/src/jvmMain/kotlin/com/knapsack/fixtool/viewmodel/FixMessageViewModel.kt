@@ -51,13 +51,16 @@ import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.ui.CaptureReviewState
+import com.knapsack.fixtool.ui.DiffStepRef
+import com.knapsack.fixtool.ui.DiffStepSlot
 import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.FixField
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
+import com.knapsack.fixtool.ui.ReconcileCompletion
+import com.knapsack.fixtool.ui.RepairedStep
 import com.knapsack.fixtool.ui.RunFailureContext
 import com.knapsack.fixtool.ui.ScenarioDoc
-import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.ui.ScenarioDraft
 import com.knapsack.fixtool.ui.diff.DiffSide
 import com.knapsack.fixtool.ui.diff.DiffViewerSession
@@ -65,6 +68,7 @@ import com.knapsack.fixtool.ui.diff.DiffViewerState
 import com.knapsack.fixtool.ui.diff.ReconcileSession
 import com.knapsack.fixtool.ui.diff.SeedFrom
 import com.knapsack.fixtool.ui.diff.ViewerSlot
+import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.ui.sessionOrNull
 import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.coroutines.CoroutineScope
@@ -474,7 +478,7 @@ class FixMessageViewModel(
         val closing = _openDiffWindows.value.firstOrNull { it.id == id }
         _openDiffWindows.value = _openDiffWindows.value.filterNot { it.id == id }
         closing?.scenarioId?.let { dropDraftIfUnviewed(it) }
-        if (_armedReferenceSlot.value == id) _armedReferenceSlot.value = null
+        if (_armedReferenceSlot.value?.windowId == id) _armedReferenceSlot.value = null
         if (_confirmingCloseId.value == id) _confirmingCloseId.value = null
     }
 
@@ -544,9 +548,21 @@ class FixMessageViewModel(
 
     // ---- The diff window: the one surface that authors or repairs an assertion ---------------------
 
+    /** The window this scenario's pass is happening in, if one is open. There is at most one. */
+    fun diffWindowFor(scenarioId: String): DiffWindowState? =
+        _openDiffWindows.value.firstOrNull { it.scenarioId == scenarioId }
+
     /**
-     * Open the diff **window** on a step — or focus the window already holding it (`focusEpoch` bump, which
-     * raises it), re-aimed at [focusTag].
+     * Open the diff **window** on a step — or **re-aim the scenario's window at it** (`focusEpoch` bump, which
+     * raises it), scrolled to [focusTag].
+     *
+     * The de-dupe is on the **scenario**, not the step: a reconcile pass walks a scenario's failures one run at
+     * a time, and keyed on the step that pass left a finished window behind at every stop. So a step that is
+     * already open is re-aimed, and a step that is not gets a slot in the window that is.
+     *
+     * **A revisited step keeps its slot**, untouched — the undo stack, the staged repairs, the reference the
+     * author bound by hand an hour ago. That is the invariant the whole one-window design hangs on; rebuild the
+     * slot here and the strip becomes a machine for discarding work.
      *
      * The reference is bound here and nowhere else: this run's failing bytes when there are any, the step's
      * golden when there are not, and **nothing at all** when the step has neither — in which case the window
@@ -561,40 +577,104 @@ class FixMessageViewModel(
         focusTag: Int? = null,
     ) {
         ensureScenarioDraft(scenario)
-        val id = DiffWindowState.diffWindowId(scenario.id, stepId)
-        val open = _openDiffWindows.value.firstOrNull { it.id == id }
+        val reference = thisRunWire?.let { referenceOf(it, arrivedAt, scenario.id) }
+        val open = diffWindowFor(scenario.id)
         if (open != null) {
-            // Already open, and it may be carrying an undo stack and an hour of staged repairs. Only the aim
-            // moves — and the reference with it, when this is a *new* failure of the same step. The epoch bump
-            // is what raises the window to the front (F6).
-            val rebound = thisRunWire?.let { wire -> referenceOf(wire, arrivedAt, scenario.id) }
-            rebound?.let { open.session?.swapReference(it) }
+            val existing = open.slots[stepId]
+            val slot =
+                if (existing == null) {
+                    newSlot(scenario.id, stepId, thisRunWire, reference)
+                } else {
+                    // Carrying an undo stack and an hour of staged repairs. Only the aim moves — and the
+                    // reference with it, when this is a *new* failure of a step already open.
+                    reference?.let { existing.session?.swapReference(it) }
+                    existing.copy(
+                        thisRunWire = thisRunWire ?: existing.thisRunWire,
+                        focusTag = focusTag ?: existing.focusTag,
+                    )
+                }
             updateDiffWindow(
                 open.copy(
-                    thisRunWire = thisRunWire ?: open.thisRunWire,
-                    focusTag = focusTag ?: open.focusTag,
+                    stepId = stepId,
+                    slots = open.slots + (stepId to slot),
                     focusEpoch = open.focusEpoch + 1,
+                    // A new failure to repair ends the green announcement — but not the pass, so what it has
+                    // already repaired stays on the window.
+                    completion = null,
                 ),
             )
             return
         }
-        val step = scenarioDraft(scenario.id)?.draft?.steps?.firstOrNull { it.stepId == stepId }
-        val expectation = (step as? ScenarioStep.Expect)?.expectation
-        val reference =
-            when {
-                thisRunWire != null -> referenceOf(thisRunWire, arrivedAt, scenario.id)
-                expectation?.golden != null -> ReferenceMessage.golden(RawMessageView(expectation.golden!!))
-                else -> null
-            }
-        val window =
+        _openDiffWindows.value =
+            _openDiffWindows.value +
             DiffWindowState(
                 scenarioId = scenario.id,
                 stepId = stepId,
-                session = expectation?.let { reference?.let { ref -> newReconcileSession(scenario.id, stepId, it, ref) } },
-                thisRunWire = thisRunWire,
-                focusTag = focusTag,
+                slots = mapOf(stepId to newSlot(scenario.id, stepId, thisRunWire, reference)),
             )
-        _openDiffWindows.value = _openDiffWindows.value + window
+    }
+
+    /**
+     * A step's slot, built for the first time: this run's bytes if the caller has them, else the step's golden,
+     * else nothing at all — which is the prompt, not a diff against an empty message.
+     */
+    private fun newSlot(
+        scenarioId: String,
+        stepId: String,
+        thisRunWire: String?,
+        reference: ReferenceMessage?,
+    ): DiffStepSlot {
+        val expectation = expectStep(scenarioId, stepId)?.expectation
+        val golden = expectation?.golden
+        val bound = reference ?: golden?.let { ReferenceMessage.golden(RawMessageView(it)) }
+        return DiffStepSlot(
+            stepId = stepId,
+            session = expectation?.let { e -> bound?.let { newReconcileSession(scenarioId, stepId, e, it) } },
+            thisRunWire = thisRunWire,
+        )
+    }
+
+    /**
+     * **The step strip's chip click** — move this window's view to another of its scenario's steps.
+     *
+     * Not a deep-link, and deliberately different from [openDiffWindow] in two ways. It does **not** bump
+     * `focusEpoch`: the click came from inside a window that is already in front, and `toFront`/`requestFocus`
+     * on it would steal focus from a value field the author is halfway through typing into. And it does **not**
+     * go through [reconcileRoute] — that gate exists to stop a deep-link *from a run report* landing on a step
+     * that has been edited since the run, which is not what navigating inside a window you are already editing
+     * in is. Routing chip clicks through it "for consistency" would make moving between two steps refusable.
+     */
+    fun showStepInDiffWindow(windowId: String, stepId: String) {
+        val window = diffWindow(windowId) ?: return
+        val alreadyThere = window.stepId == stepId && window.completion == null
+        val known = scenarioDraft(window.scenarioId)?.draft?.steps?.any { it.stepId == stepId } == true
+        if (alreadyThere || !known) return
+        val slot = window.slots[stepId] ?: buildSlotFromRun(window.scenarioId, stepId)
+        updateDiffWindow(
+            window.copy(stepId = stepId, slots = window.slots + (stepId to slot), completion = null),
+        )
+    }
+
+    /** A slot for a step the author has not opened yet: this run's reply for it, if this run produced one. */
+    private fun buildSlotFromRun(scenarioId: String, stepId: String): DiffStepSlot {
+        val matched =
+            if (_lastRunScenario.value?.id == scenarioId) {
+                _assertionResults.value.entries.firstOrNull { (_, result) -> result.stepId == stepId }
+            } else {
+                null
+            }
+        val wire = matched?.key?.wireRaw
+        val reference =
+            wire?.let {
+                referenceOf(
+                    it,
+                    matched.key.timestamp
+                        .atZone(ZoneId.systemDefault())
+                        .toInstant(),
+                    scenarioId,
+                )
+            }
+        return newSlot(scenarioId, stepId, wire, reference)
     }
 
     /**
@@ -659,13 +739,24 @@ class FixMessageViewModel(
      * SECOND_INSTANCE is that it is a *different* message — re-point the golden at it and verify-generalizes
      * destroys the very thing it was checking against. A PASTED reference is bytes FixTool cannot vouch for; a
      * hand-doctored paste must never quietly become the scenario's canonical example.
+     *
+     * **[repointGolden] is how a repair that travelled here says it was never looked at.** The rule above is
+     * about bytes the author *reconciled against*; a fix that arrived from a sibling step (C2) is by definition
+     * one they never opened. Without the flag the decision would hang off whether that step happens to have a
+     * live slot in the window — so the same travelling repair would re-point the golden of a step whose chip
+     * had been clicked and not of one that had not, and the golden would quietly depend on navigation history.
      */
-    private fun applyExpectation(scenarioId: String, stepId: String, edited: Expectation) {
-        val window =
-            _openDiffWindows.value.firstOrNull { it.scenarioId == scenarioId && it.stepId == stepId }
-        val session = window?.session
-        val againstThisRun = session?.reference?.provenance == ReferenceMessage.Provenance.THIS_RUN
-        val golden = if (againstThisRun) window?.thisRunWire ?: edited.golden else edited.golden
+    private fun applyExpectation(
+        scenarioId: String,
+        stepId: String,
+        edited: Expectation,
+        repointGolden: Boolean = true,
+    ) {
+        val slot = diffWindowFor(scenarioId)?.slots?.get(stepId)
+        val session = slot?.session
+        val againstThisRun =
+            repointGolden && session?.reference?.provenance == ReferenceMessage.Provenance.THIS_RUN
+        val golden = if (againstThisRun) slot?.thisRunWire ?: edited.golden else edited.golden
         // **The badge follows the bytes.** Rows tightened against a paste were tightened against bytes FixTool
         // cannot vouch for, and — because the golden is NOT re-pointed at them (V4) — the step will open red
         // against its own canonical example ever after. The badge is the sentence that explains that.
@@ -699,10 +790,16 @@ class FixMessageViewModel(
      * Bind the message the author has selected in a session grid as this diff's reference — pick-from-grid, in
      * its cheapest honest form. Phase 5's armed slot widens it; the *provenance* is already right.
      */
-    fun bindPickedReference(window: DiffWindowState, wire: String, arrivedAt: java.time.LocalDateTime?) {
+    fun bindPickedReference(
+        window: DiffWindowState,
+        stepId: String,
+        wire: String,
+        arrivedAt: java.time.LocalDateTime?,
+    ) {
         val at = arrivedAt?.atZone(java.time.ZoneId.systemDefault())?.toInstant() ?: java.time.Instant.now()
         bind(
             window,
+            stepId,
             ReferenceMessage.live(
                 view = RawMessageView(wire),
                 provenance = ReferenceMessage.Provenance.PICKED,
@@ -712,35 +809,45 @@ class FixMessageViewModel(
         )
     }
 
-    /** The step this diff is a view onto — or null, if the author has deleted it out from under the window. */
-    private fun expectStep(window: DiffWindowState): ScenarioStep.Expect? =
-        scenarioDraft(window.scenarioId)
+    /** A step of this diff's scenario — or null, if the author has deleted it out from under the window. */
+    private fun expectStep(scenarioId: String, stepId: String): ScenarioStep.Expect? =
+        scenarioDraft(scenarioId)
             ?.draft
             ?.steps
-            ?.firstOrNull { it.stepId == window.stepId } as? ScenarioStep.Expect
+            ?.firstOrNull { it.stepId == stepId } as? ScenarioStep.Expect
 
     /**
      * Bind, or build the session if the slot was empty. The one door every reference goes through, so a
      * reference cannot arrive by a route that forgets to re-judge.
+     *
+     * The step is named rather than taken from the window: an armed slot binds the step it was armed *on*,
+     * which is not necessarily the one the strip is showing by the time the author clicks the grid row.
      */
-    private fun bind(window: DiffWindowState, reference: ReferenceMessage): Boolean {
-        val expectation = expectStep(window)?.expectation ?: return false
-        val existing = window.session
+    private fun bind(window: DiffWindowState, stepId: String, reference: ReferenceMessage): Boolean {
+        val expectation = expectStep(window.scenarioId, stepId)?.expectation ?: return false
+        val existing = window.slots[stepId]?.session
         if (existing != null) {
             existing.swapReference(reference)
             return true
         }
-        val session = newReconcileSession(window.scenarioId, window.stepId, expectation, reference)
-        updateDiffWindow(window.copy(session = session))
+        val session = newReconcileSession(window.scenarioId, stepId, expectation, reference)
+        updateDiffWindow(
+            window.withSlot(stepId) { it?.copy(session = session) ?: DiffStepSlot(stepId, session = session) },
+        )
         return true
     }
 
     // ---- The reference slot: what the swap menu may offer, and why it may not (S8, S11) ------------------
 
-    /** The five entries of the swap menu, in the mockup's order, each one honest about whether it can be taken. */
+    /**
+     * The five entries of the swap menu, in the mockup's order, each one honest about whether it can be taken.
+     *
+     * About the window's **current** step, and rightly so: the menu is drawn in the header the author is
+     * looking at, and it answers for the diff under it.
+     */
     fun referenceOptions(window: DiffWindowState): List<ReferenceOption> {
         val bound = window.session?.reference?.provenance
-        val step = expectStep(window)
+        val step = expectStep(window.scenarioId, window.stepId)
         val golden = step?.expectation?.golden
         val second = secondInstanceFor(step)
         return listOf(
@@ -807,16 +914,20 @@ class FixMessageViewModel(
      * through [bindPastedReference] once they have been **read**.
      */
     fun selectReference(window: DiffWindowState, kind: ReferenceOption.Kind): Boolean {
-        val step = expectStep(window)
+        val stepId = window.stepId
+        val step = expectStep(window.scenarioId, stepId)
         return when (kind) {
             ReferenceOption.Kind.THIS_RUN ->
-                window.thisRunWire?.let { bind(window, referenceOf(it, null, window.scenarioId)) } ?: false
+                window.thisRunWire?.let { bind(window, stepId, referenceOf(it, null, window.scenarioId)) } ?: false
             ReferenceOption.Kind.GOLDEN ->
-                step?.expectation?.golden?.let { bind(window, ReferenceMessage.golden(RawMessageView(it))) } ?: false
+                step?.expectation?.golden?.let {
+                    bind(window, stepId, ReferenceMessage.golden(RawMessageView(it)))
+                } ?: false
             ReferenceOption.Kind.SECOND_INSTANCE ->
                 secondInstanceFor(step)?.let { wire ->
                     bind(
                         window,
+                        stepId,
                         ReferenceMessage.live(
                             view = RawMessageView(wire),
                             provenance = ReferenceMessage.Provenance.SECOND_INSTANCE,
@@ -826,7 +937,7 @@ class FixMessageViewModel(
                     )
                 } ?: false
             ReferenceOption.Kind.PICK -> {
-                armReferenceSlot(window.id)
+                armReferenceSlot(DiffStepRef(window.scenarioId, stepId))
                 true
             }
             // The sheet opens in the surface; the bytes come back through bindPastedReference once they are READ.
@@ -842,15 +953,15 @@ class FixMessageViewModel(
      * the diff must all agree about what the next click means, and the diff window cannot see the main window's
      * grid. Same reason `activeDocumentId` is here (T3): three surfaces, one fact — now across two windows.
      */
-    private val _armedReferenceSlot = MutableStateFlow<String?>(null)
-    val armedReferenceSlot: StateFlow<String?> = _armedReferenceSlot.asStateFlow()
+    private val _armedReferenceSlot = MutableStateFlow<DiffStepRef?>(null)
+    val armedReferenceSlot: StateFlow<DiffStepRef?> = _armedReferenceSlot.asStateFlow()
 
-    fun armReferenceSlot(diffWindowId: String) {
+    fun armReferenceSlot(ref: DiffStepRef) {
         // One click means one thing (S8): arming the reconcile reference disarms any armed viewer slot, and
         // vice versa. Two armed slots would make a grid click ambiguous, which is the silence ground rule 6
         // forbids wearing the clothes of a binding.
         _armedViewerSlot.value = null
-        _armedReferenceSlot.value = diffWindowId
+        _armedReferenceSlot.value = ref
     }
 
     fun disarmReferenceSlot() {
@@ -904,14 +1015,20 @@ class FixMessageViewModel(
      */
     fun bindArmedReference(message: FixMessage): Boolean {
         val armed = _armedReferenceSlot.value ?: return false
-        val window = _openDiffWindows.value.firstOrNull { it.id == armed } ?: return false
+        val window = _openDiffWindows.value.firstOrNull { it.id == armed.windowId } ?: return false
         val wire = message.wireRaw
         if (wire != null) {
-            bindPickedReference(window, wire, message.timestamp)
+            bindPickedReference(window, armed.stepId, wire, message.timestamp)
             disarmReferenceSlot()
+            // Back to the step that was armed, not to whatever the strip drifted to while the author was in the
+            // main window hunting for the row. Binding Step 3 and raising a window showing Step 5 would put the
+            // reference somewhere the author cannot see it.
+            showStepInDiffWindow(armed.windowId, armed.stepId)
             // Raise the diff window back to the front — the click happened in the main window, and the author's
             // eyes are about to go back to the diff. The epoch bump is what toFronts it (F6).
-            updateDiffWindow(diffWindow(armed)?.let { it.copy(focusEpoch = it.focusEpoch + 1) } ?: return true)
+            updateDiffWindow(
+                diffWindow(armed.windowId)?.let { it.copy(focusEpoch = it.focusEpoch + 1) } ?: return true,
+            )
         } else {
             showNotification(
                 "FixTool does not have this message's wire bytes, so it cannot be diffed against. Only the bytes " +
@@ -930,7 +1047,7 @@ class FixMessageViewModel(
     fun bindPastedReference(window: DiffWindowState, paste: WirePaste): Boolean {
         val wire = paste.wire?.takeIf { paste.usable } ?: return false
         val label = paste.sendingTime?.let { "pasted · ${it.takeLast(TIME_OF_DAY)}" } ?: "pasted"
-        return bind(window, ReferenceMessage.pasted(RawMessageView(wire), label))
+        return bind(window, window.stepId, ReferenceMessage.pasted(RawMessageView(wire), label))
     }
 
     // ---- The plain diff viewer: two messages, no scenario, nothing that writes (Phase 7) ------------------
@@ -1101,7 +1218,7 @@ class FixMessageViewModel(
      * stack and reaches no draft — so dropping the window is the one thing that loses it, silently. A read-only
      * viewer, or a clean seed, has nothing to discard and closes at once, exactly as before. Reuses the same
      * `_confirmingCloseId` the diff window's own dirty-close confirm uses (F4); ids are unique across both
-     * collections (a pair-hash viewer id never equals a `(scenarioId, stepId)` window id).
+     * collections (a pair-hash viewer id never equals a `diff:$scenarioId` window id).
      */
     fun requestCloseDiffViewer(id: String) {
         val editing = diffViewer(id)?.editing
@@ -1110,7 +1227,8 @@ class FixMessageViewModel(
 
     fun closeDiffViewer(id: String) {
         _openDiffViewers.value = _openDiffViewers.value.filterNot { it.id == id }
-        if (_armedReferenceSlot.value == id) _armedReferenceSlot.value = null
+        // No reconcile-slot check here: a viewer id and a diff window id are different shapes now, so a viewer
+        // closing can never have been what a reconcile slot was armed on.
         if (_armedViewerSlot.value?.viewerId == id) _armedViewerSlot.value = null
         if (_confirmingCloseId.value == id) _confirmingCloseId.value = null
     }
@@ -1196,13 +1314,19 @@ class FixMessageViewModel(
         _openDiffWindows.value
             .filter { it.scenarioId == scenarioId }
             .forEach { window ->
-                val step = saved.steps.firstOrNull { it.stepId == window.stepId } as? ScenarioStep.Expect
-                step?.let { window.session?.rebase(it.expectation) }
+                // EVERY slot, not just the one on screen: a pass stages repairs across several steps and this
+                // Save wrote all of them. A slot left un-rebased would go on counting edits that are on disk —
+                // and, worse, would still describe the expectation as it was before the save.
+                window.slots.values.forEach { slot ->
+                    val step = saved.steps.firstOrNull { it.stepId == slot.stepId } as? ScenarioStep.Expect
+                    step?.let { slot.session?.rebase(it.expectation) }
+                }
             }
         return true
     }
 
     /** Open capture review on a fresh scan of the sessions — or focus the review already open. */
+
     /**
      * **Capture the whole flow, straight into the editor** — the top toolbar's capture button.
      *
@@ -1609,18 +1733,49 @@ class FixMessageViewModel(
             before[repair.stepId] = expect.expectation
             val edited =
                 repair.fixes.fold(expect.expectation) { acc, f -> ScenarioReconcile.loosen(acc, f.index, f.proposed) }
-            applyExpectation(scenarioId, repair.stepId, edited)
+            // Not the author's own reconciliation of this step — they never opened it. See [applyExpectation].
+            applyExpectation(scenarioId, repair.stepId, edited, repointGolden = false)
             applied += repair.fixes.size
         }
         if (before.isNotEmpty()) sameFixSnapshot = scenarioId to before
+        // After the whole loop, never inside it: applyExpectation reads each step's slot to decide the golden,
+        // and a half-adopted session in that read would be worse than none.
+        adoptExternalWrites(scenarioId, repairs.map { it.stepId })
         return applied
     }
 
     /** One shot: the affected steps go back exactly as they were, and the snapshot is spent. */
     fun revertSameFixEverywhere() {
         val (scenarioId, before) = sameFixSnapshot ?: return
-        before.forEach { (stepId, expectation) -> applyExpectation(scenarioId, stepId, expectation) }
+        before.forEach { (stepId, expectation) ->
+            applyExpectation(scenarioId, stepId, expectation, repointGolden = false)
+        }
+        adoptExternalWrites(scenarioId, before.keys)
         sameFixSnapshot = null
+    }
+
+    /**
+     * **A repair that travelled into a step by a route that is not that step's own session.**
+     *
+     * [applySameFixEverywhere] writes sibling expectations straight into the draft, which is correct — the
+     * scenario's draft is the one truth — but it leaves any *open* session on those steps describing an
+     * expectation the draft no longer has. The next keystroke or undo in such a step would call `onChange` with
+     * that stale value and **silently revert the travelled repair**: work the author watched happen, undone
+     * with no message.
+     *
+     * This was survivable while a window was one step, because seeing it needed two windows open on the same
+     * scenario at once. A window that holds the whole pass makes it the normal case, so every slot the write
+     * touched catches up to what the draft now says.
+     */
+    private fun adoptExternalWrites(scenarioId: String, stepIds: Collection<String>) {
+        val draft = scenarioDraft(scenarioId)?.draft ?: return
+        val window = diffWindowFor(scenarioId) ?: return
+        stepIds.forEach { stepId ->
+            val session = window.slots[stepId]?.session ?: return@forEach
+            (draft.steps.firstOrNull { it.stepId == stepId } as? ScenarioStep.Expect)
+                ?.expectation
+                ?.let(session::adopt)
+        }
     }
 
     /**
@@ -2287,34 +2442,41 @@ class FixMessageViewModel(
         _openDiffWindows.value
             .filter { it.scenarioId == ran.id }
             .forEach { window ->
-                val matched =
-                    _assertionResults.value.entries.firstOrNull { (_, result) -> result.stepId == window.stepId }
-                        ?: return@forEach
-                val wire = matched.key.wireRaw ?: return@forEach
-                val arrivedAt =
-                    matched.key.timestamp
-                        .atZone(java.time.ZoneId.systemDefault())
-                        .toInstant()
-                val reference = referenceOf(wire, arrivedAt, ran.id)
-                val session = window.session
-                if (session != null) {
-                    if (runOwns(session.reference.provenance)) session.swapReference(reference)
-                    // Held whatever the slot holds: this is what the menu's "received — this run" entry binds,
-                    // and what tells a hand-bound diff that a newer run has landed.
-                    updateDiffWindow(window.copy(thisRunWire = wire))
-                } else {
-                    // It was showing the prompt: there was nothing to diff against, and now there is.
-                    val expectation =
-                        (scenarioDraft(ran.id)?.draft?.steps?.firstOrNull { it.stepId == window.stepId } as? ScenarioStep.Expect)
-                            ?.expectation ?: return@forEach
-                    updateDiffWindow(
-                        window.copy(
-                            session = newReconcileSession(ran.id, window.stepId, expectation, reference),
-                            thisRunWire = wire,
-                        ),
-                    )
-                }
+                // Folded across every slot, then written ONCE. `updateDiffWindow` per slot would re-read a
+                // window this loop has already moved on from, and slots two onwards would lose their rebind
+                // silently — a bug no single-slot test can see.
+                val next = window.slots.keys.fold(window) { acc, stepId -> rebindSlot(acc, stepId, ran.id) }
+                if (next != window) updateDiffWindow(next)
             }
+    }
+
+    /** One slot's share of [rebindDiffWindows]: this run's reply for [stepId], if it produced one. */
+    private fun rebindSlot(window: DiffWindowState, stepId: String, ranId: String): DiffWindowState {
+        val matched = _assertionResults.value.entries.firstOrNull { (_, result) -> result.stepId == stepId }
+        val wire = matched?.key?.wireRaw ?: return window
+        val arrivedAt =
+            matched.key.timestamp
+                .atZone(java.time.ZoneId.systemDefault())
+                .toInstant()
+        val reference = referenceOf(wire, arrivedAt, ranId)
+        val session = window.slots[stepId]?.session
+        // A slot with a session keeps it and takes the new bytes; one still showing the prompt gets a session
+        // built now that there is finally something to diff against.
+        val built =
+            if (session != null) {
+                // Held whatever the slot holds: this is what the menu's "received — this run" entry binds, and
+                // what tells a hand-bound diff that a newer run has landed.
+                if (runOwns(session.reference.provenance)) session.swapReference(reference)
+                session
+            } else {
+                expectStep(ranId, stepId)
+                    ?.expectation
+                    ?.let { newReconcileSession(ranId, stepId, it, reference) }
+                    ?: return window
+            }
+        return window.withSlot(stepId) {
+            it?.copy(session = built, thisRunWire = wire) ?: DiffStepSlot(stepId, session = built, thisRunWire = wire)
+        }
     }
 
     /**
@@ -2339,24 +2501,81 @@ class FixMessageViewModel(
      */
     @Suppress("TooGenericExceptionCaught")
     fun saveAndRerun(scenarioId: String) {
+        // BEFORE the save, because the save is what destroys it: `saveScenario` rebases every slot, and rebase
+        // empties `stagedLabels`. Draft-vs-seed is gone by then too, for the same reason. By the time the run
+        // comes back there is nothing left to say what this iteration repaired — so it is read here.
+        val staged = diffWindowFor(scenarioId)?.let { stagedSummaryOf(it) }.orEmpty()
         if (!saveScenario(scenarioId)) return
         val saved = scenarioService.load(scenarioId) ?: return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                runScenarioBlocking(saved)?.let { continueReconcilePass(it) }
+                runScenarioBlocking(saved)?.let { continueReconcilePass(it, staged) }
             } catch (e: Exception) {
                 logger.error("Scenario run failed: ${e.message}", e, notifyUser = false) // already notified
             }
         }
     }
 
+    /** What each of this window's slots has staged, in draft order, named the way the strip names steps. */
+    private fun stagedSummaryOf(window: DiffWindowState): List<RepairedStep> {
+        val steps = scenarioDraft(window.scenarioId)?.draft?.steps.orEmpty()
+        return window.slots.values
+            .mapNotNull { slot ->
+                val session = slot.session ?: return@mapNotNull null
+                if (session.staged == 0) return@mapNotNull null
+                val at = steps.indexOfFirst { it.stepId == slot.stepId }
+                RepairedStep(slot.stepId, "Step ${at + 1}", session.stagedLabels)
+            }.sortedBy { repair -> steps.indexOfFirst { it.stepId == repair.stepId } }
+    }
+
     /**
-     * The loop's next stop: a failed re-run opens its first failure's diff (or the refusal that explains
-     * why there is none). A green run ends the pass by doing nothing — the rail's ✓ is the announcement.
+     * **A pass is several Save & re-runs long, and each one only sees its own.** Repairing ten steps means ten
+     * iterations, each staging one step's worth; without accumulating, the completion state would name whatever
+     * the last iteration happened to touch and call that the pass.
+     */
+    private fun mergeRepairs(existing: List<RepairedStep>, staged: List<RepairedStep>): List<RepairedStep> {
+        val merged = existing.associateBy { it.stepId }.toMutableMap()
+        staged.forEach { repair ->
+            val prior = merged[repair.stepId]
+            merged[repair.stepId] =
+                if (prior == null) repair else prior.copy(edits = prior.edits + repair.edits)
+        }
+        return existing.map { merged.getValue(it.stepId) } + staged.filter { it.stepId !in existing.map { p -> p.stepId } }
+    }
+
+    /**
+     * The loop's next stop: a failed re-run opens its first failure's diff (or the refusal that explains why
+     * there is none), and **a green one ends the pass in the window that has been carrying it** — the
+     * completion state, naming what the pass repaired, with one Done that closes it.
+     *
+     * Green used to do nothing at all, which was the only honest option while a window was one step: the run
+     * had just proved that step right, and the author was looking at a diff with no red left in it. But the
+     * pass would then simply stop, with no signal that it was over and one leftover window per step repaired.
+     * A window that *is* the pass can say so.
+     *
+     * Still nothing at anyone who has no window open — a run launched from the rail pops no windows, which is
+     * the contract [saveAndRerun] documents and the reason this is chained only from there.
+     *
      * Public for tests that stage a run's aftermath without running one, like [publishScenarioResult].
      */
-    fun continueReconcilePass(result: ScenarioResult) {
-        if (!result.passed) result.firstFailure()?.let { openReconcile(it) }
+    fun continueReconcilePass(result: ScenarioResult, staged: List<RepairedStep> = emptyList()) {
+        val window = _lastRunScenario.value?.id?.let { diffWindowFor(it) }
+        val repairs = window?.let { mergeRepairs(it.repairs, staged) }.orEmpty()
+        if (!result.passed) {
+            window?.let { updateDiffWindow(it.copy(repairs = repairs)) }
+            result.firstFailure()?.let { openReconcile(it) }
+            return
+        }
+        window ?: return
+        updateDiffWindow(
+            window.copy(
+                repairs = repairs,
+                completion = ReconcileCompletion(repairs),
+                // The run may have taken seconds and the author may have tabbed away — unlike a click of the
+                // strip, this is news, and it should raise the window.
+                focusEpoch = window.focusEpoch + 1,
+            ),
+        )
     }
 
     /**

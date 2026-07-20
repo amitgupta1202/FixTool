@@ -130,6 +130,12 @@ fun DiffSurface(
     pastedOrigin: Boolean = false,
     /** "Step 3" for a `mintedAtStepId`, when the host can say — the strip's chips carry it in their tooltip. */
     mintedAtLabel: (String?) -> String? = { null },
+    /** C2: the run-level answer to "which other steps fail this way" — null hosts have no [all steps]. */
+    onSameFixEverywhere: ((ScenarioReconcile.SameFix) -> List<ScenarioReconcile.StepFixes>)? = null,
+    /** C2: stage the previewed cross-step fixes into the scenario draft; returns rows repaired. */
+    onApplySameFixEverywhere: ((List<ScenarioReconcile.StepFixes>) -> Int)? = null,
+    /** C2: the one-shot revert of the last cross-step apply. */
+    onRevertSameFix: (() -> Unit)? = null,
 ) {
     val model = session.model
     var pasting by remember { mutableStateOf(false) }
@@ -204,7 +210,36 @@ fun DiffSurface(
         session.refusal?.let { RefusedMove(it) { session.clearRefusal() } }
         // The repair that just landed, offered everywhere it applies (C1). Transient like the refusal
         // above: any other edit clears it, because a banner naming row indexes must not outlive the draft.
-        session.sameFixBanner?.let { banner -> SameFixStrip(session, banner) }
+        var everywhere by remember { mutableStateOf<List<ScenarioReconcile.StepFixes>?>(null) }
+        var appliedAcross by remember { mutableStateOf<Int?>(null) }
+        session.sameFixBanner?.let { banner ->
+            SameFixStrip(
+                session,
+                banner,
+                onEverywhere = onSameFixEverywhere?.let { ask -> { everywhere = ask(banner.fix) } },
+            )
+        }
+        everywhere?.let { steps ->
+            EverywhereSheet(
+                steps,
+                onCancel = { everywhere = null },
+                onApply =
+                    onApplySameFixEverywhere?.takeIf { steps.isNotEmpty() }?.let { stage ->
+                        {
+                            appliedAcross = stage(steps)
+                            everywhere = null
+                            session.dismissSameFix()
+                        }
+                    },
+            )
+        }
+        appliedAcross?.let { n ->
+            AppliedAcrossStrip(
+                n,
+                onRevert = onRevertSameFix?.let { revert -> { revert(); appliedAcross = null } },
+                onDismiss = { appliedAcross = null },
+            )
+        }
         // The run's scope, when the slot holds a run's own message. Clicking a chip highlights every row
         // that references the name or carries its value — the fastest answer to "where did ${id0} go".
         val scope = session.reference.variables
@@ -724,10 +759,14 @@ private fun PlanCheckbox(checked: Boolean, onToggle: () -> Unit, modifier: Modif
 /**
  * **The same fix, offered everywhere it applies** — the C1 banner. It names what "the same way" means
  * (the substitution pair, or the class), counts the siblings, and offers one composite staged edit.
- * `[all steps]` is slice C2's territory and appears with its wiring, not before.
+ * `[all steps]` appears only when the host can answer for the run (C2) — preview-or-nothing (D5).
  */
 @Composable
-private fun SameFixStrip(session: ReconcileSession, banner: ReconcileSession.SameFixBanner) {
+private fun SameFixStrip(
+    session: ReconcileSession,
+    banner: ReconcileSession.SameFixBanner,
+    onEverywhere: (() -> Unit)? = null,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
@@ -752,6 +791,14 @@ private fun SameFixStrip(session: ReconcileSession, banner: ReconcileSession.Sam
             color = AppTheme.Colors.primary,
             modifier = Modifier.padding(start = 8.dp).testTag("diff-samefix-this-step"),
         )
+        onEverywhere?.let {
+            SlimButton(
+                "all steps…",
+                onClick = it,
+                color = AppTheme.Colors.primary,
+                modifier = Modifier.padding(start = 6.dp).testTag("diff-samefix-all-steps"),
+            )
+        }
         Box(Modifier.weight(1f))
         SlimButton(
             "dismiss",
@@ -759,6 +806,118 @@ private fun SameFixStrip(session: ReconcileSession, banner: ReconcileSession.Sam
             color = AppTheme.Colors.textSecondary,
             modifier = Modifier.testTag("diff-samefix-dismiss"),
         )
+    }
+}
+
+/**
+ * **The cross-step preview** (C2) — every other step the signature reaches, its rows re-gated in that
+ * step's own diff, shown before one edit is staged. Applying writes the affected steps into the
+ * scenario *draft* through the same door a session stages through — Save remains the only door to
+ * disk, so the step the author is looking at is never silently saved (D5).
+ */
+@Composable
+private fun EverywhereSheet(
+    steps: List<ScenarioReconcile.StepFixes>,
+    onCancel: () -> Unit,
+    onApply: (() -> Unit)?,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.surfaceVariant)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("diff-everywhere-sheet"),
+    ) {
+        Text(
+            "SAME FIX, EVERY STEP — PREVIEWED PER STEP · STAGED INTO THE DRAFT, SAVE REMAINS THE DOOR TO DISK",
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        if (steps.isEmpty()) {
+            Text(
+                "No other failing step matches this signature — the same tag failing a different way is a " +
+                    "different decision, and this deliberately does not reach it.",
+                color = AppTheme.Colors.warning,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        steps.forEach { step ->
+            Text(
+                step.label.uppercase(),
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            step.fixes.forEach { fix ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp).testTag("diff-everywhere-row-${fix.tag}"),
+                ) {
+                    Text("${fix.tag}", color = AppTheme.Colors.tagNumber, fontFamily = FontFamily.Monospace, fontSize = 10.sp, modifier = Modifier.width(44.dp))
+                    Text("→  ${ExpectationEvaluator.describe(fix.proposed)}", color = AppTheme.Colors.success, fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
+                    Text(
+                        "  ${fix.reason}",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(start = 6.dp),
+                    )
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+            SlimButton("Cancel", onClick = onCancel, color = AppTheme.Colors.textSecondary)
+            onApply?.let {
+                SlimButton(
+                    "Apply to ${steps.size} ${if (steps.size == 1) "step" else "steps"}",
+                    onClick = it,
+                    color = AppTheme.Colors.primary,
+                    modifier = Modifier.padding(start = 6.dp).testTag("diff-everywhere-apply"),
+                )
+            }
+        }
+    }
+}
+
+/** The cross-step apply's receipt, carrying the one-shot revert (D5) until it is spent or stale. */
+@Composable
+private fun AppliedAcrossStrip(rows: Int, onRevert: (() -> Unit)?, onDismiss: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.notificationInfoBackground)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .testTag("diff-everywhere-applied"),
+    ) {
+        Text("✓  ", color = AppTheme.Colors.success, fontSize = 11.sp)
+        Text(
+            "Applied to $rows ${if (rows == 1) "row" else "rows"} across other steps — staged in the draft, " +
+                "written on Save",
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 11.sp,
+        )
+        onRevert?.let {
+            SlimButton(
+                "Revert",
+                onClick = it,
+                color = AppTheme.Colors.warning,
+                modifier = Modifier.padding(start = 8.dp).testTag("diff-everywhere-revert"),
+            )
+        }
+        Text(
+            "  one shot — until the next run or save",
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 9.sp,
+        )
+        Box(Modifier.weight(1f))
+        SlimButton("dismiss", onClick = onDismiss, color = AppTheme.Colors.textSecondary)
     }
 }
 

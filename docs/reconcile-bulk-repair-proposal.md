@@ -1,6 +1,12 @@
 # Reconcile bulk repair — the plan learns new repairs, and a repair learns to travel
 
-**Status: slice A implemented (2026-07-20); slice C remains proposed.** Two
+**Status: slices A and C implemented (2026-07-20).** Slice C's apply is *staged, not
+saved*: cross-step fixes write into the scenario **draft** through the same door a
+session stages through, so Save remains the only door to disk and the current step is
+never silently saved — this supersedes the "one save" wording below, honoring D5's
+preview-or-nothing and the one-shot revert (spent on use, stale on save or the next
+run). The preview sheet lists every reached row; per-row checkboxes on it are a
+follow-up, not shipped. Two
 implementation notes against the text below: an author-declared `oneOf` widens on *any*
 field (the author decided its kind, exactly as an author-made `Numeric` widens off the
 numeric families — the dictionary gate applies to `Exact` rows only), and the plan's

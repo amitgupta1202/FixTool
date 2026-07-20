@@ -477,6 +477,71 @@ class DiffSurfaceTest {
         assertEquals(Matcher.Presence, edited!!.fields[0].matcher)
     }
 
+    /**
+     * C1+C2 through the surface: accepting one 448 raises the banner naming the substitution; [all steps]
+     * asks the host and previews its answer; Apply stages through the host and leaves the receipt whose
+     * Revert is one-shot. The host here is a fake — the real one is the ViewModel's run — but the contract
+     * this pins is the surface's: preview-or-nothing, and the signature handed to the host is the pair the
+     * author accepted, not merely the tag.
+     */
+    @Test
+    fun `the same-fix banner travels to other steps through the host, previewed first`() {
+        val draft =
+            Expectation(
+                listOf(FieldExpectation(448, Matcher.Exact("FIRMA")), FieldExpectation(448, Matcher.Exact("FIRMA"))),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        var asked: ScenarioReconcile.SameFix? = null
+        var appliedSteps: List<ScenarioReconcile.StepFixes>? = null
+        var reverted = false
+        val otherStep =
+            ScenarioReconcile.StepFixes(
+                "step-6", "Step 6 · Expect AE",
+                listOf(ScenarioReconcile.SiblingFix(0, 448, Matcher.Exact("FIRMB"), "the same FIRMA → FIRMB substitution")),
+            )
+        composeTestRule.setContent {
+            val session =
+                remember {
+                    ReconcileSession(
+                        original = draft,
+                        initialReference =
+                            ReferenceMessage.live(
+                                wireView(35 to "8", 448 to "FIRMB", 448 to "FIRMB"),
+                                ReferenceMessage.Provenance.THIS_RUN, "this run", arrival,
+                            ),
+                        dictionary = dictionary,
+                    )
+                }
+            DiffSurface(
+                session,
+                onSameFixEverywhere = { fix -> asked = fix; listOf(otherStep) },
+                onApplySameFixEverywhere = { steps -> appliedSteps = steps; steps.sumOf { it.fixes.size } },
+                onRevertSameFix = { reverted = true },
+            )
+        }
+
+        composeTestRule.onNodeWithTag("accept_actual-448-0").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("diff-samefix-banner").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("diff-samefix-all-steps").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(ScenarioReconcile.SameFix.Substitution(448, "FIRMA", "FIRMB"), asked)
+        composeTestRule.onNodeWithTag("diff-everywhere-sheet").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-everywhere-row-448").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("diff-everywhere-apply").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(listOf(otherStep), appliedSteps, "exactly the previewed steps reach the host — nothing else")
+        composeTestRule.onNodeWithTag("diff-everywhere-applied").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("diff-everywhere-revert").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue(reverted)
+        composeTestRule.onAllNodesWithTag("diff-everywhere-applied").assertCountEquals(0)
+    }
+
     // ----- authoring: the assertion no row can host -------------------------------------------------------
 
     /**

@@ -287,7 +287,12 @@ class ScenarioRunner(
     ): StepResult =
         when (step) {
             is ScenarioStep.Send -> {
-                val resolved = host.resolve(step.raw, scope, step.session)
+                // Excluded fields come off BEFORE resolve, not after. `resolve` is a whole-string regex
+                // (FixMessageTemplate.evaluate) that never parses fields, so a `${id = uuid:20}` sitting
+                // in an excluded row would still execute and bind a scenario variable that nothing ever
+                // sends — a later `${id}` would then reference a value the venue never saw. Strip first
+                // and an excluded field is inert: it mints nothing, references nothing, sends nothing.
+                val resolved = host.resolve(SendFields.wire(step.raw), scope, step.session)
                 val ok = host.send(resolved, step.session)
                 val detail =
                     if (ok) resolved

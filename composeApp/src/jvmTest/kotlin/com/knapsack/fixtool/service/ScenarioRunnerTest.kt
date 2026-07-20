@@ -754,6 +754,48 @@ class ScenarioRunnerTest {
         assertFalse(result.steps.single { it.kind == "traffic" }.passed)
     }
 
+    @Test
+    fun `an excluded field is kept in the scenario and left off the wire`() {
+        val host = FakeHost()
+        run(host, scenario(ScenarioStep.Send("35=D|11=ORD|#9303=1|38=100|", session = "s")))
+        assertEquals(listOf("35=D|11=ORD|38=100|"), host.sent)
+    }
+
+    /**
+     * The subtle half of the feature. `resolve` is a whole-string regex that never parses fields, so an
+     * excluded row's `${id0 = ...}` would evaluate and bind a scenario variable even though the field it
+     * sat in was never sent — and the next step's `${id0}` would then correlate against a value the venue
+     * had never seen. Stripping before resolve is what makes an excluded field wholly inert.
+     *
+     * The reference is left literal here, which is the engine's deliberate behaviour for an unknown name
+     * and exactly what the authoring-time `unminted()` warning exists to catch first.
+     */
+    @Test
+    fun `a mint inside an excluded field never binds, so a later reference stays literal`() {
+        val host = FakeHost()
+        run(
+            host,
+            scenario(
+                ScenarioStep.Send("35=D|#11=\${id0 = \"ABC\"}|", session = "s"),
+                ScenarioStep.Send("35=D|41=\${id0}|", session = "s"),
+            ),
+        )
+        assertEquals(listOf("35=D|", "35=D|41=\${id0}|"), host.sent)
+    }
+
+    @Test
+    fun `unexcluding restores the field, and the mint with it`() {
+        val host = FakeHost()
+        run(
+            host,
+            scenario(
+                ScenarioStep.Send("35=D|11=\${id0 = \"ABC\"}|", session = "s"),
+                ScenarioStep.Send("35=D|41=\${id0}|", session = "s"),
+            ),
+        )
+        assertEquals(listOf("35=D|11=ABC|", "35=D|41=ABC|"), host.sent)
+    }
+
     // ----------------------------------------------------------------- helpers
 
     private fun run(host: FakeHost, scenario: Scenario, sessionMap: Map<String, String> = emptyMap()) =

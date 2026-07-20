@@ -219,4 +219,36 @@ class ScenarioAnnotationsTest {
         assertEquals(emptyList(), sites.writtenAt)
         assertEquals(listOf(0), sites.referencedAt)
     }
+
+    /**
+     * An excluded field does not mint. The variable badges answer "what happens on a run", and on a run
+     * this field is not sent — so its name is not written, and a downstream reference to it is the
+     * leaves-a-literal problem `unminted` exists to warn about. Same judgement `allWritesMuted` makes for
+     * a parked step, one level down.
+     */
+    @Test
+    fun `a mint inside an excluded field is not a mint`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|#11=\${id0 = UUID.randomUUID()}|", "A"),
+            ScenarioStep.Send("35=D|41=\${id0}|", "B"),
+        )
+
+        val vars = ScenarioAnnotations.annotate(steps)
+
+        assertEquals(emptyList(), vars[0].minted)
+        assertEquals(listOf("id0"), ScenarioAnnotations.unminted(steps))
+    }
+
+    @Test
+    fun `a reference inside an excluded field is not a reference`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|11=\${id0 = UUID.randomUUID()}|", "A"),
+            ScenarioStep.Send("35=D|#41=\${id0}|", "B"),
+        )
+
+        val vars = ScenarioAnnotations.annotate(steps)
+
+        assertEquals(listOf("id0"), vars[0].minted)
+        assertEquals(emptyList(), vars[1].referenced)
+    }
 }

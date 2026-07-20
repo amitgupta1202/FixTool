@@ -281,7 +281,11 @@ object McpTools {
                     "{\"type\":\"reference\",\"expression\":\"\${clOrdId}\"}. traffic:\"strict\" additionally " +
                     "fails the run if, after the last step (plus a settle window), any incoming application-level " +
                     "message was never bound by an expect — \"the venue sent nothing else\" (session admin exempt; " +
-                    "default \"open\" ignores unbound messages). Call fixtool_syntax for the full " +
+                    "default \"open\" ignores unbound messages). EXCLUDE A FIELD WITHOUT DELETING IT: prefix its tag " +
+                    "with '#' in a send's raw — 35=D|11=ORD|#9303=1 keeps 9303 in the scenario and leaves it off the " +
+                    "wire, so \"does the venue still accept this without it?\" is a toggle rather than a retype. An " +
+                    "excluded field is wholly inert: it is not sent, not linted, and its \${...} never resolves, so a " +
+                    "mint inside one binds nothing. Call fixtool_syntax for the full " +
                     "grammar, or fixtool_capture_scenario to record one that is already correctly templated.",
                 props(
                     "name" to string("scenario name"),

@@ -96,7 +96,11 @@ object ScenarioAnnotations {
 
     private fun mintedIn(step: ScenarioStep): List<String> =
         when (step) {
-            is ScenarioStep.Send -> MINT.findAll(step.raw).map { it.groupValues[1] }.toList()
+            // The WIRE view, not the authored one: an excluded field is not sent, so it does not mint.
+            // Same judgement `allWritesMuted` makes one level up — a write that will not happen on a run
+            // is not a write. Exclude the field that mints `${id}` and its badge goes out while every
+            // downstream `${id}` turns up in `unminted()`, which is exactly the warning that case wants.
+            is ScenarioStep.Send -> MINT.findAll(SendFields.wire(step.raw)).map { it.groupValues[1] }.toList()
             // A `bindAs` row mints too — from the venue's side of the wire. The Expect that captures
             // `QuoteReqID` into `${qr}` wears the same filled badge a minting Send does, and a later
             // send's `${qr}` is a working reference, not a never-minted warning.
@@ -106,7 +110,7 @@ object ScenarioAnnotations {
 
     private fun referencedIn(step: ScenarioStep): List<String> =
         when (step) {
-            is ScenarioStep.Send -> REF.findAll(step.raw).map { it.groupValues[1] }.toList()
+            is ScenarioStep.Send -> REF.findAll(SendFields.wire(step.raw)).map { it.groupValues[1] }.toList()
             // Both halves of an Expect can reference: the assertion rows (a `Reference` matcher checking an
             // echo) AND the bind predicate (`11=${id0}` steering which message the step consumes). The
             // predicate was invisible here, so a step that binds by a minted id but does not assert it

@@ -290,3 +290,15 @@ scenario guards.
 - **D5 — cross-step apply is preview-or-nothing** (C2), and revert is one-shot and
   run-scoped — a policy store would make the scenario file stop being the truth.
 - **D6 — S6 excluded**: date-offset matchers are vocabulary, not repair policy.
+- **D7 — the class may be overruled, in one direction, per class** (2026-07-20, after
+  the shipped sheet met the case none of S1–S6 named: the plan classifies correctly and
+  the author wants *none of those values asserted at all*). `[→ ∃ presence]` on a class
+  header rewrites that group's proposals to `Presence`. Three constraints keep it from
+  becoming the second opinion A4 exists to prevent: it is **per class, not per row**, so
+  it cannot disagree with the decider one row at a time; **presence is the only target**,
+  because it is the only operand-free matcher and so the only one writable over a group
+  without inventing a per-row value nobody chose; and it is a **view over the plan**, not
+  a reclassification — the row keeps its class, the preview shows what would be staged,
+  and one click restores the proposals. Note this is the case a travelling repair
+  structurally cannot serve: `siblings` is same-tag by construction (`r.tag != fix.tag`),
+  and the rows an author wants demoted together are usually different tags.

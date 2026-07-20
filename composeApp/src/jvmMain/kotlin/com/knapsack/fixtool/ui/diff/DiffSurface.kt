@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.MatchMode
+import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -570,6 +571,14 @@ private val FIX_CLASS_ROWS =
     )
 
 /**
+ * The sentence a demoted row wears. It says who chose it, because the plan did not: every other reason on
+ * this sheet is the engine explaining its own proposal, and one that read the same while meaning "you
+ * overrode me" would make the column stop being trustworthy.
+ */
+private const val DEMOTED_REASON =
+    "presence, at your instruction — this row asserts the tag arrives and stops checking what it says"
+
+/**
  * **The repair plan, previewed.** Every row a class would touch, what it asserts today, what it would
  * assert instead, and the engine's sentence for why — before one edit is staged. Grouped by class, with a
  * checkbox per row whose default is D2's rule: a proposal that still constrains the value (a band, a set,
@@ -578,6 +587,12 @@ private val FIX_CLASS_ROWS =
  * never disappear, because a plan that hides what it is not doing lies about what "apply" does — the same
  * rule that keeps a uniform-tolerance row the knob cannot reach **marked red in the preview**, not
  * dropped from it. Applying stages exactly the checked rows as one edit: one line in the footer, one ⌘Z.
+ *
+ * One override exists on top of all that: **[→ ∃ presence] demotes a whole class**, for the author who
+ * reads a group of proposals and wants none of those values asserted at all. It is the only place the
+ * plan's classification may be overruled, and presence is the only target it offers — see the button.
+ * The demotion is a *view* over the plan, not a second classifier: the row keeps the class it was given,
+ * the preview shows what would be staged, and one click puts the proposals back.
  */
 @Composable
 private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
@@ -596,9 +611,24 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
     // survive the knob recomputing the plan. Effective checked = the override, else the class's default.
     val overrides = remember { mutableStateMapOf<Int, Boolean>() }
     fun checkedOf(fix: ScenarioReconcile.PlannedFix) = overrides[fix.index] ?: fix.defaultChecked
-    val checked = plan.filter { checkedOf(it) }
+    // Classes the author demoted to presence wholesale. Held per *class*, not per row, because the ask it
+    // answers is a class-shaped one — "I don't care what any of these say" — and because a per-row class
+    // picker would put a second opinion next to every proposal the one decider made.
+    var demoted by remember { mutableStateOf(setOf<ScenarioReconcile.FixClass>()) }
+    // The demotion is applied here and nowhere else: the plan keeps its classification, and the sheet
+    // rewrites only what the author overrode. `repairs` is true by construction — a demoted row failed on
+    // its *value*, so its tag arrived, and presence asserts exactly that.
+    fun effective(fix: ScenarioReconcile.PlannedFix) =
+        if (fix.klass in demoted) {
+            fix.copy(proposed = Matcher.Presence, reason = DEMOTED_REASON, repairs = true)
+        } else {
+            fix
+        }
+    val checked = plan.filter { checkedOf(it) }.map { effective(it) }
     val stillRed = checked.count { !it.repairs }
-    val presenceUnchecked = plan.count { it.klass == ScenarioReconcile.FixClass.PRESENCE && !checkedOf(it) }
+    // Counted off the *effective* proposal, so a demoted row left unchecked earns the same warning a
+    // natively-proposed presence row does — the class it came from is not what makes it worth a sentence.
+    val presenceUnchecked = plan.count { effective(it).proposed is Matcher.Presence && !checkedOf(it) }
     Column(
         modifier =
             Modifier
@@ -625,8 +655,9 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                 )
-                // The knob is the numeric policy and nothing else's — it lives on the numeric group.
-                if (klass == ScenarioReconcile.FixClass.NUMERIC) {
+                // The knob is the numeric policy and nothing else's — it lives on the numeric group, and
+                // goes away once the group is demoted, when no band is being written for it to size.
+                if (klass == ScenarioReconcile.FixClass.NUMERIC && klass !in demoted) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp)) {
                         SlimLabeled("uniform tolerance ±") {
                             SlimField(
@@ -645,6 +676,20 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
                     }
                 }
                 Box(Modifier.weight(1f))
+                // **The one place the author may overrule the class.** Presence is the only target offered,
+                // and deliberately: it is the only matcher with no operand, so it is the only one that can
+                // be written onto a whole group without inventing a per-row value nobody chose. Widening a
+                // group to a band, a set or a pattern needs each row's own drift read — that is what the
+                // plan already did, and the answer is the proposal sitting next to it.
+                if (klass != ScenarioReconcile.FixClass.PRESENCE) {
+                    val isDemoted = klass in demoted
+                    SlimButton(
+                        if (isDemoted) "↺ back to $glyph" else "→ ∃ presence",
+                        onClick = { demoted = if (isDemoted) demoted - klass else demoted + klass },
+                        color = if (isDemoted) AppTheme.Colors.warning else AppTheme.Colors.textSecondary,
+                        modifier = Modifier.padding(end = 6.dp).testTag("diff-fix-demote-${label.lowercase()}"),
+                    )
+                }
                 SlimButton(
                     if (allChecked) "uncheck all" else "check all ${group.size}",
                     onClick = { group.forEach { overrides[it.index] = !allChecked } },
@@ -654,6 +699,9 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
             }
             group.forEach { fix ->
                 val isChecked = checkedOf(fix)
+                // What the row would actually become — the demotion included, so the preview and the apply
+                // read off one value. A sheet that showed the band and staged the presence would be lying.
+                val shown = effective(fix)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp).testTag("diff-fix-row-${fix.tag}"),
@@ -669,14 +717,14 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
                         Text(ExpectationEvaluator.describe(fix.current), color = AppTheme.Colors.textSecondary, fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
                         Text("  →  ", color = AppTheme.Colors.textDisabled, fontSize = 10.sp)
                         Text(
-                            ExpectationEvaluator.describe(fix.proposed),
-                            color = if (fix.repairs) AppTheme.Colors.success else AppTheme.Colors.error,
+                            ExpectationEvaluator.describe(shown.proposed),
+                            color = if (shown.repairs) AppTheme.Colors.success else AppTheme.Colors.error,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 10.sp,
                             maxLines = 1,
                         )
                         Text(
-                            "  ${fix.reason}",
+                            "  ${shown.reason}",
                             color = AppTheme.Colors.textSecondary,
                             fontSize = 9.sp,
                             maxLines = 1,

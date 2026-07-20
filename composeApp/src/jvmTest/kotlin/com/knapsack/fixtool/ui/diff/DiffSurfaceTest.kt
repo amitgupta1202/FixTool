@@ -478,6 +478,50 @@ class DiffSurfaceTest {
     }
 
     /**
+     * **The one override on the classification**: two numeric rows on *different* tags — which no
+     * travelling repair would ever group, since siblings are same-tag by construction — demoted to presence
+     * as a class and staged in one apply. The knob leaves with the bands it sized, and toggling back puts
+     * the proposals where they were, because the demotion is a view over the plan and not a second decider.
+     */
+    @Test
+    fun `demoting a class writes presence over every row it had proposed a band for`() {
+        val draft =
+            Expectation(
+                listOf(FieldExpectation(151, Matcher.Exact("0")), FieldExpectation(14, Matcher.Exact("100"))),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        var edited: Expectation? = null
+        composeTestRule.surface(draft, wireView(35 to "8", 151 to "500000", 14 to "250")) { edited = it }
+
+        composeTestRule.onNodeWithTag("diff-fix-plan").performClick()
+        composeTestRule.onNodeWithTag("diff-fix-sheet").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-fix-row-151").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-fix-row-14").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-fix-tolerance").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("diff-fix-demote-numeric").performClick()
+        composeTestRule.waitForIdle()
+        // No band is being written, so the control that sizes one stops claiming it does.
+        composeTestRule.onAllNodesWithTag("diff-fix-tolerance").assertCountEquals(0)
+
+        // Back again: the plan was never mutated, so its proposals — and their knob — return whole.
+        composeTestRule.onNodeWithTag("diff-fix-demote-numeric").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("diff-fix-tolerance").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("diff-fix-demote-numeric").performClick()
+        composeTestRule.onNodeWithTag("diff-fix-apply").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(Matcher.Presence, edited!!.fields[0].matcher)
+        assertEquals(Matcher.Presence, edited!!.fields[1].matcher)
+        composeTestRule
+            .onNodeWithTag("diff-staged-labels")
+            .assertTextContains("Loosened 2 rows to fit the reply", substring = true)
+    }
+
+    /**
      * C1+C2 through the surface: accepting one 448 raises the banner naming the substitution; [all steps]
      * asks the host and previews its answer; Apply stages through the host and leaves the receipt whose
      * Revert is one-shot. The host here is a fake — the real one is the ViewModel's run — but the contract

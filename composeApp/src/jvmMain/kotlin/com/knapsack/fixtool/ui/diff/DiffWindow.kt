@@ -47,7 +47,8 @@ import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 /**
  * **The diff, in its own window.** The one surface in the app that can author or repair an assertion — and it
  * opens *beside* the grid it is about, not instead of it (Phase 6, proposal §1c). It is a top-level window
- * composed at application scope, one per `(scenarioId, stepId)` subject.
+ * composed at application scope, one per **scenario** — it carries a whole reconcile pass, and the step in
+ * view moves inside it. See [com.knapsack.fixtool.ui.DiffWindowState] for why the step is not the subject.
  *
  * Three things a second `Window` must do for itself, learned the hard way (redesign 2, and Phase 6's F-decisions):
  *
@@ -161,8 +162,7 @@ private fun DiffWindowBody(viewModel: FixMessageViewModel, state: DiffWindowStat
         StepStrip(
             chips =
                 stepStripOf(
-                    draft = draft,
-                    seed = entry.seed,
+                    workspace = entry,
                     currentStepId = state.stepId,
                     // Another scenario's report must colour nothing — the same gate every other reader of the
                     // run report applies.
@@ -177,6 +177,12 @@ private fun DiffWindowBody(viewModel: FixMessageViewModel, state: DiffWindowStat
                             emptyMap()
                         },
                     armedStepId = armedSlot?.takeIf { it.scenarioId == state.scenarioId }?.stepId,
+                    typeName = { type ->
+                        viewModel.dictionary
+                            ?.getFieldEnumValues(35)
+                            ?.firstOrNull { it.first == type }
+                            ?.second
+                    },
                 ),
             onSelect = { stepId -> viewModel.showStepInDiffWindow(state.id, stepId) },
         )

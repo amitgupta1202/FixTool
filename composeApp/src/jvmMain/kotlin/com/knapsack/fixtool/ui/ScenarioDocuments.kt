@@ -311,6 +311,9 @@ data class StepChip(
 /**
  * **The step strip, derived.** One chip per Expect step of the draft, in draft order.
  *
+ * Takes the whole [ScenarioDraft] rather than a draft and a seed, because REPAIRED is the difference between
+ * them — and handing those in separately invites a caller to pass two scenarios that were never a pair.
+ *
  * [results] must be empty unless the standing run report is *this scenario's* — another scenario's verdict
  * colouring these chips would be a lie the author has no way to see through.
  *
@@ -323,30 +326,35 @@ data class StepChip(
  * has already fixed is not left to do — it is waiting for the re-run that will confirm it.
  */
 fun stepStripOf(
-    draft: Scenario,
-    seed: Scenario,
+    workspace: ScenarioDraft,
     currentStepId: String,
     results: Map<String, StepResult>,
     armedStepId: String?,
+    typeName: (String) -> String? = { null },
 ): List<StepChip> =
-    draft.steps.mapIndexedNotNull { index, step ->
+    workspace.draft.steps.mapIndexedNotNull { index, step ->
         if (step !is ScenarioStep.Expect) return@mapIndexedNotNull null
-        val status = stepStatusOf(step, seed.steps.firstOrNull { it.stepId == step.stepId }, results)
+        val status = stepStatusOf(step, workspace.seed.steps.firstOrNull { it.stepId == step.stepId }, results)
         val type = step.expectation.messageType ?: step.match?.messageType ?: ""
+        // A chip saying "4 8" names nothing — 8 is the wire's word for it, not a reader's. The dictionary's
+        // name whole, not abbreviated: every shortening rule invents a word nobody uses ("ExecRepo"), and the
+        // strip scrolls, so length costs nothing that a made-up name would not cost more.
+        val named = type.takeIf { it.isNotBlank() }?.let { typeName(it) ?: it }
         val armed = step.stepId == armedStepId
         StepChip(
             stepId = step.stepId,
             index = index,
-            label = "${index + 1}${if (type.isBlank()) "" else " $type"}",
+            label = "${index + 1}${named?.let { " $it" } ?: ""}",
             status = status,
             current = step.stepId == currentStepId,
             armed = armed,
             tooltip =
-                "Step ${index + 1}${if (type.isBlank()) "" else " · Expect $type"} — " +
+                "Step ${index + 1}${if (type.isBlank()) "" else " · Expect ${typeName(type) ?: type}"} — " +
                     status.describe() +
                     if (armed) " · waiting for a grid click" else "",
         )
     }
+
 
 private fun stepStatusOf(
     step: ScenarioStep.Expect,

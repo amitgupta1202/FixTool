@@ -375,8 +375,11 @@ private fun DiffHeader(
                 modifier = Modifier.padding(end = 6.dp).testTag("diff-reseed"),
             )
             onCancel?.let {
+                // **"Revert this step", not "Cancel".** It undoes this step and leaves the window standing —
+                // which is the only honest label now that the window holds a whole reconcile pass. A button
+                // saying "Cancel" beside a strip of five repaired steps reads as "cancel all of that".
                 SlimButton(
-                    "Cancel",
+                    "Revert this step",
                     onClick = it,
                     color = AppTheme.Colors.textSecondary,
                     modifier = Modifier.padding(end = 6.dp).testTag("diff-cancel"),

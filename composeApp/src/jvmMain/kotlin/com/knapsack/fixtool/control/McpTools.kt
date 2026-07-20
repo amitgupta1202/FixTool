@@ -360,8 +360,15 @@ object McpTools {
                     "can author or repair an assertion. With no argument it takes the run's first failing step, " +
                     "exactly as the rail's 'Reconcile →' does; step=N addresses one by its 1-based position. It " +
                     "routes through the same check the button does, so a step edited since it ran is refused with " +
-                    "the reason rather than opened over the wrong bytes. Pair with fixtool_screenshot to see it.",
-                props("step" to string("1-based step number; default = the first failing step")),
+                    "the reason rather than opened over the wrong bytes. The response carries fixPlan: the repair " +
+                    "plan the sheet previews (per row: index, class numeric/temporal/oneOf/regex/presence, " +
+                    "current, proposed, reason, repairs, defaultChecked). applyFix=[indexes] stages exactly those " +
+                    "plan rows in the open session — visible, undoable, saved by Save; an index the plan does not " +
+                    "propose refuses the whole apply. Pair with fixtool_screenshot to see it.",
+                props(
+                    "step" to string("1-based step number; default = the first failing step"),
+                    "applyFix" to arraySchema(integer(), "plan row indexes to stage, e.g. [0,3]; omit to only read the plan"),
+                ),
             ),
             tool(
                 "fixtool_diff",

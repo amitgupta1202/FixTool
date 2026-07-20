@@ -1,6 +1,13 @@
 # Reconcile bulk repair — the plan learns new repairs, and a repair learns to travel
 
-**Status: proposal.** Extends the fix plan shipped in `b179de5` (see
+**Status: slice A implemented (2026-07-20); slice C remains proposed.** Two
+implementation notes against the text below: an author-declared `oneOf` widens on *any*
+field (the author decided its kind, exactly as an author-made `Numeric` widens off the
+numeric families — the dictionary gate applies to `Exact` rows only), and the plan's
+apply on the control surface is `applyFix=[row indexes]` on `/scenarios/reconcile`,
+staging through the open session's own `EditOp.fixPlan`.
+
+Extends the fix plan shipped in `b179de5` (see
 `ScenarioReconcile.fixPlan`, `FixPlanSheet`) beyond numeric/temporal widening, and gives
 any per-row repair a way to apply itself everywhere the same failure occurs. Builds on
 the assertion model in [`scenario-assertion-model.md`](./scenario-assertion-model.md)
@@ -83,7 +90,8 @@ acceptable, presence is the honest assertion"*. Still offered; the author decide
 unknown to the dictionary (custom tags), not enum-coded, and inference is **tight**.
 Inference: longest common prefix + longest common suffix of expected and actual
 (regex-escaped); both varying middles must be non-empty and drawn from the same
-character class, tried narrowest first — `\d+`, `[A-Z]+`, `[a-z]+`, `[A-Za-z0-9]+`.
+character class, tried narrowest first — `\d+`, `[A-Z]+`, `[a-z]+`, `[A-Z0-9]+`,
+`[A-Za-z0-9]+`.
 Tight means: at least one literal character survives in prefix+suffix. No literal
 anchor → no proposal from this class (an unanchored `[A-Za-z0-9]+` asserts nothing and
 reads like it does). The proposed pattern is verified to full-match **both** expected

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -36,11 +37,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -503,11 +506,12 @@ private fun VerdictLine(
         }
         if (fixable > 0) {
             AppTooltip(
-                "Fix plan — widen the numeric and temporal bands until the reply fits. Previewed row by row " +
-                    "before anything is staged; enum-coded fields, moved entries and references are never touched",
+                "Repair plan — widen, admit or generalise until the reply fits. Previewed row by row " +
+                    "before anything is staged; enum-coded fields never get a ±, and moved entries and " +
+                    "references are never touched",
             ) {
                 SlimButton(
-                    "± fix $fixable…",
+                    "fix $fixable…",
                     onClick = onFix,
                     color = AppTheme.Colors.warning,
                     modifier = Modifier.padding(start = 8.dp).testTag("diff-fix-plan"),
@@ -517,13 +521,25 @@ private fun VerdictLine(
     }
 }
 
+/** The order the sheet lists repair classes in, with the glyph and label each group wears. */
+private val FIX_CLASS_ROWS =
+    listOf(
+        Triple(ScenarioReconcile.FixClass.NUMERIC, "±", "NUMERIC"),
+        Triple(ScenarioReconcile.FixClass.TEMPORAL, "~", "TEMPORAL"),
+        Triple(ScenarioReconcile.FixClass.ONE_OF, "∈", "ONEOF"),
+        Triple(ScenarioReconcile.FixClass.REGEX, "≈", "REGEX"),
+        Triple(ScenarioReconcile.FixClass.PRESENCE, "∃", "PRESENCE"),
+    )
+
 /**
- * **The fix plan, previewed.** Every row the plan would touch, what it asserts today, what it would assert
- * instead, and the engine's sentence for why — before one edit is staged. The knob narrows the policy: blank
- * asks each row for the smallest band covering its own gap (always green afterwards); a value applies one
- * tolerance to every numeric row, and a row the value does not reach is **marked red in the preview**, not
- * dropped from it — a plan that hides the rows it cannot fix is a plan that lies about what "apply" does.
- * Applying stages the whole plan as one edit: one line in the footer, one ⌘Z.
+ * **The repair plan, previewed.** Every row a class would touch, what it asserts today, what it would
+ * assert instead, and the engine's sentence for why — before one edit is staged. Grouped by class, with a
+ * checkbox per row whose default is D2's rule: a proposal that still constrains the value (a band, a set,
+ * a shape) arrives checked; presence — the one class that asserts strictly less than the author had —
+ * arrives unchecked, and the class header opts a whole class in with one click. Unchecked rows dim; they
+ * never disappear, because a plan that hides what it is not doing lies about what "apply" does — the same
+ * rule that keeps a uniform-tolerance row the knob cannot reach **marked red in the preview**, not
+ * dropped from it. Applying stages exactly the checked rows as one edit: one line in the footer, one ⌘Z.
  */
 @Composable
 private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
@@ -538,7 +554,13 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
     // Keyed on what the plan is a function of — the draft, the reference, the knob — not on the model,
     // whose deep equality would run on every keystroke into the tolerance field.
     val plan = remember(session.draft, session.reference, mode) { session.fixPlan(mode) }
-    val stillRed = plan.count { !it.repairs }
+    // The author's explicit toggles, keyed by row index — the plan's addressable identity — so they
+    // survive the knob recomputing the plan. Effective checked = the override, else the class's default.
+    val overrides = remember { mutableStateMapOf<Int, Boolean>() }
+    fun checkedOf(fix: ScenarioReconcile.PlannedFix) = overrides[fix.index] ?: fix.defaultChecked
+    val checked = plan.filter { checkedOf(it) }
+    val stillRed = checked.count { !it.repairs }
+    val presenceUnchecked = plan.count { it.klass == ScenarioReconcile.FixClass.PRESENCE && !checkedOf(it) }
     Column(
         modifier =
             Modifier
@@ -548,57 +570,90 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
                 .testTag("diff-fix-sheet"),
     ) {
         Text(
-            "FIX PLAN — WIDEN THE BANDS UNTIL THE REPLY FITS · PREVIEWED HERE, STAGED AS ONE EDIT",
+            "REPAIR PLAN — WIDEN, ADMIT OR GENERALISE UNTIL THE REPLY FITS · PREVIEWED HERE, STAGED AS ONE EDIT",
             color = AppTheme.Colors.textSecondary,
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
         )
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-            SlimLabeled("numeric tolerance ±") {
-                SlimField(
-                    value = toleranceText,
-                    onValueChange = { toleranceText = it },
-                    monospace = true,
-                    modifier = Modifier.width(90.dp).testTag("diff-fix-tolerance"),
+        FIX_CLASS_ROWS.forEach { (klass, glyph, label) ->
+            val group = plan.filter { it.klass == klass }
+            if (group.isEmpty()) return@forEach
+            val allChecked = group.all { checkedOf(it) }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                Text(glyph, color = AppTheme.Colors.primary, fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "  $label · ${group.size}",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                // The knob is the numeric policy and nothing else's — it lives on the numeric group.
+                if (klass == ScenarioReconcile.FixClass.NUMERIC) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp)) {
+                        SlimLabeled("uniform tolerance ±") {
+                            SlimField(
+                                value = toleranceText,
+                                onValueChange = { toleranceText = it },
+                                monospace = true,
+                                modifier = Modifier.width(90.dp).testTag("diff-fix-tolerance"),
+                            )
+                        }
+                        Text(
+                            "blank = the smallest band covering each row's own gap",
+                            color = AppTheme.Colors.textSecondary,
+                            fontSize = 9.sp,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+                Box(Modifier.weight(1f))
+                SlimButton(
+                    if (allChecked) "uncheck all" else "check all ${group.size}",
+                    onClick = { group.forEach { overrides[it.index] = !allChecked } },
+                    color = AppTheme.Colors.primary,
+                    modifier = Modifier.testTag("diff-fix-class-${label.lowercase()}"),
                 )
             }
-            Text(
-                "blank = the smallest band covering each row's own gap",
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 9.sp,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-        plan.forEach { fix ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp).testTag("diff-fix-row-${fix.tag}"),
-            ) {
-                Text("${fix.tag}", color = AppTheme.Colors.tagNumber, fontFamily = FontFamily.Monospace, fontSize = 10.sp, modifier = Modifier.width(44.dp))
-                Text(fix.name, color = AppTheme.Colors.fieldName, fontSize = 10.sp, maxLines = 1, modifier = Modifier.width(120.dp))
-                Text(ExpectationEvaluator.describe(fix.current), color = AppTheme.Colors.textSecondary, fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
-                Text("  →  ", color = AppTheme.Colors.textDisabled, fontSize = 10.sp)
-                Text(
-                    ExpectationEvaluator.describe(fix.proposed),
-                    color = if (fix.repairs) AppTheme.Colors.success else AppTheme.Colors.error,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                )
-                Text(
-                    "  ${fix.reason}",
-                    color = AppTheme.Colors.textSecondary,
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(start = 6.dp),
-                )
+            group.forEach { fix ->
+                val isChecked = checkedOf(fix)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp).testTag("diff-fix-row-${fix.tag}"),
+                ) {
+                    PlanCheckbox(
+                        checked = isChecked,
+                        onToggle = { overrides[fix.index] = !isChecked },
+                        modifier = Modifier.padding(end = 8.dp).testTag("diff-fix-check-${fix.index}"),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).alpha(if (isChecked) 1f else 0.45f)) {
+                        Text("${fix.tag}", color = AppTheme.Colors.tagNumber, fontFamily = FontFamily.Monospace, fontSize = 10.sp, modifier = Modifier.width(44.dp))
+                        Text(fix.name, color = AppTheme.Colors.fieldName, fontSize = 10.sp, maxLines = 1, modifier = Modifier.width(120.dp))
+                        Text(ExpectationEvaluator.describe(fix.current), color = AppTheme.Colors.textSecondary, fontFamily = FontFamily.Monospace, fontSize = 10.sp, maxLines = 1)
+                        Text("  →  ", color = AppTheme.Colors.textDisabled, fontSize = 10.sp)
+                        Text(
+                            ExpectationEvaluator.describe(fix.proposed),
+                            color = if (fix.repairs) AppTheme.Colors.success else AppTheme.Colors.error,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                        )
+                        Text(
+                            "  ${fix.reason}",
+                            color = AppTheme.Colors.textSecondary,
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).padding(start = 6.dp),
+                        )
+                    }
+                }
             }
         }
         if (plan.isEmpty()) {
             Text(
-                "Nothing left that widening would fix — the remaining failures are shape changes or value " +
-                    "regressions, which this plan deliberately does not touch.",
+                "Nothing left that widening, oneOf, a pattern or presence would fix — the remaining " +
+                    "failures are shape changes or value regressions, which this plan deliberately does " +
+                    "not touch.",
                 color = AppTheme.Colors.warning,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(top = 6.dp),
@@ -607,12 +662,12 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
             SlimButton("Cancel", onClick = onClose, color = AppTheme.Colors.textSecondary)
             SlimButton(
-                "Apply ${plan.size}",
+                "Apply ${checked.size}",
                 onClick = {
-                    session.apply(EditOp.fixPlan(plan))
+                    session.apply(EditOp.fixPlan(checked))
                     onClose()
                 },
-                enabled = plan.isNotEmpty(),
+                enabled = checked.isNotEmpty(),
                 color = AppTheme.Colors.primary,
                 modifier = Modifier.padding(start = 6.dp).testTag("diff-fix-apply"),
             )
@@ -624,6 +679,41 @@ private fun FixPlanSheet(session: ReconcileSession, onClose: () -> Unit) {
                     modifier = Modifier.testTag("diff-fix-still-red"),
                 )
             }
+            if (presenceUnchecked > 0) {
+                Text(
+                    "  $presenceUnchecked presence ${if (presenceUnchecked == 1) "row is" else "rows are"} unchecked — " +
+                        "presence asserts less than you have today; check them deliberately",
+                    color = AppTheme.Colors.warning,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 6.dp).testTag("diff-fix-presence-note"),
+                )
+            }
+        }
+    }
+}
+
+/** A checkbox at the sheet's own scale — the material one inflates a 14sp row to a touch target. */
+@Composable
+private fun PlanCheckbox(checked: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier =
+            modifier
+                .width(12.dp)
+                .height(12.dp)
+                .background(
+                    if (checked) AppTheme.Colors.primary else Color.Transparent,
+                    RoundedCornerShape(2.dp),
+                ).border(
+                    1.dp,
+                    if (checked) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
+                    RoundedCornerShape(2.dp),
+                ).clickable(onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (checked) {
+            Text("✓", color = AppTheme.Colors.surfaceVariant, fontSize = 8.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

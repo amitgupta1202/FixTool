@@ -9,6 +9,7 @@ import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.service.RawMessageView
+import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.compare.ChunkKind
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.wireView
@@ -1160,5 +1161,63 @@ class ReconcileSessionTest {
         assertTrue("Stop capturing" in stop.tooltip, "nothing paired, so the un-capture is the only offer")
         assertIs<EditResult.Applied>(s.apply(stop.op))
         assertNull(s.draft.fields[0].bindAs)
+    }
+
+    /**
+     * A4 — **one decider, property-checked.** One failing row per repair class: a drifted price, an enum
+     * one rung along, an id that kept its scheme, an id that kept nothing, and a skewed temporal. For
+     * every row the plan proposes on, the gutter's loosen-family offer must stage *exactly* the plan's
+     * proposed matcher, under the class's own glyph — the gutter and the sheet are the same call, and
+     * this is the test that keeps them from growing back into two opinions. (The temporal row doubles as
+     * the pin for the ladder now being offered per-row, which used to be plan-only.)
+     */
+    @Test
+    fun `the gutter's loosen-family offer is the plan's own proposal, row for row`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(31, Matcher.Exact("100.25")),
+                    FieldExpectation(39, Matcher.Exact("1")),
+                    FieldExpectation(526, Matcher.Exact("ORD-2026-0117")),
+                    FieldExpectation(583, Matcher.Exact("A7QK2")),
+                    FieldExpectation(60, Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        // 74s of skew against the reference's own arrival instant — inside the ladder, outside the ±60.
+        val message =
+            wireView(
+                35 to "8",
+                31 to "100.27",
+                39 to "2",
+                526 to "ORD-2026-0245",
+                583 to "9ZP41",
+                60 to "20250101-00:01:14",
+            )
+        val s = session(draft, message)
+
+        val fixes = s.fixPlan()
+        assertEquals(5, fixes.size, "every class fired: numeric, oneOf, regex, presence, temporal")
+
+        for (fix in fixes) {
+            val line = s.model.lines.single { it.row.index == fix.index }
+            val offer = line.offers.single { it.kind == OfferKind.LOOSEN }
+            val glyph =
+                when (fix.klass) {
+                    ScenarioReconcile.FixClass.NUMERIC, ScenarioReconcile.FixClass.TEMPORAL -> "±"
+                    ScenarioReconcile.FixClass.ONE_OF -> "∈"
+                    ScenarioReconcile.FixClass.REGEX -> "≈"
+                    ScenarioReconcile.FixClass.PRESENCE -> "∃"
+                }
+            assertEquals(glyph, offer.glyph, "tag ${fix.tag} wears its class")
+            val result = s.preview(offer.op)
+            assertIs<EditResult.Applied>(result)
+            assertEquals(
+                fix.proposed,
+                result.expectation.fields[fix.index].matcher,
+                "tag ${fix.tag}: the offer stages exactly what the plan proposes — one decider (A4)",
+            )
+        }
     }
 }

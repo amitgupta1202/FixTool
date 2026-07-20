@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.model.scenario.TemporalKind
+import com.knapsack.fixtool.model.scenario.compiled
 import com.knapsack.fixtool.service.compare.EntrySource
 import com.knapsack.fixtool.service.compare.GroupOverlay
 import com.knapsack.fixtool.service.compare.NO_ANCHOR
@@ -317,6 +318,12 @@ object ScenarioReconcile {
     }
 
     /**
+     * Which repair family a [PlannedFix] belongs to. The sheet groups by this, the gutter picks its glyph
+     * by it, and [PlannedFix.defaultChecked] keys off it — one label, three consumers, no second opinion.
+     */
+    enum class FixClass { NUMERIC, TEMPORAL, ONE_OF, REGEX, PRESENCE }
+
+    /**
      * One proposed edit of a fix plan: the row, what it asserts today, what the plan would write, why —
      * and whether the row would actually pass afterwards. The reason is a sentence because every offer on
      * the surface carries one; a bulk edit with less explanation than a single click would be the bulk
@@ -330,17 +337,28 @@ object ScenarioReconcile {
         val proposed: Matcher,
         val reason: String,
         val repairs: Boolean,
-    )
+        val klass: FixClass,
+    ) {
+        /**
+         * D2 — **a proposal that still constrains the value defaults on; one that stops constraining it
+         * defaults off.** A band, a set or a shape still pins the value and the reason names exactly what
+         * widened; presence is the one class that asserts strictly less than the author had, so it takes
+         * a deliberate opt-in — the bulk analogue of "value mismatches are accepted deliberately".
+         */
+        val defaultChecked: Boolean get() = klass != FixClass.PRESENCE
+    }
 
     /**
-     * **The fix plan: widen the bands until the reply fits — and touch nothing else.**
+     * **The fix plan: widen, admit or generalise until the reply fits — and touch nothing else.**
      *
      * The bulk answer to a re-run where the venue's *values drifted inside their meaning* — a fill price a
-     * pip away, a timestamp outside its ±60s — which is the one failure class the per-row `±` repairs one
-     * click at a time. Everything the plan may touch is a row that already **is** a tolerance (a `Numeric`,
-     * an anchored `~now` temporal) or that the seeder would have made one (an `Exact` on a price/qty/amount
-     * field, per [ExpectationSeeder.numericFamily] — the same decider, so the plan can never call numeric
-     * what the seed called a code).
+     * pip away, a timestamp outside its ±60s, a status one rung along its enum, an id that kept its scheme
+     * and changed its counter. Five classes, one per way a value can drift (see [FixClass] and
+     * [rowProposal], the per-row decider this maps): numeric bands and the temporal ladder as always; and
+     * `oneOf` widening, pattern inference and presence demotion for the drifts that never had a bulk
+     * answer. Every gate consults the seeder's classification ([ExpectationSeeder.numericFamily],
+     * [ExpectationSeeder.textFamily], [ExpectationSeeder.identifierFamily], the dictionary's enum list) —
+     * the same decider as the seed, so the plan can never call numeric what the seed called a code.
      *
      * What it must never do is decided by what it is given:
      * - **enum-coded ints** — `452 exact 4` failing as `1` is a role change, not drift; not in the numeric
@@ -360,22 +378,202 @@ object ScenarioReconcile {
     ): List<PlannedFix> {
         val moved = (reorder(draft, reference, referenceResolver) as? Reorder.Possible)?.moved.orEmpty()
         return rows(draft, reference, dictionary, referenceResolver).mapNotNull { row ->
-            val index = row.index ?: return@mapNotNull null
-            if (row.passed || row.unknown || index in moved) return@mapNotNull null
-            if (row.status != TagStatus.VALUE) return@mapNotNull null
-            val name = dictionary?.getFieldName(row.tag) ?: ""
-            when (val matcher = row.matcher) {
-                is Matcher.Temporal -> temporalFix(index, name, row, matcher, reference.anchorInstant)
-                is Matcher.Numeric -> numericFix(index, name, row, matcher, tolerance)
-                is Matcher.Exact ->
-                    if (ExpectationSeeder.numericFamily(row.tag, dictionary)) {
+            if (row.index != null && row.index in moved) return@mapNotNull null
+            rowProposal(row, dictionary, tolerance, reference.anchorInstant)
+        }
+    }
+
+    /**
+     * **The one decider for what a failing value row may be offered** (A4). The plan maps every row
+     * through this; the gutter renders the same call as the row's loosen-family offer — so the sheet and
+     * the gutter cannot come to disagree about what a row is worth. The classes are disjoint by
+     * construction — numeric family, enum-coded, and text are different answers from the same
+     * classification — so a row receives at most one proposal, and only regex-vs-presence is ever
+     * arbitrated: a tight pattern asserts strictly more, so it wins (D1).
+     *
+     * What no class may touch is unchanged from the plan's founding contract: rows that passed, rows
+     * that cannot be judged, shape changes, references — and enum-coded ints never see a `±`, exactly
+     * as before. The one thing this does **not** re-check is a proven move ([fixPlan] filters those with
+     * the reorder in hand); a moved row's status is not [TagStatus.VALUE], so it cannot reach a class
+     * here either.
+     */
+    fun rowProposal(
+        row: Row,
+        dictionary: FixDictionaryAdapter?,
+        tolerance: FixTolerance = FixTolerance.CoverBoth,
+        anchor: Instant? = null,
+    ): PlannedFix? {
+        val index = row.index ?: return null
+        if (row.passed || row.unknown || row.status != TagStatus.VALUE) return null
+        val name = dictionary?.getFieldName(row.tag) ?: ""
+        return when (val matcher = row.matcher) {
+            is Matcher.Temporal -> temporalFix(index, name, row, matcher, anchor)
+            is Matcher.Numeric -> numericFix(index, name, row, matcher, tolerance)
+            // A row the author made oneOf has had its kind decided — widening it by the actual is honest
+            // on any field, exactly as an author-made Numeric is widenable off the numeric families. The
+            // dictionary only decorates the reason with decoded names where it can.
+            is Matcher.OneOf -> oneOfFix(index, name, row, matcher, matcher.values, dictionary)
+            is Matcher.Exact ->
+                when {
+                    ExpectationSeeder.numericFamily(row.tag, dictionary) ->
                         numericFix(index, name, row, matcher, tolerance)
-                    } else {
-                        null
-                    }
-                else -> null
+                    dictionary?.hasFieldValues(row.tag) == true ->
+                        oneOfFix(index, name, row, matcher, listOf(matcher.value), dictionary)
+                    else ->
+                        regexFix(index, name, row, matcher, dictionary)
+                            ?: presenceFix(index, name, row, matcher, dictionary)
+                }
+            else -> null
+        }
+    }
+
+    /**
+     * `∈` — the failing value joins the admitted set (S2). Only for a field whose values are a
+     * vocabulary: the dictionary's enum list for an `Exact`, or a set the author already declared with
+     * `oneOf`. The reason decodes every member it can — *"PartiallyFilled(1) | Filled(2)"* — because the
+     * author is admitting a meaning, not a digit; and past three members it says what a set that wide
+     * has become, instead of letting the row quietly turn into presence in disguise.
+     */
+    private fun oneOfFix(
+        index: Int,
+        name: String,
+        row: Row,
+        current: Matcher,
+        values: List<String>,
+        dictionary: FixDictionaryAdapter?,
+    ): PlannedFix? {
+        val actual = row.actual ?: return null
+        if (values.isEmpty() || actual in values) return null
+        val union = values + actual
+        val decoded =
+            union.joinToString(" | ") { v ->
+                dictionary?.getFieldValueDescription(row.tag, v)?.let { "$it($v)" } ?: v
+            }
+        val admitted =
+            when (union.size) {
+                2 -> "both meanings now admitted"
+                3 -> "all 3 meanings now admitted"
+                else ->
+                    "${union.size} meanings now admitted — if any value is acceptable, " +
+                        "presence is the honest assertion"
+            }
+        return PlannedFix(
+            index, row.tag, name, current, Matcher.OneOf(union),
+            reason = "$decoded — $admitted",
+            repairs = true,
+            klass = FixClass.ONE_OF,
+        )
+    }
+
+    /**
+     * `≈` — the shape both runs share, as a pattern (S3). Gated by [ExpectationSeeder.textFamily] and by
+     * [inferPattern]'s own tightness rule; the pattern is verified to full-match both sides before it is
+     * offered, so a proposal that does not repair — or that stops matching the golden it was inferred
+     * from — cannot exist.
+     */
+    private fun regexFix(
+        index: Int,
+        name: String,
+        row: Row,
+        current: Matcher.Exact,
+        dictionary: FixDictionaryAdapter?,
+    ): PlannedFix? {
+        if (!ExpectationSeeder.textFamily(row.tag, dictionary)) return null
+        val actual = row.actual ?: return null
+        val pattern = inferPattern(current.value, actual) ?: return null
+        return PlannedFix(
+            index, row.tag, name, current, Matcher.Regex(pattern),
+            reason = "/$pattern/ is the shape both runs share — the varying run is the venue's",
+            repairs = true,
+            klass = FixClass.REGEX,
+        )
+    }
+
+    /**
+     * `∃` — the venue mints this fresh per run; assert it arrives, not what it says (S1). Last resort by
+     * design: offered only where [regexFix] found no shape to keep (D1 — a tight pattern asserts strictly
+     * more), and only on [ExpectationSeeder.identifierFamily] fields. The reason carries the warning the
+     * default-unchecked checkbox (D2) exists for: a *stable* id that changed is a regression, and its
+     * honest repair is Accept actual, not this.
+     */
+    private fun presenceFix(
+        index: Int,
+        name: String,
+        row: Row,
+        current: Matcher,
+        dictionary: FixDictionaryAdapter?,
+    ): PlannedFix? {
+        if (!ExpectationSeeder.identifierFamily(row.tag, dictionary)) return null
+        val actual = row.actual ?: return null
+        return PlannedFix(
+            index, row.tag, name, current, Matcher.Presence,
+            reason =
+                "no shape shared with $actual — the venue mints this fresh per run; " +
+                    "a stable id that changed is a regression: Accept actual instead",
+            repairs = true,
+            klass = FixClass.PRESENCE,
+        )
+    }
+
+    /**
+     * The character classes a varying run may generalise to, narrowest first — the first that covers both
+     * sides wins, so `0117`/`0245` becomes `\d+` and never the `[A-Za-z0-9]+` that would also fit.
+     */
+    private val CLASS_LADDER =
+        listOf<Pair<String, (Char) -> Boolean>>(
+            "\\d+" to { c -> c.isDigit() },
+            "[A-Z]+" to { c -> c in 'A'..'Z' },
+            "[a-z]+" to { c -> c in 'a'..'z' },
+            "[A-Z0-9]+" to { c -> c.isDigit() || c in 'A'..'Z' },
+            "[A-Za-z0-9]+" to { c -> c.isDigit() || c in 'A'..'Z' || c in 'a'..'z' },
+        )
+
+    private val REGEX_META = setOf('\\', '^', '$', '.', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}')
+
+    /** The literal parts of an inferred pattern, escaped character by character — never `\Q…\E`, which is what [Regex.escape] writes and no author would type into a scenario file. */
+    private fun escapeLiteral(s: String): String =
+        buildString {
+            for (c in s) {
+                if (c in REGEX_META) append('\\')
+                append(c)
             }
         }
+
+    /**
+     * **The conservative pattern two values share, or null when they share none worth asserting.**
+     *
+     * Longest common prefix and suffix stay literal; both varying middles must be non-empty and drawn
+     * from the same rung of [CLASS_LADDER]. A boundary character of the winning class is pulled *into*
+     * the varying run — `ORD-1` vs `ORD-12` shares the prefix `ORD-1`, but the honest pattern is
+     * `ORD-\d+`, not `ORD-1\d*`: the trailing digit of the shared prefix belongs to the counter, not the
+     * scheme. **Tight means at least one literal character survives** — an unanchored `[A-Z0-9]+`
+     * full-matches almost anything while reading like an assertion, which is the regex spelling of the
+     * `452 ± 3` trap. The result is verified to full-match both inputs before it is returned.
+     */
+    internal fun inferPattern(expected: String, actual: String): String? {
+        if (expected == actual || expected.isEmpty() || actual.isEmpty()) return null
+        var p = 0
+        val maxShared = minOf(expected.length, actual.length)
+        while (p < maxShared && expected[p] == actual[p]) p++
+        var s = 0
+        while (s < maxShared - p && expected[expected.length - 1 - s] == actual[actual.length - 1 - s]) s++
+        for ((token, member) in CLASS_LADDER) {
+            var pp = p
+            while (pp > 0 && member(expected[pp - 1])) pp--
+            var ss = s
+            while (ss > 0 && member(expected[expected.length - ss])) ss--
+            val midExpected = expected.substring(pp, expected.length - ss)
+            val midActual = actual.substring(pp, actual.length - ss)
+            if (midExpected.isEmpty() || midActual.isEmpty()) continue
+            if (!midExpected.all(member) || !midActual.all(member)) continue
+            val prefix = expected.substring(0, pp)
+            val suffix = expected.substring(expected.length - ss)
+            if (prefix.isEmpty() && suffix.isEmpty()) continue // no literal anchor — asserts nothing
+            val pattern = escapeLiteral(prefix) + token + escapeLiteral(suffix)
+            val compiled = Matcher.Regex(pattern).compiled() ?: continue
+            if (compiled.matches(expected) && compiled.matches(actual)) return pattern
+        }
+        return null
     }
 
     private fun numericFix(
@@ -403,6 +601,7 @@ object ScenarioReconcile {
                 index, row.tag, name, current, proposed,
                 reason = "the same number, formatted differently — numeric compares values, not text",
                 repairs = true,
+                klass = FixClass.NUMERIC,
             )
         }
         return when (mode) {
@@ -412,6 +611,7 @@ object ScenarioReconcile {
                     index, row.tag, name, current, band.matcher,
                     reason = "${band.expectedText} ± ${band.decimalTolerance} is the smallest band covering both sides",
                     repairs = true,
+                    klass = FixClass.NUMERIC,
                 )
             }
             is FixTolerance.Uniform -> {
@@ -426,6 +626,7 @@ object ScenarioReconcile {
                             "± ${decimalText(mode.tolerance)} does not reach the reply's $actualText — this row stays red"
                         },
                     repairs = repairs,
+                    klass = FixClass.NUMERIC,
                 )
             }
         }
@@ -456,6 +657,7 @@ object ScenarioReconcile {
             index, row.tag, name, current, Matcher.Temporal(current.kind, widened),
             reason = "the reply's moment is ${skew}s from the reference's — ±${widened}s covers it with headroom",
             repairs = true,
+            klass = FixClass.TEMPORAL,
         )
     }
 

@@ -119,6 +119,36 @@ object ExpectationSeeder {
     fun numericFamily(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
         fieldTypeName(tag, dictionary) in NUMERIC_TYPES
 
+    /**
+     * **May this field honestly carry an inferred pattern?** Free-text string fields and fields the
+     * dictionary does not know (custom tags) — and never an enum-coded one, whatever its declared type:
+     * `SecurityIDSource(22)` is a STRING whose values are a vocabulary, and a "shape" over a vocabulary
+     * is a matcher that admits members nobody listed. Typed fields that are not strings are out too —
+     * a `LOCALMKTDATE` failing `20260722` against `20260723` would generalise to `2026072\d+`, which
+     * full-matches both sides while asserting nothing a settlement date means. Same decider rule as
+     * [numericFamily]: the classification lives here so the fix plan and the gutter cannot disagree
+     * with the seed about what a field is.
+     */
+    fun textFamily(tag: Int, dictionary: FixDictionaryAdapter?): Boolean {
+        if (dictionary?.hasFieldValues(tag) == true) return false
+        val type = fieldTypeName(tag, dictionary)
+        return type == null || type == "STRING"
+    }
+
+    /**
+     * **Does this field carry an identifier the venue may be minting per run?** The gate behind the fix
+     * plan's presence demotion — [textFamily], narrowed to names that say identifier (`…ID`, which covers
+     * `…RefID`) or to tags the dictionary does not know at all, because a custom 5xxx tag failing with a
+     * fresh value every run is exactly the case presence demotion exists for (S1). Deliberately wider
+     * than certainty: `SecurityID(48)` passes this gate, and a changed instrument id is a regression —
+     * which is why a presence proposal is default-unchecked (D2) and its reason says so.
+     */
+    fun identifierFamily(tag: Int, dictionary: FixDictionaryAdapter?): Boolean {
+        if (!textFamily(tag, dictionary)) return false
+        val name = dictionary?.getFieldName(tag)
+        return name == null || name.endsWith("ID")
+    }
+
     private fun seedMatcher(tag: Int, value: String, dictionary: FixDictionaryAdapter?): Matcher {
         val fieldType = fieldTypeName(tag, dictionary)
         return when {

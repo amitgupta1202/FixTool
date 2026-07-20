@@ -50,7 +50,7 @@ class StepStripTest {
 
         assertEquals(3, chips.size, "three Expects, and the Send is not one of them")
         assertEquals(listOf(1, 2, 3), chips.map { it.index }, "positions among ALL steps, so it agrees with the crumb")
-        assertTrue(chips.first().label.startsWith("2"), "the first Expect is step 2 of the scenario")
+        assertEquals("2", chips.first().label, "the first Expect is step 2 of the scenario")
     }
 
     @Test
@@ -115,7 +115,7 @@ class StepStripTest {
 
         val summary = stepStripSummary(stepStripOf(ScenarioDraft(repaired, seed), ids[0], results(ids[1] to false, ids[2] to false), null))
 
-        assertEquals("2 of 3 failing · 1 repaired, not saved", summary)
+        assertEquals("2 of 3 failing · 1 unsaved", summary)
     }
 
     @Test
@@ -128,18 +128,28 @@ class StepStripTest {
         assertEquals("", stepStripSummary(emptyList()))
     }
 
-    /** `8` is the wire's word for it, not a reader's — the chip carries the dictionary's name, shortened. */
+    /**
+     * **The chip is its number; the type is in the tooltip.** Scenarios run to fourteen Expects, and a type
+     * name on every chip pushed the strip into horizontal scroll — where the chip the author is ON can sit
+     * off-screen, which defeats the point of a "where am I" control.
+     */
     @Test
-    fun `a chip names the message type rather than its wire code`() {
-        val chips = stepStripOf(ScenarioDraft(seed, seed), ids()[0], emptyMap(), null) { if (it == "8") "ExecutionReport" else null }
+    fun `the chip is the step number and the tooltip carries the named type`() {
+        val chips =
+            stepStripOf(ScenarioDraft(seed, seed), ids()[0], emptyMap(), null) {
+                if (it == "8") "ExecutionReport" else null
+            }
 
-        assertEquals("2 ExecutionReport", chips[0].label)
+        assertEquals("2", chips[0].label)
         assertTrue(chips[0].tooltip.contains("Expect ExecutionReport"), chips[0].tooltip)
     }
 
-    /** With no dictionary behind it, the raw type is still better than nothing. */
+    /** With no dictionary behind it, the tooltip still says which type — the wire code is better than silence. */
     @Test
-    fun `without a dictionary the chip falls back to the wire code`() {
-        assertEquals("2 8", stepStripOf(ScenarioDraft(seed, seed), ids()[0], emptyMap(), null)[0].label)
+    fun `without a dictionary the tooltip falls back to the wire code`() {
+        val chip = stepStripOf(ScenarioDraft(seed, seed), ids()[0], emptyMap(), null)[0]
+
+        assertEquals("2", chip.label)
+        assertTrue(chip.tooltip.contains("Expect 8"), chip.tooltip)
     }
 }

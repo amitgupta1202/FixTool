@@ -39,7 +39,7 @@ class StepStripRenderTest {
         StepChip(
             stepId = "step-$index",
             index = index,
-            label = "${index + 1} ExecutionReport",
+            label = "${index + 1}",
             status = status,
             current = current,
             armed = armed,
@@ -61,7 +61,7 @@ class StepStripRenderTest {
         chips.forEach { rule.onNodeWithTag("diff-step-chip-${it.index}").assertIsDisplayed() }
         rule
             .onNodeWithTag("diff-step-strip-summary")
-            .assertTextContains("1 of 3 failing · 1 repaired, not saved")
+            .assertTextContains("1 of 3 failing · 1 unsaved")
     }
 
     /** The chip is the navigation — clicking one must name the step it is about, not its position. */

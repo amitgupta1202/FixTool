@@ -202,6 +202,9 @@ fun DiffSurface(
         // here — and either way it is the engine's sentence, which names the assertion the move would have
         // quietly re-aimed. A refused action says why. It does not simply fail to happen.
         session.refusal?.let { RefusedMove(it) { session.clearRefusal() } }
+        // The repair that just landed, offered everywhere it applies (C1). Transient like the refusal
+        // above: any other edit clears it, because a banner naming row indexes must not outlive the draft.
+        session.sameFixBanner?.let { banner -> SameFixStrip(session, banner) }
         // The run's scope, when the slot holds a run's own message. Clicking a chip highlights every row
         // that references the name or carries its value — the fastest answer to "where did ${id0} go".
         val scope = session.reference.variables
@@ -715,6 +718,47 @@ private fun PlanCheckbox(checked: Boolean, onToggle: () -> Unit, modifier: Modif
         if (checked) {
             Text("✓", color = AppTheme.Colors.surfaceVariant, fontSize = 8.sp, fontWeight = FontWeight.Bold)
         }
+    }
+}
+
+/**
+ * **The same fix, offered everywhere it applies** — the C1 banner. It names what "the same way" means
+ * (the substitution pair, or the class), counts the siblings, and offers one composite staged edit.
+ * `[all steps]` is slice C2's territory and appears with its wiring, not before.
+ */
+@Composable
+private fun SameFixStrip(session: ReconcileSession, banner: ReconcileSession.SameFixBanner) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(AppTheme.Colors.notificationInfoBackground)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .testTag("diff-samefix-banner"),
+    ) {
+        Text("«  ", color = AppTheme.Colors.warning, fontSize = 11.sp)
+        Text(
+            "${banner.fixes.size} more ${if (banner.fixes.size == 1) "row fails" else "rows fail"} the same way " +
+                "(${banner.what}) — apply to:",
+            color = AppTheme.Colors.textSecondary,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        SlimButton(
+            "this step",
+            onClick = { session.applySameFixHere() },
+            color = AppTheme.Colors.primary,
+            modifier = Modifier.padding(start = 8.dp).testTag("diff-samefix-this-step"),
+        )
+        Box(Modifier.weight(1f))
+        SlimButton(
+            "dismiss",
+            onClick = session::dismissSameFix,
+            color = AppTheme.Colors.textSecondary,
+            modifier = Modifier.testTag("diff-samefix-dismiss"),
+        )
     }
 }
 

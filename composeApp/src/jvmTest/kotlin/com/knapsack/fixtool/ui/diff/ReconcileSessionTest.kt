@@ -1164,6 +1164,80 @@ class ReconcileSessionTest {
     }
 
     /**
+     * C1 / D4 — **a repair travels on its substitution, not its tag.** Three 448 rows fail: two with the
+     * same FIRMA→FIRMB pair, one a different way. Accepting the first offers exactly one sibling — the
+     * same pair, never the same tag — and [this step] stages it as ONE edit: one footer line, one undo.
+     * The banner then clears, because its indexes died with the draft they were computed against.
+     */
+    @Test
+    fun `accept-actual travels only on the same substitution, staged as one edit`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(448, Matcher.Exact("FIRMA")),
+                    FieldExpectation(448, Matcher.Exact("FIRMA")),
+                    FieldExpectation(448, Matcher.Exact("FIRMA")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val message = wireView(35 to "8", 448 to "FIRMB", 448 to "FIRMB", 448 to "OTHER")
+        val s = session(draft, message)
+
+        val accept =
+            s.model.lines.first { it.row.tag == 448 }.offers.single { it.kind == OfferKind.ACCEPT_ACTUAL }
+        assertIs<EditResult.Applied>(s.apply(accept.op))
+
+        val banner = s.sameFixBanner
+        assertNotNull(banner, "two more 448 rows fail — one of them the same way")
+        assertEquals(listOf(1), banner.fixes.map { it.index }, "same pair travels; the OTHER drift does not")
+        assertEquals("FIRMA → FIRMB", banner.what)
+
+        val undoDepthBefore = s.stagedLabels.size
+        assertIs<EditResult.Applied>(s.applySameFixHere())
+        assertEquals(Matcher.Exact("FIRMB"), s.draft.fields[1].matcher)
+        assertEquals(Matcher.Exact("FIRMA"), s.draft.fields[2].matcher, "the differently-failing row is untouched")
+        assertEquals(undoDepthBefore + 1, s.stagedLabels.size, "the travelling fix is one staged edit")
+        assertNull(s.sameFixBanner, "the banner does not outlive the draft it indexed into")
+
+        s.undo()
+        assertEquals(Matcher.Exact("FIRMA"), s.draft.fields[1].matcher, "one ⌘Z takes the whole travel back")
+    }
+
+    /**
+     * C1 — **a loosen travels by class, each sibling getting its own proposal.** Two prices drift; the
+     * `±` on the first offers the second — with the second row's own covering band, not the first's,
+     * because "the same fix" is the same policy, not the same bytes.
+     */
+    @Test
+    fun `a loosen travels by class, each sibling getting its own band`() {
+        val draft =
+            Expectation(
+                listOf(
+                    FieldExpectation(270, Matcher.Exact("1.10")),
+                    FieldExpectation(270, Matcher.Exact("1.20")),
+                ),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        val message = wireView(35 to "8", 270 to "1.11", 270 to "1.22")
+        val s = session(draft, message)
+
+        val loosen = s.model.lines.first { it.row.tag == 270 }.offers.single { it.kind == OfferKind.LOOSEN }
+        assertIs<EditResult.Applied>(s.apply(loosen.op))
+
+        val banner = s.sameFixBanner
+        assertNotNull(banner)
+        assertEquals(listOf(1), banner.fixes.map { it.index })
+        val sibling = banner.fixes.single().proposed
+        assertIs<Matcher.Numeric>(sibling)
+        assertEquals(1.20, sibling.expected, "the sibling's own baseline — never the origin row's band")
+
+        assertIs<EditResult.Applied>(s.applySameFixHere())
+        assertTrue(s.model.lines.all { it.row.passed || it.row.unasserted }, "both drifts repaired")
+    }
+
+    /**
      * A4 — **one decider, property-checked.** One failing row per repair class: a drifted price, an enum
      * one rung along, an id that kept its scheme, an id that kept nothing, and a skewed temporal. For
      * every row the plan proposes on, the gutter's loosen-family offer must stage *exactly* the plan's

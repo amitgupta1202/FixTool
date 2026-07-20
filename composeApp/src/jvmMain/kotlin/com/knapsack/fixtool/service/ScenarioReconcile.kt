@@ -515,6 +515,66 @@ object ScenarioReconcile {
         )
     }
 
+    // ------------------------------------------------------------------ the same fix, travelling (C1)
+
+    /**
+     * **The signature a per-row repair travels under** — what "fails the same way" means, made precise,
+     * because same-tag alone is not intent (D4).
+     *
+     * A [Substitution] is Accept-actual on an `Exact` row: it travels only to rows failing with the very
+     * same expected→actual pair — `FIRMA→FIRMB` on four party rows is one decision; the same tag failing
+     * four different ways is four. A [LoosenClass] is a loosen-family repair: it travels to rows of the
+     * same tag whose [rowProposal] lands in the same class — each sibling gets its *own* proposal (its
+     * own band, its own pattern), because "the same fix" is the same policy, not the same bytes. Drop
+     * never travels (D3): [dropTakesWholeTag] and Accept-all-shape-changes own bulk removal, and a
+     * travelling drop would re-aim survivors silently. Capture and track never travel either — they are
+     * wiring, not repairs, and their names are row-scoped.
+     */
+    sealed interface SameFix {
+        data class Substitution(val tag: Int, val expected: String, val actual: String) : SameFix
+
+        data class LoosenClass(val tag: Int, val klass: FixClass) : SameFix
+    }
+
+    /** One sibling the same fix would repair: the row, and exactly what it would become. */
+    data class SiblingFix(val index: Int, val tag: Int, val proposed: Matcher, val reason: String)
+
+    /**
+     * Every failing row the signature reaches, **re-gated row by row** — a substitution requires the same
+     * Exact pair; a class requires [rowProposal] to fire in that class for that row. A row the gates
+     * refuse (a reference, a different drift, a different class) is simply not a sibling: the same
+     * decider that refuses it per-row refuses it here, so travelling cannot hand out what a click would
+     * not.
+     */
+    fun siblings(
+        rows: List<Row>,
+        fix: SameFix,
+        dictionary: FixDictionaryAdapter?,
+        anchor: Instant? = null,
+    ): List<SiblingFix> =
+        when (fix) {
+            is SameFix.Substitution ->
+                rows
+                    .filter { r ->
+                        r.index != null && !r.passed && !r.unknown && r.status == TagStatus.VALUE &&
+                            r.tag == fix.tag &&
+                            (r.matcher as? Matcher.Exact)?.value == fix.expected &&
+                            r.actual == fix.actual
+                    }.map { r ->
+                        SiblingFix(
+                            r.index!!, r.tag, Matcher.Exact(fix.actual),
+                            "the same ${fix.expected} → ${fix.actual} substitution",
+                        )
+                    }
+            is SameFix.LoosenClass ->
+                rows.mapNotNull { r ->
+                    if (r.tag != fix.tag) return@mapNotNull null
+                    val proposal = rowProposal(r, dictionary, FixTolerance.CoverBoth, anchor)
+                    if (proposal == null || proposal.klass != fix.klass) return@mapNotNull null
+                    SiblingFix(proposal.index, proposal.tag, proposal.proposed, proposal.reason)
+                }
+        }
+
     /**
      * The character classes a varying run may generalise to, narrowest first — the first that covers both
      * sides wins, so `0117`/`0245` becomes `\d+` and never the `[A-Za-z0-9]+` that would also fit.

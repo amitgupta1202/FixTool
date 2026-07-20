@@ -79,6 +79,13 @@ class EditOp(
      * a row belongs, and `⌘Z` after two of them must walk back one.
      */
     val coalesceKey: String? = null,
+    /**
+     * The signature this edit travels under, or null for an edit that does not travel (C1). Set only by
+     * the two factories whose repairs mean the same thing on another row — accept-actual on an Exact pair
+     * and a loosen-family proposal. After a successful apply the session scans for siblings under this
+     * signature and offers them as a banner; every other edit clears it.
+     */
+    val sameFix: ScenarioReconcile.SameFix? = null,
     private val apply: (Expectation) -> EditResult,
 ) {
     fun applyTo(draft: Expectation): EditResult =
@@ -94,10 +101,14 @@ class EditOp(
          * An op that cannot be refused — every one of them except the two moves. It either produces a new
          * expectation or it produces nothing, and "nothing" here has only ever meant *nothing changed*.
          */
-        private fun pure(label: String, coalesceKey: String? = null, apply: (Expectation) -> Expectation?) =
-            EditOp(label, coalesceKey) { draft ->
-                apply(draft)?.let { EditResult.Applied(it) } ?: EditResult.Unchanged
-            }
+        private fun pure(
+            label: String,
+            coalesceKey: String? = null,
+            sameFix: ScenarioReconcile.SameFix? = null,
+            apply: (Expectation) -> Expectation?,
+        ) = EditOp(label, coalesceKey, sameFix) { draft ->
+            apply(draft)?.let { EditResult.Applied(it) } ?: EditResult.Unchanged
+        }
 
         /** The engine's own answer, carried whole — including the sentence it gives when it says no. */
         private fun moving(label: String, move: (Expectation) -> ScenarioReconcile.MoveResult) =
@@ -109,11 +120,24 @@ class EditOp(
             }
 
         // The labels are the ones the old view staged under, verbatim — they are what the footer will list.
-        fun acceptActual(index: Int, tag: Int, actual: String?) =
-            pure("Accepted $tag = $actual") { ScenarioReconcile.acceptActual(it, index, actual) }
+        /** [expectedExact] — the Exact value the row asserted, when it did: the substitution half of D4. */
+        fun acceptActual(index: Int, tag: Int, actual: String?, expectedExact: String? = null) =
+            pure(
+                "Accepted $tag = $actual",
+                sameFix =
+                    if (actual != null && expectedExact != null && expectedExact != actual) {
+                        ScenarioReconcile.SameFix.Substitution(tag, expectedExact, actual)
+                    } else {
+                        null
+                    },
+            ) { ScenarioReconcile.acceptActual(it, index, actual) }
 
-        fun loosen(index: Int, tag: Int, matcher: Matcher) =
-            pure("Loosened $tag to ${describe(matcher)}") { ScenarioReconcile.loosen(it, index, matcher) }
+        /** [klass] — the proposal's class when this loosen came off [ScenarioReconcile.rowProposal]. */
+        fun loosen(index: Int, tag: Int, matcher: Matcher, klass: ScenarioReconcile.FixClass? = null) =
+            pure(
+                "Loosened $tag to ${describe(matcher)}",
+                sameFix = klass?.let { ScenarioReconcile.SameFix.LoosenClass(tag, it) },
+            ) { ScenarioReconcile.loosen(it, index, matcher) }
 
         /** The chip and its value field. Consecutive edits to the same row coalesce — see [coalesceKey]. */
         fun setMatcher(index: Int, tag: Int, matcher: Matcher) =
@@ -447,6 +471,42 @@ class ReconcileSession(
     }
 
     /**
+     * **The repair that just landed, offered everywhere it applies** (C1) — or null. Set only when an
+     * edit carrying a [EditOp.sameFix] signature applies *and* siblings survive the re-gate; cleared by
+     * any other edit, an undo, a redo, a discard, or [dismissSameFix] — a banner naming row indexes must
+     * not outlive the draft they index into.
+     */
+    data class SameFixBanner(
+        val fix: ScenarioReconcile.SameFix,
+        val fixes: List<ScenarioReconcile.SiblingFix>,
+        /** `FIRMA → FIRMB`, or the class's own word — what "the same way" means, said on the banner. */
+        val what: String,
+    )
+
+    var sameFixBanner: SameFixBanner? by mutableStateOf(null)
+        private set
+
+    fun dismissSameFix() {
+        sameFixBanner = null
+    }
+
+    /**
+     * **[this step]** — the same fix, staged over every sibling as one composite edit: one footer line,
+     * one ⌘Z. Each sibling gets its own proposal (its own band, its own pattern), computed when the
+     * banner was, against the draft the banner indexes into — which is still this draft, because any
+     * other edit would have cleared it.
+     */
+    fun applySameFixHere(): EditResult {
+        val banner = sameFixBanner ?: return EditResult.Unchanged
+        val n = banner.fixes.size
+        return apply(
+            EditOp(label = "Applied the same fix to $n more ${if (n == 1) "row" else "rows"}") { d ->
+                EditResult.Applied(banner.fixes.fold(d) { acc, f -> ScenarioReconcile.loosen(acc, f.index, f.proposed) })
+            },
+        )
+    }
+
+    /**
      * **What this op would do, without doing it** — the drag tooltip's answer, and the drop's, from one
      * function, so the two cannot come to disagree about whether a landing is legal.
      *
@@ -482,6 +542,30 @@ class ReconcileSession(
             cursor = snapshots.lastIndex
         }
         onChange(next)
+        // The banner follows the edit that earned it and nothing else: an op with no signature — every
+        // other click, including the banner's own [this step] — clears it, so its row indexes can never
+        // outlive the draft they were computed against.
+        sameFixBanner =
+            op.sameFix?.let { sig ->
+                val siblings =
+                    ScenarioReconcile.siblings(
+                        ScenarioReconcile.rows(next, reference, dictionary, effectiveResolver()),
+                        sig,
+                        dictionary,
+                        reference.anchorInstant,
+                    )
+                if (siblings.isEmpty()) {
+                    null
+                } else {
+                    SameFixBanner(
+                        sig, siblings,
+                        when (sig) {
+                            is ScenarioReconcile.SameFix.Substitution -> "${sig.expected} → ${sig.actual}"
+                            is ScenarioReconcile.SameFix.LoosenClass -> sig.klass.name.lowercase().replace('_', ' ')
+                        },
+                    )
+                }
+            }
         return result
     }
 
@@ -489,6 +573,7 @@ class ReconcileSession(
         if (!canUndo) return
         cursor -= 1
         refusal = null
+        sameFixBanner = null
         onChange(draft)
     }
 
@@ -496,6 +581,7 @@ class ReconcileSession(
         if (!canRedo) return
         cursor += 1
         refusal = null
+        sameFixBanner = null
         onChange(draft)
     }
 
@@ -504,6 +590,7 @@ class ReconcileSession(
         if (snapshots.size > 1) snapshots.removeRange(1, snapshots.size)
         cursor = 0
         refusal = null
+        sameFixBanner = null
         onChange(original)
     }
 
@@ -780,7 +867,7 @@ class ReconcileSession(
                                 OfferKind.ACCEPT_ACTUAL,
                                 "«",
                                 "Accept actual — keeps the kind of matcher this row is",
-                                EditOp.acceptActual(index, row.tag, row.actual),
+                                EditOp.acceptActual(index, row.tag, row.actual, (row.matcher as? Matcher.Exact)?.value),
                             ),
                         )
                     }
@@ -918,7 +1005,7 @@ class ReconcileSession(
             OfferKind.LOOSEN,
             glyph,
             "Loosen to ${ExpectationEvaluator.describe(fix.proposed)} — ${fix.reason}",
-            EditOp.loosen(index, row.tag, fix.proposed),
+            EditOp.loosen(index, row.tag, fix.proposed, fix.klass),
         )
     }
 

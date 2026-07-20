@@ -25,6 +25,19 @@ class ScenarioEditStepTest {
         assertEquals(step, step.toEditStep().toStep())
     }
 
+    /**
+     * The editor normalizes a Send on the way through (parse → re-join) and does it on every document
+     * open, not just on an edit — so anything the round trip cannot represent is deleted from the author's
+     * scenario silently, and the dirty flag, measured against the normalized seed, never notices. An
+     * excluded field is exactly the kind of thing that would go that way. This is the guard.
+     */
+    @Test
+    fun `send round-trips excluded fields, so opening a scenario cannot quietly delete them`() {
+        val step = ScenarioStep.Send("35=D|11=ORD|#9303=1|38=100|", "QUOTE")
+
+        assertEquals(step, step.toEditStep().toStep())
+    }
+
     @Test
     fun `expect round-trips match predicate, timeout, direction, and golden`() {
         val step = ScenarioStep.Expect(

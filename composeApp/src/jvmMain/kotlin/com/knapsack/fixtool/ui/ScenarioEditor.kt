@@ -31,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.HorizontalDivider
@@ -68,8 +70,9 @@ import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TrafficMode
-import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.ScenarioAnnotations
+import com.knapsack.fixtool.service.SendField
+import com.knapsack.fixtool.service.SendFields
 import com.knapsack.fixtool.service.mintName
 
 /** Label used in session dropdowns for "no explicit session" (the runner uses the active one). */
@@ -94,7 +97,7 @@ enum class StepKind { SEND, WAIT, EXPECT, CLEAR, RESET }
 data class EditStep(
     val kind: StepKind,
     val session: String? = null,
-    val fields: List<Pair<Int, String>> = emptyList(),
+    val fields: List<SendField> = emptyList(),
     val state: String = "",
     val match: MatchPredicate? = null,
     val direction: String = "in",
@@ -112,7 +115,7 @@ data class EditStep(
 fun ScenarioStep.toEditStep(): EditStep =
     when (this) {
         is ScenarioStep.Send ->
-            EditStep(StepKind.SEND, session, fields = FixMessageHelper.parseFixMessage(raw), stepId = stepId, origin = origin, muted = muted)
+            EditStep(StepKind.SEND, session, fields = SendFields.parse(raw), stepId = stepId, origin = origin, muted = muted)
         is ScenarioStep.Wait ->
             EditStep(StepKind.WAIT, session, state = state ?: "", match = match, timeoutMs = timeoutMs, stepId = stepId, origin = origin, muted = muted)
         is ScenarioStep.Expect ->
@@ -134,7 +137,7 @@ fun ScenarioStep.toEditStep(): EditStep =
 
 fun EditStep.toStep(): ScenarioStep =
     when (kind) {
-        StepKind.SEND -> ScenarioStep.Send(FixMessageHelper.joinFields(fields), session, stepId, origin, muted)
+        StepKind.SEND -> ScenarioStep.Send(SendFields.join(fields), session, stepId, origin, muted)
         StepKind.WAIT -> ScenarioStep.Wait(session, state.ifBlank { null }, match, timeoutMs, stepId, origin, muted)
         StepKind.EXPECT -> ScenarioStep.Expect(session, direction, match, timeoutMs, expectation, stepId, origin, muted)
         StepKind.CLEAR -> ScenarioStep.ClearMessages(session, stepId, origin, muted)
@@ -243,7 +246,7 @@ fun ScenarioEditor(
     }
 
     fun insertStep(kind: StepKind) {
-        val newStep = if (kind == StepKind.SEND) EditStep(kind, fields = listOf(35 to "")) else EditStep(kind)
+        val newStep = if (kind == StepKind.SEND) EditStep(kind, fields = listOf(SendField(35, ""))) else EditStep(kind)
         val at = if (selectedIdx in steps.indices) selectedIdx + 1 else steps.size
         steps.add(at, newStep)
         stepIds.add(at, nextStepId++)
@@ -805,25 +808,46 @@ private fun SendDetail(
             modifier = Modifier.testTag("send-fields-help"),
         )
     }
+    // Lint the message that will be SENT. An excluded field is not in it, and warning "unknown tag
+    // 9303" about a row the author has deliberately parked is the tool arguing with a decision.
+    val lintFields = step.fields.filterNot { it.excluded }.map { it.tag to it.value }
     val unknownTags =
         com.knapsack.fixtool.service.DictionaryLint
-            .unknownTags(step.fields, dictionary)
+            .unknownTags(lintFields, dictionary)
     if (unknownTags.isNotEmpty()) {
         Text(
             "⚠ " +
                 com.knapsack.fixtool.service.DictionaryLint
-                    .describe(unknownTags, step.fields, dictionary),
+                    .describe(unknownTags, lintFields, dictionary),
             color = AppTheme.Colors.warning,
             fontSize = 10.sp,
             modifier = Modifier.padding(bottom = 6.dp),
         )
     }
     val allFields = remember(dictionary) { dictionary?.getAllFields() ?: emptyList() }
-    step.fields.forEachIndexed { i, (tag, value) ->
+    step.fields.forEachIndexed { i, field ->
+        val tag = field.tag
+        val value = field.value
         fun update(newTag: Int, newValue: String) {
-            onChange(step.copy(fields = step.fields.toMutableList().apply { this[i] = newTag to newValue }))
+            onChange(step.copy(fields = step.fields.toMutableList().apply { this[i] = field.copy(tag = newTag, value = newValue) }))
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+            // Park a field without losing it: the same eye the Message Editor's field grid wears, for the
+            // same question ("does the venue still accept this without 9303?"), which in a scenario gets
+            // asked on a loop. Deleting the row answers it once and costs the author the value; excluding
+            // it answers it as many times as they like. First in the row, as it is there.
+            TooltipIconButton(
+                tooltip = if (field.excluded) "Include — this field is excluded from the message" else "Exclude — keep the field, leave it out of the message",
+                onClick = { onChange(step.copy(fields = step.fields.toMutableList().apply { this[i] = field.copy(excluded = !field.excluded) })) },
+                modifier = Modifier.size(20.dp).testTag("send-exclude-$i"),
+            ) {
+                Icon(
+                    imageVector = if (field.excluded) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (field.excluded) "Excluded" else "Included",
+                    tint = if (field.excluded) AppTheme.Colors.textDisabled else AppTheme.Colors.primary,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
             // Same column rhythm as the Message Editor's field grid (MessageEditorPanel): tag, name, a
             // fixed-width value, then one flexible help column — so the two field editors read as one tool.
             // Tag with dictionary autocomplete: type "ClOrd" or "11" and pick — no code memorizing.
@@ -834,14 +858,16 @@ private fun SendDetail(
                 modifier = Modifier.width(SEND_TAG_COL),
                 fieldTestTag = "send-tag-$i",
             )
-            FieldNameCell(tag, dictionary)
+            FieldNameCell(tag, dictionary, excluded = field.excluded)
             // Fixed width, like the Message Editor's value column — the column that flexes is the help beside
             // it, not the value. As weight(1f) the value stretched into a box the width of the whole pane.
             SlimField(
                 value = value,
                 onValueChange = { text -> update(tag, text) },
                 monospace = true,
-                textColor = AppTheme.Colors.fieldValue,
+                // Dimmed, not struck through or hidden — an excluded field is still editable, because the
+                // point of keeping it is to put it back. It reads as present-but-inactive, like a muted step.
+                textColor = if (field.excluded) AppTheme.Colors.textDisabled else AppTheme.Colors.fieldValue,
                 tintBlank = true,
                 modifier = Modifier.width(SEND_VALUE_COL).padding(start = 4.dp).testTag("send-value-$i"),
             )
@@ -851,7 +877,9 @@ private fun SendDetail(
             // slot is kept at a constant width, so a row whose value already mints (${id = uuid:20}) does
             // not stretch its value field wider than its neighbours by the width of the missing button.
             Box(modifier = Modifier.width(MINT_SLOT_WIDTH), contentAlignment = Alignment.Center) {
-                if (value.isNotBlank() && !ALREADY_MINTS.containsMatchIn(value)) {
+                // Nothing to mint on an excluded row: a name is worth having because later steps can
+                // reference the value that went out, and on this row no value goes out.
+                if (value.isNotBlank() && !field.excluded && !ALREADY_MINTS.containsMatchIn(value)) {
                     val name = mintName(tag, dictionary?.getFieldName(tag), takenNames)
                     AppTooltip(
                         "Mint as \${$name} — the wire bytes do not change, but the value now has a name: an " +
@@ -874,16 +902,21 @@ private fun SendDetail(
             }
         }
     }
-    SlimButton("+ field", onClick = { onChange(step.copy(fields = step.fields + (0 to ""))) }, modifier = Modifier.padding(top = 4.dp))
+    SlimButton("+ field", onClick = { onChange(step.copy(fields = step.fields + SendField(0, ""))) }, modifier = Modifier.padding(top = 4.dp))
 }
 
 /** Dictionary field name, colored like the message editor (orange for repeating-group tags). */
 @Composable
-private fun FieldNameCell(tag: Int, dictionary: FixDictionary?, width: androidx.compose.ui.unit.Dp = 120.dp) {
+private fun FieldNameCell(tag: Int, dictionary: FixDictionary?, width: androidx.compose.ui.unit.Dp = 120.dp, excluded: Boolean = false) {
     val isGroup = dictionary?.isGroupTag(tag) == true
     Text(
         text = dictionary?.getFieldName(tag) ?: "",
-        color = if (isGroup) AppTheme.Colors.groupTag else AppTheme.Colors.fieldName,
+        color =
+            when {
+                excluded -> AppTheme.Colors.textDisabled
+                isGroup -> AppTheme.Colors.groupTag
+                else -> AppTheme.Colors.fieldName
+            },
         fontSize = 10.sp,
         maxLines = 1,
         modifier = Modifier.width(width).padding(start = 4.dp),

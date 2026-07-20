@@ -206,6 +206,20 @@ language than §1 — plain replacement, no variables, offsets or message refere
 | `clearMessages` | `session?` |
 | `resetSeqNum` | `session?`, `sender?`, `target?` |
 
+### Excluding a field from a `send` without deleting it
+
+Prefix the tag with `#` in the `raw` and the field stays in the scenario but stays off the wire:
+
+```
+"raw": "35=D|11=${clOrdId = uuid}|#9303=1|38=100|"
+```
+
+This is for the question authors actually ask — *does the venue still accept this without tag 9303?* —
+which wants a toggle rather than a delete-and-retype-from-memory. An excluded field is **wholly inert**:
+it is not sent, it raises no unknown-tag lint, and its `${...}` is never resolved, so a mint sitting in
+an excluded field binds nothing and a later `${...}` reference to that name is left literal on the wire
+(the editor warns about exactly this). Un-prefix the tag and the field — and its mint — come back.
+
 `match` is `{messageType?, direction?, fields: [{tag, value}]}` — all conditions AND together, and its
 values may themselves be `${...}` expressions. An `expect` **consumes** the message it matches, so a
 partial-fill sequence is just successive `expect` steps. Each step may target a different `session`

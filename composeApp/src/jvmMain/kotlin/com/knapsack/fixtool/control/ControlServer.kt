@@ -31,7 +31,9 @@ import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.service.SessionTags
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.WirePaste
+import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.ui.diff.DiffSide
+import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpContext
@@ -950,10 +952,18 @@ class ControlServer(
      *
      * `{}` takes the last run's **first failing step**, which is what the rail's headline button does.
      * `{"step": 2}` addresses one by its 1-based position among the scenario's steps.
+     *
+     * **The repair plan rides on the response** (A5): the same `fixPlan` the sheet previews — class, row
+     * index, current, proposed, the engine's reason, and D2's default — so agent-driven repair sees what
+     * the author sees. `{"applyFix": [0, 3]}` stages exactly those plan rows through the same
+     * `EditOp.fixPlan` the sheet's Apply stages, into the open session: visible, undoable, saved by Save.
+     * An index the plan does not propose refuses the whole apply — a partial stage that silently skipped
+     * a row would report a repair it did not make.
      */
     private fun reconcile(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val at = body["step"]?.jsonPrimitive?.intOrNull
+        val applyFix = (body["applyFix"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.intOrNull }
         val result =
             viewModel.scenarioResult.value
                 ?: return errorObject("no scenario has been run — there is no failure to reconcile")
@@ -973,6 +983,25 @@ class ControlServer(
             is FixMessageViewModel.ReconcileRoute.Refused -> errorObject(route.why)
             is FixMessageViewModel.ReconcileRoute.Open -> {
                 onEdt { viewModel.openReconcile(step) }
+                // The session the open created (or re-aimed) — the same object the sheet drives, so the
+                // plan here and the plan on screen are one computation apart, never two opinions.
+                val session =
+                    onEdt { viewModel.openDiffWindows.value.firstOrNull { it.stepId == step.stepId }?.session }
+                val plan = session?.let { s -> onEdt { s.fixPlan() } }.orEmpty()
+                var staged = 0
+                if (applyFix != null) {
+                    val byIndex = plan.associateBy { it.index }
+                    val unknown = applyFix.filter { it !in byIndex }
+                    if (session == null || unknown.isNotEmpty()) {
+                        return errorObject(
+                            "applyFix names rows the plan does not propose: $unknown — " +
+                                "the plan proposes ${plan.map { it.index }}",
+                        )
+                    }
+                    val subset = applyFix.map { byIndex.getValue(it) }
+                    if (subset.isNotEmpty()) onEdt { session.apply(EditOp.fixPlan(subset)) }
+                    staged = subset.size
+                }
                 buildJsonObject {
                     put("status", "open")
                     put("scenario", result.scenario)
@@ -986,6 +1015,10 @@ class ControlServer(
                             buildJsonArray { result.variables.forEach { add(ScenarioReport.variableToJson(it)) } },
                         )
                     }
+                    if (plan.isNotEmpty()) {
+                        put("fixPlan", buildJsonArray { plan.forEach { add(planFixJson(it)) } })
+                    }
+                    if (applyFix != null) put("staged", staged)
                 }
             }
         }
@@ -1838,6 +1871,29 @@ class ControlServer(
         ex.sendResponseHeaders(code, bytes.size.toLong())
         ex.responseBody.use { it.write(bytes) }
     }
+
+    /** One plan row, in the sheet's own words — `describe` is the same text the preview draws. */
+    private fun planFixJson(fix: ScenarioReconcile.PlannedFix): JsonObject =
+        buildJsonObject {
+            put("index", fix.index)
+            put("tag", fix.tag)
+            if (fix.name.isNotEmpty()) put("name", fix.name)
+            put(
+                "class",
+                when (fix.klass) {
+                    ScenarioReconcile.FixClass.NUMERIC -> "numeric"
+                    ScenarioReconcile.FixClass.TEMPORAL -> "temporal"
+                    ScenarioReconcile.FixClass.ONE_OF -> "oneOf"
+                    ScenarioReconcile.FixClass.REGEX -> "regex"
+                    ScenarioReconcile.FixClass.PRESENCE -> "presence"
+                },
+            )
+            put("current", ExpectationEvaluator.describe(fix.current))
+            put("proposed", ExpectationEvaluator.describe(fix.proposed))
+            put("reason", fix.reason)
+            put("repairs", fix.repairs)
+            put("defaultChecked", fix.defaultChecked)
+        }
 
     /** Runs [block] on the Swing EDT and returns its result, since Compose state is EDT-bound. */
     private fun <T> onEdt(block: () -> T): T {

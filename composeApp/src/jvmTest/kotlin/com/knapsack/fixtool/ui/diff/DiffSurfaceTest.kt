@@ -442,6 +442,41 @@ class DiffSurfaceTest {
         composeTestRule.onAllNodesWithTag("diff-fix-sheet").assertCountEquals(0)
     }
 
+    /**
+     * D2 in the sheet: a presence proposal arrives **unchecked** — it asserts less than the author had —
+     * so Apply skips it and says so; the class header opts the whole class in with one click, and Apply
+     * then stages it. The numeric row beside it arrives checked and goes first, proving the two defaults
+     * live side by side in one plan.
+     */
+    @Test
+    fun `presence rows arrive unchecked, and the class header opts them in deliberately`() {
+        val draft =
+            Expectation(
+                listOf(FieldExpectation(583, Matcher.Exact("A7QK2")), FieldExpectation(151, Matcher.Exact("0"))),
+                messageType = "8",
+                mode = MatchMode.OPEN,
+            )
+        var edited: Expectation? = null
+        composeTestRule.surface(draft, wireView(35 to "8", 583 to "9ZP41", 151 to "500000")) { edited = it }
+
+        composeTestRule.onNodeWithTag("diff-fix-plan").performClick()
+        composeTestRule.onNodeWithTag("diff-fix-sheet").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diff-fix-presence-note").assertIsDisplayed()
+
+        // Apply takes the checked numeric row and leaves the presence row exactly as it was.
+        composeTestRule.onNodeWithTag("diff-fix-apply").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(Matcher.Exact("A7QK2"), edited!!.fields[0].matcher)
+        assertTrue(edited!!.fields[1].matcher is Matcher.Numeric)
+
+        // The presence row still fails, so the plan still offers it — opted in by its class, applied.
+        composeTestRule.onNodeWithTag("diff-fix-plan").performClick()
+        composeTestRule.onNodeWithTag("diff-fix-class-presence").performClick()
+        composeTestRule.onNodeWithTag("diff-fix-apply").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(Matcher.Presence, edited!!.fields[0].matcher)
+    }
+
     // ----- authoring: the assertion no row can host -------------------------------------------------------
 
     /**

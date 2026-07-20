@@ -11,7 +11,6 @@ import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.ExpectationEvaluator
-import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -890,29 +889,36 @@ class ReconcileSession(
     }
 
     /**
-     * `±` — widen this row to a numeric band that covers both the expectation and the reply, for a value
-     * that legitimately varies per run (a fill price, a remaining quantity). Offered only where both sides
-     * are numbers and the matcher is Exact/Numeric. The arithmetic lives in
-     * [ScenarioReconcile.coveringBand], shared with the fix plan's bulk loosen — one decider for what
-     * "covers both sides" means, including the decimal-vs-double ulp trap documented there.
-     *
-     * And an **Exact** earns a band only where the seed would have made one:
-     * [ExpectationSeeder.numericFamily] is the one decider of "may this field honestly carry a numeric
-     * tolerance", shared with [ScenarioReconcile.fixPlan] — so the gutter cannot hand out per-row what the
-     * plan refuses in bulk. PartyRole(452) failing `4` against `1` is a role change, not drift; `4 ± 3`
-     * over it accepts seven different meanings while reading like a tolerance, a false green one click
-     * wide. (A row that already *is* Numeric was classified when it became one; widening it stays offered.)
+     * The loosen-family slot: `±` a covering band or a temporal rung, `∈` a widened set, `≈` an inferred
+     * pattern, `∃` a presence demotion — whichever one [ScenarioReconcile.rowProposal] would put in the
+     * plan for this row, rendered as the row's own offer. **The same call the plan makes** (A4): the
+     * gutter cannot hand out per-row what the plan refuses in bulk, nor refuse per-row what the plan
+     * offers — PartyRole(452) failing `4` against `1` still never sees a `±`, and now sees `∈` instead,
+     * because the seeder's classification is still the one decider of what a field is. A presence offer
+     * keeps its warning in the tooltip; a single click is already deliberate, so D2's unchecked-default
+     * has no per-row analogue to enforce.
      */
     private fun loosenOffer(index: Int, row: ScenarioReconcile.Row): Offer? {
-        val matcher = row.matcher ?: return null
-        if (matcher is Matcher.Exact && !ExpectationSeeder.numericFamily(row.tag, dictionary)) return null
-        val band = ScenarioReconcile.coveringBand(matcher, row.actual) ?: return null
+        val fix =
+            ScenarioReconcile.rowProposal(
+                row,
+                dictionary,
+                ScenarioReconcile.FixTolerance.CoverBoth,
+                reference.anchorInstant,
+            ) ?: return null
+        if (fix.index != index) return null // belt: the offer must stage the row it is drawn on
+        val glyph =
+            when (fix.klass) {
+                ScenarioReconcile.FixClass.NUMERIC, ScenarioReconcile.FixClass.TEMPORAL -> "±"
+                ScenarioReconcile.FixClass.ONE_OF -> "∈"
+                ScenarioReconcile.FixClass.REGEX -> "≈"
+                ScenarioReconcile.FixClass.PRESENCE -> "∃"
+            }
         return Offer(
             OfferKind.LOOSEN,
-            "±",
-            "Loosen — ${band.expectedText} ± ${band.decimalTolerance} covers both sides, " +
-                "for a value that varies per run (a fill price, a remaining quantity)",
-            EditOp.loosen(index, row.tag, band.matcher),
+            glyph,
+            "Loosen to ${ExpectationEvaluator.describe(fix.proposed)} — ${fix.reason}",
+            EditOp.loosen(index, row.tag, fix.proposed),
         )
     }
 

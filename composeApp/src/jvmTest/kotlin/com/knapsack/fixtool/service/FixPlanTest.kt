@@ -156,10 +156,12 @@ class FixPlanTest {
      * **The guard the whole feature stands on.** `PartyRole(452)` and `OrdStatus(39)` parse as numbers, and
      * `4 ± 3` over a role is a matcher that accepts seven different meanings while reading like a tolerance.
      * The plan asks [ExpectationSeeder.numericFamily] — the same decider that seeded the matcher kind — so
-     * it cannot call numeric what the seed called a code.
+     * it cannot call numeric what the seed called a code. What an enum row gets instead is `∈` — the
+     * failing value joining the admitted set by name (see [RepairPlanTest]) — which is the guard's other
+     * half: never a band over a code, and never a code left with no honest repair at all.
      */
     @Test
-    fun `enum-coded fields are never proposed, however numeric their values look`() {
+    fun `enum-coded fields never get a numeric band, however numeric their values look`() {
         val draft = open(
             FieldExpectation(452, Matcher.Exact("1")),
             FieldExpectation(39, Matcher.Exact("2")),
@@ -171,9 +173,14 @@ class FixPlanTest {
         val fixes = plan(draft, reference)
 
         assertEquals(
-            listOf(151),
-            fixes.map { it.tag },
-            "452 failing as a different role is a behaviour change wearing digits — not a tolerance",
+            listOf(ScenarioReconcile.FixClass.NUMERIC),
+            fixes.filter { it.proposed is Matcher.Numeric }.map { it.klass },
+            "one band, on the quantity — 452 failing as a different role is a behaviour change wearing digits",
+        )
+        assertEquals(151, fixes.single { it.klass == ScenarioReconcile.FixClass.NUMERIC }.tag)
+        assertTrue(
+            fixes.filter { it.tag in setOf(452, 39) }.all { it.klass == ScenarioReconcile.FixClass.ONE_OF },
+            "an enum row's only repair is membership, named — never a tolerance",
         )
     }
 

@@ -143,4 +143,15 @@ class StepStripRenderTest {
             java.io.File(out, "reconcile-pass.png"),
         )
     }
+
+    /**
+     * The close prompt names the size of what it would throw away. One step reads as it always did; a pass
+     * says how many steps, because "unsaved edits" over five repaired steps teaches the author to click through.
+     */
+    @Test
+    fun `the close prompt counts the steps once there is more than one`() {
+        assertEquals("Discard unsaved edits and close?", discardPrompt(0))
+        assertEquals("Discard unsaved edits and close?", discardPrompt(1))
+        assertEquals("Discard unsaved repairs to 3 steps and close?", discardPrompt(3))
+    }
 }

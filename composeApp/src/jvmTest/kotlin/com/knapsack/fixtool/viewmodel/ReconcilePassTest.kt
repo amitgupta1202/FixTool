@@ -474,4 +474,56 @@ class ReconcilePassTest {
         assertNull(window().completion, "there is work again")
         assertEquals(2, window().repairs.size, "but the pass is the same pass")
     }
+
+    // ------------------------------------------------------------------ a deleted step takes its slot
+
+    /**
+     * **A slot outliving its step is not just waste.** Its session's `onChange` goes on writing an expectation
+     * into a draft that has no such step, and if the deleted one is the step on screen the window is left on a
+     * dead end with nothing to show.
+     */
+    @Test
+    fun `deleting a step drops its slot and moves the view to one that still exists`() {
+        val onDisk = saved()
+        val ids = stepIds(onDisk)
+        viewModel.openDiffWindow(onDisk, ids[0], thisRunWire = wire("150=X"))
+        viewModel.openDiffWindow(onDisk, ids[1], thisRunWire = wire("151=X"))
+        assertEquals(ids[1], window().stepId)
+
+        viewModel.updateScenarioDraft("sc-1") { w ->
+            w.copy(draft = w.draft.copy(steps = w.draft.steps.filterNot { it.stepId == ids[1] }))
+        }
+
+        assertEquals(setOf(ids[0]), window().slots.keys, "the deleted step's slot went with it")
+        assertEquals(ids[0], window().stepId, "and the view is on a step that still exists")
+    }
+
+    /** Delete every Expect and the window has no subject left — it closes rather than showing a dead end. */
+    @Test
+    fun `deleting every reconcilable step closes the window`() {
+        val onDisk = saved()
+        val ids = stepIds(onDisk)
+        viewModel.openDiffWindow(onDisk, ids[0], thisRunWire = wire("150=X"))
+
+        viewModel.updateScenarioDraft("sc-1") { w ->
+            w.copy(draft = w.draft.copy(steps = w.draft.steps.filter { it !is ScenarioStep.Expect }))
+        }
+
+        assertTrue(viewModel.openDiffWindows.value.isEmpty(), "nothing left to reconcile")
+    }
+
+    /** Ordinary editing must not walk the slots — only a change of step COUNT can orphan one. */
+    @Test
+    fun `editing a step without changing the step count leaves the slots alone`() {
+        val onDisk = saved()
+        val ids = stepIds(onDisk)
+        viewModel.openDiffWindow(onDisk, ids[0], thisRunWire = wire("150=X"))
+        viewModel.openDiffWindow(onDisk, ids[1], thisRunWire = wire("151=X"))
+        val session = window().slots[ids[0]]!!.session!!
+
+        viewModel.updateScenarioDraft("sc-1") { w -> w.copy(draft = w.draft.copy(name = "renamed")) }
+
+        assertEquals(2, window().slots.size)
+        assertSame(session, window().slots[ids[0]]!!.session, "and the sessions are the same objects")
+    }
 }

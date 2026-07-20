@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
@@ -804,7 +805,8 @@ private fun SendDetail(
         HintIcon(
             "Values may use \${...} expressions: \${id = uuid:20} mints a 20-char id, \${id} reuses it, " +
                 "\${now} stamps send time (\${now:yyyyMMdd} for a custom format). Full Kotlin expressions " +
-                "like \${UUID.randomUUID()} work too.",
+                "like \${UUID.randomUUID()} work too. The eye excludes a field without deleting it. " +
+                ORDER_HINT,
             modifier = Modifier.testTag("send-fields-help"),
         )
     }
@@ -825,6 +827,12 @@ private fun SendDetail(
         )
     }
     val allFields = remember(dictionary) { dictionary?.getAllFields() ?: emptyList() }
+    // Lift, then drop at the target — not a swap. Adjacent moves are the same either way, but a swap
+    // generalises wrong the moment a row travels further than one position.
+    fun moveField(from: Int, to: Int) {
+        if (to !in step.fields.indices) return
+        onChange(step.copy(fields = step.fields.toMutableList().apply { add(to, removeAt(from)) }))
+    }
     step.fields.forEachIndexed { i, field ->
         val tag = field.tag
         val value = field.value
@@ -894,15 +902,80 @@ private fun SendDetail(
                     }
                 }
             }
-            IconButton(
-                onClick = { onChange(step.copy(fields = step.fields.toMutableList().apply { removeAt(i) })) },
-                modifier = Modifier.size(22.dp),
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Remove field", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
+            // Move / insert-below / remove. Buttons rather than a drag handle (the diff surface's idiom):
+            // this grid is a handful of dense 10sp rows, where a click on a fixed target beats aiming a
+            // drop line, and the step list above already reorders this way.
+            RowTool(Icons.Default.ArrowUpward, "Move up", ORDER_HINT, enabled = i > 0, testTag = "send-up-$i") { moveField(i, i - 1) }
+            RowTool(Icons.Default.ArrowDownward, "Move down", ORDER_HINT, enabled = i < step.fields.size - 1, testTag = "send-down-$i") { moveField(i, i + 1) }
+            // The one that makes a captured message editable at all: `+ field` appends, and appending to a
+            // message with a repeating group drops the new field into the LAST entry — so without this
+            // there is no way to add a field to the first party of a two-party block.
+            RowTool(
+                Icons.Default.Add,
+                "Insert a field below this row",
+                "Where a row sits decides which repeating-group entry it belongs to.",
+                testTag = "send-insert-$i",
+            ) { onChange(step.copy(fields = step.fields.toMutableList().apply { add(i + 1, SendField(0, "")) })) }
+            RowTool(Icons.Default.Delete, "Remove field", null, tint = AppTheme.Colors.error, testTag = "send-remove-$i") {
+                onChange(step.copy(fields = step.fields.toMutableList().apply { removeAt(i) }))
             }
         }
     }
     SlimButton("+ field", onClick = { onChange(step.copy(fields = step.fields + SendField(0, ""))) }, modifier = Modifier.padding(top = 4.dp))
+}
+
+/**
+ * What field order does and does not reach the venue — told at the moment an author reaches for the
+ * arrows, which is the moment the answer is worth having.
+ *
+ * QuickFIX/J rebuilds every outgoing message into a `FieldMap` with no `fieldOrder` set, so the body
+ * goes out sorted by tag whatever the editor shows (`QuickFixService.sendMessage`). Reordering two
+ * scalars is therefore a no-op on the wire. Inside a repeating group it is not: the group's entries
+ * are built by walking these rows in order (`FixMessageHelper.toQuickFixMessageManual`), so a row's
+ * position decides which entry it lands in, and the entries go out in the order they are found.
+ *
+ * Saying nothing would leave an author reordering scalars to chase a venue's "out of required order"
+ * reject, watching the wire never change and having no way to learn why.
+ */
+private const val ORDER_HINT =
+    "Order reaches the wire only inside repeating groups — a row's position decides which entry it " +
+        "belongs to. Elsewhere QuickFIX/J re-sorts the body by tag on send."
+
+/**
+ * One of the small per-row buttons at the end of a send field row.
+ *
+ * `AppTooltip` + `IconButton` rather than [TooltipIconButton], and the reason is worth recording
+ * because the two read as interchangeable: a `TooltipIconButton` nested inside another composable
+ * does not receive injected clicks under `createComposeRule`, so every test driving one of these
+ * buttons passed while the row it was meant to move stayed exactly where it was — a green test for a
+ * dead button. `TooltipIconButton` drives its own hover delay through a global `TooltipState`;
+ * `AppTooltip` is a plain `TooltipArea` and stays out of the way. It is also what the mint button in
+ * this same row already uses, and the one such button an existing test clicks (`send-mint-0`).
+ */
+@Composable
+private fun RowTool(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    hint: String?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    tint: androidx.compose.ui.graphics.Color = AppTheme.Colors.textSecondary,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    AppTooltip(if (hint == null) label else "$label — $hint") {
+        IconButton(
+            onClick = { if (enabled) onClick() },
+            modifier = modifier.size(20.dp).testTag(testTag),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (enabled) tint else AppTheme.Colors.textDisabled,
+                modifier = Modifier.size(12.dp),
+            )
+        }
+    }
 }
 
 /** Dictionary field name, colored like the message editor (orange for repeating-group tags). */

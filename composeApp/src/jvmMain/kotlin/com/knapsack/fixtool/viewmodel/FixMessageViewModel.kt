@@ -298,7 +298,43 @@ class FixMessageViewModel(
      */
     fun updateScenarioDraft(scenarioId: String, transform: (ScenarioDraft) -> ScenarioDraft) {
         val current = _openScenarios.value[scenarioId] ?: return
-        _openScenarios.value = _openScenarios.value + (scenarioId to transform(current))
+        val next = transform(current)
+        _openScenarios.value = _openScenarios.value + (scenarioId to next)
+        if (next.draft.steps.size != current.draft.steps.size) pruneDiffSlots(scenarioId, next.draft)
+    }
+
+    /**
+     * **A step the author deleted takes its slot with it.**
+     *
+     * A slot outliving its step is not merely wasted memory: its session's `onChange` goes on writing an
+     * expectation into a draft that has no such step, and if the *shown* step is the one deleted the window
+     * is left on a dead end. So the slots follow the draft, and the view moves to a step that still exists —
+     * preferring the nearest survivor, because "the step after the one you just deleted" is where the author
+     * was looking.
+     *
+     * Only on a change of step *count*, so ordinary editing — every keystroke goes through here — does not
+     * walk the slots.
+     */
+    private fun pruneDiffSlots(scenarioId: String, draft: Scenario) {
+        val window = diffWindowFor(scenarioId) ?: return
+        val live = draft.steps.map { it.stepId }.toSet()
+        val kept = window.slots.filterKeys { it in live }
+        if (kept.size == window.slots.size && window.stepId in live) return
+        val shown =
+            window.stepId.takeIf { it in live }
+                ?: draft.steps.firstOrNull { it.stepId in kept.keys }?.stepId
+                ?: draft.steps.firstOrNull { it is ScenarioStep.Expect }?.stepId
+        if (shown == null) {
+            // Nothing left to reconcile in this scenario at all — the window has no subject.
+            closeDiffWindow(window.id)
+            return
+        }
+        updateDiffWindow(
+            window.copy(
+                stepId = shown,
+                slots = if (kept.containsKey(shown)) kept else kept + (shown to DiffStepSlot(shown)),
+            ),
+        )
     }
 
     private val _openDocuments = MutableStateFlow<List<ScenarioDoc>>(emptyList())

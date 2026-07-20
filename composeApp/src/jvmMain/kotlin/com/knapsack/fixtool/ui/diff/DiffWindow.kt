@@ -111,6 +111,9 @@ fun DiffWindow(viewModel: FixMessageViewModel, state: DiffWindowState, onClose: 
                 val confirming by viewModel.confirmingCloseId.collectAsState()
                 if (confirming == state.id) {
                     DiscardConfirm(
+                        // It is a whole pass being discarded now, not one step's edits. A prompt that says
+                        // "unsaved edits" over five repaired steps understates what the click costs.
+                        steps = state.slots.values.count { it.session?.isDirty == true },
                         onDiscard = { viewModel.closeDiffWindow(state.id) },
                         onKeep = { viewModel.cancelCloseDocument() },
                         modifier = Modifier.align(Alignment.TopCenter),
@@ -312,9 +315,29 @@ private fun NothingToDiffAgainst(viewModel: FixMessageViewModel, state: DiffWind
     }
 }
 
-/** Closing the last view of a dirty scenario asks first, in the app's own confirm idiom (F4). */
+/**
+ * **What the close prompt costs, in the prompt.** One step is "unsaved edits" as it always was; several is a
+ * whole reconcile pass, and a prompt that still said "edits" over five repaired steps would understate the
+ * click badly enough that the author would learn to click through it.
+ */
+internal fun discardPrompt(steps: Int): String =
+    when {
+        steps > 1 -> "Discard unsaved repairs to $steps steps and close?"
+        else -> "Discard unsaved edits and close?"
+    }
+
+/**
+ * Closing the last view of a dirty scenario asks first, in the app's own confirm idiom (F4) — and **counts
+ * the steps**, because this window now holds a whole reconcile pass and the author cannot see from the prompt
+ * how much of it they are about to throw away.
+ */
 @Composable
-private fun DiscardConfirm(onDiscard: () -> Unit, onKeep: () -> Unit, modifier: Modifier = Modifier) {
+private fun DiscardConfirm(
+    steps: Int,
+    onDiscard: () -> Unit,
+    onKeep: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -326,7 +349,7 @@ private fun DiscardConfirm(onDiscard: () -> Unit, onKeep: () -> Unit, modifier: 
                 .testTag("diff-window-confirm-close"),
     ) {
         Text(
-            "Discard unsaved edits and close?",
+            discardPrompt(steps),
             color = AppTheme.Colors.warning,
             fontSize = 12.sp,
             modifier = Modifier.padding(end = 6.dp),

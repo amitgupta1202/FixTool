@@ -42,6 +42,7 @@ import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.SavedMessagesService
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
+import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.SessionIdentityResolver
@@ -1187,6 +1188,8 @@ class FixMessageViewModel(
     fun saveScenario(scenarioId: String): Boolean {
         val draft = _openScenarios.value[scenarioId]?.draft ?: return false
         if (!saveScenarioDocument(draft)) return false
+        // A save makes the cross-step revert stale: what it would restore is now behind what's on disk.
+        if (sameFixSnapshot?.first == scenarioId) sameFixSnapshot = null
         // Rebased, or the footer goes on counting edits that are already on disk: "3 edits staged · nothing is
         // written to the scenario until you save" is a promise, and after a Save it has been kept.
         val saved = _openScenarios.value[scenarioId]?.draft ?: return true
@@ -1532,6 +1535,92 @@ class FixMessageViewModel(
             }
             is ReconcileRoute.Refused -> showNotification(route.why, NotificationType.WARNING)
         }
+    }
+
+    // ------------------------------------------------------- the same fix, across steps (C2)
+
+    /** The affected steps' pre-apply expectations — the one-shot revert (D5). Dies on save or run. */
+    private var sameFixSnapshot: Pair<String, Map<String, Expectation>>? = null
+
+    /**
+     * **Every other failing step the same fix reaches**, re-gated in each step's own diff: rows are
+     * re-derived against that step's actual reply (the same message the run judged), and
+     * [ScenarioReconcile.siblings] applies the same gates a local click would — a reference, a different
+     * drift or a different class in another step is simply not a sibling there. Steps whose reply left
+     * no wire bytes, or that the draft no longer contains, contribute nothing.
+     */
+    fun sameFixEverywhere(
+        scenarioId: String,
+        originStepId: String,
+        fix: ScenarioReconcile.SameFix,
+    ): List<ScenarioReconcile.StepFixes> {
+        val result = _scenarioResult.value ?: return emptyList()
+        if (_lastRunScenario.value?.id != scenarioId) return emptyList()
+        val draft = scenarioDraft(scenarioId)?.draft ?: return emptyList()
+        val dictionary = getDictionaryAdapter()
+        return result.steps
+            .filter { !it.passed && it.phase == "steps" && it.kind == "expect" && it.stepId != originStepId }
+            .mapNotNull { step ->
+                val at = draft.steps.indexOfFirst { it.stepId == step.stepId }
+                val expect = draft.steps.getOrNull(at) as? ScenarioStep.Expect ?: return@mapNotNull null
+                val message =
+                    assertionResults.entries
+                        .firstOrNull { (_, r) -> r.phase == step.phase && r.stepIndex == step.stepIndex }
+                        ?.key ?: return@mapNotNull null
+                val wire = message.wireRaw ?: return@mapNotNull null
+                val reference =
+                    referenceOf(
+                        wire,
+                        message.timestamp.atZone(ZoneId.systemDefault()).toInstant(),
+                        scenarioId,
+                    )
+                val resolver =
+                    reference.variables
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { vars -> FixMessageTemplate.scopeResolver(vars.associate { it.name to it.value }) }
+                        ?: { _: String -> null }
+                val rows = ScenarioReconcile.rows(expect.expectation, reference, dictionary, resolver)
+                val fixes = ScenarioReconcile.siblings(rows, fix, dictionary, reference.anchorInstant)
+                if (fixes.isEmpty()) {
+                    null
+                } else {
+                    ScenarioReconcile.StepFixes(
+                        expect.stepId,
+                        "Step ${at + 1} · Expect ${expect.expectation.messageType ?: ""}",
+                        fixes,
+                    )
+                }
+            }
+    }
+
+    /**
+     * **Apply the previewed cross-step fixes — into the draft, never past it.** Each affected step's
+     * expectation is rewritten through the same [applyExpectation] a reconcile session stages through,
+     * so nothing here is persisted: the scenario's Save remains the one door to disk, and the step the
+     * author is looking at is never silently saved (D5). The pre-apply expectations are kept for one
+     * [revertSameFixEverywhere], until a save or the next run makes them stale.
+     */
+    fun applySameFixEverywhere(scenarioId: String, repairs: List<ScenarioReconcile.StepFixes>): Int {
+        val draft = scenarioDraft(scenarioId)?.draft ?: return 0
+        val before = mutableMapOf<String, Expectation>()
+        var applied = 0
+        for (repair in repairs) {
+            val expect = draft.steps.firstOrNull { it.stepId == repair.stepId } as? ScenarioStep.Expect ?: continue
+            before[repair.stepId] = expect.expectation
+            val edited =
+                repair.fixes.fold(expect.expectation) { acc, f -> ScenarioReconcile.loosen(acc, f.index, f.proposed) }
+            applyExpectation(scenarioId, repair.stepId, edited)
+            applied += repair.fixes.size
+        }
+        if (before.isNotEmpty()) sameFixSnapshot = scenarioId to before
+        return applied
+    }
+
+    /** One shot: the affected steps go back exactly as they were, and the snapshot is spent. */
+    fun revertSameFixEverywhere() {
+        val (scenarioId, before) = sameFixSnapshot ?: return
+        before.forEach { (stepId, expectation) -> applyExpectation(scenarioId, stepId, expectation) }
+        sameFixSnapshot = null
     }
 
     /**
@@ -2287,6 +2376,8 @@ class FixMessageViewModel(
     @Suppress("TooGenericExceptionCaught")
     fun runScenarioBlocking(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult? {
         if (!beginScenarioRun()) return null
+        // A new run makes the cross-step revert stale — its "before" describes a run that is over.
+        sameFixSnapshot = null
         noteScenarioRun(scenario, sessionMap)
         publishScenarioResult(null)
         setAssertionResults(emptyMap())

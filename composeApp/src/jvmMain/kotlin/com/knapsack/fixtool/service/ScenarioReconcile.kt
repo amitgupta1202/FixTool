@@ -539,6 +539,9 @@ object ScenarioReconcile {
     /** One sibling the same fix would repair: the row, and exactly what it would become. */
     data class SiblingFix(val index: Int, val tag: Int, val proposed: Matcher, val reason: String)
 
+    /** One *other* step the same fix reaches (C2): its rows, re-gated in that step's own diff. */
+    data class StepFixes(val stepId: String, val label: String, val fixes: List<SiblingFix>)
+
     /**
      * Every failing row the signature reaches, **re-gated row by row** — a substitution requires the same
      * Exact pair; a class requires [rowProposal] to fire in that class for that row. A row the gates

@@ -193,6 +193,10 @@ private fun DiffWindowBody(viewModel: FixMessageViewModel, state: DiffWindowStat
             session.discard()
             viewModel.closeDiffWindow(state.id)
         },
+        // C2 — the run-level half of a travelling repair: only this host can see the other steps.
+        onSameFixEverywhere = { fix -> viewModel.sameFixEverywhere(state.scenarioId, state.stepId, fix) },
+        onApplySameFixEverywhere = { repairs -> viewModel.applySameFixEverywhere(state.scenarioId, repairs) },
+        onRevertSameFix = { viewModel.revertSameFixEverywhere() },
         modifier = Modifier.fillMaxSize(),
     )
 }

@@ -5,6 +5,8 @@ import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -236,7 +238,96 @@ class ScenarioIntegrationTest {
         delete("/scenarios", """{"id":"$id"}""")
     }
 
+
+    /**
+     * The excluded-field invariant, end to end over a real session and asserted on the **counterparty's
+     * own received bytes** — not on what the runner reports it sent, which is the tool marking its own
+     * homework. An excluded field must survive authoring and the store, and reach nobody.
+     *
+     * Deliberately an OUTCOME test, and it does not pin any one mechanism: delete the strip in
+     * `ScenarioRunner` and this still passes, because `#18` is unreadable to `parseFixMessage` and gets
+     * dropped on the way to QuickFIX/J anyway. That is the `#` marker earning its keep — the invariant is
+     * defended twice over — but it does mean this test cannot tell the two layers apart. The mint test
+     * below is the one that pins the strip specifically; it goes red the moment the strip is removed.
+     */
+    @Test
+    fun `an excluded field survives the store and never reaches the counterparty`() {
+        val scenario =
+            """{
+              "name": "exclude-$runId",
+              "setup": [ {"type":"clearMessages","session":"CLI"} ],
+              "steps": [
+                {"type":"send","session":"CLI","raw":"35=D|11=EX-$runId|55=EUR/USD|54=1|38=100|40=1|#18=A|"}
+              ]
+            }"""
+        val id = obj(post("/scenarios", scenario))["id"]!!.jsonPrimitive.content
+
+        // The marker is still on disk after a save -> fetch round trip.
+        val fetched = obj(get("/scenarios?id=$id"))
+        assertTrue(fetched.toString().contains("#18=A"), "excluded field must survive save/fetch: $fetched")
+
+        assertTrue(obj(post("/scenarios/run", """{"id":"$id"}"""))["passed"]!!.jsonPrimitive.boolean)
+
+        val tags = wireTagsOf(awaitOrder("EX-$runId"))
+        assertFalse(18 in tags, "excluded tag 18 must not reach the venue; received $tags")
+        assertTrue(40 in tags, "its neighbour tag 40 must still be there; received $tags")
+
+        delete("/scenarios", """{"id":"$id"}""")
+    }
+
+    /**
+     * The subtle half: `resolve` is a whole-string regex that never parses fields, so a mint sitting in
+     * an excluded row would evaluate and bind a variable nothing sends — and the next step would
+     * correlate against a value the venue never saw. Here the second order must carry the reference
+     * LITERALLY, which is the engine's deliberate behaviour for a name nothing minted.
+     */
+    @Test
+    fun `a mint inside an excluded field binds nothing, so a later reference stays literal`() {
+        val scenario =
+            """{
+              "name": "excluded-mint-$runId",
+              "setup": [ {"type":"clearMessages","session":"CLI"} ],
+              "steps": [
+                {"type":"send","session":"CLI","raw":"35=D|11=M1-$runId|55=EUR/USD|54=1|38=100|40=1|#58=${'$'}{note = \"HELLO\"}|"},
+                {"type":"send","session":"CLI","raw":"35=D|11=M2-$runId|55=EUR/USD|54=1|38=100|40=1|58=${'$'}{note}|"}
+              ]
+            }"""
+        assertTrue(obj(post("/scenarios/run", """{"scenario": $scenario}"""))["passed"]!!.jsonPrimitive.boolean)
+
+        // The first order carried no 58 at all — the row it lived on was excluded.
+        assertFalse(58 in wireTagsOf(awaitOrder("M1-$runId")), "the excluded row must not be sent")
+
+        // And the second's 58 is the unresolved reference, proving nothing ever bound `note`.
+        val second = FixMessageHelper.wireFields(awaitOrder("M2-$runId"))!!
+        assertEquals("${'$'}{note}", second.single { it.first == 58 }.second)
+    }
+
     // ----------------------------------------------------------------- helpers
+
+    /** The order the ACCEPTOR actually received, identified by its ClOrdID — waits for it to arrive. */
+    private fun awaitOrder(clOrdId: String): FixMessage {
+        assertTrue(awaitCondition(10_000) { findOrder(clOrdId) != null }, "acceptor never received order $clOrdId")
+        return findOrder(clOrdId)!!
+    }
+
+    private fun findOrder(clOrdId: String): FixMessage? =
+        viewModel.sessions
+            .firstOrNull { it.title == "ACC" }
+            ?.messages
+            ?.value
+            ?.filterIsInstance<FixMessage>()
+            ?.firstOrNull { m ->
+                m.direction == FixMessage.Direction.INCOMING && m.messageType == "D" &&
+                    FixMessageHelper.wireFields(m)?.any { it.first == 11 && it.second == clOrdId } == true
+            }
+
+    /** The tags the counterparty actually received, read from ITS bytes — null wire order is a failure. */
+    private fun wireTagsOf(message: FixMessage): List<Int> {
+        val fields = FixMessageHelper.wireFields(message)
+        assertNotNull(fields, "the acceptor must have the wire bytes it received")
+        return fields.map { it.first }
+    }
+
 
     private fun connectAcceptorAndClient() {
         val fixPort = freePort()

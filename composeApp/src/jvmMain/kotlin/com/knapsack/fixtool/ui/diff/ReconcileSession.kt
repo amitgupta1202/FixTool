@@ -41,10 +41,14 @@ import java.time.Instant
  * did not go anywhere.
  */
 sealed interface EditResult {
-    data class Applied(val expectation: Expectation) : EditResult
+    data class Applied(
+        val expectation: Expectation,
+    ) : EditResult
 
     /** The engine said no, in its own words. The surface shows [why] at the cursor, verbatim. */
-    data class Refused(val why: String) : EditResult
+    data class Refused(
+        val why: String,
+    ) : EditResult
 
     /** It would have changed nothing. Not an error, and not worth a sentence. */
     object Unchanged : EditResult
@@ -120,6 +124,7 @@ class EditOp(
             }
 
         // The labels are the ones the old view staged under, verbatim — they are what the footer will list.
+
         /** [expectedExact] — the Exact value the row asserted, when it did: the substitution half of D4. */
         fun acceptActual(index: Int, tag: Int, actual: String?, expectedExact: String? = null) =
             pure(
@@ -274,16 +279,22 @@ data class DiffLine(
  */
 sealed interface DiffSelection {
     /** A row of the expectation, by its index in the draft — the thing `alt+↑/↓` moves. */
-    data class Row(val index: Int) : DiffSelection
+    data class Row(
+        val index: Int,
+    ) : DiffSelection
 
     /**
      * A field the reply carries that no row mentions. It can be selected (the gutter's `«` is on it) but it
      * is **not a row of the expectation**, so there is nothing about it to move — and nothing to refuse.
      */
-    data class Added(val wireIndex: Int) : DiffSelection
+    data class Added(
+        val wireIndex: Int,
+    ) : DiffSelection
 
     /** A group entry, by the rows it spans — what `alt+↑/↓` moves as a unit. */
-    data class Entry(val rows: IntRange) : DiffSelection
+    data class Entry(
+        val rows: IntRange,
+    ) : DiffSelection
 }
 
 /**
@@ -558,10 +569,14 @@ class ReconcileSession(
                     null
                 } else {
                     SameFixBanner(
-                        sig, siblings,
+                        sig,
+                        siblings,
                         when (sig) {
                             is ScenarioReconcile.SameFix.Substitution -> "${sig.expected} → ${sig.actual}"
-                            is ScenarioReconcile.SameFix.LoosenClass -> sig.klass.name.lowercase().replace('_', ' ')
+                            is ScenarioReconcile.SameFix.LoosenClass ->
+                                sig.klass.name
+                                    .lowercase()
+                                    .replace('_', ' ')
                         },
                     )
                 }
@@ -607,6 +622,33 @@ class ReconcileSession(
         snapshots.add(Snapshot("", saved, null))
         cursor = 0
         original = saved
+    }
+
+    /**
+     * **Something else edited this step.** The draft moved under this session by a route that is not its own —
+     * a repair that travelled in from a sibling step (C2), or that repair's one-shot revert.
+     *
+     * The stack is **kept**. Those edits are still the author's, still unsaved, still undoable back to where
+     * they started; what changes is only the top of it, so the next edit builds on what the draft actually says
+     * rather than on a version of this step that no longer exists anywhere. [original] is untouched — nothing
+     * reached disk, so nothing became the new baseline.
+     *
+     * Not [rebase], which is the *other* answer to a similar-looking question. Rebase says "this is on disk
+     * now": it clears the stack and moves the baseline, which for a travelled repair would flatten this step's
+     * own staged edits and report `staged == 0` while those edits are still in the draft and still unsaved —
+     * turning the footer's "3 edits staged · nothing is written until you save" into a false statement. Rebase
+     * = saved. Adopt = someone else edited this, catch up.
+     *
+     * Not `onChange`d either: the draft is where this came *from*, so a callback would be an echo.
+     */
+    fun adopt(edited: Expectation) {
+        if (edited == draft) return
+        while (snapshots.lastIndex > cursor) snapshots.removeAt(snapshots.lastIndex)
+        snapshots.add(Snapshot("changed by a repair from another step", edited, null))
+        cursor = snapshots.lastIndex
+        refusal = null
+        // Its row indexes point into the draft that was just overtaken.
+        sameFixBanner = null
     }
 
     /** Re-judge against something else. See [reference]: not an edit, so nothing here touches the stack. */
@@ -796,7 +838,6 @@ class ReconcileSession(
             else -> EditResult.Unchanged // an added field is not a row of the expectation: nothing to move
         }
     }
-
 
     /**
      * **What the gutter may offer on this row — asked of the engine, never inferred from the chunk kind.**

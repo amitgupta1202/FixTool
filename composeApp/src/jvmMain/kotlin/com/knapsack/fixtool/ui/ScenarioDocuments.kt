@@ -1,6 +1,8 @@
 package com.knapsack.fixtool.ui
 
 import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.ui.diff.ReconcileSession
@@ -152,23 +154,18 @@ sealed interface ScenarioDoc {
 }
 
 /**
- * **The diff's state — and it is a window now, not a tab.**
+ * **One step's own state inside a scenario's diff window.**
  *
- * The reconcile diff opens in a dedicated, task-scoped window (Phase 6), the way an IDE opens a diff: it is
- * consulted *against* the grid it is about, not instead of it. So the diff left the `ScenarioDoc` document
- * family — it is no longer a tab in the centre pane — but everything it *held* is unchanged. The draft is
- * still the scenario's ([ScenarioDraft], one per scenario however many views it); this owns only the
- * *session* — the undo stack, the reference slot, the staged count — the state that has no meaning outside
- * this one diff.
+ * Everything a [ReconcileSession] owns is a *step's*: the undo stack, the reference slot, the staged count.
+ * The window is the scenario's, so the per-step state has to live somewhere below it — here, one slot per
+ * step the author has actually visited.
  *
- * And it stays here on the ViewModel, not in the window's `remember`, even though a window is not disposed
- * when you look away (unlike the tab it replaces). Three reasons survive the window: **Save & re-run** (V9)
- * rebases every open diff's session from the *rail*, which is in the main window; **cross-window arming**
- * (S8) binds a reference from the main window's *grid* into this slot; and **reopen** must find this session
- * rather than build a fresh one over a draft three edits from disk. See Phase 6 decision F5.
+ * **Created on first visit, and never rebuilt.** Rebuilding a slot when the author steps away and back is
+ * the defect [ReconcileSession]'s own kdoc exists to prevent, relocated from the composable to the ViewModel:
+ * it would throw away that step's undo stack and staged repairs on every click of the strip. Holding ten
+ * steps' sessions at once is what "repair a pass without closing ten windows" *means*.
  */
-data class DiffWindowState(
-    val scenarioId: String,
+data class DiffStepSlot(
     /** By id, never by index: the author can reorder the steps under this window while it is open. */
     val stepId: String,
     /**
@@ -177,23 +174,93 @@ data class DiffWindowState(
      * row `missing`: a wall of red, and a gutter offering to drop every row of a step whose only crime is not
      * having run yet.
      */
-    val session: ReconcileSession?,
+    val session: ReconcileSession? = null,
     /** This run's wire bytes, kept because the golden is re-pointed at them — and at nothing else (V4). */
     val thisRunWire: String? = null,
     /** The row the author clicked in the message viewer. The body scrolls to it. */
     val focusTag: Int? = null,
+)
+
+/**
+ * **A window and one of its steps** — what every per-step helper on the ViewModel actually addresses, now that
+ * a window id no longer names a step. Mirrors [FixMessageViewModel.ArmedViewerSlot], which had this shape first.
+ */
+data class DiffStepRef(
+    val scenarioId: String,
+    val stepId: String,
+) {
+    val windowId: String get() = DiffWindowState.diffWindowId(scenarioId)
+}
+
+/** One step repaired during a reconcile pass, and the edits that repaired it. Named for the completion state. */
+data class RepairedStep(
+    val stepId: String,
+    val label: String,
+    val edits: List<String>,
+)
+
+/** A pass that ended green: what it took to get there. Set by `continueReconcilePass`, cleared by a new failure. */
+data class ReconcileCompletion(
+    val repaired: List<RepairedStep>,
+)
+
+/**
+ * **The diff's state — a window now, not a tab, and one per *scenario*, not per step.**
+ *
+ * The reconcile diff opens in a dedicated, task-scoped window (Phase 6), the way an IDE opens a diff: it is
+ * consulted *against* the grid it is about, not instead of it. So the diff left the `ScenarioDoc` document
+ * family — it is no longer a tab in the centre pane — but everything it *held* is unchanged. The draft is
+ * still the scenario's ([ScenarioDraft], one per scenario however many views it); this owns only the
+ * per-step [DiffStepSlot]s — the state that has no meaning outside this one diff.
+ *
+ * **Why the scenario and not the step.** Reconciling is one continuous act: repair a failing step, Save &
+ * re-run, meet the next failure, repeat until green. The runner stops at the first failure, so a scenario
+ * that diverges in five places surfaces one step per run. Keyed on the step, that pass opened a *new window*
+ * every time the re-run got further than the last one — repair ten steps, close ten windows, nine of them
+ * showing green rows for work already finished. The window is the pass; the step in view moves inside it.
+ *
+ * And it stays here on the ViewModel, not in the window's `remember`, even though a window is not disposed
+ * when you look away (unlike the tab it replaces). Three reasons survive the window: **Save & re-run** (V9)
+ * rebases every open diff's session from the *rail*, which is in the main window; **cross-window arming**
+ * (S8) binds a reference from the main window's *grid* into a slot; and **reopen** must find these sessions
+ * rather than build fresh ones over a draft three edits from disk. See Phase 6 decision F5.
+ */
+data class DiffWindowState(
+    val scenarioId: String,
+    /** The step in view. Always a key of [slots]. */
+    val stepId: String,
+    /** One per step the author has visited. Lazily grown, never pruned except when the step leaves the draft. */
+    val slots: Map<String, DiffStepSlot> = emptyMap(),
     /**
      * Bumped by every deep-link into an already-open window. A tab deep-link just set the active id; a window
      * that already exists may be *behind* the one that sent the author there, so the window raises itself
      * (`toFront`) on every bump. See Phase 6 decision F6.
+     *
+     * Moving between steps *inside* this window deliberately does not bump it — see
+     * `FixMessageViewModel.showStepInDiffWindow`.
      */
     val focusEpoch: Int = 0,
+    /** What this pass has repaired so far, accumulated across every Save & re-run. Dies with the window. */
+    val repairs: List<RepairedStep> = emptyList(),
+    /** Non-null once a re-run of this scenario came back green: the body swaps to the completion state. */
+    val completion: ReconcileCompletion? = null,
 ) {
-    /** One window per subject, keyed by the step's identity — not by where the step sits today. */
-    val id: String get() = diffWindowId(scenarioId, stepId)
+    /** One window per scenario. The step it is showing is [stepId], and that moves. */
+    val id: String get() = diffWindowId(scenarioId)
+
+    val slot: DiffStepSlot? get() = slots[stepId]
+
+    // The window's current step, named once so the surface and the helpers driven from the header — which all
+    // mean "the step the author is looking at" — do not each have to spell out the lookup.
+    val session: ReconcileSession? get() = slot?.session
+    val thisRunWire: String? get() = slot?.thisRunWire
+    val focusTag: Int? get() = slot?.focusTag
+
+    fun withSlot(stepId: String, transform: (DiffStepSlot?) -> DiffStepSlot): DiffWindowState =
+        copy(slots = slots + (stepId to transform(slots[stepId])))
 
     companion object {
-        fun diffWindowId(scenarioId: String, stepId: String): String = "diff:$scenarioId:$stepId"
+        fun diffWindowId(scenarioId: String): String = "diff:$scenarioId"
     }
 }
 
@@ -209,6 +276,116 @@ data class DocumentTab(
     val glyph: String,
     val dirty: Boolean,
 )
+
+/** Where a step stands in the pass. Ordered by what the author most needs to see, not by severity. */
+enum class StepStatus {
+    /** The last run said no, and the author has not touched it since. */
+    FAILING,
+
+    /** The draft differs from disk here — repaired, but not yet re-run, so nothing has confirmed it. */
+    REPAIRED,
+
+    /** The last run said yes. */
+    PASSING,
+
+    /** A run happened, but it stopped before reaching this step. */
+    NOT_REACHED,
+
+    /** No run to speak of. */
+    NOT_RUN,
+}
+
+/** One chip of the step strip. Derived from the draft and the run report; never stored. */
+data class StepChip(
+    val stepId: String,
+    /** Position among **all** steps, so it agrees with the crumb and the window title. */
+    val index: Int,
+    val label: String,
+    val status: StepStatus,
+    val current: Boolean,
+    /** This step's reference slot is armed and waiting for a grid click — even though it is not in view. */
+    val armed: Boolean,
+    val tooltip: String,
+)
+
+/**
+ * **The step strip, derived.** One chip per Expect step of the draft, in draft order.
+ *
+ * [results] must be empty unless the standing run report is *this scenario's* — another scenario's verdict
+ * colouring these chips would be a lie the author has no way to see through.
+ *
+ * **[StepStatus.REPAIRED] is measured draft-against-seed, not against the step's session**, and that is
+ * load-bearing: a repair that travelled in from a sibling step (C2) is written straight into the draft and
+ * never touches that step's session at all. Ask the session and a travelled repair reads as untouched.
+ * Draft-vs-seed catches both routes with one rule, including for steps that have no slot in the window yet.
+ *
+ * REPAIRED outranks FAILING on purpose. A chip's job is to answer "what is left to do", and a step the author
+ * has already fixed is not left to do — it is waiting for the re-run that will confirm it.
+ */
+fun stepStripOf(
+    draft: Scenario,
+    seed: Scenario,
+    currentStepId: String,
+    results: Map<String, StepResult>,
+    armedStepId: String?,
+): List<StepChip> =
+    draft.steps.mapIndexedNotNull { index, step ->
+        if (step !is ScenarioStep.Expect) return@mapIndexedNotNull null
+        val status = stepStatusOf(step, seed.steps.firstOrNull { it.stepId == step.stepId }, results)
+        val type = step.expectation.messageType ?: step.match?.messageType ?: ""
+        val armed = step.stepId == armedStepId
+        StepChip(
+            stepId = step.stepId,
+            index = index,
+            label = "${index + 1}${if (type.isBlank()) "" else " $type"}",
+            status = status,
+            current = step.stepId == currentStepId,
+            armed = armed,
+            tooltip =
+                "Step ${index + 1}${if (type.isBlank()) "" else " · Expect $type"} — " +
+                    status.describe() +
+                    if (armed) " · waiting for a grid click" else "",
+        )
+    }
+
+private fun stepStatusOf(
+    step: ScenarioStep.Expect,
+    onDisk: ScenarioStep?,
+    results: Map<String, StepResult>,
+): StepStatus {
+    val result = results[step.stepId]
+    return when {
+        onDisk != null && onDisk != step -> StepStatus.REPAIRED
+        result != null && !result.passed -> StepStatus.FAILING
+        result != null -> StepStatus.PASSING
+        results.isNotEmpty() -> StepStatus.NOT_REACHED
+        else -> StepStatus.NOT_RUN
+    }
+}
+
+private fun StepStatus.describe(): String =
+    when (this) {
+        StepStatus.FAILING -> "failing"
+        StepStatus.REPAIRED -> "repaired, not saved"
+        StepStatus.PASSING -> "passing"
+        StepStatus.NOT_REACHED -> "the run stopped before this step"
+        StepStatus.NOT_RUN -> "not run"
+    }
+
+/** `2 of 5 failing · 1 repaired, not saved` — the pass in one line, or silence when there is nothing to say. */
+fun stepStripSummary(chips: List<StepChip>): String {
+    if (chips.isEmpty()) return ""
+    val failing = chips.count { it.status == StepStatus.FAILING }
+    val repaired = chips.count { it.status == StepStatus.REPAIRED }
+    val parts = mutableListOf<String>()
+    if (failing > 0) parts += "$failing of ${chips.size} failing"
+    if (repaired > 0) parts += "$repaired repaired, not saved"
+    if (parts.isEmpty()) {
+        val allGreen = chips.all { it.status == StepStatus.PASSING }
+        parts += if (allGreen) "all ${chips.size} passing" else "${chips.size} steps"
+    }
+    return parts.joinToString(" · ")
+}
 
 fun documentTabsOf(documents: List<ScenarioDoc>, workspace: Map<String, ScenarioDraft>): List<DocumentTab> =
     documents.map { doc ->

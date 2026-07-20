@@ -163,7 +163,7 @@ class ScenarioWorkspaceTest {
         viewModel.setAssertionResults(mapOf(failing to StepResult(1, "expect", "steps", false, stepId = stepId)))
         viewModel.openDiffWindow(onDisk, stepId, thisRunWire = failing.wireRaw)
 
-        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1", stepId))!!
+        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1"))!!
         assertEquals(failing.wireRaw, window.thisRunWire)
         val session = window.session!!
         assertEquals(
@@ -216,9 +216,9 @@ class ScenarioWorkspaceTest {
         viewModel.setAssertionResults(mapOf(failing to StepResult(1, "expect", "steps", false, stepId = stepId)))
         viewModel.openDiffWindow(onDisk, stepId, thisRunWire = failing.wireRaw)
 
-        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1", stepId))!!
+        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1"))!!
         val session = window.session!!
-        viewModel.bindPickedReference(window, wire("150=X"), null)
+        viewModel.bindPickedReference(window, stepId, wire("150=X"), null)
         assertEquals(ReferenceMessage.Provenance.PICKED, session.reference.provenance, "the author has answered the question")
 
         // A run lands — from Save & re-run, or from the rail, or from an agent over the control surface.
@@ -289,8 +289,8 @@ class ScenarioWorkspaceTest {
         assertTrue(viewModel.scenarioDraft("sc-1")!!.dirty, "and it is still the unsaved one")
 
         // Now close the window too — the last view of a dirty scenario, so it confirms rather than dropping.
-        viewModel.requestCloseDiffWindow(DiffWindowState.diffWindowId("sc-1", stepId))
-        assertEquals(DiffWindowState.diffWindowId("sc-1", stepId), viewModel.confirmingCloseId.value, "the last view asks first")
+        viewModel.requestCloseDiffWindow(DiffWindowState.diffWindowId("sc-1"))
+        assertEquals(DiffWindowState.diffWindowId("sc-1"), viewModel.confirmingCloseId.value, "the last view asks first")
         assertNotNull(viewModel.scenarioDraft("sc-1"), "and until it is answered, nothing is dropped")
     }
 
@@ -303,7 +303,7 @@ class ScenarioWorkspaceTest {
         viewModel.openDiffWindow(onDisk, stepId, thisRunWire = message(wire("150=0")).wireRaw)
         viewModel.updateScenarioDraft("sc-1") { it.copy(draft = it.draft.copy(name = "unsaved")) }
 
-        viewModel.requestCloseDiffWindow(DiffWindowState.diffWindowId("sc-1", stepId))
+        viewModel.requestCloseDiffWindow(DiffWindowState.diffWindowId("sc-1"))
 
         assertNull(viewModel.confirmingCloseId.value, "the editor tab still views the draft: closing the window discards nothing")
         assertTrue(viewModel.openDiffWindows.value.isEmpty(), "so it just closes")
@@ -328,7 +328,7 @@ class ScenarioWorkspaceTest {
 
         viewModel.continueReconcilePass(viewModel.scenarioResult.value!!)
 
-        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1", stepId))
+        val window = viewModel.diffWindow(DiffWindowState.diffWindowId("sc-1"))
         assertNotNull(window, "the loop must open the failing step's diff")
         assertEquals(failing.wireRaw, window.thisRunWire, "bound to the failure this run produced")
     }

@@ -13,7 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -24,7 +23,6 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.unit.dp
-import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
@@ -35,6 +33,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
 import org.junit.Before
@@ -203,16 +202,8 @@ class ScenarioDocumentsScreenshotTest {
         }
     }
 
-    /** The diff window for the step this scenario's run failed at. */
-    private val diffWindowId: String
-        get() =
-            DiffWindowState.diffWindowId(
-                scenario.id,
-                viewModel
-                    .scenarioDraft(scenario.id)!!
-                    .draft.steps[1]
-                    .stepId,
-            )
+    /** This scenario's diff window — one per scenario, whichever of its steps it happens to be showing. */
+    private val diffWindowId: String get() = DiffWindowState.diffWindowId(scenario.id)
 
     private fun diffSession() = viewModel.diffWindow(diffWindowId)!!.session!!
 

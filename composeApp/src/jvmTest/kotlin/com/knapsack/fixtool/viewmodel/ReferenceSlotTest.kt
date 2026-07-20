@@ -15,6 +15,7 @@ import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
+import com.knapsack.fixtool.ui.DiffStepRef
 import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.ui.diff.ReconcileSession
@@ -180,7 +181,11 @@ class ReferenceSlotTest {
         assertNull(viewModel.armedReferenceSlot.value)
 
         viewModel.selectReference(doc, ReferenceOption.Kind.PICK)
-        assertEquals(doc.id, viewModel.armedReferenceSlot.value, "armed, and it says which diff window is waiting")
+        assertEquals(
+            DiffStepRef(doc.scenarioId, doc.stepId),
+            viewModel.armedReferenceSlot.value,
+            "armed, and it says which window AND which step of it is waiting",
+        )
 
         viewModel.selectMessageFromGrid(message(wire("35=8", "11=ORD-9", "150=F")))
 
@@ -399,7 +404,8 @@ class ReferenceSlotTest {
         viewModel.publishScenarioResult(
             ScenarioResult("other", passed = true, steps = emptyList(), variables = listOf(ScenarioVariable("id0", "THEIRS"))),
         )
-        assertTrue(viewModel.selectReference(window.copy(thisRunWire = goldenWire), ReferenceOption.Kind.THIS_RUN))
+        val withWire = window.withSlot(window.stepId) { it!!.copy(thisRunWire = goldenWire) }
+        assertTrue(viewModel.selectReference(withWire, ReferenceOption.Kind.THIS_RUN))
         assertEquals(
             emptyList(),
             onlyWindow().session!!.reference.variables,
@@ -424,7 +430,9 @@ class ReferenceSlotTest {
         assertEquals(ReferenceMessage.Provenance.THIS_RUN, session.reference.provenance)
         assertEquals(
             "ORD-1",
-            session.reference.variables.single().value,
+            session.reference.variables
+                .single()
+                .value,
             "wire and scope travel as one unit, or the judgments lie",
         )
     }

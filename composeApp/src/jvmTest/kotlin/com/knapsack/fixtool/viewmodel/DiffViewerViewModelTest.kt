@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.service.compare.WirePaste
+import com.knapsack.fixtool.ui.DiffStepRef
 import com.knapsack.fixtool.ui.ScenarioDoc
 import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.ui.diff.SeedFrom
@@ -217,14 +218,14 @@ class DiffViewerViewModelTest {
 
     @Test
     fun `arming a viewer slot and a reference slot are mutually exclusive — one click means one thing`() {
-        viewModel.armReferenceSlot("window-1")
-        assertEquals("window-1", viewModel.armedReferenceSlot.value)
+        viewModel.armReferenceSlot(DiffStepRef("sc-1", "step-1"))
+        assertEquals(DiffStepRef("sc-1", "step-1"), viewModel.armedReferenceSlot.value)
         viewModel.openEmptyDiffViewer()
         val id = soleViewerId()
         viewModel.armViewerSlot(id, ViewerSlot.LEFT)
         assertNull(viewModel.armedReferenceSlot.value, "arming a viewer slot disarms the reconcile reference")
 
-        viewModel.armReferenceSlot("window-1")
+        viewModel.armReferenceSlot(DiffStepRef("sc-1", "step-1"))
         assertNull(viewModel.armedViewerSlot.value, "arming the reference disarms the viewer slot")
     }
 

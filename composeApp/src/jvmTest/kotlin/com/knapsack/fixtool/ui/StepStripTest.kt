@@ -41,7 +41,7 @@ class StepStripTest {
         current: String = ids()[0],
         results: Map<String, StepResult> = emptyMap(),
         armed: String? = null,
-    ) = stepStripOf(draft, seed, current, results, armed)
+    ) = stepStripOf(ScenarioDraft(draft, seed), current, results, armed)
 
     /** Sends are not reconcilable, so they are not on a strip that exists to be clicked. */
     @Test
@@ -93,7 +93,7 @@ class StepStripTest {
         val ids = ids()
         val travelled = seed.copy(steps = seed.steps.map { if (it.stepId == ids[2]) expect(999).copy(stepId = ids[2]) else it })
 
-        val chips = stepStripOf(travelled, seed, currentStepId = ids[0], results = emptyMap(), armedStepId = null)
+        val chips = stepStripOf(ScenarioDraft(travelled, seed), currentStepId = ids[0], results = emptyMap(), armedStepId = null)
 
         assertEquals(StepStatus.REPAIRED, chips[2].status, "the draft differs from disk here, whoever put it there")
     }
@@ -113,7 +113,7 @@ class StepStripTest {
         val ids = ids()
         val repaired = seed.copy(steps = seed.steps.map { if (it.stepId == ids[0]) expect(999).copy(stepId = ids[0]) else it })
 
-        val summary = stepStripSummary(stepStripOf(repaired, seed, ids[0], results(ids[1] to false, ids[2] to false), null))
+        val summary = stepStripSummary(stepStripOf(ScenarioDraft(repaired, seed), ids[0], results(ids[1] to false, ids[2] to false), null))
 
         assertEquals("2 of 3 failing · 1 repaired, not saved", summary)
     }
@@ -126,5 +126,20 @@ class StepStripTest {
             stepStripSummary(strip(results = results(ids[0] to true, ids[1] to true, ids[2] to true))),
         )
         assertEquals("", stepStripSummary(emptyList()))
+    }
+
+    /** `8` is the wire's word for it, not a reader's — the chip carries the dictionary's name, shortened. */
+    @Test
+    fun `a chip names the message type rather than its wire code`() {
+        val chips = stepStripOf(ScenarioDraft(seed, seed), ids()[0], emptyMap(), null) { if (it == "8") "ExecutionReport" else null }
+
+        assertEquals("2 ExecutionReport", chips[0].label)
+        assertTrue(chips[0].tooltip.contains("Expect ExecutionReport"), chips[0].tooltip)
+    }
+
+    /** With no dictionary behind it, the raw type is still better than nothing. */
+    @Test
+    fun `without a dictionary the chip falls back to the wire code`() {
+        assertEquals("2 8", stepStripOf(ScenarioDraft(seed, seed), ids()[0], emptyMap(), null)[0].label)
     }
 }

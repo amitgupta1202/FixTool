@@ -102,4 +102,66 @@ class SendFieldExclusionTest {
 
         assertEquals("35=D|11=ORD-1|55=EUR/USD|#18=A|38=1000|", sentRawOf(saved))
     }
+
+    /**
+     * Insert-below is the affordance that makes a captured message editable. `+ field` appends, and on a
+     * message with a repeating group appending puts the new field in the LAST entry — so without a
+     * positional insert there is no way to add a field to the first party of a two-party block. The
+     * position is not cosmetic: repeating-group entries are built by walking these rows in order
+     * (FixMessageHelper.toQuickFixMessageManual), so where a row sits decides which entry it joins.
+     */
+    @Test
+    fun `insert-below puts a field inside the first group entry, where append cannot reach`() {
+        var saved: Scenario? = null
+        // Two parties: rows 1-3 are entry one, rows 4-6 are entry two.
+        render(scenarioOf("35=D|453=2|448=FIRMA|447=D|452=1|448=FIRMB|447=D|452=2|")) { saved = it }
+
+        ImageIO.write(
+            composeTestRule.onRoot().captureToImage().toAwtImage(),
+            "png",
+            File("build/scenario-screenshots").absoluteFile.apply { mkdirs() }.resolve("send_field_rowtools.png"),
+        )
+        // Insert directly below 452=1 — the last row of the FIRST entry.
+        composeTestRule.onNodeWithTag("send-insert-4").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("35=D|453=2|448=FIRMA|447=D|452=1|0=|448=FIRMB|447=D|452=2|", sentRawOf(saved))
+    }
+
+    @Test
+    fun `the arrows move a row, and the ends are not draggable past themselves`() {
+        var saved: Scenario? = null
+        render(scenarioOf(raw)) { saved = it }
+
+        // 55=EUR/USD (row 2) up one, swapping it above 11=ORD-1.
+        composeTestRule.onNodeWithTag("send-up-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("35=D|55=EUR/USD|11=ORD-1|18=A|38=1000|", sentRawOf(saved))
+
+        // The first row cannot go up and the last cannot go down — clicking is inert, not an exception.
+        composeTestRule.onNodeWithTag("send-up-0").performClick()
+        composeTestRule.onNodeWithTag("send-down-4").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals("35=D|55=EUR/USD|11=ORD-1|18=A|38=1000|", sentRawOf(saved))
+    }
+
+    /** Moving a row must not launder its excluded state — the flag travels with the field. */
+    @Test
+    fun `an excluded field keeps its exclusion when moved`() {
+        var saved: Scenario? = null
+        render(scenarioOf("35=D|11=ORD-1|#18=A|38=1000|")) { saved = it }
+
+        composeTestRule.onNodeWithTag("send-up-2").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("editor-save").performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("35=D|#18=A|11=ORD-1|38=1000|", sentRawOf(saved))
+    }
 }

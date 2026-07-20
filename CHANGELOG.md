@@ -5,6 +5,58 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-07-20
+
+### ✨ Added
+
+#### The reconcile window is the pass, not the step
+- **One diff window per scenario.** Reconciling is one act — repair a failing step, Save & re-run, meet the next failure — and the runner stops at the first failure, so a scenario diverging in five places surfaces one step per run. Keyed on the step, that loop opened a *new* window at every stop and left the finished ones on screen showing green rows: repair ten steps, close ten windows. The window is now the scenario's, and the step in view moves inside it.
+- **A step strip** across the top of the diff: one chip per Expect step, coloured by where it stands (failing / repaired-not-saved / passing / not reached / not run), the current one filled, click any to jump. A pinned summary says what is left (`2 of 12 failing · 1 unsaved`), and the current chip is scrolled back into view whenever the pass moves it.
+- **The pass has an ending.** A re-run that comes back green swaps the body for a completion state naming every repair the pass made — accumulated across all its Save & re-runs, not just the last one — with a single `Done`.
+
+#### Bulk repair
+- **New repair classes** in the fix plan: `oneOf`, `regex` and presence, alongside the numeric and temporal bands. A regex is inferred from the authored value and the actual by common prefix/suffix plus the narrowest class that full-matches both, and is refused if it would assert nothing.
+- **A repair notices its siblings** — the same fix offered across every row of the step it can legitimately reach, folded into one edit and one undo.
+- **The same fix travels across steps** — previewed per step against that step's own reply, staged into the draft (never past it), with a one-shot revert.
+- **The author may overrule a class, downward**, in one click.
+
+### 🔧 Changed
+- `Cancel` in the diff is now **`Revert this step`**, and leaves the window open: with a whole pass in one window, closing on it would discard every other step's repairs.
+- The close prompt counts what it would discard — *"Discard unsaved repairs to 3 steps and close?"*.
+- The diff window title carries the step and the scenario's total (`rfq flow · Step 3 of 12 · reconcile`), and reads `green` once the pass has ended.
+- **Control surface:** `?window=<step text>` no longer addresses a *step*. A scenario has exactly one reconcile window, so the step in its title is whichever it happens to be showing. Address the scenario, and drive the step through the reconcile API.
+
+### 🐛 Fixed
+- **A repair that travelled into a step could be silently reverted.** Cross-step repairs write sibling expectations straight into the draft, bypassing those steps' sessions; the next edit in such a step then wrote its stale expectation back, undoing work the author had watched happen, with no message. Sessions now adopt external writes — keeping their own undo stack and staged count, which a rebase would have flattened.
+- A run re-bound only the first of a window's steps; every step after it silently kept the previous run's reply.
+- Saving rebased only the visible step, so steps behind it went on counting edits already on disk.
+- An armed reference slot now carries the step it was armed on: a grid click binds that step and returns the window to it, rather than binding somewhere the author cannot see.
+- Deleting a step drops its reconcile state instead of leaving an orphan that kept writing into the draft; a scenario with no reconcilable step left closes its window rather than showing a dead end.
+- A travelling repair no longer re-points a step's golden — that rule now depends on what the author actually reconciled against, not on which chips they happened to click.
+
+## [1.9.0] - 2026-07-20
+
+> Backfilled: 1.9.0 shipped without a changelog entry. Reconstructed from its commits.
+
+### ✨ Added
+- **Send fields: move and insert**, where position is load-bearing on the wire.
+- **Exclude a send field without deleting it** — keep it in the scenario, off the message.
+- **Variable badges split capture from mint**, and say which is which in words rather than by a `●`/`○` the reader has to decode.
+
+### ⚡ Performance
+- The scenario runner's polling moved off the EDT.
+- Global search debounced and scanned off the UI thread.
+- The template script engine warms at startup, off the UI thread.
+- Per-row work is no longer rebuilt on every frame.
+
+### 🐛 Fixed
+- A `No*`-named field is only treated as a group count when its dictionary type agrees.
+- Indentation is derived from the group overlay rather than guessed from shape, with one definition of depth shared by the tree walk and the wire overlay.
+- Undefined counted groups survive the manual parse whole; a group count that builds no group is still kept on the message.
+- The viewer reads group counts without writing to the message.
+- Message rows are keyed by identity, not list position.
+- Grid column widths fit every expanded message, not just the last one opened.
+
 ## [1.8.0] - 2026-07-17
 
 ### ✨ Added

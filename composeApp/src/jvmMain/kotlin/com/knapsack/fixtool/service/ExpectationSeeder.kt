@@ -43,7 +43,7 @@ object ExpectationSeeder {
      * venue *is*. A tag here that a send once minted still becomes a Reference check — capture's echo
      * correlation replaces the seeded matcher, so presence is only the answer when nothing better is.
      */
-    private val PRESENCE_TAGS =
+    internal val PRESENCE_TAGS =
         setOf(
             37, // OrderID
             17, // ExecID

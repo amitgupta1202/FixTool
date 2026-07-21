@@ -96,6 +96,29 @@ class TagRoleOverlay private constructor(
         }
 
         /**
+         * Writes [roles] to the sidecar beside [dictionaryPath], and returns the file written.
+         *
+         * Tags with **no** roles are dropped rather than written as an empty list: "I considered 20040 and
+         * decided it is nothing" and "I have never heard of 20040" lead to identical behaviour, and a file
+         * that records the difference invites a reader to believe the tool acts on it.
+         *
+         * Sorted by tag and pretty-printed, because this file belongs in the venue's repo beside the
+         * dictionary — a diff of it should read as a decision, not as a serializer's output order.
+         */
+        fun writeBeside(dictionaryPath: String, roles: Map<Int, Set<TagRole>>): File {
+            val kept = roles.filterValues { it.isNotEmpty() }.toSortedMap()
+            val body =
+                kept.entries.joinToString(",\n") { (tag, set) ->
+                    val values = set.sortedBy { it.name }.joinToString(", ") { "\"${it.name}\"" }
+                    val rendered = if (set.size == 1) values else "[$values]"
+                    """  "$tag": $rendered"""
+                }
+            val file = sidecarFor(dictionaryPath)
+            file.writeText(if (kept.isEmpty()) "{}\n" else "{\n$body\n}\n")
+            return file
+        }
+
+        /**
          * Parses the sidecar's text. Tolerant on purpose: an unparseable tag or an unknown role name is
          * skipped rather than thrown, because the alternative is a venue's whole declaration vanishing
          * over one typo — silently, at capture time, which is where it costs the most.

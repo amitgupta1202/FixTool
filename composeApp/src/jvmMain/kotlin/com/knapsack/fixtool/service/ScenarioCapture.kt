@@ -45,7 +45,7 @@ object ScenarioCapture {
     )
 
     /** Transport/session header+trailer tags the framework re-stamps on send; dropped from Send raw. */
-    private val TRANSPORT_TAGS = SessionTags.REWRITTEN_ON_SEND
+    internal val TRANSPORT_TAGS = SessionTags.REWRITTEN_ON_SEND
 
     /**
      * Client-originated correlation id tags: parameterized on send (a fresh id per run, because venues
@@ -59,7 +59,7 @@ object ScenarioCapture {
      * wins (capture rewrites the row to a Reference), and presence is the answer only for a value
      * this scenario never minted — the venue's own.
      */
-    private val ID_TAGS =
+    internal val ID_TAGS =
         setOf(
             11, // ClOrdID
             41, // OrigClOrdID
@@ -81,7 +81,7 @@ object ScenarioCapture {
      * arrival), and stamped `now` they are *already* expired. A short future offset keeps the replay
      * honest on any venue; the author tunes it in the editor if their flow needs longer.
      */
-    private val LIFETIME_TAGS = setOf(62, 126) // ValidUntilTime, ExpireTime
+    internal val LIFETIME_TAGS = setOf(62, 126) // ValidUntilTime, ExpireTime
 
     /**
      * **The standard set, plus whatever this venue says about its own tags.**

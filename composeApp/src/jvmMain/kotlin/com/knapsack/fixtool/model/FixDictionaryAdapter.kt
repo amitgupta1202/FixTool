@@ -34,7 +34,24 @@ class FixDictionaryAdapter private constructor(
      * Every surface that classifies a tag is already holding a dictionary, so this reaches all of them
      * without a new argument — and cannot come to disagree with the names it sits beside.
      */
-    val tagRoles: TagRoleOverlay by lazy { TagRoleOverlay.beside(dictionaryPath) }
+    @Volatile
+    private var cachedTagRoles: TagRoleOverlay? = null
+
+    val tagRoles: TagRoleOverlay
+        get() = cachedTagRoles ?: TagRoleOverlay.beside(dictionaryPath).also { cachedTagRoles = it }
+
+    /**
+     * Re-read the sidecar. Called after the roles editor writes it.
+     *
+     * The overlay is cached because it is consulted once per tag per captured message, and re-statting a
+     * file that many times is not free. But a cache that outlives the file is worse than no cache: writing
+     * the declaration and having capture keep using the old one would report success for a change that
+     * does not take effect until the next launch — silent failure of the exact kind this feature removes.
+     * So invalidation is explicit, and every writer calls it.
+     */
+    fun reloadTagRoles() {
+        cachedTagRoles = null
+    }
 
     /** Does the venue say it mints this tag itself — or that we do? See [TagRole]. */
     fun hasRole(tag: Int, role: TagRole): Boolean = tagRoles.has(tag, role)

@@ -854,11 +854,17 @@ class ControlServer(
                 dictionary = onEdt { viewModel.dictionary },
             )
         val ok = viewModel.scenarioService.save(scenario)
+        val risk = ScenarioCapture.captureRisk(scan.candidates, onEdt { viewModel.dictionary })
         return buildJsonObject {
             put("status", if (ok) "created" else "failed")
             put("id", scenario.id)
             put("name", scenario.name)
             put("steps", scenario.steps.size)
+            // Same rule as `omitted` below, applied to what could not be CLASSIFIED rather than what could
+            // not be read. A tag the dictionary cannot name is a tag capture treats as a literal — so a
+            // timestamp among them replays the captured moment, for ever. The UI says so in a notification;
+            // an agent driving this surface would otherwise have no way to learn it at all.
+            risk?.let { put("warning", it) }
             if (scan.unreadable.isNotEmpty()) {
                 put(
                     "omitted",
@@ -940,6 +946,7 @@ class ControlServer(
             put("name", scenario.name)
             put("steps", scenario.steps.size)
             put("pasted", scenario.steps.all { it.origin == StepOrigin.PASTED })
+            ScenarioCapture.captureRisk(scan.candidates, onEdt { viewModel.dictionary })?.let { put("warning", it) }
             put("refused", buildJsonArray { scan.refused.forEach { add(it) } })
             put("scenario", ScenarioCodec.toJson(scenario))
         }

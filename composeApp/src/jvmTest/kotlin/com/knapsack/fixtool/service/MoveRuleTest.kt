@@ -215,14 +215,19 @@ class MoveRuleTest {
 
     /**
      * A run of the same tag that only the ROW HEURISTIC brackets is not a group, and its "entries" are not
-     * entries — a period of 1 repeats like any other period, so `455, 455` looks exactly like a group of two
-     * one-field entries and is nothing of the kind. Nothing travels with such a row, so its "entry move" is
-     * the per-row arrow in a block's clothes. (The bundled dictionary does not define `NoSecurityAltID`, which
-     * is what makes this fixture a heuristic one — assert that, or the test is pinning the wrong rule.)
+     * entries — a period of 1 repeats like any other period, so `9002, 9002` looks exactly like a group of
+     * two one-field entries and is nothing of the kind. Nothing travels with such a row, so its "entry move"
+     * is the per-row arrow in a block's clothes.
+     *
+     * The fixture is a **venue-custom** group on purpose, which is the case the heuristic exists for (see
+     * `GroupOverlay.guessed`). It used to be `NoSecurityAltID(454/455)`, which worked only while the bundled
+     * FIX 4.4 dictionary was a 93-field demo subset that had never heard of it; the whole dictionary defines
+     * it, the entries came back `DICTIONARY`, and the guard below caught the fixture testing the wrong rule.
+     * A tag in the 9000s cannot be learned by any standard dictionary, so this fixture stays heuristic.
      */
     @Test
     fun `a single-row heuristic entry of a repeated tag is the per-row arrow in a block's clothes`() {
-        val draft = exp(454 to "2", 455 to "ALT-1", 455 to "ALT-2")
+        val draft = exp(9001 to "2", 9002 to "ALT-1", 9002 to "ALT-2")
         assertEquals(
             listOf(EntrySource.HEURISTIC, EntrySource.HEURISTIC),
             overlayFor(draft).entries.map { it.source },

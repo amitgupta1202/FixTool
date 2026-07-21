@@ -1394,15 +1394,11 @@ class FixMessageViewModel(
                 NotificationType.WARNING,
             )
         }
-        // Without a dictionary only TransactTime(60) and the quote lifetimes are parameterized — every
-        // other timestamp replays the captured value, which venues enforcing freshness reject. Said at
-        // capture time, where loading a dictionary still fixes the scenario about to be made.
-        if (dictionary == null) {
-            showNotification(
-                "No dictionary loaded — timestamps beyond TransactTime(60) will not be parameterized " +
-                    "and will replay stale. Load the venue's dictionary before capturing.",
-                NotificationType.WARNING,
-            )
+        // What the dictionary cannot classify replays the captured value, which venues enforcing freshness
+        // reject. Said at capture time, where loading a dictionary still fixes the scenario about to be
+        // made — and keyed on the tags at hand, so a loaded-but-blind dictionary is not called safe.
+        ScenarioCapture.captureRisk(scan.candidates, dictionary)?.let {
+            showNotification(it, NotificationType.WARNING)
         }
         // A DRAFT, not a file. This used to save first and open the editor second, which grew a pile of
         // identical "Captured scenario" files out of every curious click — the author never asked for a
@@ -2729,12 +2725,8 @@ class FixMessageViewModel(
             showNotification("No messages selected to capture", NotificationType.ERROR)
             return null
         }
-        if (dictionary == null) {
-            showNotification(
-                "No dictionary loaded — timestamps beyond TransactTime(60) will not be parameterized " +
-                    "and will replay stale. Load the venue's dictionary before capturing.",
-                NotificationType.WARNING,
-            )
+        ScenarioCapture.captureRisk(selection, dictionary)?.let {
+            showNotification(it, NotificationType.WARNING)
         }
         val scenario =
             ScenarioCapture.captureFrom(

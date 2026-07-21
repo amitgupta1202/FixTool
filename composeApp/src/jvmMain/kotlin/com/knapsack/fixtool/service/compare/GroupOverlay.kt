@@ -172,7 +172,7 @@ data class EntryNode(
     /** 0-based, within its group. */
     val entryIndex: Int,
     val rows: IntRange,
-    /** `FIRMA · 1 ExecutingFirm` — the delimiter's value, and the best identity the dictionary can add. */
+    /** `FIRMA · 1 EXECUTING_FIRM` — the delimiter's value, and the best identity the dictionary can add. */
     val label: String,
     val children: List<GroupNode>,
     val source: EntrySource,
@@ -305,7 +305,7 @@ private class Builder(
     }
 
     /**
-     * `FIRMA · 1 ExecutingFirm` — computed here, not in the UI, so the two sides of a diff cannot label the
+     * `FIRMA · 1 EXECUTING_FIRM` — computed here, not in the UI, so the two sides of a diff cannot label the
      * same entry differently.
      *
      * The delimiter's value identifies the entry, and one described field says what the entry is *for* —
@@ -327,7 +327,7 @@ private class Builder(
         return listOfNotNull(delimiter, identity).joinToString(" · ")
     }
 
-    /** `1 ExecutingFirm`, or `FIRMA` where the dictionary has no word for the value. */
+    /** `1 EXECUTING_FIRM`, or `FIRMA` where the dictionary has no word for the value. */
     private fun described(row: Int, onlyIfDescribed: Boolean = false): String? {
         val (tag, value) = fields[row]
         if (value == null) return null

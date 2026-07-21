@@ -431,6 +431,63 @@ object ScenarioCapture {
     /** The included rows whose direction nobody has settled. A save is refused while there are any. */
     fun undirected(selection: List<Candidate>): List<Candidate> = selection.filter { it.direction == null }
 
+    /**
+     * Tags in [selection] this dictionary cannot name — the fields capture is about to classify **blind**.
+     *
+     * Nearly every treatment below the hardcoded sets is a question put to the dictionary: is this a
+     * timestamp ([isTimestamp], so a send replays `${utcnow}` instead of a stale literal), a number, a
+     * vocabulary ([ExpectationSeeder]). For a tag it cannot name the answer is always "no", and no is
+     * indistinguishable from "not a timestamp" — so an unclassified UTCTIMESTAMP replays the captured
+     * moment and seeds `Exact`, red for ever against a field whose value *is* the moment.
+     *
+     * Reported by tag, because the author can act on a tag: load the venue's dictionary, or accept that
+     * these particular fields are literals. The hardcoded tags are excluded — [ID_TAGS], [LIFETIME_TAGS],
+     * TransactTime and MsgType are treated correctly with no dictionary at all — as are the transport tags,
+     * which a Send strips and an Expect never asserts. What is left is exactly the set at risk.
+     */
+    fun unclassifiedTags(selection: List<Candidate>, dictionary: FixDictionaryAdapter?): List<Int> {
+        if (dictionary == null) return emptyList() // a different sentence; see [captureRisk]
+        val decidedWithoutDictionary = ID_TAGS + LIFETIME_TAGS + TRANSPORT_TAGS + setOf(35, 60)
+        return selection
+            .flatMap { it.fields }
+            .map { it.first }
+            .distinct()
+            .filter { it !in decidedWithoutDictionary && dictionary.getFieldName(it) == null }
+            .sorted()
+    }
+
+    /**
+     * **What this capture cannot classify, said before the scenario is made** — or null when nothing is at
+     * risk. One sentence, one place, so the two capture doors cannot come to warn differently.
+     *
+     * Keyed on what the dictionary *knows*, not on whether one is loaded. A loaded dictionary that does not
+     * carry the venue's tags produces exactly the failures a missing one does, and the old `dictionary ==
+     * null` test called that case safe — the warning was silent in the one situation where the author could
+     * neither see the problem nor guess it.
+     */
+    fun captureRisk(selection: List<Candidate>, dictionary: FixDictionaryAdapter?): String? {
+        if (dictionary == null) {
+            return "No dictionary loaded — timestamps beyond TransactTime(60) will not be parameterized " +
+                "and will replay stale. Load the venue's dictionary before capturing."
+        }
+        val unknown = unclassifiedTags(selection, dictionary)
+        if (unknown.isEmpty()) return null
+        val shown = unknown.take(MAX_TAGS_NAMED).joinToString(", ")
+        val rest = unknown.size - MAX_TAGS_NAMED
+        val tail = if (rest > 0) " (+$rest more)" else ""
+        val close = "Load the venue's dictionary if these are its own fields."
+        return if (unknown.size == 1) {
+            "The loaded dictionary does not know tag $shown — its type is unknown, so if it is a timestamp " +
+                "it will replay stale, and its value is asserted exactly. $close"
+        } else {
+            "The loaded dictionary does not know tags $shown$tail — their types are unknown, so any " +
+                "timestamp among them will replay stale, and their values are asserted exactly. $close"
+        }
+    }
+
+    /** Enough tags to act on, few enough to read in a notification. */
+    private const val MAX_TAGS_NAMED = 6
+
     private fun sendStep(
         entry: Candidate,
         dictionary: FixDictionaryAdapter?,

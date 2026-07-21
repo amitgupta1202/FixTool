@@ -946,6 +946,69 @@ class ScenarioRunnerTest {
         assertEquals(1, ran.single { !it.passed }.stepIndex)
     }
 
+    /**
+     * **A feed that never stops must not drown the finding.**
+     *
+     * Market data does not go quiet while a scenario runs: the session log is a ring buffer that is always
+     * full of the very type the step is waiting for. Diagnosing one row per message would spend the whole
+     * report on ticks — and because they are the newest thing on the wire, recency alone ranks every one of
+     * them above the reject that actually explains the failure.
+     */
+    @Test
+    fun `a streaming session is collapsed by reason, and the pairable evidence still wins its slot`() {
+        val host = FakeHost()
+        // 300 ticks the step will not bind (wrong MDReqID — the previous subscription's), plus the one
+        // message an expect further down the scenario was waiting for.
+        repeat(300) { host.on("md") += incoming("W", mapOf(35 to "W", 262 to "REQ-1", 270 to "1.0$it")) }
+        host.on("md") += incoming("Y", mapOf(35 to "Y", 262 to "REQ-2", 281 to "0", 58 to "unknown symbol"))
+        repeat(300) { host.on("md") += incoming("W", mapOf(35 to "W", 262 to "REQ-1", 270 to "2.0$it")) }
+
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "md",
+                steps =
+                    listOf(
+                        ScenarioStep.Expect(
+                            session = "md",
+                            match = MatchPredicate(messageType = "W", fields = listOf(TagValue(262, "REQ-2"))),
+                            timeoutMs = 50,
+                            expectation =
+                                Expectation(fields = listOf(FieldExpectation(262, Matcher.Exact("REQ-2"))), messageType = "W"),
+                        ),
+                        // Never runs. It is what the MDRequestReject pairs with.
+                        ScenarioStep.Expect(
+                            session = "md",
+                            match = MatchPredicate(messageType = "Y"),
+                            timeoutMs = 1_000,
+                            expectation =
+                                Expectation(fields = listOf(FieldExpectation(281, Matcher.Exact("1"))), messageType = "Y"),
+                        ),
+                    ),
+            )
+        val reported = mutableListOf<Pair<FixMessage, StepResult>>()
+        val result = runRecordingVerdicts(host, scenario, reported)
+        val diagnosis = result.steps.filter { it.kind == "diagnosis" }
+
+        // 601 messages, a handful of rows. The cap is not what did this — the classification is.
+        assertTrue(diagnosis.size <= 3, "600 ticks must not become 600 findings: ${diagnosis.map { it.detail }}")
+
+        // One row for the 600 ticks, carrying the count and the single reason they all share — and saying
+        // plainly that it classified the newest 500 rather than presenting that as the whole log.
+        val ticks = diagnosis.single { it.detail!!.contains("600 W messages") }
+        assertTrue(ticks.detail!!.contains("500 most recent"), "the sample must not pose as the total: ${ticks.detail}")
+        assertTrue(ticks.detail!!.contains("262=REQ-2"), "the constraint that rejected them: ${ticks.detail}")
+        assertTrue(ticks.detail!!.contains("same reason each time"), "${ticks.detail}")
+
+        // And the reject — one message among 601 — still gets its own row, paired with the step that was
+        // waiting for it, because pairable outranks recent.
+        val reject = diagnosis.single { it.stepIndex == 1 }
+        assertEquals("0", reject.tags.single { it.tag == 281 }.actual)
+
+        // Only the reject and one example tick are marked; the grid is not repainted 600 times.
+        assertTrue(reported.size <= 3, "marked ${reported.size} messages; a mark on everything marks nothing")
+    }
+
     /** Buy asks, sell should hear it, buy should get a clean AI. The sell-side leg is what times out. */
     private fun bothLegs(): Scenario =
         Scenario(

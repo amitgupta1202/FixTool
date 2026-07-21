@@ -526,6 +526,9 @@ class ScenarioRunner(
         val boundNothing: Boolean,
     )
 
+    /** Why a same-type message on the failed step's own session did not become its match. */
+    private enum class NearMiss { TAKEN, LATE, REJECTED }
+
     /** An `Expect` the run never reached: what a message nobody bound can be held up against. */
     private data class PendingExpect(
         val step: ScenarioStep.Expect,
@@ -612,35 +615,69 @@ class ScenarioRunner(
             // reported as a type "no expect step looks for" — while the step that just timed out looking for
             // exactly that type sits two lines above it in the same report.
             diagnosed += here
-            for (m in here) {
-                if (!room()) {
-                    suppressed++
-                    continue
-                }
+            // Classify by WHY, not one row per message. On a market-data session the same story repeats
+            // hundreds of times a second — six rows each saying "262 did not match" is six copies of one
+            // sentence, and it pushes the sentence that matters out of the report. Newest first, so the
+            // first message into a bucket is the newest example of it.
+            val buckets = LinkedHashMap<Pair<NearMiss, String>, MutableList<FixMessage>>()
+            val examined = here.take(SCAN_LIMIT)
+            for (m in examined) {
                 val binds = matches(m, type, direction, match)
                 // An `occurrence` step that timed out did so because too few arrived, not because any one
-                // that did was wrong — and its own detail already says "fewer than N". A row per arrival
-                // here would be a wall of text repeating the verdict.
+                // that did was wrong — and its own detail already says "fewer than N".
                 if (binds && occurrence != null) continue
-                val detail =
+                val key =
                     when {
-                        binds && m in consumed ->
-                            "'$session' received a $named message at ${at(m)} that matches this step's bind " +
-                                "predicate, but an earlier step had already bound it — two steps cannot bind " +
-                                "the same message. Give this step an occurrence or a discriminating field."
-                        binds ->
-                            "'$session' received a $named message at ${at(m)} that matches this step's bind " +
-                                "predicate, but not before its ${step.timeoutMs}ms window closed. Raise the timeout."
-                        else ->
-                            "'$session' received a ${m.messageType} at ${at(m)} that this step did not bind: " +
-                                rejections(match, direction, m).joinToString("; ") + ". The bind predicate is " +
-                                "what rejected it — correct the predicate, not the assertion rows, or the step " +
-                                "binds nothing on the next run either."
+                        binds && m in consumed -> NearMiss.TAKEN to ""
+                        binds -> NearMiss.LATE to ""
+                        else -> NearMiss.REJECTED to rejections(match, direction, m).joinToString("; ")
+                    }
+                buckets.getOrPut(key) { mutableListOf() } += m
+            }
+            for ((key, group) in buckets) {
+                if (!room()) {
+                    suppressed += group.size
+                    continue
+                }
+                val (kind, reason) = key
+                val subject = subject(session, named, group, total = here.size, examined = examined.size)
+                val detail =
+                    when (kind) {
+                        NearMiss.TAKEN ->
+                            "$subject matching this step's bind predicate, but an earlier step had already " +
+                                "bound it — two steps cannot bind the same message. Give this step an " +
+                                "occurrence or a discriminating field."
+                        NearMiss.LATE ->
+                            "$subject matching this step's bind predicate, but not before its " +
+                                "${step.timeoutMs}ms window closed. Raise the timeout."
+                        NearMiss.REJECTED ->
+                            "$subject this step did not bind, for the same reason each time: $reason. The " +
+                                "bind predicate is what rejected them — correct the predicate, not the " +
+                                "assertion rows, or the step binds nothing on the next run either."
                     }
                 // No stepId and index -1 even though this *is* about the failed step: the repair here is the
                 // predicate, and the reconcile view repairs expectations. Offering that door would offer a fix
-                // that cannot fix this.
-                unpaired(m, detail)
+                // that cannot fix this. Only the newest example is marked in the grid — marking nine hundred
+                // identical ticks marks nothing.
+                unpaired(group.first(), detail)
+            }
+        }
+
+        /**
+         * How a bucket names itself — and, when the log was too long to classify whole, it says so.
+         *
+         * The count has to be the count of what was *looked at*, never a total quietly presented as one. A row
+         * reading "500 W messages" over a log holding 600 is a small lie that a reader would reasonably use to
+         * conclude the other hundred were something else.
+         */
+        private fun subject(session: String, named: String, group: List<FixMessage>, total: Int, examined: Int): String {
+            val newest = at(group.first())
+            return when {
+                total > examined ->
+                    "'$session' received $total $named messages; of the $examined most recent, " +
+                        "${group.size} (newest at $newest) were ones that"
+                group.size == 1 -> "'$session' received a $named message at $newest that"
+                else -> "'$session' received ${group.size} $named messages (newest at $newest) that"
             }
         }
 
@@ -681,21 +718,109 @@ class ScenarioRunner(
         private fun strays() {
             val pending = pendingExpects()
             val taken = mutableSetOf<PendingExpect>()
+            val found = collect()
+            // **Pairable first, and recency second.** On a stream that never stops, every message is recent,
+            // so recency alone ranks a market-data tick above the MDRequestReject that explains the failure.
+            // A message an unrun expect was actually waiting for is the evidence; the rest is weather.
+            //
+            // The quota is what keeps that true when the stream *is* the expected type. Six hundred unbound
+            // ExecutionReports under one unrun `expect 8` are not six hundred pieces of evidence: one expect
+            // binds one message, so exactly one of them — the newest, since [collect] runs newest-first — can
+            // be the one it was waiting for. The rest are weather no matter what type they are.
+            val quota = pending.groupingBy { typeOf(it) }.eachCount().toMutableMap()
+            val pairable = mutableListOf<Pair<FixMessage, String>>()
+            val weather = mutableListOf<Pair<FixMessage, String>>()
+            for (entry in found) {
+                val left = quota[entry.first.messageType] ?: 0
+                if (left > 0) {
+                    quota[entry.first.messageType] = left - 1
+                    pairable += entry
+                } else {
+                    weather += entry
+                }
+            }
+            for ((m, session) in pairable) {
+                if (!room()) {
+                    suppressed++
+                    continue
+                }
+                stray(m, session, pending, taken)
+            }
+            collapse(weather, pending)
+        }
+
+        /** Every unbound incoming business message across the scenario's sessions, newest first. */
+        private fun collect(): List<Pair<FixMessage, String>> {
             val sessions = (scenario.setup + scenario.steps).filterNot { it.muted }.map { it.session }.distinct()
             val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
+            val found = mutableListOf<Pair<FixMessage, String>>()
             for (session in sessions) {
                 for (m in newestFirst(host.messages(session))) {
                     if (m.direction != FixMessage.Direction.INCOMING) continue
                     if (m in consumed || m in diagnosed) continue
                     if (m.messageType in SESSION_ADMIN_TYPES) continue
                     if (!seen.add(m)) continue
-                    if (!room()) {
-                        suppressed++
-                        continue
-                    }
-                    stray(m, label(session), pending, taken)
+                    found += m to label(session)
                 }
             }
+            return found
+        }
+
+        /**
+         * **The traffic no expectation was ever waiting for, counted rather than listed.**
+         *
+         * One row for the lot, as a histogram by session and type. A subscription that is still ticking sends
+         * hundreds of these a second, and the alternative — a row each, six of them, chosen by arrival time —
+         * is six rows that say nothing about the failure and crowd out the ones that do.
+         *
+         * Nothing here is marked in the grid either. Tinting nine hundred rows amber is not a mark; it is a
+         * new background colour for the session. The count is the finding; the messages are still all there.
+         */
+        private fun collapse(weather: List<Pair<FixMessage, String>>, pending: List<PendingExpect>) {
+            if (weather.isEmpty()) return
+            if (weather.size == 1) {
+                val (m, session) = weather.single()
+                val preamble = "'$session' received a ${m.messageType} at ${at(m)} that no step bound"
+                // The stronger claim only where it is true. Over-quota messages land here too — a second
+                // unbound ExecutionReport under one unrun `expect 8` is not evidence that nothing expects an 8.
+                unpaired(
+                    m,
+                    if (pending.none { typeOf(it) == m.messageType }) {
+                        "$preamble, and no expect step in this scenario looks for a ${m.messageType} on '$session'."
+                    } else {
+                        "$preamble. The expect step that looks for a ${m.messageType} has already been paired " +
+                            "with a different unbound message; this is another one."
+                    },
+                )
+                return
+            }
+            if (!room()) {
+                suppressed += weather.size
+                return
+            }
+            val histogram =
+                weather
+                    .groupingBy { (m, session) -> "'$session' ${m.messageType}" }
+                    .eachCount()
+                    .entries
+                    .sortedByDescending { it.value }
+            val listed =
+                histogram.take(MAX_LISTED_STRAYS).joinToString(", ") { "${it.key} ×${it.value}" } +
+                    (if (histogram.size > MAX_LISTED_STRAYS) " +${histogram.size - MAX_LISTED_STRAYS} more types" else "")
+            out +=
+                row(
+                    at = -1,
+                    stepId = null,
+                    phase = failure.phase,
+                    passed = false,
+                    // Deliberately NOT "…that no expect step looks for". This bucket holds the over-quota
+                    // messages too — the 259th unbound ExecutionReport under one unrun `expect 8` — and that
+                    // claim would be false about every one of them.
+                    detail =
+                        "${weather.size} further message(s) arrived that no step bound: $listed. Not " +
+                            "individually marked — on a session that is still streaming, this is the shape of " +
+                            "the traffic, not a finding about any one message.",
+                )
         }
 
         @Suppress("ReturnCount") // One guard per way a pairing can fail, each with its own sentence.
@@ -713,9 +838,19 @@ class ScenarioRunner(
                     it !in taken && label(it.step.session) == session && typeOf(it) == m.messageType
                 } ?: pending.firstOrNull { it !in taken && typeOf(it) == m.messageType }
             if (candidate == null) {
+                // "Nothing looks for this" and "the thing that looks for this is already spoken for" are
+                // different findings, and the second one must never be printed as the first: a scenario whose
+                // expect for this very type sits three lines above would be called a scenario that never
+                // mentions the type.
+                val spokenFor = pending.any { it in taken && typeOf(it) == m.messageType }
                 unpaired(
                     m,
-                    "$preamble, and no expect step in this scenario looks for a ${m.messageType} on '$session'.",
+                    if (spokenFor) {
+                        "$preamble. The expect step that looks for a ${m.messageType} has already been paired " +
+                            "with a different unbound message; this is another one."
+                    } else {
+                        "$preamble, and no expect step in this scenario looks for a ${m.messageType} on '$session'."
+                    },
                 )
                 return
             }
@@ -923,6 +1058,15 @@ class ScenarioRunner(
 
         /** Diagnosis rows a failed run may add. A post-mortem that buries the verdict has failed at its job. */
         const val MAX_DIAGNOSED = 6
+
+        /**
+         * How many same-type messages the near-miss pass classifies before it stops looking.
+         *
+         * Classifying costs a wire view per message, and a market-data session's log — a ring buffer the user
+         * may set as high as 100,000 — is full of exactly the type a market-data step expects. The newest few
+         * hundred carry the same story as the rest: this bounds the work without changing the answer.
+         */
+        const val SCAN_LIMIT = 500
 
         /**
          * Appended to the failing step's detail — never inserted into it. The sentence a reader already

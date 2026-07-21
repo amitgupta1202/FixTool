@@ -481,7 +481,7 @@
         <li>Field names (like "ClOrdID", "Symbol") display correctly out of the box</li>
         <li>Enum values (like Side=1 → "Buy") are decoded automatically</li>
         <li>No need to download or configure a dictionary to get started</li>
-        <li>You can still configure a custom dictionary in Settings if needed</li>
+        <li>You can still configure a custom dictionary in Settings &rarr; Protocol if needed</li>
     </ul>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
@@ -1555,54 +1555,75 @@ ${incoming["D"].valueOfTag(38)}
 
     <h2 id="settings">9. Settings</h2>
 
-    <h3>Data Dictionary</h3>
-    <p>Configure a FIX data dictionary for field descriptions:</p>
-    <ol>
-        <li>Click <strong>Settings</strong> in the toolbar</li>
-        <li>Click <strong>Browse</strong> next to Data Dictionary Path</li>
-        <li>Select your FIX XML data dictionary file</li>
-        <li>Click <strong>Save</strong></li>
-    </ol>
+    <p><strong>Settings</strong> in the toolbar opens a dialog with a <strong>search box</strong> and seven
+    pages down the left. The pages are cut by <em>who owns the values on them</em> &mdash; the venue, this
+    machine, or your own eyes &mdash; so if you are not sure where something lives, type what you would call
+    it (<code>dictionary</code>, <code>colours</code>, <code>buffer</code>, <code>port</code>) and the sidebar
+    narrows to the pages that answer.</p>
+
+    <p>Edits are held as a <strong>draft</strong> until you press <strong>Save</strong>: a page you have
+    changed is marked in the sidebar, <strong>Cancel</strong> asks before discarding, and
+    <strong>Restore Defaults</strong> in the header resets everything, not just the page you are looking
+    at.</p>
+
+    <table>
+        <tr><th>Page</th><th>Holds</th></tr>
+        <tr>
+            <td><strong>Protocol</strong></td>
+            <td><strong>Data dictionary</strong> (bundled or your own, plus the FIXT.1.1 transport dictionary),
+            <strong>Venue tag roles</strong>, <strong>QuickFIX/J validation</strong>, <strong>Rejection rules</strong>.
+            <em>First on the list because a wrong dictionary makes every other page describe the wrong
+            thing.</em></td>
+        </tr>
+        <tr><td><strong>Tags</strong></td><td><strong>Grid view columns</strong>, and <strong>Protocol tags</strong> &mdash; the ones the engine owns rather than you.</td></tr>
+        <tr><td><strong>Appearance</strong></td><td><strong>Message colours</strong>, <strong>Default view mode</strong> (grid/terminal), <strong>Default layout</strong>.</td></tr>
+        <tr><td><strong>Sessions</strong></td><td><strong>Message buffer</strong> (how many messages a session retains), <strong>Auto-sync session to editor</strong>.</td></tr>
+        <tr><td><strong>Storage</strong></td><td><strong>Connection profiles</strong>, <strong>Saved messages</strong>, <strong>Scenarios</strong> &mdash; where each is written. All three apply on restart.</td></tr>
+        <tr><td><strong>Latency</strong></td><td>Round-trip measurement &mdash; see <a href="#latency">10. Latency Measurement</a>.</td></tr>
+        <tr><td><strong>Developer</strong></td><td>The loopback control server &mdash; see <a href="#automation">11. Automation &amp; AI Control</a>.</td></tr>
+    </table>
+
+    <h3>Data dictionary <span style="font-weight:normal">&mdash; Protocol</span></h3>
+    <p>Either use a <strong>bundled</strong> dictionary (complete standard definitions for FIX 4.0 through
+    5.0 SP2, chosen by FIX version) or <strong>Browse</strong> to your venue's own XML. FIX 5.0+ additionally
+    takes a transport dictionary (FIXT.1.1) for the session-level messages.</p>
     <p>The dictionary provides human-readable names for tags and values &mdash; and rather more than that
     once you start capturing scenarios. Whether a field is a timestamp (so a replay stamps it fresh instead
     of sending a stale one), a price, or an enumerated code is a question put to the dictionary, so a tag it
-    cannot name is classified <em>blind</em>. FixTool ships complete standard dictionaries for FIX 4.0&ndash;5.0
-    SP2, but venue dictionaries are usually a subset plus the venue's own fields; load yours before capturing,
-    and capture will tell you if it meets tags the loaded dictionary cannot place.</p>
-    <p><strong>Venue tag roles&hellip;</strong> sits just below the path, on the same <strong>Protocol</strong>
-    page. A dictionary cannot say <em>who mints</em>
-    a field's value, which is the one thing a replay needs to know about an identifier &mdash; see
-    <a href="#venue-tag-roles">Your venue's own correlation ids</a>.</p>
+    cannot name is classified <em>blind</em>. Venue dictionaries are usually a subset of standard FIX plus the
+    venue's own fields; load yours before capturing, and capture will tell you if it meets tags the loaded
+    dictionary cannot place.</p>
+    <p><strong>Venue tag roles&hellip;</strong> sits just below the path. A dictionary cannot say
+    <em>who mints</em> a field's value, which is the one thing a replay needs to know about an identifier
+    &mdash; see <a href="#venue-tag-roles">Your venue's own correlation ids</a>.</p>
 
-    <h3>Custom Grid Columns</h3>
-    <p>Add custom columns to the grid view:</p>
+    <h3>QuickFIX/J validation <span style="font-weight:normal">&mdash; Protocol</span></h3>
+    <p>How strictly the engine reads what arrives. These are QuickFIX/J's own switches, so they affect what
+    FixTool will accept onto a session at all:</p>
     <ul>
-        <li>Enter tag numbers (comma-separated) in the Grid View Columns field</li>
-        <li>These tags will appear as additional columns in the grid</li>
-        <li>Useful for frequently referenced fields</li>
+        <li><strong>Fields out of order</strong> &mdash; reject a message whose fields are not in the order the dictionary defines</li>
+        <li><strong>Fields have values</strong> &mdash; reject a field that is present but empty</li>
+        <li><strong>User-defined fields</strong> &mdash; apply the same rules to custom tags. Turn this <em>off</em> when a venue sends fields its published dictionary does not describe</li>
+        <li><strong>Incoming messages</strong> &mdash; the master switch for the three above</li>
     </ul>
 
-    <h3>Validation Settings</h3>
+    <h3>Rejection rules <span style="font-weight:normal">&mdash; Protocol</span></h3>
+    <p>Which messages are highlighted in red as rejections:</p>
     <ul>
-        <li><strong>Validate Fields Out of Order:</strong> Warn if fields are not in tag order</li>
-        <li><strong>Validate Fields Have Values:</strong> Warn if required fields are empty</li>
+        <li>Defaults: <code>35=3</code> (Reject), <code>35=j</code> (Business Reject), <code>35=9</code> (Order Cancel Reject)</li>
+        <li>Add your own with a message type and, optionally, a tag/value that must also match &mdash; useful where a venue signals failure inside an otherwise ordinary message type</li>
     </ul>
 
-    <h3>Data Directories</h3>
-    <p>Configure where FixTool stores profiles and templates:</p>
+    <h3>Grid columns <span style="font-weight:normal">&mdash; Tags</span></h3>
     <ul>
-        <li><strong>Connection Profiles Path:</strong> Location for saved connection profiles</li>
-        <li><strong>Saved Messages Path:</strong> Location for saved message templates</li>
+        <li><strong>Grid view columns</strong> &mdash; tag numbers that become extra columns in the grid, for the fields you read on every message</li>
+        <li><strong>Protocol tags</strong> (and <strong>Hide protocol tags by default</strong>) &mdash; the session envelope (<code>8</code>, <code>9</code>, <code>10</code>, <code>34</code>, <code>49</code>, <code>52</code>, <code>56</code>&hellip;), which the detail panel can hide so the business fields are not buried in bookkeeping</li>
     </ul>
-    <p>Useful for version control or sharing configurations across systems.</p>
 
-    <h3>Rejection Rules</h3>
-    <p>Configure which messages should be highlighted in red as rejections:</p>
-    <ul>
-        <li>Add rules with message type and optional additional tag matching</li>
-        <li>Default rules: 35=3 (Reject), 35=j (Business Reject), 35=9 (Order Cancel Reject)</li>
-        <li>Add custom rules for your specific workflow</li>
-    </ul>
+    <h3>Storage</h3>
+    <p>Where connection profiles, saved messages and scenarios are written. Point them at a checked-out
+    directory to version-control your profiles and scenarios, or to share them across machines.
+    <strong>All three take effect on restart.</strong></p>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
@@ -1661,9 +1682,9 @@ ${incoming["D"].valueOfTag(38)}
 
     <h3>Enabling Latency Tracking</h3>
     <ol>
-        <li>Open <strong>Settings</strong> from the toolbar</li>
-        <li>In the <strong>Latency Tracking</strong> section, check <strong>Enable Latency Tracking</strong></li>
-        <li>Optionally check <strong>Show Latency Column</strong> to display RTT in the message grid</li>
+        <li>Open <strong>Settings</strong> from the toolbar and choose the <strong>Latency</strong> page</li>
+        <li>Check <strong>Enable latency tracking</strong></li>
+        <li>Optionally check <strong>Show latency column in grid view</strong> to display RTT in the message grid</li>
         <li>Click <strong>Save</strong></li>
         <li><strong>Reconnect</strong> your session (latency tracking starts on connect)</li>
     </ol>
@@ -1810,7 +1831,7 @@ stunnel stunnel.conf</code></pre>
     </div>
 
     <h3>Configurable Thresholds</h3>
-    <p>In Settings, you can configure latency thresholds:</p>
+    <p>On the <strong>Latency</strong> page you can configure thresholds:</p>
     <ul>
         <li><strong>Warning Threshold:</strong> Default 100,000μs (100ms) - latencies above this show in yellow</li>
         <li><strong>Critical Threshold:</strong> Default 500,000μs (500ms) - latencies above this show in red</li>
@@ -1833,7 +1854,7 @@ stunnel stunnel.conf</code></pre>
 
     <h4>Latency column shows empty</h4>
     <ul>
-        <li>Ensure latency tracking is enabled in Settings</li>
+        <li>Ensure latency tracking is enabled (Settings &rarr; Latency)</li>
         <li>Reconnect the session after enabling</li>
         <li>Latency only appears on <strong>outbound</strong> messages after a matching response arrives</li>
         <li>Check that your messages contain supported correlation IDs</li>
@@ -1866,8 +1887,8 @@ stunnel stunnel.conf</code></pre>
 
     <h3>Step 1 &mdash; Enable automation control</h3>
     <ol>
-        <li>Open <strong>Settings</strong> (gear icon).</li>
-        <li>Scroll to <strong>Automation Control</strong> and tick <strong>Enable automation control</strong>.</li>
+        <li>Open <strong>Settings</strong> (gear icon) and choose the <strong>Developer</strong> page.</li>
+        <li>Tick <strong>Enable automation control</strong>.</li>
         <li>Choose a <strong>port</strong> (default <code>8765</code>) and click <strong>Save</strong>.</li>
     </ol>
     <p>The control + MCP server starts immediately, listening on <code>127.0.0.1</code> only.</p>

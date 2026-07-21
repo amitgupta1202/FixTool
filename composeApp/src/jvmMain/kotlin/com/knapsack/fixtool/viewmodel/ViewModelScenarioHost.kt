@@ -50,6 +50,8 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
         return sess.fixMessages()
     }
 
+    override fun discarded(session: String?): Long = resolveSession(session)?.discarded?.value ?: 0
+
     override fun connectionState(session: String?): String? {
         val sess = resolveSession(session) ?: return null
         return sess.connectionState.value.name

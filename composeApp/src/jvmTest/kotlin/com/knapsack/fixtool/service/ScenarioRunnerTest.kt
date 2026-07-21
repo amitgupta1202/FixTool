@@ -1009,6 +1009,79 @@ class ScenarioRunnerTest {
         assertTrue(reported.size <= 3, "marked ${reported.size} messages; a mark on everything marks nothing")
     }
 
+    // ------------------------------------------- messages the tool threw away before anything could see them
+
+    /**
+     * A session ingests at a bounded rate and silently discards the overrun. Every downstream mystery on a
+     * fast feed reduces to that, so the run has to say it — otherwise a step that timed out on a reply the
+     * venue provably sent reads as a venue bug or a bad predicate, and the engineer goes hunting for neither.
+     */
+    @Test
+    fun `messages the tool discarded during a run are reported, and named as the tool's own fault`() {
+        val host = FakeHost()
+        host.loseDuringRun = 4_213
+        val result = run(host, scenario(expectWith(timeoutMs = 30, FieldExpectation(35, Matcher.Exact("8")))))
+
+        val ingest = result.steps.single { it.kind == "ingest" }
+        assertTrue(ingest.detail!!.contains("4213 message(s)"), "the count: ${ingest.detail}")
+        assertTrue(
+            ingest.detail!!.contains("not a venue failure"),
+            "it must name the tool, or the reader goes hunting the counterparty: ${ingest.detail}",
+        )
+        // OPEN traffic: the loss is a caveat on the report, not a verdict of its own. The run is already red
+        // from the timeout; this row must not be what made it red.
+        assertTrue(ingest.passed, "an OPEN run asserts nothing about traffic, so nothing here is void")
+    }
+
+    /**
+     * STRICT is where a discard stops being a caveat and becomes a hole in the assertion. "Nothing
+     * unexpected arrived" is not a claim a run can make about messages it threw away unread — so the check
+     * is void rather than green. A strict run that lost messages and reported PASSED would be asserting
+     * something it could not know.
+     */
+    @Test
+    fun `under strict traffic a discard voids the run rather than passing it`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        host.loseDuringRun = 7
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "strict",
+                steps = listOf(expect("8", FieldExpectation(39, Matcher.Exact("2")))),
+                traffic = TrafficMode.STRICT,
+            )
+        val result = run(host, scenario)
+
+        assertFalse(result.passed, "a strict run cannot pass on evidence it discarded")
+        val ingest = result.steps.single { it.kind == "ingest" }
+        assertFalse(ingest.passed)
+        assertTrue(ingest.detail!!.contains("void, not passed"), "${ingest.detail}")
+        // And the traffic check does not run: a claim we have just said cannot be made is not then made.
+        assertTrue(result.steps.none { it.kind == "traffic" }, "no traffic verdict may follow a void one")
+        // The step itself still passed. The loss is the run's problem, not this expectation's.
+        assertTrue(result.steps.single { it.kind == "expect" }.passed)
+    }
+
+    @Test
+    fun `a run that lost nothing says nothing`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val result = run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("2")))))
+        assertTrue(result.passed)
+        assertTrue(result.steps.none { it.kind == "ingest" }, "silence is the ordinary case")
+    }
+
+    /** Only what THIS run lost. The counter is a session lifetime total; the report is about one run. */
+    @Test
+    fun `a discard that predates the run is not attributed to it`() {
+        val host = FakeHost()
+        host.discarded = 900 // lost long before this run started
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val result = run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("2")))))
+        assertTrue(result.steps.none { it.kind == "ingest" }, "the run lost nothing; the session did, earlier")
+    }
+
     /** Buy asks, sell should hear it, buy should get a clean AI. The sell-side leg is what times out. */
     private fun bothLegs(): Scenario =
         Scenario(
@@ -1119,8 +1192,26 @@ class ScenarioRunnerTest {
 
         fun on(session: String?): MutableList<FixMessage> = inboxes.getOrPut(session) { mutableListOf() }
 
-        override fun messages(session: String?): List<FixMessage> =
-            if (inboxes.isEmpty()) inbox.toList() else inboxes[session]?.toList().orEmpty()
+        /** Lifetime count of messages the tool received and threw away — what the runner takes a delta of. */
+        var discarded = 0L
+
+        /**
+         * Losses to apply the first time the runner reads messages, i.e. *after* it has snapshotted the
+         * lifetime count. Setting [discarded] directly instead models a loss that predates the run, which the
+         * report must not attribute to it.
+         */
+        var loseDuringRun = 0L
+        private var lostYet = false
+
+        override fun discarded(session: String?): Long = discarded
+
+        override fun messages(session: String?): List<FixMessage> {
+            if (!lostYet && loseDuringRun > 0) {
+                discarded += loseDuringRun
+                lostYet = true
+            }
+            return if (inboxes.isEmpty()) inbox.toList() else inboxes[session]?.toList().orEmpty()
+        }
 
         override fun connectionState(session: String?): String? = stateOf(session)
 

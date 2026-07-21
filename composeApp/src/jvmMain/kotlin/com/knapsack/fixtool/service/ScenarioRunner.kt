@@ -45,6 +45,14 @@ interface ScenarioHost {
      */
     fun view(message: FixMessage): MessageView?
 
+    /**
+     * Messages this session received and discarded before anything could see them — a lifetime count, so
+     * callers take a delta. 0 from a host that cannot tell, which reads the same as "nothing was lost": the
+     * check this feeds only ever reports an increase, so a host with no answer stays silent rather than
+     * inventing a reassurance.
+     */
+    fun discarded(session: String?): Long = 0
+
     /** Clear a session's message log; returns false when the session doesn't exist. */
     fun clearMessages(session: String?): Boolean
 
@@ -118,6 +126,9 @@ class ScenarioRunner(
 
         val scope = mutableMapOf<String, String>()
         val consumed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
+        // Lifetime discard counts before a single step runs, so the check below reports what *this run* lost
+        // rather than what the session has lost since it connected.
+        val ingestBefore = runSessions(scenario).associateWith { host.discarded(it) }
         // Which step wrote each name. Diffed around every step rather than instrumented into the template
         // evaluator, which does not know steps exist; first writer wins, matching the scope's own semantics.
         val mintedBy = mutableMapOf<String, String?>()
@@ -158,6 +169,9 @@ class ScenarioRunner(
                 }
             }
         }
+        // Before both the post-mortem and the strict verdict: what a run never saw shapes how the rest of the
+        // report should be read, and in STRICT it decides whether the traffic claim may be made at all.
+        ingestCheck(scenario, ingestBefore)?.let { results += it }
         // The post-mortem, before teardown — whose own sends provoke replies that are nobody's evidence,
         // for the same reason the strict-traffic verdict is judged before it. It costs no wall-clock: the
         // step that failed has already spent its whole timeout polling, so whatever there is to see has
@@ -479,7 +493,7 @@ class ScenarioRunner(
     private fun trafficCheck(scenario: Scenario, consumed: Set<FixMessage>): StepResult {
         val settled = now() + settleMs
         while (now() < settled) host.sleep(pollMs)
-        val sessions = (scenario.setup + scenario.steps).filterNot { it.muted }.map { it.session }.distinct()
+        val sessions = runSessions(scenario)
         val strays = mutableListOf<FixMessage>()
         val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
         for (session in sessions) {
@@ -751,7 +765,7 @@ class ScenarioRunner(
 
         /** Every unbound incoming business message across the scenario's sessions, newest first. */
         private fun collect(): List<Pair<FixMessage, String>> {
-            val sessions = (scenario.setup + scenario.steps).filterNot { it.muted }.map { it.session }.distinct()
+            val sessions = runSessions(scenario)
             val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
             val found = mutableListOf<Pair<FixMessage, String>>()
             for (session in sessions) {
@@ -965,6 +979,51 @@ class ScenarioRunner(
         ) = StepResult(at, "diagnosis", phase, passed, detail = detail, tags = tags, stepId = stepId)
 
         private fun at(m: FixMessage): String = m.timestamp.format(DIAGNOSIS_TIME)
+    }
+
+    /** The distinct sessions the run's setup and steps touch — teardown's traffic is nobody's evidence. */
+    private fun runSessions(scenario: Scenario): List<String?> =
+        (scenario.setup + scenario.steps).filterNot { it.muted }.map { it.session }.distinct()
+
+    /**
+     * **What this run never got to see** — null when nothing was lost, which is the ordinary case.
+     *
+     * A session ingests at a bounded rate ([FixMessageSession] drains a fixed batch on a fixed period) and
+     * discards what overruns it. Those messages were received and thrown away: not late, not filtered, not
+     * evicted from the display buffer — never visible to anything. Every downstream mystery on a fast feed
+     * reduces to this. A step that timed out on a reply the venue provably sent, a bind predicate that
+     * "never matched", an expectation that looks wrong: all of them look like venue or authoring problems
+     * and none of them are, and until now nothing in the report distinguished the cases.
+     *
+     * It fails the run **only under [TrafficMode.STRICT]**, and that asymmetry is the whole point. A strict
+     * run asserts that nothing unexpected arrived — a claim that cannot honestly be made about messages that
+     * were thrown away unread, so the assertion is void rather than green. An OPEN run asserts nothing of
+     * the kind: its steps either found what they wanted or did not, so the loss is a caveat on the report
+     * and gets a passing row that says so. Neither reading blames the venue, because the venue did nothing.
+     */
+    private fun ingestCheck(scenario: Scenario, before: Map<String?, Long>): StepResult? {
+        val lost =
+            before.mapNotNull { (session, was) ->
+                val delta = host.discarded(session) - was
+                if (delta > 0) label(session) to delta else null
+            }
+        if (lost.isEmpty()) return null
+        val total = lost.sumOf { it.second }
+        val listed = lost.joinToString(", ") { "'${it.first}' ×${it.second}" }
+        val strict = scenario.traffic == TrafficMode.STRICT
+        val why =
+            "$total message(s) arrived during this run and were discarded before anything could see them: " +
+                "$listed. FixTool could not ingest them fast enough — this is a tool limitation, not a venue " +
+                "failure, and the messages are gone rather than late. Any step that timed out may have been " +
+                "waiting for one of them."
+        val verdict =
+            if (strict) {
+                " Traffic is strict, and 'nothing unexpected arrived' is not a claim this run can make about " +
+                    "messages it threw away unread — so the check is void, not passed."
+            } else {
+                " No step's verdict is changed by this; read the rest of the report knowing it is incomplete."
+            }
+        return StepResult(-1, "ingest", "steps", passed = !strict, detail = why + verdict)
     }
 
     /** Resolves `${...}` in the predicate's constraint values against the scenario scope. */

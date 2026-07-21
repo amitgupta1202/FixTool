@@ -41,6 +41,22 @@ class FixMessageSession(
     private val _messages = MutableStateFlow<List<AppMessage>>(emptyList())
     val messages: StateFlow<List<AppMessage>> = _messages.asStateFlow()
 
+    /**
+     * **Messages this session received and threw away, because it could not ingest them fast enough.**
+     *
+     * Not the ring buffer's eviction of old messages — that is the retention policy working, and on a busy
+     * session it happens constantly and means nothing. This counts the other thing: [addMessage] finding the
+     * queue full and discarding its head to make room, so a message the venue sent never became visible to
+     * the grid, to a scenario, or to anyone. That used to happen in total silence.
+     *
+     * It is a claim about *this tool*, not the counterparty, and it is the single most important number on a
+     * session that carries market data: every downstream mystery — a step that timed out on a reply that was
+     * definitely sent, a strict run that reports traffic it never showed — reduces to this when it is not
+     * zero. See the drain loop in [startMessagePolling] for why the ceiling exists.
+     */
+    private val _discarded = MutableStateFlow(0L)
+    val discarded: StateFlow<Long> = _discarded.asStateFlow()
+
     private val _wrapText = MutableStateFlow(true)
     val wrapText: StateFlow<Boolean> = _wrapText.asStateFlow()
 
@@ -186,9 +202,11 @@ class FixMessageSession(
                 recordOutgoingForLatency(message)
             }
         }
-        // Drop oldest enqueued item if we're at capacity to avoid unbounded growth
+        // Drop oldest enqueued item if we're at capacity to avoid unbounded growth. Counted, because a
+        // message discarded here was received and then lost, and every silent one of them turns into a
+        // question about the venue somewhere downstream. See [discarded].
         if (!messageQueue.offer(message)) {
-            messageQueue.poll()
+            if (messageQueue.poll() != null) _discarded.value += 1
             messageQueue.offer(message)
         }
     }

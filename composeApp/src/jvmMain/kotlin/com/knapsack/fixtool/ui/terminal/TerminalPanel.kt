@@ -61,15 +61,22 @@ fun TerminalPanel(
         background = Color(0xFF1E1E1E),
         modifier = modifier,
         // SwingPanel runs the factory on the AWT event thread, which is exactly where Swing components
-        // (and JediTerm's start()) must be created.
+        // (and JediTerm's start()) must be created. Spawning a PTY can fail for reasons outside our
+        // control (no shell on PATH, winpty natives blocked); an exception thrown out of the factory
+        // leaves an unexplained blank rectangle, so failures become a readable panel instead.
         factory = {
-            createTerminalWidget(workingDir, env).also { widgetHolder[0] = it }
+            runCatching { createTerminalWidget(workingDir, env).also { widgetHolder[0] = it } }
+                .getOrElse { error ->
+                    logger.error("Failed to start embedded terminal", error)
+                    terminalFailurePanel(error)
+                }
         },
         // Compose owns top-level focus in the window; a click on the interop surface doesn't hand
         // keyboard focus to the embedded Swing component by itself (the JediTerm cursor stays hollow
         // and keystrokes never arrive). Pushing focus down to JediTerm's inner panel here bridges it.
-        update = { widget ->
-            if (!didInitialFocus[0]) {
+        update = { component ->
+            val widget = component as? JediTermWidget
+            if (widget != null && !didInitialFocus[0]) {
                 didInitialFocus[0] = true
                 javax.swing.SwingUtilities.invokeLater { widget.terminalPanel.requestFocusInWindow() }
             }
@@ -78,22 +85,28 @@ fun TerminalPanel(
 }
 
 /**
- * Spawns a login shell on a PTY and hands it to a fresh JediTerm widget. A login shell (`-l`) matters:
- * a GUI process inherits a stripped PATH, but the login shell re-sources the user's profile, so
- * `claude` (and whatever else lives on their PATH) resolves the same as in a normal terminal.
+ * Spawns a shell on a PTY and hands it to a fresh JediTerm widget.
+ *
+ * On Windows the PTY comes from ConPTY, the OS's own pseudo-console, rather than pty4j's bundled
+ * winpty shim: ConPTY is what modern Windows terminals use and it speaks VT sequences natively, which
+ * is what a full-screen TUI like the Claude Code CLI needs. pty4j falls back to winpty by itself if
+ * ConPTY's native library won't load (older Windows), and [setWindowsAnsiColorEnabled] is what makes
+ * colour survive that fallback.
  */
 private fun createTerminalWidget(
     workingDir: File,
     env: Map<String, String>,
 ): JediTermWidget {
     val widget = DarkJediTermWidget(DarkSettingsProvider())
-    val shell = System.getenv("SHELL")?.ifBlank { null } ?: "/bin/zsh"
+    val command = terminalCommand()
     val pty =
-        PtyProcessBuilder(arrayOf(shell, "-l"))
+        PtyProcessBuilder(command)
             .setDirectory(workingDir.absolutePath)
             .setEnvironment(env)
             .setInitialColumns(DEFAULT_COLUMNS)
             .setInitialRows(DEFAULT_ROWS)
+            .setUseWinConPty(true)
+            .setWindowsAnsiColorEnabled(true)
             .start()
     widget.ttyConnector = PtyTtyConnector(pty)
     widget.start()
@@ -110,8 +123,83 @@ private fun createTerminalWidget(
         },
     )
 
-    logger.info("Embedded terminal started: shell={} cwd={}", shell, workingDir.absolutePath)
+    logger.info("Embedded terminal started: command={} cwd={}", command.joinToString(" "), workingDir.absolutePath)
     return widget
+}
+
+/**
+ * The shell command line to spawn, per platform. The goal throughout is that `claude` resolves here
+ * exactly as it does in the user's normal terminal — which means imitating what that platform's own
+ * terminal does, not applying one rule everywhere.
+ *
+ * **macOS** gets a *login* shell (`-l`), because that's what Terminal.app and iTerm run, and because
+ * a GUI app launched by launchd inherits a stripped PATH that never saw `~/.zprofile`. zsh reads
+ * `~/.zshrc` for every interactive shell regardless of login status, so `-l` costs nothing there.
+ *
+ * **Linux** gets an *interactive, non-login* shell (`-i`) instead — what gnome-terminal and Konsole
+ * run. This is not cosmetic: bash reads `~/.bashrc` only for non-login shells, so `bash -l` silently
+ * misses PATH set by nvm/pyenv/`~/.local/bin` installers, which all write to `~/.bashrc`. Adding `-i`
+ * to `-l` does not help — bash's login/non-login split governs `~/.bashrc`, not interactivity. The
+ * profile side is still covered because the desktop session sources `~/.profile` before launching us,
+ * so it arrives in the inherited environment. Verified both ways on a real PTY.
+ *
+ * **Windows** has neither `SHELL` nor `-l`. Handing it the Unix default (`/bin/zsh -l`) is a path that
+ * doesn't exist, and pty4j reports the failed spawn as the opaque "Couldn't create PTY" — so the
+ * terminal never opened on Windows at all. PowerShell is preferred because it's the shell Windows
+ * users actually live in and it handles VT output; `COMSPEC` (normally `cmd.exe`) is the floor, since
+ * it's guaranteed present. `-NoLogo` just suppresses the copyright banner.
+ *
+ * The parameters exist to be substituted in tests; production always calls this with no arguments.
+ */
+internal fun terminalCommand(
+    osName: String = System.getProperty("os.name").orEmpty(),
+    env: (String) -> String? = { System.getenv(it) },
+    onPath: (String) -> Boolean = { isOnPath(it, env("PATH") ?: env("Path")) },
+): Array<String> {
+    if (osName.lowercase().startsWith("windows")) {
+        val powerShell = listOf("pwsh.exe", "powershell.exe").firstOrNull(onPath)
+        if (powerShell != null) return arrayOf(powerShell, "-NoLogo")
+        return arrayOf(env("COMSPEC")?.ifBlank { null } ?: "cmd.exe")
+    }
+    val isMac = osName.lowercase().contains("mac")
+    // zsh is the macOS default; elsewhere bash is the one that's reliably installed.
+    val fallback = if (isMac) "/bin/zsh" else "/bin/bash"
+    return arrayOf(env("SHELL")?.ifBlank { null } ?: fallback, if (isMac) "-l" else "-i")
+}
+
+/**
+ * Whether [executable] resolves against a PATH-style search list. Named with its extension by the
+ * caller, so there's no PATHEXT guessing to do.
+ */
+private fun isOnPath(
+    executable: String,
+    path: String?,
+): Boolean =
+    path
+        ?.split(File.pathSeparatorChar)
+        ?.any { dir ->
+            dir.isNotBlank() && File(dir, executable).let { it.isFile && it.canExecute() }
+        }
+        ?: false
+
+/**
+ * What the terminal pane shows when the PTY can't be created — the reason, in words, instead of an
+ * empty black rectangle the user has to read the log file to explain.
+ */
+private fun terminalFailurePanel(error: Throwable): JComponent {
+    // The whole cause chain, not just the top frame: pty4j's own message is the uninformative
+    // "Couldn't create PTY", and the cause underneath it is the part that names what actually failed.
+    val reason =
+        generateSequence(error) { it.cause }
+            .joinToString(": ") { it.message ?: it::class.java.simpleName }
+    return javax.swing.JTextArea("The terminal could not start.\n\n$reason\n").apply {
+        isEditable = false
+        lineWrap = true
+        wrapStyleWord = true
+        background = java.awt.Color(0x1E, 0x1E, 0x1E)
+        foreground = java.awt.Color(0xD4, 0xD4, 0xD4)
+        border = javax.swing.BorderFactory.createEmptyBorder(12, 12, 12, 12)
+    }
 }
 
 /** System environment plus the terminal-specific overrides FixTool injects. */

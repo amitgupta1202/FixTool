@@ -1563,7 +1563,15 @@ ${incoming["D"].valueOfTag(38)}
         <li>Select your FIX XML data dictionary file</li>
         <li>Click <strong>Save</strong></li>
     </ol>
-    <p>The dictionary provides human-readable names for tags and values.</p>
+    <p>The dictionary provides human-readable names for tags and values &mdash; and rather more than that
+    once you start capturing scenarios. Whether a field is a timestamp (so a replay stamps it fresh instead
+    of sending a stale one), a price, or an enumerated code is a question put to the dictionary, so a tag it
+    cannot name is classified <em>blind</em>. FixTool ships complete standard dictionaries for FIX 4.0&ndash;5.0
+    SP2, but venue dictionaries are usually a subset plus the venue's own fields; load yours before capturing,
+    and capture will tell you if it meets tags the loaded dictionary cannot place.</p>
+    <p><strong>Venue tag roles&hellip;</strong> sits beside the path. A dictionary cannot say <em>who mints</em>
+    a field's value, which is the one thing a replay needs to know about an identifier &mdash; see
+    <a href="#venue-tag-roles">Your venue's own correlation ids</a>.</p>
 
     <h3>Custom Grid Columns</h3>
     <p>Add custom columns to the grid view:</p>
@@ -2024,7 +2032,9 @@ stunnel stunnel.conf</code></pre>
         TransactTime each run), incoming &rarr; assertions with <strong>smart-seeded matchers</strong>
         (timestamps&rarr;temporal, prices&rarr;numeric, IDs&rarr;presence, else exact). Echoed ids are
         auto-correlated and drawn as <strong>&#9679;id badges</strong>: filled where the id is minted,
-        hollow where it must echo back &mdash; even across sessions. Name it, save.
+        hollow where it must echo back &mdash; even across sessions. If a value came back that <em>isn't</em>
+        a correlation id FixTool knows, the review offers it &mdash; see
+        <a href="#venue-tag-roles">Your venue's own correlation ids</a>. Name it, save.
         <p><strong>Second source &mdash; pasted wire.</strong> Capture review also takes a
         <strong>paste box</strong> (one FIX message per line &mdash; a server log fragment, a message from an
         email). The lines become candidates in the same review, with a per-row direction toggle and a
@@ -2127,6 +2137,69 @@ stunnel stunnel.conf</code></pre>
     scenario can span multiple sessions &mdash; drive an initiator, assert on an acceptor, correlate
     a quote and a trade conversationally across both. Scenarios are stored one file per scenario
     under <code>~/.fixtool/scenarios/</code>.</p>
+
+    <h3 id="venue-tag-roles">Your venue's own correlation ids</h3>
+
+    <p>Capture parameterizes the correlation ids <em>standard FIX</em> defines &mdash; <code>ClOrdID</code>,
+    <code>QuoteReqID</code>, <code>MDReqID</code> and a dozen more &mdash; so every replay is fresh and each
+    reply is matched against <em>this run's</em> id. Most venues also define their own: BrokerTec's
+    <code>LegQuoteReqID(20013)</code>, a proprietary <code>BatchID</code>, a deal handle in the 20000s.
+    FixTool cannot know those, and it must not guess: a FIX dictionary records a field's <em>name</em> and
+    <em>type</em>, never <strong>who mints its value</strong>. <code>ClOrdID(11)</code> and
+    <code>OrderID(37)</code> are both <code>STRING</code> fields whose names end in <code>ID</code>, and
+    treating one as the other costs either a duplicate rejection at the venue or a scenario asserting that a
+    field equals a freshly-generated uuid.</p>
+
+    <p>Left undeclared, a venue id is replayed <em>verbatim</em>: the same value every run &mdash; a
+    duplicate at any venue that enforces uniqueness &mdash; and the matching expect binds to the first
+    message of that type rather than the reply to your ids. So you tell FixTool once, and the answer lives
+    with the dictionary it describes.</p>
+
+    <p><strong>Settings &rarr; Venue tag roles&hellip;</strong> (beside the Data Dictionary path) lists the
+    tags <em>your</em> dictionary adds beyond standard FIX, id-shaped names first, with
+    <strong>show all</strong> for the rest &mdash; a correlation id whose name doesn't happen to end in
+    <code>ID</code> is exactly what a filter would lose, so nothing is hidden. Give each one a role:</p>
+    <ul>
+        <li><strong>we mint it &mdash; fresh per run.</strong> The send gets a new value every run
+        (<code>20013=${legQuoteReqID = uuid:20}</code>), the reply's echo becomes a
+        <strong>reference</strong> check, and the expect gains a <strong>bind constraint</strong> so it
+        waits for the response to <em>your</em> id even on a busy session.</li>
+        <li><strong>the venue mints it.</strong> Asserted for <strong>presence</strong>, never its value
+        &mdash; a fresh handle on every reply is what a venue <em>is</em>, and pinning one is a scenario
+        that fails its own first replay.</li>
+        <li><strong>a lifetime stamp.</strong> Replayed a short way into the future rather than verbatim
+        (stale on arrival) or at <code>now</code> (already expired).</li>
+    </ul>
+
+    <p>The answer is saved as <code>&lt;your-dictionary&gt;.roles.json</code> <strong>beside the dictionary
+    file</strong> &mdash; a dozen lines, meant to be committed next to it so a team shares one answer instead
+    of each author re-deciding. It is a sidecar rather than an edit to the venue's XML on purpose: they ship
+    you that file, and their next release would overwrite anything you added to it. Standard FIX needs no
+    entry; the file only ever <em>adds</em>.</p>
+
+    <p><strong>Or let a capture find them for you.</strong> Reading a dictionary can only guess from names.
+    A captured flow carries proof: you sent this value, and it came back. Capture review offers what it
+    saw &mdash; <em>&ldquo;your 35=R carried 20050=LEGREF-A7F3C201, and 35=S came back with it&rdquo;</em>
+    &mdash; with the evidence printed and every row <strong>unticked</strong>, because the test is
+    deliberately wider than certainty and the decision is yours. Tick one and it is declared in the same
+    sidecar, and the capture on screen re-seeds immediately.</p>
+
+    <p>Which direction the value travelled <em>first</em> decides what you are offered, and the second case
+    is one no dictionary could ever answer:</p>
+    <ul>
+        <li>you sent it and it came back &rarr; <strong>mint</strong> it fresh each run;</li>
+        <li>the venue sent it and <em>you</em> quoted it back &rarr; <strong>read</strong> the value from
+        this run's reply into <code>${name}</code>, and send <em>that</em>. Without this a scenario that
+        cancels by <code>OrderID</code> re-sends the id the venue issued on the day you captured it. This
+        one applies to standard FIX too, with no declaration at all.</li>
+    </ul>
+
+    <div class="tip">
+        <strong>Load your venue's dictionary before capturing.</strong> Everything above &mdash; and the
+        ordinary business of knowing that a field is a timestamp, a price, or an enum &mdash; is a question
+        put to the dictionary. A tag it cannot name is classified blind: a timestamp among them replays the
+        captured moment for ever. Capture says so when it happens, naming the tags it could not place.
+    </div>
 
     <h3>Same flow, another environment</h3>
     <p>A flow recorded against <code>dev-buyside</code>/<code>dev-sellside</code> should run against the QA

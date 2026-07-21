@@ -21,6 +21,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -34,8 +35,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.service.EchoDetector
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.service.ScenarioAnnotations
@@ -77,6 +80,11 @@ fun ScenarioCaptureReview(
     /** A direction the bytes could not settle, settled by the author. Nothing else may settle it. */
     onSetDirection: (Int, FixMessage.Direction) -> Unit = { _, _ -> },
     sessionOptions: List<String> = emptyList(),
+    /**
+     * Accepting an echo proposal: declares the roles on the venue's dictionary and re-seeds the capture.
+     * Null hides the band entirely — a host that cannot persist a declaration must not offer to.
+     */
+    onDeclareRoles: ((Map<Int, TagRole>) -> Unit)? = null,
 ) {
     val name = state.name
     val selectedIdx = state.selectedIdx
@@ -182,6 +190,7 @@ fun ScenarioCaptureReview(
         }
         paste?.let { PasteSource(it, sessionOptions, onPasteChange) }
         UnreadableNotice(unreadable, dictionary)
+        if (onDeclareRoles != null) EchoProposals(selection, dictionary, onDeclareRoles)
         if (candidates.isEmpty()) {
             Text(
                 // The paste review's messages come from the paste box, not the sessions — telling its author
@@ -253,6 +262,74 @@ fun ScenarioCaptureReview(
  * In practice this is empty: QuickFIX/J retains the bytes it parsed. If it is ever not empty, that is worth
  * knowing about, and the log line at `QuickFixService.wireBytesOf` names the message.
  */
+/**
+ * **Correlation ids this capture can see but nobody has declared** — offered, never applied.
+ *
+ * The settings scan asks about tags that *look* like identifiers. This asks about values that **actually
+ * came back**, which is both stronger evidence and the only way to reach an id whose name says nothing.
+ * It sits in the review because that is where the flow is: the proposal cannot exist without one.
+ *
+ * Every row is unticked. The gate is deliberately wider than certainty — the same call the fix plan's
+ * presence demotion makes — so the evidence is printed in full and the author confirms it. Accepting
+ * writes the role to the venue's dictionary sidecar, which is what makes the answer outlive this capture.
+ */
+@Composable
+private fun EchoProposals(
+    selection: List<ScenarioCapture.Candidate>,
+    dictionary: FixDictionary?,
+    onDeclareRoles: (Map<Int, TagRole>) -> Unit,
+) {
+    val proposals = remember(selection, dictionary) { EchoDetector.detect(selection, dictionary) }
+    if (proposals.isEmpty()) return
+    val ticked = remember(proposals) { mutableStateMapOf<String, Boolean>() }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 6.dp).testTag("echo-proposals"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = "${proposals.size} value${if (proposals.size == 1) "" else "s"} came back — correlation ids?",
+            color = AppTheme.Colors.text,
+            fontSize = 11.sp,
+        )
+        proposals.forEach { p ->
+            val key = p.tags.joinToString(",")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Checkbox(
+                    checked = ticked[key] == true,
+                    onCheckedChange = { ticked[key] = it },
+                    modifier = Modifier.testTag("echo-proposal-$key"),
+                )
+                Column {
+                    Text(
+                        text =
+                            "tag ${p.tags.joinToString("/")} — " +
+                                if (p.kind == EchoDetector.Kind.MINT) {
+                                    "mint \${${p.suggestedName}} fresh each run"
+                                } else {
+                                    "read the venue's value into \${${p.suggestedName}} and send that back"
+                                },
+                        color = AppTheme.Colors.text,
+                        fontSize = 11.sp,
+                    )
+                    // The evidence, not a confidence score: the author can check this claim against the two
+                    // messages in front of them, which is the only thing that makes a wider-than-certain
+                    // gate safe to offer at all.
+                    Text(p.evidence, color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
+                }
+            }
+        }
+        val chosen = proposals.filter { ticked[it.tags.joinToString(",")] == true }
+        SlimButton(
+            text = if (chosen.isEmpty()) "Declare selected" else "Declare ${chosen.sumOf { it.tags.size }} tag(s)",
+            enabled = chosen.isNotEmpty(),
+            color = AppTheme.Colors.primary,
+            onClick = { onDeclareRoles(chosen.flatMap { p -> p.tags.map { it to p.role } }.toMap()) },
+            modifier = Modifier.testTag("echo-proposals-declare"),
+        )
+    }
+}
+
 @Composable
 private fun UnreadableNotice(unreadable: List<FixMessage>, dictionary: FixDictionary?) {
     if (unreadable.isEmpty()) return

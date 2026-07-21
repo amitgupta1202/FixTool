@@ -1,11 +1,11 @@
 # The dictionary the tool ships, and the tags the spec never named
 
-> **Outcome — Part A shipped, Part B's venue overlay shipped, Part B's detector still open
-> (2026-07-21).** Proprietary correlation ids are now supported through
-> `<dictionary>.roles.json` beside the venue's dictionary — see *The venue overlay* below,
-> live-verified against the real BrokerTec dictionary. No proprietary tag entered FixTool's
-> source, which was the constraint. What is **not** built is the echo detector that would
-> make the overlay discoverable rather than something you must know to write.
+> **Outcome — Parts A and B both shipped (2026-07-21), live-verified.** Proprietary
+> correlation ids are supported end to end: declared in `<dictionary>.roles.json` beside the
+> venue's dictionary, discovered either by scanning that dictionary (*The door*) or by
+> watching a value come back (*The echo detector*). **No proprietary tag entered FixTool's
+> source**, which was the constraint. Three commits: e305bb9 (dictionary), ebace12 (overlay),
+> b526f5f (settings door), plus the detector.
 >
 > **Outcome — Part A shipped (2026-07-21), live-verified.**
 > The bundled FIX 4.4 dictionary is now QuickFIX/J's whole one (93 → 916 fields), and the
@@ -31,7 +31,7 @@
 > own guard caught this, by design), and PartyRole labels are the dictionary's verbatim
 > `EXECUTING_FIRM`, not the stub's `ExecutingFirm`.
 
-**Status: Part A implemented; Part B proposed.** Two changes to how capture classifies a
+**Status: both parts implemented.** Two changes to how capture classifies a
 tag. They are independent and deliberately unequal: **Part A is a defect** in the default
 path, verified by running the seeder against both dictionaries; **Part B is a feature**,
 and the proposal is to build only the half of it that pays for itself before anyone asks.
@@ -392,9 +392,10 @@ and seeds the venue-minted 20040 as `presence`. The adapter's overlay cache is i
 explicitly (`reloadTagRoles`) — a cache outliving the file would report success for a change
 that only took effect next launch, which is the failure shape this whole feature removes.
 
-### Still open: the echo detector
+### The echo detector — **built** (2026-07-21)
 
-Two things the settings scan cannot do, both of which need a *flow* rather than a dictionary:
+`EchoDetector` + the proposal band in capture review. Two things the settings scan cannot do,
+both of which need a *flow* rather than a dictionary:
 
 - **Find a correlation id whose name says nothing** — the `OTHER` tier is 110 tags deep on
   BrokerTec, and an id in there is found only by watching a value come back.
@@ -403,7 +404,38 @@ Two things the settings scan cannot do, both of which need a *flow* rather than 
   literal. Correcting that needs `bindAs` on the earlier Expect plus `${name}` on the Send —
   i.e. knowing which reply minted it, which only the flow shows.
 
-The algorithm is specified below and is unbuilt.
+**One correction to the algorithm as specified below**, found by testing it: the spec gated on
+the field *name* (`name == null || name.matches(...)`). That gate contradicts the detector's
+own purpose — it would reject a named-but-not-id-shaped tag, which is exactly the "name says
+nothing" case the scan already buries. The name gate was borrowed from `VenueTagScan`, which
+needs it because it has no evidence at all; here there *is* evidence, so the name only
+**sorts** the list. A whitespace rejection took its place to keep echoed free text out
+(`58=Order accepted - ref 12` clears length and character-class checks easily; identifiers do
+not contain spaces).
+
+**Verified live on the real BrokerTec dictionary**, one paste, three messages:
+
+```
+proposals:
+  MINT     tags=[20050]  → ${note1}      your 35=R carried 20050=LEGREF-A7F3C201,
+                                          and 35=S came back with it
+  CAPTURE  tags=[20099]  → ${tag20099}   the venue's 35=S supplied 20099=VENUEDEAL-4471X,
+                                          and your 35=Z sent it back
+
+after declaring both:
+  SEND   35=R  20050=${note1 = uuid:20}
+  EXPECT 20050 reference(${note1})
+  EXPECT 20099 presence   bindAs=tag20099
+  SEND   35=Z  20099=${tag20099}          ← this run's handle, not the captured literal
+  remaining proposals: 0
+```
+
+`20050` is `Note1` — not id-shaped, so the settings scan files it 110 tags deep under `OTHER`.
+Only the echo finds it. And the `CAPTURE` half closes the gap the overlay alone left open: a
+send quoting the venue's id back no longer replays a value from the day of the capture.
+
+The `CAPTURE` wiring applies to **standard FIX too**, with no overlay at all — `OrderID(37)`
+on a cancel was replaying last week's id, and now binds from the reply that supplied it.
 
 ### What Part B buys
 

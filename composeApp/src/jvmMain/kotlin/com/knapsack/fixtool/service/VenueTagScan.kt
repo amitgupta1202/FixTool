@@ -56,7 +56,7 @@ object VenueTagScan {
      * it would not merely weaken a scenario, it would send garbage to the venue. Hardcoding these is
      * consistent with the no-proprietary-tags rule — every one of them is standard FIX.
      */
-    private val REFERENCE_DATA =
+    internal val REFERENCE_DATA =
         setOf(
             1, // Account
             15, // Currency

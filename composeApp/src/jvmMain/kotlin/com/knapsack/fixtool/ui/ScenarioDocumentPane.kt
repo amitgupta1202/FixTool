@@ -183,6 +183,7 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                         onPasteChange = { text, session -> viewModel.updateCapturePaste(text, session) },
                         onSetDirection = { index, direction -> viewModel.setCandidateDirection(index, direction) },
                         sessionOptions = viewModel.sessions.map { it.title },
+                        onDeclareRoles = { roles -> viewModel.declareVenueTagRoles(roles) },
                     )
             }
         }

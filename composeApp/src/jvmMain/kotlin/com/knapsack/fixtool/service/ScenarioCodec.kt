@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchOp
@@ -47,6 +48,7 @@ object ScenarioCodec {
             // Additive and default-omitting, the stepId/origin/muted bargain again: a file that never went
             // strict never grows the key, and every pre-traffic file keeps loading (and re-saving) unchanged.
             scenario.traffic.takeIf { it != TrafficMode.OPEN }?.let { put("traffic", it.name.lowercase()) }
+            scenario.binding.takeIf { it != BindScope.ANY }?.let { put("binding", it.name.lowercase()) }
             put("setup", buildJsonArray { scenario.setup.forEach { add(stepToJson(it)) } })
             put("steps", buildJsonArray { scenario.steps.forEach { add(stepToJson(it)) } })
             put("teardown", buildJsonArray { scenario.teardown.forEach { add(stepToJson(it)) } })
@@ -84,6 +86,7 @@ object ScenarioCodec {
             userTags = obj["userTags"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
             version = version,
             traffic = trafficFrom(obj["traffic"]?.jsonPrimitive?.contentOrNull),
+            binding = bindingFrom(obj["binding"]?.jsonPrimitive?.contentOrNull),
         ).withIds()
     }
 
@@ -298,6 +301,23 @@ object ScenarioCodec {
                 "unknown traffic mode '$raw' — this scenario was written by something that knows a stream " +
                     "check this build does not, and guessing at it would silently change what the scenario " +
                     "checks. Known traffic modes: strict, open.",
+            )
+        }
+
+    /**
+     * [trafficFrom]'s stance once more: an unknown value is refused, because reading it as the permissive
+     * default is how a scenario that asked to bind only this run's traffic quietly goes back to binding
+     * anything — and passes on a reply to a run that finished yesterday.
+     */
+    private fun bindingFrom(raw: String?): BindScope =
+        when (raw?.lowercase()) {
+            null -> BindScope.ANY
+            "any" -> BindScope.ANY
+            "this_run", "thisrun" -> BindScope.THIS_RUN
+            else -> throw IllegalArgumentException(
+                "unknown binding scope '$raw' — this scenario was written by something that knows a binding " +
+                    "rule this build does not, and guessing at it would silently change which messages its " +
+                    "steps may bind. Known binding scopes: any, this_run.",
             )
         }
 

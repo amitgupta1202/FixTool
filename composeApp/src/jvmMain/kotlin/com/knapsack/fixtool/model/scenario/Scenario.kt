@@ -21,7 +21,39 @@ data class Scenario(
     val version: Int = 1,
     /** Stream-level counterpart of [Expectation.mode]. Additive on disk — written only when STRICT. */
     val traffic: TrafficMode = TrafficMode.OPEN,
+    /** Which messages an Expect may bind. Additive on disk — written only when THIS_RUN. */
+    val binding: BindScope = BindScope.ANY,
 )
+
+/**
+ * **Whether a step may bind a message that arrived before the run started.**
+ *
+ * A session's log outlives the run that reads it, and nothing in the runner has ever put a time bound on
+ * what an Expect may take. On order flow that is mostly harmless — the log is short, and a bind predicate
+ * carrying this run's ClOrdID rules out the past anyway. On a session that streams, it is a false green
+ * waiting to happen: the buffer is permanently full of the very type the step wants, so `expect W` binds a
+ * snapshot from before the subscription was even sent, and the run reports that the venue answered when the
+ * venue has not yet said anything.
+ *
+ * The two real defences already exist and neither is enforced: a discriminating bind predicate (the request
+ * id) makes the past unbindable, and a `ClearMessages` in setup deletes it. This is the third, for the
+ * scenario that wants the guarantee rather than the discipline.
+ */
+enum class BindScope {
+    /**
+     * The historical (and default) semantics: any message in the log is bindable, whenever it arrived. A run
+     * that binds one from before it started still *says* so on the step — the report never stays quiet about
+     * it — but the step passes.
+     */
+    ANY,
+
+    /**
+     * Only messages that arrived after the run began may be bound. A step that finds nothing else times out
+     * as though the older message were not there, which is exactly the claim being made: this run has not
+     * seen its reply yet.
+     */
+    THIS_RUN,
+}
 
 /**
  * How the run judges the messages its Expect steps did **not** bind — [MatchMode] one level up.
@@ -212,6 +244,7 @@ fun ScenarioStep.withSession(session: String?): ScenarioStep =
  */
 fun Scenario.withSessions(map: Map<String, String>): Scenario {
     if (map.isEmpty()) return this
+
     fun remap(steps: List<ScenarioStep>): List<ScenarioStep> =
         steps.map { step ->
             val to = step.session?.let { map[it] }

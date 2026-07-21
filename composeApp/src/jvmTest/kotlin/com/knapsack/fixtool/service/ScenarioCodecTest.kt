@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -430,5 +431,42 @@ class ScenarioCodecTest {
         val typo = Json.parseToJsonElement("""{"id":"sc-t","name":"n","traffic":"stric"}""").jsonObject
         val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.fromJson(typo) }
         assertTrue("stric" in why.message!!, "the refusal must name the mode it could not read: ${why.message}")
+    }
+
+    // ----- binding -----------------------------------------------------------------------------------
+
+    @Test
+    fun `this_run binding round-trips through json`() {
+        val scenario =
+            Scenario(
+                id = "sc-b",
+                name = "n",
+                steps = listOf(ScenarioStep.Send("35=D|", session = "s")),
+                binding = BindScope.THIS_RUN,
+            )
+        val json = ScenarioCodec.toJson(scenario)
+        assertEquals("this_run", json["binding"]!!.jsonPrimitive.content)
+        assertEquals(BindScope.THIS_RUN, ScenarioCodec.fromJson(json).binding)
+    }
+
+    /** The same additive bargain: a scenario that never asked for fresh-only never grows the key. */
+    @Test
+    fun `any binding writes no key, and an absent key reads any`() {
+        val scenario = Scenario(id = "sc-b", name = "n", steps = listOf(ScenarioStep.Send("35=D|", session = "s")))
+        assertNull(ScenarioCodec.toJson(scenario)["binding"], "the wire format is frozen except additively")
+        val noKey = Json.parseToJsonElement("""{"id":"sc-b","name":"n"}""").jsonObject
+        assertEquals(BindScope.ANY, ScenarioCodec.fromJson(noKey).binding)
+    }
+
+    /**
+     * Reading an unknown binding scope as ANY is how a scenario that asked to bind only this run's traffic
+     * quietly goes back to binding anything — and passes on a reply to a run that finished yesterday. The
+     * quiet weakening is the whole reason this refuses.
+     */
+    @Test
+    fun `a binding scope the build does not know fails the load, by name`() {
+        val typo = Json.parseToJsonElement("""{"id":"sc-b","name":"n","binding":"thisrunn"}""").jsonObject
+        val why = assertFailsWith<IllegalArgumentException> { ScenarioCodec.fromJson(typo) }
+        assertTrue("thisrunn" in why.message!!, "the refusal must name what it could not read: ${why.message}")
     }
 }

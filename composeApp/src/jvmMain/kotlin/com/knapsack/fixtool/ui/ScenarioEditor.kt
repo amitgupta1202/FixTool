@@ -70,6 +70,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.TagValue
+import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.service.ScenarioAnnotations
 import com.knapsack.fixtool.service.SendField
@@ -220,6 +221,7 @@ fun ScenarioEditor(
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var traffic by remember { mutableStateOf(initial.traffic) }
+    var binding by remember { mutableStateOf(initial.binding) }
     val steps = remember { mutableStateListOf<EditStep>().apply { addAll(initial.steps.map { it.toEditStep() }) } }
     // A stable id per step. The detail editor seeds its drafts once per step and must not re-seed on
     // every keystroke, so it is keyed — but an index is not an identity: delete a step above the
@@ -232,7 +234,7 @@ fun ScenarioEditor(
     }
 
     val builtSteps = steps.map { it.toStep() }
-    val built = initial.copy(name = name, steps = builtSteps, traffic = traffic)
+    val built = initial.copy(name = name, steps = builtSteps, traffic = traffic, binding = binding)
     // By value, not by every recomposition: an untouched editor emits its seed once and then stays quiet.
     LaunchedEffect(built) { onChange(built) }
 
@@ -267,6 +269,10 @@ fun ScenarioEditor(
                 SlimField(name, { name = it }, modifier = Modifier.width(280.dp).testTag("scenario-name"))
             }
             TrafficChip(traffic, onToggle = { traffic = if (traffic == TrafficMode.OPEN) TrafficMode.STRICT else TrafficMode.OPEN })
+            BindingChip(
+                binding,
+                onToggle = { binding = if (binding == BindScope.ANY) BindScope.THIS_RUN else BindScope.ANY },
+            )
             Row(modifier = Modifier.weight(1f)) {}
             // Setup used to stand on its own row below the header, spending a whole line on one quiet
             // sentence. It rides in the header's empty span now — a reclaimed line — beside Save, where
@@ -628,6 +634,48 @@ private fun TrafficChip(mode: TrafficMode, onToggle: () -> Unit) {
                     .clickable(onClick = onToggle)
                     .padding(horizontal = 6.dp, vertical = 1.dp)
                     .testTag("traffic-mode-chip"),
+        )
+    }
+}
+
+/**
+ * **Which messages this scenario's steps may bind** — the header chip beside TRAFFIC, and its sibling in
+ * spirit: both answer a question the per-step expectation cannot, one about the traffic a run ignored and
+ * one about the traffic a run inherited.
+ *
+ * It reads BINDING ANY in the quiet colour rather than hiding at the default, because the default is the
+ * permissive one here. A scenario that binds anything is the normal case and mostly harmless; on a session
+ * that never stops it is a false green waiting to happen, and the author is better served by a chip that
+ * says which rule is in force than by silence that means the looser one.
+ */
+@Composable
+private fun BindingChip(scope: BindScope, onToggle: () -> Unit) {
+    val fresh = scope == BindScope.THIS_RUN
+    val colour = if (fresh) AppTheme.Colors.warning else AppTheme.Colors.info
+    AppTooltip(
+        if (fresh) {
+            "Binding is THIS RUN: a step may only bind a message that arrived after the run started. A " +
+                "reply to earlier traffic is invisible to it, so a step with nothing fresh times out " +
+                "instead of passing on an old message. Click for ANY."
+        } else {
+            "Binding is ANY: a step may bind any message in the log, including one that arrived before " +
+                "the run started — on a session that is always full of the expected type that can pass on " +
+                "a reply to an earlier run. The run reports it when it happens. Click for THIS RUN."
+        },
+    ) {
+        Text(
+            if (fresh) "BINDING THIS RUN" else "BINDING ANY",
+            color = colour,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+            modifier =
+                Modifier
+                    .padding(start = 8.dp)
+                    .border(1.dp, colour.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+                    .clickable(onClick = onToggle)
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
+                    .testTag("binding-scope-chip"),
         )
     }
 }

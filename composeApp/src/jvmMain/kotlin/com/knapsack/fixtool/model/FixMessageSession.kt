@@ -26,6 +26,22 @@ class FixMessageSession(
     // Reconnects re-resolve the slot's identity from the profile, so profile edits take effect.
     val profileSlot: Int = 0,
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
+    /**
+     * **How big a burst this session can absorb before it starts throwing traffic away.**
+     *
+     * Deliberately not `bufferSize * 2`, which is what it used to be and what made a display preference into
+     * a throughput limit: a user who shrank the grid window to keep it readable also shrank the burst buffer
+     * by the same factor, and started losing messages at a rate that had nothing to do with the choice they
+     * thought they were making. Retention answers "how much history do I want to scroll"; this answers "how
+     * far ahead of the drain may the wire get". They are unrelated, and only one of them is the user's
+     * business.
+     *
+     * The floor covers one drain cycle at a rate no FIX session realistically sustains, so what fills this is
+     * not throughput any more but a stall — a GC pause, a starved dispatcher, a debugger breakpoint. It never
+     * *reduces* anyone's depth: a session deliberately configured with a huge window keeps its proportional
+     * queue. Injectable so a test can force the overflow path deterministically instead of by volume.
+     */
+    private val queueDepth: Int = maxOf(bufferSize * QUEUE_MULTIPLIER, MIN_QUEUE_DEPTH),
     private val onError: ((String) -> Unit)? = null,
     private val onWarning: ((String) -> Unit)? = null,
 ) {
@@ -37,6 +53,17 @@ class FixMessageSession(
         // and with O(1) eviction there is nothing left for it to bound — keeping it at any value would only
         // re-impose the ingest ceiling it used to be the cause of. See [retained].
         private const val QUEUE_MULTIPLIER = 2
+
+        /**
+         * The floor under [queueDepth], in messages.
+         *
+         * Sized as one drain cycle at 200,000 messages/second — an order of magnitude above what any FIX
+         * session realistically sustains, chosen so that reaching it means something has *stalled* rather
+         * than something is merely fast. Bounded on purpose: this queue is backpressure, and the only
+         * alternative to dropping the head when it fills is to keep allocating until the heap ends the
+         * process. A drop is recoverable and now counted; an OOM takes the evidence with it.
+         */
+        private const val MIN_QUEUE_DEPTH = 20_000
     }
 
     private val logger = NotifyingLogger(FixMessageSession::class.java, onError)
@@ -102,7 +129,7 @@ class FixMessageSession(
     private var _appSettings: AppSettings? = null
     private var _dictionary: FixDictionary? = null
 
-    private val messageQueue = LinkedBlockingQueue<AppMessage>(bufferSize * QUEUE_MULTIPLIER)
+    private val messageQueue = LinkedBlockingQueue<AppMessage>(queueDepth)
     private val scope = CoroutineScope(Dispatchers.Default)
 
     private var isActive = true

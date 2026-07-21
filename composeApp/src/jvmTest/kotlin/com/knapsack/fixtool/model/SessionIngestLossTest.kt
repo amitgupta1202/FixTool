@@ -56,6 +56,57 @@ class SessionIngestLossTest {
         )
     }
 
+    /**
+     * The ceiling was an accident of the data structure, not a policy.
+     *
+     * Eviction used to be `removeFirst()` on an ArrayList — O(n) per message — so the drain cost
+     * O(batch × bufferSize), and the batch had to be capped to contain it. That cap was the ingest ceiling:
+     * roughly a thousand messages a second, past which traffic that had already arrived was thrown away. A
+     * deque evicts in O(1), so the batch can be the whole queue.
+     *
+     * This pins the outcome rather than the mechanism: a burst that fits in the queue must arrive intact, in
+     * order, however fast it was offered.
+     */
+    @Test
+    fun `a burst that fits the queue is ingested whole, in one cycle`() {
+        val session = FixMessageSession(title = "fast", bufferSize = 5_000)
+        val burst = 4_000
+        repeat(burst) { session.addMessage(message(it)) }
+
+        // One drain, not forty: under the old fixed batch this needed ~4 seconds of cycles to catch up, and
+        // anything still queued when the queue filled was discarded outright.
+        session.flushMessageQueue()
+        assertEquals(0L, session.discarded.value, "the queue was deep enough; nothing should have been lost")
+        assertEquals(burst, session.messages.value.size, "every offered message must be retained")
+        val order =
+            session.messages.value
+                .filterIsInstance<FixMessage>()
+                .map { it.rawMessage }
+        assertEquals(message(0).rawMessage, order.first(), "and in arrival order")
+        assertEquals(message(burst - 1).rawMessage, order.last())
+    }
+
+    /**
+     * The window and the published snapshot are one thing seen two ways, so clearing has to empty both. It
+     * would be easy to empty only the snapshot — and the next drain cycle, a tenth of a second later, would
+     * republish every message the user had just cleared, from the window that still held them.
+     */
+    @Test
+    fun `clearing empties the retained window, not just the published snapshot`() {
+        val session = FixMessageSession(title = "clear", bufferSize = 100)
+        repeat(10) { session.addMessage(message(it)) }
+        session.flushMessageQueue()
+        assertEquals(10, session.messages.value.size)
+
+        session.clearMessages()
+        assertTrue(session.messages.value.isEmpty(), "cleared")
+
+        // One more message, one more drain: only the new one may come back.
+        session.addMessage(message(99))
+        session.flushMessageQueue()
+        assertEquals(1, session.messages.value.size, "a clear must not be undone by the next drain cycle")
+    }
+
     @Test
     fun `a session inside its ceiling reports no loss at all`() {
         val session = FixMessageSession(title = "calm", bufferSize = 1_000)

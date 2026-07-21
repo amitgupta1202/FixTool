@@ -32,7 +32,10 @@ class FixMessageSession(
     companion object {
         const val DEFAULT_BUFFER_SIZE = 1000
         private val POLL_PERIOD_MS = System.getProperty("pollInMs", "100").toLong()
-        private const val DRAIN_BATCH_SIZE = 100
+
+        // DRAIN_BATCH_SIZE is gone rather than raised. It existed to bound an O(batch × bufferSize) drain,
+        // and with O(1) eviction there is nothing left for it to bound — keeping it at any value would only
+        // re-impose the ingest ceiling it used to be the cause of. See [retained].
         private const val QUEUE_MULTIPLIER = 2
     }
 
@@ -157,25 +160,43 @@ class FixMessageSession(
         _filterMessageTypes.value = types
     }
 
+    /**
+     * **The retained window, as a deque.** Eviction is the whole reason this is not an ArrayList.
+     *
+     * The drain used to copy `_messages.value` into an ArrayList and call `removeFirst()` once per message
+     * over capacity — an O(n) shift each time, so the loop cost O(batch × bufferSize). That quadratic is what
+     * forced the batch cap, and the batch cap is what capped ingestion at roughly a thousand messages a
+     * second per session; past it, [addMessage] discarded traffic that had already arrived. An ArrayDeque
+     * evicts in O(1), so the batch no longer has to be small, and the drain is linear in what it drains
+     * rather than in what the session is holding.
+     *
+     * Guarded by [retained] itself: it is touched only from the single drain coroutine and [clearMessages].
+     * Readers never see it — they get the immutable snapshot published to [_messages].
+     */
+    private val retained = ArrayDeque<AppMessage>()
+
     private fun startMessagePolling() {
         scope.launch {
             while (isActive) {
                 val batch = mutableListOf<AppMessage>()
-                // Drain a bounded batch to keep up during bursts
-                messageQueue.drainTo(batch, DRAIN_BATCH_SIZE)
+                // The whole queue, not a fixed slice. What bounds this is the queue's own capacity, which is
+                // already bufferSize-proportional — draining less than that per cycle only guaranteed the
+                // backlog would grow until addMessage started throwing messages away.
+                messageQueue.drainTo(batch)
                 // drainTo may return 0 even when one item remains, so poll once more
                 messageQueue.poll()?.let { batch.add(it) }
 
                 if (batch.isNotEmpty()) {
-                    // Use mutable list for efficient batch processing, then convert once
-                    val current = _messages.value.toMutableList()
-                    batch.forEach { message ->
-                        if (current.size >= bufferSize) {
-                            current.removeFirst()
+                    synchronized(retained) {
+                        batch.forEach { message ->
+                            if (retained.size >= bufferSize) retained.removeFirst()
+                            retained.addLast(message)
                         }
-                        current.add(message)
+                        // One immutable snapshot per cycle, which is what StateFlow's readers require and
+                        // what keeps the UI's recomposition batched. It copies references, not elements —
+                        // the part that was moving whole arrays per message is gone.
+                        _messages.value = retained.toList()
                     }
-                    _messages.value = current.toList()
                 }
                 delay(POLL_PERIOD_MS) // Poll every 100ms
             }
@@ -218,24 +239,33 @@ class FixMessageSession(
     /**
      * Flushes the message queue synchronously, immediately processing all queued messages.
      * This is primarily for testing to ensure messages are processed before assertions.
+     *
+     * Through [retained], like the drain, and not by rebuilding from [_messages]: the deque is the retained
+     * window and the flow is a published snapshot of it. A second path that reconstructed the window from
+     * its own snapshot would be a second decider for what the session is holding, and the two would drift
+     * the first time they interleaved.
      */
     fun flushMessageQueue() {
         val batch = mutableListOf<AppMessage>()
         messageQueue.drainTo(batch)
-        if (batch.isNotEmpty()) {
-            val current = _messages.value.toMutableList()
+        if (batch.isEmpty()) return
+        synchronized(retained) {
             batch.forEach { message ->
-                if (current.size >= bufferSize) {
-                    current.removeFirst()
-                }
-                current.add(message)
+                if (retained.size >= bufferSize) retained.removeFirst()
+                retained.addLast(message)
             }
-            _messages.value = current.toList()
+            _messages.value = retained.toList()
         }
     }
 
     fun clearMessages() {
-        _messages.value = emptyList()
+        // The deque first, and under the same lock. Emptying only the published snapshot would leave the
+        // window itself full, and the very next drain cycle would republish every message the user just
+        // cleared — a clear that undoes itself a tenth of a second later.
+        synchronized(retained) {
+            retained.clear()
+            _messages.value = emptyList()
+        }
         messageQueue.clear()
         latestIncomingByType.clear()
         latestOutgoingByType.clear()

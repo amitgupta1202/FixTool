@@ -25,6 +25,20 @@ class FixDictionaryAdapter private constructor(
     /**
      * Gets the field name for a given tag number
      */
+    /**
+     * **The venue's answers about who mints its own tags** — `<dictionary>.roles.json`, loaded beside the
+     * dictionary file and empty for a bundled one (standard FIX needs no overlay; FixTool knows it).
+     *
+     * It hangs off the adapter rather than being threaded through capture and seeding as a parameter
+     * because it is the same *kind* of fact as a field's name or type: a property of the venue's dialect.
+     * Every surface that classifies a tag is already holding a dictionary, so this reaches all of them
+     * without a new argument — and cannot come to disagree with the names it sits beside.
+     */
+    val tagRoles: TagRoleOverlay by lazy { TagRoleOverlay.beside(dictionaryPath) }
+
+    /** Does the venue say it mints this tag itself — or that we do? See [TagRole]. */
+    fun hasRole(tag: Int, role: TagRole): Boolean = tagRoles.has(tag, role)
+
     fun getFieldName(tag: Int): String? {
         // First check the application dictionary
         val appName = dataDictionary?.getFieldName(tag)

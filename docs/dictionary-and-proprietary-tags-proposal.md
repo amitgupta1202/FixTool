@@ -1,6 +1,13 @@
 # The dictionary the tool ships, and the tags the spec never named
 
-> **Outcome — Part A shipped (2026-07-21), live-verified. Part B is still a proposal.**
+> **Outcome — Part A shipped, Part B's venue overlay shipped, Part B's detector still open
+> (2026-07-21).** Proprietary correlation ids are now supported through
+> `<dictionary>.roles.json` beside the venue's dictionary — see *The venue overlay* below,
+> live-verified against the real BrokerTec dictionary. No proprietary tag entered FixTool's
+> source, which was the constraint. What is **not** built is the echo detector that would
+> make the overlay discoverable rather than something you must know to write.
+>
+> **Outcome — Part A shipped (2026-07-21), live-verified.**
 > The bundled FIX 4.4 dictionary is now QuickFIX/J's whole one (93 → 916 fields), and the
 > stale-timestamp warning asks what the dictionary *knows about the tags at hand* instead
 > of whether one is loaded. `ScenarioCapture.captureRisk` is the single source of that
@@ -252,20 +259,62 @@ The mint routes through `mintName` like every other path, so with the venue's di
 loaded it is `${venueOrderRef}`, not `${tag9482}` — which is a second reason Part A comes
 first.
 
-### Deferred: the venue overlay
+### The venue overlay — **built** (2026-07-21), ahead of the detector
 
-The persistence layer — a `<dictionary>.roles.json` sidecar declaring roles for
-proprietary tags, resolved under the built-in sets and over nothing — is **not** proposed
-now. It is the answer to "I am tired of re-ticking", which is a loud complaint that
-arrives with the tag numbers attached. Building the detector first is what generates that
-evidence. If the proposal never fires in your clients' captures, the overlay was never
-needed and nothing was built.
+Originally deferred here on the argument that the overlay answers "I am tired of
+re-ticking", a complaint that would arrive with the tag numbers attached. Two things
+overtook that:
 
-Sidecar rather than an attribute inside the venue's XML, when it comes: the venue ships you
-that file and their next release overwrites your edits.
+1. **The constraint is explicit**: proprietary tags must not enter FixTool's source, because
+   this source is shared across a dozen venues and a hardcoded `20013` is a claim about all
+   of them. That makes the overlay *the mechanism*, not a convenience — there is no other
+   place a venue's own answer can live.
+2. **The candidates are already visible.** The BrokerTec dictionary defines 132 tags outside
+   standard FIX 4.4, of which at least nine are id-shaped: `LegQuoteReqID(20013)`,
+   `SecondaryQuoteID(1751)`, `SecondaryTradeLinkID(20071)`, `BatchID(20040)`,
+   `LegIOIID(20086)`, `CounterpartyAxeID(20093)`, `LegReportId(990)`, `LegID(1788)`,
+   `OrigTradeID(1126)`. The overlay is not speculative for that venue.
 
-This is the same call already made on the fix plan — authoring-time proposals yes, config
-deferred.
+**Shape as shipped.** `<dictionary-file>.roles.json`, beside the dictionary:
+
+```json
+{ "20013": "CLIENT_MINTED_ID", "1751": "CLIENT_MINTED_ID", "20040": "VENUE_MINTED_ID" }
+```
+
+Roles are `CLIENT_MINTED_ID`, `VENUE_MINTED_ID`, `LIFETIME` (see `TagRole`). A tag may carry
+a **list** of roles — `QuoteID(117)` is the standard case and it is real, since whoever
+quotes mints it, and capture resolves per capture by whether this scenario's own send minted
+the value. A model storing one role per tag would break dealer-side RFQ.
+
+It hangs off `FixDictionaryAdapter` rather than being threaded through capture and seeding
+as a parameter: the roles are the same *kind* of fact as a field's name or type — a property
+of the venue's dialect — and every surface that classifies a tag already holds a dictionary.
+Zero new arguments anywhere, and the roles cannot drift from the names they sit beside.
+
+The built-in sets are unchanged and the overlay only ever **adds**, so a venue that declares
+nothing loses nothing. Malformed entries are skipped individually rather than thrown: one
+typo must not silently discard a venue's whole declaration at capture time.
+
+Sidecar rather than an attribute inside the venue's XML: the venue ships you that file and
+their next release overwrites your edits.
+
+**Verified live on the real BrokerTec dictionary** — same paste, same venue dictionary, with
+and without the sidecar:
+
+```
+without:  20013=LEG-A7F3C201                     expect 20013 → exact("LEG-A7F3C201")
+          bind [131]
+with:     20013=${legQuoteReqID = uuid:20}       expect 20013 → reference(${legQuoteReqID})
+          bind [131, 20013, 1751]
+```
+
+The variable names come from the venue's own dictionary via `mintName`, so the reference
+dropdown reads `${legQuoteReqID}`, not `${tag20013}`.
+
+**Still open: the detector.** The overlay is *declaration*, and declaration-first config is
+undiscoverable — you must already know the mechanism exists to fill it in. The echo proposal
+above is what makes it discoverable, and it is not built yet. Until it is, a venue's ids are
+supported but must be declared by hand.
 
 ### What Part B buys
 

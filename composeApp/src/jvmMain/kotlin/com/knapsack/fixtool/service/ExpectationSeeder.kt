@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -156,9 +157,12 @@ object ExpectationSeeder {
             // type-first walk seeded it "~now ±60s" — and a resend's OrigSendingTime is *by definition*
             // the old message's, minutes or hours in the past. Every resend scenario went red on every
             // run, on the environment it was captured on.
-            tag in PRESENCE_TAGS -> Matcher.Presence
+            // The standard set, plus whatever this venue declares about its OWN ids — a proprietary tag
+            // belongs in the overlay beside the venue's dictionary, never in FixTool's source, because
+            // this source is shared by every venue. See [TagRoleOverlay].
+            tag in PRESENCE_TAGS || dictionary?.hasRole(tag, TagRole.VENUE_MINTED_ID) == true -> Matcher.Presence
             // Also ahead of the type rules, for the mirror reason: an expiry is deliberately NOT ~now.
-            tag in LIFETIME_TAGS -> Matcher.Presence
+            tag in LIFETIME_TAGS || dictionary?.hasRole(tag, TagRole.LIFETIME) == true -> Matcher.Presence
             fieldType in TIMESTAMP_TYPES ->
                 Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, DEFAULT_TIME_TOLERANCE_SECONDS)
             // Only *current* UTC dates land here (an MDEntryDate on a live snapshot is today's date). Business

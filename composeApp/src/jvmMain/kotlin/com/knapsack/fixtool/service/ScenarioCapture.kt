@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchOp
@@ -81,6 +82,21 @@ object ScenarioCapture {
      * honest on any venue; the author tunes it in the editor if their flow needs longer.
      */
     private val LIFETIME_TAGS = setOf(62, 126) // ValidUntilTime, ExpireTime
+
+    /**
+     * **The standard set, plus whatever this venue says about its own tags.**
+     *
+     * [ID_TAGS] is standard FIX and stays that way — a proprietary tag in FixTool's source is a claim
+     * about every venue, and FixTool is one tool across a dozen. A venue's own correlation ids
+     * (BrokerTec's `LegQuoteReqID(20013)`, say) arrive through the overlay beside its dictionary
+     * instead, so the declaration lives with the dialect it describes. See [TagRoleOverlay].
+     */
+    private fun isClientMintedId(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
+        tag in ID_TAGS || dictionary?.hasRole(tag, TagRole.CLIENT_MINTED_ID) == true
+
+    /** As [isClientMintedId], for the stamps whose replay must lie in the future. */
+    private fun isLifetime(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
+        tag in LIFETIME_TAGS || dictionary?.hasRole(tag, TagRole.LIFETIME) == true
 
     /** A session's title + the messages observed on it. */
     data class CapturedSession(val title: String, val messages: List<FixMessage>)
@@ -299,7 +315,7 @@ object ScenarioCapture {
                 steps += expectStep(candidate, dictionary, refByValue)
             }
         }
-        disambiguateSameType(steps, expectCandidates)
+        disambiguateSameType(steps, expectCandidates, dictionary)
 
         val setup = selection.map { it.session.orNoneNamed() }.distinct().map { ScenarioStep.ClearMessages(it) }
         return Scenario(id = id, name = name, profile = profile, setup = setup, steps = steps)
@@ -333,7 +349,11 @@ object ScenarioCapture {
      * 3. else **occurrence** ordinals by arrival order — always separates, but a bare count, so it is the last
      *    resort.
      */
-    private fun disambiguateSameType(steps: MutableList<ScenarioStep>, expects: List<Pair<Int, Candidate>>) {
+    private fun disambiguateSameType(
+        steps: MutableList<ScenarioStep>,
+        expects: List<Pair<Int, Candidate>>,
+        dictionary: FixDictionaryAdapter?,
+    ) {
         val groups = expects.groupBy { (_, c) -> c.session to c.messageType }
         for ((_, members) in groups) {
             if (members.size < 2) continue
@@ -341,7 +361,7 @@ object ScenarioCapture {
             // consumed cursor then suffice, and adding anything would only be noise.
             if (members.map { (idx, _) -> bindSignature(steps[idx]) }.toSet().size == members.size) continue
             if (seedValueDiscriminator(steps, members)) continue
-            if (members.size == 2 && seedPresenceDiscriminator(steps, members)) continue
+            if (members.size == 2 && seedPresenceDiscriminator(steps, members, dictionary)) continue
             seedOrdinals(steps, members)
         }
     }
@@ -363,14 +383,21 @@ object ScenarioCapture {
         return false
     }
 
-    private fun seedPresenceDiscriminator(steps: MutableList<ScenarioStep>, members: List<Pair<Int, Candidate>>): Boolean {
+    private fun seedPresenceDiscriminator(
+        steps: MutableList<ScenarioStep>,
+        members: List<Pair<Int, Candidate>>,
+        dictionary: FixDictionaryAdapter?,
+    ): Boolean {
         val (a, b) = members
         val aTags = a.second.fields.mapTo(mutableSetOf()) { it.first }
         val bTags = b.second.fields.mapTo(mutableSetOf()) { it.first }
         // A tag on exactly one of the two separates them. Prefer a correlation id (the QuoteReqID case) — it is
         // the field an author would themselves reach for — then the lowest-numbered tag for a stable choice.
         val distinguishing = (aTags - bTags) + (bTags - aTags)
-        val tag = distinguishing.filter { it in ID_TAGS }.minOrNull() ?: distinguishing.minOrNull() ?: return false
+        val tag =
+            distinguishing.filter { isClientMintedId(it, dictionary) }.minOrNull()
+                ?: distinguishing.minOrNull()
+                ?: return false
         val presentInA = tag in aTags
         addConstraint(steps, a.first, TagValue(tag, "", if (presentInA) MatchOp.PRESENT else MatchOp.ABSENT))
         addConstraint(steps, b.first, TagValue(tag, "", if (presentInA) MatchOp.ABSENT else MatchOp.PRESENT))
@@ -452,7 +479,14 @@ object ScenarioCapture {
             .flatMap { it.fields }
             .map { it.first }
             .distinct()
-            .filter { it !in decidedWithoutDictionary && dictionary.getFieldName(it) == null }
+            .filter {
+                it !in decidedWithoutDictionary &&
+                    dictionary.getFieldName(it) == null &&
+                    // A tag the venue's overlay speaks for is ANSWERED, even where the dictionary XML has
+                    // no name for it. Warning about it anyway would train the author to ignore the warning
+                    // — and the overlay is precisely the act of answering it.
+                    it !in dictionary.tagRoles.declaredTags
+            }
             .sorted()
     }
 
@@ -500,9 +534,10 @@ object ScenarioCapture {
                 // Before the general timestamp rule: an expiry stamped "now" is expired on arrival.
                 // Unconditional, like tag 60 in isTimestamp: these are UTCTIMESTAMP by the spec, and a
                 // dictionary-less capture still must not replay a stale quote lifetime.
-                tag in LIFETIME_TAGS -> FUTURE_EXPR
+                isLifetime(tag, dictionary) -> FUTURE_EXPR
                 isTimestamp(tag, dictionary) -> NOW_EXPR
-                tag in ID_TAGS && value.isNotBlank() -> idExpr(tag, value, refByValue, takenNames, dictionary)
+                isClientMintedId(tag, dictionary) && value.isNotBlank() ->
+                    idExpr(tag, value, refByValue, takenNames, dictionary)
                 else -> value
             }
             tag to out
@@ -565,14 +600,14 @@ object ScenarioCapture {
             // fresh uuid, so the scenario asserted that Side equals a uuid and was permanently red for a
             // reason pointing at nothing the author wrote. An echo comes back in a correlation-id field —
             // which is precisely the filter the bind constraints below already apply.
-            val ref = if (sf.field.tag in ID_TAGS) refByValue[sf.capturedValue] else null
+            val ref = if (isClientMintedId(sf.field.tag, dictionary)) refByValue[sf.capturedValue] else null
             if (ref != null) sf.field.copy(matcher = Matcher.Reference(ref)) else sf.field
         }
         // Echoed correlation ids also become bind constraints, so on a busy session this step binds
         // to *the response to this run's ids* — not merely the first message of the same type. The
         // ${idN} values are resolved against the scenario scope by the runner.
         val bindConstraints = entry.fields
-            .filter { (tag, value) -> tag in ID_TAGS && refByValue.containsKey(value) }
+            .filter { (tag, value) -> isClientMintedId(tag, dictionary) && refByValue.containsKey(value) }
             .map { (tag, value) -> TagValue(tag, refByValue.getValue(value)) }
             .distinctBy { it.tag }
         return ScenarioStep.Expect(

@@ -256,3 +256,28 @@ reach for capture when you do not.
 Tip: `fixtool_capture_scenario` records a live message flow into a scenario — it auto-parameterizes
 TransactTime and correlation IDs and auto-wires echoed ids to `reference` matchers, which is the
 quickest way to a working, correctly-templated scenario.
+
+### Correlation ids the spec never named
+
+Capture parameterizes the correlation ids **standard FIX** defines. A venue's own — `LegQuoteReqID(20013)`,
+a proprietary batch id, a deal handle in the 20000s — are declared per dictionary, because a FIX dictionary
+records a field's name and type but never **who mints its value**, and `ClOrdID(11)` and `OrderID(37)` are
+indistinguishable by either.
+
+Undeclared, a venue id replays **verbatim**: the same value every run (a duplicate at any venue enforcing
+uniqueness), and the expect binds to the first message of that type rather than the reply to this run's ids.
+
+- `GET /dictionary/roles` lists the tags this dictionary adds beyond standard FIX, id-shaped first.
+- `POST /dictionary/roles` declares them — `CLIENT_MINTED_ID` (fresh per run, echo → `reference` + bind
+  constraint), `VENUE_MINTED_ID` (`presence`, and a later send that quotes it back reads it from *this run's*
+  reply via `bindAs`), or `LIFETIME`. Written to `<dictionary>.roles.json` beside the dictionary and live
+  for the next capture.
+
+Two fields on a capture response are worth reading rather than ignoring:
+
+- **`warning`** — the loaded dictionary could not name these tags, so they were classified blind. A
+  timestamp among them replays the captured moment for ever.
+- **`echoProposals[]`** — values this flow shows coming back that nobody has declared, each with the
+  evidence (`kind` is `MINT` if you sent it first, `CAPTURE` if the venue did). **Reported, never applied**:
+  accept one by POSTing it to `/dictionary/roles` and capturing again. Declaring a role from a guessed echo
+  is a write to the venue's dictionary, and that is the author's call, not an agent's.

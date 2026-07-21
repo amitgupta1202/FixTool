@@ -339,8 +339,38 @@ private fun SessionPanel(
                 text = session.title,
                 color = titleTextColor,
                 fontSize = 12.sp,
-                modifier = Modifier.weight(1f),
             )
+
+            // **Messages this session threw away.** Shown in the header, next to the name, because it is a
+            // fact about the session's whole log: everything below it is missing this many messages, and a
+            // reader who does not know that will reasonably conclude the venue never sent them. Absent while
+            // the count is zero — a badge that is always there is furniture, not a warning.
+            val discarded by session.discarded.collectAsState()
+            if (discarded > 0) {
+                Spacer(modifier = Modifier.width(6.dp))
+                TooltipIconButton(
+                    tooltip =
+                        "$discarded message(s) received and discarded — FixTool could not ingest them fast " +
+                            "enough, so they are missing from this log entirely. Not a venue problem, and " +
+                            "not recoverable: they were never stored. Raising the session buffer deepens the " +
+                            "burst it can absorb but does not raise the rate.",
+                    onClick = {},
+                    modifier = Modifier.size(buttonSize),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "$discarded messages discarded",
+                        tint = AppTheme.Colors.warning,
+                        modifier = Modifier.size(iconSize),
+                    )
+                }
+                Text(
+                    text = "$discarded lost",
+                    color = AppTheme.Colors.warning,
+                    fontSize = 10.sp,
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
 
             // Wrap text toggle (RAW mode only)
             Spacer(modifier = Modifier.width(4.dp))

@@ -186,6 +186,11 @@ class ControlServer(
             put("state", session.connectionState.value.name)
             put("profileSlot", session.profileSlot)
             put("messageCount", session.messages.value.size)
+            // Only when it is not zero. A field that reads 0 on every healthy session teaches a reader to
+            // stop looking at it, which is the opposite of what a loss counter is for — see
+            // [FixMessageSession.discarded]. Its absence means nothing was lost.
+            val lost = session.discarded.value
+            if (lost > 0) put("discarded", lost)
             put("senderCompID", session.currentConfig?.senderCompID ?: "")
             put("targetCompID", session.currentConfig?.targetCompID ?: "")
         }

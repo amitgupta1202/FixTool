@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchOp
@@ -70,7 +71,7 @@ class ScenarioRunnerTest {
         assertEquals(1, reported.size, "the failing step must report the message it bound to")
         assertEquals(reply, reported.single().first)
         assertFalse(reported.single().second.passed, "and it must report it as failed")
-        val step = result.steps.single()
+        val step = result.steps.single { it.kind == "expect" }
         val detail = step.detail.orEmpty()
         assertTrue(
             detail.contains("no wire bytes", ignoreCase = true) && detail.contains("FixTool"),
@@ -634,7 +635,9 @@ class ScenarioRunnerTest {
         val result = run(host, scenario)
         assertTrue(result.passed, "${result.steps}")
         // The active expect bound the message the muted one would have consumed.
-        assertEquals("2", result.steps.single().tags.single { it.tag == 39 }.actual)
+        // `single { expect }`: the seeded reply predates the run, so the report also carries the binding
+        // caveat — which is the point of that check and not this test's business.
+        assertEquals("2", result.steps.single { it.kind == "expect" }.tags.single { it.tag == 39 }.actual)
     }
 
     @Test
@@ -1007,6 +1010,109 @@ class ScenarioRunnerTest {
 
         // Only the reject and one example tick are marked; the grid is not repainted 600 times.
         assertTrue(reported.size <= 3, "marked ${reported.size} messages; a mark on everything marks nothing")
+    }
+
+    // --------------------------------------------------------- binding a message that predates the run
+
+    /**
+     * The false green this exists to catch. The session log outlives the run that reads it, so on a session
+     * permanently full of the expected type an Expect binds a reply to *earlier* traffic and reports that
+     * the venue answered — when the venue has not yet said anything about this run.
+     *
+     * Under the default scope the step still passes, because that is the semantics every existing scenario
+     * was written against and changing it silently is how a suite starts lying in the other direction. What
+     * must not happen is the run staying quiet about it.
+     */
+    @Test
+    fun `binding a message older than the run passes, but the run says so`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2")) // already there before the run begins
+        val result = run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("2")))))
+
+        assertTrue(result.passed, "the default scope binds anything, as it always has")
+        val binding = result.steps.single { it.kind == "binding" }
+        assertTrue(binding.passed, "a caveat, not a verdict — the scenario did not ask for the guarantee")
+        assertTrue(binding.detail!!.contains("before this run started"), "${binding.detail}")
+        assertTrue(
+            binding.detail!!.contains("this_run"),
+            "it must name the way to make this a timeout instead: ${binding.detail}",
+        )
+    }
+
+    @Test
+    fun `under this_run an older message is not bindable, so the step times out honestly`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "fresh",
+                steps = listOf(expectWith(timeoutMs = 50, FieldExpectation(39, Matcher.Exact("2")))),
+                binding = BindScope.THIS_RUN,
+            )
+        val result = run(host, scenario)
+
+        assertFalse(result.passed, "this run has not seen its reply, and says so rather than borrowing one")
+        val timedOut = result.steps.single { it.kind == "expect" }
+        assertTrue(timedOut.detail!!.contains("no 8"), "${timedOut.detail}")
+        // Nothing to caveat: under THIS_RUN the older message was never bindable, so no step bound one.
+        assertTrue(result.steps.none { it.kind == "binding" }, "the check is enforcement, not narration, here")
+    }
+
+    /**
+     * The post-mortem must not hand out advice that cannot work. A message the binding scope excluded looks
+     * exactly like one that arrived too late — matching, present, unbound — and "raise the timeout" costs a
+     * whole run to disprove, because the step will refuse the same message just as fast next time.
+     */
+    @Test
+    fun `a message excluded by scope is diagnosed as excluded, not as late`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "fresh",
+                steps = listOf(expectWith(timeoutMs = 50, FieldExpectation(39, Matcher.Exact("2")))),
+                binding = BindScope.THIS_RUN,
+            )
+        val diagnosis = run(host, scenario).steps.single { it.kind == "diagnosis" }
+        assertTrue(
+            diagnosis.detail!!.contains("already in the log when the run began"),
+            "it must name the real reason: ${diagnosis.detail}",
+        )
+        assertFalse(
+            diagnosis.detail!!.contains("Raise the timeout"),
+            "advice that cannot work is worse than none: ${diagnosis.detail}",
+        )
+        assertTrue(diagnosis.detail!!.contains("clear the session in setup"), "and give the fix that can")
+    }
+
+    @Test
+    fun `a message that arrives after the run starts is bound under this_run`() {
+        val host = FakeHost()
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "fresh",
+                steps = listOf(expectWith(timeoutMs = 500, FieldExpectation(39, Matcher.Exact("2")))),
+                binding = BindScope.THIS_RUN,
+            )
+        // Delivered mid-run, on the runner's own poll — this is the traffic the scenario provoked.
+        host.onSleep = { host.inbox += incoming("8", mapOf(35 to "8", 39 to "2")) }
+        val result = run(host, scenario)
+
+        assertTrue(result.passed, "fresh traffic binds normally: ${result.steps.map { it.detail }}")
+        assertTrue(result.steps.none { it.kind == "binding" })
+    }
+
+    /** A run that binds only fresh traffic under the default scope has nothing to caveat either. */
+    @Test
+    fun `a run that binds nothing stale stays silent`() {
+        val host = FakeHost()
+        host.onSleep = { host.inbox += incoming("8", mapOf(35 to "8", 39 to "2")) }
+        val result = run(host, scenario(expectWith(timeoutMs = 500, FieldExpectation(39, Matcher.Exact("2")))))
+        assertTrue(result.passed)
+        assertTrue(result.steps.none { it.kind == "binding" }, "silence is the ordinary case")
     }
 
     // ------------------------------------------- messages the tool threw away before anything could see them

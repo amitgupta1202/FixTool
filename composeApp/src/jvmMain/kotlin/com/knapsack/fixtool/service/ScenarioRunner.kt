@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Scenario
@@ -129,6 +130,14 @@ class ScenarioRunner(
         // Lifetime discard counts before a single step runs, so the check below reports what *this run* lost
         // rather than what the session has lost since it connected.
         val ingestBefore = runSessions(scenario).associateWith { host.discarded(it) }
+        // **The watermark**: everything already in the logs, by identity, before a single step runs. What it
+        // is *for* is the question — see [BindScope]. It labels every bind, and under THIS_RUN it also
+        // excludes. Identity, not time: the runner's clock is injectable millis and a message's timestamp is
+        // the tool's own wall clock, and a comparison across those two would be a bug waiting for a machine
+        // whose clocks disagree. Bounded by the session buffer, allocated once.
+        val watermark = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
+        runSessions(scenario).forEach { watermark += host.messages(it) }
+        val pre = PreRun(scenario.binding, watermark)
         // Which step wrote each name. Diffed around every step rather than instrumented into the template
         // evaluator, which does not know steps exist; first writer wins, matching the scope's own semantics.
         val mintedBy = mutableMapOf<String, String?>()
@@ -149,7 +158,7 @@ class ScenarioRunner(
         for ((i, step) in scenario.setup.withIndex()) {
             if (step.muted) continue
             val held = consumed.size
-            val r = ran(step, runStep(step, i, "setup", scope, consumed))
+            val r = ran(step, runStep(step, i, "setup", scope, consumed, pre))
             results += r
             if (!r.passed) {
                 abort = true
@@ -161,7 +170,7 @@ class ScenarioRunner(
             for ((i, step) in scenario.steps.withIndex()) {
                 if (step.muted) continue
                 val held = consumed.size
-                val r = ran(step, runStep(step, i, "steps", scope, consumed))
+                val r = ran(step, runStep(step, i, "steps", scope, consumed, pre))
                 results += r
                 if (!r.passed) {
                     failure = Failure(step, i, "steps", r, consumed.size == held)
@@ -172,12 +181,13 @@ class ScenarioRunner(
         // Before both the post-mortem and the strict verdict: what a run never saw shapes how the rest of the
         // report should be read, and in STRICT it decides whether the traffic claim may be made at all.
         ingestCheck(scenario, ingestBefore)?.let { results += it }
+        staleBindCheck(pre)?.let { results += it }
         // The post-mortem, before teardown — whose own sends provoke replies that are nobody's evidence,
         // for the same reason the strict-traffic verdict is judged before it. It costs no wall-clock: the
         // step that failed has already spent its whole timeout polling, so whatever there is to see has
         // arrived. See [PostMortem] for what it may and may not do.
         failure?.let { f ->
-            val diagnosis = PostMortem(scenario, f, scope, consumed).diagnose()
+            val diagnosis = PostMortem(scenario, f, scope, consumed, pre).diagnose()
             if (diagnosis.isNotEmpty()) {
                 val at = results.indexOfFirst { it === f.result }
                 if (at >= 0) results[at] = f.result.copy(detail = f.result.detail.orEmpty() + POINTER)
@@ -194,7 +204,7 @@ class ScenarioRunner(
         }
         for ((i, step) in scenario.teardown.withIndex()) {
             if (step.muted) continue
-            results += ran(step, runStep(step, i, "teardown", scope, consumed))
+            results += ran(step, runStep(step, i, "teardown", scope, consumed, pre))
         }
         // Teardown is best-effort cleanup — a teardown Expect/Wait that times out, or a ClearMessages whose
         // tab was closed mid-run, must not flip an otherwise-green verdict. Judge on the setup/steps phases
@@ -315,7 +325,8 @@ class ScenarioRunner(
         phase: String,
         scope: MutableMap<String, String>,
         consumed: MutableSet<FixMessage>,
-    ): StepResult = execute(step, index, phase, scope, consumed).copy(stepId = step.stepId.ifBlank { null })
+        pre: PreRun,
+    ): StepResult = execute(step, index, phase, scope, consumed, pre).copy(stepId = step.stepId.ifBlank { null })
 
     private fun execute(
         step: ScenarioStep,
@@ -323,6 +334,7 @@ class ScenarioRunner(
         phase: String,
         scope: MutableMap<String, String>,
         consumed: MutableSet<FixMessage>,
+        pre: PreRun,
     ): StepResult =
         when (step) {
             is ScenarioStep.Send -> {
@@ -338,8 +350,8 @@ class ScenarioRunner(
                     else "send failed on '${label(step.session)}' (state=${host.connectionState(step.session) ?: "session not found"}): $resolved"
                 StepResult(index, "send", phase, ok, detail = detail)
             }
-            is ScenarioStep.Wait -> runWait(step, index, phase, scope)
-            is ScenarioStep.Expect -> runExpect(step, index, phase, scope, consumed)
+            is ScenarioStep.Wait -> runWait(step, index, phase, scope, pre)
+            is ScenarioStep.Expect -> runExpect(step, index, phase, scope, consumed, pre)
             is ScenarioStep.ClearMessages -> {
                 val ok = host.clearMessages(step.session)
                 StepResult(index, "clear", phase, ok, detail = if (ok) "cleared" else "session '${label(step.session)}' not found")
@@ -351,7 +363,13 @@ class ScenarioRunner(
         }
 
     @Suppress("ReturnCount")
-    private fun runWait(step: ScenarioStep.Wait, index: Int, phase: String, scope: Map<String, String>): StepResult {
+    private fun runWait(
+        step: ScenarioStep.Wait,
+        index: Int,
+        phase: String,
+        scope: Map<String, String>,
+        pre: PreRun,
+    ): StepResult {
         if (step.state == null && step.match == null) {
             return StepResult(index, "wait", phase, true, detail = "nothing to wait for")
         }
@@ -361,7 +379,14 @@ class ScenarioRunner(
             if (step.state != null && step.state.equals(host.connectionState(step.session), ignoreCase = true)) {
                 return StepResult(index, "wait", phase, true, detail = "state=${step.state}")
             }
-            if (match != null && host.messages(step.session).any { matches(it, null, null, match) }) {
+            // `firstOrNull`, not `any`: a Wait satisfied by a message older than the run is the same false
+            // green an Expect would be — "the venue has said this" when the venue said it last time — and to
+            // report that, the check has to know *which* message satisfied it.
+            val hit = match?.let { m -> host.messages(step.session).firstOrNull { pre.bindable(it) && matches(it, null, null, m) } }
+            if (hit != null) {
+                if (pre.predates(hit)) {
+                    pre.note("step ${index + 1} (wait for ${hit.messageType} on '${label(step.session)}')")
+                }
                 return StepResult(index, "wait", phase, true, detail = "matched")
             }
             if (now() >= deadline) {
@@ -381,6 +406,7 @@ class ScenarioRunner(
         phase: String,
         scope: MutableMap<String, String>,
         consumed: MutableSet<FixMessage>,
+        pre: PreRun,
     ): StepResult {
         // Resolve ${...} in the bind predicate once, up front — its inputs (the scenario scope) do
         // not change while this step polls.
@@ -399,8 +425,11 @@ class ScenarioRunner(
                 // Absolute position over the type+direction+fields-filtered snapshot, 1-based. The consumed
                 // cursor does not shift the index — "the 2nd ExecutionReport" is the same message whatever the
                 // earlier steps took — but a message already taken cannot be re-bound here.
+                // The scope filter comes BEFORE the index. Under THIS_RUN a message from an earlier run does
+                // not exist for this one, so it must not occupy a position either — "the 2nd fill" counted
+                // from a snapshot that includes yesterday's would name a different message than it reads.
                 val nth = host.messages(step.session)
-                    .filter { matches(it, msgType, direction, match) }
+                    .filter { pre.bindable(it) && matches(it, msgType, direction, match) }
                     .getOrNull(occurrence - 1)
                 when {
                     nth == null -> Unit // fewer than N have arrived; keep polling
@@ -409,7 +438,7 @@ class ScenarioRunner(
                 }
             } else {
                 target = host.messages(step.session)
-                    .firstOrNull { it !in consumed && matches(it, msgType, direction, match) }
+                    .firstOrNull { it !in consumed && pre.bindable(it) && matches(it, msgType, direction, match) }
             }
             if (target != null || takenByEarlierStep) break
             if (now() >= deadline) break
@@ -434,6 +463,11 @@ class ScenarioRunner(
             return StepResult(index, "expect", phase, false, detail = detail)
         }
         consumed.add(target)
+        // Bound something older than the run. Only reachable under BindScope.ANY — THIS_RUN made it
+        // unbindable above — so this is a caveat on a step that passed, never the reason one failed.
+        if (pre.predates(target)) {
+            pre.note("step ${index + 1} (expect ${target.messageType} on '${label(step.session)}')")
+        }
         // No wire bytes, no verdict. The expectation's row order *is* half of what it asserts, so judging
         // it against a message whose order we had to invent would produce a result about a message nobody
         // sent — green or red, it would not be about the venue. A step that cannot be evaluated fails, and
@@ -541,7 +575,7 @@ class ScenarioRunner(
     )
 
     /** Why a same-type message on the failed step's own session did not become its match. */
-    private enum class NearMiss { TAKEN, LATE, REJECTED }
+    private enum class NearMiss { TAKEN, LATE, STALE, REJECTED }
 
     /** An `Expect` the run never reached: what a message nobody bound can be held up against. */
     private data class PendingExpect(
@@ -585,6 +619,7 @@ class ScenarioRunner(
         private val failure: Failure,
         private val scope: Map<String, String>,
         private val consumed: Set<FixMessage>,
+        private val pre: PreRun,
     ) {
         private val out = mutableListOf<StepResult>()
         private val diagnosed =
@@ -643,6 +678,11 @@ class ScenarioRunner(
                 val key =
                     when {
                         binds && m in consumed -> NearMiss.TAKEN to ""
+                        // Ordered before LATE deliberately. A message the binding scope excluded also looks
+                        // "matching but unbound", and calling it late would tell the reader to raise a
+                        // timeout that cannot help — the step will refuse the same message just as fast next
+                        // run. Advice that cannot work is worse than no advice: it costs a run to disprove.
+                        binds && !pre.bindable(m) -> NearMiss.STALE to ""
                         binds -> NearMiss.LATE to ""
                         else -> NearMiss.REJECTED to rejections(match, direction, m).joinToString("; ")
                     }
@@ -658,15 +698,22 @@ class ScenarioRunner(
                 val detail =
                     when (kind) {
                         NearMiss.TAKEN ->
-                            "$subject matching this step's bind predicate, but an earlier step had already " +
-                                "bound it — two steps cannot bind the same message. Give this step an " +
-                                "occurrence or a discriminating field."
+                            "$subject that matches this step's bind predicate, but an earlier step had " +
+                                "already bound it — two steps cannot bind the same message. Give this step " +
+                                "an occurrence or a discriminating field."
+                        NearMiss.STALE ->
+                            "$subject that matches this step's bind predicate in every respect except when " +
+                                "it arrived: it was already in the log when the run began, and this " +
+                                "scenario's binding is this_run. The step is refusing it on purpose. If it " +
+                                "is genuinely the reply you want, clear the session in setup so the run " +
+                                "provokes a fresh one — raising the timeout cannot help, because the step " +
+                                "will refuse the same message just as quickly next time."
                         NearMiss.LATE ->
-                            "$subject matching this step's bind predicate, but not before its " +
+                            "$subject that matches this step's bind predicate, but not before its " +
                                 "${step.timeoutMs}ms window closed. Raise the timeout."
                         NearMiss.REJECTED ->
-                            "$subject this step did not bind, for the same reason each time: $reason. The " +
-                                "bind predicate is what rejected them — correct the predicate, not the " +
+                            "$subject that this step did not bind, for the same reason each time: $reason. " +
+                                "The bind predicate is what rejected them — correct the predicate, not the " +
                                 "assertion rows, or the step binds nothing on the next run either."
                     }
                 // No stepId and index -1 even though this *is* about the failed step: the repair here is the
@@ -683,15 +730,19 @@ class ScenarioRunner(
          * The count has to be the count of what was *looked at*, never a total quietly presented as one. A row
          * reading "500 W messages" over a log holding 600 is a small lie that a reader would reasonably use to
          * conclude the other hundred were something else.
+         *
+         * It stops short of the verb so the clause that follows can agree with it — "a message **that
+         * matches**" and "847 messages **that match**" are one sentence built two ways, and a subject that
+         * carried its own "that" forced every branch to pick one of them and be wrong about the other.
          */
         private fun subject(session: String, named: String, group: List<FixMessage>, total: Int, examined: Int): String {
             val newest = at(group.first())
             return when {
                 total > examined ->
                     "'$session' received $total $named messages; of the $examined most recent, " +
-                        "${group.size} (newest at $newest) were ones that"
-                group.size == 1 -> "'$session' received a $named message at $newest that"
-                else -> "'$session' received ${group.size} $named messages (newest at $newest) that"
+                        "${group.size} (newest at $newest) were ones"
+                group.size == 1 -> "'$session' received a $named message at $newest"
+                else -> "'$session' received ${group.size} $named messages (newest at $newest)"
             }
         }
 
@@ -979,6 +1030,55 @@ class ScenarioRunner(
         ) = StepResult(at, "diagnosis", phase, passed, detail = detail, tags = tags, stepId = stepId)
 
         private fun at(m: FixMessage): String = m.timestamp.format(DIAGNOSIS_TIME)
+    }
+
+    /**
+     * **What was already in the logs when the run began, and what the run does about it.**
+     *
+     * Under [BindScope.ANY] — the default, and every scenario written before this existed — nothing is
+     * excluded, exactly as before; a step that binds one of these still passes, and the run merely *says* so.
+     * Under [BindScope.THIS_RUN] they are not bindable at all, so a step with nothing newer times out, which
+     * is the honest report: this run has not seen its reply.
+     *
+     * The label is not a lesser version of the exclusion. It is the part that works on the scenarios nobody
+     * will ever go back and annotate — the ones that pass today on a reply to yesterday's run and give no
+     * sign of it.
+     */
+    private class PreRun(val scope: BindScope, private val present: Set<FixMessage>) {
+        /** Steps that bound a message older than the run, in the order they did it. Empty under THIS_RUN. */
+        val stale = mutableListOf<String>()
+
+        fun predates(m: FixMessage): Boolean = m in present
+
+        fun bindable(m: FixMessage): Boolean = scope == BindScope.ANY || m !in present
+
+        fun note(what: String) {
+            stale += what
+        }
+    }
+
+    /**
+     * The run-level caveat for [BindScope.ANY]: some step judged a message that arrived before the run did.
+     *
+     * A row of its own rather than only a sentence on the step, because the step in question *passed* — and a
+     * caveat that only exists inside a green step's detail is a caveat nobody reads. Passing, because under
+     * ANY the scenario has not asked for anything stronger and this is a warning, not a verdict; the run that
+     * wants it enforced says so with [BindScope.THIS_RUN] and gets a timeout instead.
+     */
+    private fun staleBindCheck(pre: PreRun): StepResult? {
+        if (pre.stale.isEmpty()) return null
+        return StepResult(
+            -1,
+            "binding",
+            "steps",
+            passed = true,
+            detail =
+                "${pre.stale.size} step(s) bound a message that arrived before this run started: " +
+                    "${pre.stale.joinToString("; ")}. Those messages may be replies to earlier traffic, so a " +
+                    "green here is not proof the venue answered *this* run. Add a bind constraint carrying " +
+                    "this run's id, clear the session in setup, or set the scenario's binding to this_run to " +
+                    "make it a timeout instead.",
+        )
     }
 
     /** The distinct sessions the run's setup and steps touch — teardown's traffic is nobody's evidence. */

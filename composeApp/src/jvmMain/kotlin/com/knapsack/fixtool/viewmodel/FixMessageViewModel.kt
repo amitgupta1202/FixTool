@@ -1559,8 +1559,14 @@ class FixMessageViewModel(
     /**
      * Can the editor open *on* this run result's step at all? The editor edits `steps` only (run indices
      * are per-phase), and only an Expect carries assertions to reconcile.
+     *
+     * A `diagnosis` row qualifies on exactly the same terms, because it *is* about an Expect: the runner's
+     * post-mortem emits one carrying that step's index and id when a message nobody bound would have bound
+     * *there*. Reconciling it repairs the assertion the run never reached — the point of diagnosing it. The
+     * rows that name no step wear index -1 and are refused above, before this is asked.
      */
-    private fun StepResult.isEditableExpect(): Boolean = phase == "steps" && kind == "expect"
+    private fun StepResult.isEditableExpect(): Boolean =
+        phase == "steps" && (kind == "expect" || kind == "diagnosis")
 
     /**
      * **The one decider behind both doors into the reconcile view** — the run report's button and the
@@ -1599,6 +1605,15 @@ class FixMessageViewModel(
                 "This message arrived unexpectedly — the scenario's traffic is strict and no expect step " +
                     "bound it. There is no assertion to reconcile: add an expect for it, or set the " +
                     "scenario's traffic back to open.",
+            )
+        }
+        // A diagnosis that names no step is evidence, not an assertion: the message arrived, nothing binds it,
+        // and its detail line already says what to change. There is nothing to diff it against.
+        if (step.kind == "diagnosis" && step.stepIndex < 0) {
+            return ReconcileRoute.Refused(
+                "This message is marked because it helps explain why the run failed elsewhere — no expect " +
+                    "step binds it, so there is no expectation to reconcile it against. The run report's " +
+                    "diagnosis line says what to fix.",
             )
         }
         if (!step.isEditableExpect()) {

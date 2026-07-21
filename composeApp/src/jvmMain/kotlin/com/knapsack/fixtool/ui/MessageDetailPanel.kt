@@ -73,6 +73,9 @@ fun MessageDetailPanel(
     // asserted once per occurrence (the four PartyRoles of four party entries), and those must not
     // collapse into one.
     tagResults: List<TagResult> = emptyList(),
+    // These came from the runner's post-mortem, not from a step that ran: nothing bound this message, and
+    // the rows say how it *would* have been judged by an expectation the run never reached.
+    tagResultsAreDiagnostic: Boolean = false,
     // Failure → deep-link: opens the diff window on the step that produced these results. Shown on the
     // failure banner only when provided. This panel diagnoses a failure; it is not where one is
     // repaired — that is the diff window, the only surface that can see both the expectation and the
@@ -283,6 +286,7 @@ fun MessageDetailPanel(
                             results = tagResults,
                             dictionary = dictionary,
                             onEditAssertion = onEditAssertion,
+                            diagnostic = tagResultsAreDiagnostic,
                         )
                         HorizontalDivider(
                             color = AppTheme.Separators.color,
@@ -528,6 +532,21 @@ fun MessageDetailPanel(
 private const val LONG_VALUE_THRESHOLD = 50
 
 /**
+ * The headline over a message with failing rows.
+ *
+ * The [diagnostic] wording is not a softer way of saying the same thing. No step bound this message, so no
+ * assertion failed on it: claiming one did would blame the message for a failure that happened elsewhere,
+ * and send the reader off to repair a step that never ran, believing it had.
+ */
+private fun assertionFailureHeadline(diagnostic: Boolean, failed: Int, total: Int): String =
+    if (diagnostic) {
+        "⚠ No step bound this message — it would have failed $failed of $total tags of the expectation " +
+            "the run never reached"
+    } else {
+        "✗ Scenario assertion failed — $failed of $total checked tags"
+    }
+
+/**
  * The verdict of a scenario assertion on this message: "all N checks passed", or which tags broke.
  * Failures lead; the per-tag rows below carry the expected-vs-actual detail.
  */
@@ -536,9 +555,16 @@ private fun AssertionSummaryBanner(
     results: List<TagResult>,
     dictionary: FixDictionary,
     onEditAssertion: ((Int?) -> Unit)? = null,
+    /** These rows are a post-mortem's guess, not a step's verdict — see [MessageDetailPanel]'s parameter. */
+    diagnostic: Boolean = false,
 ) {
     val failed = results.filterNot { it.passed }
-    val background = if (failed.isEmpty()) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
+    val background =
+        when {
+            diagnostic -> AppTheme.Colors.diagnosisBackground
+            failed.isEmpty() -> AppTheme.Colors.notificationSuccessBackground
+            else -> AppTheme.Colors.notificationErrorBackground
+        }
     Column(modifier = Modifier.fillMaxWidth().background(background).padding(horizontal = 12.dp, vertical = 6.dp)) {
         if (failed.isEmpty()) {
             Text(
@@ -550,8 +576,8 @@ private fun AssertionSummaryBanner(
         } else {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "✗ Scenario assertion failed — ${failed.size} of ${results.size} checked tags",
-                    color = AppTheme.Colors.error,
+                    text = assertionFailureHeadline(diagnostic, failed.size, results.size),
+                    color = if (diagnostic) AppTheme.Colors.warning else AppTheme.Colors.error,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),

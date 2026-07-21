@@ -57,6 +57,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.awt.Desktop
 
@@ -224,7 +225,9 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
             // steps that RUN: two muted steps out of five must read "3/3", not a 3/5 that looks like a miss.
             fraction =
                 if (ranThis && run.result != null) {
-                    "${run.result.steps.count { it.passed && it.phase == "steps" }}/${scenario.steps.count { !it.muted }}"
+                    // `isStepVerdict`: a diagnosis row is a note about a message, not a step that ran, and
+                    // counting one would inflate the numerator past what the run actually did.
+                    "${run.result.steps.count { it.passed && it.isStepVerdict() }}/${scenario.steps.count { !it.muted }}"
                 } else {
                     null
                 },
@@ -332,7 +335,10 @@ internal fun modifiedLabel(epochMs: Long?, clock: () -> java.time.Instant = { ja
  * phase, since a run's `stepIndex` is an index within its phase and not into the scenario.
  */
 internal fun resultFor(result: ScenarioResult?, scenario: Scenario, index: Int): StepResult? {
-    val steps = result?.steps ?: return null
+    // Verdicts only. A diagnosis row carries the id of the step a message would have bound to — a step the
+    // run never reached — and the strip this feeds says what each step DID. Tinting a step that never ran
+    // would be the strip claiming a verdict nobody reached.
+    val steps = result?.steps?.filter { it.isStepVerdict() } ?: return null
     val id =
         scenario.steps
             .getOrNull(index)
@@ -343,6 +349,38 @@ internal fun resultFor(result: ScenarioResult?, scenario: Scenario, index: Int):
     }
     return steps.firstOrNull { it.phase == "steps" && it.stepIndex == index && it.stepId.isNullOrBlank() }
 }
+
+/**
+ * A result that says what a step *did*, as opposed to what the run's post-mortem noticed afterwards.
+ *
+ * Both live in [ScenarioResult.steps] — deliberately, so CI and the control surface get the diagnosis for
+ * free — and every surface that counts steps or tints one has to tell them apart. See `ScenarioRunner`'s
+ * PostMortem: a diagnosis has no vote.
+ */
+internal fun StepResult.isStepVerdict(): Boolean = kind != "diagnosis"
+
+/**
+ * `297 QuoteStatus (0 → 5)` — the tags of a failure, named and capped at four.
+ *
+ * "(?)" and not silence for a tag the dictionary does not know: "failed tags: 6, 31 LastPx" reads as if 6
+ * were a count or a typo. The dictionary not knowing a tag is a fact worth one glyph.
+ */
+private fun namedTags(
+    tags: List<TagResult>,
+    dictionary: FixDictionary?,
+    /**
+     * Show `(expected → actual)` too. On for a diagnosis, whose entire job is to say what differs; off for
+     * the first-failure line, which sits above a "Reconcile assertions →" button that shows the drift in
+     * full — and which reads the same as it always has.
+     */
+    drift: Boolean = false,
+    max: Int = 4,
+): String =
+    tags.take(max).joinToString(", ") { t ->
+        val name = dictionary?.getFieldName(t.tag) ?: "(?)"
+        val moved = if (drift && t.actual != null) " (${t.expected} → ${t.actual})" else ""
+        "${t.tag} $name$moved"
+    } + (if (tags.size > max) " +${tags.size - max} more" else "")
 
 @Composable
 private fun RailHeader(
@@ -707,7 +745,7 @@ private fun RunStatusLine(
             Column(modifier = modifier) {
                 // The `steps` phase only — the same count the scenario's own row shows. This used to count
                 // setup/teardown too, so the two said "4/5" and "3/4" about the same run, one above the other.
-                val stepResults = result.steps.filter { it.phase == "steps" }
+                val stepResults = result.steps.filter { it.phase == "steps" && it.isStepVerdict() }
                 val passedSteps = stepResults.count { it.passed }
                 val color = if (result.passed) AppTheme.Colors.success else AppTheme.Colors.error
                 val verdict = if (result.passed) "PASSED" else "FAILED"
@@ -736,13 +774,7 @@ private fun RunStatusLine(
                 val firstFailure = result.firstFailure()
                 if (firstFailure != null) {
                     val failedTags = firstFailure.tags.filterNot { it.passed }
-                    val tagText =
-                        failedTags.take(4).joinToString(", ") { t ->
-                            // "(?)" and not silence: "failed tags: 6, 31 LastPx" reads as if 6 were a count
-                            // or a typo. The dictionary not knowing a tag is a fact worth one glyph.
-                            val name = dictionary?.getFieldName(t.tag) ?: "(?)"
-                            "${t.tag} $name"
-                        } + (if (failedTags.size > 4) " +${failedTags.size - 4} more" else "")
+                    val tagText = namedTags(failedTags, dictionary)
                     // A failure outside the main phase says WHICH phase — "step 1 clear" for a setup step
                     // pointed the author at the wrong list entirely.
                     val where =
@@ -772,6 +804,21 @@ private fun RunStatusLine(
                             color = AppTheme.Colors.textDisabled,
                             fontSize = 9.sp,
                             modifier = Modifier.padding(top = 2.dp).testTag("reconcile-refused"),
+                        )
+                    }
+                    // **What else arrived.** The failure line above names an absence; these name the
+                    // presences that may explain it — the reject that came back on the other leg, the reply
+                    // whose bind predicate turned it down. Without them the runner's post-mortem would reach
+                    // CI and the control surface and never the one surface a tester is actually looking at.
+                    val diagnosis = result.steps.filterNot { it.isStepVerdict() }
+                    diagnosis.forEach { d ->
+                        val diverging = d.tags.filterNot { it.passed }
+                        val tags = if (diverging.isEmpty()) "" else " — ${namedTags(diverging, dictionary, drift = true)}"
+                        Text(
+                            text = "· ${d.detail.orEmpty()}$tags",
+                            color = AppTheme.Colors.textDisabled,
+                            fontSize = 9.sp,
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp).testTag("run-diagnosis-line"),
                         )
                     }
                 }

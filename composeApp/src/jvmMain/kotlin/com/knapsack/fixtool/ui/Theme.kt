@@ -187,6 +187,16 @@ object AppTheme {
         /** Error notification background */
         val notificationErrorBackground = Color(0xFF3A1E1E)
 
+        /**
+         * A message the run's post-mortem marked: evidence, not a verdict.
+         *
+         * Neither green nor red on purpose. Green would say a step passed on a message no step ever bound —
+         * and for the diagnosis that reports a stray which *would* have satisfied an expectation the run
+         * never reached, that is precisely the false green the assertion model is built to make impossible.
+         * Red would blame the message for a failure that happened somewhere else.
+         */
+        val diagnosisBackground = Color(0xFF3A331E)
+
         /** Info notification border */
         val notificationInfoBorder = info
 

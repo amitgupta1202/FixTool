@@ -1147,11 +1147,16 @@ fun MessageSummaryRow(
             false
         }
 
-    // Background color: selection wins, then scenario assertion result (green/red), then recently
-    // sent, then default. The assertion tint marks messages a played scenario matched.
+    // Background color: selection wins, then scenario assertion result (green/red/diagnosed), then
+    // recently sent, then default. The assertion tint marks messages a played scenario matched.
     val assertionTint =
         stepResult?.let {
-            if (it.passed) AppTheme.Colors.notificationSuccessBackground else AppTheme.Colors.notificationErrorBackground
+            when {
+                // A diagnosis is not a verdict on this message — see AppTheme.Colors.diagnosisBackground.
+                it.kind == "diagnosis" -> AppTheme.Colors.diagnosisBackground
+                it.passed -> AppTheme.Colors.notificationSuccessBackground
+                else -> AppTheme.Colors.notificationErrorBackground
+            }
         }
     val backgroundColor =
         when {

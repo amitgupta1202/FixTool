@@ -796,6 +796,183 @@ class ScenarioRunnerTest {
         assertEquals(listOf("35=D|11=ABC|", "35=D|41=ABC|"), host.sent)
     }
 
+    // --------------------------------------------------- the post-mortem: what arrived, when a step said what did not
+
+    /**
+     * The failure this whole thing exists for. The buy side asks; the venue rejects it straight back to the
+     * buy side; the sell side is therefore never told anything. The run fails — correctly — on the sell
+     * side's expect, for a silence whose cause is a message sitting in the *other* leg's log, which no step
+     * ever reached and nothing ever looked at.
+     */
+    @Test
+    fun `a failure on one leg reports the reject that landed on the other, and how it diverges`() {
+        val host = FakeHost()
+        val reject = incoming("AI", mapOf(35 to "AI", 131 to "Q1", 297 to "5", 58 to "instrument not tradable"))
+        host.on("buy") += reject
+        host.on("sell")
+
+        val reported = mutableListOf<Pair<FixMessage, StepResult>>()
+        val result = runRecordingVerdicts(host, bothLegs(), reported)
+
+        assertFalse(result.passed)
+        // The verdict is exactly what it was. The step that failed, the index it failed at, and the whole
+        // opening sentence of its detail are untouched — the diagnosis is appended to the report, never
+        // substituted into it.
+        val failed = result.steps.first { !it.passed }
+        assertEquals(1, failed.stepIndex)
+        assertEquals("expect", failed.kind)
+        assertTrue(
+            failed.detail!!.startsWith("no R message within 50ms on 'sell'"),
+            "the failing step's own sentence must survive verbatim: '${failed.detail}'",
+        )
+
+        val diagnosis = result.steps.single { it.kind == "diagnosis" }
+        assertEquals(2, diagnosis.stepIndex, "it pairs with the buy-side AI expect the run never reached")
+        assertTrue(!diagnosis.stepId.isNullOrBlank(), "and names it by id, which is what the reconcile door needs")
+        assertEquals("5", diagnosis.tags.single { it.tag == 297 }.actual)
+        assertTrue(diagnosis.tags.none { it.passed }, "only the diverging rows are worth a report line")
+        assertTrue(diagnosis.detail!!.contains("guess at pairing"), "a pairing must say it is a guess")
+
+        // And it is marked in the grid, through the same channel every other verdict uses — a report that
+        // names a message the grid does not mark leaves the tester hunting for which one.
+        assertTrue(reported.any { it.first === reject }, "the reject must be published for the grid to tint")
+    }
+
+    /** The same shape, but the reply is the one the scenario wanted: the diagnosis says so, and does not cry wolf. */
+    @Test
+    fun `a stray that would have satisfied the step it pairs with is reported as such`() {
+        val host = FakeHost()
+        host.on("buy") += incoming("AI", mapOf(35 to "AI", 131 to "Q1", 297 to "0"))
+        host.on("sell")
+
+        val result = run(host, bothLegs())
+        val diagnosis = result.steps.single { it.kind == "diagnosis" }
+        assertTrue(diagnosis.passed, "the row's claim is that this message diverges — and it does not")
+        assertTrue(
+            diagnosis.detail!!.contains("would have satisfied"),
+            "it must say the message was fine, not imply it was the problem: '${diagnosis.detail}'",
+        )
+    }
+
+    /**
+     * The near miss. A message of the right type is sitting on the right session and the *bind predicate*
+     * turned it down — which today is indistinguishable in the report from nothing having arrived at all.
+     * The row names the constraint, and points at the predicate: repairing the assertion rows would leave
+     * the step binding nothing on the next run just the same.
+     */
+    @Test
+    fun `a message the bind predicate rejected is named, with the constraint that rejected it`() {
+        val host = FakeHost()
+        host.inbox += incoming("R", mapOf(35 to "R", 131 to "Q0"))
+        val scenario =
+            scenario(
+                ScenarioStep.Expect(
+                    session = "s",
+                    match = MatchPredicate(messageType = "R", fields = listOf(TagValue(131, "Q1"))),
+                    timeoutMs = 50,
+                    expectation = Expectation(fields = listOf(FieldExpectation(131, Matcher.Exact("Q1"))), messageType = "R"),
+                ),
+            )
+        val diagnosis = run(host, scenario).steps.single { it.kind == "diagnosis" }
+        assertTrue(diagnosis.detail!!.contains("131=Q1"), "the constraint: '${diagnosis.detail}'")
+        assertTrue(diagnosis.detail!!.contains("131=Q0"), "and what the message actually carried")
+        assertTrue(diagnosis.detail!!.contains("bind predicate"))
+        // No route into the reconcile view: that view repairs expectations, and repairing this step's
+        // expectation would not make it bind this message next time. Offering the door would offer a fix
+        // that cannot fix it.
+        assertEquals(-1, diagnosis.stepIndex)
+        assertEquals(null, diagnosis.stepId)
+    }
+
+    @Test
+    fun `a candidate an earlier step already bound is reported as the authoring bug it is`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val result =
+            run(
+                host,
+                scenario(
+                    expect("8", FieldExpectation(39, Matcher.Presence)),
+                    expectWith(timeoutMs = 50, FieldExpectation(39, Matcher.Presence)),
+                ),
+            )
+        val diagnosis = result.steps.single { it.kind == "diagnosis" }
+        assertTrue(
+            diagnosis.detail!!.contains("already bound") && diagnosis.detail!!.contains("occurrence"),
+            "it must name the collision and the fix: '${diagnosis.detail}'",
+        )
+    }
+
+    @Test
+    fun `traffic no step expects anywhere is reported as unexplained, not paired with something`() {
+        val host = FakeHost()
+        host.on("buy") += incoming("9", mapOf(35 to "9", 434 to "1"))
+        host.on("sell")
+
+        val diagnosis = run(host, bothLegs()).steps.single { it.kind == "diagnosis" }
+        assertEquals(-1, diagnosis.stepIndex, "nothing to pair it with, so nothing to reconcile against")
+        assertTrue(
+            diagnosis.detail!!.contains("no expect step in this scenario looks for a 9"),
+            "'${diagnosis.detail}'",
+        )
+    }
+
+    @Test
+    fun `a green run is never diagnosed`() {
+        val host = FakeHost()
+        host.inbox += incoming("8", mapOf(35 to "8", 150 to "0"))
+        val result = run(host, scenario(expect("8", FieldExpectation(150, Matcher.Exact("0")))))
+        assertTrue(result.passed)
+        assertTrue(result.steps.none { it.kind == "diagnosis" }, "there is no absence to explain")
+    }
+
+    /**
+     * The property the whole feature is built to preserve: a diagnosis is a narrative, not a vote. It must
+     * not bind a message, satisfy a step, or move the blame — otherwise it is out-of-order matching wearing
+     * a report's clothes, and the ordering guarantee is gone.
+     */
+    @Test
+    fun `a diagnosis never binds a message or changes which step is blamed`() {
+        val host = FakeHost()
+        host.on("buy") += incoming("AI", mapOf(35 to "AI", 131 to "Q1", 297 to "5"))
+        host.on("sell")
+
+        val result = run(host, bothLegs())
+        assertFalse(result.passed, "a diagnosed run is still a failed run")
+        // The buy-side AI expect never ran and still has not: the reject explains the failure, it does not
+        // satisfy anything. Only the two steps that actually ran produced non-diagnosis results.
+        val ran = result.steps.filterNot { it.kind == "diagnosis" }
+        assertEquals(listOf(0, 1), ran.map { it.stepIndex })
+        assertEquals(1, ran.single { !it.passed }.stepIndex)
+    }
+
+    /** Buy asks, sell should hear it, buy should get a clean AI. The sell-side leg is what times out. */
+    private fun bothLegs(): Scenario =
+        Scenario(
+            id = "x",
+            name = "t",
+            steps =
+                listOf(
+                    ScenarioStep.Send("35=R|131=Q1|", session = "buy"),
+                    ScenarioStep.Expect(
+                        session = "sell",
+                        match = MatchPredicate(messageType = "R"),
+                        timeoutMs = 50,
+                        expectation = Expectation(fields = listOf(FieldExpectation(131, Matcher.Presence)), messageType = "R"),
+                    ),
+                    ScenarioStep.Expect(
+                        session = "buy",
+                        match = MatchPredicate(messageType = "AI"),
+                        timeoutMs = 1_000,
+                        expectation =
+                            Expectation(
+                                fields = listOf(FieldExpectation(297, Matcher.Exact("0"))),
+                                messageType = "AI",
+                            ),
+                    ),
+                ),
+        )
+
     // ----------------------------------------------------------------- helpers
 
     private fun run(host: FakeHost, scenario: Scenario, sessionMap: Map<String, String> = emptyMap()) =
@@ -874,7 +1051,13 @@ class ScenarioRunnerTest {
             return true
         }
 
-        override fun messages(session: String?): List<FixMessage> = inbox.toList()
+        /** Per-session logs, for the both-legs scenarios. Empty = every session sees [inbox]. */
+        val inboxes = mutableMapOf<String?, MutableList<FixMessage>>()
+
+        fun on(session: String?): MutableList<FixMessage> = inboxes.getOrPut(session) { mutableListOf() }
+
+        override fun messages(session: String?): List<FixMessage> =
+            if (inboxes.isEmpty()) inbox.toList() else inboxes[session]?.toList().orEmpty()
 
         override fun connectionState(session: String?): String? = stateOf(session)
 

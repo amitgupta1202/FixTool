@@ -1290,6 +1290,9 @@ private fun AppMessageDetailPanel(
         externalMatchContextMode = detailMatchContextMode,
         onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
         tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags } ?: emptyList(),
+        // No step asserted on this message; the run's post-mortem held it up against an expectation the
+        // run never reached. The banner has to say that, or it claims a verdict nobody reached.
+        tagResultsAreDiagnostic = selectedMessage?.let { viewModel.assertionResults[it]?.kind } == "diagnosis",
         onEditAssertion = selectedMessage?.let { msg -> ({ tag: Int? -> viewModel.openScenarioEditorForFailure(msg, tag) }) },
         onDiffAgainst = { msg -> viewModel.openDiffAgainst(msg) },
     )

@@ -8,6 +8,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TrafficMode
 import com.knapsack.fixtool.model.scenario.withIds
@@ -131,18 +132,42 @@ class ScenarioRunner(
         // still counts the muted step, so a result's stepIndex keeps naming the same list position the
         // editor and the rail show.
         var abort = false
+        var failure: Failure? = null
+        // `consumed` grows by exactly one when an Expect binds, so its size across a step is the one honest
+        // answer to "did this step find anything" — no second bookkeeping to drift out of step with it.
         for ((i, step) in scenario.setup.withIndex()) {
             if (step.muted) continue
+            val held = consumed.size
             val r = ran(step, runStep(step, i, "setup", scope, consumed))
             results += r
-            if (!r.passed) { abort = true; break }
+            if (!r.passed) {
+                abort = true
+                failure = Failure(step, i, "setup", r, consumed.size == held)
+                break
+            }
         }
         if (!abort) {
             for ((i, step) in scenario.steps.withIndex()) {
                 if (step.muted) continue
+                val held = consumed.size
                 val r = ran(step, runStep(step, i, "steps", scope, consumed))
                 results += r
-                if (!r.passed) break
+                if (!r.passed) {
+                    failure = Failure(step, i, "steps", r, consumed.size == held)
+                    break
+                }
+            }
+        }
+        // The post-mortem, before teardown — whose own sends provoke replies that are nobody's evidence,
+        // for the same reason the strict-traffic verdict is judged before it. It costs no wall-clock: the
+        // step that failed has already spent its whole timeout polling, so whatever there is to see has
+        // arrived. See [PostMortem] for what it may and may not do.
+        failure?.let { f ->
+            val diagnosis = PostMortem(scenario, f, scope, consumed).diagnose()
+            if (diagnosis.isNotEmpty()) {
+                val at = results.indexOfFirst { it === f.result }
+                if (at >= 0) results[at] = f.result.copy(detail = f.result.detail.orEmpty() + POINTER)
+                results += diagnosis
             }
         }
         // The stream-level verdict, judged before teardown (whose own sends provoke traffic that is
@@ -485,6 +510,328 @@ class ScenarioRunner(
         return result
     }
 
+    /**
+     * The step whose failure stopped the run — what a [PostMortem] is a post-mortem *of*.
+     *
+     * [boundNothing] is the whole precondition: only a step that failed by *not finding* a message has an
+     * absence to explain. An Expect that bound one and then failed on its tags has its actual in hand, the
+     * reconcile view already opens on it, and a post-mortem would do nothing but re-report that same message
+     * as if it were evidence about something else.
+     */
+    private data class Failure(
+        val step: ScenarioStep,
+        val index: Int,
+        val phase: String,
+        val result: StepResult,
+        val boundNothing: Boolean,
+    )
+
+    /** An `Expect` the run never reached: what a message nobody bound can be held up against. */
+    private data class PendingExpect(
+        val step: ScenarioStep.Expect,
+        val index: Int,
+        val phase: String,
+    )
+
+    /**
+     * **The presences that explain an absence.**
+     *
+     * A run reports the first step that failed, and an `Expect` fails by naming what did *not* arrive. That
+     * verdict is correct and, alone, often useless. The buy side sends an order; the venue rejects it
+     * straight back; the sell side is therefore never told about it; and the report blames the sell side's
+     * expect for a silence whose cause is sitting in the buy side's log — unbound, unexamined, and discarded
+     * when the run ends. The evidence was always there. Nothing ever looked at it.
+     *
+     * This looks, once the run has already gone red, and answers three questions in order:
+     *
+     * 1. **Did the right message arrive here and fail to bind?** A message of the expected type can be
+     *    sitting on the expected session and never bind, because one [MatchPredicate] constraint disagreed.
+     *    Today that is indistinguishable in the report from nothing having arrived at all. It names the
+     *    constraint that rejected it — and says to fix the predicate, because repairing the *assertion* rows
+     *    would leave the step binding nothing on the next run just the same.
+     * 2. **Was the only candidate already taken?** An authoring bug (two steps racing for one message),
+     *    not a venue bug, and it reads nothing like one.
+     * 3. **What arrived anywhere else that no step bound?** Paired, where possible, with an `Expect` the run
+     *    never reached, and judged against it by the same [ExpectationEvaluator] the step itself would have
+     *    used — so the report can say *the reject came back and here is the tag that differs* instead of
+     *    merely *the other side heard nothing*.
+     *
+     * **It has no vote.** Nothing here consumes a message, alters a verdict, or moves the blame: the failing
+     * step, its index, and the whole first sentence of its detail are exactly what they were before. A
+     * pairing is a guess; it is offered only when the paired step's own bind predicate would have accepted
+     * the message, it is capped, and it says in words that it is a guess. The alternative — letting a
+     * plausible pairing satisfy a step — is out-of-order matching, which is precisely what strict ordering
+     * exists to prevent, and it would buy a nicer report at the cost of the property the model is built on.
+     */
+    private inner class PostMortem(
+        private val scenario: Scenario,
+        private val failure: Failure,
+        private val scope: Map<String, String>,
+        private val consumed: Set<FixMessage>,
+    ) {
+        private val out = mutableListOf<StepResult>()
+        private val diagnosed =
+            java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
+        private var suppressed = 0
+
+        fun diagnose(): List<StepResult> {
+            // Only a step that failed by *not finding* something has an absence to explain. A failed Send,
+            // a failed clear, a preflight refusal — those already say all there is to say — and so does an
+            // Expect that bound a message and failed judging it. See [Failure.boundNothing].
+            if (failure.result.kind != "expect" && failure.result.kind != "wait") return emptyList()
+            if (!failure.boundNothing) return emptyList()
+            (failure.step as? ScenarioStep.Expect)?.let { nearMisses(it) }
+            strays()
+            if (suppressed > 0) {
+                out +=
+                    row(
+                        at = -1,
+                        stepId = null,
+                        phase = failure.phase,
+                        passed = false,
+                        detail = "+$suppressed further unbound message(s) were not diagnosed.",
+                    )
+            }
+            return out
+        }
+
+        // -------------------------------------------------- Q1/Q2: the failed step's own session
+
+        private fun nearMisses(step: ScenarioStep.Expect) {
+            val match = step.match?.let { resolveMatch(it, step.session, scope) }
+            val type = match?.messageType ?: step.expectation.messageType
+            val direction = match?.direction ?: step.direction
+            val session = label(step.session)
+            val here =
+                newestFirst(host.messages(step.session))
+                    .filter { type == null || it.messageType == type }
+            val named = type ?: "matching"
+            val occurrence = match?.occurrence
+            // Every same-type message on this session is this pass's business, row or no row. Without the
+            // mark, one it deliberately stays quiet about would resurface downstream as a stray and be
+            // reported as a type "no expect step looks for" — while the step that just timed out looking for
+            // exactly that type sits two lines above it in the same report.
+            diagnosed += here
+            for (m in here) {
+                if (!room()) {
+                    suppressed++
+                    continue
+                }
+                val binds = matches(m, type, direction, match)
+                // An `occurrence` step that timed out did so because too few arrived, not because any one
+                // that did was wrong — and its own detail already says "fewer than N". A row per arrival
+                // here would be a wall of text repeating the verdict.
+                if (binds && occurrence != null) continue
+                val detail =
+                    when {
+                        binds && m in consumed ->
+                            "'$session' received a $named message at ${at(m)} that matches this step's bind " +
+                                "predicate, but an earlier step had already bound it — two steps cannot bind " +
+                                "the same message. Give this step an occurrence or a discriminating field."
+                        binds ->
+                            "'$session' received a $named message at ${at(m)} that matches this step's bind " +
+                                "predicate, but not before its ${step.timeoutMs}ms window closed. Raise the timeout."
+                        else ->
+                            "'$session' received a ${m.messageType} at ${at(m)} that this step did not bind: " +
+                                rejections(match, direction, m).joinToString("; ") + ". The bind predicate is " +
+                                "what rejected it — correct the predicate, not the assertion rows, or the step " +
+                                "binds nothing on the next run either."
+                    }
+                // No stepId and index -1 even though this *is* about the failed step: the repair here is the
+                // predicate, and the reconcile view repairs expectations. Offering that door would offer a fix
+                // that cannot fix this.
+                unpaired(m, detail)
+            }
+        }
+
+        /** Why [matches] turned this message down — one clause per constraint that said no. */
+        private fun rejections(match: MatchPredicate?, direction: String?, m: FixMessage): List<String> {
+            val reasons = mutableListOf<String>()
+            val dir = match?.direction ?: direction
+            if (dir != null && !directionMatches(m, dir)) {
+                reasons += "it is ${m.direction.name.lowercase()} and the step binds '$dir'"
+            }
+            val wire = host.view(m)?.fields()
+            if (wire != null) {
+                match?.fields?.forEach { tv ->
+                    val ok =
+                        when (tv.op) {
+                            MatchOp.EQ -> wire.any { it.first == tv.tag && it.second == tv.value }
+                            MatchOp.PRESENT -> wire.any { it.first == tv.tag }
+                            MatchOp.ABSENT -> wire.none { it.first == tv.tag }
+                        }
+                    if (!ok) {
+                        reasons +=
+                            when (tv.op) {
+                                MatchOp.EQ -> "it wants ${tv.tag}=${tv.value}, the message has ${tv.tag}=${actual(wire, tv.tag)}"
+                                MatchOp.PRESENT -> "it wants ${tv.tag} present, the message has no ${tv.tag}"
+                                MatchOp.ABSENT -> "it wants ${tv.tag} absent, the message has ${tv.tag}=${actual(wire, tv.tag)}"
+                            }
+                    }
+                }
+            }
+            return reasons.ifEmpty { listOf("no constraint of the predicate accounts for it") }
+        }
+
+        private fun actual(wire: List<Pair<Int, String>>, tag: Int): String =
+            wire.filter { it.first == tag }.joinToString("/") { it.second }.ifBlank { "nothing" }
+
+        // -------------------------------------------------- Q3: everything else nobody bound
+
+        private fun strays() {
+            val pending = pendingExpects()
+            val taken = mutableSetOf<PendingExpect>()
+            val sessions = (scenario.setup + scenario.steps).filterNot { it.muted }.map { it.session }.distinct()
+            val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
+            for (session in sessions) {
+                for (m in newestFirst(host.messages(session))) {
+                    if (m.direction != FixMessage.Direction.INCOMING) continue
+                    if (m in consumed || m in diagnosed) continue
+                    if (m.messageType in SESSION_ADMIN_TYPES) continue
+                    if (!seen.add(m)) continue
+                    if (!room()) {
+                        suppressed++
+                        continue
+                    }
+                    stray(m, label(session), pending, taken)
+                }
+            }
+        }
+
+        @Suppress("ReturnCount") // One guard per way a pairing can fail, each with its own sentence.
+        private fun stray(
+            m: FixMessage,
+            session: String,
+            pending: List<PendingExpect>,
+            taken: MutableSet<PendingExpect>,
+        ) {
+            val preamble = "'$session' received a ${m.messageType} at ${at(m)} that no step bound"
+            // Same session first, then any session: a same-session, same-type expectation is a far better
+            // guess than a same-type one on the other leg, and both are still guesses.
+            val candidate =
+                pending.firstOrNull {
+                    it !in taken && label(it.step.session) == session && typeOf(it) == m.messageType
+                } ?: pending.firstOrNull { it !in taken && typeOf(it) == m.messageType }
+            if (candidate == null) {
+                unpaired(
+                    m,
+                    "$preamble, and no expect step in this scenario looks for a ${m.messageType} on '$session'.",
+                )
+                return
+            }
+            val where =
+                "step ${candidate.index + 1} (expect ${typeOf(candidate) ?: "any"} on '${label(candidate.step.session)}')"
+            val pm = candidate.step.match?.let { resolveMatch(it, candidate.step.session, scope) }
+            val type = pm?.messageType ?: candidate.step.expectation.messageType
+            val direction = pm?.direction ?: candidate.step.direction
+            // A pairing is only offered when that step would actually have *bound* this message. Otherwise the
+            // reconcile door it opens would invite repairs to assertion rows that the step never reaches.
+            if (!matches(m, type, direction, pm)) {
+                unpaired(
+                    m,
+                    "$preamble. $where expects a ${m.messageType} there, but its bind predicate would reject " +
+                        "this one: ${rejections(pm, candidate.step.direction, m).joinToString("; ")}.",
+                )
+                return
+            }
+            val view = host.view(m)
+            if (view == null) {
+                unpaired(
+                    m,
+                    "$preamble. FixTool has no wire bytes for it, so its field order is unknown and it cannot " +
+                        "be compared against $where. This is a FixTool limitation, not a venue failure.",
+                )
+                return
+            }
+            taken += candidate
+            val resolver = host.referenceResolver(candidate.step.session, scope)
+            val diverging =
+                ExpectationEvaluator
+                    .evaluate(view, candidate.step.expectation, resolver)
+                    .filterNot { it.passed }
+            val guess = "This is a guess at pairing, not a match — the run failed at step ${failure.index + 1}."
+            val detail =
+                if (diverging.isEmpty()) {
+                    "$preamble. It would have satisfied $where, which this run stopped before reaching. $guess"
+                } else {
+                    "$preamble. Closest expectation is $where, which it would NOT have satisfied — " +
+                        "${diverging.size} row(s) diverge. $guess"
+                }
+            // The one row that carries a stepId: it names a real, still-editable Expect, and its message is
+            // published through the same channel the run's own verdicts use — so the reconcile view opens on
+            // that step with this message as the actual, which is the whole point of looking.
+            emit(
+                m,
+                row(
+                    at = candidate.index,
+                    stepId = candidate.step.stepId.ifBlank { null },
+                    phase = candidate.phase,
+                    passed = diverging.isEmpty(),
+                    detail = detail,
+                    tags = diverging,
+                ),
+            )
+        }
+
+        /** A message with nothing to hold it against: marked and described, but no route to a repair. */
+        private fun unpaired(m: FixMessage, detail: String) =
+            emit(m, row(at = -1, stepId = null, phase = failure.phase, passed = false, detail = detail))
+
+        /** The unmuted `Expect`s the run never got to, in order — [failure] stopped short of all of them. */
+        private fun pendingExpects(): List<PendingExpect> {
+            val out = mutableListOf<PendingExpect>()
+
+            fun collect(steps: List<ScenarioStep>, phase: String, after: Int) =
+                steps.forEachIndexed { i, s ->
+                    if (i > after && !s.muted && s is ScenarioStep.Expect) out += PendingExpect(s, i, phase)
+                }
+            if (failure.phase == "setup") {
+                collect(scenario.setup, "setup", failure.index)
+                collect(scenario.steps, "steps", -1)
+            } else {
+                collect(scenario.steps, "steps", failure.index)
+            }
+            return out
+        }
+
+        private fun typeOf(p: PendingExpect): String? = p.step.match?.messageType ?: p.step.expectation.messageType
+
+        // -------------------------------------------------- plumbing
+
+        /**
+         * **Newest first, everywhere.** A session's log outlives the run that reads it, and the runner puts
+         * no time bound on anything — an `Expect` will bind a message that arrived before the run started,
+         * so a post-mortem that ruled such messages out would be answering from a different universe than the
+         * one the step was judged in, and two answers to "which messages is this run about" eventually
+         * disagree. Order is the honest lever instead: the traffic that explains a failure is the traffic
+         * that just happened, so under [MAX_DIAGNOSED] the fresh reject wins the slot and a hundred stale
+         * replies on a log nobody cleared do not crowd it out. Each row carries its message's arrival time,
+         * which is what lets a reader spot a stale one for what it is.
+         */
+        private fun newestFirst(messages: List<FixMessage>): List<FixMessage> = messages.asReversed()
+
+        private fun room(): Boolean = out.size < MAX_DIAGNOSED
+
+        private fun emit(m: FixMessage, r: StepResult) {
+            diagnosed += m
+            out += r
+            // Through the SAME channel as every other verdict — this is what marks the message in the grid.
+            // A report naming a message the grid does not mark leaves the tester hunting for which one.
+            onExpectMatched(m, r)
+        }
+
+        private fun row(
+            at: Int,
+            stepId: String?,
+            phase: String,
+            passed: Boolean,
+            detail: String,
+            tags: List<TagResult> = emptyList(),
+        ) = StepResult(at, "diagnosis", phase, passed, detail = detail, tags = tags, stepId = stepId)
+
+        private fun at(m: FixMessage): String = m.timestamp.format(DIAGNOSIS_TIME)
+    }
+
     /** Resolves `${...}` in the predicate's constraint values against the scenario scope. */
     private fun resolveMatch(predicate: MatchPredicate, session: String?, scope: Map<String, String>): MatchPredicate {
         if (predicate.fields.none { it.value.contains("\${") }) return predicate
@@ -573,5 +920,17 @@ class ScenarioRunner(
 
         /** Strays named in the detail line before "+N more" — the grid marks every one regardless. */
         const val MAX_LISTED_STRAYS = 6
+
+        /** Diagnosis rows a failed run may add. A post-mortem that buries the verdict has failed at its job. */
+        const val MAX_DIAGNOSED = 6
+
+        /**
+         * Appended to the failing step's detail — never inserted into it. The sentence a reader already
+         * knows how to read has to survive the arrival of the ones underneath it.
+         */
+        const val POINTER = " — messages arrived that no step bound; see the diagnosis rows below."
+
+        val DIAGNOSIS_TIME: java.time.format.DateTimeFormatter =
+            java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
     }
 }

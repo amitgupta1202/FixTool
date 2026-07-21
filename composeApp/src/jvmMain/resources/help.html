@@ -1569,7 +1569,8 @@ ${incoming["D"].valueOfTag(38)}
     cannot name is classified <em>blind</em>. FixTool ships complete standard dictionaries for FIX 4.0&ndash;5.0
     SP2, but venue dictionaries are usually a subset plus the venue's own fields; load yours before capturing,
     and capture will tell you if it meets tags the loaded dictionary cannot place.</p>
-    <p><strong>Venue tag roles&hellip;</strong> sits beside the path. A dictionary cannot say <em>who mints</em>
+    <p><strong>Venue tag roles&hellip;</strong> sits just below the path, on the same <strong>Protocol</strong>
+    page. A dictionary cannot say <em>who mints</em>
     a field's value, which is the one thing a replay needs to know about an identifier &mdash; see
     <a href="#venue-tag-roles">Your venue's own correlation ids</a>.</p>
 
@@ -2155,7 +2156,8 @@ stunnel stunnel.conf</code></pre>
     message of that type rather than the reply to your ids. So you tell FixTool once, and the answer lives
     with the dictionary it describes.</p>
 
-    <p><strong>Settings &rarr; Venue tag roles&hellip;</strong> (beside the Data Dictionary path) lists the
+    <p><strong>Settings &rarr; Protocol &rarr; Venue tag roles&hellip;</strong> (just below the data dictionary
+    path, on the page that holds everything the venue owns rather than this machine) lists the
     tags <em>your</em> dictionary adds beyond standard FIX, id-shaped names first, with
     <strong>show all</strong> for the rest &mdash; a correlation id whose name doesn't happen to end in
     <code>ID</code> is exactly what a filter would lose, so nothing is hidden. Give each one a role:</p>

@@ -37,9 +37,10 @@ class SessionIngestLossTest {
 
     @Test
     fun `a burst past the ingest ceiling is counted, not silently dropped`() {
-        // Queue capacity is bufferSize * 2 = 100. A tight loop outruns the 100ms drain, so the overflow is
-        // guaranteed without depending on how fast this machine happens to be.
-        val session = FixMessageSession(title = "burst", bufferSize = 50)
+        // The depth is named rather than inferred from bufferSize: this test is about what happens when the
+        // queue fills, and it should force that by saying so, not by relying on a default that is free to
+        // move. A tight loop outruns the drain, so the overflow does not depend on machine speed either.
+        val session = FixMessageSession(title = "burst", bufferSize = 50, queueDepth = 100)
         repeat(5_000) { session.addMessage(message(it)) }
 
         val lost = session.discarded.value
@@ -84,6 +85,33 @@ class SessionIngestLossTest {
                 .map { it.rawMessage }
         assertEquals(message(0).rawMessage, order.first(), "and in arrival order")
         assertEquals(message(burst - 1).rawMessage, order.last())
+    }
+
+    /**
+     * **A display preference is not a throughput limit.**
+     *
+     * The queue depth used to be `bufferSize * 2`, so shrinking the grid window to keep it readable also
+     * shrank the burst buffer by the same factor — and the user started losing messages at a rate that had
+     * nothing to do with the choice they thought they were making. Retention answers "how much history do I
+     * want"; the queue answers "how far ahead of the drain may the wire get". Only the first is a preference.
+     */
+    @Test
+    fun `a small display window no longer means a small burst buffer`() {
+        // The smallest window the settings dialog allows. Under the old coupling this queue held 200, and a
+        // 5,000-message burst lost thousands before the drain ever saw them.
+        val session = FixMessageSession(title = "tiny window", bufferSize = 100)
+        repeat(5_000) { session.addMessage(message(it)) }
+
+        assertEquals(
+            0L,
+            session.discarded.value,
+            "a 100-message display window must not cap ingest at 200 in flight",
+        )
+        // Retention still applies, and that part IS the user's choice: everything arrived, the window keeps
+        // the newest 100. Evicted is not the same as never ingested, which is exactly why only one of them
+        // is counted as loss.
+        session.flushMessageQueue()
+        assertEquals(100, session.messages.value.size, "the window is honoured; the ingest path is not the one enforcing it")
     }
 
     /**

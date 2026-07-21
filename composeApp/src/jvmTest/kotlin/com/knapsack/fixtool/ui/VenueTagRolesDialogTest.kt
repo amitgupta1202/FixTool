@@ -126,3 +126,93 @@ class VenueTagRolesDialogTest {
         composeTestRule.onNodeWithText("No dictionary file is loaded", substring = true).assertIsDisplayed()
     }
 }
+
+/**
+ * The echo proposal band in capture review — the surface for ids that only a *flow* reveals.
+ *
+ * Its whole justification is that nothing is applied without the author: the gate is deliberately wider
+ * than certainty, so the evidence is printed and every row starts unticked.
+ */
+class EchoProposalBandTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    @get:Rule
+    val temp = TemporaryFolder()
+
+    private fun candidate(outgoing: Boolean, type: String, vararg f: Pair<Int, String>) =
+        com.knapsack.fixtool.service.ScenarioCapture.Candidate(
+            session = "Venue",
+            direction =
+                if (outgoing) {
+                    com.knapsack.fixtool.model.FixMessage.Direction.OUTGOING
+                } else {
+                    com.knapsack.fixtool.model.FixMessage.Direction.INCOMING
+                },
+            messageType = type,
+            wire = f.joinToString("") { "${it.first}=${it.second}" },
+            timestamp = java.time.LocalDateTime.of(2026, 7, 21, 12, 0, if (outgoing) 0 else 1),
+            fields = listOf(35 to type) + f.toList(),
+            source = null,
+        )
+
+    private val echoFlow =
+        listOf(
+            candidate(true, "R", 20099 to "LEG-A7F3C201"),
+            candidate(false, "S", 20099 to "LEG-A7F3C201"),
+        )
+
+    @Test
+    fun `an echo is offered with its evidence, and nothing is ticked`() {
+        var declared: Map<Int, TagRole>? = null
+        composeTestRule.setContent {
+            ScenarioCaptureReview(
+                candidates = echoFlow,
+                dictionary = FixDictionaryAdapter.forVersion(com.knapsack.fixtool.model.FixVersion.FIX_4_4),
+                onSave = { _, _ -> true },
+                onDeclareRoles = { declared = it },
+            )
+        }
+
+        composeTestRule.onNodeWithTag("echo-proposals").assertIsDisplayed()
+        // The evidence names both messages, so the claim can be checked rather than trusted.
+        composeTestRule.onNodeWithText("35=R", substring = true).assertIsDisplayed()
+
+        // Nothing may be declared until the author ticks something.
+        composeTestRule.onNodeWithTag("echo-proposals-declare").performClick()
+        assertEquals(null, declared)
+
+        composeTestRule.onNodeWithTag("echo-proposal-20099").performClick()
+        composeTestRule.onNodeWithTag("echo-proposals-declare").performClick()
+        assertEquals(mapOf(20099 to TagRole.CLIENT_MINTED_ID), declared)
+    }
+
+    /** No flow, no evidence, no band — it must not appear as an empty prompt. */
+    @Test
+    fun `a capture with no echo shows no band at all`() {
+        composeTestRule.setContent {
+            ScenarioCaptureReview(
+                candidates = listOf(candidate(true, "D", 20099 to "LEG-A7F3C201")),
+                dictionary = FixDictionaryAdapter.forVersion(com.knapsack.fixtool.model.FixVersion.FIX_4_4),
+                onSave = { _, _ -> true },
+                onDeclareRoles = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("echo-proposals").assertDoesNotExist()
+    }
+
+    /** A host that cannot persist a declaration must not offer to. */
+    @Test
+    fun `without a declare hook the band is absent`() {
+        composeTestRule.setContent {
+            ScenarioCaptureReview(
+                candidates = echoFlow,
+                dictionary = FixDictionaryAdapter.forVersion(com.knapsack.fixtool.model.FixVersion.FIX_4_4),
+                onSave = { _, _ -> true },
+            )
+        }
+
+        composeTestRule.onNodeWithTag("echo-proposals").assertDoesNotExist()
+    }
+}

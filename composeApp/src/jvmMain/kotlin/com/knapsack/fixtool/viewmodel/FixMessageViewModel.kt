@@ -96,6 +96,8 @@ import java.io.File
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import com.knapsack.fixtool.model.TagRole
+import com.knapsack.fixtool.model.TagRoleOverlay
 
 /**
  * How long global search waits for typing to settle before scanning. Exposed so tests can wait out
@@ -2714,6 +2716,54 @@ class FixMessageViewModel(
      * about coverage. A message FixTool cannot read is a message the scenario will not check, and an author
      * who is not told has been handed a test that looks complete and is not.
      */
+    /**
+     * **Accept an echo proposal**: merge [roles] into the venue's sidecar and re-read it, so the capture
+     * on screen re-seeds immediately.
+     *
+     * A **merge**, not a replace, because this is one capture's worth of new knowledge arriving on top of
+     * whatever the settings editor and earlier captures already established — replacing here would make
+     * accepting a proposal quietly delete every other declaration the venue has.
+     */
+    fun declareVenueTagRoles(roles: Map<Int, TagRole>) {
+        val path = dictionary?.getFilePath()
+        if (path == null) {
+            showNotification(
+                "No dictionary file is loaded — a venue's tag roles are saved beside its own dictionary, " +
+                    "so there is nowhere to record this. Set a data dictionary path in Settings first.",
+                NotificationType.WARNING,
+            )
+            return
+        }
+        val existing = dictionary?.tagRoles
+        val merged = mutableMapOf<Int, Set<TagRole>>()
+        existing?.declaredTags?.forEach { merged[it] = existing.rolesOf(it) }
+        roles.forEach { (tag, role) -> merged[tag] = merged[tag].orEmpty() + role }
+        runCatching { TagRoleOverlay.writeBeside(path, merged) }
+            .onSuccess { file ->
+                // Without this the file is written and the capture on screen keeps its old seeding — a
+                // change that reports success and does nothing until relaunch.
+                dictionary?.reloadTagRoles()
+                refreshCaptureDocument()
+                showNotification(
+                    "Declared ${roles.size} tag${if (roles.size == 1) "" else "s"} in ${file.name} — this " +
+                        "capture has been re-seeded, and future captures on this dictionary will use them.",
+                    NotificationType.INFO,
+                )
+            }
+            .onFailure {
+                showNotification("Could not write the tag roles sidecar: ${it.message}", NotificationType.ERROR)
+            }
+    }
+
+    /**
+     * Nudge the open capture document so its previews re-derive. The candidates are unchanged — what
+     * changed is how capture *classifies* them — and the review recomputes its preview from the state it
+     * holds, so replacing the state with an equal-but-new instance is what makes the new roles visible.
+     */
+    private fun refreshCaptureDocument() {
+        updateCaptureDocument { it.copy(state = it.state.copy()) }
+    }
+
     fun captureScan(): ScenarioCapture.Scan =
         ScenarioCapture.scan(
             _sessions.map { ScenarioCapture.CapturedSession(it.title, it.messages.value.filterIsInstance<FixMessage>()) },

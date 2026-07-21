@@ -19,6 +19,7 @@ import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
+import com.knapsack.fixtool.service.EchoDetector
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper
@@ -870,6 +871,8 @@ class ControlServer(
             // timestamp among them replays the captured moment, for ever. The UI says so in a notification;
             // an agent driving this surface would otherwise have no way to learn it at all.
             risk?.let { put("warning", it) }
+            echoProposals(scan.candidates, onEdt { viewModel.dictionary }).takeIf { it.isNotEmpty() }
+                ?.let { put("echoProposals", it) }
             if (scan.unreadable.isNotEmpty()) {
                 put(
                     "omitted",
@@ -906,6 +909,32 @@ class ControlServer(
      * capture is not saved — because a reply mis-marked as a Send is a step that asserts nothing, and an agent
      * writing a CI job must be told, not handed a green that checks less than it says.
      */
+    /**
+     * Echo proposals for a capture — the ids this flow shows that nobody has declared.
+     *
+     * Reported rather than applied, exactly as the review reports them: an agent that silently declared a
+     * role from a guessed echo would be writing to the venue's dictionary on its own authority. Accept one
+     * by POSTing it to /dictionary/roles and capturing again.
+     */
+    private fun echoProposals(
+        selection: List<ScenarioCapture.Candidate>,
+        dictionary: FixDictionaryAdapter?,
+    ): JsonArray =
+        buildJsonArray {
+            EchoDetector.detect(selection, dictionary).forEach { p ->
+                add(
+                    buildJsonObject {
+                        put("kind", p.kind.name)
+                        put("role", p.role.name)
+                        put("tags", buildJsonArray { p.tags.forEach { add(it) } })
+                        put("suggestedName", p.suggestedName)
+                        put("value", p.value)
+                        put("evidence", p.evidence)
+                    },
+                )
+            }
+        }
+
     private fun capturePaste(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val name = body["name"]?.jsonPrimitive?.content ?: return errorObject("missing 'name'")
@@ -952,6 +981,8 @@ class ControlServer(
             put("steps", scenario.steps.size)
             put("pasted", scenario.steps.all { it.origin == StepOrigin.PASTED })
             ScenarioCapture.captureRisk(scan.candidates, onEdt { viewModel.dictionary })?.let { put("warning", it) }
+            echoProposals(scan.candidates, onEdt { viewModel.dictionary }).takeIf { it.isNotEmpty() }
+                ?.let { put("echoProposals", it) }
             put("refused", buildJsonArray { scan.refused.forEach { add(it) } })
             put("scenario", ScenarioCodec.toJson(scenario))
         }

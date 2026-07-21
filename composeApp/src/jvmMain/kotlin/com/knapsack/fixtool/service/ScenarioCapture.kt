@@ -98,6 +98,55 @@ object ScenarioCapture {
     private fun isLifetime(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
         tag in LIFETIME_TAGS || dictionary?.hasRole(tag, TagRole.LIFETIME) == true
 
+    /** A value the **venue** mints per reply — ours to read, never to invent. */
+    private fun isVenueMintedId(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
+        tag in ExpectationSeeder.VENUE_MINTED_IDS || dictionary?.hasRole(tag, TagRole.VENUE_MINTED_ID) == true
+
+    /**
+     * **Ids the venue minted and a later send has to quote back** — value → the variable that will carry it.
+     *
+     * The mirror of [idExpr]. Where a correlation id we mint is invented fresh each run, one the *venue*
+     * minted cannot be: a replay must send back whatever **this run's** reply actually contained. Captured
+     * as a literal it is stale on the second run — the venue is asked to cancel an OrderID from last
+     * Tuesday — and that is true of standard FIX (`OrderID(37)` on a cancel) exactly as it is of a venue's
+     * own handle.
+     *
+     * So a value that arrives on an incoming message and is later sent back becomes a **capture**: the
+     * Expect row that received it gets `bindAs`, and the Send that quotes it gets `${name}`. Both halves
+     * are required and they are decided here, before any step is built, because the send comes *after* the
+     * receive and a single forward pass would already have written the literal.
+     *
+     * Order matters twice over: only a value received **before** it is sent is a capture. The same value
+     * seen the other way round is something we minted and they echoed, which is [idExpr]'s business.
+     */
+    private fun venueMintedCaptures(
+        selection: List<Candidate>,
+        dictionary: FixDictionaryAdapter?,
+        takenNames: MutableSet<String>,
+    ): Map<String, String> {
+        val firstReceipt = mutableMapOf<String, Int>() // value -> tag it first arrived in
+        val receivedAt = mutableMapOf<String, Int>()
+        val captures = mutableMapOf<String, String>()
+        selection.forEachIndexed { index, candidate ->
+            for ((tag, value) in candidate.fields) {
+                if (value.isBlank()) continue
+                if (!candidate.outgoing) {
+                    if (isVenueMintedId(tag, dictionary) && value !in firstReceipt) {
+                        firstReceipt[value] = tag
+                        receivedAt[value] = index
+                    }
+                } else if (value in firstReceipt && value !in captures && index > receivedAt.getValue(value)) {
+                    // Named after the field it ARRIVED in, not the one it is quoted back in: the venue's
+                    // own word for the thing is the one the author will recognise in the dropdown.
+                    val name = mintName(firstReceipt.getValue(value), dictionary?.getFieldName(firstReceipt.getValue(value)), takenNames)
+                    takenNames += name
+                    captures[value] = name
+                }
+            }
+        }
+        return captures
+    }
+
     /** A session's title + the messages observed on it. */
     data class CapturedSession(val title: String, val messages: List<FixMessage>)
 
@@ -303,16 +352,19 @@ object ScenarioCapture {
         // Each Expect step paired with the message it was seeded from, so the post-pass below can compare the
         // bytes of two same-type replies and seed a discriminator that tells them apart.
         val expectCandidates = mutableListOf<Pair<Int, Candidate>>()
+        // Decided before the walk, because the send that quotes a venue id back comes AFTER the reply that
+        // minted it, and a forward pass would already have written the literal. See [venueMintedCaptures].
+        val captures = venueMintedCaptures(selection, dictionary, takenNames)
 
         for (candidate in selection) {
             // An undirected row cannot become a step: it would become a Send that asserts nothing, silently.
             // The review refuses the save before this, by name; this is the engine keeping the same rule.
             if (candidate.direction == null) continue
             if (candidate.outgoing) {
-                steps += sendStep(candidate, dictionary, refByValue, takenNames)
+                steps += sendStep(candidate, dictionary, refByValue, takenNames, captures)
             } else {
                 expectCandidates += steps.size to candidate
-                steps += expectStep(candidate, dictionary, refByValue)
+                steps += expectStep(candidate, dictionary, refByValue, captures)
             }
         }
         disambiguateSameType(steps, expectCandidates, dictionary)
@@ -527,10 +579,14 @@ object ScenarioCapture {
         dictionary: FixDictionaryAdapter?,
         refByValue: MutableMap<String, String>,
         takenNames: MutableSet<String>,
+        captures: Map<String, String>,
     ): ScenarioStep.Send {
         val fields = entry.fields.filter { (tag, _) -> tag !in TRANSPORT_TAGS }.map { (tag, value) ->
             val out = when {
                 tag == 35 -> value
+                // Ahead of every other rule: a value THIS RUN's reply supplied. Replaying the captured one
+                // asks the venue to act on an id from the day of the capture.
+                captures[value] != null -> "\${${captures.getValue(value)}}"
                 // Before the general timestamp rule: an expiry stamped "now" is expired on arrival.
                 // Unconditional, like tag 60 in isTimestamp: these are UTCTIMESTAMP by the spec, and a
                 // dictionary-less capture still must not replay a stale quote lifetime.
@@ -585,6 +641,7 @@ object ScenarioCapture {
         entry: Candidate,
         dictionary: FixDictionaryAdapter?,
         refByValue: Map<String, String>,
+        captures: Map<String, String>,
     ): ScenarioStep.Expect {
         // Each seeded row carries the value it was seeded from, so a row that echoes something we sent
         // becomes a reference check. Rows must be correlated by *their own* captured value, not by
@@ -601,7 +658,15 @@ object ScenarioCapture {
             // reason pointing at nothing the author wrote. An echo comes back in a correlation-id field —
             // which is precisely the filter the bind constraints below already apply.
             val ref = if (isClientMintedId(sf.field.tag, dictionary)) refByValue[sf.capturedValue] else null
-            if (ref != null) sf.field.copy(matcher = Matcher.Reference(ref)) else sf.field
+            // A venue id a later send quotes back is READ here rather than asserted against a literal: the
+            // matcher stays whatever it was seeded (Presence for a venue id), and `bindAs` puts this run's
+            // actual value into scope for the send that needs it. Assert nothing new, capture the one fact.
+            val capture = captures[sf.capturedValue]?.takeIf { isVenueMintedId(sf.field.tag, dictionary) }
+            when {
+                ref != null -> sf.field.copy(matcher = Matcher.Reference(ref))
+                capture != null -> sf.field.copy(bindAs = capture)
+                else -> sf.field
+            }
         }
         // Echoed correlation ids also become bind constraints, so on a busy session this step binds
         // to *the response to this run's ids* — not merely the first message of the same type. The

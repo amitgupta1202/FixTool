@@ -43,7 +43,7 @@ object ExpectationSeeder {
      * venue *is*. A tag here that a send once minted still becomes a Reference check — capture's echo
      * correlation replaces the seeded matcher, so presence is only the answer when nothing better is.
      */
-    internal val PRESENCE_TAGS =
+    internal val VENUE_MINTED_IDS =
         setOf(
             37, // OrderID
             17, // ExecID
@@ -54,7 +54,15 @@ object ExpectationSeeder {
             527, // SecondaryExecID
             880, // TrdMatchID — the venue's match-engine id (post-trade)
             1003, // TradeID
-        ) + SessionTags.VALUE_NOT_PORTABLE
+        )
+
+    /**
+     * The venue-assigned ids **plus** the addressing tags whose value belongs to the environment. Split
+     * from [VENUE_MINTED_IDS] because only the former is a value the venue *mints per reply* — the one a
+     * later send may have to quote back from this run rather than from the capture. A SenderSubID is not
+     * minted, it is configured, and wiring a capture for it would be nonsense.
+     */
+    internal val PRESENCE_TAGS = VENUE_MINTED_IDS + SessionTags.VALUE_NOT_PORTABLE
 
     /**
      * Quote/order lifetime stamps: a UTCTIMESTAMP whose *meaning* is "a moment shortly after sending",
@@ -176,7 +184,7 @@ object ExpectationSeeder {
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    private fun fieldTypeName(tag: Int, dictionary: FixDictionaryAdapter?): String? =
+    internal fun fieldTypeName(tag: Int, dictionary: FixDictionaryAdapter?): String? =
         try {
             dictionary?.getDataDictionary()?.getFieldType(tag)?.name
         } catch (e: Exception) {

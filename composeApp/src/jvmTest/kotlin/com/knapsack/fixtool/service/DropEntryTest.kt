@@ -75,7 +75,11 @@ class DropEntryTest {
 
     @Test
     fun `a single row of a bare repeated run is not an entry drop, it is the row delete wearing its clothes`() {
-        val draft = exp(454 to "2", 455 to "ALT-1", 455 to "ALT-2")
+        // A venue-custom run, which is the case the row heuristic exists for. It used to be
+        // `NoSecurityAltID(454/455)` — heuristic only while the bundled FIX 4.4 dictionary was a demo
+        // subset that had not heard of it. A 9000s tag no standard dictionary can learn keeps the fixture
+        // honest; the dictionary-defined counterpart is the `267/269` test below.
+        val draft = exp(9001 to "2", 9002 to "ALT-1", 9002 to "ALT-2")
 
         val why = why(ScenarioReconcile.dropEntry(draft, overlayFor(draft), entry = 1..1))
 

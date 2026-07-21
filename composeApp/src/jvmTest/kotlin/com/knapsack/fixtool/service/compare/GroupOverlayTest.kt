@@ -348,13 +348,18 @@ class GroupOverlayTest {
 
     // ----- labels ---------------------------------------------------------------------------------------
 
-    /** `FIRMA · 1 ExecutingFirm` — computed here, so the two sides cannot label the same entry differently. */
+    /**
+     * `FIRMA · 1 EXECUTING_FIRM` — computed here, so the two sides cannot label the same entry differently.
+     *
+     * The role word is the dictionary's own, verbatim: FIX 4.4 spells PartyRole(1) `EXECUTING_FIRM`. Do not
+     * prettify it here — a label the tool invents is a label the author cannot grep for in the venue's spec.
+     */
     @Test
     fun `an entry is labelled by its delimiter and the best identity the dictionary can add`() {
         val overlay = GroupOverlay.of(threeParties(), dictionary)
 
-        assertEquals("FIRMA · 1 ExecutingFirm", overlay.entries[0].label)
-        assertEquals("FIRMB · 4 ClearingFirm", overlay.entries[1].label)
+        assertEquals("FIRMA · 1 EXECUTING_FIRM", overlay.entries[0].label)
+        assertEquals("FIRMB · 4 CLEARING_FIRM", overlay.entries[1].label)
     }
 
     /** A row that does not carry a value cannot name its entry, and a made-up label would be worse. */
@@ -373,6 +378,6 @@ class GroupOverlayTest {
 
         val overlay = GroupOverlay.of(expectation, dictionary)
 
-        assertEquals("1 ExecutingFirm", overlay.entries.single().label)
+        assertEquals("1 EXECUTING_FIRM", overlay.entries.single().label)
     }
 }

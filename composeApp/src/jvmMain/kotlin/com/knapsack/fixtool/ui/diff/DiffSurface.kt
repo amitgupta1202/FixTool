@@ -1188,7 +1188,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.DiffBody(
 }
 
 /**
- * The entry header — `NoPartyIDs · entry 1 — FIRMA · 1 ExecutingFirm`, and its counterpart on the right.
+ * The entry header — `NoPartyIDs · entry 1 — FIRMA · 1 EXECUTING_FIRM`, and its counterpart on the right.
  *
  * The label is not built here. [com.knapsack.fixtool.service.compare.GroupOverlay] computes it, from the
  * dictionary, for both sides — so the expectation's side and the message's side cannot come to describe the

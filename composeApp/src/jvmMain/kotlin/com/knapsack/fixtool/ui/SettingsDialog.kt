@@ -123,6 +123,8 @@ fun SettingsDialog(
                                 val defaults = AppSettings.default()
                                 dataDictionaryPath = defaults.defaultDataDictionary
                                 transportDictionaryPath = defaults.defaultTransportDictionary
+                                defaultFixVersion = defaults.defaultFixVersion
+                                useBundledDictionary = defaults.useBundledDictionary
                                 validateFieldsOutOfOrder = defaults.validateFieldsOutOfOrder
                                 validateFieldsHaveValues = defaults.validateFieldsHaveValues
                                 validateUserDefinedFields = defaults.validateUserDefinedFields
@@ -1553,7 +1555,7 @@ fun SettingsDialog(
                                     SlimTextField(
                                         value = rule.messageType,
                                         onValueChange = { newValue ->
-                                            rejectionRules[index] = rule.copy(messageType = newValue)
+                                            rejectionRules = rejectionRules.replacingAt(index, rule.copy(messageType = newValue))
                                         },
                                         placeholder = "e.g., 3, j, 9, AZ",
                                         modifier = Modifier.fillMaxWidth(),
@@ -1571,7 +1573,7 @@ fun SettingsDialog(
                                         value = rule.additionalTag?.toString() ?: "",
                                         onValueChange = { newValue ->
                                             val tag = newValue.toIntOrNull()
-                                            rejectionRules[index] = rule.copy(additionalTag = tag)
+                                            rejectionRules = rejectionRules.replacingAt(index, rule.copy(additionalTag = tag))
                                         },
                                         placeholder = "e.g., 905",
                                         modifier = Modifier.fillMaxWidth(),
@@ -1588,9 +1590,10 @@ fun SettingsDialog(
                                     SlimTextField(
                                         value = rule.additionalValue ?: "",
                                         onValueChange = { newValue ->
-                                            rejectionRules[index] =
-                                                rule.copy(
-                                                    additionalValue = newValue.ifBlank { null },
+                                            rejectionRules =
+                                                rejectionRules.replacingAt(
+                                                    index,
+                                                    rule.copy(additionalValue = newValue.ifBlank { null }),
                                                 )
                                         },
                                         placeholder = "e.g., 3",
@@ -2082,6 +2085,16 @@ private fun TwoColumnCheckboxRow(
         )
     }
 }
+
+/**
+ * A copy of the list with one entry replaced.
+ *
+ * Editing in place (`list[i] = x`) mutates the very list the state holder already points at, so the
+ * holder never sees a new value and nothing that reads it recomposes — the edit lands in the data and
+ * disappears from the screen until some unrelated change repaints it.
+ */
+private fun <T> MutableList<T>.replacingAt(index: Int, value: T): MutableList<T> =
+    toMutableList().apply { this[index] = value }
 
 // Constants
 private val warningColor = Color(0xFFFFA500)

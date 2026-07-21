@@ -7,12 +7,15 @@ package com.knapsack.fixtool.control
 
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.model.TagRole
+import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
@@ -29,6 +32,7 @@ import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.service.SessionTags
+import com.knapsack.fixtool.service.VenueTagScan
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.ui.diff.DiffSide
@@ -147,6 +151,7 @@ class ControlServer(
         httpServer.createContext("/templates/send") { ex -> handle(ex) { sendTemplate(ex) } }
         httpServer.createContext("/admin") { ex -> handle(ex) { admin(ex) } }
         httpServer.createContext("/validate") { ex -> handle(ex) { validate(ex) } }
+        httpServer.createContext("/dictionary/roles") { ex -> handle(ex) { dictionaryRoles(ex) } }
         httpServer.createContext("/dictionary") { ex -> handle(ex) { dictionaryEndpoint(ex) } }
         httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRules(ex) } }
         httpServer.createContext("/syntax") { ex -> syntax(ex) }
@@ -1605,6 +1610,85 @@ class ControlServer(
 
     private fun dictionaryEndpoint(ex: HttpExchange): JsonElement =
         if (ex.requestMethod.uppercase() == "POST") setDictionary(ex) else getDictionary()
+
+    /**
+     * **The venue's own tags, and what the author has said about them** — `GET` to list, `POST` to declare.
+     *
+     * The same list and the same write path the settings editor uses, so an agent and a human cannot
+     * produce different files. `POST {"roles": {"20013": "CLIENT_MINTED_ID"}}` replaces the declaration
+     * wholesale (a role map is small and a merge semantics nobody can see is worse than a replace they
+     * can), writes the sidecar beside the loaded dictionary, and reloads so the next capture uses it.
+     */
+    private fun dictionaryRoles(ex: HttpExchange): JsonElement =
+        if (ex.requestMethod.uppercase() == "POST") setDictionaryRoles(ex) else getDictionaryRoles()
+
+    private fun getDictionaryRoles(): JsonElement =
+        onEdt {
+            val dictionary = viewModel.dictionary
+            buildJsonObject {
+                put("path", dictionary?.getFilePath())
+                put("sidecar", dictionary?.getFilePath()?.let { TagRoleOverlay.sidecarFor(it).absolutePath })
+                put("summary", VenueTagScan.summary(dictionary))
+                put(
+                    "tags",
+                    buildJsonArray {
+                        VenueTagScan.scan(dictionary).forEach { c ->
+                            add(
+                                buildJsonObject {
+                                    put("tag", c.tag)
+                                    put("name", c.name)
+                                    put("tier", c.tier.name)
+                                    put("roles", buildJsonArray { c.roles.forEach { add(it.name) } })
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+
+    private fun setDictionaryRoles(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val roles = body["roles"]?.jsonObject ?: return errorObject("missing 'roles' object")
+        val path = onEdt { viewModel.dictionary?.getFilePath() }
+            ?: return errorObject(
+                "no dictionary file is loaded — venue tag roles live beside the venue's dictionary, and a " +
+                    "bundled standard dictionary has no venue tags to declare",
+            )
+        val parsed = mutableMapOf<Int, Set<TagRole>>()
+        val refused = mutableListOf<String>()
+        for ((key, value) in roles) {
+            val tag = key.trim().toIntOrNull()
+            if (tag == null) {
+                refused += "'$key' is not a tag number"
+                continue
+            }
+            val names =
+                runCatching { value.jsonArray.map { it.jsonPrimitive.content } }
+                    .getOrElse { listOf(value.jsonPrimitive.content) }
+            val set = names.mapNotNull { TagRole.parse(it) }.toSet()
+            if (set.size != names.size) refused += "tag $tag: unknown role in ${names.joinToString(", ")}"
+            if (set.isNotEmpty()) parsed[tag] = set
+        }
+        if (refused.isNotEmpty()) {
+            return buildJsonObject {
+                put("status", "refused")
+                put("refused", buildJsonArray { refused.forEach { add(it) } })
+                put("known", buildJsonArray { TagRole.entries.forEach { add(it.name) } })
+            }
+        }
+        val file = TagRoleOverlay.writeBeside(path, parsed)
+        // The adapter caches its overlay, so the declaration only reaches capture once it is invalidated.
+        // Reporting "saved" over a dictionary still using the old roles would be success for a change that
+        // does not take effect until the next launch. See [FixDictionaryAdapter.reloadTagRoles].
+        onEdt { viewModel.dictionary?.reloadTagRoles() }
+        return buildJsonObject {
+            put("status", "saved")
+            put("sidecar", file.absolutePath)
+            put("declared", parsed.size)
+            put("summary", onEdt { VenueTagScan.summary(viewModel.dictionary) })
+        }
+    }
 
     private fun getDictionary(): JsonElement =
         onEdt {

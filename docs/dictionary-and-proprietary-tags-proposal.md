@@ -236,13 +236,56 @@ already committed to for presence demotion — `identifierFamily` is *"deliberat
 than certainty"*, so its proposal is default-unchecked and its reason says so
 (`ExpectationSeeder.kt:138-145`). Same shape, same justification.
 
-**The entropy gate** (all must hold, else no proposal):
-- length ≥ 8
-- not a plain integer under 8 digits — kills `1`, `100`, sequence-like values
-- at least two character classes, or ≥ 12 chars of one — kills `AAAAAAAA`
-- the dictionary does not list the tag as having enumerated values — an echoed enum is a
-  coincidence, not a correlation
-- the tag is not already in `ID_TAGS` or `PRESENCE_TAGS` — those are decided
+### The algorithm
+
+Runs at capture review over the curated `selection`, which is already chronological.
+
+**1. Index every value by first appearance** — for each candidate, each eligible `(tag, value)`,
+record all occurrences and the earliest.
+
+**2. A value matters only if it crosses directions** — seen both OUTGOING and INCOMING.
+Otherwise there is no echo, and no evidence.
+
+**3. Who said it first decides the role.** This is what makes it evidence rather than a guess:
+
+```
+firstSeen[value].direction == OUTGOING  → MINT     (we invented it, they echoed it)
+                              INCOMING  → CAPTURE  (they invented it, we quoted it back)
+```
+
+- `MINT` declares `CLIENT_MINTED_ID` on the sent **and** received tags — they need not be the
+  same tag, since a cancel/replace returns an id in a different one.
+- `CAPTURE` declares `VENUE_MINTED_ID`, and wires `bindAs` on the Expect row plus `${name}` on
+  the later Send. **This is the case the settings scan cannot express at all**, because it
+  needs to know which reply minted the value.
+
+**4. Eligibility gates** — all must hold:
+
+- **not already decided** — not in the built-in sets, the overlay, transport, or MsgType
+- **not a typed non-identifier** — reject `UTCTIMESTAMP`/`UTCDATEONLY`/`PRICE`/`QTY`/`AMT`/
+  `FLOAT`/`INT`/`BOOLEAN`, or any tag the dictionary gives enumerated values. An echoed
+  timestamp or price is not an id
+- **not reference data** — the same standard deny-list `VenueTagScan` uses
+- **name shape, where there is a name** —
+  `name == null || name.matches(/(ID|Id|Ref|Reference|Handle|Key)$/)`. The `null` branch is
+  exactly what catches the ids the settings scan misses
+- **entropy** — `len ≥ 8`, not a plain integer under 12 digits, and either ≥2 character
+  classes or ≥12 chars. Kills `1`, `100`, sequence numbers, `AAAAAAAA`
+- **not a repeated constant** — reject a value appearing under ≥3 distinct tags in one
+  message; that is an account or a desk, not a correlation id
+
+**5. Emit**, deduplicated by tag-set and sorted named-id-shaped → unnamed-custom → rest.
+
+Exact byte equality throughout — no trimming, no case folding, no substring matching. A venue
+that pads or reformats its echo is a different feature, and guessing there produces confident
+nonsense.
+
+Cost is O(fields²) worst case: a few hundred string comparisons, irrelevant beside the capture.
+
+**Known limits.** A single-message capture yields nothing (no echo, no evidence) — the
+settings scan still covers that. And an id echoed but never varying looks exactly like
+reference data; the deny-list catches the standard cases, a proprietary equivalent would be a
+false positive, which is why nothing is ever applied unticked.
 
 ### What ticking it does
 
@@ -311,10 +354,56 @@ with:     20013=${legQuoteReqID = uuid:20}       expect 20013 → reference(${le
 The variable names come from the venue's own dictionary via `mintName`, so the reference
 dropdown reads `${legQuoteReqID}`, not `${tag20013}`.
 
-**Still open: the detector.** The overlay is *declaration*, and declaration-first config is
-undiscoverable — you must already know the mechanism exists to fill it in. The echo proposal
-above is what makes it discoverable, and it is not built yet. Until it is, a venue's ids are
-supported but must be declared by hand.
+### The door — `Venue tag roles…` in Settings (**built**)
+
+The overlay is declaration, and declaration-first config is undiscoverable: you must already
+know the mechanism exists to fill it in. `VenueTagScan` + `VenueTagRolesDialog` are the door.
+
+**Settings, not a prompt on dictionary load.** Every existing user configured their
+dictionary long ago and that moment never comes again, so a load-time prompt reaches exactly
+the people who don't need it. A venue shipping a new dictionary version has the same shape.
+It has to be somewhere you can *go*.
+
+The scan is: tags in the loaded dictionary that are **not** in the bundled standard
+dictionary for its own FIX version, minus everything FixTool already decides
+(`ID_TAGS`/`PRESENCE_TAGS`/`LIFETIME_TAGS`/transport), minus a hardcoded deny-list of
+standard **reference-data** tags. That deny-list is load-bearing: `SecurityID(48)` echoes on
+every flow and its name ends in `ID`, and minting a fresh value for it would not weaken a
+scenario, it would send the venue an instrument that does not exist.
+
+Tiering is `DECLARED` → `IDENTIFIER` (name matches `(ID|Id|Ref|Reference|Handle|Key)$`, or
+the dictionary cannot name the tag at all) → `OTHER`. **A sort, never a filter** — a venue
+correlation id whose name doesn't end in `ID` is precisely what a filter would lose, so
+`show all N venue tags` is always present.
+
+On the real BrokerTec dictionary the scan yields **131 venue tags, 21 id-shaped** — a list
+you read in seconds, against 358 fields you would otherwise be reading by hand. It does
+include obvious non-ids (`RootPartyID`, `UnderlyingLegSecurityID`, `ApplVerID`); that is
+intended, because the scan proposes and the author decides. Nothing in a FIX dictionary
+records who *mints* a value, which is the entire reason the file has to exist.
+
+Also on the control surface as `GET`/`POST /dictionary/roles`, so an agent and a human write
+the same file through the same path.
+
+**Verified live, end to end, without a relaunch**: scan the real dictionary → declare 20013,
+1751, 20040 → the sidecar appears on disk → the very next capture mints
+`${legQuoteReqID}`/`${secondaryQuoteID}`, references both echoes, adds both bind constraints,
+and seeds the venue-minted 20040 as `presence`. The adapter's overlay cache is invalidated
+explicitly (`reloadTagRoles`) — a cache outliving the file would report success for a change
+that only took effect next launch, which is the failure shape this whole feature removes.
+
+### Still open: the echo detector
+
+Two things the settings scan cannot do, both of which need a *flow* rather than a dictionary:
+
+- **Find a correlation id whose name says nothing** — the `OTHER` tier is 110 tags deep on
+  BrokerTec, and an id in there is found only by watching a value come back.
+- **Wire a venue-minted id we echo back.** Declaring `VENUE_MINTED_ID` fixes the *expect*
+  side (`presence`), but a send that quotes the venue's id back still replays the captured
+  literal. Correcting that needs `bindAs` on the earlier Expect plus `${name}` on the Send —
+  i.e. knowing which reply minted it, which only the flow shows.
+
+The algorithm is specified below and is unbuilt.
 
 ### What Part B buys
 

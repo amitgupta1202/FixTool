@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -31,6 +32,7 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.MessageColorScheme
 import com.knapsack.fixtool.model.RejectionRule
+import com.knapsack.fixtool.service.VenueTagScan
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -43,6 +45,10 @@ fun SettingsDialog(
     onDismiss: () -> Unit,
 ) {
     var dataDictionaryPath by remember { mutableStateOf(currentSettings.defaultDataDictionary) }
+    // The roles editor works on the dictionary actually IN EFFECT, not the path in the text field above:
+    // roles that applied to a dictionary the app has not loaded yet would describe nothing.
+    var showVenueTagRoles by remember { mutableStateOf(false) }
+    var venueRolesSaved by remember { mutableStateOf<String?>(null) }
     var transportDictionaryPath by remember { mutableStateOf(currentSettings.defaultTransportDictionary) }
     var defaultFixVersion by remember { mutableStateOf(currentSettings.defaultFixVersion) }
     var useBundledDictionary by remember { mutableStateOf(currentSettings.useBundledDictionary) }
@@ -292,6 +298,26 @@ fun SettingsDialog(
                                     color = warningColor,
                                 )
                             }
+                        }
+
+                        // Venue tag roles: a door to the one thing a FIX dictionary cannot record — who
+                        // MINTS a value. Here rather than raised when a dictionary loads, because every
+                        // existing user configured theirs long ago and that moment never comes again.
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(AppTheme.Spacing.small),
+                        ) {
+                            SlimButton(
+                                text = "Venue tag roles…",
+                                onClick = { showVenueTagRoles = true },
+                                modifier = Modifier.testTag("open-venue-tag-roles"),
+                            )
+                            Text(
+                                text = venueRolesSaved ?: VenueTagScan.summary(dictionary),
+                                fontSize = 10.sp,
+                                color = if (venueRolesSaved != null) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                            )
                         }
 
                         // Transport Dictionary section (for FIX 5.0+ or custom setups)
@@ -1866,6 +1892,21 @@ fun SettingsDialog(
                 }
             }
         }
+    }
+
+    if (showVenueTagRoles) {
+        VenueTagRolesDialog(
+            dictionary = dictionary,
+            onSaved = { sidecar ->
+                // The write is to disk, not to AppSettings — the declaration belongs to the venue's
+                // dictionary, not to this machine's preferences, so it does not wait on Save below and
+                // is not undone by Cancel. Invalidate so the very next capture uses it.
+                dictionary?.reloadTagRoles()
+                venueRolesSaved = "saved to ${java.io.File(sidecar).name}"
+                showVenueTagRoles = false
+            },
+            onDismiss = { showVenueTagRoles = false },
+        )
     }
 }
 

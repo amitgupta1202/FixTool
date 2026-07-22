@@ -533,6 +533,10 @@ object ScenarioCapture {
             .distinct()
             .filter {
                 it !in decidedWithoutDictionary &&
+                    // getFieldName carries the standard-FIX floor, so a standard field the venue's own
+                    // file omits is CLASSIFIED and not warned about — the type is known, it just was not
+                    // known by that file. What survives here is a genuinely proprietary tag nobody has
+                    // declared, which is the only case an author can act on. See FixDictionaryAdapter.
                     dictionary.getFieldName(it) == null &&
                     // A tag the venue's overlay speaks for is ANSWERED, even where the dictionary XML has
                     // no name for it. Warning about it anyway would train the author to ignore the warning

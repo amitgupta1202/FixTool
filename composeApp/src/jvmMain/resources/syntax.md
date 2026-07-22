@@ -78,17 +78,40 @@ Each entry in an expectation's `fields` is `{tag, matcher: {type, ...}}`. There 
 | `type` | Extra fields | Checks |
 | --- | --- | --- |
 | `exact` | `value` | literal string equality |
+| `notEqual` | `value` | the tag is present **and** its value is anything else |
 | `presence` | — | the tag is present; its value is ignored |
 | `absent` | — | the tag is **not** present |
 | `regex` | `pattern` | the value matches the pattern |
 | `oneOf` | `values[]` | the value is in the set |
 | `numeric` | `value`, `tolerance`? | `abs(actual − value) <= tolerance`; tolerance `0` still ignores formatting (`1.2345` == `1.23450`) |
+| `range` | `min`?, `max`?, `minInclusive`? (default true), `maxInclusive`? (default true) | the number is above and/or below a bound. Either bound may be omitted, so this covers `>`, `>=`, `<`, `<=` and *between*. Omitting **both** is refused rather than passing — it would assert nothing |
 | `temporal` | `kind` (`today` \| `now_within_tolerance`), `toleranceSeconds`? (default 60) | parsed as UTCTimestamp / UTCDateOnly |
 | `reference` | `expression` | the value equals a resolved `${...}` expression (§1) |
 
+`notEqual` is not `absent`. A tag that never arrived satisfies neither: "not X" about a field the
+message does not carry is a question with no answer.
+
+### The field's type decides which of these can be judged
+
+`numeric` and `range` return false for every value that will not parse as a number, and `temporal` for
+every value that is not a timestamp or a *current* UTC date. One of those on a `STRING` tag is therefore
+not a loose assertion — it is a row that can never be green, on the very message it was captured from.
+
+FixTool does not refuse them: a custom `5xxx` tag has no declared type at all, and an undocumented venue
+value is exactly what you may be chasing. **Over this API nothing warns you** (the reconcile editor dims
+such types and gives the reason; a JSON expectation gets no such hint). So:
+
+- text field → `exact`, `oneOf`, `regex`, `presence`, `notEqual`
+- price / qty / amount → `numeric`, `range`
+- timestamp, or a date that means *today* → `temporal`. A `LOCALMKTDATE` settlement or trade date is a
+  fixed business date, **not** "today" — assert it `exact`
+- **never a tolerance on an enum-coded int**: `PartyRole(452)` and `QuoteStatus(297)` parse as numbers
+  perfectly well, and `4 ± 3` over a vocabulary of codes accepts seven unrelated meanings while reading
+  like a tolerance. Use `oneOf`
+
 Tip: `fixtool_capture_expectation` builds a draft expectation from a message already received, with
 matchers pre-seeded from the data dictionary, **in wire order** — usually faster, and always correctly
-ordered (see §3), than writing one by hand.
+ordered (see §3), than writing one by hand. It seeds by type, so it never makes the mistakes above.
 
 ---
 

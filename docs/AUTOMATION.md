@@ -195,13 +195,24 @@ the *k*-th occurrence of it. `matcher.type` is one of:
 | type | extra fields | checks |
 | --- | --- | --- |
 | `exact` | `value` | literal equality |
+| `notEqual` | `value` | tag is present **and** its value is anything else (not the same as `absent`) |
 | `presence` | — | tag is present (value ignored) |
 | `absent` | — | tag is not present |
 | `regex` | `pattern` | value matches the pattern |
 | `oneOf` | `values[]` | value ∈ set |
 | `numeric` | `value`, `tolerance`? | `abs(actual − value) ≤ tolerance` (0 still ignores formatting) |
+| `range` | `min`?, `max`?, `minInclusive`? (default true), `maxInclusive`? (default true) | number above and/or below a bound; either may be omitted, so this covers `>`, `>=`, `<`, `<=` and *between*. Omitting both is refused, not passed |
 | `temporal` | `kind` (`today`\|`now_within_tolerance`), `toleranceSeconds`? (default 60) | parsed as UTCTimestamp/UTCDate |
 | `reference` | `expression` | equals a `${…}` expr resolved over session history, e.g. `${out.D.11}` |
+
+**The field's type decides which of these can be judged.** `numeric` and `range` return false for any
+value that will not parse as a number, `temporal` for anything that is not a timestamp or a current UTC
+date — so one of those on a `STRING` tag is not a loose assertion, it is a row that can never be green.
+Nothing over this API warns you (the reconcile editor dims such types and gives the reason; JSON gets no
+hint). Text → `exact`/`oneOf`/`regex`/`presence`; price, qty, amount → `numeric`/`range`; timestamp or a
+date meaning *today* → `temporal` (a `LOCALMKTDATE` settlement date is a business date, not "today" —
+assert it `exact`). **Never a tolerance on an enum-coded int**: `PartyRole(452)` parses as a number
+perfectly well, and `4 ± 3` over a vocabulary of codes accepts seven unrelated meanings. Use `oneOf`.
 
 `path` (`{groupTag, identityTag, identityValue, occurrence?}`) locates a repeating-group entry by
 identity, not position — e.g. `{"groupTag":453, "identityTag":452, "identityValue":"1"}` is "the

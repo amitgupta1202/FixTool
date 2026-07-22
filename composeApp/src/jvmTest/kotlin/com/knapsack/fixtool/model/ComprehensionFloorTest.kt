@@ -3,11 +3,11 @@ package com.knapsack.fixtool.model
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.ScenarioCapture
+import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import org.junit.Test
 
 /**
  * **A venue dictionary says WHICH fields exist. It does not say what `AvgPx` means.**

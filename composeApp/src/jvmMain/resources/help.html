@@ -1980,6 +1980,7 @@ stunnel stunnel.conf</code></pre>
     <table>
         <tr><th>Matcher</th><th>Checks that the tag&hellip;</th></tr>
         <tr><td><code>exact</code></td><td>equals a literal value (the default for business fields)</td></tr>
+        <tr><td><code>notEqual</code></td><td>is present, and is anything <em>but</em> a literal value &mdash; "the venue must not send me OrdStatus=Rejected". Not the same as <code>absent</code>: a tag that never arrived satisfies neither, because "not X" about a field the message does not carry is a question with no answer</td></tr>
         <tr><td><code>presence</code></td><td>is present; its value is ignored (e.g. a venue-assigned OrderID/ExecID)</td></tr>
         <tr><td><code>absent</code></td><td>is <em>not</em> present (e.g. no reject <code>Text</code>)</td></tr>
         <tr><td><code>oneOf</code></td><td>is one of a set of values (e.g. OrdStatus in 1 or 2)</td></tr>
@@ -1989,6 +1990,23 @@ stunnel stunnel.conf</code></pre>
         <tr><td><code>temporal</code></td><td>is a timestamp near "now" (&plusmn; N seconds) or a date equal to today &mdash; instead of a brittle literal time</td></tr>
         <tr><td><code>reference</code></td><td>equals a <code>${&hellip;}</code> expression resolved over the session, e.g. an ExecutionReport's ClOrdID echoes the order you sent: <code>${out.D.11}</code></td></tr>
     </table>
+
+    <p><strong>The field's type decides which of these can be judged.</strong> <code>numeric</code> and
+    <code>range</code> fail every value that will not parse as a number, and <code>temporal</code> every
+    value that is not a timestamp or a date meaning <em>today</em>. Setting one of those on a text field is
+    therefore not a loose assertion &mdash; it is a row that can never go green, not even against the
+    message it was captured from. The matcher dropdown in the reconcile editor <strong>dims</strong> the
+    types a field cannot carry and puts the reason in place of their description
+    (<em>"numeric &mdash; ClOrdID(11) is STRING, not a number"</em>). They stay pickable, because asserting
+    on a value your dictionary has never heard of is exactly what this tool is for, and a custom tag has no
+    declared type at all &mdash; but you are told before you pick, not after the row reddens.</p>
+
+    <p>The one to watch is a tolerance on an <strong>enum-coded</strong> field. <code>PartyRole(452)</code>
+    and <code>OrdStatus(39)</code> parse as numbers perfectly well, so nothing downstream objects &mdash;
+    but <code>8 &plusmn; 3</code> over a vocabulary of codes quietly accepts six other meanings while
+    reading like a tolerance. Use <code>oneOf</code>. Likewise a <code>SettlDate</code> or
+    <code>TradeDate</code> is a fixed <em>business</em> date, not "today": assert it <code>exact</code>,
+    not <code>temporal</code>.</p>
 
     <p><strong>Order is the address.</strong> An expectation is an ordered list of rows, and the
     <em>k</em>-th row for a tag asserts the <em>k</em>-th <strong>occurrence</strong> of that tag. A message

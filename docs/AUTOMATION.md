@@ -53,6 +53,51 @@ Implementation: `composeApp/src/jvmMain/kotlin/com/knapsack/fixtool/control/Cont
 started from `main.kt` via the `onViewModelCreated` hook. All ViewModel access is marshalled
 onto the Swing EDT, since Compose state is EDT-bound.
 
+## Running a scenario without the app (headless CLI)
+
+A saved scenario can be run as a plain command that **exits with a status code** — no window, no
+display, no control port:
+
+```bash
+fixtool run smoke-nos --junit reports/smoke.xml
+echo $?      # 0 passed · 1 ran and failed · 2 could not be run
+```
+
+Those three codes are distinct on purpose: a build step that cannot tell *"the venue answered
+wrongly"* from *"the scenario file was missing"* goes green on a broken venue.
+
+```
+fixtool run <scenario> [options]
+
+  <scenario>          a saved scenario's id or name, or a path to a scenario .json file
+  --junit <file>      write the JUnit XML report to <file>
+  --json  <file>      write the full JSON report to <file>
+  --session <a>=<b>   run the steps naming session <a> against session <b> instead (this run only)
+  --home <dir>        read profiles, settings and saved scenarios from <dir> instead of ~/.fixtool
+```
+
+**Sessions connect themselves.** A scenario names its sessions; each is dialled from the saved
+profile of the same name, and the runner waits for logon before any step runs — so an unattended run
+tells the same story a hand-connected one would.
+
+**`--home` is what makes this work on a build box**, which has no `~/.fixtool` and should not be made
+to grow one. Point it at a directory holding `connection_profiles.json`, `app_settings.json` and
+`scenarios/`, versioned beside the code under test.
+
+The report goes to stdout and progress to stderr, so `fixtool run … > report.txt` keeps them apart.
+
+```bash
+# batch sweep — one process per scenario, one JUnit file each
+for f in ci/scenarios/*.json; do
+  fixtool run "$f" --home ci/fixtool --junit "reports/$(basename "$f" .json).xml"
+done
+```
+
+During development the same entrypoint is `./gradlew :composeApp:run --args="run smoke-nos"`; from an
+installed build it is the packaged binary (`FixTool.app/Contents/MacOS/FixTool run smoke-nos` on
+macOS). Any invocation whose first argument is `run`, `--help`, `-h` or `help` goes headless — with no
+arguments the app opens normally, so double-clicking is unaffected.
+
 ## HTTP API
 
 Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are JSON.

@@ -17,6 +17,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.knapsack.fixtool.control.ControlServerLauncher
+import com.knapsack.fixtool.headless.HeadlessRun
 import com.knapsack.fixtool.ui.App
 import com.knapsack.fixtool.ui.diff.DiffViewerWindow
 import com.knapsack.fixtool.ui.diff.DiffWindow
@@ -29,12 +30,22 @@ import java.awt.event.WindowEvent
 import java.io.File
 import javax.swing.JOptionPane
 import javax.swing.JOptionPane.ERROR_MESSAGE
+import kotlin.system.exitProcess
 
-fun main() {
+fun main(args: Array<String>) {
     // Create log directory before any logger is instantiated
     // This prevents logback initialization failures on first run
     val logDir = File(System.getProperty("user.home"), ".fixtool/logs")
     logDir.mkdirs()
+
+    // `fixtool run <scenario>` never opens a window. The branch is here, before anything Compose or
+    // AWT touches, so a headless box needs no display and a CI step gets a real exit code — the whole
+    // point of the entrypoint. Everything below is the GUI, unchanged.
+    if (HeadlessRun.handles(args)) {
+        // System.out carries the report and System.err the progress, so `fixtool run … > report.txt`
+        // keeps the two apart the way any other command-line tool would.
+        exitProcess(HeadlessRun.execute(args, System.out, System.err))
+    }
 
     // Set up global uncaught exception handler
     val logger = LoggerFactory.getLogger("GlobalExceptionHandler")

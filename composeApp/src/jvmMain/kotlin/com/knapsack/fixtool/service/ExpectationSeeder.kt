@@ -195,12 +195,14 @@ object ExpectationSeeder {
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
-    internal fun fieldTypeName(tag: Int, dictionary: FixDictionaryAdapter?): String? =
-        try {
-            dictionary?.getDataDictionary()?.getFieldType(tag)?.name
-        } catch (e: Exception) {
-            null
-        }
+    /**
+     * The field's type, for deciding how to TREAT a value — a comprehension question, so it goes through
+     * [FixDictionaryAdapter.fieldType] and its standard-FIX floor rather than to the conformance
+     * dictionary. It used to read `getDataDictionary().getFieldType()` directly, which meant a venue
+     * subset omitting `AvgPx(6)` made it an untyped string: seeded Exact, permanently red, and offered
+     * "loosen to presence" as its only repair.
+     */
+    internal fun fieldTypeName(tag: Int, dictionary: FixDictionaryAdapter?): String? = dictionary?.fieldType(tag)
 
     // QuickFIX FieldType enum names, matched as strings so we don't bind to a specific QF/J version.
     private val TIMESTAMP_TYPES = setOf("UTCTIMESTAMP", "UTCTIMEONLY", "TZTIMESTAMP", "TZTIMEONLY", "TIME")

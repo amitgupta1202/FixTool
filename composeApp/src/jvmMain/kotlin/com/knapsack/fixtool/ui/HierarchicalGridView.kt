@@ -1263,13 +1263,9 @@ private fun ConversationGroupRow(
                 )
             }
         }
-        Spacer(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(background),
-        )
+        // Unpainted, exactly as MessageSummaryRow ends: painting the group background here drew a
+        // phantom extra column past the grid's real width.
+        Spacer(modifier = Modifier.weight(1f))
     }
 }
 

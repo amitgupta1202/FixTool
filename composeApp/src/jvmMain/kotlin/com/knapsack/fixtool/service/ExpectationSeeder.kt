@@ -154,6 +154,17 @@ object ExpectationSeeder {
         fieldTypeName(tag, dictionary) in NUMERIC_TYPES
 
     /**
+     * **May this field honestly carry a `now`/`today` matcher?** Exactly the families [seedMatcher] seeds
+     * `Temporal` from, and for the same reasons: the time-ish types, plus the dates that genuinely mean
+     * *the current UTC date*. A `LOCALMKTDATE` or `MONTHYEAR` is deliberately out — a settlement or
+     * maturity date is not "today", which is the whole argument [DATE_TYPES] makes. Same one-decider rule
+     * as [numericFamily]: the editor's dropdown, the seed and the fix plan all read this, so none of them
+     * can tell the author a different story about what a field is.
+     */
+    fun temporalFamily(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
+        fieldTypeName(tag, dictionary).let { it in TIMESTAMP_TYPES || it in DATE_TYPES }
+
+    /**
      * **May this field honestly carry an inferred pattern?** Free-text string fields and fields the
      * dictionary does not know (custom tags) — and never an enum-coded one, whatever its declared type:
      * `SecurityIDSource(22)` is a STRING whose values are a vocabulary, and a "shape" over a vocabulary

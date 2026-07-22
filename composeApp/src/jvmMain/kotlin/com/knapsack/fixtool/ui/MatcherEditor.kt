@@ -17,10 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.model.scenario.validationError
+import com.knapsack.fixtool.service.ExpectationSeeder
 
 /** The matcher type names, in the order shown in the editor's dropdown. */
 val MATCHER_TYPES =
@@ -46,6 +48,52 @@ private val MATCHER_HELP = mapOf(
     "temporal" to "date/time vs now/today",
     "reference" to "equals a \${...} expression",
 )
+
+/**
+ * **The matcher types this field's values cannot honestly carry**, as `type → why not`.
+ *
+ * Not a filter. The dropdown goes on offering every type, because asserting something the dictionary did
+ * not predict is a thing this tool exists to allow — the same argument the enum picker makes below, and a
+ * harder one here, where a custom `5xxx` tag has no declared type at all and a hard filter would strip its
+ * options down to nothing. What these types get instead is dimmed text and the reason in place of the
+ * usual one-line help, so the author reads *why* before they pick rather than after the row reddens.
+ *
+ * The three named here are the ones that cannot merely be wrong — they are unjudgeable. `matchNumeric`
+ * and `matchRange` return false on any value that will not parse as a number, and `matchTemporal` on any
+ * value that is not a timestamp or a current date: pick one on a `STRING` and the row is hard-wired red,
+ * on its own captured value, for ever, with nothing on screen saying so. `regex` is deliberately absent —
+ * a hand-written pattern over an enum value judges truthfully, whatever the type.
+ *
+ * Every answer comes from [ExpectationSeeder]'s classification, which is the one decider the seed and the
+ * fix plan's repair proposals already consult ([ExpectationSeeder.numericFamily],
+ * [ExpectationSeeder.temporalFamily]). The dropdown used to be the one surface that did not ask: the
+ * gutter would refuse to *propose* widening a tolerance on `PartyRole(452)`, while the chip beside it let
+ * the author set one by hand.
+ *
+ * A tag the dictionary cannot type at all is marked nowhere — an unknown type is not a wrong one.
+ */
+fun offFamilyMatchers(tag: Int, dictionary: FixDictionaryAdapter?): Map<String, String> {
+    val type = dictionary?.fieldType(tag) ?: return emptyMap()
+    val label = dictionary.getFieldName(tag)?.let { "$it($tag)" } ?: "tag $tag"
+    val marks = mutableMapOf<String, String>()
+    if (!ExpectationSeeder.numericFamily(tag, dictionary)) {
+        // An enum-coded int parses as a number perfectly well, which is what makes it the dangerous case:
+        // `4 ± 3` over PartyRole reads like a tolerance and accepts seven unrelated meanings. It earns its
+        // own sentence rather than "is INT, not a number", which would be a lie about the parse.
+        val why =
+            if (dictionary.hasFieldValues(tag)) {
+                "$label is enum-coded — a tolerance would span other codes"
+            } else {
+                "$label is $type, not a number"
+            }
+        marks["numeric"] = why
+        marks["range"] = why
+    }
+    if (!ExpectationSeeder.temporalFamily(tag, dictionary)) {
+        marks["temporal"] = "$label is $type, not a now/today value"
+    }
+    return marks
+}
 
 /** Short type label for a [Matcher] (matches the control-surface encodings). */
 fun matcherTypeName(matcher: Matcher): String =
@@ -147,6 +195,12 @@ fun MatcherEditor(
      * still offers the standard names rather than an empty menu.
      */
     enumValues: List<Pair<String, String>> = emptyList(),
+    /**
+     * The types this row's field cannot honestly carry, as `type → why not` — see [offFamilyMatchers],
+     * which every caller with a tag and a dictionary in hand computes. Dims those entries and puts the
+     * reason where their help text goes. Never a filter: they stay pickable.
+     */
+    offFamily: Map<String, String> = emptyMap(),
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         SlimDropdown(
@@ -156,7 +210,13 @@ fun MatcherEditor(
                 type?.let { onChange(seededMatcherForType(it, capturedValue, scopeVariables)) }
             },
             displayText = { it },
-            itemText = { type -> MATCHER_HELP[type]?.let { "$type — $it" } ?: type },
+            // The reason REPLACES the help rather than joining it: "number compare ± tolerance" is what
+            // the type does everywhere, and on this row the only thing worth the width is why it will not.
+            itemText = { type -> (offFamily[type] ?: MATCHER_HELP[type])?.let { "$type — $it" } ?: type },
+            // Dimmed in the menu and, if picked, dimmed in the chip afterwards — so a scenario that
+            // already carries an off-family matcher (seeded before this rule, or edited on a row whose
+            // tag later changed) shows it at rest, without the author having to open the menu to find out.
+            optionColor = { type -> if (type in offFamily) AppTheme.Colors.textDisabled else AppTheme.Colors.text },
             modifier = Modifier.width(90.dp),
         )
         // ONE slot, constant width, whatever the type — so the column has a straight edge and a row does

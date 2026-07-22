@@ -293,6 +293,13 @@ fun <T> SlimDropdown(
     placeholder: String = "",
     allowUnselect: Boolean = false,
     itemText: (T) -> String = displayText,
+    /**
+     * An option's text colour, wherever it is drawn — its menu row **and** the collapsed chip when it is
+     * the selection. One hook for both on purpose: an option dimmed in the menu because it does not belong
+     * on this row must stay dimmed after it is picked, or the warning survives only until the menu closes.
+     * Options stay clickable whatever colour they are given; this dims, it never disables.
+     */
+    optionColor: ((T) -> Color)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -310,7 +317,7 @@ fun <T> SlimDropdown(
         ) {
             Text(
                 text = if (value != null) displayText(value) else placeholder,
-                color = if (value != null) Color(0xFFE0E0E0) else Color(0xFF6A6A6A),
+                color = if (value != null) optionColor?.invoke(value) ?: Color(0xFFE0E0E0) else Color(0xFF6A6A6A),
                 fontSize = 10.sp,
                 modifier = Modifier.weight(1f),
             )
@@ -352,7 +359,7 @@ fun <T> SlimDropdown(
                     text = {
                         Text(
                             text = itemText(option),
-                            color = Color(0xFFE0E0E0),
+                            color = optionColor?.invoke(option) ?: Color(0xFFE0E0E0),
                             fontSize = 10.sp,
                         )
                     },

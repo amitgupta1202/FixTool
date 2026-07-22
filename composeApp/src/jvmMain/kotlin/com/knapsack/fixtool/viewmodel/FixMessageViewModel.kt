@@ -1903,6 +1903,27 @@ class FixMessageViewModel(
     // Global view mode (applies to all sessions)
     private val _viewMode = MutableStateFlow(FixMessageSession.ViewMode.PARSED) // Will be initialized from settings
 
+    /**
+     * **Group the grid by business exchange.** A second, independent switch — RAW/PARSED says how a row
+     * renders, this says how rows relate, and they compose. Session state rather than a setting: it is a
+     * way of looking at what is on screen now, not a preference about how FixTool should start.
+     */
+    private val _groupByConversation = MutableStateFlow(false)
+    val groupByConversation: StateFlow<Boolean> = _groupByConversation.asStateFlow()
+
+    /** Conversations the author has folded shut, by [ConversationRows.Row.Header.key]. */
+    private val _collapsedConversations = MutableStateFlow<Set<String>>(emptySet())
+    val collapsedConversations: StateFlow<Set<String>> = _collapsedConversations.asStateFlow()
+
+    fun toggleGroupByConversation() {
+        _groupByConversation.value = !_groupByConversation.value
+    }
+
+    fun toggleConversationCollapsed(key: String) {
+        val current = _collapsedConversations.value
+        _collapsedConversations.value = if (key in current) current - key else current + key
+    }
+
     // Message maps for template expressions - stores latest message of each type
     // These can be referenced in template expressions like: ${incoming["D"].valueOfTag(11)}
     private val _incomingMessagesByType = mutableMapOf<String, FixMessage>()

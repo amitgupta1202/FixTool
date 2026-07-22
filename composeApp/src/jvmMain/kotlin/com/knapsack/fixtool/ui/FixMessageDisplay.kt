@@ -31,6 +31,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AppMessage
@@ -38,6 +39,7 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession.ViewMode
 import com.knapsack.fixtool.model.Separator
+import com.knapsack.fixtool.service.ConversationRows
 import kotlinx.coroutines.launch
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
@@ -67,6 +69,14 @@ fun FixMessageDisplay(
     getLatencyForMessage: ((String) -> Long?)? = null,
     latencyWarningThresholdMicros: Long = 100_000L,
     latencyCriticalThresholdMicros: Long = 500_000L,
+    /**
+     * Group the grid by business exchange. A SECOND, independent switch — deliberately not a third
+     * state of the RAW/PARSED toggle, because how a row renders and how rows relate are orthogonal
+     * axes, and folding them into one selector would lose "grouped, in raw form".
+     */
+    groupByConversation: Boolean = false,
+    collapsedConversations: Set<String> = emptySet(),
+    onToggleConversation: (String) -> Unit = {},
     onAtBottomChanged: (Boolean) -> Unit = {},
     scrollToBottomTrigger: Int = 0,
     modifier: Modifier = Modifier,
@@ -260,6 +270,9 @@ fun FixMessageDisplay(
                         latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
                         onAtBottomChanged = onAtBottomChanged,
                         scrollToBottomTrigger = scrollToBottomTrigger,
+                        groupByConversation = groupByConversation,
+                        collapsedConversations = collapsedConversations,
+                        onToggleConversation = onToggleConversation,
                     )
                 }
 
@@ -333,6 +346,9 @@ fun FixMessageDisplay(
             latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
             onAtBottomChanged = onAtBottomChanged,
             scrollToBottomTrigger = scrollToBottomTrigger,
+            groupByConversation = groupByConversation,
+            collapsedConversations = collapsedConversations,
+            onToggleConversation = onToggleConversation,
             modifier = modifier,
         )
     }
@@ -376,6 +392,9 @@ private fun MessageDisplayContent(
     latencyCriticalThresholdMicros: Long = 500_000L,
     onAtBottomChanged: (Boolean) -> Unit = {},
     scrollToBottomTrigger: Int = 0,
+    groupByConversation: Boolean = false,
+    collapsedConversations: Set<String> = emptySet(),
+    onToggleConversation: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -431,6 +450,9 @@ private fun MessageDisplayContent(
                     latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
                     onAtBottomChanged = onAtBottomChanged,
                     scrollToBottomTrigger = scrollToBottomTrigger,
+                    groupByConversation = groupByConversation,
+                    collapsedConversations = collapsedConversations,
+                    onToggleConversation = onToggleConversation,
                     modifier =
                         Modifier
                             .fillMaxSize()
@@ -500,6 +522,18 @@ private fun MessageDisplayContent(
                             .fillMaxSize()
                             .then(if (!wrapText) Modifier.horizontalScroll(horizontalScrollState) else Modifier),
                 ) {
+                    // Grouping is a presentation of the same rows: the list below is still THIS list,
+                    // reordered, with headers spliced in. `index` stays the message's position in
+                    // `messages` — search matches, the selection and the assertion overlay are all keyed
+                    // on it. Memoized because it re-reads every message's fields. See [ConversationRows].
+                    val rows =
+                        remember(messages, groupByConversation, collapsedConversations, dictionary) {
+                            if (!groupByConversation) {
+                                messages.indices.map { ConversationRows.Row.Message(it) }
+                            } else {
+                                ConversationRows.build(messages, dictionary, collapsedConversations)
+                            }
+                        }
                     SelectionContainer {
                         LazyColumn(
                             state = listState,
@@ -514,7 +548,16 @@ private fun MessageDisplayContent(
                                         end = 16.dp,
                                     ),
                         ) {
-                            itemsIndexed(messages) { index, message ->
+                            itemsIndexed(rows) { _, row ->
+                                if (row is ConversationRows.Row.Header) {
+                                    ConversationHeaderRow(
+                                        header = row,
+                                        onToggle = { onToggleConversation(row.key) },
+                                    )
+                                    return@itemsIndexed
+                                }
+                                val index = (row as ConversationRows.Row.Message).index
+                                val message = messages[index]
                                 // Find matches for this message
                                 val messageMatches = searchMatches.filter { it.first == index }
                                 val isCurrentMatch =
@@ -590,6 +633,67 @@ private fun MessageDisplayContent(
 
             }
         }
+    }
+}
+
+/**
+ * **The summary line, which is the feature** — the nesting is only how you drill in.
+ *
+ * A reader who does not know that `150=F` means Trade can still read
+ * *"RFQ-A1 · EUR/USD 10,000,000 · QuoteRequest ×1, Quote ×2 · Filled · 643ms"*, and that is the whole
+ * reason this view exists. Everything on it is quotation or arithmetic over what arrived — see
+ * [Conversations.Summary] for the rule about what a header may claim.
+ */
+@Composable
+private fun ConversationHeaderRow(
+    header: ConversationRows.Row.Header,
+    onToggle: () -> Unit,
+) {
+    val summary = header.summary
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .background(AppTheme.Colors.surfaceVariant)
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = if (header.collapsed) "▶" else "▼",
+            color = AppTheme.Colors.textSecondary,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
+            modifier = Modifier.padding(end = 6.dp),
+        )
+        Text(
+            text = header.label,
+            color = AppTheme.Colors.text,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        // Everything after the label is secondary: the label is what a reader scans for.
+        Text(
+            text = buildString {
+                summary?.instrument?.let { append(" · ").append(it) }
+                summary?.quantity?.let { append(" ").append(it) }
+                append(" · ")
+                append(
+                    summary
+                        ?.composition
+                        ?.joinToString(", ") { "${it.name ?: it.messageType} ×${it.count}" }
+                        ?: "${header.count} message${if (header.count == 1) "" else "s"}",
+                )
+                // The dictionary's word for what the counterparty last said about state. Absent where
+                // nothing said anything — never inferred from the absence.
+                summary?.status?.valueName?.let { append(" · ").append(it) }
+                summary?.let { append(" · ").append(it.elapsedMillis).append("ms") }
+            },
+            color = AppTheme.Colors.textSecondary,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+        )
     }
 }
 

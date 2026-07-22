@@ -223,7 +223,8 @@ object McpTools {
                     "fixtool_capture_expectation, which seeds them in wire order for you.\n\n" +
                     "mode=open asserts only the listed rows (any tag you do not mention is ignored). mode=strict also " +
                     "asserts the message's shape: same tags, same count, same order — an unexpected tag fails it.\n\n" +
-                    "Matcher {type,...}: exact (value), presence, absent, regex (pattern), oneOf (values[]), numeric " +
+                    "Matcher {type,...}: exact (value), presence, absent, regex (pattern), oneOf (values[]), " +
+                    "range (min/max, each optional; minInclusive/maxInclusive default true), numeric " +
                     "(value, tolerance?), temporal (kind today|now_within_tolerance, toleranceSeconds?), reference " +
                     "(expression, e.g. \${out.D.11} — see fixtool_syntax). An `absent` row asserts the tag does not " +
                     "appear; it takes no part in the ordering.",

@@ -48,6 +48,49 @@ class ExpectationEvaluatorTest {
         assertEquals(TagStatus.VALUE, miss.status)
     }
 
+    /**
+     * The gap [Matcher.Range] fills: `Numeric` asserts equality-within-tolerance, so "the venue must
+     * not fill more than I asked for" had no expression at all — an author pinned a literal the next
+     * run breaks, or dropped to presence and asserted nothing about the number.
+     */
+    @Test
+    fun `range bounds a number instead of pinning it`() {
+        val v = wireView(14 to "500000", 44 to "1.0855")
+
+        assertTrue(eval(v, fe(14, Matcher.Range(max = 1_000_000.0))).single().passed, "CumQty <= OrderQty")
+        assertTrue(eval(v, fe(44, Matcher.Range(min = 1.08, max = 1.09))).single().passed, "price inside the band")
+        assertFalse(eval(v, fe(44, Matcher.Range(min = 1.09))).single().passed)
+
+        val failed = eval(v, fe(14, Matcher.Range(min = 600_000.0))).single()
+        assertEquals("500000", failed.actual)
+        assertEquals(">= 600000", failed.expected, "the report quotes the bound, not a literal")
+        assertEquals(TagStatus.VALUE, failed.status)
+    }
+
+    /** Inclusivity is per bound, and it is the difference between two different assertions. */
+    @Test
+    fun `each bound carries its own strictness`() {
+        val v = wireView(38 to "10000")
+
+        assertTrue(eval(v, fe(38, Matcher.Range(min = 10_000.0))).single().passed, ">= 10000 admits the endpoint")
+        assertFalse(
+            eval(v, fe(38, Matcher.Range(min = 10_000.0, minInclusive = false))).single().passed,
+            "> 10000 does not",
+        )
+        assertTrue(eval(v, fe(38, Matcher.Range(max = 10_000.0))).single().passed)
+        assertFalse(eval(v, fe(38, Matcher.Range(max = 10_000.0, maxInclusive = false))).single().passed)
+    }
+
+    /**
+     * A venue sending text where a price belongs is a failed assertion, not a crashed run — the same
+     * bargain [Matcher.Numeric] makes.
+     */
+    @Test
+    fun `a non-numeric value fails the range rather than throwing`() {
+        val v = wireView(44 to "MKT")
+        assertFalse(eval(v, fe(44, Matcher.Range(min = 1.0))).single().passed)
+    }
+
     @Test
     fun `presence and absent`() {
         val v = wireView(37 to "OID-9")

@@ -355,7 +355,18 @@ The expectation loses `path` and gains nothing:
 
 Rows are stored in captured wire order; that order *is* the assertion in STRICT mode. The matcher
 vocabulary is unchanged — `exact`, `presence`, `absent`, `regex`, `oneOf`, `numeric`, `temporal`,
-`reference`.
+`reference` — plus `range`, added later:
+
+```json
+{"type": "range", "min": 10000, "minInclusive": false}   // > 10000
+{"type": "range", "min": 1.08, "max": 1.09}              // [1.08, 1.09]
+{"type": "range", "max": 1000000}                        // <= 1000000
+```
+
+Either bound may be absent (open on that side) and either may be exclusive; `minInclusive` /
+`maxInclusive` default to true and are written only when false. A range with no bound, or a min
+above its max, asserts nothing and is reported by `validationError()` rather than refused by the
+codec — the same bargain an uncompilable regex gets.
 
 A result row reports its position, so a failure is addressable:
 

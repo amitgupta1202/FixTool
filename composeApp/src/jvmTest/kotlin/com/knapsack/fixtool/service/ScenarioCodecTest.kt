@@ -213,6 +213,44 @@ class ScenarioCodecTest {
         assertNull(Matcher.Exact("EXEC-[").validationError(), "only a regex matcher compiles its value")
     }
 
+    // ------------------------------------------------------------------ range
+
+    @Test
+    fun `a one-sided range round-trips, writing only what it means`() {
+        val matcher = Matcher.Range(min = 10_000.0, minInclusive = false)
+        val json = MatcherCodec.matcherToJson(matcher)
+
+        assertEquals("range", json["type"]!!.jsonPrimitive.content)
+        assertEquals(false, json["minInclusive"]!!.jsonPrimitive.content.toBoolean())
+        assertTrue("max" !in json, "an open upper bound must not be written as a value")
+        assertTrue("maxInclusive" !in json, "nor its default flag")
+        assertEquals(matcher, MatcherCodec.parseMatcher(json))
+    }
+
+    /** Omitted flags mean inclusive, so `>=`/`<=` stay the terse form on disk. */
+    @Test
+    fun `omitted inclusivity parses as inclusive`() {
+        val json = Json.parseToJsonElement("""{"type":"range","min":1.08,"max":1.09}""").jsonObject
+
+        assertEquals(Matcher.Range(min = 1.08, max = 1.09), MatcherCodec.parseMatcher(json))
+    }
+
+    /**
+     * Two ranges that assert nothing, both reachable by clearing a field in the editor. Carried by the
+     * codec unharmed — a bad assertion is not a corrupt scenario — and reported by validationError, the
+     * same bargain the uncompilable regex above gets.
+     */
+    @Test
+    fun `a range that asserts nothing is carried, and named`() {
+        val unbounded = Json.parseToJsonElement("""{"type":"range"}""").jsonObject
+        assertEquals(Matcher.Range(), MatcherCodec.parseMatcher(unbounded))
+        assertTrue(Matcher.Range().validationError()!!.contains("no bound"))
+
+        val inverted = Matcher.Range(min = 10.0, max = 1.0)
+        assertEquals(inverted, MatcherCodec.parseMatcher(MatcherCodec.matcherToJson(inverted)))
+        assertTrue(inverted.validationError()!!.contains("nothing can match"))
+    }
+
     @Test
     fun `a valid regex matcher still round-trips`() {
         val ok = Json.parseToJsonElement("""{"type":"regex","pattern":"EXEC-\\d+"}""").jsonObject

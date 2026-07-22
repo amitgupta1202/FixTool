@@ -22,7 +22,7 @@ import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.model.scenario.validationError
 
 /** The matcher type names, in the order shown in the editor's dropdown. */
-val MATCHER_TYPES = listOf("exact", "presence", "absent", "oneOf", "regex", "numeric", "temporal", "reference")
+val MATCHER_TYPES = listOf("exact", "presence", "absent", "oneOf", "regex", "numeric", "range", "temporal", "reference")
 
 /**
  * Every matcher's parameters render inside one slot of this width. Each type used to bring its own —
@@ -39,6 +39,7 @@ private val MATCHER_HELP = mapOf(
     "oneOf" to "value in a set",
     "regex" to "value matches a pattern",
     "numeric" to "number compare ± tolerance",
+    "range" to "number above/below a bound",
     "temporal" to "date/time vs now/today",
     "reference" to "equals a \${...} expression",
 )
@@ -52,6 +53,7 @@ fun matcherTypeName(matcher: Matcher): String =
         is Matcher.OneOf -> "oneOf"
         is Matcher.Regex -> "regex"
         is Matcher.Numeric -> "numeric"
+        is Matcher.Range -> "range"
         is Matcher.Temporal -> "temporal"
         is Matcher.Reference -> "reference"
     }
@@ -78,6 +80,9 @@ fun defaultMatcherForType(type: String, value: String): Matcher =
         "oneOf" -> Matcher.OneOf(if (value.isBlank()) emptyList() else listOf(value))
         "regex" -> Matcher.Regex(if (value.isBlank()) ".*" else literalPattern(value))
         "numeric" -> Matcher.Numeric(value.toDoubleOrNull() ?: 0.0, 0.0)
+        // Seeded as ">= captured", not unbounded: switching type must leave a row that still asserts
+        // something, and a lower bound at the captured value is the loosening an author reaches for.
+        "range" -> Matcher.Range(min = value.toDoubleOrNull() ?: 0.0)
         "temporal" -> Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, 60)
         "reference" -> Matcher.Reference("\${out.D.11}")
         else -> Matcher.Exact(value)
@@ -230,6 +235,52 @@ private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit, scopeVa
                     modifier = Modifier.width(64.dp),
                 )
             }
+        is Matcher.Range -> {
+            // Two bounds, each optional and each with its own strictness. A blank field clears that
+            // bound rather than reading as zero — "> 0" and "no lower bound" are different assertions,
+            // and typing over a field must not silently pick one.
+            val problem = remember(matcher) { matcher.validationError() }
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SlimDropdown(
+                        value = matcher.minInclusive,
+                        options = listOf(true, false),
+                        onValueChange = { inc -> inc?.let { onChange(matcher.copy(minInclusive = it)) } },
+                        displayText = { if (it) ">=" else ">" },
+                        modifier = Modifier.width(48.dp),
+                    )
+                    SlimField(
+                        matcher.min?.let { numText(it) } ?: "",
+                        { onChange(matcher.copy(min = it.toDoubleOrNull().takeIf { _ -> it.isNotBlank() })) },
+                        monospace = true,
+                        placeholder = "min",
+                        modifier = Modifier.weight(1f),
+                    )
+                    SlimDropdown(
+                        value = matcher.maxInclusive,
+                        options = listOf(true, false),
+                        onValueChange = { inc -> inc?.let { onChange(matcher.copy(maxInclusive = it)) } },
+                        displayText = { if (it) "<=" else "<" },
+                        modifier = Modifier.width(48.dp),
+                    )
+                    SlimField(
+                        matcher.max?.let { numText(it) } ?: "",
+                        { onChange(matcher.copy(max = it.toDoubleOrNull().takeIf { _ -> it.isNotBlank() })) },
+                        monospace = true,
+                        placeholder = "max",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (problem != null) {
+                    Text(
+                        problem,
+                        color = AppTheme.Colors.error,
+                        fontSize = 9.sp,
+                        maxLines = 2,
+                    )
+                }
+            }
+        }
         is Matcher.Temporal ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 SlimDropdown(

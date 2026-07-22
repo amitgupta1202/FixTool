@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.describe
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.model.scenario.TemporalKind
@@ -368,6 +369,7 @@ object ExpectationEvaluator {
             is Matcher.Regex -> matchRegex(matcher, actual)
             is Matcher.OneOf -> (actual != null && actual in matcher.values) to matcher.values.joinToString(" | ")
             is Matcher.Numeric -> matchNumeric(matcher, actual) to numericExpected(matcher)
+            is Matcher.Range -> matchRange(matcher, actual) to matcher.describe()
             is Matcher.Temporal -> matchTemporal(matcher, actual, now) to temporalExpected(matcher)
             is Matcher.Reference -> {
                 val resolved = referenceResolver(matcher.expression)
@@ -390,6 +392,20 @@ object ExpectationEvaluator {
     private fun matchNumeric(matcher: Matcher.Numeric, actual: String?): Boolean {
         val a = actual?.toDoubleOrNull() ?: return false
         return kotlin.math.abs(a - matcher.expected) <= matcher.tolerance
+    }
+
+    /**
+     * A non-numeric value fails rather than throwing, exactly as [matchNumeric] does — a venue sending
+     * text where a price belongs is a failed assertion, not a crashed run. A bound-less range is caught
+     * upstream as [TagStatus.INVALID] by [validationError]; reaching here it would accept anything, so
+     * the guard below refuses it rather than reporting a pass nobody asserted.
+     */
+    private fun matchRange(matcher: Matcher.Range, actual: String?): Boolean {
+        if (matcher.min == null && matcher.max == null) return false
+        val value = actual?.toDoubleOrNull() ?: return false
+        val aboveMin = matcher.min?.let { if (matcher.minInclusive) value >= it else value > it } ?: true
+        val belowMax = matcher.max?.let { if (matcher.maxInclusive) value <= it else value < it } ?: true
+        return aboveMin && belowMax
     }
 
     private fun matchTemporal(matcher: Matcher.Temporal, actual: String?, now: () -> Instant): Boolean {
@@ -523,6 +539,7 @@ object ExpectationEvaluator {
             is Matcher.Regex -> "regex /${matcher.pattern}/"
             is Matcher.OneOf -> "oneOf [${matcher.values.joinToString(",")}]"
             is Matcher.Numeric -> "numeric ${numericExpected(matcher)}"
+            is Matcher.Range -> "range ${matcher.describe()}"
             is Matcher.Temporal -> "temporal ${temporalExpected(matcher)}"
             is Matcher.Reference -> "reference ${matcher.expression}"
         }

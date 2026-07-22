@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.describe
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -130,6 +131,7 @@ fun matcherSummary(matcher: Matcher): String =
         is Matcher.OneOf -> "in {${matcher.values.joinToString(",")}}"
         is Matcher.Numeric ->
             if (matcher.tolerance == 0.0) "≈ ${matcher.expected}" else "≈ ${matcher.expected} ±${matcher.tolerance}"
+        is Matcher.Range -> matcher.describe()
         is Matcher.Temporal ->
             if (matcher.kind == TemporalKind.TODAY) "today" else "now ±${matcher.toleranceSeconds}s"
         is Matcher.Reference -> "= ${matcher.expression}"

@@ -77,6 +77,9 @@ fun ConnectionPanel(
     var connectionType by remember { mutableStateOf(FixConnectionConfig.ConnectionType.INITIATOR) }
     var socketAcceptPort by remember { mutableStateOf("") }
     var showAdvanced by remember { mutableStateOf(false) }
+
+    // Expanded by default: an unconfigured profile needs these before it needs anything else.
+    var showConnectionSettings by remember { mutableStateOf(true) }
     var customParameters by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var logonFields by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var acceptorRules by remember { mutableStateOf<List<AcceptorResponseRule>>(emptyList()) }
@@ -471,202 +474,231 @@ fun ConnectionPanel(
                 }
             }
 
-            // Basic connection fields
-            SectionLabel("Connection Settings")
+            // Collapsible, because the two halves of this panel are used on different schedules: the
+            // CompIDs and the port are set once, and then the auto-response rules are iterated on for
+            // as long as the venue behaviour is being pinned down. Folding the half that is finished
+            // gives the half being worked on the panel's length.
+            CollapsibleSectionHeader(
+                label = "Connection Settings",
+                expanded = showConnectionSettings,
+                onToggle = { showConnectionSettings = !showConnectionSettings },
+            )
 
-            // Connection Type selection
-            Column {
+            // Folded, the section still has to answer "who am I and where am I pointed" — otherwise a
+            // blank CompID leaves Connect disabled with its reason hidden inside the very thing that
+            // was collapsed, and the panel is silently unusable. Missing parts are named as `?` rather
+            // than skipped, so the gap is what draws the eye.
+            if (!showConnectionSettings) {
+                val where =
+                    if (connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) {
+                        "listening on ${socketAcceptPort.ifBlank { "?" }}"
+                    } else {
+                        "${host.ifBlank { "?" }}:${port.ifBlank { "?" }}"
+                    }
                 Text(
-                    text = "Connection Type",
-                    color = AppTheme.Colors.textSecondary,
+                    text = "${senderCompID.ifBlank { "?" }} → ${targetCompID.ifBlank { "?" }} · $where",
+                    color = if (isFormValid()) AppTheme.Colors.textSecondary else AppTheme.Colors.warning,
                     fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
                     modifier = Modifier.padding(bottom = 2.dp),
                 )
-
-                SlimDropdown(
-                    value = connectionType,
-                    options = FixConnectionConfig.ConnectionType.entries.toList(),
-                    onValueChange = { it?.let { type -> connectionType = type } },
-                    displayText = {
-                        when (it) {
-                            FixConnectionConfig.ConnectionType.INITIATOR -> "Initiator (Client)"
-                            FixConnectionConfig.ConnectionType.ACCEPTOR -> "Acceptor (Server)"
-                        }
-                    },
-                    placeholder = "Select Connection Type",
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
 
-            // SenderCompID and TargetCompID on same row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ConnectionField(
-                    label = "SenderCompID",
-                    value = senderCompID,
-                    onValueChange = { senderCompID = it },
-                    placeholder = "SenderCompID",
-                    isError = isSenderCompIDError,
-                    errorMessage = "Required",
-                    modifier = Modifier.weight(1f),
-                )
-
-                ConnectionField(
-                    label = "TargetCompID",
-                    value = targetCompID,
-                    onValueChange = { targetCompID = it },
-                    placeholder = "TargetCompID",
-                    isError = isTargetCompIDError,
-                    errorMessage = "Required",
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            // SessionQualifier (optional field to differentiate sessions with same SenderCompID/TargetCompID)
-            // and session count (initiators only - opens N concurrent sessions per Connect)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ConnectionField(
-                    label = "SessionQualifier (optional)",
-                    value = sessionQualifier,
-                    onValueChange = { sessionQualifier = it },
-                    placeholder = "e.g., DEV, LOCAL, QA - use when multiple sessions share same SenderCompID/TargetCompID",
-                    modifier = Modifier.weight(3f),
-                )
-
-                if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
-                    ConnectionField(
-                        label = "Sessions",
-                        value = sessionCount,
-                        onValueChange = { sessionCount = it },
-                        placeholder = "1",
-                        isError = !isSessionCountValid(sessionCount),
-                        errorMessage = "1-100",
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-
-            if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR && parsedSessionCount() > 1) {
-                val count = parsedSessionCount()
-                val errors = identityErrors()
-                if (errors.isNotEmpty()) {
-                    errors.forEach { error ->
-                        Text(text = error, color = AppTheme.Colors.error, fontSize = 8.sp)
-                    }
-                } else {
-                    val first = SessionIdentityResolver.resolve(identityPreviewConfig(), 1, count)
-                    val last = SessionIdentityResolver.resolve(identityPreviewConfig(), count, count)
-                    val previewText =
-                        if (first.senderCompID != last.senderCompID || first.targetCompID != last.targetCompID) {
-                            "Connect opens $count sessions: " +
-                                "${first.senderCompID} → ${first.targetCompID} … ${last.senderCompID} → ${last.targetCompID}"
-                        } else {
-                            "Connect opens $count sessions sharing these CompIDs, each with an auto-generated SessionQualifier " +
-                                "(${first.sessionQualifier} … ${last.sessionQualifier}). " +
-                                "For distinct CompIDs per session use {n}/{nn} numbering (e.g. LOADGEN{nn}) " +
-                                "or a comma-separated list in SenderCompID/TargetCompID/Username/Password."
-                        }
+            if (showConnectionSettings) {
+                // Connection Type selection
+                Column {
                     Text(
-                        text = previewText,
-                        color = AppTheme.Colors.info,
-                        fontSize = 8.sp,
+                        text = "Connection Type",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 9.sp,
+                        modifier = Modifier.padding(bottom = 2.dp),
+                    )
+
+                    SlimDropdown(
+                        value = connectionType,
+                        options = FixConnectionConfig.ConnectionType.entries.toList(),
+                        onValueChange = { it?.let { type -> connectionType = type } },
+                        displayText = {
+                            when (it) {
+                                FixConnectionConfig.ConnectionType.INITIATOR -> "Initiator (Client)"
+                                FixConnectionConfig.ConnectionType.ACCEPTOR -> "Acceptor (Server)"
+                            }
+                        },
+                        placeholder = "Select Connection Type",
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
-            }
 
-            // Username and Password on same row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                ConnectionField(
-                    label = "Username",
-                    value = username,
-                    onValueChange = { username = it },
-                    placeholder = "Username",
-                    modifier = Modifier.weight(1f),
-                )
-
-                ConnectionField(
-                    label = "Password",
-                    value = password,
-                    onValueChange = { password = it },
-                    placeholder = "Password (optional)",
-                    isPassword = true,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
-                // Initiator mode: Host and Port
+                // SenderCompID and TargetCompID on same row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     ConnectionField(
-                        label = "Host",
-                        value = host,
-                        onValueChange = { host = it },
-                        placeholder = "localhost",
-                        isError = isHostError,
+                        label = "SenderCompID",
+                        value = senderCompID,
+                        onValueChange = { senderCompID = it },
+                        placeholder = "SenderCompID",
+                        isError = isSenderCompIDError,
                         errorMessage = "Required",
                         modifier = Modifier.weight(1f),
                     )
 
                     ConnectionField(
-                        label = "Port",
-                        value = port,
-                        onValueChange = { port = it },
-                        placeholder = "9876",
-                        isError = isPortError,
-                        errorMessage = if (port.isEmpty()) "Required" else "Invalid port (1-65535)",
+                        label = "TargetCompID",
+                        value = targetCompID,
+                        onValueChange = { targetCompID = it },
+                        placeholder = "TargetCompID",
+                        isError = isTargetCompIDError,
+                        errorMessage = "Required",
                         modifier = Modifier.weight(1f),
                     )
                 }
-            } else {
-                // Acceptor mode: Accept Port only
-                ConnectionField(
-                    label = "Accept Port (listen for incoming connections)",
-                    value = socketAcceptPort.ifBlank { port },
-                    onValueChange = { socketAcceptPort = it },
-                    placeholder = "9876",
-                    isError = isAcceptPortError,
-                    errorMessage = if (socketAcceptPort.ifBlank { port }.isEmpty()) "Required" else "Invalid port (1-65535)",
+
+                // SessionQualifier (optional field to differentiate sessions with same SenderCompID/TargetCompID)
+                // and session count (initiators only - opens N concurrent sessions per Connect)
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            // FIX Version selection
-            Column {
-                Text(
-                    text = "FIX Version",
-                    color = AppTheme.Colors.textSecondary,
-                    fontSize = 9.sp,
-                    modifier = Modifier.padding(bottom = 2.dp),
-                )
-
-                SlimDropdown(
-                    value = selectedFixVersion,
-                    options = FixVersion.entries.toList(),
-                    onValueChange = { it?.let { version -> selectedFixVersion = version } },
-                    displayText = { it.displayName },
-                    placeholder = "Select FIX Version",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                // Info text for FIX 5.0+
-                if (selectedFixVersion.isFix50Plus) {
-                    Text(
-                        text = "FIX 5.0+ uses FIXT.1.1 transport with ApplVerID=${selectedFixVersion.applVerID}",
-                        color = AppTheme.Colors.info,
-                        fontSize = 8.sp,
-                        modifier = Modifier.padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ConnectionField(
+                        label = "SessionQualifier (optional)",
+                        value = sessionQualifier,
+                        onValueChange = { sessionQualifier = it },
+                        placeholder = "e.g., DEV, LOCAL, QA - use when multiple sessions share same SenderCompID/TargetCompID",
+                        modifier = Modifier.weight(3f),
                     )
+
+                    if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+                        ConnectionField(
+                            label = "Sessions",
+                            value = sessionCount,
+                            onValueChange = { sessionCount = it },
+                            placeholder = "1",
+                            isError = !isSessionCountValid(sessionCount),
+                            errorMessage = "1-100",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+
+                if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR && parsedSessionCount() > 1) {
+                    val count = parsedSessionCount()
+                    val errors = identityErrors()
+                    if (errors.isNotEmpty()) {
+                        errors.forEach { error ->
+                            Text(text = error, color = AppTheme.Colors.error, fontSize = 8.sp)
+                        }
+                    } else {
+                        val first = SessionIdentityResolver.resolve(identityPreviewConfig(), 1, count)
+                        val last = SessionIdentityResolver.resolve(identityPreviewConfig(), count, count)
+                        val previewText =
+                            if (first.senderCompID != last.senderCompID || first.targetCompID != last.targetCompID) {
+                                "Connect opens $count sessions: " +
+                                    "${first.senderCompID} → ${first.targetCompID} … ${last.senderCompID} → ${last.targetCompID}"
+                            } else {
+                                "Connect opens $count sessions sharing these CompIDs, each with an auto-generated SessionQualifier " +
+                                    "(${first.sessionQualifier} … ${last.sessionQualifier}). " +
+                                    "For distinct CompIDs per session use {n}/{nn} numbering (e.g. LOADGEN{nn}) " +
+                                    "or a comma-separated list in SenderCompID/TargetCompID/Username/Password."
+                            }
+                        Text(
+                            text = previewText,
+                            color = AppTheme.Colors.info,
+                            fontSize = 8.sp,
+                        )
+                    }
+                }
+
+                // Username and Password on same row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ConnectionField(
+                        label = "Username",
+                        value = username,
+                        onValueChange = { username = it },
+                        placeholder = "Username",
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    ConnectionField(
+                        label = "Password",
+                        value = password,
+                        onValueChange = { password = it },
+                        placeholder = "Password (optional)",
+                        isPassword = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                if (connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+                    // Initiator mode: Host and Port
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ConnectionField(
+                            label = "Host",
+                            value = host,
+                            onValueChange = { host = it },
+                            placeholder = "localhost",
+                            isError = isHostError,
+                            errorMessage = "Required",
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        ConnectionField(
+                            label = "Port",
+                            value = port,
+                            onValueChange = { port = it },
+                            placeholder = "9876",
+                            isError = isPortError,
+                            errorMessage = if (port.isEmpty()) "Required" else "Invalid port (1-65535)",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
+                    // Acceptor mode: Accept Port only
+                    ConnectionField(
+                        label = "Accept Port (listen for incoming connections)",
+                        value = socketAcceptPort.ifBlank { port },
+                        onValueChange = { socketAcceptPort = it },
+                        placeholder = "9876",
+                        isError = isAcceptPortError,
+                        errorMessage = if (socketAcceptPort.ifBlank { port }.isEmpty()) "Required" else "Invalid port (1-65535)",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                // FIX Version selection
+                Column {
+                    Text(
+                        text = "FIX Version",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 9.sp,
+                        modifier = Modifier.padding(bottom = 2.dp),
+                    )
+
+                    SlimDropdown(
+                        value = selectedFixVersion,
+                        options = FixVersion.entries.toList(),
+                        onValueChange = { it?.let { version -> selectedFixVersion = version } },
+                        displayText = { it.displayName },
+                        placeholder = "Select FIX Version",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    // Info text for FIX 5.0+
+                    if (selectedFixVersion.isFix50Plus) {
+                        Text(
+                            text = "FIX 5.0+ uses FIXT.1.1 transport with ApplVerID=${selectedFixVersion.applVerID}",
+                            color = AppTheme.Colors.info,
+                            fontSize = 8.sp,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                 }
             }
 
@@ -1678,6 +1710,29 @@ fun ConnectionPanel(
                 modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+/** A [SectionLabel] that folds its section — the chevron sits where Advanced Settings' does. */
+@Composable
+private fun CollapsibleSectionHeader(label: String, expanded: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = AppTheme.Colors.primary,
+            fontSize = 10.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        Icon(
+            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            contentDescription = if (expanded) "Collapse $label" else "Expand $label",
+            tint = AppTheme.Colors.textSecondary,
+            modifier = iconSize16,
+        )
     }
 }
 

@@ -1904,25 +1904,19 @@ class FixMessageViewModel(
     private val _viewMode = MutableStateFlow(FixMessageSession.ViewMode.PARSED) // Will be initialized from settings
 
     /**
-     * **Group the grid by business exchange.** A second, independent switch — RAW/PARSED says how a row
-     * renders, this says how rows relate, and they compose. Session state rather than a setting: it is a
-     * way of looking at what is on screen now, not a preference about how FixTool should start.
+     * **Group every session's grid by business exchange, at once.** The state itself is per-session
+     * ([FixMessageSession.groupByConversation] — a way of looking at one pane, like its filter); this
+     * is the toolbar's bulk door onto all of them: on if ANY session is grouped, and a click sets every
+     * session to the opposite. It was one app-global flag at first, and the both-sides test showed why
+     * that is wrong twice over — see the session-side property for the account.
      */
-    private val _groupByConversation = MutableStateFlow(false)
-    val groupByConversation: StateFlow<Boolean> = _groupByConversation.asStateFlow()
-
-    /** Conversations the author has folded shut, by [ConversationRows.Row.Header.key]. */
-    private val _collapsedConversations = MutableStateFlow<Set<String>>(emptySet())
-    val collapsedConversations: StateFlow<Set<String>> = _collapsedConversations.asStateFlow()
-
-    fun toggleGroupByConversation() {
-        _groupByConversation.value = !_groupByConversation.value
+    fun toggleGroupByConversationAllSessions() {
+        val anyOn = _sessions.any { it.groupByConversation.value }
+        _sessions.forEach { it.setGroupByConversation(!anyOn) }
     }
 
-    fun toggleConversationCollapsed(key: String) {
-        val current = _collapsedConversations.value
-        _collapsedConversations.value = if (key in current) current - key else current + key
-    }
+    /** Any session grouped — what the global toolbar button lights up on. */
+    fun anySessionGroupedByConversation(): Boolean = _sessions.any { it.groupByConversation.value }
 
     // Message maps for template expressions - stores latest message of each type
     // These can be referenced in template expressions like: ${incoming["D"].valueOfTag(11)}

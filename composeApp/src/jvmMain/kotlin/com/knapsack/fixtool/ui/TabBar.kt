@@ -91,6 +91,7 @@ fun TabBar(
                 val activeSession = sessions[activeIndex]
                 val connectionState by activeSession.connectionState.collectAsState()
                 val filterVisible by activeSession.filterVisible.collectAsState()
+                val groupedByConversation by activeSession.groupByConversation.collectAsState()
 
                 // RAW mode specific buttons (wrap, search)
                 if (viewMode == FixMessageSession.ViewMode.RAW) {
@@ -107,6 +108,25 @@ fun TabBar(
                         imageVector = Icons.Default.FilterAlt,
                         contentDescription = "Toggle Filter",
                         tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                        modifier = toolbarIconSize,
+                    )
+                }
+
+                // Group this session's grid by business exchange — per session, like the filter.
+                TooltipIconButton(
+                    tooltip =
+                        if (groupedByConversation) {
+                            "Conversations: On (click for a flat list)"
+                        } else {
+                            "Conversations: Off (click to group by exchange)"
+                        },
+                    onClick = { activeSession.toggleGroupByConversation() },
+                    modifier = toolbarButtonSize,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountTree,
+                        contentDescription = "Group by Conversation",
+                        tint = if (groupedByConversation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )
                 }

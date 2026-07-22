@@ -511,6 +511,7 @@ fun App(
                                                     viewModel.getProfileSessions(profileId)
                                                 },
                                                 onClose = { viewModel.toggleConnectionPanel() },
+                                                selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
                                                 demoServerRunning = demoServerRunning,
                                                 demoServerFixVersion = demoServerFixVersion,
                                                 onStartDemoServer = { viewModel.startDemoServer(it) },
@@ -791,6 +792,7 @@ fun App(
                                                         )
                                                     },
                                                     onClose = { viewModel.toggleConnectionPanel() },
+                                                    selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
                                                     demoServerRunning = demoServerRunning,
                                                     demoServerFixVersion = demoServerFixVersion,
                                                     onStartDemoServer = { viewModel.startDemoServer(it) },

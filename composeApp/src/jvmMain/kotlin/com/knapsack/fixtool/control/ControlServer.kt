@@ -308,6 +308,15 @@ class ControlServer(
                 sessionKey?.let { put("session", it) }
             }
         }
+        // `profile` loads that profile onto the connection form, as clicking it in the list does —
+        // the only way to reach the acceptor rules editor, the SSL fields, or anything else the form
+        // holds. Without it the panel opens on whatever was last clicked, which for an agent is
+        // nothing at all.
+        val requestedProfile = if (name == "connection") body["profile"]?.jsonPrimitive?.content else null
+        if (requestedProfile != null) {
+            val found = onEdt { viewModel.requestConnectionPanelSelection(requestedProfile) }
+            if (found != true) return errorObject("unknown profile: $requestedProfile")
+        }
         val applied =
             onEdt {
                 val (state, toggle) =
@@ -326,6 +335,7 @@ class ControlServer(
             put("status", "ok")
             put("panel", name)
             put("show", applied)
+            requestedProfile?.let { put("profile", it) }
         }
     }
 

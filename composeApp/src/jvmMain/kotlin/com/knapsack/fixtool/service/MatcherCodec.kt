@@ -92,6 +92,7 @@ object MatcherCodec {
             ?: throw IllegalArgumentException("matcher missing 'type'")
         return when (type) {
             "exact" -> Matcher.Exact(requireStr(obj, "value"))
+            "notequal" -> Matcher.NotEqual(requireStr(obj, "value"))
             "presence" -> Matcher.Presence
             "absent" -> Matcher.Absent
             "regex" -> Matcher.Regex(requireStr(obj, "pattern"))
@@ -151,6 +152,9 @@ object MatcherCodec {
             when (matcher) {
                 is Matcher.Exact -> {
                     put("type", "exact"); put("value", matcher.value)
+                }
+                is Matcher.NotEqual -> {
+                    put("type", "notEqual"); put("value", matcher.value)
                 }
                 is Matcher.Presence -> put("type", "presence")
                 is Matcher.Absent -> put("type", "absent")

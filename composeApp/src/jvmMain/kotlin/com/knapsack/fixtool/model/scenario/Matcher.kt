@@ -11,6 +11,17 @@ sealed interface Matcher {
     /** Literal string equality (default for business fields). */
     data class Exact(val value: String) : Matcher
 
+    /**
+     * The value must be **anything but** this one.
+     *
+     * Not the same as [Absent], and the difference is the whole reason it exists: a tag that never
+     * arrived satisfies neither. `OrdStatus != Rejected` is a claim about a status that *is* there.
+     * A missing tag fails this, exactly as it fails [Exact] — asserting "not X" about a field the
+     * message does not carry is a question with no answer, and answering it "true" would let a whole
+     * missing field pass as a successful negative.
+     */
+    data class NotEqual(val value: String) : Matcher
+
     /** The tag must be present; its value is ignored (e.g. OrderID, ExecID). */
     object Presence : Matcher
 

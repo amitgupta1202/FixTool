@@ -3,6 +3,8 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Matcher
 import quickfix.Message
 import java.time.LocalDateTime
@@ -39,8 +41,14 @@ data class CompiledRule(
 object AcceptorResponder {
     private const val MSG_TYPE_TAG = 35
 
-    // Matches ${req.<tag>} in a response template, e.g. ${req.11}.
+    // Matches a whole ${req.<tag>} expression, e.g. ${req.11}.
     private val REQ_REF = Regex("\\\$\\{req\\.(\\d+)}")
+
+    // Any ${...} expression, so a req reference *inside* one can be filled in before Kotlin sees it.
+    private val ANY_EXPR = Regex("\\\$\\{([^}]*)}")
+
+    // A req reference sitting inside a larger expression, e.g. the `req.38` of ${req.38 / 2}.
+    private val REQ_IN_EXPR = Regex("\\breq\\.(\\d+)\\b")
     private val NOW_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS")
 
     /**
@@ -54,6 +62,10 @@ object AcceptorResponder {
      */
     fun compile(rules: List<AcceptorResponseRule>): List<CompiledRule> =
         rules.mapNotNull { rule ->
+            // A rule switched off never reaches the matcher, so the rule after it gets the message —
+            // which is what "disabled" has to mean under first-match-wins, and is exactly what an
+            // author toggling one off is asking to see.
+            if (!rule.enabled) return@mapNotNull null
             val trigger = rule.trigger()
             if (trigger.any { it.reason() != null }) return@mapNotNull null
             CompiledRule(rule, trigger.map { it.tag to (it.parsed() ?: return@mapNotNull null) })
@@ -72,22 +84,70 @@ object AcceptorResponder {
      * `${req.<tag>}` is substituted here, against the message that triggered the rule and while that
      * message is unambiguously the current one. `${uuid}` and `${now}` are left for [PlannedSend.build].
      */
-    fun plan(rule: AcceptorResponseRule, incoming: Message): List<PlannedSend> {
+    fun plan(
+        rule: AcceptorResponseRule,
+        incoming: Message,
+        request: FixMessage? = null,
+        dictionary: FixDictionary? = null,
+    ): List<PlannedSend> {
         var offset = 0L
         return rule.sequence().map { step ->
             offset += step.delayMillis.coerceAtLeast(0)
             val againstRequest = resolveRequestRefs(step.template, incoming)
-            PlannedSend(offset) { buildMessage(resolveAtSendTime(againstRequest)) }
+            PlannedSend(offset) {
+                buildMessage(resolveExpressions(resolveAtSendTime(againstRequest), request, dictionary))
+            }
         }
     }
+
+    /**
+     * Anything still wearing `${...}` after the shorthands, evaluated as a **Kotlin expression** by the
+     * engine the message editor and scenarios already use — so `${in.D.38.toInt() / 2}` is half the
+     * order quantity, and a partial-fill rule works for any order size instead of the one its author
+     * hardcoded.
+     *
+     * **The map holds the triggering message and nothing else.** That is the whole reason this is safe:
+     * `${in.D.38}` normally means "the latest incoming D", which under two orders in flight is a race —
+     * step three of the first order's sequence would read the second order's quantity. Scoped to the
+     * request that fired this rule, it cannot.
+     *
+     * Skipped entirely when no `${...}` survives, which is every template written before this existed:
+     * the script engine costs real milliseconds, and an acceptor under load should not pay them to
+     * discover there was nothing to evaluate.
+     */
+    fun resolveExpressions(template: String, request: FixMessage?, dictionary: FixDictionary?): String =
+        if (request == null || !FixMessageTemplate.hasTemplateExpressions(template)) {
+            template
+        } else {
+            FixMessageTemplate.evaluate(
+                template,
+                incomingMessages = request.messageType?.let { mapOf(it to request) } ?: emptyMap(),
+                dictionary = dictionary,
+            )
+        }
 
     /** Substitutes `${req.<tag>}`, `${uuid}` and `${now}` in [template] against the incoming message. */
     fun resolve(template: String, incoming: Message): String =
         resolveAtSendTime(resolveRequestRefs(template, incoming))
 
-    /** The half of [resolve] that reads the request: `${req.<tag>}`. Fixed when the trigger arrives. */
-    fun resolveRequestRefs(template: String, incoming: Message): String =
-        REQ_REF.replace(template) { m -> valueOf(incoming, m.groupValues[1].toInt()) ?: "" }
+    /**
+     * The half of [resolve] that reads the request: `${req.<tag>}`. Fixed when the trigger arrives.
+     *
+     * Two shapes, because an author wants both. `${req.38}` on its own is the value, braces and all
+     * consumed. `req.38` *inside* a larger expression — `${req.38 / 2}` — is replaced in place and the
+     * braces left for the Kotlin engine, so half the order quantity is written the way anyone would
+     * guess rather than as `${incoming["D"].valueOfTag(38)!!.toInt() / 2}`.
+     *
+     * The value goes in raw, which is what makes the arithmetic work and what limits this to numbers:
+     * a string substituted into an expression would need quoting, and quoting would break the sums.
+     * A string field is read with the standalone form, which needs none of this.
+     */
+    fun resolveRequestRefs(template: String, incoming: Message): String {
+        val whole = REQ_REF.replace(template) { m -> valueOf(incoming, m.groupValues[1].toInt()) ?: "" }
+        return ANY_EXPR.replace(whole) { m ->
+            "\${" + REQ_IN_EXPR.replace(m.groupValues[1]) { r -> valueOf(incoming, r.groupValues[1].toInt()) ?: "" } + "}"
+        }
+    }
 
     /** The half of [resolve] that reads the clock and the id generator. Re-run for every step sent. */
     fun resolveAtSendTime(template: String): String =

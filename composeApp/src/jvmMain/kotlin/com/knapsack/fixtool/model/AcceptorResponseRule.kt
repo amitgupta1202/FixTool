@@ -97,6 +97,14 @@ data class AcceptorResponseRule(
     val conditions: List<FieldCondition> = emptyList(),
     val responseTemplate: String = "",
     val steps: List<ResponseStep> = emptyList(),
+    /**
+     * A rule switched off is **kept and skipped**, not deleted.
+     *
+     * Narrowing down a venue's behaviour means asking "what happens without this one" a dozen times,
+     * and the answer must not cost the rule. Defaults true so every rule written before this existed
+     * stays on, and so a rule is never silently inert for a reason that is not on its own card.
+     */
+    val enabled: Boolean = true,
 ) {
     /**
      * Every condition the incoming message must satisfy, from both spellings, **ANDed**.
@@ -112,6 +120,7 @@ data class AcceptorResponseRule(
         whenFields.mapNotNull { (tag, value) ->
             tag.toIntOrNull()?.let { FieldCondition(it, MatcherCodec.matcherToJson(Matcher.Exact(value))) }
         } + conditions
+
     /**
      * The reply, whichever way it was spelled: [steps] when present, otherwise [responseTemplate] as
      * a single immediate step, otherwise nothing.

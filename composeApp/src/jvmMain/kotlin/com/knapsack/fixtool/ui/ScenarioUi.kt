@@ -125,6 +125,7 @@ fun matcherSummary(matcher: Matcher, dictionary: FixDictionary?, tag: Int): Stri
 fun matcherSummary(matcher: Matcher): String =
     when (matcher) {
         is Matcher.Exact -> "= ${matcher.value}"
+        is Matcher.NotEqual -> "≠ ${matcher.value}"
         is Matcher.Presence -> "present"
         is Matcher.Absent -> "absent"
         is Matcher.Regex -> "~ /${matcher.pattern}/"

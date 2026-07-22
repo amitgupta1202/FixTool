@@ -51,10 +51,6 @@ class QuickFixService(
     private var currentSessionID: SessionID? = null
 
     /**
-     * The one place an acceptor auto-response reaches the wire. Off the callback thread on purpose —
-     * see [AcceptorDispatch] for why a reply sent inline is not merely early but impossibly early.
-     */
-    /**
      * The rules' triggers, parsed once. [config] does not change for the life of a service, so neither
      * can these — and re-parsing per inbound message would put JSON on the path of every message a
      * loaded acceptor receives. A rule that cannot be compiled is left out and said so here, once,
@@ -67,6 +63,10 @@ class QuickFixService(
         AcceptorResponder.compile(config.acceptorResponseRules)
     }
 
+    /**
+     * The one place an acceptor auto-response reaches the wire. Off the callback thread on purpose —
+     * see [AcceptorDispatch] for why a reply sent inline is not merely early but impossibly early.
+     */
     private val autoResponseDispatch =
         AcceptorDispatch(
             onSent = { response ->
@@ -373,7 +373,7 @@ class QuickFixService(
             onMessageReceived(fixMessage)
 
             // Acceptor auto-response: if configured, reply to the incoming message per the rules.
-            maybeAutoRespond(parsedMessage, sessionId)
+            maybeAutoRespond(parsedMessage, fixMessage, sessionId)
         } catch (e: Exception) {
             logger.error("Error processing application message: ${e.message}", e)
         }
@@ -388,16 +388,31 @@ class QuickFixService(
      * call — so the plan's `${req.<tag>}` substitutions are fixed before anything is queued. The
      * rest of each step is built and sent by [autoResponseDispatch], at its own moment.
      */
-    private fun maybeAutoRespond(incoming: Message, sessionId: SessionID) {
+    private fun maybeAutoRespond(incoming: Message, request: FixMessage, sessionId: SessionID) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
         val rule = AcceptorResponder.firstMatch(compiledRules, incoming) ?: return
         try {
-            AcceptorResponder.plan(rule, incoming).forEach { planned ->
+            AcceptorResponder.plan(rule, incoming, request, dictionary).forEach { planned ->
                 autoResponseDispatch.schedule(sessionId, planned.offsetMillis, planned.build)
             }
         } catch (e: Exception) {
             logger.error("Acceptor auto-response failed to plan: ${e.message}", e)
         }
+    }
+
+    /**
+     * Drops every auto-response still waiting to go out on this session, and reports how many.
+     *
+     * A sequence is a claim about time — "then, four seconds later, the fill" — so the moment an
+     * author realises it is the wrong claim they need it to stop *now*, not after it has finished
+     * being wrong. Rules already sent are not recalled; there is no such thing on a wire.
+     */
+    fun stopPendingResponses(): Int {
+        val sessionId = currentSessionID ?: return 0
+        val dropped = autoResponseDispatch.pendingCount(sessionId)
+        autoResponseDispatch.cancelAll(sessionId)
+        if (dropped > 0) logger.info("Dropped {} queued acceptor response(s)", dropped)
+        return dropped
     }
 
     /**

@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -23,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,7 +76,7 @@ fun AcceptorRulesEditor(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (rules.isEmpty()) "No rules — incoming messages get no reply" else "${rules.size} rule(s), first match wins",
+                    text = ruleSummary(rules),
                     color = AppTheme.Colors.textSecondary,
                     fontSize = 9.sp,
                 )
@@ -134,10 +137,26 @@ private fun RuleCard(
                 .fillMaxWidth()
                 .padding(top = 4.dp)
                 .background(AppTheme.Colors.surfaceVariant, RoundedCornerShape(2.dp))
-                .padding(4.dp),
+                .padding(4.dp)
+                // Dimmed, not hidden and not greyed into unreadability: a disabled rule is still being
+                // read and edited — switching it off is how an author asks "what happens without this
+                // one", and the answer is only useful while they can still see what "this one" was.
+                .alpha(if (rule.enabled) 1f else 0.45f),
     ) {
         // ---- trigger
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TooltipIconButton(
+                tooltip = if (rule.enabled) "Disable this rule" else "Enable this rule",
+                onClick = { onChange(rule.copy(enabled = !rule.enabled)) },
+                modifier = Modifier.size(16.dp),
+            ) {
+                Icon(
+                    imageVector = if (rule.enabled) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    contentDescription = if (rule.enabled) "Enabled" else "Disabled",
+                    tint = if (rule.enabled) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
             Text("When 35=", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
             SlimField(
                 value = rule.whenMsgType,
@@ -225,6 +244,13 @@ private fun RuleCard(
             )
         }
     }
+}
+
+/** "3 rules, first match wins · 1 off" — a switched-off rule has to be visible in the count, not just on its card. */
+private fun ruleSummary(rules: List<AcceptorResponseRule>): String {
+    if (rules.isEmpty()) return "No rules — incoming messages get no reply"
+    val off = rules.count { !it.enabled }
+    return "${rules.size} rule(s), first match wins" + if (off > 0) " · $off off" else ""
 }
 
 /**

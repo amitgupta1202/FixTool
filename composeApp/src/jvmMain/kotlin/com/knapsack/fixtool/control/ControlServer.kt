@@ -1594,6 +1594,17 @@ class ControlServer(
         val action = body["action"]?.jsonPrimitive?.content?.lowercase() ?: return errorObject("missing 'action'")
         val session = resolveSession(body["session"]?.jsonPrimitive?.content) ?: return errorObject("session not found")
 
+        // Reports what it dropped rather than just "ok": a sequence with nothing left to cancel and one
+        // that was stopped four steps in are different outcomes, and the caller usually wants to know
+        // which it got.
+        if (action == "stop-responses") {
+            return buildJsonObject {
+                put("status", "ok")
+                put("action", action)
+                put("dropped", onEdt { session.stopPendingResponses() } ?: 0)
+            }
+        }
+
         if (action == "seqnum") {
             val seq = session.sequenceNumbers() ?: return errorObject("no active session sequence numbers")
             return buildJsonObject {
@@ -1625,7 +1636,7 @@ class ControlServer(
                 "disconnect" -> session.forceDisconnect(body["reason"]?.jsonPrimitive?.content ?: "control")
                 else -> return errorObject(
                     "unknown action '$action' " +
-                        "(reset-seqnum|test-request|resend-request|sequence-reset|logout|disconnect|seqnum)",
+                        "(reset-seqnum|test-request|resend-request|sequence-reset|logout|disconnect|seqnum|stop-responses)",
                 )
             }
         return buildJsonObject {
@@ -1654,6 +1665,7 @@ class ControlServer(
                             add(
                                 buildJsonObject {
                                     put("whenMsgType", rule.whenMsgType)
+                                    put("enabled", rule.enabled)
                                     put(
                                         "whenFields",
                                         buildJsonObject { rule.whenFields.forEach { (k, v) -> put(k, v) } },

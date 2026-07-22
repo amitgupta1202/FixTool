@@ -366,6 +366,10 @@ object ExpectationEvaluator {
             is Matcher.Absent -> (actual == null) to "<absent>"
             is Matcher.Presence -> (actual != null) to "<present>"
             is Matcher.Exact -> (actual == matcher.value) to matcher.value
+            // A tag that never arrived fails this, exactly as it fails Exact: "not X" about a field
+            // the message does not carry is a question with no answer, and passing it would let a
+            // whole missing field through as a successful negative.
+            is Matcher.NotEqual -> (actual != null && actual != matcher.value) to "≠ ${matcher.value}"
             is Matcher.Regex -> matchRegex(matcher, actual)
             is Matcher.OneOf -> (actual != null && actual in matcher.values) to matcher.values.joinToString(" | ")
             is Matcher.Numeric -> matchNumeric(matcher, actual) to numericExpected(matcher)
@@ -539,6 +543,7 @@ object ExpectationEvaluator {
     fun describe(matcher: Matcher): String =
         when (matcher) {
             is Matcher.Exact -> "exact ${matcher.value}"
+            is Matcher.NotEqual -> "notEqual ${matcher.value}"
             is Matcher.Presence -> "presence"
             is Matcher.Absent -> "absent"
             is Matcher.Regex -> "regex /${matcher.pattern}/"

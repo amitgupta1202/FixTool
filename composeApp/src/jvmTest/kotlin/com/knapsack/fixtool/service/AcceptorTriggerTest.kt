@@ -163,4 +163,43 @@ class AcceptorTriggerTest {
     fun `a usable matcher trigger has nothing to report`() {
         assertNull(rule(condition(38, Matcher.Range(min = 10_000.0)), whenFields = mapOf("55" to "ACME")).validationError())
     }
+
+    // ------------------------------------------------------- not-equals, and switching a rule off
+
+    @Test
+    fun `notEqual triggers on anything but the value`() {
+        val notRejectSymbol = rule(condition(55, Matcher.NotEqual("REJECT")))
+
+        assertTrue(matches(notRejectSymbol, order(symbol = "ACME")))
+        assertTrue(!matches(notRejectSymbol, order(symbol = "REJECT")))
+    }
+
+    @Test
+    fun `notEqual is not satisfied by a tag that never arrived`() {
+        // "not X" about a field the message does not carry is a question with no answer. Passing it
+        // would let a whole missing field through as a successful negative.
+        assertTrue(!matches(rule(condition(44, Matcher.NotEqual("1.25"))), order()))
+        assertTrue(matches(rule(condition(44, Matcher.NotEqual("1.25"))), order(extra = "44=9.99|")))
+    }
+
+    @Test
+    fun `a disabled rule is skipped, and the message falls to the next rule`() {
+        val off = rule(condition(55, Matcher.Exact("ACME"))).copy(enabled = false, steps = listOf(ResponseStep("35=8|39=8|")))
+        val on = rule().copy(steps = listOf(ResponseStep("35=8|39=0|")))
+
+        assertSame(on, AcceptorResponder.firstMatch(AcceptorResponder.compile(listOf(off, on)), order()))
+        assertEquals(
+            listOf(on),
+            AcceptorResponder.compile(listOf(off, on)).map { it.rule },
+            "a rule switched off must not reach the matcher at all",
+        )
+    }
+
+    @Test
+    fun `a disabled rule is kept, not deleted, and says nothing is wrong with it`() {
+        val off = rule().copy(enabled = false)
+
+        assertNull(off.validationError(), "switching a rule off is not a fault to report")
+        assertEquals(1, off.sequence().size, "its reply is still there, waiting to be switched back on")
+    }
 }

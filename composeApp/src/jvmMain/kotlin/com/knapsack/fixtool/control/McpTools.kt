@@ -36,7 +36,8 @@ object McpTools {
                     "only needs fields that differ from defaults: host, port, senderCompID, targetCompID, " +
                     "beginString, connectionType (INITIATOR|ACCEPTOR), heartBtInt, resetOnLogon, useSSL, " +
                     "socketAcceptPort (acceptor), sessionCount, logonFields, and acceptorResponseRules " +
-                    "([{whenMsgType, whenFields?, responseTemplate}]) for auto-responding as an acceptor.",
+                    "([{whenMsgType, conditions?, enabled?, steps:[{template, delayMillis}]}]) for auto-responding " +
+                    "as an acceptor — see fixtool_acceptor_rules for the full shape.",
                 props("name" to string("display name"), "config" to objectSchema("FixConnectionConfig fields (partial)"), "id" to string("existing id to update")),
                 required = listOf("name", "config"),
             ),
@@ -394,10 +395,11 @@ object McpTools {
             tool(
                 "fixtool_admin",
                 "FIX session/admin control: seqnum (read), reset-seqnum (sender/target), test-request (id), " +
-                    "resend-request (begin/end), sequence-reset (newSeq/gapFill), logout (reason), disconnect (reason).",
+                    "resend-request (begin/end), sequence-reset (newSeq/gapFill), logout (reason), disconnect (reason), " +
+                    "stop-responses (drop this session's queued acceptor auto-responses mid-sequence; reports how many).",
                 props(
                     "session" to string("session id/title/index"),
-                    "action" to enumStr("seqnum", "reset-seqnum", "test-request", "resend-request", "sequence-reset", "logout", "disconnect"),
+                    "action" to enumStr("seqnum", "reset-seqnum", "test-request", "resend-request", "sequence-reset", "logout", "disconnect", "stop-responses"),
                     "sender" to integer(),
                     "target" to integer(),
                     "id" to string("TestReqID"),
@@ -424,10 +426,11 @@ object McpTools {
             tool(
                 "fixtool_acceptor_rules",
                 "Inspect a profile's acceptor auto-response rules (rules are set via fixtool_save_profile's config, " +
-                    "as acceptorResponseRules:[{whenMsgType, whenFields?, conditions?, steps:[{template, delayMillis}]}]). " +
+                    "as acceptorResponseRules:[{whenMsgType, whenFields?, conditions?, enabled?, steps:[{template, delayMillis}]}]). " +
+                    "enabled defaults true; a rule switched off is skipped so the message falls to the next rule. " +
                     "A trigger is whenMsgType plus conditions, ANDed: conditions:[{tag, matcher}] where matcher is " +
                     "the same JSON the scenario assertions use ({\"type\":\"range\",\"min\":10000} for 38 > 10000, " +
-                    "also exact/presence/absent/oneOf/regex/numeric/temporal — but not reference, which needs a " +
+                    "also exact/notEqual/presence/absent/oneOf/regex/numeric/temporal — but not reference, which needs a " +
                     "scenario scope a trigger does not have). whenFields is the older exact-only form and still " +
                     "works; the two are ANDed, never chosen between. " +
                     "A rule replies with a sequence: each step's delayMillis is measured from the step before it, " +
@@ -436,6 +439,8 @@ object McpTools {
                     "step. A template understands a restricted subset of the template language — \${req.<tag>} to " +
                     "echo a request field, \${uuid} and \${now} — and nothing else; see fixtool_syntax. \${req.<tag>} " +
                     "is fixed when the trigger arrives, \${uuid} and \${now} are resolved per step as it is sent. " +
+                    "A req reference inside a larger expression is computed: 14=\${req.38 / 2} is half the order " +
+                    "quantity, scoped to the message that triggered this rule. " +
                     "The response reports each rule's played `sequence` with the offset each step goes out at, and a " +
                     "`validationError` on any rule that cannot reply.",
                 props("profile" to string("profile id or name")),

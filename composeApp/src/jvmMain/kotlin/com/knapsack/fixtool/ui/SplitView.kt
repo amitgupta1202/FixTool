@@ -51,9 +51,6 @@ fun SplitView(
     onDiffSelected: ((FixMessage, FixMessage) -> Unit)? = null,
     onPasteMessage: ((String) -> Unit)? = null,
     orientation: SplitOrientation = SplitOrientation.HORIZONTAL,
-    groupByConversation: Boolean = false,
-    collapsedConversations: Set<String> = emptySet(),
-    onToggleConversation: (String) -> Unit = {},
     gridViewColumns: List<Int> = emptyList(),
     assertionResults: Map<FixMessage, com.knapsack.fixtool.model.scenario.StepResult> = emptyMap(),
     appSettings: com.knapsack.fixtool.model.AppSettings =
@@ -141,9 +138,6 @@ fun SplitView(
                                         .fillMaxHeight(),
                             ) {
                                 SessionPanel(
-                                    groupByConversation = groupByConversation,
-                                    collapsedConversations = collapsedConversations,
-                                    onToggleConversation = onToggleConversation,
                                     session = sessions[index],
                                     dictionary = dictionary,
                                     viewMode = viewMode,
@@ -261,9 +255,6 @@ private fun SessionPanel(
     session: FixMessageSession,
     dictionary: FixDictionary,
     viewMode: FixMessageSession.ViewMode,
-    groupByConversation: Boolean = false,
-    collapsedConversations: Set<String> = emptySet(),
-    onToggleConversation: (String) -> Unit = {},
     onClose: (() -> Unit)?,
     onMoveLeft: (() -> Unit)?,
     onMoveRight: (() -> Unit)?,
@@ -287,6 +278,7 @@ private fun SessionPanel(
     val wrapText by session.wrapText.collectAsState()
     val searchVisible by session.searchVisible.collectAsState()
     val filterVisible by session.filterVisible.collectAsState()
+    val groupedByConversation by session.groupByConversation.collectAsState()
     val filterRegex by session.filterRegex.collectAsState()
     val filterShowIncoming by session.filterShowIncoming.collectAsState()
     val filterShowOutgoing by session.filterShowOutgoing.collectAsState()
@@ -427,6 +419,22 @@ private fun SessionPanel(
                     imageVector = Icons.Default.FilterAlt,
                     contentDescription = "Toggle Filter",
                     tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+
+            // Group this pane's grid by business exchange — per session, like the filter.
+            Spacer(modifier = Modifier.width(2.dp))
+
+            TooltipIconButton(
+                tooltip = if (groupedByConversation) "Conversations: On (click for a flat list)" else "Conversations: Off (click to group by exchange)",
+                onClick = { session.toggleGroupByConversation() },
+                modifier = Modifier.size(24.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountTree,
+                    contentDescription = "Group by Conversation",
+                    tint = if (groupedByConversation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                 )
             }
@@ -834,9 +842,10 @@ private fun SessionPanel(
             latencyCriticalThresholdMicros = appSettings.latencyCriticalThresholdMicros,
             onAtBottomChanged = { isAtBottom = it },
             scrollToBottomTrigger = scrollToBottomTrigger,
-            groupByConversation = groupByConversation,
-            collapsedConversations = collapsedConversations,
-            onToggleConversation = onToggleConversation,
+            // The pane's own way of looking, read off its own session — see FixMessageSession.
+            groupByConversation = session.groupByConversation.collectAsState().value,
+            collapsedConversations = session.collapsedConversations.collectAsState().value,
+            onToggleConversation = { key -> session.toggleConversationCollapsed(key) },
             modifier = Modifier.weight(1f),
         )
     }

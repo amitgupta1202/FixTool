@@ -96,6 +96,20 @@ class FixMessageSession(
     private val _filterVisible = MutableStateFlow(false)
     val filterVisible: StateFlow<Boolean> = _filterVisible.asStateFlow()
 
+    /**
+     * **Group this session's grid by business exchange** — per session, like [filterVisible], and for
+     * the same reason: it is a way of looking at THIS pane. Held app-globally at first, it had two
+     * defects in one flaw: grouping toggled every pane at once, and the collapse set below was keyed by
+     * conversation *label* — so in a both-sides test, folding `STREAM-A` in the venue pane folded the
+     * client pane's same-labelled conversation with it.
+     */
+    private val _groupByConversation = MutableStateFlow(false)
+    val groupByConversation: StateFlow<Boolean> = _groupByConversation.asStateFlow()
+
+    /** Conversations folded shut in THIS pane, by header key (the conversation's label). */
+    private val _collapsedConversations = MutableStateFlow<Set<String>>(emptySet())
+    val collapsedConversations: StateFlow<Set<String>> = _collapsedConversations.asStateFlow()
+
     private val _filterRegex = MutableStateFlow("")
     val filterRegex: StateFlow<String> = _filterRegex.asStateFlow()
 
@@ -165,6 +179,19 @@ class FixMessageSession(
 
     fun toggleFilter() {
         _filterVisible.value = !_filterVisible.value
+    }
+
+    fun toggleGroupByConversation() {
+        _groupByConversation.value = !_groupByConversation.value
+    }
+
+    fun setGroupByConversation(on: Boolean) {
+        _groupByConversation.value = on
+    }
+
+    fun toggleConversationCollapsed(key: String) {
+        val current = _collapsedConversations.value
+        _collapsedConversations.value = if (key in current) current - key else current + key
     }
 
     fun setFilterRegex(regex: String) {

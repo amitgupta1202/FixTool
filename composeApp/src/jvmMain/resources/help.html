@@ -602,8 +602,8 @@
     <p>Toggle between views using the view mode button in the toolbar (grid icon / terminal icon).</p>
 
     <h3 id="conversations">Grouping by conversation</h3>
-    <p>A second, independent toolbar toggle (the tree icon) folds the grid by <strong>business
-    exchange</strong> — every message that shares a correlation id with another, transitively, becomes one
+    <p>The tree icon in a <strong>session's own button strip</strong> folds that session's grid by
+    <strong>business exchange</strong> — every message that shares a correlation id with another, transitively, becomes one
     group. The chain follows the ids themselves: a Quote carrying both <code>QuoteReqID</code> and
     <code>QuoteID</code> joins them, so the order placed off that quote lands in the RFQ's group with no
     configuration. Your venue's own correlation ids join the moment they are declared beside its
@@ -620,6 +620,10 @@
         <li><strong>Off is off.</strong> The toggle starts off and the flat chronological grid is
         unchanged. Grouping trades global timeline for adjacency &mdash; the flat view is one click
         back.</li>
+        <li><strong>Per session, like the filter.</strong> Each pane folds independently &mdash; a
+        both-sides test legitimately shows the same exchange from both chairs, and folding it in one
+        pane must not fold the other. The same tree icon on the main toolbar is the bulk switch for
+        every session at once.</li>
         <li><strong>Nothing is hidden.</strong> Messages carrying no correlation id &mdash; heartbeats,
         logons, anything the loaded dictionary cannot place &mdash; sit in an <strong>Ungrouped</strong>
         group at the bottom, counted, never dropped.</li>

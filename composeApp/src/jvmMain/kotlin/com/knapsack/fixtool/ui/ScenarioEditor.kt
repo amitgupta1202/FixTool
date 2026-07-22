@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -39,6 +41,7 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -704,11 +707,24 @@ private fun ModeChipMini(mode: MatchMode) {
 private val TAG_COL = 64.dp
 private val NAME_COL = 128.dp
 
+// A bind constraint's value cell: its width at rest, and its ceiling. Not its floor — see [RowTool].
+private val CONSTRAINT_VALUE_COL = 170.dp
+
 // The Send field grid mirrors the Message Editor's field grid (MessageEditorPanel) so the two editors read
 // as one tool: a fixed tag, a fixed name (FieldNameCell's 120dp default), a fixed-width value, and one
 // flexible help column beside the value — never a flexible value.
 private val SEND_TAG_COL = 48.dp
+private val SEND_NAME_COL = 120.dp
 private val SEND_VALUE_COL = 180.dp
+
+// The value column's floor, and the help column's. The value narrows with the pane (see [sendValueWidth])
+// rather than pushing the row's buttons out of existence, but it narrows to a width a value is still legible
+// in; below that the help column is the one that goes, since it only ever describes what the value says.
+private val SEND_VALUE_MIN = 60.dp
+private val SEND_HELP_MIN = 56.dp
+
+// The gap between the send row's cells — one padding, named, because [sendValueWidth] has to count them.
+private val SEND_CELL_GAP = 4.dp
 
 // The mint button's reserved slot in a Send field row. Kept at a constant width whether or not the button
 // shows, so a row whose value already mints (and therefore has no button) does not stretch its value input
@@ -881,6 +897,47 @@ private fun SendDetail(
         if (to !in step.fields.indices) return
         onChange(step.copy(fields = step.fields.toMutableList().apply { add(to, removeAt(from)) }))
     }
+    // One value width for the whole grid, measured from the width the grid actually got. Every row is handed
+    // the same number, which is the invariant `SendFieldsGridScreenshotTest` holds: a row whose value already
+    // mints, an enum row and a plain row are one column, not three. A per-row `weight(fill = false)` would
+    // give each field its *content's* width instead, and the column would ripple as the author typed.
+    BoxWithConstraints {
+        val valueWidth = sendValueWidth(maxWidth)
+        Column {
+            SendFieldRows(step, dictionary, allFields, valueWidth, takenNames, onChange, ::moveField)
+        }
+    }
+}
+
+/**
+ * The Send grid's value column at a pane [available] wide: [SEND_VALUE_COL] when there is room, narrowing to
+ * [SEND_VALUE_MIN] when there is not.
+ *
+ * It subtracts what the row's other cells cost, the buttons included, because those are the cells that must
+ * not be the ones to give — see [RowTool]. The button width is read from the host's
+ * `LocalMinimumInteractiveComponentSize` rather than assumed: a `Modifier.size(20.dp)` icon button is 20dp
+ * wide only where that local is 20dp or less, and the document pane sets 24dp while the Compose default is
+ * 48dp. Guessing it here would put the arithmetic 140dp out in the one place the row cannot afford it.
+ */
+@Composable
+private fun sendValueWidth(available: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp {
+    val button = maxOf(20.dp, LocalMinimumInteractiveComponentSize.current)
+    // Exclude, then the four row tools at the end.
+    val buttons = button * 5
+    val fixed = buttons + SEND_TAG_COL + SEND_NAME_COL + MINT_SLOT_WIDTH + SEND_HELP_MIN + SEND_CELL_GAP * 3
+    return (available - fixed).coerceIn(SEND_VALUE_MIN, SEND_VALUE_COL)
+}
+
+@Composable
+private fun SendFieldRows(
+    step: EditStep,
+    dictionary: FixDictionary?,
+    allFields: List<Pair<Int, String>>,
+    valueWidth: androidx.compose.ui.unit.Dp,
+    takenNames: Set<String>,
+    onChange: (EditStep) -> Unit,
+    moveField: (Int, Int) -> Unit,
+) {
     step.fields.forEachIndexed { i, field ->
         val tag = field.tag
         val value = field.value
@@ -904,30 +961,8 @@ private fun SendDetail(
                     modifier = Modifier.size(12.dp),
                 )
             }
-            // Same column rhythm as the Message Editor's field grid (MessageEditorPanel): tag, name, a
-            // fixed-width value, then one flexible help column — so the two field editors read as one tool.
-            // Tag with dictionary autocomplete: type "ClOrd" or "11" and pick — no code memorizing.
-            SlimTagPicker(
-                tag = tag,
-                fields = allFields,
-                onPick = { picked -> update(picked, value) },
-                modifier = Modifier.width(SEND_TAG_COL),
-                fieldTestTag = "send-tag-$i",
-            )
-            FieldNameCell(tag, dictionary, excluded = field.excluded)
-            // Fixed width, like the Message Editor's value column — the column that flexes is the help beside
-            // it, not the value. As weight(1f) the value stretched into a box the width of the whole pane.
-            SlimField(
-                value = value,
-                onValueChange = { text -> update(tag, text) },
-                monospace = true,
-                // Dimmed, not struck through or hidden — an excluded field is still editable, because the
-                // point of keeping it is to put it back. It reads as present-but-inactive, like a muted step.
-                textColor = if (field.excluded) AppTheme.Colors.textDisabled else AppTheme.Colors.fieldValue,
-                tintBlank = true,
-                modifier = Modifier.width(SEND_VALUE_COL).padding(start = 4.dp).testTag("send-value-$i"),
-            )
-            ValueHelpCell(tag, value, dictionary, modifier = Modifier.weight(1f).padding(start = 4.dp), onPick = { picked -> update(tag, picked) })
+            // The describing columns, as one block that yields to the buttons at the end. See [RowTool].
+            SendFieldColumns(i, field, dictionary, allFields, valueWidth, ::update, modifier = Modifier.weight(1f))
             // Mint-at-send: give this value a name — same bytes on the wire, but later expects can
             // reference-check the echo and later sends can reuse it. Hidden once the value mints — but the
             // slot is kept at a constant width, so a row whose value already mints (${id = uuid:20}) does
@@ -973,6 +1008,52 @@ private fun SendDetail(
 }
 
 /**
+ * What a Send field row *says* — tag, dictionary name, value, and the help beside it — as opposed to what it
+ * *does*, which is the buttons either side of it. The caller passes `Modifier.weight(1f)`: this block is the
+ * one that gives up width when the pane is narrow, and [RowTool] is where that division is argued.
+ */
+@Composable
+private fun SendFieldColumns(
+    i: Int,
+    field: SendField,
+    dictionary: FixDictionary?,
+    allFields: List<Pair<Int, String>>,
+    valueWidth: androidx.compose.ui.unit.Dp,
+    update: (Int, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tag = field.tag
+    val value = field.value
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
+        // Same column rhythm as the Message Editor's field grid (MessageEditorPanel): tag, name, a
+        // fixed-width value, then one flexible help column — so the two field editors read as one tool.
+        // Tag with dictionary autocomplete: type "ClOrd" or "11" and pick — no code memorizing.
+        SlimTagPicker(
+            tag = tag,
+            fields = allFields,
+            onPick = { picked -> update(picked, value) },
+            modifier = Modifier.width(SEND_TAG_COL),
+            fieldTestTag = "send-tag-$i",
+        )
+        FieldNameCell(tag, dictionary, width = SEND_NAME_COL, excluded = field.excluded)
+        // One width, handed down from [sendValueWidth] — the Message Editor's value width where the pane
+        // affords it, narrower where it does not. Fixed per row, never per content: the column that flexes is
+        // the help beside it, and as a plain weight(1f) the value stretched into a box the width of the pane.
+        SlimField(
+            value = value,
+            onValueChange = { text -> update(tag, text) },
+            monospace = true,
+            // Dimmed, not struck through or hidden — an excluded field is still editable, because the
+            // point of keeping it is to put it back. It reads as present-but-inactive, like a muted step.
+            textColor = if (field.excluded) AppTheme.Colors.textDisabled else AppTheme.Colors.fieldValue,
+            tintBlank = true,
+            modifier = Modifier.width(valueWidth).padding(start = SEND_CELL_GAP).testTag("send-value-$i"),
+        )
+        ValueHelpCell(tag, value, dictionary, modifier = Modifier.weight(1f).padding(start = SEND_CELL_GAP)) { picked -> update(tag, picked) }
+    }
+}
+
+/**
  * What field order does and does not reach the venue — told at the moment an author reaches for the
  * arrows, which is the moment the answer is worth having.
  *
@@ -991,6 +1072,22 @@ private const val ORDER_HINT =
 
 /**
  * One of the small per-row buttons at the end of a send field row.
+ *
+ * **It is an unweighted sibling of a `weight(1f)` block, and that is load-bearing.** `Row` measures its
+ * unweighted children in source order, each with `maxWidth` = what the earlier ones left. Once the fixed
+ * columns have spent the width, everything after them is measured against `maxWidth = 0` — and
+ * `Modifier.width(180.dp)` coerced into a zero constraint is not a clipped 180dp column, it is a **0dp** one.
+ * The child is still in the tree, still passes `assertExists`, and draws nothing.
+ *
+ * That is what the send field row and the bind constraint row did. Their columns summed to roughly 500dp of
+ * fixed width; the editor's detail pane defaults to 40% of the editor, which on a 1024dp-wide editor is 410dp.
+ * The overflow was paid by whatever stood last in the row — Remove field, then Insert, then Move down — so the
+ * only way to delete a tag from a send message, or a constraint from an expectation, silently ceased to exist
+ * at ordinary window sizes. Nothing was clipped off an edge to hint at it; the buttons were simply not there.
+ *
+ * So the rule for these rows: the controls that are the row's *purpose* are unweighted siblings, and the
+ * columns that merely *describe* it (value, help text) live in a `weight(1f)` block that shrinks. A narrow
+ * pane costs the author some of the value column's width, never a button. `NarrowPaneRowToolsTest` holds it.
  *
  * `AppTooltip` + `IconButton` rather than [TooltipIconButton], and the reason is worth recording
  * because the two read as interchangeable: a `TooltipIconButton` nested inside another composable
@@ -1236,6 +1333,7 @@ private fun AssertionsDoor(step: EditStep, dictionary: FixDictionary?, onOpenDif
  * tag=value constraints (AND), e.g. ExecType 150=F and OrdStatus 39=1 to pick the first partial.
  * With a dictionary, the message type and enum constraint values are picked from named dropdowns.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onChange: (MatchPredicate?) -> Unit) {
     fun push(messageType: String?, fields: List<TagValue>, occurrence: Int? = match?.occurrence) {
@@ -1264,13 +1362,18 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
             )
         },
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        // A FlowRow for the same reason RECEIVES is one: the type picker and the position picker are 360dp of
+        // fixed control between them, and a detail pane narrower than that answers a plain Row by measuring
+        // the position picker at zero width rather than by wrapping it.
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             MsgTypePicker(match?.messageType, dictionary) { picked -> push(picked, match?.fields ?: emptyList()) }
-            QuietWord("position")
-            OccurrencePicker(match?.occurrence) { picked -> push(match?.messageType, match?.fields ?: emptyList(), picked) }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                QuietWord("position")
+                OccurrencePicker(match?.occurrence) { picked -> push(match?.messageType, match?.fields ?: emptyList(), picked) }
+            }
         }
         val allFields = remember(dictionary) { dictionary?.getAllFields() ?: emptyList() }
         // Vertical rhythm, and gaps between the cells. These rows were flush against each other and against
@@ -1278,35 +1381,22 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
         (match?.fields ?: emptyList()).forEachIndexed { i, tv ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
             ) {
-                SlimTagPicker(
-                    tag = tv.tag,
-                    fields = allFields,
-                    onPick = { picked -> push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(tag = picked) }) },
-                    modifier = Modifier.width(TAG_COL),
+                // The describing columns yield; the remove button does not. See [RowTool] — a constraint the
+                // author could add and not remove is the same defect the send field row had.
+                ConstraintColumns(
+                    tv = tv,
+                    dictionary = dictionary,
+                    allFields = allFields,
+                    onTag = { picked -> push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(tag = picked) }) },
+                    onOp = { newOp -> push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(op = newOp) }) },
+                    onValue = { newValue -> push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(value = newValue) }) },
+                    modifier = Modifier.weight(1f),
                 )
-                FieldNameCell(tv.tag, dictionary, width = NAME_COL)
-                ConstraintOpCell(tv.op) { newOp ->
-                    push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(op = newOp) })
-                }
-                if (tv.op == MatchOp.EQ) {
-                    ConstraintValueCell(tv, dictionary) { newValue ->
-                        push(match?.messageType, match!!.fields.toMutableList().apply { this[i] = tv.copy(value = newValue) })
-                    }
-                } else {
-                    // Present/absent test existence only; there is no value to compare, so the cell would lie.
-                    Text(
-                        "(any value)",
-                        color = AppTheme.Colors.textSecondary,
-                        fontSize = 11.sp,
-                        modifier = Modifier.width(170.dp).padding(start = 4.dp),
-                    )
-                }
                 IconButton(
                     onClick = { push(match?.messageType, match!!.fields.toMutableList().apply { removeAt(i) }) },
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(22.dp).testTag("match-remove-$i"),
                 ) {
                     Icon(
                         Icons.Default.Delete,
@@ -1324,6 +1414,47 @@ private fun MatchEditor(match: MatchPredicate?, dictionary: FixDictionary?, onCh
             onClick = { push(match?.messageType, (match?.fields ?: emptyList()) + TagValue(0, "")) },
             modifier = Modifier.padding(top = 6.dp),
         )
+    }
+}
+
+/**
+ * What a bind constraint *says* — tag, name, comparison, value. Its sibling in the row is the button that
+ * removes it, and this is the block that gives up width so that button cannot be evicted; see [RowTool].
+ */
+@Composable
+private fun ConstraintColumns(
+    tv: TagValue,
+    dictionary: FixDictionary?,
+    allFields: List<Pair<Int, String>>,
+    onTag: (Int) -> Unit,
+    onOp: (MatchOp) -> Unit,
+    onValue: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier,
+    ) {
+        SlimTagPicker(tag = tv.tag, fields = allFields, onPick = onTag, modifier = Modifier.width(TAG_COL))
+        FieldNameCell(tv.tag, dictionary, width = NAME_COL)
+        ConstraintOpCell(tv.op, onOp)
+        // `fill = false` so the cell keeps [CONSTRAINT_VALUE_COL] where there is room and takes less where
+        // there is not — the alternative is a fixed width the row cannot afford and pays for with the button.
+        val valueModifier = Modifier.weight(1f, fill = false).widthIn(max = CONSTRAINT_VALUE_COL)
+        if (tv.op == MatchOp.EQ) {
+            ConstraintValueCell(tv, dictionary, modifier = valueModifier, onPick = onValue)
+        } else {
+            // Present/absent test existence only; there is no value to compare, so the cell would lie.
+            Text(
+                "(any value)",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = valueModifier.padding(start = 4.dp),
+            )
+        }
     }
 }
 
@@ -1398,7 +1529,7 @@ internal fun PaneDivider(onDrag: (Float) -> Unit, testTag: String = "editor-pane
 
 /** Enum-aware constraint value: a named dropdown when the dictionary knows the values. */
 @Composable
-private fun ConstraintValueCell(tv: TagValue, dictionary: FixDictionary?, onPick: (String) -> Unit) {
+private fun ConstraintValueCell(tv: TagValue, dictionary: FixDictionary?, modifier: Modifier = Modifier, onPick: (String) -> Unit) {
     val enumValues = if (dictionary?.hasFieldValues(tv.tag) == true) dictionary.getFieldEnumValues(tv.tag) else emptyList()
     if (enumValues.isNotEmpty()) {
         SlimDropdown(
@@ -1407,10 +1538,10 @@ private fun ConstraintValueCell(tv: TagValue, dictionary: FixDictionary?, onPick
             onValueChange = { picked -> picked?.let(onPick) },
             displayText = { v -> enumValues.firstOrNull { it.first == v }?.second?.let { "$v ($it)" } ?: v },
             placeholder = "pick…",
-            modifier = Modifier.width(170.dp).padding(start = 4.dp),
+            modifier = modifier.padding(start = 4.dp),
         )
     } else {
-        SlimField(tv.value, onPick, monospace = true, tintBlank = true, modifier = Modifier.width(170.dp).padding(start = 4.dp))
+        SlimField(tv.value, onPick, monospace = true, tintBlank = true, modifier = modifier.padding(start = 4.dp))
     }
 }
 

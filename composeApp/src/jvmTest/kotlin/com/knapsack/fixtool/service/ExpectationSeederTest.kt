@@ -183,6 +183,34 @@ class ExpectationSeederTest {
     }
 
     /**
+     * The trade capture family, which used to be classified from one side only.
+     *
+     * `TradeReportID(571)` belongs to whoever *submits* the report, so a report the venue publishes
+     * carries the venue's — and listed as client-minted alone it fell through to `Exact`, asserting an id
+     * that is new every run. `SecondaryTradeReportID(818)` needs no such resolution: `Secondary<X>ID` is
+     * assigned by the party that accepts, which is why `SecondaryOrderID(198)` and `SecondaryExecID(527)`
+     * were already venue-assigned and 818 was the family's missing member.
+     */
+    @Test
+    fun `trade capture report ids seed Presence, not the id the venue minted this time`() {
+        val seeded =
+            ExpectationSeeder.seedDetailed(
+                listOf(
+                    571 to "TCR-88213", // TradeReportID on a venue-published report
+                    818 to "VEN-TCR-4", // SecondaryTradeReportID — assigned by the accepting party
+                ),
+                dictionary,
+            )
+
+        seeded.forEach { sf ->
+            assertTrue(
+                sf.field.matcher is Matcher.Presence,
+                "tag ${sf.field.tag} is minted by the reporting venue and must seed Presence, got ${sf.field.matcher}",
+            )
+        }
+    }
+
+    /**
      * A quote/order lifetime is deliberately NOT ~now — Temporal reds any quote living longer than the
      * tolerance, Exact reds everything for ever. Presence: that the venue says how long it is good for
      * is the behaviour; the stamp itself belongs to the venue's clock and this moment.

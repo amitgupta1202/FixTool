@@ -21,8 +21,15 @@ class FixDictionaryAdapter private constructor(
     /** Transport dictionary for FIXT.1.1 sessions (FIX 5.0+), null for FIX 4.x */
     private val transportDictionary: DataDictionary? = null,
     private val transportDictionaryPath: String? = null,
-    /** True for the bundled standard dictionaries, which are the floor and so have none themselves. */
-    private val isStandard: Boolean = false,
+    /**
+     * True for the bundled standard dictionaries, which are the floor and so have none themselves.
+     *
+     * Public because "is this a venue's own file?" is not only this class's question: a bundled dictionary
+     * is extracted to a temp file, so it *has* a path while having nowhere durable to put anything beside
+     * it — which is exactly the distinction [com.knapsack.fixtool.service.VenueTagScan] needs before it
+     * offers to write a sidecar.
+     */
+    val isStandard: Boolean = false,
 ) {
     /**
      * **The standard FIX dictionary for this version — the comprehension floor.**

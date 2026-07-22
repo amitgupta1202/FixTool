@@ -40,6 +40,7 @@ class VenueTagScanTest {
                 <field number="35" name="MsgType" type="STRING"/>
                 <field number="48" name="SecurityID" type="STRING"/>
                 <field number="131" name="QuoteReqID" type="STRING"/>
+                <field number="820" name="TradeLinkID" type="STRING"/>
                 <field number="20001" name="LegRefID" type="STRING"/>
                 <field number="20071" name="SecondaryTradeLinkID" type="STRING"/>
                 <field number="20050" name="Note1" type="STRING"/>
@@ -56,46 +57,89 @@ class VenueTagScanTest {
     private fun tags(cs: List<VenueTagScan.Candidate>) = cs.map { it.tag }
 
     @Test
-    fun `the venue's own tags are offered, standard FIX is not`() {
+    fun `the venue's own tags are offered as the likely questions`() {
         val scanned = scan()
 
         assertTrue(20001 in tags(scanned), "the venue's leg id must be offered")
         assertTrue(20071 in tags(scanned))
-        // Standard FIX 4.4 is FixTool's own business — QuoteReqID(131) is already a correlation id, and
-        // BeginString(8) is transport. Neither is a question for the author.
-        assertTrue(131 !in tags(scanned))
-        assertTrue(8 !in tags(scanned))
+        assertEquals(
+            VenueTagScan.Tier.IDENTIFIER,
+            scanned.first { it.tag == 20001 }.tier,
+            "an id-shaped tag nobody has answered for is the question this dialog exists to ask",
+        )
+        assertTrue(scanned.first { it.tag == 20001 }.custom, "the venue defines it beyond standard FIX")
+    }
+
+    /**
+     * **Standard did not mean decided, and treating it that way cost real coverage.**
+     *
+     * `TradeLinkID(820)` is standard FIX 4.4 and is in none of FixTool's built-in sets, so capture seeded
+     * it `Exact` and replayed a dead link id every run — while the one surface that could have declared it
+     * refused to show it, because the scan offered only tags a dictionary added *beyond* standard FIX.
+     */
+    @Test
+    fun `a standard tag no built-in set classifies is offered like any other`() {
+        val candidate = scan().first { it.tag == 820 }
+
+        assertEquals(VenueTagScan.Tier.IDENTIFIER, candidate.tier)
+        assertTrue(!candidate.custom, "820 is standard FIX — offered because nothing answers for it, not because it is the venue's")
+        assertTrue(candidate.builtIn.isEmpty())
+    }
+
+    /**
+     * A tag FixTool answers for is shown *with* its answer rather than hidden: the author has to be able
+     * to see that `QuoteReqID(131)` is already treated as client-minted before they can decide their venue
+     * disagrees. What they cannot do is edit it away — the overlay only ever adds.
+     */
+    @Test
+    fun `a tag FixTool already decides is shown with its answer`() {
+        val candidate = scan().first { it.tag == 131 }
+
+        assertEquals(VenueTagScan.Tier.BUILT_IN, candidate.tier)
+        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), candidate.builtIn)
     }
 
     /**
      * The highest-cost false positive there is: `SecurityID` echoes on every flow and its name ends in
-     * `ID`, and minting a fresh value for it sends the venue an instrument that does not exist.
+     * `ID`, so it would sit at the top of the identifier tier — while minting a fresh value for it sends
+     * the venue an instrument that does not exist. Answered for, with the reason on the row.
      */
     @Test
-    fun `reference data is never offered as a correlation id`() {
-        assertTrue(48 !in tags(scan()))
+    fun `reference data is answered for, not offered as a correlation id`() {
+        val candidate = scan().first { it.tag == 48 }
+
+        assertEquals(VenueTagScan.Tier.BUILT_IN, candidate.tier)
+        assertTrue(candidate.builtInReason?.contains("reference data") == true, candidate.builtInReason.orEmpty())
+    }
+
+    /**
+     * The transport envelope is the one thing genuinely out of reach: the engine rewrites those fields on
+     * every send whatever the sidecar says, so a control for them could not take effect.
+     */
+    @Test
+    fun `the transport envelope is not offered, because a declaration there cannot take effect`() {
+        assertTrue(8 !in tags(scan()), "BeginString is rewritten on send")
+        assertTrue(10 !in tags(scan()), "CheckSum is rewritten on send")
+    }
+
+    /**
+     * Tier used to be the first sort key, so the list read as several interleaved ascending runs and
+     * finding `820` meant knowing which tier it had landed in first. The number is what the eye follows.
+     */
+    @Test
+    fun `the list is in numeric order, whatever the tier`() {
+        val scanned = tags(scan())
+
+        assertEquals(scanned.sorted(), scanned, "tags must be in numeric order")
+        assertTrue(scanned.containsAll(listOf(35, 48, 131, 820, 20001, 20044, 20050, 20063, 20071)))
     }
 
     @Test
-    fun `id-shaped names sort above the rest, and nothing is hidden`() {
-        val scanned = scan()
+    fun `a declared tag carries its role, so a wrong call can be revised`() {
+        val declared = scan("""{"20050":"CLIENT_MINTED_ID"}""").first { it.tag == 20050 }
 
-        val identifiers = scanned.filter { it.tier == VenueTagScan.Tier.IDENTIFIER }.map { it.tag }
-        assertEquals(listOf(20001, 20071), identifiers)
-        // …and the venue's other additions are still in the list, below them — a tier is an ordering, not
-        // a filter, because a correlation id whose name does not end in ID must stay reachable.
-        val others = scanned.filter { it.tier == VenueTagScan.Tier.OTHER }.map { it.tag }
-        assertTrue(others.containsAll(listOf(20044, 20050, 20063)), others.toString())
-        assertTrue(scanned.indexOfFirst { it.tag == 20001 } < scanned.indexOfFirst { it.tag == 20050 })
-    }
-
-    @Test
-    fun `a declared tag sorts first and carries its role, so a wrong call can be revised`() {
-        val scanned = scan("""{"20050":"CLIENT_MINTED_ID"}""")
-
-        assertEquals(20050, scanned.first().tag)
-        assertEquals(VenueTagScan.Tier.DECLARED, scanned.first().tier)
-        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), scanned.first().roles)
+        assertEquals(VenueTagScan.Tier.DECLARED, declared.tier)
+        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), declared.roles)
     }
 
     @Test
@@ -104,9 +148,13 @@ class VenueTagScanTest {
         assertTrue(VenueTagScan.summary(null).isNotBlank())
     }
 
-    /** A bundled standard dictionary adds nothing of its own, so there is nothing to ask about. */
+    /**
+     * A bundled standard dictionary offers nothing — and the reason is not that it is standard, which is
+     * no longer a filter anywhere else. It is extracted to a **temp file**, so a sidecar written beside it
+     * would not survive a restart: an answer the author gives there is silently thrown away.
+     */
     @Test
-    fun `a standard dictionary offers nothing`() {
+    fun `a bundled dictionary offers nothing, because a sidecar beside a temp file is lost`() {
         assertEquals(emptyList(), VenueTagScan.scan(FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)))
     }
 

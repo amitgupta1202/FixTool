@@ -2210,10 +2210,14 @@ stunnel stunnel.conf</code></pre>
     with the dictionary it describes.</p>
 
     <p><strong>Settings &rarr; Protocol &rarr; Venue tag roles&hellip;</strong> (just below the data dictionary
-    path, on the page that holds everything the venue owns rather than this machine) lists the
-    tags <em>your</em> dictionary adds beyond standard FIX, id-shaped names first, with
-    <strong>show all</strong> for the rest &mdash; a correlation id whose name doesn't happen to end in
-    <code>ID</code> is exactly what a filter would lose, so nothing is hidden. Give each one a role:</p>
+    path, on the page that holds everything the venue owns rather than this machine) opens on the tags
+    nobody has answered for whose names read like identifiers &mdash; the venue's own <em>and</em> the
+    standard ones FixTool has no opinion about. <code>TradeLinkID(820)</code> is standard FIX, is minted by
+    the venue on plenty of flows, and is in none of FixTool's built-in sets: being standard never meant
+    being decided. <strong>Show all</strong> has the rest, including the tags FixTool <em>does</em> answer
+    for &mdash; shown with its answer, so you can see what it already assumes before deciding your venue
+    differs. Rows are in <strong>tag-number order</strong> throughout, and the search box finds a tag by
+    number or by name whether or not the current view holds it. Give each one a role:</p>
     <ul>
         <li><strong>we mint it &mdash; fresh per run.</strong> The send gets a new value every run
         (<code>20001=${legRefID = uuid:20}</code>), the reply's echo becomes a

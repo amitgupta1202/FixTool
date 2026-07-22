@@ -52,9 +52,29 @@ object ExpectationSeeder {
             198, // SecondaryOrderID
             278, // MDEntryID — market-data entry handles, new per snapshot
             527, // SecondaryExecID
+            571, // TradeReportID — minted by whoever SUBMITS the report; see the note below
+            818, // SecondaryTradeReportID — the `Secondary*` rule: assigned by the party that accepts
             880, // TrdMatchID — the venue's match-engine id (post-trade)
             1003, // TradeID
         )
+
+    // Why 571 sits here AND in [ScenarioCapture.ID_TAGS], and 818 only here.
+    //
+    // `TradeReportID(571)` identifies a trade capture report, and FIX gives it to whoever *submits* one:
+    // our own submission mints it, and a report the venue publishes carries the venue's. Listed on one
+    // side only it seeded `Exact` for the other, so a captured venue-published TradeCaptureReport asserted
+    // an id that is new every run — red from the second replay, on a field that was never the behaviour.
+    // Both sets is not ambiguity, it is the `QuoteID(117)` shape: capture resolves it per scenario by
+    // whether one of our own Sends minted this value (the echo rewrite in [ScenarioCapture] runs after
+    // seeding and wins), so a client-submitted report still becomes a `Reference`.
+    //
+    // `SecondaryTradeReportID(818)` needs no such resolution: `Secondary<X>ID` in FIX is the identifier
+    // assigned by the party that ACCEPTS the message, which is why `SecondaryOrderID(198)` and
+    // `SecondaryExecID(527)` are already here. 818 was the family's missing member.
+    //
+    // Both are standard FIX. Tags whose minter depends on the venue — `TradeLinkID(820)`, a UTI in
+    // `RegulatoryTradeID(1903)` — deliberately stay out of this file and belong in the venue's own
+    // overlay ([com.knapsack.fixtool.model.TagRoleOverlay]), reachable through [VenueTagScan].
 
     /**
      * The venue-assigned ids **plus** the addressing tags whose value belongs to the environment. Split

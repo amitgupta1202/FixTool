@@ -267,7 +267,11 @@ indistinguishable by either.
 Undeclared, a venue id replays **verbatim**: the same value every run (a duplicate at any venue enforcing
 uniqueness), and the expect binds to the first message of that type rather than the reply to this run's ids.
 
-- `GET /dictionary/roles` lists the tags this dictionary adds beyond standard FIX, id-shaped first.
+- `GET /dictionary/roles` lists **every** tag this dictionary defines, in tag order, each with `tier`
+  (`DECLARED` / `IDENTIFIER` / `BUILT_IN` / `OTHER`), `custom` (defined beyond standard FIX for this
+  version) and `builtIn` (what FixTool already answers, empty when it has none). `IDENTIFIER` is the open
+  question — a standard tag can sit there too, because standard never meant already-decided:
+  `TradeLinkID(820)` is standard FIX, venue-minted on plenty of flows, and in no built-in set.
 - `POST /dictionary/roles` declares them — `CLIENT_MINTED_ID` (fresh per run, echo → `reference` + bind
   constraint), `VENUE_MINTED_ID` (`presence`, and a later send that quotes it back reads it from *this run's*
   reply via `bindAs`), or `LIFETIME`. Written to `<dictionary>.roles.json` beside the dictionary and live

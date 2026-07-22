@@ -1777,6 +1777,12 @@ class ControlServer(
                                     put("name", c.name)
                                     put("tier", c.tier.name)
                                     put("roles", buildJsonArray { c.roles.forEach { add(it.name) } })
+                                    // Standard-or-venue and what FixTool already answers: an agent deciding
+                                    // whether a tag needs declaring needs the same two facts the dialog puts
+                                    // on the row, or it re-declares what is already handled.
+                                    put("custom", c.custom)
+                                    put("builtIn", buildJsonArray { c.builtIn.forEach { add(it.name) } })
+                                    c.builtInReason?.let { put("builtInReason", it) }
                                 },
                             )
                         }

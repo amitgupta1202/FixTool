@@ -317,6 +317,52 @@ class ScenarioCaptureTest {
         assertEquals(2, expects[1].match?.occurrence, "the second reply is occurrence 2: ${expects[1].match}")
     }
 
+    /**
+     * **`TradeReportID(571)` is minted by whoever submits the report, and a capture holds both cases.**
+     *
+     * It is in the client-minted set *and* the venue-assigned one, exactly as `QuoteID(117)` is, and the
+     * two readings are told apart by evidence rather than by declaration: an id this scenario's own Send
+     * minted comes back as a `Reference`, and one the venue invented is asserted for presence. Listed on
+     * one side only, the venue's own report seeded `Exact` and the scenario went red on its second run —
+     * on a field whose value was never the behaviour under test.
+     */
+    @Test
+    fun `a TradeReportID we minted is a reference, and one the venue minted is presence`() {
+        val post = ScenarioCapture.CapturedSession(
+            "POST",
+            listOf(
+                // out TradeCaptureReport — our submission, our TradeReportID
+                msg("8=FIX.4.4|35=AE|34=2|49=CLI|52=20260630-10:00:00|56=VEN|571=OUR-TCR-1|55=EUR/USD|32=1000000|31=1.0851|60=20260630-10:00:00.000|10=001|", FixMessage.Direction.OUTGOING, 0),
+                // in TradeCaptureReportAck echoing ours, carrying the venue's own secondary id
+                msg("8=FIX.4.4|35=AR|34=2|49=VEN|52=20260630-10:00:01|56=CLI|571=OUR-TCR-1|818=VEN-SEC-7|939=0|10=002|", FixMessage.Direction.INCOMING, 1),
+                // in TradeCaptureReport the venue published itself — its TradeReportID, not ours
+                msg("8=FIX.4.4|35=AE|34=3|49=VEN|52=20260630-10:00:02|56=CLI|571=VEN-TCR-9|55=EUR/USD|32=1000000|31=1.0851|60=20260630-10:00:02.000|10=003|", FixMessage.Direction.INCOMING, 2),
+            ),
+        )
+
+        val scenario = ScenarioCapture.capture("sc2", "PostTrade", profile = null, sessions = listOf(post), dictionary = dictionary)
+
+        val send = scenario.steps.filterIsInstance<ScenarioStep.Send>().first()
+        assertTrue(
+            send.raw.contains("571=\${tradeReportID = uuid:20}"),
+            "our own submission must mint a fresh TradeReportID per run; got ${send.raw}",
+        )
+
+        val expects = scenario.steps.filterIsInstance<ScenarioStep.Expect>()
+        val ack = expects.first { it.expectation.messageType == "AR" }
+        assertEquals(Matcher.Reference("\${tradeReportID}"), matcher(ack, 571))
+        assertTrue(
+            matcher(ack, 818) is Matcher.Presence,
+            "SecondaryTradeReportID is assigned by the accepting party and is new every run; got ${matcher(ack, 818)}",
+        )
+
+        val published = expects.first { it.expectation.messageType == "AE" }
+        assertTrue(
+            matcher(published, 571) is Matcher.Presence,
+            "a TradeReportID the venue minted must not be asserted as a literal; got ${matcher(published, 571)}",
+        )
+    }
+
     private fun execTypeConstraint(e: ScenarioStep.Expect): String? =
         e.match?.fields?.firstOrNull { it.tag == 150 && it.op == MatchOp.EQ }?.value
 

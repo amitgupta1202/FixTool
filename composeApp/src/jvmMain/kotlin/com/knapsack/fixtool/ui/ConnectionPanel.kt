@@ -258,8 +258,16 @@ fun ConnectionPanel(
                     needClientAuth = profile.config.needClientAuth
                 },
                 onSaveProfile = {
+                    // Built by copying the profile being edited, not by constructing a fresh config
+                    // from the panel's fields. Constructing one silently reset every setting this
+                    // panel does not show — fileStorePath, fileLogPath, socketConnectPort, startTime,
+                    // endTime and the acceptor response rules all went back to their defaults the
+                    // first time anyone pressed Save, and the rules were *deleted*, having no default
+                    // to fall back to. Copying inverts the default: a field this panel does not edit
+                    // survives, and a field added to FixConnectionConfig later survives without
+                    // anyone having to remember this line.
                     val config =
-                        FixConnectionConfig(
+                        (selectedProfile?.config ?: FixConnectionConfig()).copy(
                             username = username,
                             senderCompID = senderCompID,
                             targetCompID = targetCompID,

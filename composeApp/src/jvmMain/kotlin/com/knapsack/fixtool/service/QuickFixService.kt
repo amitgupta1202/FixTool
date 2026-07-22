@@ -51,6 +51,18 @@ class QuickFixService(
     private var currentSessionID: SessionID? = null
 
     /**
+     * The one place an acceptor auto-response reaches the wire. Off the callback thread on purpose —
+     * see [AcceptorDispatch] for why a reply sent inline is not merely early but impossibly early.
+     */
+    private val autoResponseDispatch =
+        AcceptorDispatch(
+            onSent = { response ->
+                logger.info("Acceptor auto-responded with {}", response.header.getString(35))
+            },
+            onError = { message, e -> logger.error(message, e) },
+        )
+
+    /**
      * Capture current time in microseconds for latency tracking.
      * Called at the very start of QuickFIX/J callbacks for accurate timing.
      */
@@ -72,6 +84,9 @@ class QuickFixService(
     override fun onLogout(sessionId: SessionID) {
         logger.info("QuickFIX Session logged out: {}", sessionId)
         currentSessionID = null
+        // Replies still queued for a counterparty that has gone away are dropped, not attempted. A
+        // half-played sequence whose remaining steps fail one by one buries the logout that caused it.
+        autoResponseDispatch.cancelAll(sessionId)
         onStateChanged(DISCONNECTED)
 
         // If auto-reconnect is disabled, stop trying after any disconnect
@@ -355,17 +370,28 @@ class QuickFixService(
      * When running as an acceptor with response rules, replies to [incoming] using the first
      * matching rule. A no-op for initiators or rule-less acceptors, so existing behaviour is
      * unchanged.
+     *
+     * Building the reply happens here, on the callback thread, because it reads [incoming] and that
+     * message belongs to this call. *Sending* it does not: the send is handed to
+     * [autoResponseDispatch] and this returns.
      */
     private fun maybeAutoRespond(incoming: Message, sessionId: SessionID) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
         val rule = AcceptorResponder.firstMatch(config.acceptorResponseRules, incoming) ?: return
         try {
             val response = AcceptorResponder.buildMessage(AcceptorResponder.resolve(rule.responseTemplate, incoming))
-            Session.sendToTarget(response, sessionId)
-            logger.info("Acceptor auto-responded to {} with {}", rule.whenMsgType, response.header.getString(35))
+            autoResponseDispatch.schedule(response, sessionId, delayMillis = 0)
         } catch (e: Exception) {
-            logger.error("Acceptor auto-response failed: ${e.message}", e)
+            logger.error("Acceptor auto-response failed to build: ${e.message}", e)
         }
+    }
+
+    /**
+     * Releases the auto-response dispatch thread. Called when the connection is torn down; safe to
+     * call more than once, and a no-op for any session that never auto-responded.
+     */
+    fun shutdown() {
+        autoResponseDispatch.close()
     }
 
     /**

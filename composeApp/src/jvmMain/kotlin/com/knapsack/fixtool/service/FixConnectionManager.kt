@@ -265,6 +265,10 @@ class FixConnectionManager(
             acceptor?.stop()
             acceptor = null
 
+            // After the transport, not before: a rule's reply scheduled a moment ago is still worth
+            // sending while the session is up, and dropping it first would lose it silently.
+            quickFixService.shutdown()
+
             logger.info("QuickFIX connection stopped")
         } catch (e: Exception) {
             logger.error("Error stopping QuickFIX connection: {}", e.message, e)

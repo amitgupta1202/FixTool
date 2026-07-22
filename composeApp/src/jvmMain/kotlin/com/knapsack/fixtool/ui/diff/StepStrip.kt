@@ -6,13 +6,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,7 +46,17 @@ private val chipShape = RoundedCornerShape(3.dp)
  * `« » ± × ↧` are the diff gutter's repair offers. Neither may mean "step" as well.
  */
 @Composable
-fun StepStrip(chips: List<StepChip>, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+fun StepStrip(
+    chips: List<StepChip>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    /**
+     * The right-hand end of the row, for a control the window would otherwise spend a band of height on —
+     * today the diff's search box. The same bargain the summary beside it struck, and the reason the chips
+     * scroll: a lender of space can only lend what it does not need, and a `LazyRow` needs none.
+     */
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
     if (chips.isEmpty()) return
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -90,6 +101,9 @@ fun StepStrip(chips: List<StepChip>, onSelect: (String) -> Unit, modifier: Modif
                 modifier = Modifier.padding(start = 10.dp).testTag("diff-step-strip-summary"),
             )
         }
+        // Last, at the far end, with a gap: the summary counts *steps* and the search box counts *rows*, and
+        // two tallies that touch read as one thing said twice.
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 16.dp)) { trailing() }
     }
 }
 

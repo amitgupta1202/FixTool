@@ -120,6 +120,12 @@ fun DiffSurface(
     runInFlight: Boolean = false,
     /** The tag the author clicked in the message viewer — the body scrolls to its row. */
     focusTag: Int? = null,
+    /**
+     * The host is drawing the search box itself, in a row it already had — so this surface must not draw a
+     * second one. The reconcile window does (in the step strip); the scenario-less seeded editor, which has no
+     * such row, leaves this false and gets [DiffSearchStrip] above the column headers.
+     */
+    searchHostedAbove: Boolean = false,
     /** The swap menu's five entries, decided by the host (S11). Empty = no menu (the standalone harness). */
     referenceOptions: List<ReferenceOption> = emptyList(),
     onSelectReference: (ReferenceOption.Kind) -> Unit = {},
@@ -268,13 +274,10 @@ fun DiffSurface(
                 modifier = Modifier.padding(horizontal = ROW_PADDING, vertical = 2.dp),
             )
         }
-        // Every row index this query answers, in list order — computed once, here, because both the box that
-        // walks it and the body that scrolls for it need the same list and must not each build their own.
-        val matches =
-            remember(session.searchQuery, model) {
-                model.items.indices.filter { i -> (model.items[i] as? DiffItem.Line)?.let { session.matchesSearch(it.line) } == true }
-            }
-        DiffSearchStrip(session, matches.size)
+        // Every row index this query answers — one definition, on the session, because when the host draws the
+        // box (see [searchHostedAbove]) the box and this list are no longer the same composable.
+        val matches = session.searchMatches
+        if (!searchHostedAbove) DiffSearchStrip(session, matches.size)
         ColumnHeaders(session, session.reference.label)
         DiffBody(session, model, focusTag, matches, dragging, focusRequester) { dragging = it }
         DiffFooter(session)
@@ -284,15 +287,19 @@ fun DiffSurface(
 /**
  * **The reader's search box, and the two arrows that walk it.**
  *
- * It sits above the column headers rather than in the header block, because it is about the *rows* and an
- * author uses it while looking at them. It highlights and never filters — the argument is in
- * [ReconcileSession.searchQuery], and it is the same one the ghost lines were built for.
+ * It highlights and never filters — the argument is in [ReconcileSession.searchQuery], and it is the same one
+ * the ghost lines were built for. `3 / 12` rather than a bare count: in a reply this long the useful fact is
+ * not only how many rows answered but which of them the arrows have reached, and a walk with no position is a
+ * walk you lose your place in.
  *
- * `3 / 12` rather than a bare count: in a reply this long the useful fact is not only how many rows answered
- * but which of them the arrows have reached, and a walk with no position is a walk you lose your place in.
+ * **A bar, not a band.** It draws itself inline so a host can put it in a row that already exists — the
+ * reconcile window rides it in the step strip's empty span, which is the same bargain that strip's own
+ * summary struck: "a header of four stacked bands spends height in a window whose whole job is two dense
+ * columns of FIX fields, and this band was one short sentence wide". A surface with no strip to ride in
+ * ([DiffSearchStrip]) still gets its own row.
  */
 @Composable
-private fun DiffSearchStrip(session: ReconcileSession, matches: Int) {
+private fun DiffSearchBar(session: ReconcileSession, matches: Int) {
     // The cursor can outlive the matches it indexed — edit a value and the row stops answering. Clamp on read
     // rather than on write: the alternative is every edit path in the session remembering the search exists.
     val cursor = if (matches == 0) 0 else session.searchCursor.coerceIn(0, matches - 1)
@@ -303,51 +310,74 @@ private fun DiffSearchStrip(session: ReconcileSession, matches: Int) {
         // see the end of. `n`/`p` over the rows already wrap; two walks in one surface must agree.
         session.searchCursor = (cursor + delta + matches) % matches
     }
+    SlimSearchBar(
+        query = session.searchQuery,
+        onQueryChange = { session.search(it) },
+        placeholder = "Search tags, names, or values…",
+        testTag = "diff-search",
+        modifier = Modifier.width(DIFF_SEARCH_WIDTH),
+        trailing = {
+            if (session.searchQuery.isNotBlank()) {
+                Text(
+                    if (matches == 0) "no match" else "${cursor + 1} / $matches",
+                    color = if (matches == 0) AppTheme.Colors.warning else AppTheme.Colors.textSecondary,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    modifier = Modifier.testTag("diff-search-tally"),
+                )
+                // Glyph buttons, like ⟲ undo beside them — this surface does not wear Material icons.
+                AppTooltip("Previous match") {
+                    SlimButton("↑", onClick = { walk(-1) }, enabled = matches > 0, modifier = Modifier.testTag("diff-search-prev"))
+                }
+                AppTooltip("Next match") {
+                    SlimButton("↓", onClick = { walk(1) }, enabled = matches > 0, modifier = Modifier.testTag("diff-search-next"))
+                }
+                session.highlightedVariable?.let { name ->
+                    // Both highlights are outlines, and one row cannot wear two. Say which one is showing —
+                    // short, with the reason in the tooltip, because a sentence here would be a sentence in
+                    // the middle of a header row.
+                    AppTooltip(
+                        "A row can wear one outline. While there is a query, search has it; clear the box and " +
+                            "the \${$name} highlight marks its rows again. The chip is still on.",
+                    ) {
+                        Text(
+                            "\${$name} paused",
+                            color = AppTheme.Colors.textDisabled,
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("diff-search-highlight-paused"),
+                        )
+                    }
+                }
+            }
+        },
+    )
+}
+
+/**
+ * The search bar on a row of its own — for a host with no header row to lend it, which is the scenario-less
+ * seeded editor (`DiffViewerWindow.SeededEditor`). Directly above the column headers, so it is adjacent to
+ * the rows it marks.
+ */
+@Composable
+private fun DiffSearchStrip(session: ReconcileSession, matches: Int) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(horizontal = ROW_PADDING, vertical = 3.dp),
     ) {
-        SlimSearchBar(
-            query = session.searchQuery,
-            onQueryChange = { session.search(it) },
-            placeholder = "Search tags, names, or values…",
-            testTag = "diff-search",
-            modifier = Modifier.width(DIFF_SEARCH_WIDTH),
-            trailing = {
-                if (session.searchQuery.isNotBlank()) {
-                    Text(
-                        if (matches == 0) "no match" else "${cursor + 1} / $matches",
-                        color = if (matches == 0) AppTheme.Colors.warning else AppTheme.Colors.textSecondary,
-                        fontSize = 9.sp,
-                        maxLines = 1,
-                        modifier = Modifier.testTag("diff-search-tally"),
-                    )
-                    // Glyph buttons, like ⟲ undo beside them — this surface does not wear Material icons.
-                    AppTooltip("Previous match") {
-                        SlimButton("↑", onClick = { walk(-1) }, enabled = matches > 0, modifier = Modifier.testTag("diff-search-prev"))
-                    }
-                    AppTooltip("Next match") {
-                        SlimButton("↓", onClick = { walk(1) }, enabled = matches > 0, modifier = Modifier.testTag("diff-search-next"))
-                    }
-                }
-            },
-        )
-        if (session.searchQuery.isNotBlank() && session.highlightedVariable != null) {
-            // Both highlights are outlines, and one row cannot wear two. Say which one is showing rather than
-            // letting the author wonder why the chip they clicked stopped marking anything.
-            Text(
-                "search is marking rows — the \${${session.highlightedVariable}} highlight resumes when you clear it",
-                color = AppTheme.Colors.textDisabled,
-                fontSize = 9.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
+        DiffSearchBar(session, matches)
     }
 }
 
-/** The diff's search box. Wider than the Send grid's — it shares its line with nothing else. */
+/**
+ * **The diff's search box, drawn wherever its host puts it** — the reconcile window hands it to the step
+ * strip. Public because the host draws it; the state and the matching are the session's either way.
+ */
+@Composable
+fun DiffSearchControls(session: ReconcileSession) = DiffSearchBar(session, session.searchMatches.size)
+
+/** The diff's search box. Wider than the Send grid's — it carries a tally and two arrows. */
 private val DIFF_SEARCH_WIDTH = 300.dp
 
 // ------------------------------------------------------------------------------------------- the header

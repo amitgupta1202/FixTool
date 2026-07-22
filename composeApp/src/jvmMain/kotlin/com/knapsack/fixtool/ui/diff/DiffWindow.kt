@@ -188,6 +188,9 @@ private fun DiffWindowBody(viewModel: FixMessageViewModel, state: DiffWindowStat
                     },
                 ),
             onSelect = { stepId -> viewModel.showStepInDiffWindow(state.id, stepId) },
+            // The search box rides the strip's empty span rather than costing the window a row of its own.
+            // Only where there is something to search: before a reference is bound there are no rows.
+            trailing = { state.session?.let { DiffSearchControls(it) } },
         )
         if (state.completion != null) {
             ScenarioGreen(
@@ -241,6 +244,8 @@ private fun DiffStepBody(viewModel: FixMessageViewModel, state: DiffWindowState,
         onSaveAndRerun = { viewModel.saveAndRerun(state.scenarioId) },
         runInFlight = running,
         focusTag = state.focusTag,
+        // Drawn up in the step strip, so the surface must not draw a second one.
+        searchHostedAbove = true,
         // The slot: what may be in it is the host's to decide (it is the only thing that knows whether the step
         // has run, was ever captured, or has a second instance on a session) — the surface only draws it.
         referenceOptions = viewModel.referenceOptions(state),

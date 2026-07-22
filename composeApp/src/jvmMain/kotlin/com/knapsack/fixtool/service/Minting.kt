@@ -49,4 +49,15 @@ object Minting {
     /** A lifetime stamp — side-independent: an expiry is an expiry whoever wrote it. */
     fun isLifetime(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
         tag in ScenarioCapture.LIFETIME_TAGS || dictionary?.hasRole(tag, TagRole.LIFETIME) == true
+
+    /**
+     * **A correlation id at all, whoever mints it** — the union of [byUs] and [byThem], which is the same
+     * set from either chair, so this one takes no side.
+     *
+     * Asked by anything that cares that two messages are *about the same thing* rather than who invented
+     * the value: [Conversations] draws its edges from exactly these tags, and restricting it to them is
+     * what keeps an ordinary `54=1` from linking two unrelated flows.
+     */
+    fun isCorrelationId(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
+        clientMints(tag, dictionary) || venueMints(tag, dictionary)
 }

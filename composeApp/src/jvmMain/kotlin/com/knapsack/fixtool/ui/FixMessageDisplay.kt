@@ -126,18 +126,39 @@ fun FixMessageDisplay(
         derivedStateOf { !listState.canScrollForward }
     }
 
-    // When a new message arrives, scroll to bottom if autoScroll is enabled
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty() && autoScroll) {
-            listState.scrollToItem(messages.size - 1)
+    // The RAW list's render rows. Every scroll on this listState must target a ROW index: with
+    // grouping on, headers lengthen the list and a collapsed group shortens it, so a message
+    // index used directly points at the wrong row. (The grid owns its own listState and rows.)
+    val rawRows =
+        remember(messages, groupByConversation, collapsedConversations, dictionary) {
+            if (!groupByConversation) {
+                messages.indices.map { ConversationRows.Row.Message(it) }
+            } else {
+                ConversationRows.build(messages, dictionary, collapsedConversations)
+            }
+        }
+
+    /** The row showing [messageIndex], or -1 while a collapsed group hides it. */
+    fun rawRowIndexOf(messageIndex: Int): Int =
+        rawRows.indexOfFirst { it is ConversationRows.Row.Message && it.index == messageIndex }
+
+    // When a new message arrives (or the grouping refolds), scroll to the last row if autoScroll
+    // is enabled — in grouped mode that is the bottom of the table, not the newest arrival.
+    LaunchedEffect(rawRows.size) {
+        if (rawRows.isNotEmpty() && autoScroll) {
+            listState.scrollToItem(rawRows.size - 1)
         }
     }
 
-    // Scroll to current search match
-    LaunchedEffect(currentMatchIndex, searchMatches.size) {
+    // Scroll to current search match — by row; a match hidden inside a collapsed group scrolls
+    // nowhere rather than to an unrelated row.
+    LaunchedEffect(currentMatchIndex, searchMatches.size, rawRows) {
         if (searchMatches.isNotEmpty() && currentMatchIndex in searchMatches.indices) {
             val (messageIndex, _) = searchMatches[currentMatchIndex]
-            listState.scrollToItem(messageIndex)
+            val rowIndex = rawRowIndexOf(messageIndex)
+            if (rowIndex >= 0) {
+                listState.scrollToItem(rowIndex)
+            }
         }
     }
 
@@ -179,11 +200,11 @@ fun FixMessageDisplay(
         val previousIndex = if (currentIndex > 0) currentIndex - 1 else 0
         onSelectMessage(fixMessages[previousIndex])
 
-        // Scroll to the selected message
+        // Scroll to the selected message, by row
         coroutineScope.launch {
-            val messageIndex = messages.indexOf(fixMessages[previousIndex])
-            if (messageIndex >= 0) {
-                listState.scrollToItem(messageIndex)
+            val rowIndex = rawRowIndexOf(messages.indexOf(fixMessages[previousIndex]))
+            if (rowIndex >= 0) {
+                listState.scrollToItem(rowIndex)
             }
         }
     }
@@ -202,11 +223,11 @@ fun FixMessageDisplay(
         val nextIndex = if (currentIndex < fixMessages.size - 1) currentIndex + 1 else fixMessages.size - 1
         onSelectMessage(fixMessages[nextIndex])
 
-        // Scroll to the selected message
+        // Scroll to the selected message, by row
         coroutineScope.launch {
-            val messageIndex = messages.indexOf(fixMessages[nextIndex])
-            if (messageIndex >= 0) {
-                listState.scrollToItem(messageIndex)
+            val rowIndex = rawRowIndexOf(messages.indexOf(fixMessages[nextIndex]))
+            if (rowIndex >= 0) {
+                listState.scrollToItem(rowIndex)
             }
         }
     }
@@ -465,13 +486,31 @@ private fun MessageDisplayContent(
             // Raw view only
             val horizontalScrollState = rememberScrollState()
 
-            // Scroll to selected message when it changes
-            LaunchedEffect(selectedMessage) {
+            // The render list — hoisted above the selection effect because scroll targets are ROW
+            // indices; see the grid's renderRows for the full reasoning.
+            val rows =
+                remember(messages, groupByConversation, collapsedConversations, dictionary) {
+                    if (!groupByConversation) {
+                        messages.indices.map { ConversationRows.Row.Message(it) }
+                    } else {
+                        ConversationRows.build(messages, dictionary, collapsedConversations)
+                    }
+                }
+
+            // Scroll to selected message when it changes — by row; -1 means a collapsed group
+            // hides it, and scrolling nowhere beats jumping to an unrelated row.
+            LaunchedEffect(selectedMessage, rows) {
                 if (selectedMessage != null) {
                     val messageIndex = messages.indexOf(selectedMessage)
-                    if (messageIndex >= 0) {
+                    val rowIndex =
+                        if (messageIndex < 0) {
+                            -1
+                        } else {
+                            rows.indexOfFirst { it is ConversationRows.Row.Message && it.index == messageIndex }
+                        }
+                    if (rowIndex >= 0) {
                         coroutineScope.launch {
-                            listState.animateScrollToItem(messageIndex)
+                            listState.animateScrollToItem(rowIndex)
                         }
                     }
                 }
@@ -522,18 +561,6 @@ private fun MessageDisplayContent(
                             .fillMaxSize()
                             .then(if (!wrapText) Modifier.horizontalScroll(horizontalScrollState) else Modifier),
                 ) {
-                    // Grouping is a presentation of the same rows: the list below is still THIS list,
-                    // reordered, with headers spliced in. `index` stays the message's position in
-                    // `messages` — search matches, the selection and the assertion overlay are all keyed
-                    // on it. Memoized because it re-reads every message's fields. See [ConversationRows].
-                    val rows =
-                        remember(messages, groupByConversation, collapsedConversations, dictionary) {
-                            if (!groupByConversation) {
-                                messages.indices.map { ConversationRows.Row.Message(it) }
-                            } else {
-                                ConversationRows.build(messages, dictionary, collapsedConversations)
-                            }
-                        }
                     SelectionContainer {
                         LazyColumn(
                             state = listState,

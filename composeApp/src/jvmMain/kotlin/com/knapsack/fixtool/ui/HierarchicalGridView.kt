@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AppMessage
+import com.knapsack.fixtool.service.ConversationRows
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.Separator
@@ -251,6 +252,10 @@ fun HierarchicalGridView(
     latencyCriticalThresholdMicros: Long = 500_000L,
     onAtBottomChanged: (Boolean) -> Unit = {},
     scrollToBottomTrigger: Int = 0,
+    /** Group the grid by business exchange (Option B) — off renders today's grid unchanged. */
+    groupByConversation: Boolean = false,
+    collapsedConversations: Set<String> = emptySet(),
+    onToggleConversation: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -967,13 +972,40 @@ fun HierarchicalGridView(
                         Spacer(modifier = Modifier.weight(1f))
                     }
 
+                    // The render list: flat indices, or conversations spliced in. Either way each
+                    // Message row keeps its index into `messages` — selection ranges, assertion
+                    // overlays and shift-click all key on it. See [ConversationRows].
+                    val renderRows =
+                        remember(messages, groupByConversation, collapsedConversations, dictionary) {
+                            if (!groupByConversation) {
+                                messages.indices.map { ConversationRows.Row.Message(it) }
+                            } else {
+                                ConversationRows.build(messages, dictionary, collapsedConversations)
+                            }
+                        }
+
                     // Message rows
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(bottom = 16.dp),
                     ) {
-                        messages.forEachIndexed { index, message ->
+                        renderRows.forEach { row ->
+                            if (row is ConversationRows.Row.Header) {
+                                // "conv:" cannot collide with message keys, which are numeric uids.
+                                item(key = "conv:" + row.key) {
+                                    ConversationGroupRow(
+                                        header = row,
+                                        gridViewColumns = gridViewColumns,
+                                        columnWidths = columnWidths,
+                                        showLatencyColumn = showLatencyColumn,
+                                        onToggle = { onToggleConversation(row.key) },
+                                    )
+                                }
+                                return@forEach
+                            }
+                            val index = (row as ConversationRows.Row.Message).index
+                            val message = messages[index]
                             val messageId = getMessageId(message)
                             val isExpanded = expandedMessages[messageId] ?: false
 
@@ -1090,6 +1122,149 @@ fun HierarchicalGridView(
                     .height(8.dp),
         )
 
+    }
+}
+
+/**
+ * **The conversation view's summary row** — one per exchange when *Group by conversation* is on.
+ *
+ * It uses the grid's own columns rather than a full-width banner: chevron in the Icon column, the
+ * label and instrument across the identity columns, composition and status in Summary, round-trip in
+ * Latency, and the exchange's ids under the very Tag columns the member rows put them in. Same 24dp
+ * height, same borders, same width arithmetic as [MessageSummaryRow], so folding a group never makes
+ * the table jump.
+ *
+ * Everything on it is quotation or arithmetic over what arrived — see [Conversations.Summary] for the
+ * rule. The status text deliberately stays neutral in colour: "Rejected" is a status too, and a green
+ * chip would be the header forming an opinion.
+ */
+@Composable
+private fun ConversationGroupRow(
+    header: ConversationRows.Row.Header,
+    gridViewColumns: List<Int>,
+    columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
+    showLatencyColumn: Boolean,
+    onToggle: () -> Unit,
+) {
+    val summary = header.summary
+    val latencyColumnWidth = if (showLatencyColumn) (columnWidths["Latency"] ?: 90.dp) else 0.dp
+    val minWidth =
+        24.dp +
+            (columnWidths["Icon"] ?: 40.dp) +
+            (columnWidths["Time"] ?: 120.dp) +
+            (columnWidths["Dir"] ?: 50.dp) +
+            (columnWidths["SeqNum"] ?: 70.dp) +
+            (columnWidths["MsgType"] ?: 100.dp) +
+            (columnWidths["Summary"] ?: 200.dp) +
+            latencyColumnWidth +
+            gridViewColumns.sumOf { tag -> (columnWidths["Tag_$tag"] ?: 120.dp).value.toInt() }.dp +
+            200.dp
+    // The identity span: Time+Dir+SeqNum+MsgType, which a group row has no per-message values for.
+    val identityWidth =
+        (columnWidths["Time"] ?: 120.dp) +
+            (columnWidths["Dir"] ?: 50.dp) +
+            (columnWidths["SeqNum"] ?: 70.dp) +
+            (columnWidths["MsgType"] ?: 100.dp)
+    val background = AppTheme.Colors.surfaceVariant
+
+    @Composable
+    fun cell(width: androidx.compose.ui.unit.Dp, alignment: Alignment = Alignment.CenterStart, content: @Composable () -> Unit) {
+        Box(
+            modifier =
+                Modifier
+                    .width(width)
+                    .fillMaxHeight()
+                    .background(background)
+                    .border(0.5.dp, cellBorderColor),
+            contentAlignment = alignment,
+        ) { content() }
+    }
+
+    Row(
+        modifier =
+            Modifier
+                .height(24.dp)
+                .widthIn(min = minWidth)
+                .clickable { onToggle() },
+    ) {
+        cell(24.dp) {}
+        cell(columnWidths["Icon"] ?: 40.dp, Alignment.Center) {
+            Text(
+                text = if (header.collapsed) "▶" else "▼",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+        cell(identityWidth) {
+            Text(
+                text =
+                    buildString {
+                        append(header.label)
+                        summary?.instrument?.let { append(" · ").append(it) }
+                        summary?.quantity?.let { append(" ").append(it) }
+                    },
+                color = AppTheme.Colors.text,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+        }
+        cell(columnWidths["Summary"] ?: 200.dp) {
+            Text(
+                text =
+                    buildString {
+                        if (summary != null) {
+                            append(summary.composition.joinToString(" · ") { "${it.name ?: it.messageType} ×${it.count}" })
+                            summary.status?.let { append(" · ").append(it.valueName ?: it.value) }
+                            // No Latency column to carry the round-trip: it rides here instead.
+                            if (!showLatencyColumn) append(" · ").append(summary.elapsedMillis).append("ms")
+                        } else {
+                            append("${header.count} message${if (header.count == 1) "" else "s"} · no correlation id")
+                        }
+                    },
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+        }
+        if (showLatencyColumn) {
+            cell(columnWidths["Latency"] ?: 90.dp, Alignment.CenterEnd) {
+                Text(
+                    text = summary?.let { "${it.elapsedMillis}ms" } ?: "—",
+                    color = if (summary != null) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+            }
+        }
+        gridViewColumns.forEach { tag ->
+            cell(columnWidths["Tag_$tag"] ?: 120.dp) {
+                Text(
+                    text = header.idsByTag[tag] ?: "",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+            }
+        }
+        Spacer(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(background),
+        )
     }
 }
 

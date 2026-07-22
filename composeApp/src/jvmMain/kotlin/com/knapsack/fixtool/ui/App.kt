@@ -195,6 +195,7 @@ fun App(
                         globalFilterShowIncoming = globalFilterShowIncoming,
                         globalFilterShowOutgoing = globalFilterShowOutgoing,
                         hideProtocolTags = viewModel.appSettings.hideProtocolTags,
+                        groupByConversation = viewModel.groupByConversation.collectAsState().value,
                         onOpenMessageEditor = { viewModel.toggleMessageEditor() },
                         onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                         onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
@@ -213,6 +214,7 @@ fun App(
                         onGlobalFilterIncomingChange = { show -> viewModel.setGlobalFilterShowIncoming(show) },
                         onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
                         onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
+                        onToggleGroupByConversation = { viewModel.toggleGroupByConversation() },
                         onOpenSettings = { viewModel.toggleSettingsDialog() },
                         onOpenHelp = { viewModel.toggleHelpDialog() },
                         onOpenScenarios = { viewModel.toggleScenariosRail() },
@@ -377,6 +379,9 @@ fun App(
                                                 latencyCriticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
                                                 onAtBottomChanged = { isAtBottom = it },
                                                 scrollToBottomTrigger = scrollToBottomTrigger,
+                                                groupByConversation = viewModel.groupByConversation.collectAsState().value,
+                                                collapsedConversations = viewModel.collapsedConversations.collectAsState().value,
+                                                onToggleConversation = { key -> viewModel.toggleConversationCollapsed(key) },
                                                 modifier = Modifier.weight(1f),
                                             )
                                         } ?: Box(
@@ -981,6 +986,9 @@ private fun ColumnScope.SplitCentre(
 ) {
     val grid: @Composable (Modifier) -> Unit = { m ->
         SplitView(
+            groupByConversation = viewModel.groupByConversation.collectAsState().value,
+            collapsedConversations = viewModel.collapsedConversations.collectAsState().value,
+            onToggleConversation = { key -> viewModel.toggleConversationCollapsed(key) },
             sessions = viewModel.sessions,
             dictionary = viewModel.dictionary,
             viewMode = globalViewMode,

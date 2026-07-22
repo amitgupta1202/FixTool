@@ -51,6 +51,9 @@ fun SplitView(
     onDiffSelected: ((FixMessage, FixMessage) -> Unit)? = null,
     onPasteMessage: ((String) -> Unit)? = null,
     orientation: SplitOrientation = SplitOrientation.HORIZONTAL,
+    groupByConversation: Boolean = false,
+    collapsedConversations: Set<String> = emptySet(),
+    onToggleConversation: (String) -> Unit = {},
     gridViewColumns: List<Int> = emptyList(),
     assertionResults: Map<FixMessage, com.knapsack.fixtool.model.scenario.StepResult> = emptyMap(),
     appSettings: com.knapsack.fixtool.model.AppSettings =
@@ -138,6 +141,9 @@ fun SplitView(
                                         .fillMaxHeight(),
                             ) {
                                 SessionPanel(
+                                    groupByConversation = groupByConversation,
+                                    collapsedConversations = collapsedConversations,
+                                    onToggleConversation = onToggleConversation,
                                     session = sessions[index],
                                     dictionary = dictionary,
                                     viewMode = viewMode,
@@ -255,6 +261,9 @@ private fun SessionPanel(
     session: FixMessageSession,
     dictionary: FixDictionary,
     viewMode: FixMessageSession.ViewMode,
+    groupByConversation: Boolean = false,
+    collapsedConversations: Set<String> = emptySet(),
+    onToggleConversation: (String) -> Unit = {},
     onClose: (() -> Unit)?,
     onMoveLeft: (() -> Unit)?,
     onMoveRight: (() -> Unit)?,
@@ -825,6 +834,9 @@ private fun SessionPanel(
             latencyCriticalThresholdMicros = appSettings.latencyCriticalThresholdMicros,
             onAtBottomChanged = { isAtBottom = it },
             scrollToBottomTrigger = scrollToBottomTrigger,
+            groupByConversation = groupByConversation,
+            collapsedConversations = collapsedConversations,
+            onToggleConversation = onToggleConversation,
             modifier = Modifier.weight(1f),
         )
     }

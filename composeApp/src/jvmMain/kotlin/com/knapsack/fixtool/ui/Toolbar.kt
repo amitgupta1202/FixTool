@@ -43,6 +43,7 @@ fun Toolbar(
     globalFilterShowIncoming: Boolean = true,
     globalFilterShowOutgoing: Boolean = true,
     hideProtocolTags: Boolean = true,
+    groupByConversation: Boolean = false,
     onOpenMessageEditor: (() -> Unit)? = null,
     onToggleDetailPanel: (() -> Unit)? = null,
     onToggleConnectionPanel: (() -> Unit)? = null,
@@ -57,6 +58,7 @@ fun Toolbar(
     onGlobalFilterIncomingChange: ((Boolean) -> Unit)? = null,
     onGlobalFilterOutgoingChange: ((Boolean) -> Unit)? = null,
     onToggleHideProtocolTags: (() -> Unit)? = null,
+    onToggleGroupByConversation: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     onOpenHelp: (() -> Unit)? = null,
     onOpenScenarios: (() -> Unit)? = null,
@@ -473,6 +475,28 @@ fun Toolbar(
                     imageVector = if (hideProtocolTags) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                     contentDescription = if (hideProtocolTags) "Show Protocol Tags" else "Hide Protocol Tags",
                     tint = AppTheme.Colors.textSecondary,
+                    modifier = tooltipIconModifier,
+                )
+            }
+        }
+
+        // Group the grid by business exchange. Independent of RAW/PARSED above: that says how a row
+        // renders, this says how rows relate, and they compose.
+        if (onToggleGroupByConversation != null) {
+            TooltipIconButton(
+                tooltip =
+                    if (groupByConversation) {
+                        "Conversations: On (click for a flat list)"
+                    } else {
+                        "Conversations: Off (click to group by exchange)"
+                    },
+                onClick = onToggleGroupByConversation,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountTree,
+                    contentDescription = "Group by conversation",
+                    tint = AppTheme.Helpers.activeColor(groupByConversation),
                     modifier = tooltipIconModifier,
                 )
             }

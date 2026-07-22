@@ -30,6 +30,30 @@ sealed interface Matcher {
      */
     data class Numeric(val expected: Double, val tolerance: Double = 0.0) : Matcher
 
+    /**
+     * **A numeric bound rather than a value** — `> 10000`, `<= 1.0850`, `[1.08, 1.09)`.
+     *
+     * One matcher for all four comparisons and for between, because they are one idea: a bound may be
+     * absent (that side is open), and it may be exclusive. `> 10000` is `min=10000, minInclusive=false`;
+     * `between` is simply both bounds present. Separate `gt`/`lt`/`between` matchers would have been
+     * three evaluators, three codec entries and three editor rows describing one comparison.
+     *
+     * The gap it fills: [Numeric] asserts equality-within-tolerance, so *"the venue must not fill more
+     * than I asked for"* (`CumQty <= OrderQty`) or *"the price came back inside the band"* was
+     * inexpressible — an author had to pin a literal that the next run breaks, or drop to [Presence]
+     * and assert nothing about the number at all.
+     *
+     * Same family rule as [Numeric]: prices, quantities and amounts. A bound over an enum-coded int
+     * (`PartyRole(452)`, `OrdStatus(39)`) parses fine and means nothing, which is why
+     * [com.knapsack.fixtool.service.ExpectationSeeder.numericFamily] gates both.
+     */
+    data class Range(
+        val min: Double? = null,
+        val max: Double? = null,
+        val minInclusive: Boolean = true,
+        val maxInclusive: Boolean = true,
+    ) : Matcher
+
     /** Format-aware date/time comparison (UTCTimestamp / UTCDateOnly). */
     data class Temporal(val kind: TemporalKind, val toleranceSeconds: Long = 0) : Matcher
 
@@ -79,8 +103,30 @@ fun Matcher.validationError(): String? =
         // row to oneOf. Report it as the bad assertion it is, exactly like an uncompilable regex, rather
         // than leaving the reader to puzzle over a mystery red the tool never explains.
         is Matcher.OneOf -> if (values.isEmpty()) "oneOf has no values to match against" else null
+        // Two ways to write a range that is not an assertion, and both are easy to reach in the editor
+        // by clearing a field. Unbounded on both sides accepts every number there is; a min above its
+        // max accepts none. Named here for the same reason as the empty oneOf — the author gets told
+        // what is wrong with the row rather than watching it pass or redden for no visible reason.
+        is Matcher.Range ->
+            when {
+                min == null && max == null -> "range has no bound — it would accept any number"
+                min != null && max != null && min > max -> "range min ($min) is above its max ($max), so nothing can match"
+                else -> null
+            }
         else -> null
     }
+
+/** `> 10000`, `<= 1.085`, `[1.08, 1.09)` — comparison notation for one bound, interval for two. */
+fun Matcher.Range.describe(): String {
+    fun num(value: Double): String = if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
+    return when {
+        min != null && max != null ->
+            "${if (minInclusive) "[" else "("}${num(min)}, ${num(max)}${if (maxInclusive) "]" else ")"}"
+        min != null -> "${if (minInclusive) ">=" else ">"} ${num(min)}"
+        max != null -> "${if (maxInclusive) "<=" else "<"} ${num(max)}"
+        else -> "(unbounded)"
+    }
+}
 
 /** Temporal comparison kinds. */
 enum class TemporalKind {

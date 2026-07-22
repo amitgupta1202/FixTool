@@ -11,6 +11,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -98,6 +99,14 @@ object MatcherCodec {
                 (obj["values"]?.jsonArray ?: throw IllegalArgumentException("oneOf matcher missing 'values'"))
                     .map { it.jsonPrimitive.content },
             )
+            // Bounds are optional and independently so: {"min":10000,"minInclusive":false} is "> 10000".
+            // Inclusive defaults to true, so >= and <= are the terse forms and the strict ones say so.
+            "range" -> Matcher.Range(
+                min = obj["min"]?.jsonPrimitive?.doubleOrNull,
+                max = obj["max"]?.jsonPrimitive?.doubleOrNull,
+                minInclusive = obj["minInclusive"]?.jsonPrimitive?.booleanOrNull ?: true,
+                maxInclusive = obj["maxInclusive"]?.jsonPrimitive?.booleanOrNull ?: true,
+            )
             "numeric" -> Matcher.Numeric(
                 expected = obj["value"]?.jsonPrimitive?.doubleOrNull
                     ?: throw IllegalArgumentException("numeric matcher needs numeric 'value'"),
@@ -153,6 +162,15 @@ object MatcherCodec {
                 }
                 is Matcher.Numeric -> {
                     put("type", "numeric"); put("value", matcher.expected); put("tolerance", matcher.tolerance)
+                }
+                is Matcher.Range -> {
+                    put("type", "range")
+                    // Absent bound = open on that side; absent flag = inclusive. Writing either back as
+                    // a default would turn "> 10000" into a shape the reader has to decode.
+                    matcher.min?.let { put("min", it) }
+                    matcher.max?.let { put("max", it) }
+                    if (!matcher.minInclusive) put("minInclusive", false)
+                    if (!matcher.maxInclusive) put("maxInclusive", false)
                 }
                 is Matcher.Temporal -> {
                     put("type", "temporal")

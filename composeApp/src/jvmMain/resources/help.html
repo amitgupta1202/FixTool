@@ -1985,6 +1985,7 @@ stunnel stunnel.conf</code></pre>
         <tr><td><code>oneOf</code></td><td>is one of a set of values (e.g. OrdStatus in 1 or 2)</td></tr>
         <tr><td><code>regex</code></td><td>matches a regular expression</td></tr>
         <tr><td><code>numeric</code></td><td>equals a number within a tolerance (so <code>1.2345</code> = <code>1.23450</code>; widen the tolerance for fuzzy price/qty checks)</td></tr>
+        <tr><td><code>range</code></td><td>is above and/or below a bound &mdash; <code>&gt; 10000</code>, <code>&lt;= 1.0850</code>, or between two (<code>[1.08, 1.09)</code>). Either bound may be left open and either may be exclusive, so this covers all four comparisons and <em>between</em>. For the assertion a literal cannot make: <code>CumQty &lt;= OrderQty</code>, or a price that came back inside the band</td></tr>
         <tr><td><code>temporal</code></td><td>is a timestamp near "now" (&plusmn; N seconds) or a date equal to today &mdash; instead of a brittle literal time</td></tr>
         <tr><td><code>reference</code></td><td>equals a <code>${&hellip;}</code> expression resolved over the session, e.g. an ExecutionReport's ClOrdID echoes the order you sent: <code>${out.D.11}</code></td></tr>
     </table>

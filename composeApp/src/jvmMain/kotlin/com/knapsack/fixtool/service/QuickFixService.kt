@@ -371,18 +371,20 @@ class QuickFixService(
      * matching rule. A no-op for initiators or rule-less acceptors, so existing behaviour is
      * unchanged.
      *
-     * Building the reply happens here, on the callback thread, because it reads [incoming] and that
-     * message belongs to this call. *Sending* it does not: the send is handed to
-     * [autoResponseDispatch] and this returns.
+     * Reading [incoming] happens here, on the callback thread, because that message belongs to this
+     * call — so the plan's `${req.<tag>}` substitutions are fixed before anything is queued. The
+     * rest of each step is built and sent by [autoResponseDispatch], at its own moment.
      */
     private fun maybeAutoRespond(incoming: Message, sessionId: SessionID) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
         val rule = AcceptorResponder.firstMatch(config.acceptorResponseRules, incoming) ?: return
+        rule.validationError()?.let { logger.warn("Acceptor rule on {}: {}", rule.whenMsgType, it) }
         try {
-            val response = AcceptorResponder.buildMessage(AcceptorResponder.resolve(rule.responseTemplate, incoming))
-            autoResponseDispatch.schedule(response, sessionId, delayMillis = 0)
+            AcceptorResponder.plan(rule, incoming).forEach { planned ->
+                autoResponseDispatch.schedule(sessionId, planned.offsetMillis, planned.build)
+            }
         } catch (e: Exception) {
-            logger.error("Acceptor auto-response failed to build: ${e.message}", e)
+            logger.error("Acceptor auto-response failed to plan: ${e.message}", e)
         }
     }
 

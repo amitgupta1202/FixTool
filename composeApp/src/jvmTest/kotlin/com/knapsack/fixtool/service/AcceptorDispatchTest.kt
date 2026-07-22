@@ -36,7 +36,7 @@ class AcceptorDispatchTest {
                 },
             )
         dispatch.use {
-            it.schedule(message("A"), sessionId(), delayMillis = 0)
+            it.schedule(sessionId(), delayMillis = 0) { message("A") }
             assertTrue(arrived.await(5, TimeUnit.SECONDS), "the zero-delay reply never went out")
         }
 
@@ -60,7 +60,7 @@ class AcceptorDispatchTest {
             )
         dispatch.use {
             val session = sessionId()
-            it.schedule(message("DELAYED"), session, delayMillis = 400)
+            it.schedule(session, delayMillis = 400) { message("DELAYED") }
             assertTrue(sent.isEmpty(), "a delayed reply went out immediately")
             assertEquals(1, it.pendingCount(session), "the delayed reply should be queued")
             assertTrue(arrived.await(5, TimeUnit.SECONDS), "the delayed reply never went out")
@@ -81,9 +81,9 @@ class AcceptorDispatchTest {
             )
         dispatch.use {
             val session = sessionId()
-            it.schedule(message("ack"), session, delayMillis = 0)
-            it.schedule(message("partial"), session, delayMillis = 60)
-            it.schedule(message("fill"), session, delayMillis = 120)
+            it.schedule(session, delayMillis = 0) { message("ack") }
+            it.schedule(session, delayMillis = 60) { message("partial") }
+            it.schedule(session, delayMillis = 120) { message("fill") }
             assertTrue(allThree.await(5, TimeUnit.SECONDS), "not every step went out")
         }
         assertEquals(listOf("ack", "partial", "fill"), sent.toList())
@@ -96,8 +96,8 @@ class AcceptorDispatchTest {
         dispatch.use {
             val goneAway = sessionId("GONE")
             val stillHere = sessionId("HERE")
-            it.schedule(message("dropped"), goneAway, delayMillis = 300)
-            it.schedule(message("kept"), stillHere, delayMillis = 300)
+            it.schedule(goneAway, delayMillis = 300) { message("dropped") }
+            it.schedule(stillHere, delayMillis = 300) { message("kept") }
 
             it.cancelAll(goneAway)
             assertEquals(0, it.pendingCount(goneAway), "logout should drop the queued reply, not merely ignore it")
@@ -128,8 +128,8 @@ class AcceptorDispatchTest {
             )
         dispatch.use {
             val session = sessionId()
-            it.schedule(message("boom"), session, delayMillis = 0)
-            it.schedule(message("after"), session, delayMillis = 60)
+            it.schedule(session, delayMillis = 0) { message("boom") }
+            it.schedule(session, delayMillis = 60) { message("after") }
             assertTrue(both.await(5, TimeUnit.SECONDS), "the reply after the failing one never ran")
         }
 

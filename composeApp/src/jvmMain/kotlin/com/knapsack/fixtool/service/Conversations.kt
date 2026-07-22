@@ -105,6 +105,104 @@ object Conversations {
         return Grouping(conversations, ungrouped)
     }
 
+    /**
+     * **What the header row is allowed to say**, and the rule is one sentence: it states only what it can
+     * point at.
+     *
+     * A count of what arrived is a fact. The last status a message carried, rendered in the dictionary's
+     * own words, is a **quotation** — `Filled` appears because a reply said `39=2` and the dictionary
+     * calls that FILLED, not because FixTool added up the fills and formed an opinion. Both are safe.
+     *
+     * What it must never do is derive a state the messages did not state: infer that an order is stuck,
+     * compute an average price nobody sent, or decide a conversation is "done". The moment a summary
+     * models a FIX state machine it can be confidently wrong, and a reader has no way to tell which line
+     * is quotation and which is inference. [ScenarioReport]'s diagnosis rows take the same position —
+     * they explain an absence with the presences around it, and a diagnosis has no vote.
+     */
+    data class Summary(
+        val label: String,
+        val labelTag: Int,
+        val messageCount: Int,
+        /** Message types in first-seen order with their counts — `QuoteRequest ×1, Quote ×2`. */
+        val composition: List<Part>,
+        /** The last status any message stated, or null where none did. Never inferred. */
+        val status: Stated?,
+        /** `Symbol(55)` off the opening message — **only when unambiguous**; see [singleValueOn]. */
+        val instrument: String?,
+        /** `OrderQty(38)` off the opening message, on the same terms. */
+        val quantity: String?,
+        val elapsedMillis: Long,
+    )
+
+    /** One message type's share of a conversation. [name] is the dictionary's word, null if it has none. */
+    data class Part(
+        val messageType: String,
+        val name: String?,
+        val count: Int,
+    )
+
+    /** A status as the counterparty stated it: the tag, the raw value, and the dictionary's name for it. */
+    data class Stated(
+        val tag: Int,
+        val fieldName: String?,
+        val value: String,
+        val valueName: String?,
+    )
+
+    /**
+     * Status fields, standard FIX only — the same rule [ScenarioCapture.ID_TAGS] keeps, and for the same
+     * reason: a proprietary tag in this source is a claim about every venue. A venue whose status lives
+     * in its own tag shows up through [composition] instead, which needs no declaration.
+     */
+    private val STATUS_TAGS = listOf(39, 297, 88) // OrdStatus, QuoteStatus, AllocStatus
+
+    fun summarize(conversation: Conversation, dictionary: FixDictionaryAdapter?): Summary {
+        val messages = conversation.messages
+        val opener = FixMessageHelper.fieldsForDisplay(messages.first())
+        val composition =
+            messages
+                .groupingBy { it.messageType }
+                .eachCount()
+                .map { (type, count) -> Part(type, dictionary?.getFieldValueDescription(35, type), count) }
+        // The LAST message that stated one — the most recent thing said about state, not a scan for the
+        // most advanced-looking value, which would be FixTool choosing a winner.
+        val status =
+            messages.asReversed().firstNotNullOfOrNull { message ->
+                val fields = FixMessageHelper.fieldsForDisplay(message)
+                STATUS_TAGS.firstNotNullOfOrNull { tag ->
+                    fields.firstOrNull { it.first == tag }?.second?.let { value ->
+                        Stated(tag, dictionary?.getFieldName(tag), value, dictionary?.getFieldValueDescription(tag, value))
+                    }
+                }
+            }
+        return Summary(
+            label = conversation.label,
+            labelTag = conversation.labelTag,
+            messageCount = messages.size,
+            composition = composition,
+            status = status,
+            instrument = singleValueOn(opener, 55),
+            quantity = singleValueOn(opener, 38),
+            elapsedMillis =
+                java.time.Duration
+                    .between(messages.first().timestamp, messages.last().timestamp)
+                    .toMillis(),
+        )
+    }
+
+    /**
+     * **A value only where the message leaves no doubt which one is meant.**
+     *
+     * A two-leg RFQ carries two `Symbol(55)`s, and showing the first as *the* instrument is a claim that
+     * is wrong half the time and unfalsifiable from the header. Occurring exactly once is the only case
+     * where the answer is the message's rather than ours; otherwise the header says nothing and the
+     * reader opens the conversation, which is what the nesting is for.
+     */
+    private fun singleValueOn(fields: List<Pair<Int, String>>, tag: Int): String? {
+        val only = fields.singleOrNull { it.first == tag } ?: return null
+        return only.second.takeIf { it.isNotBlank() }
+    }
+
     /** Union-find over id values, with path compression. Small, private, and the whole algorithm. */
     private class Union {
         private val parent = mutableMapOf<String, String>()

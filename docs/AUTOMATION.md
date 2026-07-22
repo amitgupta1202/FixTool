@@ -83,7 +83,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /validate`     | `{"raw"}`                              | `{isValid, errors}` against the loaded dictionary    |
 | `GET /dictionary`    | —                                      | current FIX version + validity                       |
 | `POST /dictionary`   | `{"version"}` or `{"path", "transportPath"?}` | switch the data dictionary                    |
-| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules, each with its played `sequence` and any `validationError` (set via `/profiles`) |
+| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules, each with its ANDed `trigger`, its played `sequence`, and any `validationError` (set via `/profiles`) |
 | `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
@@ -257,9 +257,20 @@ on Save. The new profile then appears in the panel's profile dropdown.
 
 When FixTool runs as an **acceptor** (`connectionType: ACCEPTOR`), it can auto-respond to incoming
 application messages using rules carried on the profile's config as `acceptorResponseRules`. Each
-rule is `{whenMsgType, whenFields?, steps}`; the first rule whose `whenMsgType` (and every
-`whenFields` entry, by exact value) matches the incoming message wins. Rules are set via the normal
-`/profiles` upsert and inspected via `GET /acceptor/rules`.
+rule is `{whenMsgType, conditions?, steps}`; the first rule whose whole trigger matches the incoming
+message wins. Rules are set via the normal `/profiles` upsert and inspected via `GET /acceptor/rules`.
+
+A trigger is `whenMsgType` plus `conditions: [{tag, matcher}]`, all **ANDed**. The `matcher` is the
+same JSON the scenario assertions use (see `docs/scenario-assertion-model.md`), so `38 > 10000` is
+`{"tag":38,"matcher":{"type":"range","min":10000,"minInclusive":false}}` and `exact`, `presence`,
+`absent`, `oneOf`, `regex`, `numeric` and `temporal` all work too. `reference` does **not** — it
+resolves against a scenario run's scope, and a trigger has none; one is refused by name rather than
+silently never matching. Express OR as a second rule; first match wins.
+
+`whenFields` is the older exact-only form (`{"55":"EUR/USD"}`) and still works. The two spellings are
+**ANDed, never chosen between** — unlike the two spellings of a *reply*, where picking one sends one
+message or the other. Ignoring a trigger spelling would drop a constraint, and a rule that fires on
+messages the author excluded is the dangerous direction to be wrong in.
 
 A rule's reply is a **sequence**: `steps` is `[{template, delayMillis?}]`, and a step's `delayMillis`
 is measured **from the step before it**, so `0 / 400 / 400` is an ack, a partial fill 400ms later,
@@ -296,6 +307,8 @@ curl -s -XPOST $B/profiles -d '{
             "socketAcceptPort":"9100","beginString":"FIX.4.4",
             "acceptorResponseRules":[
               {"whenMsgType":"D",
+               "conditions":[{"tag":55,"matcher":{"type":"exact","value":"EUR/USD"}},
+                             {"tag":38,"matcher":{"type":"range","max":1000000}}],
                "steps":[
                  {"template":"35=8|150=0|39=0|37=${uuid}|17=${uuid}|11=${req.11}|38=${req.38}|14=0"},
                  {"delayMillis":400,

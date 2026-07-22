@@ -1658,6 +1658,23 @@ class ControlServer(
                                         "whenFields",
                                         buildJsonObject { rule.whenFields.forEach { (k, v) -> put(k, v) } },
                                     )
+                                    // `trigger` is every condition from both spellings, ANDed, exactly
+                                    // as the engine will ask them — so a reader never has to work out
+                                    // which of the two forms a rule used, or whether they combine.
+                                    put(
+                                        "trigger",
+                                        buildJsonArray {
+                                            rule.trigger().forEach { condition ->
+                                                add(
+                                                    buildJsonObject {
+                                                        put("tag", condition.tag)
+                                                        put("matcher", condition.matcher)
+                                                        condition.reason()?.let { put("problem", it) }
+                                                    },
+                                                )
+                                            }
+                                        },
+                                    )
                                     put("responseTemplate", rule.responseTemplate)
                                     // The reply as it will actually be played, with the offset each step
                                     // goes out at — a reader asking "what does this rule do" should not

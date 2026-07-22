@@ -513,10 +513,15 @@ object ExpectationEvaluator {
      * never matched either, because the resolver said nothing resolves. The re-order was withheld, and the
      * author was told — in the tool's own words — that *"these rows did not move; the values changed in
      * place"*, which was false about a message whose entries had plainly swapped.
+     *
+     * [value] is nullable because a tag that is **not there** is an answer, not a missing input:
+     * `absent` is satisfied by it and every other matcher is failed by it. A caller holding "the tag
+     * was not in the message" would otherwise have to decide that itself, and the two callers who did
+     * would eventually decide it differently.
      */
     fun satisfies(
         matcher: Matcher,
-        value: String,
+        value: String?,
         referenceResolver: (String) -> String? = { null },
         now: () -> Instant = { Instant.now() },
     ): Boolean = applyMatcher(matcher, value, referenceResolver, now).first

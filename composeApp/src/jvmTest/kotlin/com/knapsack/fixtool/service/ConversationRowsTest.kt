@@ -83,4 +83,17 @@ class ConversationRowsTest {
         val indices = rows().filterIsInstance<ConversationRows.Row.Message>().map { it.index }
         assertEquals(log().indices.toList(), indices.sorted())
     }
+
+    /**
+     * The group row shows the exchange's ids under the grid's own id columns — the FIRST value per
+     * tag, because the value that opened the exchange is the one the reader knows it by.
+     */
+    @Test
+    fun `a header carries the first value per correlation tag for the id columns`() {
+        val headers = rows().filterIsInstance<ConversationRows.Row.Header>()
+        val a1 = headers.single { it.label == "RFQ-A1" }
+        assertEquals("RFQ-A1", a1.idsByTag[131])
+        assertEquals("Q-77", a1.idsByTag[117], "the first QuoteID, not a later one")
+        assertEquals(null, a1.idsByTag[11], "no order in this fixture's A1 — no ClOrdID to show")
+    }
 }

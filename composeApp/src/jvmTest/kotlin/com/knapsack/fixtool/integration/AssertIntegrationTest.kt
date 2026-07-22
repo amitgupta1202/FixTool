@@ -17,7 +17,6 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import java.io.File
-import java.net.ServerSocket
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -270,7 +269,8 @@ class AssertIntegrationTest {
     private fun tagResult(response: JsonObject, tag: Int): JsonObject =
         response["tags"]!!.jsonArray.map { it.jsonObject }.single { it["tag"]!!.jsonPrimitive.int == tag }
 
-    private fun freePort(): Int = ServerSocket(0).use { it.localPort }
+    /** See [TestPorts]: an ephemeral port closed before it is bound is a race this suite kept losing. */
+    private fun freePort(): Int = TestPorts.free()
 
     private fun awaitCondition(timeoutMs: Long = 5_000, predicate: () -> Boolean): Boolean {
         val start = System.currentTimeMillis()

@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
@@ -42,6 +43,8 @@ fun ConnectionPanel(
     onGetProfileSession: (profileId: String) -> FixMessageSession?,
     onGetProfileSessions: (profileId: String) -> List<FixMessageSession> = { emptyList() },
     onClose: () -> Unit,
+    /** Profile id or name to load into the form, driven by the control surface. */
+    selectionRequest: String? = null,
     demoServerRunning: Boolean = false,
     demoServerFixVersion: FixVersion? = null,
     onStartDemoServer: ((FixVersion) -> Unit)? = null,
@@ -73,6 +76,7 @@ fun ConnectionPanel(
     var showAdvanced by remember { mutableStateOf(false) }
     var customParameters by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var logonFields by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var acceptorRules by remember { mutableStateOf<List<AcceptorResponseRule>>(emptyList()) }
 
     // SSL/TLS state
     var useSSL by remember { mutableStateOf(false) }
@@ -112,6 +116,51 @@ fun ConnectionPanel(
 
     // Track connection error message
     var connectionError by remember { mutableStateOf<String?>(null) }
+
+    // The whole of "this profile is now the one on the form". Extracted from the profile-list click
+    // handler so the control surface can reach it too — a form only a mouse can populate is a form an
+    // agent cannot screenshot or drive.
+    fun loadProfileIntoForm(profile: FixConnectionProfile) {
+        selectedProfile = profile
+        username = profile.config.username
+        senderCompID = profile.config.senderCompID
+        targetCompID = profile.config.targetCompID
+        sessionQualifier = profile.config.sessionQualifier
+        sessionCount = profile.config.sessionCount.toString()
+        password = profile.config.password
+        host = profile.config.host
+        port = profile.config.port
+        selectedFixVersion = FixVersion.fromBeginString(profile.config.beginString, profile.config.applVerID)
+        heartBtInt = profile.config.heartBtInt
+        socketConnectTimeout = profile.config.socketConnectTimeout
+        reconnectInterval = profile.config.reconnectInterval
+        autoReconnect = profile.config.autoReconnect
+        resetOnLogon = profile.config.resetOnLogon
+        resetOnLogout = profile.config.resetOnLogout
+        resetOnDisconnect = profile.config.resetOnDisconnect
+        showHeartbeat = profile.config.showHeartbeat
+        connectionType = profile.config.connectionType
+        socketAcceptPort = profile.config.socketAcceptPort
+        customParameters = profile.config.customParameters.map { it.key to it.value }
+        logonFields = profile.config.logonFields.map { it.key to it.value }
+        acceptorRules = profile.config.acceptorResponseRules
+        // SSL/TLS
+        useSSL = profile.config.useSSL
+        keyStorePath = profile.config.keyStorePath
+        keyStorePassword = profile.config.keyStorePassword
+        trustStorePath = profile.config.trustStorePath
+        trustStorePassword = profile.config.trustStorePassword
+        keyStoreType = profile.config.keyStoreType
+        enabledProtocols = profile.config.enabledProtocols
+        cipherSuites = profile.config.cipherSuites
+        needClientAuth = profile.config.needClientAuth
+    }
+
+    // A profile named through POST /panel {"panel":"connection","profile":"…"} lands on the form.
+    LaunchedEffect(selectionRequest, profiles) {
+        val key = selectionRequest ?: return@LaunchedEffect
+        profiles.firstOrNull { it.id == key || it.name == key }?.let { loadProfileIntoForm(it) }
+    }
 
     // Clear error when no session is in ERROR state anymore
     LaunchedEffect(anySessionInError) {
@@ -223,40 +272,7 @@ fun ConnectionPanel(
                 profiles = profiles,
                 selectedProfile = selectedProfile,
                 onProfileNameChange = { profileName = it },
-                onSelectProfile = { profile ->
-                    selectedProfile = profile
-                    username = profile.config.username
-                    senderCompID = profile.config.senderCompID
-                    targetCompID = profile.config.targetCompID
-                    sessionQualifier = profile.config.sessionQualifier
-                    sessionCount = profile.config.sessionCount.toString()
-                    password = profile.config.password
-                    host = profile.config.host
-                    port = profile.config.port
-                    selectedFixVersion = FixVersion.fromBeginString(profile.config.beginString, profile.config.applVerID)
-                    heartBtInt = profile.config.heartBtInt
-                    socketConnectTimeout = profile.config.socketConnectTimeout
-                    reconnectInterval = profile.config.reconnectInterval
-                    autoReconnect = profile.config.autoReconnect
-                    resetOnLogon = profile.config.resetOnLogon
-                    resetOnLogout = profile.config.resetOnLogout
-                    resetOnDisconnect = profile.config.resetOnDisconnect
-                    showHeartbeat = profile.config.showHeartbeat
-                    connectionType = profile.config.connectionType
-                    socketAcceptPort = profile.config.socketAcceptPort
-                    customParameters = profile.config.customParameters.map { it.key to it.value }
-                    logonFields = profile.config.logonFields.map { it.key to it.value }
-                    // SSL/TLS
-                    useSSL = profile.config.useSSL
-                    keyStorePath = profile.config.keyStorePath
-                    keyStorePassword = profile.config.keyStorePassword
-                    trustStorePath = profile.config.trustStorePath
-                    trustStorePassword = profile.config.trustStorePassword
-                    keyStoreType = profile.config.keyStoreType
-                    enabledProtocols = profile.config.enabledProtocols
-                    cipherSuites = profile.config.cipherSuites
-                    needClientAuth = profile.config.needClientAuth
-                },
+                onSelectProfile = { profile -> loadProfileIntoForm(profile) },
                 onSaveProfile = {
                     // Built by copying the profile being edited, not by constructing a fresh config
                     // from the panel's fields. Constructing one silently reset every setting this
@@ -300,6 +316,7 @@ fun ConnectionPanel(
                             needClientAuth = needClientAuth,
                             customParameters = customParameters.toMap(),
                             logonFields = logonFields.toMap(),
+                            acceptorResponseRules = acceptorRules,
                         )
                     val profile =
                         FixConnectionProfile(
@@ -351,6 +368,7 @@ fun ConnectionPanel(
                         needClientAuth = false
                         customParameters = emptyList()
                         logonFields = emptyList()
+                        acceptorRules = emptyList()
                     }
                 },
                 onCloneProfile = { profile ->
@@ -389,6 +407,7 @@ fun ConnectionPanel(
                     needClientAuth = clonedProfile.config.needClientAuth
                     customParameters = clonedProfile.config.customParameters.map { it.key to it.value }
                     logonFields = clonedProfile.config.logonFields.map { it.key to it.value }
+                    acceptorRules = clonedProfile.config.acceptorResponseRules
                 },
             )
 
@@ -1340,6 +1359,69 @@ fun ConnectionPanel(
                 }
             }
 
+            // Auto-response rules (collapsible) — acceptor only, because that is the only mode in
+            // which they fire (QuickFixService.maybeAutoRespond returns early otherwise). Showing
+            // them to an initiator would offer a setting that does nothing.
+            if (connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) {
+                var showAcceptorRules by remember { mutableStateOf(false) }
+
+                // Open itself when the loaded profile has rules — the same auto-expand the demo
+                // server section does. A profile whose acceptor answers orders on its own should not
+                // be able to look, at a glance, like one that stays silent.
+                LaunchedEffect(acceptorRules.isNotEmpty()) {
+                    if (acceptorRules.isNotEmpty()) showAcceptorRules = true
+                }
+
+                HorizontalDivider(
+                    color = AppTheme.Separators.color,
+                    thickness = AppTheme.Separators.dividerThickness,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { showAcceptorRules = !showAcceptorRules }
+                            .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QuestionAnswer,
+                        contentDescription = "Auto-Responses",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = iconSize16,
+                    )
+                    Text(
+                        text = "Auto-Responses",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 10.sp,
+                    )
+                    if (acceptorRules.isNotEmpty()) {
+                        Text(
+                            text = "(${acceptorRules.size})",
+                            color = AppTheme.Colors.textDisabled,
+                            fontSize = 9.sp,
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Icon(
+                        imageVector = if (showAcceptorRules) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (showAcceptorRules) "Collapse" else "Expand",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = iconSize16,
+                    )
+                }
+
+                if (showAcceptorRules) {
+                    AcceptorRulesEditor(
+                        rules = acceptorRules,
+                        onRulesChange = { acceptorRules = it },
+                    )
+                }
+            }
+
             // Demo Server section (collapsible)
             if (onStartDemoServer != null && onStopDemoServer != null) {
                 var showDemoServer by remember { mutableStateOf(demoServerRunning) }
@@ -1519,8 +1601,13 @@ fun ConnectionPanel(
                     },
                 onClick = {
                     connectionError = null // Clear any previous error
+                    // Copied from the profile being connected, not constructed — see the Save
+                    // handler. This config is the one handed to QuickFixService, so a field
+                    // dropped here is a field the live session never had: the acceptor response
+                    // rules were absent from every GUI-initiated connection, which is why the
+                    // auto-response feature only ever worked when driven through /connect.
                     val config =
-                        FixConnectionConfig(
+                        (selectedProfile?.config ?: FixConnectionConfig()).copy(
                             username = username,
                             senderCompID = senderCompID,
                             targetCompID = targetCompID,
@@ -1553,6 +1640,7 @@ fun ConnectionPanel(
                             needClientAuth = needClientAuth,
                             customParameters = customParameters.toMap(),
                             logonFields = logonFields.toMap(),
+                            acceptorResponseRules = acceptorRules,
                         )
                     // Create or update the profile with current form values
                     val profile =

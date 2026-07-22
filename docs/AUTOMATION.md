@@ -65,7 +65,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /profiles`      | —                                      | array of connection profiles                         |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?}`        | create (or update if `id` given) a profile → `{status, id, name}` |
 | `DELETE /profiles`   | `{"id"}` (or `?id=`)                   | delete a profile (demo profiles are protected)       |
-| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations", "show"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without) |
+| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations", "show"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does) |
 | `GET /templates`     | query: `profile`?                      | list saved templates (name, type, userTags, isFavorite, fields) |
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
@@ -264,6 +264,14 @@ rule is `{whenMsgType, whenFields?, steps}`; the first rule whose `whenMsgType` 
 A rule's reply is a **sequence**: `steps` is `[{template, delayMillis?}]`, and a step's `delayMillis`
 is measured **from the step before it**, so `0 / 400 / 400` is an ack, a partial fill 400ms later,
 and the rest 400ms after that. The author writes the gaps; FixTool does the accumulation.
+
+Rules are also editable in the GUI — the **Auto-Responses** section of the Connection panel, shown for
+acceptor profiles only. To put a profile on that form from here (there is no other way in without a
+mouse):
+
+```bash
+curl -s -XPOST $B/panel -d '{"panel":"connection","profile":"My Acceptor"}'
+```
 
 Each `template` is raw FIX (app fields only — QuickFIX stamps the session header) supporting
 `${req.<tag>}` (echo a request field), `${uuid}`, and `${now}`. `${req.<tag>}` is fixed when the

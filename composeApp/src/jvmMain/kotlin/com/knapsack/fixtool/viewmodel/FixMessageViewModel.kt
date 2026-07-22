@@ -168,6 +168,26 @@ class FixMessageViewModel(
     private val _showConnectionPanel = MutableStateFlow(false)
     val showConnectionPanel: StateFlow<Boolean> = _showConnectionPanel.asStateFlow()
 
+    /**
+     * A request to load a named profile into the connection panel's form, as clicking it in the
+     * profile list does.
+     *
+     * The panel's form state is its own, and the only way in was a mouse — so a profile's acceptor
+     * rules, SSL settings and everything else on that form were unreachable to an agent, and
+     * unscreenshottable. The same door `POST /panel {"panel":"conversations"}` opened for grouping.
+     * Carries the id or name; the panel resolves it, so a request naming nothing is simply not
+     * honoured rather than clearing the form under the user.
+     */
+    private val _connectionPanelSelection = MutableStateFlow<String?>(null)
+    val connectionPanelSelection: StateFlow<String?> = _connectionPanelSelection.asStateFlow()
+
+    /** True if [key] names a profile — the caller reports the miss rather than the panel swallowing it. */
+    fun requestConnectionPanelSelection(key: String): Boolean {
+        val known = connectionProfiles.any { it.id == key || it.name == key }
+        if (known) _connectionPanelSelection.value = key
+        return known
+    }
+
     // Settings dialog visibility
     private val _showSettingsDialog = MutableStateFlow(false)
     val showSettingsDialog: StateFlow<Boolean> = _showSettingsDialog.asStateFlow()

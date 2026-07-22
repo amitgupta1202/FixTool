@@ -389,7 +389,7 @@ class ScenarioCaptureTest {
     }
 
     /**
-     * **Both sides of an RFQ in ONE scenario — the BrokerTec shape, and the major client's core flow.**
+     * **Both sides of an RFQ in ONE scenario — a major client's core flow.**
      * FixTool holds the initiator session and the responder session; the scenario drives the whole
      * conversation. The crux is the responder's OUTGOING Quote echoing the initiator's QuoteReqID: the
      * value was minted by the scenario's *own* step 1, so capture must emit a REUSE of that variable —

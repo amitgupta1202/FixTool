@@ -46,7 +46,7 @@ class VenueTagRolesDialogTest {
                 <field number="10" name="CheckSum" type="STRING"/>
                 <field number="35" name="MsgType" type="STRING"/>
                 <field number="131" name="QuoteReqID" type="STRING"/>
-                <field number="20013" name="LegQuoteReqID" type="STRING"/>
+                <field number="20001" name="LegRefID" type="STRING"/>
                 <field number="20050" name="Note1" type="STRING"/>
               </fields>
             </fix>
@@ -62,8 +62,8 @@ class VenueTagRolesDialogTest {
             VenueTagRolesDialog(dictionary = venueDictionary(), onSaved = {}, onDismiss = {})
         }
 
-        composeTestRule.onNodeWithTag("venue-tag-row-20013").assertIsDisplayed()
-        composeTestRule.onNodeWithText("LegQuoteReqID").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("venue-tag-row-20001").assertIsDisplayed()
+        composeTestRule.onNodeWithText("LegRefID").assertIsDisplayed()
     }
 
     /**

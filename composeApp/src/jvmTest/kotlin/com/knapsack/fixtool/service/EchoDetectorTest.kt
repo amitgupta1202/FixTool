@@ -47,7 +47,7 @@ class EchoDetectorTest {
                 <field number="48" name="SecurityID" type="STRING"/>
                 <field number="60" name="TransactTime" type="UTCTIMESTAMP"/>
                 <field number="131" name="QuoteReqID" type="STRING"/>
-                <field number="20013" name="LegQuoteReqID" type="STRING"/>
+                <field number="20001" name="LegRefID" type="STRING"/>
                 <field number="20050" name="Note1" type="STRING"/>
                 <field number="20099" name="VenueDealHandle" type="STRING"/>
               </fields>
@@ -81,16 +81,16 @@ class EchoDetectorTest {
     fun `a value we sent that comes back is proposed as ours to mint`() {
         val flow =
             listOf(
-                out("R", 20013 to "LEG-A7F3C201"),
-                inn("S", 20013 to "LEG-A7F3C201"),
+                out("R", 20001 to "LEG-A7F3C201"),
+                inn("S", 20001 to "LEG-A7F3C201"),
             )
 
         val p = EchoDetector.detect(flow, dictionary()).single()
 
         assertEquals(EchoDetector.Kind.MINT, p.kind)
         assertEquals(TagRole.CLIENT_MINTED_ID, p.role)
-        assertEquals(listOf(20013), p.tags)
-        assertEquals("legQuoteReqID", p.suggestedName)
+        assertEquals(listOf(20001), p.tags)
+        assertEquals("legRefID", p.suggestedName)
         assertTrue("35=R" in p.evidence && "35=S" in p.evidence, p.evidence)
     }
 
@@ -114,11 +114,11 @@ class EchoDetectorTest {
     fun `an echo in a different tag declares both tags`() {
         val flow =
             listOf(
-                out("R", 20013 to "LEG-A7F3C201"),
+                out("R", 20001 to "LEG-A7F3C201"),
                 inn("S", 20099 to "LEG-A7F3C201"),
             )
 
-        assertEquals(listOf(20013, 20099), EchoDetector.detect(flow, dictionary()).single().tags)
+        assertEquals(listOf(20001, 20099), EchoDetector.detect(flow, dictionary()).single().tags)
     }
 
     // ----- CAPTURE: they said it first ------------------------------------------------------------------
@@ -183,19 +183,19 @@ class EchoDetectorTest {
         assertTrue(EchoDetector.detect(standard, dictionary()).isEmpty())
 
         // Declared: the author has answered, and re-asking teaches them to dismiss the list.
-        val declaredFlow = listOf(out("R", 20013 to "LEG-A7F3C201"), inn("S", 20013 to "LEG-A7F3C201"))
-        assertTrue(EchoDetector.detect(declaredFlow, dictionary("""{"20013":"CLIENT_MINTED_ID"}""")).isEmpty())
+        val declaredFlow = listOf(out("R", 20001 to "LEG-A7F3C201"), inn("S", 20001 to "LEG-A7F3C201"))
+        assertTrue(EchoDetector.detect(declaredFlow, dictionary("""{"20001":"CLIENT_MINTED_ID"}""")).isEmpty())
     }
 
     @Test
     fun `a value that never comes back is not evidence of anything`() {
-        val flow = listOf(out("R", 20013 to "LEG-A7F3C201"), inn("S", 20013 to "LEG-DIFFERENT99"))
+        val flow = listOf(out("R", 20001 to "LEG-A7F3C201"), inn("S", 20001 to "LEG-DIFFERENT99"))
         assertTrue(EchoDetector.detect(flow, dictionary()).isEmpty())
     }
 
     @Test
     fun `a single message can produce nothing, by construction`() {
-        assertTrue(EchoDetector.detect(listOf(out("R", 20013 to "LEG-A7F3C201")), dictionary()).isEmpty())
+        assertTrue(EchoDetector.detect(listOf(out("R", 20001 to "LEG-A7F3C201")), dictionary()).isEmpty())
     }
 
     /** A value under three tags of one message is an account or a desk, not a correlation id. */
@@ -203,8 +203,8 @@ class EchoDetectorTest {
     fun `a repeated constant is not a correlation id`() {
         val flow =
             listOf(
-                out("D", 20013 to "DESK-LONDON-1", 20050 to "DESK-LONDON-1", 20099 to "DESK-LONDON-1"),
-                inn("8", 20013 to "DESK-LONDON-1"),
+                out("D", 20001 to "DESK-LONDON-1", 20050 to "DESK-LONDON-1", 20099 to "DESK-LONDON-1"),
+                inn("8", 20001 to "DESK-LONDON-1"),
             )
         assertTrue(EchoDetector.detect(flow, dictionary()).isEmpty())
     }
@@ -280,7 +280,7 @@ class EchoDetectorTest {
     /** A venue id we merely receive is not a capture — nothing sends it back, so nothing needs it. */
     @Test
     fun `a venue id that is never quoted back stays a plain presence row`() {
-        val flow = listOf(out("D", 20013 to "LEG-A7F3C201"), inn("8", 37 to "VENUE-ORD-99182"))
+        val flow = listOf(out("D", 20001 to "LEG-A7F3C201"), inn("8", 37 to "VENUE-ORD-99182"))
 
         val scenario =
             ScenarioCapture.captureFrom("x", "x", null, flow, FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4))

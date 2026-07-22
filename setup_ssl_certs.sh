@@ -104,7 +104,7 @@ if command -v keytool &> /dev/null; then
     fi
 
     # Import certificate into truststore
-    keytool -import -alias brokertec-fix -file "$CERT_FILE" \
+    keytool -import -alias fixtool-venue -file "$CERT_FILE" \
         -keystore "$TRUSTSTORE_FILE" \
         -storepass "$TRUSTSTORE_PASSWORD" \
         -noprompt

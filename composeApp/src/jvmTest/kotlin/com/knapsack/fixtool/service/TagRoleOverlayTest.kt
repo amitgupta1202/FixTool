@@ -18,8 +18,8 @@ import kotlin.test.assertTrue
  * **A venue's proprietary correlation ids, declared beside its own dictionary.**
  *
  * The constraint this exists to honour: FixTool is one tool across a dozen venues, so a proprietary tag
- * must never enter its source — hardcoding BrokerTec's `LegQuoteReqID(20013)` in `ID_TAGS` is a claim
- * about every other venue's 20013. The declaration travels with the dialect it describes instead.
+ * must never enter its source — hardcoding one venue's own leg-level request id in `ID_TAGS` is a claim
+ * about every other venue's 20001. The declaration travels with the dialect it describes instead.
  */
 class TagRoleOverlayTest {
     @get:Rule
@@ -45,12 +45,12 @@ class TagRoleOverlayTest {
               <messages>
                 <message name="QuoteRequest" msgtype="R" msgcat="app">
                   <field name="QuoteReqID" required="N"/>
-                  <field name="LegQuoteReqID" required="N"/>
+                  <field name="LegRefID" required="N"/>
                   <field name="VenueQuoteHandle" required="N"/>
                 </message>
                 <message name="Quote" msgtype="S" msgcat="app">
                   <field name="QuoteReqID" required="N"/>
-                  <field name="LegQuoteReqID" required="N"/>
+                  <field name="LegRefID" required="N"/>
                   <field name="VenueQuoteHandle" required="N"/>
                 </message>
               </messages>
@@ -59,8 +59,8 @@ class TagRoleOverlayTest {
                 <field number="10" name="CheckSum" type="STRING"/>
                 <field number="35" name="MsgType" type="STRING"/>
                 <field number="131" name="QuoteReqID" type="STRING"/>
-                <field number="20013" name="LegQuoteReqID" type="STRING"/>
-                <field number="20040" name="VenueQuoteHandle" type="STRING"/>
+                <field number="20001" name="LegRefID" type="STRING"/>
+                <field number="20002" name="VenueQuoteHandle" type="STRING"/>
               </fields>
             </fix>
             """.trimIndent(),
@@ -83,8 +83,8 @@ class TagRoleOverlayTest {
     /** QuoteRequest out carrying a leg id, Quote back echoing it — the flow the overlay is for. */
     private fun rfq() =
         listOf(
-            candidate(FixMessage.Direction.OUTGOING, "R", 35 to "R", 131 to "QR-1", 20013 to "LEG-A7F3C201"),
-            candidate(FixMessage.Direction.INCOMING, "S", 35 to "S", 131 to "QR-1", 20013 to "LEG-A7F3C201"),
+            candidate(FixMessage.Direction.OUTGOING, "R", 35 to "R", 131 to "QR-1", 20001 to "LEG-A7F3C201"),
+            candidate(FixMessage.Direction.INCOMING, "S", 35 to "S", 131 to "QR-1", 20001 to "LEG-A7F3C201"),
         )
 
     private fun capture(d: FixDictionaryAdapter) =
@@ -94,8 +94,8 @@ class TagRoleOverlayTest {
 
     @Test
     fun `a role is read from the sidecar, single value or list`() {
-        val overlay = TagRoleOverlay.read("""{"20013":"CLIENT_MINTED_ID","117":["CLIENT_MINTED_ID","VENUE_MINTED_ID"]}""")
-        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), overlay.rolesOf(20013))
+        val overlay = TagRoleOverlay.read("""{"20001":"CLIENT_MINTED_ID","117":["CLIENT_MINTED_ID","VENUE_MINTED_ID"]}""")
+        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), overlay.rolesOf(20001))
         assertEquals(setOf(TagRole.CLIENT_MINTED_ID, TagRole.VENUE_MINTED_ID), overlay.rolesOf(117))
     }
 
@@ -106,9 +106,9 @@ class TagRoleOverlayTest {
      */
     @Test
     fun `a malformed entry is skipped, not fatal to the rest`() {
-        val overlay = TagRoleOverlay.read("""{"20013":"CLIENT_MINTED_ID","oops":"CLIENT_MINTED_ID","20040":"NOT_A_ROLE"}""")
-        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), overlay.rolesOf(20013))
-        assertEquals(emptySet(), overlay.rolesOf(20040))
+        val overlay = TagRoleOverlay.read("""{"20001":"CLIENT_MINTED_ID","oops":"CLIENT_MINTED_ID","20002":"NOT_A_ROLE"}""")
+        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), overlay.rolesOf(20001))
+        assertEquals(emptySet(), overlay.rolesOf(20002))
         assertEquals(1, overlay.size)
     }
 
@@ -127,56 +127,56 @@ class TagRoleOverlayTest {
         val scenario = capture(dictionaryWithRoles(null))
 
         val send = scenario.steps.filterIsInstance<ScenarioStep.Send>().single()
-        assertTrue(send.raw.contains("20013=LEG-A7F3C201"), send.raw)
+        assertTrue(send.raw.contains("20001=LEG-A7F3C201"), send.raw)
 
         val expect = scenario.steps.filterIsInstance<ScenarioStep.Expect>().single()
-        val row = expect.expectation.fields.single { it.tag == 20013 }
+        val row = expect.expectation.fields.single { it.tag == 20001 }
         assertEquals(Matcher.Exact("LEG-A7F3C201"), row.matcher)
-        assertNull(expect.match?.fields?.firstOrNull { it.tag == 20013 })
+        assertNull(expect.match?.fields?.firstOrNull { it.tag == 20001 })
     }
 
     /** Declared, it gets exactly what a standard correlation id gets — mint, reference, bind constraint. */
     @Test
     fun `a declared venue id is minted fresh, echo-checked and bound`() {
-        val scenario = capture(dictionaryWithRoles("""{"20013":"CLIENT_MINTED_ID"}"""))
+        val scenario = capture(dictionaryWithRoles("""{"20001":"CLIENT_MINTED_ID"}"""))
 
         val send = scenario.steps.filterIsInstance<ScenarioStep.Send>().single()
-        // Named from the venue's own dictionary, not `tag20013` — the same mint rule every path shares.
-        assertTrue(send.raw.contains("20013=\${legQuoteReqID = uuid:20}"), send.raw)
+        // Named from the venue's own dictionary, not `tag20001` — the same mint rule every path shares.
+        assertTrue(send.raw.contains("20001=\${legRefID = uuid:20}"), send.raw)
 
         val expect = scenario.steps.filterIsInstance<ScenarioStep.Expect>().single()
-        val row = expect.expectation.fields.single { it.tag == 20013 }
-        assertEquals(Matcher.Reference("\${legQuoteReqID}"), row.matcher)
+        val row = expect.expectation.fields.single { it.tag == 20001 }
+        assertEquals(Matcher.Reference("\${legRefID}"), row.matcher)
         // …and the step binds to THIS run's reply, not merely the first Quote on a busy session.
         val binds = expect.match?.fields ?: emptyList()
-        assertEquals("\${legQuoteReqID}", binds.single { it.tag == 20013 }.value)
+        assertEquals("\${legRefID}", binds.single { it.tag == 20001 }.value)
     }
 
     @Test
     fun `a venue-minted id is asserted for presence rather than its value`() {
-        val d = dictionaryWithRoles("""{"20040":"VENUE_MINTED_ID"}""")
-        val seeded = ExpectationSeeder.seedDetailed(listOf(35 to "S", 20040 to "VENUE-HANDLE-77"), d)
+        val d = dictionaryWithRoles("""{"20002":"VENUE_MINTED_ID"}""")
+        val seeded = ExpectationSeeder.seedDetailed(listOf(35 to "S", 20002 to "VENUE-HANDLE-77"), d)
 
-        assertEquals(Matcher.Presence, seeded.single { it.field.tag == 20040 }.field.matcher)
+        assertEquals(Matcher.Presence, seeded.single { it.field.tag == 20002 }.field.matcher)
     }
 
     @Test
     fun `a declared lifetime is sent into the future and asserted for presence`() {
-        val d = dictionaryWithRoles("""{"20040":"LIFETIME"}""")
+        val d = dictionaryWithRoles("""{"20002":"LIFETIME"}""")
 
         val sent =
             ScenarioCapture.captureFrom(
                 "x",
                 "x",
                 null,
-                listOf(candidate(FixMessage.Direction.OUTGOING, "R", 35 to "R", 20040 to "20260101-00:00:00")),
+                listOf(candidate(FixMessage.Direction.OUTGOING, "R", 35 to "R", 20002 to "20260101-00:00:00")),
                 d,
             )
         val send = sent.steps.filterIsInstance<ScenarioStep.Send>().single()
-        assertTrue(send.raw.contains("20040=\${utcnow+5min}"), send.raw)
+        assertTrue(send.raw.contains("20002=\${utcnow+5min}"), send.raw)
 
-        val seeded = ExpectationSeeder.seedDetailed(listOf(35 to "S", 20040 to "20260101-00:00:00"), d)
-        assertEquals(Matcher.Presence, seeded.single { it.field.tag == 20040 }.field.matcher)
+        val seeded = ExpectationSeeder.seedDetailed(listOf(35 to "S", 20002 to "20260101-00:00:00"), d)
+        assertEquals(Matcher.Presence, seeded.single { it.field.tag == 20002 }.field.matcher)
     }
 
     /**
@@ -203,7 +203,7 @@ class TagRoleOverlayTest {
      */
     @Test
     fun `the built-in standard roles survive an overlay that does not mention them`() {
-        val scenario = capture(dictionaryWithRoles("""{"20013":"CLIENT_MINTED_ID"}"""))
+        val scenario = capture(dictionaryWithRoles("""{"20001":"CLIENT_MINTED_ID"}"""))
         val send = scenario.steps.filterIsInstance<ScenarioStep.Send>().single()
 
         assertTrue(send.raw.contains("131=\${quoteReqID = uuid:20}"), send.raw)

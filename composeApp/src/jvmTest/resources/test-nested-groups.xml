@@ -3,8 +3,8 @@
   <!--
     Minimal data dictionary for testing group nesting deeper than one level.
 
-    QuoteRequest(R) carries the leg/nested-party shape venue dialects use (BrokerTec's AONX
-    quote flow, for one): NoLegs > NoNestedPartyIDs > NoNestedPartySubIDs — three levels deep.
+    QuoteRequest(R) carries the leg/nested-party shape venue dialects use:
+    NoLegs > NoNestedPartyIDs > NoNestedPartySubIDs — three levels deep.
   -->
 
   <header>

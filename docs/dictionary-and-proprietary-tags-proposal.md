@@ -17,7 +17,7 @@
 > can never be the default again. 1727 tests green.
 >
 > **What live verification turned up, and it is worth its own line:** the running app was
-> not on the bundled dictionary at all — it was on the BrokerTec venue dictionary named in
+> not on the bundled dictionary at all — it was on the venue dictionary named in
 > `app_settings.json`, which is **358 fields** and does not define `EffectiveTime(168)` or
 > `StrikeTime(443)`. Both were replaying literal captured timestamps, and under the old
 > `dictionary == null` test **nothing was said**, because a dictionary was loaded. The new
@@ -309,19 +309,19 @@ re-ticking", a complaint that would arrive with the tag numbers attached. Two th
 overtook that:
 
 1. **The constraint is explicit**: proprietary tags must not enter FixTool's source, because
-   this source is shared across a dozen venues and a hardcoded `20013` is a claim about all
+   this source is shared across a dozen venues and a hardcoded `20001` is a claim about all
    of them. That makes the overlay *the mechanism*, not a convenience — there is no other
    place a venue's own answer can live.
-2. **The candidates are already visible.** The BrokerTec dictionary defines 132 tags outside
-   standard FIX 4.4, of which at least nine are id-shaped: `LegQuoteReqID(20013)`,
-   `SecondaryQuoteID(1751)`, `SecondaryTradeLinkID(20071)`, `BatchID(20040)`,
+2. **The candidates are already visible.** The the venue dictionary defines 132 tags outside
+   standard FIX 4.4, of which at least nine are id-shaped: `LegRefID(20001)`,
+   `SecondaryQuoteID(1701)`, `SecondaryTradeLinkID(20071)`, `BatchID(20002)`,
    `LegIOIID(20086)`, `CounterpartyAxeID(20093)`, `LegReportId(990)`, `LegID(1788)`,
    `OrigTradeID(1126)`. The overlay is not speculative for that venue.
 
 **Shape as shipped.** `<dictionary-file>.roles.json`, beside the dictionary:
 
 ```json
-{ "20013": "CLIENT_MINTED_ID", "1751": "CLIENT_MINTED_ID", "20040": "VENUE_MINTED_ID" }
+{ "20001": "CLIENT_MINTED_ID", "1701": "CLIENT_MINTED_ID", "20002": "VENUE_MINTED_ID" }
 ```
 
 Roles are `CLIENT_MINTED_ID`, `VENUE_MINTED_ID`, `LIFETIME` (see `TagRole`). A tag may carry
@@ -341,18 +341,18 @@ typo must not silently discard a venue's whole declaration at capture time.
 Sidecar rather than an attribute inside the venue's XML: the venue ships you that file and
 their next release overwrites your edits.
 
-**Verified live on the real BrokerTec dictionary** — same paste, same venue dictionary, with
+**Verified live on the venue dictionary** — same paste, same venue dictionary, with
 and without the sidecar:
 
 ```
-without:  20013=LEG-A7F3C201                     expect 20013 → exact("LEG-A7F3C201")
+without:  20001=LEG-A7F3C201                     expect 20001 → exact("LEG-A7F3C201")
           bind [131]
-with:     20013=${legQuoteReqID = uuid:20}       expect 20013 → reference(${legQuoteReqID})
-          bind [131, 20013, 1751]
+with:     20001=${legRefID = uuid:20}       expect 20001 → reference(${legRefID})
+          bind [131, 20001, 1701]
 ```
 
 The variable names come from the venue's own dictionary via `mintName`, so the reference
-dropdown reads `${legQuoteReqID}`, not `${tag20013}`.
+dropdown reads `${legRefID}`, not `${tag20001}`.
 
 ### The door — `Venue tag roles…` in Settings (**built**)
 
@@ -376,7 +376,7 @@ the dictionary cannot name the tag at all) → `OTHER`. **A sort, never a filter
 correlation id whose name doesn't end in `ID` is precisely what a filter would lose, so
 `show all N venue tags` is always present.
 
-On the real BrokerTec dictionary the scan yields **131 venue tags, 21 id-shaped** — a list
+On the venue dictionary the scan yields **131 venue tags, 21 id-shaped** — a list
 you read in seconds, against 358 fields you would otherwise be reading by hand. It does
 include obvious non-ids (`RootPartyID`, `UnderlyingLegSecurityID`, `ApplVerID`); that is
 intended, because the scan proposes and the author decides. Nothing in a FIX dictionary
@@ -385,10 +385,10 @@ records who *mints* a value, which is the entire reason the file has to exist.
 Also on the control surface as `GET`/`POST /dictionary/roles`, so an agent and a human write
 the same file through the same path.
 
-**Verified live, end to end, without a relaunch**: scan the real dictionary → declare 20013,
-1751, 20040 → the sidecar appears on disk → the very next capture mints
-`${legQuoteReqID}`/`${secondaryQuoteID}`, references both echoes, adds both bind constraints,
-and seeds the venue-minted 20040 as `presence`. The adapter's overlay cache is invalidated
+**Verified live, end to end, without a relaunch**: scan the real dictionary → declare 20001,
+1701, 20002 → the sidecar appears on disk → the very next capture mints
+`${legRefID}`/`${secondaryQuoteID}`, references both echoes, adds both bind constraints,
+and seeds the venue-minted 20002 as `presence`. The adapter's overlay cache is invalidated
 explicitly (`reloadTagRoles`) — a cache outliving the file would report success for a change
 that only took effect next launch, which is the failure shape this whole feature removes.
 
@@ -398,7 +398,7 @@ that only took effect next launch, which is the failure shape this whole feature
 both of which need a *flow* rather than a dictionary:
 
 - **Find a correlation id whose name says nothing** — the `OTHER` tier is 110 tags deep on
-  BrokerTec, and an id in there is found only by watching a value come back.
+  the venue, and an id in there is found only by watching a value come back.
 - **Wire a venue-minted id we echo back.** Declaring `VENUE_MINTED_ID` fixes the *expect*
   side (`presence`), but a send that quotes the venue's id back still replays the captured
   literal. Correcting that needs `bindAs` on the earlier Expect plus `${name}` on the Send —
@@ -413,7 +413,7 @@ needs it because it has no evidence at all; here there *is* evidence, so the nam
 (`58=Order accepted - ref 12` clears length and character-class checks easily; identifiers do
 not contain spaces).
 
-**Verified live on the real BrokerTec dictionary**, one paste, three messages:
+**Verified live on the venue dictionary**, one paste, three messages:
 
 ```
 proposals:

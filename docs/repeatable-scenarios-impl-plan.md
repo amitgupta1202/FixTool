@@ -228,7 +228,7 @@ hand-editing JSON.
 >   rows gained Duplicate; the header gained "Open folder" (the diffable-JSON story's UI handle).
 > - **Dictionary-mismatch lint** (`DictionaryLint`): the "grouped send flattening" seen live was
 >   root-caused to dictionary fidelity, not a construction bug — manual construction builds groups
->   correctly (`GroupedSendConstructionTest`), but the loaded venue dialect (e.g. a BrokerTec
+>   correctly (`GroupedSendConstructionTest`), but the loaded venue dialect (e.g. a venue
 >   dictionary defining QuoteRequest *flat*, no NoRelatedSym) makes unknown tags go out as plain
 >   top-level fields, which the counterparty rejects cryptically. Now the mismatch is named locally:
 >   sends warn+notify ("tags not defined for QuoteRequest (R) in the loaded dictionary: 146

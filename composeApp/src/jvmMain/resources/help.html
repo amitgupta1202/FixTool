@@ -601,6 +601,33 @@
 
     <p>Toggle between views using the view mode button in the toolbar (grid icon / terminal icon).</p>
 
+    <h3 id="conversations">Grouping by conversation</h3>
+    <p>A second, independent toolbar toggle (the tree icon) folds the grid by <strong>business
+    exchange</strong> — every message that shares a correlation id with another, transitively, becomes one
+    group. The chain follows the ids themselves: a Quote carrying both <code>QuoteReqID</code> and
+    <code>QuoteID</code> joins them, so the order placed off that quote lands in the RFQ's group with no
+    configuration. Your venue's own correlation ids join the moment they are declared beside its
+    dictionary &mdash; see <a href="#venue-tag-roles">Your venue's own correlation ids</a>.</p>
+
+    <p>Each group gets a <strong>summary row</strong> in the grid's own columns: the id that opened the
+    exchange and its instrument, what arrived (<em>NewOrderSingle &times;1 &middot; ExecutionReport
+    &times;2</em>), the last status any message <em>stated</em> &mdash; quoted in the dictionary's words,
+    never computed &mdash; and the first-to-last round-trip in the Latency column. Click a summary row to
+    fold or open its group. Fold everything and the grid reads as an index of exchanges: one row per
+    order, per RFQ, per subscription.</p>
+
+    <ul>
+        <li><strong>Off is off.</strong> The toggle starts off and the flat chronological grid is
+        unchanged. Grouping trades global timeline for adjacency &mdash; the flat view is one click
+        back.</li>
+        <li><strong>Nothing is hidden.</strong> Messages carrying no correlation id &mdash; heartbeats,
+        logons, anything the loaded dictionary cannot place &mdash; sit in an <strong>Ungrouped</strong>
+        group at the bottom, counted, never dropped.</li>
+        <li><strong>The summary only quotes.</strong> <em>Filled</em> appears because a reply said
+        <code>39=2</code>; a two-leg request with two Symbols shows no instrument rather than guessing
+        one. What the header cannot point at, it does not say.</li>
+    </ul>
+
     <h3>Message Details</h3>
     <p>Click any message in the grid to view detailed field information in the detail panel:</p>
     <ul>

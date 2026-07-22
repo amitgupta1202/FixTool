@@ -185,6 +185,7 @@
             <li><a href="#latency">10. Latency Measurement</a></li>
             <li><a href="#automation">11. Automation &amp; AI Control</a></li>
             <li><a href="#assertions">12. Automated Verification &amp; Scenarios</a></li>
+            <li><a href="#acceptor-rules">13. Acceptor Auto-Responses</a></li>
         </ul>
     </div>
 
@@ -1949,8 +1950,10 @@ stunnel stunnel.conf</code></pre>
         variable, which overrides this setting.
     </div>
 
-    <p>The full tool list, the HTTP API, and acceptor auto-response rules are documented in the
-    <a href="https://github.com/amitgupta1202/FixTool/blob/main/docs/AUTOMATION.md" target="_blank">Automation Guide</a>.</p>
+    <p>The full tool list and the HTTP API are documented in the
+    <a href="https://github.com/amitgupta1202/FixTool/blob/main/docs/AUTOMATION.md" target="_blank">Automation Guide</a>.
+    Acceptor auto-response rules have their own chapter here:
+    <a href="#acceptor-rules">&sect;13</a>.</p>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
@@ -2358,6 +2361,193 @@ stunnel stunnel.conf</code></pre>
         <strong>The point:</strong> the LLM (or a human) authors the scenario once; a dumb runner
         repeats it forever. The model is out of the hot path, so runs are fast, deterministic, and
         CI-friendly. Full design: <code>docs/repeatable-scenarios-proposal.md</code>.
+    </div>
+
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+
+    <h2 id="acceptor-rules">13. Acceptor Auto-Responses</h2>
+
+    <p>Everything above assumes the venue is somebody else. When your profile's
+    <strong>Connection Type</strong> is <strong>Acceptor</strong>, FixTool <em>is</em> the venue: the
+    counterparty dials in to your port, and their orders arrive as incoming messages.
+    <strong>Auto-Responses</strong> are the rules that answer them &mdash; a venue simulator you author
+    on a form, so a client team can be tested against acks, fills, rejects and timing that you control
+    exactly, including the behaviour a real venue only produces on a bad day.</p>
+
+    <p>This is not the <a href="#demo-server">Demo FX Server</a>. That is a fixed, built-in venue for
+    trying FixTool out; this is your own acceptor, answering the way <em>you</em> wrote.</p>
+
+    <h3>The rules engine</h3>
+
+    <p>Learn these four sentences and the rest of the section is detail.</p>
+
+    <ol>
+        <li><strong>A rule is a trigger and a reply.</strong> The trigger is a MsgType plus zero or more
+        conditions on tags; the reply is one or more messages to send back.</li>
+        <li><strong>Every condition must hold.</strong> Conditions within a rule are <strong>ANDed</strong>
+        &mdash; there is no OR inside a rule, and none is coming: an OR is a second rule.</li>
+        <li><strong>First match wins.</strong> Rules are tried top to bottom and exactly one fires. A rule's
+        <em>position</em> is part of what it means, which is why the card has up/down arrows.</li>
+        <li><strong>The reply is a sequence.</strong> Each step carries its own delay, and that delay is
+        measured <strong>from the step before it</strong> &mdash; not from the trigger.</li>
+    </ol>
+
+    <p>An incoming message that matches no rule gets no reply. That is not an error and nothing is logged
+    about it: an acceptor with no rule for <code>35=F</code> simply does not answer cancels.</p>
+
+    <h3>Where the rules live</h3>
+
+    <p>Open the <strong>Connection</strong> panel and select an acceptor profile. Below the connection
+    fields is a collapsible <strong>Auto-Responses</strong> section &mdash; shown for
+    <strong>acceptor profiles only</strong>, with the rule count beside its title, and already expanded if
+    the profile has any. (A profile whose acceptor answers orders on its own should never look, at a
+    glance, like one that stays silent.) The header line summarises the whole list: <em>"3 rule(s), first
+    match wins · 1 off"</em>.</p>
+
+    <p>Rules are stored <strong>on the profile</strong>, so <strong>Save</strong> is what commits them, and
+    they travel with the profile when it is copied or exported.</p>
+
+    <div class="warning">
+        <strong>A rule change does not reach a session that is already up.</strong> The rules are read and
+        their triggers compiled once, when the session connects &mdash; so an edit you save while the
+        counterparty is logged on has no effect on that session. <strong>Disconnect and reconnect</strong>
+        after changing a rule, or you will be watching the old ruleset and wondering why your edit did
+        nothing.
+    </div>
+
+    <h3>The trigger</h3>
+
+    <p>Every rule starts <strong>When 35=</strong> and a MsgType &mdash; <code>D</code> for
+    NewOrderSingle, <code>F</code> for OrderCancelRequest, <code>R</code> for QuoteRequest. That alone is a
+    complete trigger: it fires on every message of that type.</p>
+
+    <p><strong>+ condition</strong> adds a constraint on a tag, and the constraint is edited by the same
+    matcher chip the scenario workbench uses &mdash; deliberately the same one, so there is a single
+    vocabulary rather than a second one wearing the first one's clothes. Everything in
+    <a href="#assertions">§12's matcher table</a> works here, including the dimming of types the field
+    cannot carry, with two differences:</p>
+
+    <ul>
+        <li><code>reference</code> is <strong>not offered</strong>. It resolves a <code>${&hellip;}</code>
+        expression against a scenario run's scope, and a trigger has no run. A rule that arrives carrying
+        one (by hand-edited JSON) is refused <em>by name</em> on the rule card &mdash; because the
+        alternative is a matcher that quietly never matches, and a rule that never fires looks exactly
+        like a rule whose trigger has not come up yet.</li>
+        <li><code>absent</code> and <code>notEqual</code> are worth keeping straight here, since a trigger
+        is where the difference bites. <code>absent</code> fires when the tag <em>is not there</em>;
+        <code>notEqual</code> fires when it <em>is</em> there and holds something else. A message without
+        the tag satisfies <code>absent</code> and <strong>fails</strong> <code>notEqual</code>.</li>
+    </ul>
+
+    <div class="example">
+        <code>When 35=<strong>D</strong><br>
+        &nbsp;&nbsp;and tag <strong>55</strong> &nbsp;exact&nbsp;&nbsp;&nbsp;&nbsp;<strong>EUR/USD</strong><br>
+        &nbsp;&nbsp;and tag <strong>38</strong> &nbsp;range&nbsp;&nbsp;&nbsp;&gt; <strong>1000000</strong><br>
+        &nbsp;&nbsp;and tag <strong>40</strong> &nbsp;notEqual <strong>1</strong></code>
+    </div>
+
+    <p>&hellip; is "a EUR/USD order over a million that is not a Market order" &mdash; the shape of a rule
+    that simulates a venue rejecting large limit orders. To also cover GBP/USD, write a second rule; there
+    is no OR.</p>
+
+    <h3>The reply</h3>
+
+    <p><strong>+ step</strong> adds a message to the reply. Each step is a <strong>delay</strong> and a raw
+    FIX <strong>template</strong>:</p>
+
+    <div class="example">
+        <code>1. +&nbsp;&nbsp;&nbsp;0ms &rarr; 0ms &nbsp;&nbsp;&nbsp;35=8|150=0|39=0|37=${uuid}|17=${uuid}|11=${req.11}|38=${req.38}|14=0<br>
+        2. + 400ms &rarr; 400ms &nbsp;&nbsp;35=8|150=F|39=1|37=${uuid}|17=${uuid}|11=${req.11}|38=${req.38}|14=${req.38 / 2}<br>
+        3. + 400ms &rarr; 800ms &nbsp;&nbsp;35=8|150=F|39=2|37=${uuid}|17=${uuid}|11=${req.11}|38=${req.38}|14=${req.38}</code>
+    </div>
+
+    <p>An ack, a half fill 400ms later, and the rest 400ms after that. <strong>You write the gap; FixTool
+    does the accumulation</strong> &mdash; the number after the arrow is the running total from the
+    trigger, shown on every row precisely because "delay from the previous step" is the one thing about a
+    sequence that is easy to read the other way. If the two numbers ever disagree with what you meant, the
+    row tells you before the counterparty does.</p>
+
+    <p>A template is raw FIX &mdash; <strong>application fields only</strong>, pipe- or SOH-delimited.
+    Do not write the header or the checksum; QuickFIX stamps the session envelope itself.</p>
+
+    <h4>Substitutions</h4>
+    <table>
+        <tr><th>Expression</th><th>Becomes</th><th>Resolved</th></tr>
+        <tr><td><code>${req.&lt;tag&gt;}</code></td><td>that tag's value from the message that triggered the rule, e.g. <code>${req.11}</code> for the client's ClOrdID</td><td>when the trigger arrives</td></tr>
+        <tr><td><code>${uuid}</code></td><td>a fresh random id &mdash; an OrderID or ExecID</td><td><strong>per step, as that step is sent</strong></td></tr>
+        <tr><td><code>${now}</code></td><td>the current UTC timestamp (<code>yyyyMMdd-HH:mm:ss.SSS</code>)</td><td><strong>per step, as that step is sent</strong></td></tr>
+        <tr><td><code>${req.38 / 2}</code></td><td>arithmetic on a request field &mdash; a <code>req</code> reference <em>inside</em> a larger expression is evaluated by the same engine <a href="#message-templates">message templates</a> use</td><td>when the trigger arrives</td></tr>
+    </table>
+
+    <p>The per-step timing of <code>${uuid}</code> and <code>${now}</code> is the point of the split: a fill
+    sent a second after the ack carries <em>its own</em> ExecID and <em>its own</em> TransactTime. A
+    sequence whose steps all shared one timestamp would report zero latency in exactly the data a latency
+    test reads.</p>
+
+    <p>The computed form is what makes one rule serve every order size &mdash; <code>14=${req.38 / 2}</code>
+    fills half of whatever quantity arrived, instead of the one quantity its author happened to hardcode.
+    The value is substituted <strong>raw</strong>, which is what makes the arithmetic work and what keeps
+    this to numbers; read a string field with the plain <code>${req.11}</code> form, which needs none of
+    it. Expressions are scoped to <strong>the message that fired this rule</strong>, so two orders in
+    flight cannot read each other's quantities.</p>
+
+    <h3>Ordering, and switching a rule off</h3>
+
+    <p>Because the first match wins, put the <strong>specific</strong> rule above the general one. A
+    catch-all <code>When 35=D</code> with no conditions placed first means no rule below it will ever fire
+    on a <code>D</code>. The up/down arrows on each card are how you fix that.</p>
+
+    <p>The checkbox at the left of a rule <strong>switches it off without deleting it</strong>. A disabled
+    rule is dimmed but still fully readable and editable, and the message falls through to the rule
+    <em>after</em> it &mdash; which is exactly what you are asking to see when you turn one off to find out
+    what happens without it. Narrowing down a venue's behaviour means asking that a dozen times, and the
+    answer should never cost you the rule.</p>
+
+    <h3>When the reply actually goes out</h3>
+
+    <p>Replies always leave <strong>after</strong> the incoming callback has returned, on a dispatch thread
+    of their own &mdash; <strong>including a zero-delay one</strong>. This is deliberate and it matters: a
+    reply sent inline can reach the counterparty before their own <code>send()</code> has returned to them,
+    which would let a client with wrong ordering assumptions pass against FixTool and fail against a real
+    venue. There is one answer to "when does the acceptor reply", not a fast path and a slow path that can
+    drift apart.</p>
+
+    <p>The steps of one sequence keep their order. Sequences triggered by <em>different</em> incoming
+    messages interleave &mdash; which is what a real venue does with two orders in flight. Anything still
+    queued for a session is dropped when that session logs out.</p>
+
+    <p>The <strong>&#9632; Stop</strong> button in the Auto-Responses header (shown only while a session is
+    live) drops every reply still queued on that session. A sequence is a claim about time &mdash; "and
+    then, four seconds later, the fill" &mdash; so the moment you see it is the wrong claim, you need it to
+    stop <em>now</em>, not after it has finished being wrong.</p>
+
+    <h3>When a rule does not fire</h3>
+
+    <p>A rule that cannot work says so on its own card, in amber, under the step it belongs to. Read that
+    first &mdash; the engine's own warnings go to a log nobody has open. In order of how often they catch
+    people:</p>
+
+    <table>
+        <tr><th>What you see</th><th>What it means</th></tr>
+        <tr><td>Nothing fires after an edit</td><td>The session was already up. Rules compile at connect &mdash; disconnect and reconnect.</td></tr>
+        <tr><td>The card is dimmed</td><td>The rule is switched off. The message falls through to the rule below it.</td></tr>
+        <tr><td><em>"the rule has no trigger MsgType, so nothing can match it"</em></td><td><strong>When 35=</strong> is blank.</td></tr>
+        <tr><td><em>"the condition on tag N is not a usable matcher"</em> / <em>"&hellip; is a reference, and a trigger has no scenario scope"</em></td><td>One condition is unusable, so <strong>the whole rule is skipped</strong>. A trigger missing one of its constraints would be looser than you wrote it, and a rule that fires on messages you excluded is the dangerous direction to be wrong in &mdash; so it is dropped entirely rather than loosened.</td></tr>
+        <tr><td><em>"the rule has nothing to reply with"</em></td><td>Every step's template is empty.</td></tr>
+        <tr><td><em>"the rule carries both 'steps' and the older 'responseTemplate'"</em></td><td>An older rule written in the single-message form has had a sequence added. The sequence is what plays; clear the old field to say so.</td></tr>
+        <tr><td>A red row in the counterparty's log, no rule blamed</td><td>Your template is not valid FIX for the dictionary in use, or it repeats a tag QuickFIX stamps itself. Templates are app fields only.</td></tr>
+    </table>
+
+    <p>An earlier one-message spelling of a rule still works and is read forever &mdash; it shows as the
+    single step it plays. The editor does not rewrite it just because you looked at it; the moment you
+    change anything about that rule, the edit writes it back as a sequence.</p>
+
+    <div class="tip">
+        <strong>Driving this from an agent or CI.</strong> Rules are plain JSON on the profile's config
+        (<code>acceptorResponseRules</code>), set through the normal profile upsert and readable at
+        <code>GET /acceptor/rules</code> &mdash; which also reports each rule's validation problem and the
+        played sequence <em>with the offset each step goes out at</em>, so you never redo the arithmetic.
+        See the <a href="https://github.com/amitgupta1202/FixTool/blob/main/docs/AUTOMATION.md" target="_blank">Automation Guide</a>.
     </div>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>

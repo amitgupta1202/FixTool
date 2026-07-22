@@ -320,6 +320,11 @@ the message falls through to the rule after it — which is what an author toggl
 see. Replies already queued on a session are dropped with
 `POST /admin {"action":"stop-responses"}`, which reports how many it dropped. Rules are set via the normal `/profiles` upsert and inspected via `GET /acceptor/rules`.
 
+**Rules are compiled once, when the session connects.** A `/profiles` upsert that changes them does not
+reach a session already logged on — `/disconnect` then `/connect` after editing, or you will be driving
+the old ruleset. (Re-parsing per inbound message would put JSON on the path of every message a loaded
+acceptor receives, to reach an answer that cannot have changed.)
+
 A trigger is `whenMsgType` plus `conditions: [{tag, matcher}]`, all **ANDed**. The `matcher` is the
 same JSON the scenario assertions use (see `docs/scenario-assertion-model.md`), so `38 > 10000` is
 `{"tag":38,"matcher":{"type":"range","min":10000,"minInclusive":false}}` and `exact`, `presence`,

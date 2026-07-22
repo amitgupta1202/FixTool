@@ -105,7 +105,13 @@ object ScenarioCapture {
      * receive and a single forward pass would already have written the literal.
      *
      * Order matters twice over: only a value received **before** it is sent is a capture. The same value
-     * seen the other way round is something we minted and they echoed, which is [idExpr]'s business.
+     * seen the other way round is something we minted and they echoed, which is [idExpr]'s business —
+     * [ourMints] below is that half of the rule, and it is not optional. A full RFQ round trip hands the
+     * quoter its own `QuoteID(117)` straight back (the taker's QuoteResponse echoes it, our QuoteStatusReport
+     * quotes it on), and reading only the middle of that trip said "theirs": every occurrence of the value
+     * was rewritten to `${quoteID}`, the Quote that *invented* it included. The scenario then opened by
+     * sending a variable nothing had bound — no mint anywhere in it — and failed on the one step whose job
+     * was to define the id. Ownership can only be read forwards, from the first appearance on the wire.
      *
      * Which ids are "theirs" is [MintingSide]'s answer, not a constant. On an acceptor session this is the
      * path that carries the client's `ClOrdID(11)` from their order onto our ExecutionReport — the echo
@@ -116,30 +122,47 @@ object ScenarioCapture {
         dictionary: FixDictionaryAdapter?,
         takenNames: MutableSet<String>,
         sides: Map<String, MintingSide>,
-    ): Map<String, String> {
+    ): Map<String, TheirId> {
         val firstReceipt = mutableMapOf<String, Int>() // value -> tag it first arrived in
         val receivedAt = mutableMapOf<String, Int>()
-        val captures = mutableMapOf<String, String>()
+        // Values one of our own sends invented first. Restricted to the tags WE mint on that session, so an
+        // ordinary business value that merely collides with a later id — a quantity of 1000000, a `54=1` —
+        // does not claim ownership of it and rob a genuine capture of its bind.
+        val ourMints = mutableSetOf<String>()
+        val captures = mutableMapOf<String, TheirId>()
         selection.forEachIndexed { index, candidate ->
             val side = sides.sideOf(candidate.session)
             for ((tag, value) in candidate.fields) {
                 if (value.isBlank()) continue
                 if (!candidate.outgoing) {
-                    if (Minting.byThem(tag, dictionary, side) && value !in firstReceipt) {
+                    if (Minting.byThem(tag, dictionary, side) && value !in firstReceipt && value !in ourMints) {
                         firstReceipt[value] = tag
                         receivedAt[value] = index
                     }
-                } else if (value in firstReceipt && value !in captures && index > receivedAt.getValue(value)) {
+                    continue
+                }
+                if (Minting.byUs(tag, dictionary, side) && value !in firstReceipt) ourMints += value
+                if (value in firstReceipt && value !in captures && index > receivedAt.getValue(value)) {
                     // Named after the field it ARRIVED in, not the one it is quoted back in: the venue's
                     // own word for the thing is the one the author will recognise in the dropdown.
                     val name = mintName(firstReceipt.getValue(value), dictionary?.getFieldName(firstReceipt.getValue(value)), takenNames)
                     takenNames += name
-                    captures[value] = name
+                    captures[value] = TheirId(name, receivedAt.getValue(value))
                 }
             }
         }
         return captures
     }
+
+    /**
+     * A value the counterparty minted: the variable that will carry it, and **where a run learns it** — the
+     * index of the receive whose `bindAs` defines it.
+     *
+     * The index is half the answer. The map is keyed by value alone, so without it a send that happens to
+     * carry the same bytes *earlier* in the flow reads as an echo and is written as a reference to a
+     * variable no step has bound yet.
+     */
+    private data class TheirId(val name: String, val boundAt: Int)
 
     /** A session's title + the messages observed on it. */
     data class CapturedSession(val title: String, val messages: List<FixMessage>)
@@ -352,13 +375,13 @@ object ScenarioCapture {
         // minted it, and a forward pass would already have written the literal. See [theirIdCaptures].
         val captures = theirIdCaptures(selection, dictionary, takenNames, sides)
 
-        for (candidate in selection) {
+        selection.forEachIndexed { index, candidate ->
             // An undirected row cannot become a step: it would become a Send that asserts nothing, silently.
             // The review refuses the save before this, by name; this is the engine keeping the same rule.
-            if (candidate.direction == null) continue
+            if (candidate.direction == null) return@forEachIndexed
             val side = sides.sideOf(candidate.session)
             if (candidate.outgoing) {
-                steps += sendStep(candidate, dictionary, refByValue, takenNames, captures, side)
+                steps += sendStep(candidate, index, dictionary, refByValue, takenNames, captures, side)
             } else {
                 expectCandidates += steps.size to candidate
                 steps += expectStep(candidate, dictionary, refByValue, captures, side)
@@ -580,18 +603,31 @@ object ScenarioCapture {
 
     private fun sendStep(
         entry: Candidate,
+        index: Int,
         dictionary: FixDictionaryAdapter?,
         refByValue: MutableMap<String, String>,
         takenNames: MutableSet<String>,
-        captures: Map<String, String>,
+        captures: Map<String, TheirId>,
         side: MintingSide,
     ): ScenarioStep.Send {
         val fields = entry.fields.filter { (tag, _) -> tag !in TRANSPORT_TAGS }.map { (tag, value) ->
+            // A value THIS RUN's reply supplied — but only where quoting it back is what this field means.
+            // Both guards are the map's key being the value alone: a capture is only an echo if it lands in
+            // a correlation id (else an ordinary `54=1` colliding with an id would be rewritten to a
+            // variable) and only if this send comes AFTER the receive that binds it (else the reference
+            // names a variable no step has defined yet). See [TheirId].
+            val quoted = captures[value]?.takeIf { index > it.boundAt && Minting.isCorrelationId(tag, dictionary) }
+            // A value THIS SCENARIO already minted, echoed on a later send: reuse that variable. Asked of
+            // [refByValue] and not of [Minting.byUs], because who mints the *tag* is the wrong question once
+            // the *value* has an owner — on a both-sides RFQ the responder echoes the initiator's QuoteReqID
+            // from a chair where 131 is not its to mint, and the tag rule leaves the captured literal there.
+            val ours = refByValue[value]?.takeIf { Minting.isCorrelationId(tag, dictionary) }
             val out = when {
                 tag == 35 -> value
-                // Ahead of every other rule: a value THIS RUN's reply supplied. Replaying the captured one
-                // asks the venue to act on an id from the day of the capture.
-                captures[value] != null -> "\${${captures.getValue(value)}}"
+                // Ahead of every other rule: replaying the captured value would ask the venue to act on an
+                // id from the day of the capture.
+                quoted != null -> "\${${quoted.name}}"
+                ours != null -> ours
                 // Before the general timestamp rule: an expiry stamped "now" is expired on arrival.
                 // Unconditional, like tag 60 in isTimestamp: these are UTCTIMESTAMP by the spec, and a
                 // dictionary-less capture still must not replay a stale quote lifetime.
@@ -646,7 +682,7 @@ object ScenarioCapture {
         entry: Candidate,
         dictionary: FixDictionaryAdapter?,
         refByValue: Map<String, String>,
-        captures: Map<String, String>,
+        captures: Map<String, TheirId>,
         side: MintingSide,
     ): ScenarioStep.Expect {
         // Each seeded row carries the value it was seeded from, so a row that echoes something we sent
@@ -663,11 +699,18 @@ object ScenarioCapture {
             // fresh uuid, so the scenario asserted that Side equals a uuid and was permanently red for a
             // reason pointing at nothing the author wrote. An echo comes back in a correlation-id field —
             // which is precisely the filter the bind constraints below already apply.
-            val ref = if (Minting.byUs(sf.field.tag, dictionary, side)) refByValue[sf.capturedValue] else null
+            //
+            // The filter is the *tag being an id at all*, not who mints it: a value sitting in [refByValue]
+            // was minted by one of this scenario's own Sends, and that settles ownership on its own. Asking
+            // [Minting.byUs] a second time answered "no" for the responder's inbox on a both-sides RFQ —
+            // 131 is the client's to mint and that chair is the venue's — so the echo of an id the scenario
+            // had minted four lines earlier was seeded Presence, asserting nothing about the correlation
+            // that is the entire point of the reply.
+            val ref = refByValue[sf.capturedValue]?.takeIf { Minting.isCorrelationId(sf.field.tag, dictionary) }
             // A venue id a later send quotes back is READ here rather than asserted against a literal: the
             // matcher stays whatever it was seeded (Presence for a venue id), and `bindAs` puts this run's
             // actual value into scope for the send that needs it. Assert nothing new, capture the one fact.
-            val capture = captures[sf.capturedValue]?.takeIf { Minting.byThem(sf.field.tag, dictionary, side) }
+            val capture = captures[sf.capturedValue]?.name?.takeIf { Minting.byThem(sf.field.tag, dictionary, side) }
             when {
                 ref != null -> sf.field.copy(matcher = Matcher.Reference(ref))
                 capture != null -> sf.field.copy(bindAs = capture)
@@ -676,9 +719,10 @@ object ScenarioCapture {
         }
         // Echoed correlation ids also become bind constraints, so on a busy session this step binds
         // to *the response to this run's ids* — not merely the first message of the same type. The
-        // ${idN} values are resolved against the scenario scope by the runner.
+        // ${idN} values are resolved against the scenario scope by the runner. Same filter as the row
+        // above, and for the same reason: this scenario minted the value, so the chair does not matter.
         val bindConstraints = entry.fields
-            .filter { (tag, value) -> Minting.byUs(tag, dictionary, side) && refByValue.containsKey(value) }
+            .filter { (tag, value) -> Minting.isCorrelationId(tag, dictionary) && refByValue.containsKey(value) }
             .map { (tag, value) -> TagValue(tag, refByValue.getValue(value)) }
             .distinctBy { it.tag }
         return ScenarioStep.Expect(

@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.scenario.MatchOp
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -444,9 +445,19 @@ class ScenarioCaptureTest {
      *
      * This is the case that does NOT need receive→send variable capture: the id is born inside the
      * scenario. (A responder tested *alone* against an external initiator still does — known gap.)
+     *
+     * Run from **both chairs**, because the responder half of a both-sides capture is an acceptor session
+     * and the app hands it [MintingSide.VENUE] — the configuration this test used to skip. From that chair
+     * `QuoteReqID(131)` is not ours to mint, so the reuse below cannot be reached by asking who mints the
+     * tag: it has to be reached by remembering that this scenario already minted *this value*.
      */
     @Test
     fun `both-sides RFQ in one scenario - the responder's quote reuses the initiator's minted variable`() {
+        assertBothSidesRfq(emptyMap()) // sides unset — the historical default, every session a client
+        assertBothSidesRfq(mapOf("INIT" to MintingSide.CLIENT, "RESP" to MintingSide.VENUE)) // what the app assigns
+    }
+
+    private fun assertBothSidesRfq(sides: Map<String, MintingSide>) {
         val request = "8=FIX.4.4|35=R|34=2|49=INIT|56=RESP|131=REQ-9|146=1|55=EUR/USD|10=001|"
         val quoteReply = "8=FIX.4.4|35=S|34=2|49=RESP|56=INIT|117=Q-1|131=REQ-9|55=EUR/USD|133=1.0853|10=002|"
         val initiator = ScenarioCapture.CapturedSession(
@@ -464,7 +475,7 @@ class ScenarioCaptureTest {
             ),
         )
 
-        val scenario = ScenarioCapture.capture("sc-rfq", "both sides", null, listOf(initiator, responder), dictionary)
+        val scenario = ScenarioCapture.capture("sc-rfq", "both sides", null, listOf(initiator, responder), dictionary, sides)
 
         // Chronological across sessions: initiator sends, responder receives, responder quotes, initiator receives.
         assertEquals(
@@ -477,8 +488,8 @@ class ScenarioCaptureTest {
         val expectQuote = scenario.steps[3] as ScenarioStep.Expect
 
         // Step 1 mints the QuoteReqID; step 2 (the responder's inbox) checks and binds on the echo.
-        assertTrue(sendRequest.raw.contains("131=\${quoteReqID = uuid:20}"), sendRequest.raw)
-        assertEquals(Matcher.Reference("\${quoteReqID}"), matcher(expectRequest, 131))
+        assertTrue(sendRequest.raw.contains("131=\${quoteReqID = uuid:20}"), "$sides: ${sendRequest.raw}")
+        assertEquals(Matcher.Reference("\${quoteReqID}"), matcher(expectRequest, 131), "$sides")
         assertEquals(
             listOf(com.knapsack.fixtool.model.scenario.TagValue(131, "\${quoteReqID}")),
             expectRequest.match?.fields,
@@ -486,9 +497,9 @@ class ScenarioCaptureTest {
 
         // THE CRUX: the responder's outgoing Quote REUSES ${quoteReqID} — the same variable, across
         // sessions and across a direction flip — and mints only its own QuoteID.
-        assertTrue(sendQuote.raw.contains("131=\${quoteReqID}"), "the quote answers THIS run's request; got ${sendQuote.raw}")
-        assertTrue(!sendQuote.raw.contains("131=\${quoteReqID = "), "a re-mint would answer a request nobody made")
-        assertTrue(sendQuote.raw.contains("117=\${quoteID = uuid:20}"), "the quoter mints its own QuoteID; got ${sendQuote.raw}")
+        assertTrue(sendQuote.raw.contains("131=\${quoteReqID}"), "$sides: the quote answers THIS run's request; got ${sendQuote.raw}")
+        assertTrue(!sendQuote.raw.contains("131=\${quoteReqID = "), "$sides: a re-mint would answer a request nobody made")
+        assertTrue(sendQuote.raw.contains("117=\${quoteID = uuid:20}"), "$sides: the quoter mints its own QuoteID; got ${sendQuote.raw}")
 
         // And the initiator's inbox checks both echoes — 117 sits in the presence set too, and the echo
         // check must win over presence for a value this scenario minted itself.
@@ -531,5 +542,47 @@ class ScenarioCaptureTest {
             sendS.raw.contains("62=\${utcnow+5min}"),
             "a replayed ValidUntilTime lies in the future — not verbatim (stale), not now (expired); got ${sendS.raw}",
         )
+    }
+
+    /**
+     * **A value we put on the wire first is ours, whatever comes back carrying it.**
+     *
+     * The full RFQ is a round trip: we quote, the taker's QuoteResponse echoes our `QuoteID(117)`, and our
+     * QuoteStatusReport quotes it again. The receive→send capture pass saw that middle echo, decided 117 was
+     * *theirs* to bind, and rewrote **every** occurrence of the value — including the Quote that invented it,
+     * three messages earlier. The scenario then opened by sending `117=${quoteID}`, a variable nothing had
+     * bound yet: no mint anywhere, the run failing on the very step that was supposed to define the id.
+     *
+     * Order decides ownership, and it can only be read forwards: minted on a Send, echoed back to us as a
+     * Reference check, quoted onwards by name.
+     */
+    @Test
+    fun `a quoter mints its own QuoteID even when the taker echoes it back`() {
+        val request = msg("8=FIX.4.4|35=R|34=2|49=TAKER|56=CLI|131=RFQ-1|146=1|55=EUR/USD|10=001|", FixMessage.Direction.INCOMING, 0)
+        val quote = msg("8=FIX.4.4|35=S|34=2|49=CLI|56=TAKER|117=Q-1|131=RFQ-1|55=EUR/USD|133=1.0853|10=002|", FixMessage.Direction.OUTGOING, 1)
+        val response = msg("8=FIX.4.4|35=AJ|34=3|49=TAKER|56=CLI|693=RSP-1|117=Q-1|131=RFQ-1|55=EUR/USD|10=003|", FixMessage.Direction.INCOMING, 2)
+        val status = msg("8=FIX.4.4|35=AI|34=3|49=CLI|56=TAKER|117=Q-1|297=0|55=EUR/USD|10=004|", FixMessage.Direction.OUTGOING, 3)
+        val candidates =
+            ScenarioCapture.candidates(listOf(ScenarioCapture.CapturedSession("Q", listOf(request, quote, response, status))))
+
+        // The quoter is the quoter from either chair: dialling out to the taker's venue (CLIENT, where
+        // QuoteID is ours to mint) or accepting the taker's connection (VENUE, where it is ours to mint
+        // for the other reason). 117 sits in both id sets, so the side must change nothing here.
+        for (side in MintingSide.entries) {
+            val scenario =
+                ScenarioCapture.captureFrom("sc-rfq-round-trip", "rfq round trip", null, candidates, dictionary, mapOf("Q" to side))
+
+            val sendQuote = scenario.steps[1] as ScenarioStep.Send
+            assertTrue(
+                sendQuote.raw.contains("117=\${quoteID = uuid:20}"),
+                "$side: the Quote invents the QuoteID, so it must MINT it — a bare reference is bound by nothing; got ${sendQuote.raw}",
+            )
+
+            // The taker's echo is checked against what we minted, and our next send quotes the same variable.
+            val expectResponse = scenario.steps[2] as ScenarioStep.Expect
+            assertEquals(Matcher.Reference("\${quoteID}"), matcher(expectResponse, 117), "$side: their echo answers OUR quote")
+            val sendStatus = scenario.steps[3] as ScenarioStep.Send
+            assertTrue(sendStatus.raw.contains("117=\${quoteID}"), "$side: the status report reuses the minted id; got ${sendStatus.raw}")
+        }
     }
 }

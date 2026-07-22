@@ -125,8 +125,9 @@ private fun ProtocolContent(context: SettingsContext) {
     SettingsBlock(
         title = "Venue tag roles",
         description =
-            "Which of this venue's own tags carry an identifier it mints. Saved beside the dictionary, " +
-                "not in these settings — the declaration belongs to the venue, so it does not wait on Save.",
+            "Which tags in this dictionary carry an identifier somebody mints per run — the venue's own, " +
+                "and the standard ones FixTool has no answer for. Saved beside the dictionary, not in " +
+                "these settings — the declaration belongs to the venue, so it does not wait on Save.",
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SettingsButton(

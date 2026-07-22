@@ -71,7 +71,7 @@ object ScenarioCapture {
             320, // SecurityReqID
             335, // TradSesReqID
             526, // SecondaryClOrdID
-            571, // TradeReportID — client-minted on TradeCaptureReport submission
+            571, // TradeReportID — on OUR submission; also venue-minted, see ExpectationSeeder's note
             583, // ClOrdLinkID
             693, // QuoteRespID
         )

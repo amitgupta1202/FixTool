@@ -28,12 +28,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.TagRoleOverlay
+import com.knapsack.fixtool.service.FieldSearch
 import com.knapsack.fixtool.service.VenueTagScan
 
 /**
@@ -50,9 +52,14 @@ import com.knapsack.fixtool.service.VenueTagScan
  * people who do not need it. A venue shipping a new dictionary version has the same shape.
  *
  * **It proposes, and never decides.** Nothing in a FIX dictionary records who *mints* a value — that is
- * the whole reason this file has to exist — so every role here is the author's answer. The list is sorted
- * so the likely ones are on top and *nothing is hidden*: a correlation id whose name does not end in `ID`
- * is exactly the case a filter would lose.
+ * the whole reason this file has to exist — so every role here is the author's answer. The likely ones are
+ * in the opening view and *nothing is hidden*: a correlation id whose name does not end in `ID` is exactly
+ * the case a filter would lose, and so is a standard tag FixTool has no opinion about.
+ *
+ * **Order is the tag number, always.** The tier decides which rows open the dialog, not where they sit:
+ * sorting by tier first produced a list of several interleaved ascending runs, so finding `820` meant
+ * knowing which tier it had landed in before you could look for it. The tier rides on the row instead, and
+ * the search box reaches every tag whether or not the current view holds it.
  */
 @Composable
 fun VenueTagRolesDialog(
@@ -61,14 +68,27 @@ fun VenueTagRolesDialog(
     onDismiss: () -> Unit,
 ) {
     val path = dictionary?.getFilePath()
+    // Not merely "is there a path": a bundled dictionary has one, pointing at a temp file.
+    val savable = path != null && dictionary?.isStandard != true
     val candidates = remember(dictionary) { VenueTagScan.scan(dictionary) }
-    val chosen = remember(dictionary) { mutableStateMapOf<Int, TagRole?>().apply { candidates.forEach { put(it.tag, it.roles.firstOrNull()) } } }
+    // Only what the author actually changed. Seeding this from every candidate's current role and writing
+    // the whole map back collapsed a two-role declaration (`QuoteID(117)` is the standard case) to its
+    // first role the moment anyone pressed Save on an unrelated row.
+    val edits = remember(dictionary) { mutableStateMapOf<Int, TagRole?>() }
     var showAll by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
-    val identifiers = candidates.filter { it.tier != VenueTagScan.Tier.OTHER }
-    val others = candidates.filter { it.tier == VenueTagScan.Tier.OTHER }
-    val visible = if (showAll) candidates else identifiers
+    val opening = candidates.filter { it.tier == VenueTagScan.Tier.DECLARED || it.tier == VenueTagScan.Tier.IDENTIFIER }
+    val searching = query.isNotBlank()
+    val visible =
+        when {
+            // A query searches the whole dictionary, not the current view: the reason to type `820` is
+            // that it is not on screen, so making the author find the right view first defeats the box.
+            searching -> candidates.filter { FieldSearch.matches(query, it.tag, it.name, null) }
+            showAll -> candidates
+            else -> opening
+        }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -83,13 +103,19 @@ fun VenueTagRolesDialog(
         ) {
             Text("Venue tag roles", color = AppTheme.Colors.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
 
-            if (path == null) {
-                // A bundled standard dictionary has no venue tags by definition, and writing a sidecar
-                // beside a temp-extracted resource would put the author's decisions somewhere that does
-                // not survive a restart. Say so rather than showing an empty list they cannot act on.
+            if (!savable) {
+                // A bundled dictionary is extracted to a temp file, so it *has* a path while having
+                // nowhere durable to put anything beside it: an answer written there is thrown away at
+                // the next launch, silently. Say so rather than showing an editor that appears to work.
                 Text(
-                    "No dictionary file is loaded. Venue tag roles live beside the venue's own dictionary — " +
-                        "set a data dictionary path first.",
+                    if (dictionary?.isStandard == true) {
+                        "This is a bundled standard dictionary, extracted to a temp file — a declaration " +
+                            "saved beside it would not survive a restart, and FixTool already answers for " +
+                            "standard FIX. Point the Data Dictionary at your venue's own file."
+                    } else {
+                        "No dictionary file is loaded. Venue tag roles live beside the venue's own dictionary — " +
+                            "set a data dictionary path first."
+                    },
                     color = AppTheme.Colors.textSecondary,
                     fontSize = 11.sp,
                 )
@@ -104,32 +130,53 @@ fun VenueTagRolesDialog(
 
                 if (candidates.isEmpty()) {
                     Text(
-                        "This dictionary adds nothing beyond standard FIX, so there is nothing to declare.",
+                        "This dictionary defines nothing that could carry a role — only the transport " +
+                            "envelope, which the engine rewrites on every send whatever is declared here.",
                         color = AppTheme.Colors.textSecondary,
                         fontSize = 11.sp,
                     )
                 } else {
+                    SlimSearchBar(
+                        query = query,
+                        onQueryChange = { query = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "Search all ${candidates.size} tags by number or name…",
+                        testTag = "venue-tag-roles-search",
+                    )
+
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         items(visible, key = { it.tag }) { candidate ->
-                            RoleRow(candidate, chosen[candidate.tag]) { chosen[candidate.tag] = it }
+                            RoleRow(
+                                candidate = candidate,
+                                role = if (candidate.tag in edits) edits[candidate.tag] else candidate.roles.firstOrNull(),
+                                onRole = { edits[candidate.tag] = it },
+                            )
                         }
                     }
 
-                    if (others.isNotEmpty()) {
-                        Text(
-                            text =
-                                if (showAll) {
-                                    "▾ showing all ${candidates.size} venue tags"
-                                } else {
-                                    "▸ show all ${candidates.size} venue tags (${others.size} more)"
-                                },
-                            color = AppTheme.Colors.primary,
-                            fontSize = 10.sp,
-                            modifier = Modifier.clickable { showAll = !showAll }.testTag("venue-tag-roles-show-all"),
-                        )
+                    when {
+                        searching ->
+                            Text(
+                                text = "${visible.size} of ${candidates.size} tags match",
+                                color = AppTheme.Colors.textSecondary,
+                                fontSize = 10.sp,
+                                modifier = Modifier.testTag("venue-tag-roles-match-count"),
+                            )
+                        candidates.size > opening.size ->
+                            Text(
+                                text =
+                                    if (showAll) {
+                                        "▾ showing all ${candidates.size} tags"
+                                    } else {
+                                        "▸ show all ${candidates.size} tags (${candidates.size - opening.size} more)"
+                                    },
+                                color = AppTheme.Colors.primary,
+                                fontSize = 10.sp,
+                                modifier = Modifier.clickable { showAll = !showAll }.testTag("venue-tag-roles-show-all"),
+                            )
                     }
                 }
             }
@@ -141,10 +188,13 @@ fun VenueTagRolesDialog(
                 SlimButton("Cancel", onClick = onDismiss)
                 SlimButton(
                     text = "Save",
-                    enabled = path != null,
+                    enabled = savable,
                     color = AppTheme.Colors.primary,
                     onClick = {
-                        val roles = chosen.entries.mapNotNull { (tag, role) -> role?.let { tag to setOf(it) } }.toMap()
+                        // Start from what the sidecar already says — including any tag carrying two roles —
+                        // and apply only this session's edits over it.
+                        val roles = candidates.filter { it.roles.isNotEmpty() }.associate { it.tag to it.roles }.toMutableMap()
+                        edits.forEach { (tag, role) -> if (role == null) roles.remove(tag) else roles[tag] = setOf(role) }
                         val result = runCatching { TagRoleOverlay.writeBeside(path!!, roles) }
                         result.fold(
                             onSuccess = { onSaved(it.absolutePath) },
@@ -163,6 +213,27 @@ private fun label(role: TagRole): String =
         TagRole.CLIENT_MINTED_ID -> "we mint it — fresh per run"
         TagRole.VENUE_MINTED_ID -> "the venue mints it"
         TagRole.LIFETIME -> "a lifetime stamp"
+    }
+
+/**
+ * **What already answers for this tag** — the note that makes the built-in tier worth showing.
+ *
+ * A row saying only "FixTool handles it" invites the author to move on; a row saying *what* it handles it
+ * as is the one thing that lets them notice the answer is wrong for their venue and add to it.
+ */
+private fun note(candidate: VenueTagScan.Candidate): String? =
+    when {
+        candidate.builtIn.isNotEmpty() ->
+            "FixTool: " + candidate.builtIn.sortedBy { it.name }.joinToString(", ") {
+                when (it) {
+                    TagRole.CLIENT_MINTED_ID -> "we mint it"
+                    TagRole.VENUE_MINTED_ID -> "the venue mints it"
+                    TagRole.LIFETIME -> "a lifetime stamp"
+                }
+            }
+        candidate.builtInReason != null -> candidate.builtInReason
+        candidate.custom -> "this venue's own tag"
+        else -> null
     }
 
 @Composable
@@ -191,8 +262,20 @@ private fun RoleRow(candidate: VenueTagScan.Candidate, role: TagRole?, onRole: (
             text = candidate.name ?: "(unnamed in this dictionary)",
             color = if (candidate.name != null) AppTheme.Colors.text else AppTheme.Colors.textSecondary,
             fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        note(candidate)?.let {
+            Text(
+                text = it,
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(150.dp),
+            )
+        }
         Box(modifier = Modifier.width(190.dp)) {
             SlimDropdown(
                 value = role,

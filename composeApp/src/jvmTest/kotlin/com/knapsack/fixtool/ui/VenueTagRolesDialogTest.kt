@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.TagRoleOverlay
@@ -46,6 +47,7 @@ class VenueTagRolesDialogTest {
                 <field number="10" name="CheckSum" type="STRING"/>
                 <field number="35" name="MsgType" type="STRING"/>
                 <field number="131" name="QuoteReqID" type="STRING"/>
+                <field number="820" name="TradeLinkID" type="STRING"/>
                 <field number="20001" name="LegRefID" type="STRING"/>
                 <field number="20050" name="Note1" type="STRING"/>
               </fields>
@@ -79,6 +81,72 @@ class VenueTagRolesDialogTest {
         composeTestRule.onNodeWithTag("venue-tag-row-20050").assertDoesNotExist()
         composeTestRule.onNodeWithTag("venue-tag-roles-show-all").performClick()
         composeTestRule.onNodeWithTag("venue-tag-row-20050").assertIsDisplayed()
+    }
+
+    /**
+     * `TradeLinkID(820)` is standard FIX and in none of FixTool's built-in sets, so it seeded `Exact` and
+     * replayed a dead link id every run. The dialog used to offer only tags a dictionary added beyond
+     * standard FIX, which put the one fix for that behind a filter.
+     */
+    @Test
+    fun `a standard tag FixTool does not classify is on screen without asking for it`() {
+        composeTestRule.setContent {
+            VenueTagRolesDialog(dictionary = venueDictionary(), onSaved = {}, onDismiss = {})
+        }
+
+        composeTestRule.onNodeWithTag("venue-tag-row-820").assertIsDisplayed()
+    }
+
+    /**
+     * The reason to type a tag number is that it is *not* on screen, so a search that only looks at the
+     * current view answers the wrong question. `Note1(20050)` is not id-shaped and so opens below the
+     * fold; the box must reach it without the author first working out which view holds it.
+     */
+    @Test
+    fun `search reaches a tag the opening view does not hold`() {
+        composeTestRule.setContent {
+            VenueTagRolesDialog(dictionary = venueDictionary(), onSaved = {}, onDismiss = {})
+        }
+
+        composeTestRule.onNodeWithTag("venue-tag-row-20050").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("venue-tag-roles-search").performTextInput("20050")
+        composeTestRule.onNodeWithTag("venue-tag-row-20050").assertIsDisplayed()
+        // …and the rows that do not match are gone, so the count is the answer rather than a highlight.
+        composeTestRule.onNodeWithTag("venue-tag-row-20001").assertDoesNotExist()
+    }
+
+    /** The same box finds a tag by its dictionary name, because that is the other half of what an author knows. */
+    @Test
+    fun `search finds a tag by name as well as by number`() {
+        composeTestRule.setContent {
+            VenueTagRolesDialog(dictionary = venueDictionary(), onSaved = {}, onDismiss = {})
+        }
+
+        composeTestRule.onNodeWithTag("venue-tag-roles-search").performTextInput("tradelink")
+        composeTestRule.onNodeWithTag("venue-tag-row-820").assertIsDisplayed()
+    }
+
+    /**
+     * **A save must not quietly collapse a declaration it never touched.**
+     *
+     * `QuoteID(117)` genuinely carries two roles — whoever quotes mints it — and the editor's dropdown
+     * holds one. Seeding its state from every candidate's *first* role and writing the whole map back
+     * meant pressing Save after editing an unrelated row rewrote `117` as client-minted alone, silently
+     * regressing the dealer side of an RFQ.
+     */
+    @Test
+    fun `a two-role declaration survives a save that did not touch it`() {
+        val dictionary = venueDictionary("""{"117":["CLIENT_MINTED_ID","VENUE_MINTED_ID"]}""")
+        var saved: String? = null
+        composeTestRule.setContent {
+            VenueTagRolesDialog(dictionary = dictionary, onSaved = { saved = it }, onDismiss = {})
+        }
+
+        composeTestRule.onNodeWithText("Save").performClick()
+        composeTestRule.waitForIdle()
+
+        val overlay = TagRoleOverlay.read(java.io.File(saved!!).readText())
+        assertEquals(setOf(TagRole.CLIENT_MINTED_ID, TagRole.VENUE_MINTED_ID), overlay.rolesOf(117))
     }
 
     /** An answer the author cannot see is an answer they cannot revise, so declared tags come back. */

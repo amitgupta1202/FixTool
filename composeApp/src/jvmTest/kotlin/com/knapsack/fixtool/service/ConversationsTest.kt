@@ -120,6 +120,59 @@ class ConversationsTest {
                 dictionary,
             )
         assertEquals(1, grouping.conversations.size)
-        assertEquals(2, grouping.conversations.single().messages.size)
+        val merged = grouping.conversations.first()
+        assertEquals(2, merged.messages.size)
+    }
+
+    // ---- the header row (slice 2) ----------------------------------------------------------------
+
+    private fun summaryOf(label: String, messages: List<FixMessage> = interleavedRfqs()): Conversations.Summary =
+        Conversations.summarize(
+            Conversations.group(messages, dictionary).conversations.single { it.label == label },
+            dictionary,
+        )
+
+    /** Counting what arrived is a fact, and it is most of what the header is for. */
+    @Test
+    fun `composition counts each message type in the order it first appeared`() {
+        val summary = summaryOf("RFQ-A1")
+        assertEquals(listOf("R" to 1, "S" to 2, "D" to 1, "8" to 2), summary.composition.map { it.messageType to it.count })
+        assertEquals(6, summary.messageCount)
+    }
+
+    /**
+     * The status is a QUOTATION, not a verdict: the reply said `39=2` and the dictionary calls that
+     * filled. FixTool never added the fills up and formed an opinion.
+     */
+    @Test
+    fun `status is the last one a message actually stated, in the dictionary's words`() {
+        val summary = summaryOf("RFQ-A1")
+        assertEquals(39, summary.status?.tag)
+        assertEquals("2", summary.status?.value)
+        assertTrue(summary.status?.valueName?.contains("FILL", ignoreCase = true) == true, "was ${summary.status}")
+    }
+
+    /** Nothing stated a status, so the header states none — rather than inferring one from the absence. */
+    @Test
+    fun `a conversation that never stated a status has none`() {
+        assertEquals(null, summaryOf("RFQ-B2").status)
+    }
+
+    /** Unambiguous on the opener, so it is the message's answer and not ours. */
+    @Test
+    fun `instrument and quantity are read off the opening message`() {
+        val summary = summaryOf("RFQ-A1")
+        assertEquals("EUR/USD", summary.instrument)
+        assertEquals("10000000", summary.quantity)
+    }
+
+    /**
+     * A two-leg request carries two Symbols, and naming the first as *the* instrument is a claim that is
+     * wrong half the time and unfalsifiable from a header. Silence is the honest answer.
+     */
+    @Test
+    fun `an ambiguous instrument is omitted rather than guessed`() {
+        val summary = summaryOf("RFQ-C3", listOf(msg("35=R|131=RFQ-C3|55=EUR/USD|55=GBP/USD|", out)))
+        assertEquals(null, summary.instrument, "two Symbols means the header must not pick one")
     }
 }

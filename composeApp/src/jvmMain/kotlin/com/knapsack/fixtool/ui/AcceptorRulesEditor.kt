@@ -2,6 +2,7 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -58,39 +59,57 @@ fun AcceptorRulesEditor(
     /** Names the values a condition's tag can take, so a trigger reads `8 (REJECTED)` and not `8`. */
     dictionary: FixDictionary? = null,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (rules.isEmpty()) "No rules — incoming messages get no reply" else "${rules.size} rule(s), first match wins",
-                color = AppTheme.Colors.textSecondary,
-                fontSize = 9.sp,
-            )
-            TooltipIconButton(
-                tooltip = "Add rule",
-                onClick = { onRulesChange(rules + AcceptorResponseRule(whenMsgType = "", steps = listOf(ResponseStep(template = "")))) },
-                modifier = Modifier.size(18.dp),
+    // The connection panel is drag-resizable from a tenth of the window to six tenths of it, so this
+    // editor is asked to live at anything from ~250dp to ~1000dp. Sized for the narrow end only, it
+    // stayed narrow-shaped inside all that room: a template wrapping across three lines in a column
+    // with 700dp of empty space beside it. Measured here, once, and the answer handed down — so every
+    // row of every rule agrees about which layout it is in.
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val wide = maxWidth >= WIDE_LAYOUT_MIN
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Default.Add, "Add rule", tint = AppTheme.Colors.primary, modifier = Modifier.size(14.dp))
+                Text(
+                    text = if (rules.isEmpty()) "No rules — incoming messages get no reply" else "${rules.size} rule(s), first match wins",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 9.sp,
+                )
+                TooltipIconButton(
+                    tooltip = "Add rule",
+                    onClick = { onRulesChange(rules + AcceptorResponseRule(whenMsgType = "", steps = listOf(ResponseStep(template = "")))) },
+                    modifier = Modifier.size(18.dp),
+                ) {
+                    Icon(Icons.Default.Add, "Add rule", tint = AppTheme.Colors.primary, modifier = Modifier.size(14.dp))
+                }
             }
-        }
 
-        rules.forEachIndexed { ruleIndex, rule ->
-            RuleCard(
-                rule = rule,
-                position = ruleIndex,
-                total = rules.size,
-                dictionary = dictionary,
-                onChange = { updated -> onRulesChange(rules.replaced(ruleIndex, updated)) },
-                onDelete = { onRulesChange(rules.without(ruleIndex)) },
-                onMove = { by -> onRulesChange(rules.moved(ruleIndex, by)) },
-            )
+            rules.forEachIndexed { ruleIndex, rule ->
+                RuleCard(
+                    rule = rule,
+                    position = ruleIndex,
+                    total = rules.size,
+                    dictionary = dictionary,
+                    wide = wide,
+                    onChange = { updated -> onRulesChange(rules.replaced(ruleIndex, updated)) },
+                    onDelete = { onRulesChange(rules.without(ruleIndex)) },
+                    onMove = { by -> onRulesChange(rules.moved(ruleIndex, by)) },
+                )
+            }
         }
     }
 }
+
+/**
+ * Below this the rows stack; at or above it they sit on one line.
+ *
+ * It is the width at which a step's template still gets ~300dp after the number, the delay, the
+ * running total and three buttons have taken theirs — i.e. the point where one line stops being a
+ * worse way to show the same string.
+ */
+private val WIDE_LAYOUT_MIN = 560.dp
 
 @Composable
 private fun RuleCard(
@@ -98,6 +117,7 @@ private fun RuleCard(
     position: Int,
     total: Int,
     dictionary: FixDictionary?,
+    wide: Boolean,
     onChange: (AcceptorResponseRule) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
@@ -152,6 +172,7 @@ private fun RuleCard(
             ConditionRow(
                 condition = condition,
                 dictionary = dictionary,
+                wide = wide,
                 onChange = { updated -> withConditions(conditions.replaced(index, updated)) },
                 onDelete = { withConditions(conditions.without(index)) },
             )
@@ -184,6 +205,7 @@ private fun RuleCard(
                 step = step,
                 number = stepIndex + 1,
                 offsetMillis = offset,
+                wide = wide,
                 canMoveUp = stepIndex > 0,
                 canMoveDown = stepIndex < steps.size - 1,
                 onChange = { updated -> withSteps(steps.replaced(stepIndex, updated)) },
@@ -218,55 +240,77 @@ private fun RuleCard(
 private fun ConditionRow(
     condition: FieldCondition,
     dictionary: FixDictionary?,
+    wide: Boolean,
     onChange: (FieldCondition) -> Unit,
     onDelete: () -> Unit,
 ) {
     val matcher = condition.parsed()
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("and tag", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
-            SlimField(
-                value = if (condition.tag == 0) "" else condition.tag.toString(),
-                onValueChange = { typed ->
-                    onChange(condition.copy(tag = typed.filter { it.isDigit() }.toIntOrNull() ?: 0))
-                },
-                modifier = Modifier.width(44.dp),
-                monospace = true,
-                tintBlank = true,
-                placeholder = "38",
-            )
-            Spacer(Modifier.weight(1f))
-            TooltipIconButton("Remove condition", onDelete, Modifier.size(16.dp)) {
-                Icon(Icons.Default.Close, "Remove condition", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
+    val enumValues =
+        remember(dictionary, condition.tag) {
+            if (dictionary?.hasFieldValues(condition.tag) == true) {
+                dictionary.getFieldEnumValues(condition.tag)
+            } else {
+                emptyList()
             }
         }
-        if (matcher == null) {
-            // Carried verbatim rather than replaced with a default: a matcher this build cannot read
-            // is still the author's, and silently swapping it for `exact ""` would lose what they wrote
-            // while making the row look fine.
-            Text(
-                text = "⚠ ${condition.reason()}",
-                color = AppTheme.Colors.warning,
-                fontSize = 9.sp,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        } else {
-            MatcherEditor(
-                matcher = matcher,
-                capturedValue = (matcher as? Matcher.Exact)?.value.orEmpty(),
-                onChange = { updated -> onChange(condition.copy(matcher = MatcherCodec.matcherToJson(updated))) },
-                modifier = Modifier.padding(top = 2.dp),
-                types = TRIGGER_MATCHER_TYPES,
-                paramsWidth = 190.dp,
-                enumValues =
-                    remember(dictionary, condition.tag) {
-                        if (dictionary?.hasFieldValues(condition.tag) == true) {
-                            dictionary.getFieldEnumValues(condition.tag)
-                        } else {
-                            emptyList()
-                        }
-                    },
-            )
+
+    val tagField: @Composable () -> Unit = {
+        Text("and tag", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+        SlimField(
+            value = if (condition.tag == 0) "" else condition.tag.toString(),
+            onValueChange = { typed ->
+                onChange(condition.copy(tag = typed.filter { it.isDigit() }.toIntOrNull() ?: 0))
+            },
+            modifier = Modifier.width(44.dp),
+            monospace = true,
+            tintBlank = true,
+            placeholder = "38",
+        )
+    }
+    val removeButton: @Composable () -> Unit = {
+        TooltipIconButton("Remove condition", onDelete, Modifier.size(16.dp)) {
+            Icon(Icons.Default.Close, "Remove condition", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
+        }
+    }
+    // Carried verbatim rather than replaced with a default: a matcher this build cannot read is still
+    // the author's, and silently swapping it for `exact ""` would lose what they wrote while making the
+    // row look fine.
+    val unreadable: @Composable (Modifier) -> Unit = { mod ->
+        Text("⚠ ${condition.reason()}", color = AppTheme.Colors.warning, fontSize = 9.sp, modifier = mod)
+    }
+    val editor: @Composable (Modifier) -> Unit = { mod ->
+        MatcherEditor(
+            matcher = matcher ?: Matcher.Exact(""),
+            capturedValue = (matcher as? Matcher.Exact)?.value.orEmpty(),
+            onChange = { updated -> onChange(condition.copy(matcher = MatcherCodec.matcherToJson(updated))) },
+            modifier = mod,
+            types = TRIGGER_MATCHER_TYPES,
+            // The params slot grows with the panel: at the narrow end it is what fits, at the wide end
+            // it is what an oneOf set or a two-bound range actually wants.
+            paramsWidth = if (wide) 260.dp else 190.dp,
+            enumValues = enumValues,
+        )
+    }
+
+    if (wide) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            tagField()
+            if (matcher == null) unreadable(Modifier.weight(1f)) else editor(Modifier)
+            Spacer(Modifier.weight(1f))
+            removeButton()
+        }
+    } else {
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                tagField()
+                Spacer(Modifier.weight(1f))
+                removeButton()
+            }
+            if (matcher == null) unreadable(Modifier.padding(top = 2.dp)) else editor(Modifier.padding(top = 2.dp))
         }
     }
 }
@@ -281,53 +325,76 @@ private fun StepRow(
     offsetMillis: Long,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
+    wide: Boolean,
     onChange: (ResponseStep) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
 ) {
-    // Two rows, not one. A raw FIX template does not fit beside four controls in a side panel — at one
-    // line it showed about twenty characters, so the author was editing a string they could not read.
-    // The timing controls keep their row; the template gets the panel's full width and wraps.
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("$number.", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-            Text("+", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
-            SlimField(
-                // Only digits reach the model, so a half-typed value cannot silently become 0 and move
-                // the step to a moment the author never chose.
-                value = step.delayMillis.toString(),
-                onValueChange = { typed ->
-                    val digits = typed.filter { it.isDigit() }
-                    onChange(step.copy(delayMillis = digits.toLongOrNull() ?: 0L))
-                },
-                modifier = Modifier.width(48.dp),
-                monospace = true,
-            )
-            // The gap and the running total, side by side. The gap is what the author writes; the total
-            // is what the counterparty experiences, and seeing both is what reveals that this field is
-            // relative — the one thing about a sequence that raw JSON cannot warn anybody about.
-            Text("ms → ${offsetMillis}ms", color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
-            Spacer(Modifier.weight(1f))
-            TooltipIconButton("Move earlier", { onMove(-1) }, Modifier.size(16.dp), enabled = canMoveUp) {
-                Icon(Icons.Default.ArrowUpward, "Up", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
-            }
-            TooltipIconButton("Move later", { onMove(1) }, Modifier.size(16.dp), enabled = canMoveDown) {
-                Icon(Icons.Default.ArrowDownward, "Down", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
-            }
-            TooltipIconButton("Delete step", onDelete, Modifier.size(16.dp)) {
-                Icon(Icons.Default.Close, "Delete step", tint = AppTheme.Colors.error, modifier = Modifier.size(10.dp))
-            }
+    val timing: @Composable () -> Unit = {
+        Text("$number.", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+        Text("+", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+        SlimField(
+            // Only digits reach the model, so a half-typed value cannot silently become 0 and move
+            // the step to a moment the author never chose.
+            value = step.delayMillis.toString(),
+            onValueChange = { typed ->
+                val digits = typed.filter { it.isDigit() }
+                onChange(step.copy(delayMillis = digits.toLongOrNull() ?: 0L))
+            },
+            modifier = Modifier.width(48.dp),
+            monospace = true,
+        )
+        // The gap and the running total, side by side. The gap is what the author writes; the total
+        // is what the counterparty experiences, and seeing both is what reveals that this field is
+        // relative — the one thing about a sequence that raw JSON cannot warn anybody about.
+        Text("ms → ${offsetMillis}ms", color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
+    }
+    val buttons: @Composable () -> Unit = {
+        TooltipIconButton("Move earlier", { onMove(-1) }, Modifier.size(16.dp), enabled = canMoveUp) {
+            Icon(Icons.Default.ArrowUpward, "Up", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
         }
+        TooltipIconButton("Move later", { onMove(1) }, Modifier.size(16.dp), enabled = canMoveDown) {
+            Icon(Icons.Default.ArrowDownward, "Down", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
+        }
+        TooltipIconButton("Delete step", onDelete, Modifier.size(16.dp)) {
+            Icon(Icons.Default.Close, "Delete step", tint = AppTheme.Colors.error, modifier = Modifier.size(10.dp))
+        }
+    }
+    // Wrapping is what a narrow panel can do, not what anyone wants: the template is one line of FIX
+    // and reads as one line. Given the width, it gets one — and only then, because at the narrow end a
+    // single row showed about twenty characters of it.
+    val template: @Composable (Modifier) -> Unit = { mod ->
         SlimField(
             value = step.template,
             onValueChange = { onChange(step.copy(template = it)) },
-            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            modifier = mod,
             monospace = true,
             tintBlank = true,
             placeholder = "35=8|150=0|39=0|11=\${req.11}|",
-            singleLine = false,
-            maxLines = 4,
+            singleLine = wide,
+            maxLines = if (wide) 1 else 4,
         )
+    }
+
+    if (wide) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            timing()
+            template(Modifier.weight(1f))
+            buttons()
+        }
+    } else {
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                timing()
+                Spacer(Modifier.weight(1f))
+                buttons()
+            }
+            template(Modifier.fillMaxWidth().padding(top = 2.dp))
+        }
     }
 }
 

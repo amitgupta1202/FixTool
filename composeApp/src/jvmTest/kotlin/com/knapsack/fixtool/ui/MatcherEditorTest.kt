@@ -149,6 +149,105 @@ class MatcherEditorTest {
         composeTestRule.onNode(hasSetTextAction()).assertTextContains("\${out.D.11}")
     }
 
+    // ----- named enum values --------------------------------------------------------------------------
+
+    /** OrdStatus, as the dictionary names it. */
+    private val ordStatus = listOf("0" to "NEW", "1" to "PARTIALLY_FILLED", "2" to "FILLED", "8" to "REJECTED")
+
+    @Composable
+    private fun enumEditor(initial: Matcher, values: List<Pair<String, String>>, onChange: (Matcher) -> Unit) {
+        var matcher by remember { mutableStateOf(initial) }
+        Box(modifier = Modifier.size(620.dp, 90.dp).background(AppTheme.Colors.surface).padding(8.dp)) {
+            MatcherEditor(
+                matcher = matcher,
+                capturedValue = "8",
+                enumValues = values,
+                onChange = {
+                    matcher = it
+                    onChange(it)
+                },
+            )
+        }
+    }
+
+    /**
+     * The BA-enabling half: nobody should have to remember that `39=8` is Rejected. The row shows the
+     * dictionary's word for the value it carries, and picking a different one emits that value.
+     */
+    @Test
+    fun `an exact matcher on an enum tag reads and edits by name`() {
+        var last: Matcher = Matcher.Exact("8")
+        composeTestRule.setContent { enumEditor(Matcher.Exact("8"), ordStatus) { last = it } }
+
+        composeTestRule.onNodeWithText("8 (REJECTED)").assertExists()
+        snapshot("matcher_editor_enum_named.png")
+
+        composeTestRule.onNodeWithText("8 (REJECTED)").performClick()
+        composeTestRule.onNodeWithText("2 — FILLED", substring = true).performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(Matcher.Exact("2"), last, "picking a name must emit its value, not its label")
+    }
+
+    /**
+     * A value the dictionary has never heard of is exactly what a tester chasing an undocumented
+     * venue code is asserting on. The field must still carry it, and the menu must not mislabel it
+     * as one of the codes it does know.
+     */
+    @Test
+    fun `a value the dictionary does not define is kept, and not mislabelled`() {
+        composeTestRule.setContent { enumEditor(Matcher.Exact("Z9"), ordStatus) {} }
+
+        // The field keeps it, and the menu says "pick…" — not "Z9", which would read as though the
+        // dictionary had listed it. That is the whole of the `takeIf` guarding the picker's selection.
+        composeTestRule.onNode(hasSetTextAction()).assertTextContains("Z9")
+        composeTestRule.onNodeWithText("pick…").assertExists()
+    }
+
+    /** Without a dictionary entry the row is what it always was — a plain field, no menu. */
+    @Test
+    fun `a tag with no enum values keeps the plain field`() {
+        composeTestRule.setContent { enumEditor(Matcher.Exact("ACME"), emptyList()) {} }
+
+        composeTestRule.onNode(hasSetTextAction()).assertTextContains("ACME")
+        composeTestRule.onNodeWithText("pick…").assertDoesNotExist()
+    }
+
+    /** A oneOf is built up, so its picker ADDS — a dropdown that replaced the set could never name the second value. */
+    @Test
+    fun `the oneOf picker adds to the set rather than replacing it`() {
+        var last: Matcher = Matcher.OneOf(listOf("1"))
+        composeTestRule.setContent { enumEditor(Matcher.OneOf(listOf("1")), ordStatus) { last = it } }
+
+        composeTestRule.onNodeWithText("add…").performClick()
+        composeTestRule.onNodeWithText("2 — FILLED", substring = true).performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(Matcher.OneOf(listOf("1", "2")), last, "the value already there must survive: $last")
+    }
+
+    /**
+     * The acceptor rules editor lives in a side panel a third of the workbench's width and passes a
+     * narrowed params slot. Rendered here so the value and its name are known to still fit, rather
+     * than assumed from the arithmetic.
+     */
+    @Test
+    fun `the narrow params slot still shows both the value and its name`() {
+        composeTestRule.setContent {
+            Box(modifier = Modifier.size(340.dp, 90.dp).background(AppTheme.Colors.surface).padding(8.dp)) {
+                MatcherEditor(
+                    matcher = Matcher.Exact("8"),
+                    capturedValue = "8",
+                    enumValues = ordStatus,
+                    paramsWidth = 190.dp,
+                    onChange = {},
+                )
+            }
+        }
+        composeTestRule.onNodeWithText("8 (REJECTED)").assertExists()
+        snapshot("matcher_editor_enum_narrow.png")
+    }
+
     @Suppress("TooGenericExceptionCaught", "SwallowedException")
     private fun snapshot(name: String) {
         try {

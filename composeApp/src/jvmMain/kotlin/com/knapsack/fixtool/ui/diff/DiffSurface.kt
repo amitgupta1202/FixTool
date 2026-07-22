@@ -1394,6 +1394,14 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, hand
                 // against the run's own values, so a wrong pick is a visible red, not a silent green.
                 types = if (scope.isEmpty()) DIFF_MATCHERS else MATCHER_TYPES,
                 scopeVariables = scope,
+                // The dictionary's names for this tag's values, so repairing a failing OrdStatus is a
+                // choice between words rather than a recollection of numbers. Read through the
+                // comprehension floor, so a venue file that omits the field still offers standard FIX.
+                enumValues =
+                    remember(session.dictionary, row.tag) {
+                        val dict = session.dictionary
+                        if (dict?.hasFieldValues(row.tag) == true) dict.getFieldEnumValues(row.tag) else emptyList()
+                    },
                 onChange = { session.apply(EditOp.setMatcher(index, row.tag, it)) },
                 modifier = Modifier.testTag("matcher-${row.tag}-${row.occurrence}"),
             )

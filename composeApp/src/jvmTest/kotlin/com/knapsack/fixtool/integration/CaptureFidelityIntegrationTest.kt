@@ -257,7 +257,86 @@ class CaptureFidelityIntegrationTest {
         delete("/scenarios", """{"id":"$id"}""")
     }
 
+    /**
+     * **A replay must put a VALUE on the wire, never the expression that was meant to produce one.**
+     *
+     * The full RFQ is a round trip, and both chairs are FixTool's: the client asks, the acceptor quotes, the
+     * client hits the quote back with the acceptor's own `QuoteID(117)`, the acceptor reports on it. Capture
+     * read that middle echo as evidence that 117 was the *counterparty's* id to bind, and rewrote every
+     * occurrence of the value to `${quoteID}` — the Quote that invented it included. Nothing minted it, so
+     * the replayed Quote carried the ten characters `${quoteID}` in tag 117, which is what the venue
+     * rejected.
+     *
+     * **The verdict does not see it, which is why this reads the wire.** Their id is seeded `Presence`, so
+     * the Expect for that Quote reported `117: presence — actual ${quoteID} — ok`: the step agreed that a
+     * field was there and said nothing about what was in it. The run did go red, but a row away — 131 held
+     * the capture-day literal for the same reason 117 held an expression — and a verdict that fails for the
+     * wrong reason is how a defect survives a fix. An expression on the wire is the fact; assert the fact.
+     */
+    @Test
+    fun `a captured RFQ round trip replays a minted QuoteID, not an unbound reference`() {
+        connectAcceptorAndClient()
+        val soh = "\\u0001"
+        val rfq = "RFQ-$runId"
+        val quoteId = "Q-$runId"
+
+        // The conversation, on the wire, from the chair that speaks each message. ACC is an acceptor
+        // session, so capture reads it from the venue's end and CLI from the client's — the pairing that
+        // makes 117 ours to mint on one side and theirs to echo on the other.
+        exchange("CLI", "ACC", "R", "35=R${soh}131=$rfq${soh}146=1${soh}55=EUR/USD$soh")
+        exchange("ACC", "CLI", "S", "35=S${soh}117=$quoteId${soh}131=$rfq${soh}55=EUR/USD${soh}133=1.0853$soh")
+        exchange("CLI", "ACC", "AJ", "35=AJ${soh}693=RSP-$runId${soh}117=$quoteId${soh}131=$rfq${soh}55=EUR/USD$soh")
+        exchange("ACC", "CLI", "AI", "35=AI${soh}117=$quoteId${soh}297=0${soh}55=EUR/USD$soh")
+
+        val captured = obj(post("/scenarios/capture", """{"name":"rfq-round-trip-$runId"}"""))
+        assertEquals("created", captured["status"]!!.jsonPrimitive.content, "capture should save: $captured")
+        val id = captured["id"]!!.jsonPrimitive.content
+
+        // The Quote's own id is minted by the step that sends it. Read off the saved scenario, because this
+        // is the value the author opens the editor to — a bare `${quoteID}` there is bound by nothing.
+        val quoteSend =
+            captured["scenario"]!!
+                .jsonObject["steps"]!!
+                .jsonArray
+                .map { it.jsonObject }
+                .first { it["type"]!!.jsonPrimitive.content == "send" && it["raw"]!!.jsonPrimitive.content.contains("35=S") }["raw"]!!
+                .jsonPrimitive.content
+        assertTrue(
+            quoteSend.contains("117=\${quoteID = uuid:20}"),
+            "the Quote invents the QuoteID, so its step must MINT one; got $quoteSend",
+        )
+
+        val ran = obj(post("/scenarios/run", """{"id":"$id"}"""))
+        assertTrue(ran["passed"]!!.jsonPrimitive.boolean, "the captured RFQ should replay green: $ran")
+
+        // THE ASSERTION: the replay's bytes. The run clears both logs first, so everything here is the
+        // replay's own — and not one field of it may still be an expression.
+        val unresolved =
+            viewModel.sessions
+                .flatMap { it.messages.value.filterIsInstance<FixMessage>() }
+                .filter { it.rawMessage.contains("\${") }
+                .map { "${it.messageType} ${it.direction}: ${it.rawMessage}" }
+        assertTrue(
+            unresolved.isEmpty(),
+            "a replay must send values, not expressions — these went on the wire unresolved: $unresolved",
+        )
+        delete("/scenarios", """{"id":"$id"}""")
+    }
+
     // ----------------------------------------------------------------- helpers
+
+    /** One message, sent from [from] and awaited on [to], so the capture's order is the wire's order. */
+    private fun exchange(from: String, to: String, messageType: String, raw: String) {
+        assertTrue(
+            status(post("/send", """{"session":"$from","raw":"$raw"}""")) in listOf("sent", "warning"),
+            "$messageType should go out on $from",
+        )
+        assertEquals(
+            "matched",
+            status(post("/wait", """{"session":"$to","match":{"messageType":"$messageType","direction":"in"},"timeoutMs":8000}""")),
+            "$to should receive the $messageType",
+        )
+    }
 
     /** The NewOrderSingles the acceptor side actually received, newest last. */
     private fun receivedOrders(): List<FixMessage> =

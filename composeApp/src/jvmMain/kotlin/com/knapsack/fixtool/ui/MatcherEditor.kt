@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.scenario.Matcher
@@ -121,6 +122,12 @@ fun MatcherEditor(
      * **picker over these names** (mistyping impossible, value visible) rather than a free-text field.
      */
     scopeVariables: List<ScenarioVariable> = emptyList(),
+    /**
+     * Width of the params slot. Constant *within* a caller — that is what keeps a column's right edge
+     * straight — but not the same for every caller: the connection panel's acceptor rules are a third
+     * of the workbench's width, and the scenario default overflows it.
+     */
+    paramsWidth: Dp = PARAMS_WIDTH,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         SlimDropdown(
@@ -136,7 +143,7 @@ fun MatcherEditor(
         // ONE slot, constant width, whatever the type — so the column has a straight edge and a row does
         // not change shape when its chip changes type. What each type needs is drawn inside it; a label
         // it used to wear beside the field ("pattern", "any of") is its field's placeholder now.
-        Box(modifier = Modifier.width(PARAMS_WIDTH)) { MatcherParams(matcher, onChange, scopeVariables) }
+        Box(modifier = Modifier.width(paramsWidth)) { MatcherParams(matcher, onChange, scopeVariables) }
     }
 }
 

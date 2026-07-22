@@ -3,6 +3,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.scenario.Matcher
 import quickfix.Message
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -24,6 +25,12 @@ data class PlannedSend(
     val build: () -> Message,
 )
 
+/** A rule whose trigger has been parsed once, ready to be asked of every inbound message. */
+data class CompiledRule(
+    val rule: AcceptorResponseRule,
+    val conditions: List<Pair<Int, Matcher>>,
+)
+
 /**
  * Matches incoming application messages against acceptor [AcceptorResponseRule]s (first match wins)
  * and builds the templated FIX responses. Stateless and side-effect free — [AcceptorDispatch] decides
@@ -36,11 +43,28 @@ object AcceptorResponder {
     private val REQ_REF = Regex("\\\$\\{req\\.(\\d+)}")
     private val NOW_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS")
 
-    fun firstMatch(rules: List<AcceptorResponseRule>, incoming: Message): AcceptorResponseRule? =
-        rules.firstOrNull { rule ->
-            valueOf(incoming, MSG_TYPE_TAG) == rule.whenMsgType &&
-                rule.whenFields.all { (tag, value) -> tag.toIntOrNull()?.let { valueOf(incoming, it) } == value }
+    /**
+     * Parses each rule's trigger once, ahead of any traffic.
+     *
+     * The matchers live on disk as JSON, and re-reading them per inbound message would put a parse on
+     * the path of every message an acceptor under load receives, to reach an answer that cannot have
+     * changed. A condition that does not parse is dropped **and the rule with it** — a trigger missing
+     * one of its constraints is looser than the author wrote, and would fire on messages they excluded.
+     * [AcceptorResponseRule.validationError] is what tells them why, on the rule's own card.
+     */
+    fun compile(rules: List<AcceptorResponseRule>): List<CompiledRule> =
+        rules.mapNotNull { rule ->
+            val trigger = rule.trigger()
+            if (trigger.any { it.reason() != null }) return@mapNotNull null
+            CompiledRule(rule, trigger.map { it.tag to (it.parsed() ?: return@mapNotNull null) })
         }
+
+    /** The first rule whose MsgType and every condition the incoming message satisfies. */
+    fun firstMatch(compiled: List<CompiledRule>, incoming: Message): AcceptorResponseRule? =
+        compiled.firstOrNull { (rule, conditions) ->
+            valueOf(incoming, MSG_TYPE_TAG) == rule.whenMsgType &&
+                conditions.all { (tag, matcher) -> ExpectationEvaluator.satisfies(matcher, valueOf(incoming, tag)) }
+        }?.rule
 
     /**
      * The whole of [rule]'s reply to [incoming], as sends waiting for their moment.

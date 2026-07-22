@@ -424,7 +424,12 @@ object McpTools {
             tool(
                 "fixtool_acceptor_rules",
                 "Inspect a profile's acceptor auto-response rules (rules are set via fixtool_save_profile's config, " +
-                    "as acceptorResponseRules:[{whenMsgType, whenFields?, steps:[{template, delayMillis}]}]). " +
+                    "as acceptorResponseRules:[{whenMsgType, whenFields?, conditions?, steps:[{template, delayMillis}]}]). " +
+                    "A trigger is whenMsgType plus conditions, ANDed: conditions:[{tag, matcher}] where matcher is " +
+                    "the same JSON the scenario assertions use ({\"type\":\"range\",\"min\":10000} for 38 > 10000, " +
+                    "also exact/presence/absent/oneOf/regex/numeric/temporal — but not reference, which needs a " +
+                    "scenario scope a trigger does not have). whenFields is the older exact-only form and still " +
+                    "works; the two are ANDed, never chosen between. " +
                     "A rule replies with a sequence: each step's delayMillis is measured from the step before it, " +
                     "so 0/500/500 is ack, half a second later a partial fill, half a second after that the rest. " +
                     "The older single-message spelling (responseTemplate) still works and reads as one immediate " +

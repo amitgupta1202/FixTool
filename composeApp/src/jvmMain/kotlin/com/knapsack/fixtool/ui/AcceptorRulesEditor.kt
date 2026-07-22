@@ -25,7 +25,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.ResponseStep
+import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.service.MatcherCodec
 
 /**
  * Authoring for an acceptor profile's auto-response rules.
@@ -131,41 +134,27 @@ private fun RuleCard(
             }
         }
 
-        rule.whenFields.entries.toList().forEachIndexed { index, (tag, value) ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("and", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
-                SlimField(
-                    value = tag,
-                    onValueChange = { onChange(rule.copy(whenFields = rule.whenFields.rekeyed(index, it))) },
-                    modifier = Modifier.width(40.dp),
-                    monospace = true,
-                    tintBlank = true,
-                    placeholder = "tag",
-                )
-                Text("=", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
-                SlimField(
-                    value = value,
-                    onValueChange = { onChange(rule.copy(whenFields = rule.whenFields + (tag to it))) },
-                    modifier = Modifier.weight(1f),
-                    monospace = true,
-                    tintBlank = true,
-                    placeholder = "exact value",
-                )
-                TooltipIconButton("Remove condition", { onChange(rule.copy(whenFields = rule.whenFields - tag)) }, Modifier.size(16.dp)) {
-                    Icon(Icons.Default.Close, "Remove condition", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
-                }
-            }
+        // Both spellings, shown as the one list they behave as. Any edit writes the whole list back as
+        // `conditions` and clears `whenFields` — the same rule as the reply's two spellings: migration
+        // is a consequence of editing, never of looking.
+        val conditions = rule.trigger()
+        fun withConditions(updated: List<FieldCondition>) =
+            onChange(rule.copy(whenFields = emptyMap(), conditions = updated))
+
+        conditions.forEachIndexed { index, condition ->
+            ConditionRow(
+                condition = condition,
+                onChange = { updated -> withConditions(conditions.replaced(index, updated)) },
+                onDelete = { withConditions(conditions.without(index)) },
+            )
         }
 
         Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 8.dp)) {
             SlimButton(
                 text = "+ condition",
-                onClick = { onChange(rule.copy(whenFields = rule.whenFields + ("" to ""))) },
-                enabled = !rule.whenFields.containsKey(""),
+                onClick = {
+                    withConditions(conditions + FieldCondition(0, MatcherCodec.matcherToJson(Matcher.Exact(""))))
+                },
             )
         }
 
@@ -207,6 +196,66 @@ private fun RuleCard(
         }
     }
 }
+
+/**
+ * One condition: the tag on its own row with the delete button, the matcher on the next.
+ *
+ * The matcher is edited by [MatcherEditor] — *the* matcher editor, the one the scenario workbench
+ * uses. That is the whole point of the trigger speaking [Matcher] rather than a conditional DSL of
+ * its own: a second editor would be a second vocabulary wearing the first one's clothes, and the two
+ * would drift. `reference` is withheld because it resolves against a scenario run's scope and a
+ * trigger has none; [FieldCondition.reason] refuses one that arrives by hand-edited JSON.
+ */
+@Composable
+private fun ConditionRow(
+    condition: FieldCondition,
+    onChange: (FieldCondition) -> Unit,
+    onDelete: () -> Unit,
+) {
+    val matcher = condition.parsed()
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("and tag", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+            SlimField(
+                value = if (condition.tag == 0) "" else condition.tag.toString(),
+                onValueChange = { typed ->
+                    onChange(condition.copy(tag = typed.filter { it.isDigit() }.toIntOrNull() ?: 0))
+                },
+                modifier = Modifier.width(44.dp),
+                monospace = true,
+                tintBlank = true,
+                placeholder = "38",
+            )
+            Spacer(Modifier.weight(1f))
+            TooltipIconButton("Remove condition", onDelete, Modifier.size(16.dp)) {
+                Icon(Icons.Default.Close, "Remove condition", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
+            }
+        }
+        if (matcher == null) {
+            // Carried verbatim rather than replaced with a default: a matcher this build cannot read
+            // is still the author's, and silently swapping it for `exact ""` would lose what they wrote
+            // while making the row look fine.
+            Text(
+                text = "⚠ ${condition.reason()}",
+                color = AppTheme.Colors.warning,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        } else {
+            MatcherEditor(
+                matcher = matcher,
+                capturedValue = (matcher as? Matcher.Exact)?.value.orEmpty(),
+                onChange = { updated -> onChange(condition.copy(matcher = MatcherCodec.matcherToJson(updated))) },
+                modifier = Modifier.padding(top = 2.dp),
+                types = TRIGGER_MATCHER_TYPES,
+                paramsWidth = 190.dp,
+            )
+        }
+    }
+}
+
+/** Every matcher type except `reference`, which needs a scenario scope a trigger does not have. */
+private val TRIGGER_MATCHER_TYPES = MATCHER_TYPES.filterNot { it == "reference" }
 
 @Composable
 private fun StepRow(
@@ -279,16 +328,4 @@ internal fun <T> List<T>.moved(index: Int, by: Int): List<T> {
     val target = (index + by).coerceIn(0, lastIndex)
     if (target == index) return this
     return toMutableList().apply { add(target, removeAt(index)) }
-}
-
-/**
- * Renames a key while keeping its position, because these entries are read as an ordered list of
- * conditions even though they are stored as a map. Rebuilding with `- old + new` would send the
- * renamed row to the bottom mid-keystroke.
- */
-internal fun Map<String, String>.rekeyed(index: Int, newKey: String): Map<String, String> {
-    val entries = entries.map { it.key to it.value }.toMutableList()
-    if (index !in entries.indices) return this
-    entries[index] = newKey to entries[index].second
-    return entries.toMap()
 }

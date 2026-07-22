@@ -1,6 +1,53 @@
 package com.knapsack.fixtool.model
 
+import com.knapsack.fixtool.service.MatcherCodec
+import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.validationError
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+
+/**
+ * One condition a trigger places on a tag: the tag, and how its value must compare.
+ *
+ * **The matcher is carried as the JSON the scenario format already uses**, read back through
+ * [MatcherCodec], rather than as a typed `Matcher` field with a kotlinx serializer. That is
+ * deliberate and it is about failure, not convenience: a typed field throws during *profile*
+ * deserialization, so a single malformed matcher — one half-typed character class — would cost the
+ * user every unrelated connection setting in that profile, and the profile would vanish from the
+ * list. It is the mistake `MatcherCodec`'s own documentation was written to describe. Carried
+ * verbatim here, an unusable matcher is a bad *rule*, named by [AcceptorResponseRule.validationError],
+ * and nothing else is lost.
+ */
+@Serializable
+data class FieldCondition(
+    val tag: Int,
+    val matcher: JsonObject,
+) {
+    /** The typed matcher, or null if this JSON is not one. [reason] says which. */
+    fun parsed(): Matcher? =
+        try {
+            MatcherCodec.parseMatcher(matcher)
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+
+    /** What is wrong with this condition, in the author's words, or null if it is usable. */
+    fun reason(): String? {
+        val parsed =
+            try {
+                MatcherCodec.parseMatcher(matcher)
+            } catch (e: IllegalArgumentException) {
+                return "the condition on tag $tag is not a usable matcher: ${e.message}"
+            }
+        // A reference resolves against a scenario run's scope. A trigger has no run and no scope, so
+        // there is nothing for `${...}` to mean here — and an unresolvable reference matches nothing,
+        // which would silently stop the rule ever firing. Refused by name instead.
+        if (parsed is Matcher.Reference) {
+            return "the condition on tag $tag is a reference, and a trigger has no scenario scope to resolve it against"
+        }
+        return parsed.validationError()
+    }
+}
 
 /**
  * One message of an acceptor's reply, and how long to wait before sending it.
@@ -47,9 +94,24 @@ data class ResponseStep(
 data class AcceptorResponseRule(
     val whenMsgType: String,
     val whenFields: Map<String, String> = emptyMap(),
+    val conditions: List<FieldCondition> = emptyList(),
     val responseTemplate: String = "",
     val steps: List<ResponseStep> = emptyList(),
 ) {
+    /**
+     * Every condition the incoming message must satisfy, from both spellings, **ANDed**.
+     *
+     * [whenFields] is the exact-value-only form that predates the matcher vocabulary and is what
+     * existing profiles carry; each entry reads as an `exact` condition. Unlike the two spellings of
+     * a *reply*, these are added rather than chosen between — and that asymmetry is on purpose. For a
+     * reply, picking one spelling sends one message or the other. For a trigger, ignoring a spelling
+     * drops a constraint, and a rule that fires on messages it was never meant to is the dangerous
+     * direction to be wrong in. So nothing here is ever dropped.
+     */
+    fun trigger(): List<FieldCondition> =
+        whenFields.mapNotNull { (tag, value) ->
+            tag.toIntOrNull()?.let { FieldCondition(it, MatcherCodec.matcherToJson(Matcher.Exact(value))) }
+        } + conditions
     /**
      * The reply, whichever way it was spelled: [steps] when present, otherwise [responseTemplate] as
      * a single immediate step, otherwise nothing.
@@ -76,6 +138,11 @@ data class AcceptorResponseRule(
     fun validationError(): String? =
         when {
             whenMsgType.isBlank() -> "the rule has no trigger MsgType, so nothing can match it"
+            // A key that is not a tag number can never be read off a message, so the rule silently
+            // never fires — which looks exactly like a rule whose trigger simply has not come up yet.
+            whenFields.keys.any { it.toIntOrNull() == null } ->
+                "'${whenFields.keys.first { it.toIntOrNull() == null }}' is not a tag number, so this rule can never match"
+            conditions.any { it.reason() != null } -> conditions.firstNotNullOf { it.reason() }
             steps.isNotEmpty() && responseTemplate.isNotBlank() ->
                 "the rule carries both 'steps' and the older 'responseTemplate'; the sequence is played and " +
                     "the single template is ignored — remove it to say so"

@@ -54,6 +54,19 @@ class QuickFixService(
      * The one place an acceptor auto-response reaches the wire. Off the callback thread on purpose —
      * see [AcceptorDispatch] for why a reply sent inline is not merely early but impossibly early.
      */
+    /**
+     * The rules' triggers, parsed once. [config] does not change for the life of a service, so neither
+     * can these — and re-parsing per inbound message would put JSON on the path of every message a
+     * loaded acceptor receives. A rule that cannot be compiled is left out and said so here, once,
+     * rather than failing quietly on each message that would have matched it.
+     */
+    private val compiledRules by lazy {
+        config.acceptorResponseRules
+            .filter { it.validationError() != null }
+            .forEach { logger.warn("Acceptor rule on {}: {}", it.whenMsgType, it.validationError()) }
+        AcceptorResponder.compile(config.acceptorResponseRules)
+    }
+
     private val autoResponseDispatch =
         AcceptorDispatch(
             onSent = { response ->
@@ -377,8 +390,7 @@ class QuickFixService(
      */
     private fun maybeAutoRespond(incoming: Message, sessionId: SessionID) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
-        val rule = AcceptorResponder.firstMatch(config.acceptorResponseRules, incoming) ?: return
-        rule.validationError()?.let { logger.warn("Acceptor rule on {}: {}", rule.whenMsgType, it) }
+        val rule = AcceptorResponder.firstMatch(compiledRules, incoming) ?: return
         try {
             AcceptorResponder.plan(rule, incoming).forEach { planned ->
                 autoResponseDispatch.schedule(sessionId, planned.offsetMillis, planned.build)

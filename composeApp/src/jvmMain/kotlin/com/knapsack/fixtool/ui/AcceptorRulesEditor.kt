@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FieldCondition
+import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.MatcherCodec
@@ -53,6 +55,8 @@ fun AcceptorRulesEditor(
     rules: List<AcceptorResponseRule>,
     onRulesChange: (List<AcceptorResponseRule>) -> Unit,
     modifier: Modifier = Modifier,
+    /** Names the values a condition's tag can take, so a trigger reads `8 (REJECTED)` and not `8`. */
+    dictionary: FixDictionary? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -79,6 +83,7 @@ fun AcceptorRulesEditor(
                 rule = rule,
                 position = ruleIndex,
                 total = rules.size,
+                dictionary = dictionary,
                 onChange = { updated -> onRulesChange(rules.replaced(ruleIndex, updated)) },
                 onDelete = { onRulesChange(rules.without(ruleIndex)) },
                 onMove = { by -> onRulesChange(rules.moved(ruleIndex, by)) },
@@ -92,6 +97,7 @@ private fun RuleCard(
     rule: AcceptorResponseRule,
     position: Int,
     total: Int,
+    dictionary: FixDictionary?,
     onChange: (AcceptorResponseRule) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
@@ -138,12 +144,14 @@ private fun RuleCard(
         // `conditions` and clears `whenFields` — the same rule as the reply's two spellings: migration
         // is a consequence of editing, never of looking.
         val conditions = rule.trigger()
+
         fun withConditions(updated: List<FieldCondition>) =
             onChange(rule.copy(whenFields = emptyMap(), conditions = updated))
 
         conditions.forEachIndexed { index, condition ->
             ConditionRow(
                 condition = condition,
+                dictionary = dictionary,
                 onChange = { updated -> withConditions(conditions.replaced(index, updated)) },
                 onDelete = { withConditions(conditions.without(index)) },
             )
@@ -209,6 +217,7 @@ private fun RuleCard(
 @Composable
 private fun ConditionRow(
     condition: FieldCondition,
+    dictionary: FixDictionary?,
     onChange: (FieldCondition) -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -249,6 +258,14 @@ private fun ConditionRow(
                 modifier = Modifier.padding(top = 2.dp),
                 types = TRIGGER_MATCHER_TYPES,
                 paramsWidth = 190.dp,
+                enumValues =
+                    remember(dictionary, condition.tag) {
+                        if (dictionary?.hasFieldValues(condition.tag) == true) {
+                            dictionary.getFieldEnumValues(condition.tag)
+                        } else {
+                            emptyList()
+                        }
+                    },
             )
         }
     }

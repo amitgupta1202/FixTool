@@ -27,6 +27,7 @@ import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.SessionIdentityResolver
@@ -45,6 +46,8 @@ fun ConnectionPanel(
     onClose: () -> Unit,
     /** Profile id or name to load into the form, driven by the control surface. */
     selectionRequest: String? = null,
+    /** Names the enum values an auto-response condition can be built from. */
+    dictionary: FixDictionary? = null,
     demoServerRunning: Boolean = false,
     demoServerFixVersion: FixVersion? = null,
     onStartDemoServer: ((FixVersion) -> Unit)? = null,
@@ -1418,6 +1421,7 @@ fun ConnectionPanel(
                     AcceptorRulesEditor(
                         rules = acceptorRules,
                         onRulesChange = { acceptorRules = it },
+                        dictionary = dictionary,
                     )
                 }
             }

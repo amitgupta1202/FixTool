@@ -128,6 +128,21 @@ fun MatcherEditor(
      * of the workbench's width, and the scenario default overflows it.
      */
     paramsWidth: Dp = PARAMS_WIDTH,
+    /**
+     * The dictionary's `(value, name)` pairs for this row's tag, when it has any — so `exact` and
+     * `oneOf` can be picked by name (`8 (REJECTED)`) instead of remembered as a number.
+     *
+     * The picker sits **beside** the value field, never instead of it. Asserting or triggering on a
+     * value the dictionary does not define is a thing this tool exists to allow — a venue sending an
+     * undocumented OrdRejReason is exactly the case a tester is chasing — so the field always accepts
+     * anything, and the list is an offer rather than a gate. (The `reference` picker above replaces its
+     * field, because there the free-text form is a different kind of expression, not a wider range of
+     * the same one.)
+     *
+     * Comes through the comprehension floor, so a venue dictionary that omits `BusinessRejectReason(380)`
+     * still offers the standard names rather than an empty menu.
+     */
+    enumValues: List<Pair<String, String>> = emptyList(),
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         SlimDropdown(
@@ -143,7 +158,7 @@ fun MatcherEditor(
         // ONE slot, constant width, whatever the type — so the column has a straight edge and a row does
         // not change shape when its chip changes type. What each type needs is drawn inside it; a label
         // it used to wear beside the field ("pattern", "any of") is its field's placeholder now.
-        Box(modifier = Modifier.width(paramsWidth)) { MatcherParams(matcher, onChange, scopeVariables) }
+        Box(modifier = Modifier.width(paramsWidth)) { MatcherParams(matcher, onChange, scopeVariables, enumValues) }
     }
 }
 
@@ -161,11 +176,23 @@ private fun seededMatcherForType(type: String, value: String, scopeVariables: Li
     }
 
 @Composable
-private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit, scopeVariables: List<ScenarioVariable> = emptyList()) {
+private fun MatcherParams(
+    matcher: Matcher,
+    onChange: (Matcher) -> Unit,
+    scopeVariables: List<ScenarioVariable> = emptyList(),
+    enumValues: List<Pair<String, String>> = emptyList(),
+) {
     when (matcher) {
         is Matcher.Presence, is Matcher.Absent -> Unit
         is Matcher.Exact ->
-            SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.fillMaxWidth())
+            if (enumValues.isEmpty()) {
+                SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.fillMaxWidth())
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.width(48.dp))
+                    NamedValuePicker(enumValues, matcher.value, "pick…") { onChange(Matcher.Exact(it)) }
+                }
+            }
         is Matcher.Regex -> {
             // The one place a pattern is judged. The codec carries a bad one through unharmed, so the
             // author never loses a scenario to a half-typed character class — they are told here,
@@ -216,14 +243,30 @@ private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit, scopeVa
                 )
             }
         }
-        is Matcher.OneOf ->
-            SlimField(
-                matcher.values.joinToString(","),
-                { onChange(Matcher.OneOf(it.split(",").map(String::trim).filter(String::isNotEmpty))) },
-                monospace = true,
-                placeholder = "value, value, …",
-                modifier = Modifier.fillMaxWidth(),
-            )
+        is Matcher.OneOf -> {
+            val field: @Composable (Modifier) -> Unit = { mod ->
+                SlimField(
+                    matcher.values.joinToString(","),
+                    { onChange(Matcher.OneOf(it.split(",").map(String::trim).filter(String::isNotEmpty))) },
+                    monospace = true,
+                    placeholder = "value, value, …",
+                    modifier = mod,
+                )
+            }
+            if (enumValues.isEmpty()) {
+                field(Modifier.fillMaxWidth())
+            } else {
+                // The picker ADDS to the set rather than replacing it — a oneOf is being built up, and a
+                // dropdown that overwrote the list every time would make it impossible to name the second
+                // value from the menu at all.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    field(Modifier.weight(1f))
+                    NamedValuePicker(enumValues, null, "add…", Modifier.width(74.dp)) { picked ->
+                        if (picked !in matcher.values) onChange(Matcher.OneOf(matcher.values + picked))
+                    }
+                }
+            }
+        }
         is Matcher.Numeric ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 SlimField(
@@ -313,3 +356,34 @@ private fun MatcherParams(matcher: Matcher, onChange: (Matcher) -> Unit, scopeVa
 
 /** Renders a double without a trailing ".0" so integer-ish values read cleanly. */
 private fun numText(d: Double): String = if (d == d.toLong().toDouble()) d.toLong().toString() else d.toString()
+
+/**
+ * The dictionary's named values for a tag, as a menu: `8 (REJECTED)`.
+ *
+ * The whole point of the acceptor and assertion work reaching a BA rather than only a FIX engineer.
+ * Nobody should have to remember that `39=8` is Rejected, `103=3` is a broker option, or what any of
+ * the twenty `BusinessRejectReason` codes are — and with the comprehension floor behind
+ * `getFieldEnumValues`, a venue dictionary that omits the field entirely still offers the standard
+ * list instead of an empty menu.
+ */
+@Composable
+private fun NamedValuePicker(
+    enumValues: List<Pair<String, String>>,
+    selected: String?,
+    placeholder: String,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    onPick: (String) -> Unit,
+) {
+    SlimDropdown(
+        // Only shown as selected when the dictionary actually names it. A value the author typed that
+        // the dictionary has never heard of leaves the menu reading "pick…" rather than mislabelling
+        // itself as one of the listed codes.
+        value = selected?.takeIf { v -> enumValues.any { it.first == v } },
+        options = enumValues.map { it.first },
+        onValueChange = { picked -> picked?.let(onPick) },
+        displayText = { v -> enumValues.firstOrNull { it.first == v }?.second?.let { "$v ($it)" } ?: v },
+        itemText = { v -> enumValues.firstOrNull { it.first == v }?.second?.let { "$v — $it" } ?: v },
+        placeholder = placeholder,
+        modifier = modifier,
+    )
+}

@@ -2194,6 +2194,11 @@ stunnel stunnel.conf</code></pre>
         (stale on arrival) or at <code>now</code> (already expired).</li>
     </ul>
 
+    <p>&ldquo;We&rdquo; and &ldquo;the venue&rdquo; here name the two ends of the <em>relationship</em>, and
+    a declaration is about the tag, not about which chair you happen to be sitting in &mdash; so one sidecar
+    serves both. On an acceptor session FixTool applies these answers inverted, because there it <em>is</em>
+    the venue; see <a href="#acceptor-scenarios">Scenarios from the venue's chair</a>.</p>
+
     <p>The answer is saved as <code>&lt;your-dictionary&gt;.roles.json</code> <strong>beside the dictionary
     file</strong> &mdash; a dozen lines, meant to be committed next to it so a team shares one answer instead
     of each author re-deciding. It is a sidecar rather than an edit to the venue's XML on purpose: they ship
@@ -2224,6 +2229,46 @@ stunnel stunnel.conf</code></pre>
         captured moment for ever. Capture says so when it happens, naming the tags it could not place.
     </div>
 
+    <h3 id="acceptor-scenarios">Scenarios from the venue's chair (acceptor sessions)</h3>
+
+    <p>The roles above name a <em>party</em>, not a side of your screen. Run a profile as an
+    <strong>acceptor</strong> and FixTool <em>is</em> the venue: the counterparty dials in, their orders
+    arrive, and your replies are the ones under test. Every consequence of a role inverts with that, and
+    FixTool inverts them for you &mdash; the side is read from the profile's connection type, per session,
+    so nothing needs declaring and a both-sides flow can capture an acceptor session and an initiator
+    session in the same act.</p>
+
+    <p>Concretely, capturing your half of an order from the venue's chair:</p>
+    <ul>
+        <li><strong>Their <code>ClOrdID(11)</code></strong> is now <em>theirs</em>. The expect asserts it
+        for <strong>presence</strong> &mdash; a client mints a new one per order, and pinning the captured
+        literal is a step that passes once and is red every run after &mdash; and reads this run's value
+        into <code>${clOrdID}</code>.</li>
+        <li><strong>Your reply echoes it</strong>: the send carries <code>11=${clOrdID}</code>, so the
+        ExecutionReport answers the order that actually arrived. Minted fresh instead, it would answer no
+        order at all &mdash; and nothing asserts a send step, so that mistake never shows as a red run.</li>
+        <li><strong>Your <code>OrderID(37)</code> and <code>ExecID(17)</code></strong> are now <em>yours</em>:
+        parameterized fresh per run, like <code>ClOrdID</code> is on an initiator. Replayed verbatim they
+        are the duplicate handle the parameterization exists to prevent.</li>
+    </ul>
+
+    <p>Everything else &mdash; matcher types, ordering, OPEN vs STRICT, reconcile &mdash; is unchanged. So
+    is the initiator behaviour: a session FixTool dials out on is captured exactly as it always was.</p>
+
+    <div class="tip">
+        <strong>Start an acceptor scenario with a Wait.</strong> Before any step runs, a scenario checks
+        that its sessions are <code>LOGGED_ON</code>, and it will try to connect one that isn't. An acceptor
+        cannot dial out &mdash; only the counterparty can start that logon &mdash; so a scenario whose first
+        step is a Send or an Expect fails preflight whenever nobody happens to be connected. Put a
+        <strong>Wait</strong> for state <code>LOGGED_ON</code> on that session first: preflight then leaves
+        the logon to the scenario, and the run blocks until the counterparty arrives.
+    </div>
+
+    <p>One place the side cannot be worked out is the <a href="#diff-viewer">plain diff viewer</a>: it
+    compares two messages that may both be pastes, and a paste has no session to ask. It seeds as the venue
+    only when <em>every</em> open session is an acceptor; where they disagree there is no answer available
+    and it seeds as the client, so check the id rows before filing such an expectation into a scenario.</p>
+
     <h3>Same flow, another environment</h3>
     <p>A flow recorded against <code>dev-buyside</code>/<code>dev-sellside</code> should run against the QA
     pair without re-authoring every step. The <strong>&#9662;</strong> beside a scenario's <strong>Run</strong>
@@ -2240,7 +2285,7 @@ stunnel stunnel.conf</code></pre>
     <code>POST /scenarios/run</code> takes <code>sessions</code> as <code>{from: to}</code> to re-aim a single
     run, same preflight auto-connect, no copy saved.)</p>
 
-    <h3>Comparing two messages &mdash; the plain diff viewer</h3>
+    <h3 id="diff-viewer">Comparing two messages &mdash; the plain diff viewer</h3>
     <p>Sometimes you just want to see how two messages differ, with no scenario and no assertion in sight:
     UAT vs PROD replies for the same order, pre- vs post-upgrade ExecutionReports, &ldquo;why did clearing
     reject yours and accept mine&rdquo;, two fills that should be twins. Select two messages in a grid and

@@ -2,6 +2,7 @@ package com.knapsack.fixtool.model
 
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.ExpectationSeeder
+import com.knapsack.fixtool.service.ScenarioCapture
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -63,6 +64,24 @@ class ComprehensionFloorTest {
     fun `the conformance dictionary is not widened`() {
         assertTrue(subset.getDataDictionary()!!.isMsgField("8", 31), "declared by the venue")
         assertTrue(!subset.getDataDictionary()!!.isMsgField("8", 6), "still not acceptable to this venue")
+    }
+
+    /**
+     * **The capture warning got narrower for free, and that is the point.**
+     *
+     * It warned about every tag the loaded file could not name — which, against a venue subset, meant
+     * standard fields. That warning was *true* before the floor (the type really was unknown) and is
+     * false after it, so leaving it firing would train an author to ignore the one notification that
+     * still matters: a genuinely proprietary tag nobody has declared.
+     */
+    @Test
+    fun `capture no longer calls a standard field unclassifiable`() {
+        val candidates = ScenarioCapture.fromPaste("35=8|31=1.08|6=1.08|20777=X|", "S").candidates
+        val unclassified = ScenarioCapture.unclassifiedTags(candidates, subset)
+
+        assertTrue(6 !in unclassified, "AvgPx is standard — the floor classifies it")
+        assertTrue(31 !in unclassified, "and LastPx the venue declares itself")
+        assertTrue(20777 in unclassified, "a proprietary tag nobody declared is still the real warning")
     }
 
     /** No dictionary at all stays a distinct state — it must not silently answer as FIX 4.4. */

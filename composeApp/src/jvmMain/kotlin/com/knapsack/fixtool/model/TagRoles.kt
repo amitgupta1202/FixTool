@@ -22,15 +22,20 @@ import java.io.File
  */
 enum class TagRole {
     /**
-     * **We mint it; the venue echoes it.** Parameterized on send so every run is fresh (venues enforce
-     * uniqueness on these), and its echo on a reply becomes a `Reference` check plus a bind constraint,
-     * so the step binds to *this run's* reply rather than the first message of that type.
+     * **The client of the relationship mints it; the venue echoes it.** `ClOrdID(11)` is the type case.
+     *
+     * The name says *which party*, not *which of us* — see [MintingSide]. Whoever mints it parameterizes
+     * it on send so every run is fresh (venues enforce uniqueness on these), and the echo coming back
+     * becomes a `Reference` check plus a bind constraint, so the step binds to *this run's* reply rather
+     * than the first message of that type. The party that merely receives it reads it instead: presence,
+     * plus a `bindAs` for whatever quotes it back.
      */
     CLIENT_MINTED_ID,
 
     /**
-     * **The venue mints it.** Seeded `Presence`: that the field is there is the behaviour, its value is
-     * new on every reply. Seeded `Exact` instead, the scenario fails its own first replay for ever.
+     * **The venue mints it.** `OrderID(37)`, `ExecID(17)`. Party-relative exactly as [CLIENT_MINTED_ID] is:
+     * the venue-side of the conversation invents it, and which end of that FixTool occupies is
+     * [MintingSide]'s question, not this enum's.
      */
     VENUE_MINTED_ID,
 
@@ -44,6 +49,29 @@ enum class TagRole {
     companion object {
         fun parse(text: String): TagRole? = entries.firstOrNull { it.name.equals(text.trim(), ignoreCase = true) }
     }
+}
+
+/**
+ * **Which end of the venue relationship FixTool occupies on a session.**
+ *
+ * [TagRole] says which *party* mints a value. It does not say whether that party is us — and capture
+ * used to assume it always was, i.e. that FixTool is forever the client dialling out. On an acceptor
+ * session FixTool *is* the venue, and every consequence of a role inverts: the `ClOrdID(11)` we used to
+ * mint fresh on send now arrives from the counterparty and must be **echoed**, while the `OrderID(37)`
+ * and `ExecID(17)` we used to assert for presence are now ours to mint fresh — and a replayed `ExecID`
+ * is the duplicate the parameterization exists to prevent.
+ *
+ * Seeded under the wrong side the result is not an error but a plausible-looking scenario that asserts
+ * the wrong things, and on the send half it never goes red at all: nothing asserts our own Send, so a
+ * green run can be emitting a reply whose ClOrdID answers no order. Hence a side per **session** rather
+ * than per capture — a both-sides RFQ scenario legitimately captures one of each at once.
+ */
+enum class MintingSide {
+    /** FixTool dials out to the venue. The historical assumption, and still the default. */
+    CLIENT,
+
+    /** FixTool is an acceptor simulating the venue. Every [TagRole] consequence inverts. */
+    VENUE,
 }
 
 /**

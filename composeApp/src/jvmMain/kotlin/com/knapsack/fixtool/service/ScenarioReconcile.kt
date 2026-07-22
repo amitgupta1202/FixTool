@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -1764,9 +1765,12 @@ object ScenarioReconcile {
         draft: Expectation,
         message: MessageView,
         dictionary: FixDictionaryAdapter?,
+        side: MintingSide = MintingSide.CLIENT,
     ): Expectation {
         val wire = message.fields()
-        val fresh = ExpectationSeeder.seed(wire, dictionary).copy(mode = draft.mode, golden = draft.golden)
+        // Same side the step was captured under, or a re-seed inverts every id role it re-decides: on an
+        // acceptor step the counterparty's ClOrdID would go back to Exact and red on the next run.
+        val fresh = ExpectationSeeder.seed(wire, dictionary, side).copy(mode = draft.mode, golden = draft.golden)
 
         // Carry every reference row — and every capture — across onto the same occurrence of the same tag.
         // A `bindAs` is scenario wiring the seeder cannot know about, exactly as a reference is: reseeding

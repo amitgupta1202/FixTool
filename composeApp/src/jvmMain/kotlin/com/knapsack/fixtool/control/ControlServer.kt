@@ -657,7 +657,14 @@ class ControlServer(
                         "unknown and an expectation seeded from it would assert an order the venue never sent. " +
                         "This is a FixTool limitation, not a venue failure.",
                 )
-        val seeded = ExpectationSeeder.seedDetailed(fields, onEdt { viewModel.dictionary })
+        // Seeded as the session's own end of the conversation: on an acceptor session the counterparty's
+        // ClOrdID is presence-and-bind, not a literal that is new on every run. See [MintingSide].
+        val seeded =
+            ExpectationSeeder.seedDetailed(
+                fields,
+                onEdt { viewModel.dictionary },
+                onEdt { viewModel.mintingSideOf(session.title) },
+            )
         return buildJsonObject {
             put("messageType", target.messageType)
             put("direction", target.direction.name)
@@ -858,6 +865,7 @@ class ControlServer(
                 profile = profile,
                 selection = scan.candidates,
                 dictionary = onEdt { viewModel.dictionary },
+                sides = onEdt { viewModel.mintingSides() },
             )
         val ok = viewModel.scenarioService.save(scenario)
         val risk = ScenarioCapture.captureRisk(scan.candidates, onEdt { viewModel.dictionary })
@@ -972,6 +980,7 @@ class ControlServer(
                 profile = body["profile"]?.jsonPrimitive?.content,
                 selection = scan.candidates,
                 dictionary = onEdt { viewModel.dictionary },
+                sides = onEdt { viewModel.mintingSides() },
             )
         val ok = viewModel.scenarioService.save(scenario)
         return buildJsonObject {

@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
@@ -762,8 +763,13 @@ class FixMessageViewModel(
             original = original,
             initialReference = reference,
             dictionary = getDictionaryAdapter(),
+            side = mintingSideOf(stepSessionOf(scenarioId, stepId)),
             onChange = { edited -> applyExpectation(scenarioId, stepId, edited) },
         )
+
+    /** The session a step runs on, for [mintingSideOf]; null where the step means "the active session". */
+    private fun stepSessionOf(scenarioId: String, stepId: String): String? =
+        scenarioDraft(scenarioId)?.draft?.steps?.firstOrNull { it.stepId == stepId }?.session
 
     /**
      * The session's every change, written into the scenario's draft — and **the golden re-pointed only when
@@ -1291,7 +1297,7 @@ class FixMessageViewModel(
         val session = viewer.session ?: return
         val chosen = if (from == SeedFrom.A) session.left else session.right
         val other = if (from == SeedFrom.A) session.right else session.left
-        val seeded = ExpectationSeeder.seed(RawMessageView(chosen.wire).fields(), getDictionaryAdapter())
+        val seeded = ExpectationSeeder.seed(RawMessageView(chosen.wire).fields(), getDictionaryAdapter(), ambientMintingSide())
         val reference =
             ReferenceMessage
                 .pasted(RawMessageView(other.wire), other.label)
@@ -1301,6 +1307,8 @@ class FixMessageViewModel(
                 original = seeded,
                 initialReference = reference,
                 dictionary = getDictionaryAdapter(),
+                // The same side the seed above used, so a re-seed inside the window cannot disagree with it.
+                side = ambientMintingSide(),
                 // Scenario-less: the edits live in the session's own stack until add-to-scenario files them.
                 onChange = {},
             )
@@ -1413,6 +1421,7 @@ class FixMessageViewModel(
                 profile = null,
                 selection = scan.candidates,
                 dictionary = dictionary,
+                sides = mintingSides(),
             )
         openUnsavedScenarioEditor(scenario)
     }
@@ -2704,6 +2713,7 @@ class FixMessageViewModel(
                 profile = null,
                 sessions = captured,
                 dictionary = dictionary,
+                sides = mintingSides(),
             )
         return if (scenarioService.save(scenario)) scenario.id else null
     }
@@ -2769,6 +2779,38 @@ class FixMessageViewModel(
             _sessions.map { ScenarioCapture.CapturedSession(it.title, it.messages.value.filterIsInstance<FixMessage>()) },
         )
 
+    /**
+     * **Which end of each live session FixTool is on**, for capture and for seeding.
+     *
+     * An acceptor session is one where FixTool *is* the venue, and every id role inverts with it: the
+     * counterparty's `ClOrdID(11)` is the value to echo rather than mint, and our own `OrderID(37)` /
+     * `ExecID(17)` are the ones that must be fresh per run. Read off the config the session actually
+     * connected with, so a profile edited after connecting cannot mislabel the traffic already captured.
+     *
+     * Sessions absent from the map — a paste with no session, a name that no longer resolves — default to
+     * [MintingSide.CLIENT] inside capture, which is the historical behaviour.
+     */
+    fun mintingSides(): Map<String, MintingSide> =
+        _sessions.associate { session ->
+            val acceptor = session.currentConfig?.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR
+            session.title to if (acceptor) MintingSide.VENUE else MintingSide.CLIENT
+        }
+
+    /** The side for one session by title — for the single-message paths (assert, reconcile re-seed). */
+    fun mintingSideOf(sessionTitle: String?): MintingSide =
+        sessionTitle?.let { mintingSides()[it] } ?: ambientMintingSide()
+
+    /**
+     * **The side to seed with when the message at hand has no session to ask** — the plain diff viewer
+     * compares two messages that may both be pastes, and `ReferenceMessage` carries a label, not a session.
+     *
+     * Unanimity or nothing. If every live session is an acceptor then FixTool is the venue and seeding as
+     * the client would invert every id on the way out; if the sessions disagree there is genuinely no
+     * answer available here, and the historical default stands rather than a guess dressed as one.
+     */
+    fun ambientMintingSide(): MintingSide =
+        mintingSides().values.distinct().singleOrNull() ?: MintingSide.CLIENT
+
     /** Persist a curated capture selection as a scenario (the review screen's Save); id or null. */
     fun saveCapturedSelection(name: String, selection: List<ScenarioCapture.Candidate>): String? {
         if (selection.isEmpty()) {
@@ -2788,6 +2830,7 @@ class FixMessageViewModel(
                 profile = null,
                 selection = selection,
                 dictionary = dictionary,
+                sides = mintingSides(),
             )
         return if (scenarioService.save(scenario)) scenario.id else null
     }

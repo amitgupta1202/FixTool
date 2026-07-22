@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
+import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.validationError
@@ -246,6 +248,92 @@ class MatcherEditorTest {
         }
         composeTestRule.onNodeWithText("8 (REJECTED)").assertExists()
         snapshot("matcher_editor_enum_narrow.png")
+    }
+
+    // ----- off-family types ----------------------------------------------------------------------------
+
+    private val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)
+
+    /**
+     * `numeric` and `range` return false on any value that will not parse as a number, and `temporal` on
+     * anything that is not a timestamp or a current date. Set one on a STRING field and the row is not
+     * *wrong*, it is unjudgeable — permanently red, on its own captured value, with nothing on screen
+     * saying why. The dropdown says why, before the pick.
+     */
+    @Test
+    fun `the types a string field cannot carry are marked, with the reason`() {
+        val marks = offFamilyMatchers(11, dictionary) // ClOrdID — STRING
+
+        assertEquals(setOf("numeric", "range", "temporal"), marks.keys)
+        assertTrue(marks["numeric"]!!.contains("ClOrdID(11)"), "the reason names the field: ${marks["numeric"]}")
+        assertTrue(marks["numeric"]!!.contains("STRING"), "and its type: ${marks["numeric"]}")
+    }
+
+    /** A price carries a tolerance and a bound; it is no more a moment in time than a ClOrdID is. */
+    @Test
+    fun `a numeric field is marked only for temporal`() {
+        assertEquals(setOf("temporal"), offFamilyMatchers(31, dictionary).keys) // LastPx — PRICE
+    }
+
+    /** A timestamp carries `temporal`, and — not being a quantity — carries no tolerance. */
+    @Test
+    fun `a timestamp field is marked for numeric but not temporal`() {
+        val marks = offFamilyMatchers(60, dictionary) // TransactTime — UTCTIMESTAMP
+
+        assertEquals(setOf("numeric", "range"), marks.keys)
+    }
+
+    /**
+     * The case the greying exists for. An enum-coded int parses as a number perfectly well, so nothing
+     * downstream objects: `8 ± 3` over OrdStatus reads like a tolerance and quietly accepts six other
+     * meanings. The fix plan's gutter already refuses to propose it; the chip beside it did not.
+     */
+    @Test
+    fun `an enum-coded field says a tolerance would span other codes`() {
+        val marks = offFamilyMatchers(39, dictionary) // OrdStatus — enum-coded CHAR
+
+        assertTrue("numeric" in marks && "range" in marks)
+        assertTrue(marks["numeric"]!!.contains("enum-coded"), "not 'is CHAR, not a number': ${marks["numeric"]}")
+    }
+
+    /**
+     * A custom tag has no declared type, and an unknown type is not a wrong one. Marking every 5xxx tag
+     * would dim the whole menu on exactly the fields a tester chasing an undocumented venue extension is
+     * working in — the same reason the enum picker is an offer rather than a gate.
+     */
+    @Test
+    fun `a tag the dictionary cannot type is marked nowhere`() {
+        assertEquals(emptyMap(), offFamilyMatchers(5001, dictionary))
+        assertEquals(emptyMap(), offFamilyMatchers(11, null), "and no dictionary means no opinion")
+    }
+
+    /** Marked is not filtered: the reason is on the menu row, and the row still switches the matcher. */
+    @Test
+    fun `an off-family type is still offered, and still pickable`() {
+        var last: Matcher = Matcher.Exact("ORD-1")
+        composeTestRule.setContent {
+            var matcher by remember { mutableStateOf<Matcher>(Matcher.Exact("ORD-1")) }
+            Box(modifier = Modifier.size(620.dp, 90.dp).background(AppTheme.Colors.surface).padding(8.dp)) {
+                MatcherEditor(
+                    matcher = matcher,
+                    capturedValue = "ORD-1",
+                    offFamily = offFamilyMatchers(11, dictionary),
+                    onChange = {
+                        matcher = it
+                        last = it
+                    },
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("exact").performClick()
+        // The reason has replaced the generic help on the row the author is about to click.
+        composeTestRule.onNodeWithText("numeric — ClOrdID(11) is STRING, not a number").assertExists()
+
+        composeTestRule.onNodeWithText("numeric", substring = true).performClick()
+        composeTestRule.waitForIdle()
+        assertTrue(last is Matcher.Numeric, "dimmed must not mean disabled, got $last")
+        snapshot("matcher_editor_off_family_chip.png")
     }
 
     @Suppress("TooGenericExceptionCaught", "SwallowedException")

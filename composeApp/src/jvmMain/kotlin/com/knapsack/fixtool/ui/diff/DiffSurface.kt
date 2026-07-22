@@ -86,6 +86,7 @@ import com.knapsack.fixtool.ui.VarBadge
 import com.knapsack.fixtool.ui.VarRole
 import com.knapsack.fixtool.ui.VariableChipData
 import com.knapsack.fixtool.ui.VariablesStrip
+import com.knapsack.fixtool.ui.offFamilyMatchers
 import com.knapsack.fixtool.ui.varColorMap
 
 /**
@@ -1527,6 +1528,11 @@ private fun LeftCell(session: ReconcileSession, line: DiffLine, depth: Int, hand
                         val dict = session.dictionary
                         if (dict?.hasFieldValues(row.tag) == true) dict.getFieldEnumValues(row.tag) else emptyList()
                     },
+                // Dimmed, with the reason, for the types this field's values cannot carry — `numeric` on a
+                // ClOrdID does not fail, it becomes unjudgeable, and an unjudgeable row is red on its own
+                // capture for ever. The gutter beside this chip already refuses to *propose* those repairs;
+                // this is the chip agreeing with it.
+                offFamily = remember(session.dictionary, row.tag) { offFamilyMatchers(row.tag, session.dictionary) },
                 onChange = { session.apply(EditOp.setMatcher(index, row.tag, it)) },
                 modifier = Modifier.testTag("matcher-${row.tag}-${row.occurrence}"),
             )

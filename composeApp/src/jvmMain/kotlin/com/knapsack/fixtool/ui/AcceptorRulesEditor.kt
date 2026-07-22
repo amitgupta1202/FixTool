@@ -279,6 +279,7 @@ private fun ConditionRow(
                 emptyList()
             }
         }
+    val offFamily = remember(dictionary, condition.tag) { offFamilyMatchers(condition.tag, dictionary) }
 
     val tagField: @Composable () -> Unit = {
         Text("and tag", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
@@ -315,6 +316,10 @@ private fun ConditionRow(
             // it is what an oneOf set or a two-bound range actually wants.
             paramsWidth = if (wide) 260.dp else 190.dp,
             enumValues = enumValues,
+            // A trigger condition is judged by the same evaluator, so a numeric on a STRING tag is the
+            // same unjudgeable row here — and worse: a rule that can never fire is a response that never
+            // comes, which reads as the venue simulator being broken rather than the condition being.
+            offFamily = offFamily,
         )
     }
 

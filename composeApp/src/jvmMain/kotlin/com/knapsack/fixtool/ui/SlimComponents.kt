@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -102,6 +104,85 @@ fun SlimLabeled(label: String, modifier: Modifier = Modifier, content: @Composab
     Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
         Text(label, color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
         content()
+    }
+}
+
+/**
+ * **The field-grid search box**, as the message editor has worn it: a magnifier, a monospace query, and a ×
+ * that appears only once there is something to clear.
+ *
+ * Published here because three surfaces now own a field grid — the message editor, the scenario editor's Send
+ * step, and the reconcile diff — and a search that looks and reads differently in each is three features to
+ * learn instead of one. What it does *not* dictate is how a match is shown: the message editor and the Send
+ * grid tint the row, the diff cannot (its row background is already the pass/fail ledger) and outlines it
+ * instead. The rule for *what matches* is [com.knapsack.fixtool.service.FieldSearch] and is not negotiable
+ * per surface; the mark is.
+ *
+ * [trailing] is the slot the diff fills with its match counter and next/prev buttons — in a hundred-row
+ * reply, a highlight the author still has to scroll for is half an answer.
+ */
+@Composable
+fun SlimSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "Search tags, names, or values…",
+    testTag: String? = null,
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    val queryStyle = TextStyle(fontSize = 10.sp, color = AppTheme.Colors.text, fontFamily = FontFamily.Monospace)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier,
+    ) {
+        Icon(
+            Icons.Default.Search,
+            contentDescription = "Search",
+            tint = AppTheme.Colors.textDisabled,
+            modifier = Modifier.size(14.dp),
+        )
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .height(22.dp)
+                    .background(AppTheme.Colors.background, slimShape)
+                    .border(1.dp, if (focused) AppTheme.Colors.primary else AppTheme.Colors.border, slimShape)
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
+                    .let { if (testTag != null) it.testTag(testTag) else it },
+            textStyle = queryStyle,
+            singleLine = true,
+            cursorBrush = SolidColor(AppTheme.Colors.primary),
+            interactionSource = interactionSource,
+            decorationBox = { innerTextField ->
+                // The placeholder retires on focus, not on the first keystroke: an author who has clicked the
+                // box has already been told what it is for, and the hint under a cursor reads as content.
+                if (query.isEmpty() && !focused) {
+                    Text(placeholder, style = queryStyle.copy(color = AppTheme.Colors.textDisabled))
+                }
+                innerTextField()
+            },
+        )
+        trailing()
+        if (query.isNotEmpty()) {
+            TooltipIconButton(
+                tooltip = "Clear search",
+                onClick = { onQueryChange("") },
+                modifier = Modifier.size(18.dp),
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Clear",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
     }
 }
 

@@ -863,6 +863,11 @@ private fun SendDetail(
     onChange: (EditStep) -> Unit,
     takenNames: Set<String> = emptySet(),
 ) {
+    // A captured order can be sixty rows of tag·name·value, and the author is looking for one of them. The
+    // same box, the same rule and the same gold as the message editor's field grid — see [SlimSearchBar].
+    // Local to the step, like the message editor's is local to the panel: it is a way of looking at this
+    // message, not a property of the scenario.
+    var query by remember { mutableStateOf("") }
     // The expressions lesson costs one glyph, not a standing paragraph (same fold as capture's ⓘ).
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
         Text("Fields", color = AppTheme.Colors.textSecondary, fontSize = 10.sp, modifier = Modifier.padding(end = 4.dp))
@@ -872,6 +877,13 @@ private fun SendDetail(
                 "like \${UUID.randomUUID()} work too. The eye excludes a field without deleting it. " +
                 ORDER_HINT,
             modifier = Modifier.testTag("send-fields-help"),
+        )
+        SlimSearchBar(
+            query = query,
+            onQueryChange = { query = it },
+            testTag = "send-search",
+            trailing = { SearchTally(step.fields.count { sendFieldMatches(query, it, dictionary) }, query) },
+            modifier = Modifier.padding(start = 10.dp).width(SEND_SEARCH_WIDTH),
         )
     }
     // Lint the message that will be SENT. An excluded field is not in it, and warning "unknown tag
@@ -904,9 +916,52 @@ private fun SendDetail(
     BoxWithConstraints {
         val valueWidth = sendValueWidth(maxWidth)
         Column {
-            SendFieldRows(step, dictionary, allFields, valueWidth, takenNames, onChange, ::moveField)
+            SendFieldRows(step, dictionary, allFields, valueWidth, takenNames, query, onChange, ::moveField)
         }
     }
+}
+
+/** The Send grid's search box. Narrow on purpose — it shares the header line with "Fields" and its ⓘ. */
+private val SEND_SEARCH_WIDTH = 200.dp
+
+/**
+ * A Send row's ground, and the name a test knows it by — gold when it answers the search box, plain when it
+ * does not. The message editor's field grid says a match this way and so does this one; the reconcile diff
+ * cannot, because there the background is already the pass/fail ledger. See [SlimSearchBar].
+ *
+ * A Send row's background *is* free: an excluded row dims its text rather than its ground, so nothing else
+ * has a claim on it.
+ */
+private fun Modifier.sendRowMark(matched: Boolean, index: Int): Modifier =
+    background(if (matched) AppTheme.Colors.searchMatch else androidx.compose.ui.graphics.Color.Transparent)
+        .testTag(if (matched) "send-row-matched-$index" else "send-row-$index")
+
+/**
+ * Does this Send row answer the query? The shared rule, asked with what a Send row knows about itself —
+ * its tag, the dictionary's name for that tag, and the value as authored (`${id0 = uuid:20}` included, so
+ * searching for a variable's name finds the row that mints it).
+ */
+private fun sendFieldMatches(query: String, field: SendField, dictionary: FixDictionary?): Boolean =
+    com.knapsack.fixtool.service.FieldSearch
+        .matches(query, field.tag, dictionary?.getFieldName(field.tag), field.value)
+
+/**
+ * "3 of 12" — how many rows answered, said where the author is already looking.
+ *
+ * A highlight alone answers *where*, and only for matches on screen. The count answers *whether*, which is
+ * the question a query with no matches actually asks: an empty result reads as "nothing here" instead of as
+ * "you have mistyped it", and the difference is a tally.
+ */
+@Composable
+private fun SearchTally(matches: Int, query: String) {
+    if (query.isBlank()) return
+    Text(
+        if (matches == 0) "no match" else "$matches",
+        color = if (matches == 0) AppTheme.Colors.warning else AppTheme.Colors.textSecondary,
+        fontSize = 9.sp,
+        maxLines = 1,
+        modifier = Modifier.testTag("search-tally"),
+    )
 }
 
 /**
@@ -935,6 +990,7 @@ private fun SendFieldRows(
     allFields: List<Pair<Int, String>>,
     valueWidth: androidx.compose.ui.unit.Dp,
     takenNames: Set<String>,
+    query: String,
     onChange: (EditStep) -> Unit,
     moveField: (Int, Int) -> Unit,
 ) {
@@ -944,7 +1000,14 @@ private fun SendFieldRows(
         fun update(newTag: Int, newValue: String) {
             onChange(step.copy(fields = step.fields.toMutableList().apply { this[i] = field.copy(tag = newTag, value = newValue) }))
         }
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .sendRowMark(sendFieldMatches(query, field, dictionary), i)
+                    .padding(vertical = 1.dp),
+        ) {
             // Park a field without losing it: the same eye the Message Editor's field grid wears, for the
             // same question ("does the venue still accept this without 9303?"), which in a scenario gets
             // asked on a loop. Deleting the row answers it once and costs the author the value; excluding

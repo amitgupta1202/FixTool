@@ -722,6 +722,23 @@ class ReconcileSession(
         searchCursor = 0
     }
 
+    /**
+     * Every row index this query answers, in list order — what `↑`/`↓` walk and what the body scrolls to.
+     *
+     * A property of the session rather than a calculation in the surface because the box and the list are no
+     * longer the same composable: the reconcile window draws the box up in the step strip and the rows down
+     * here, and two sites computing "which rows match" separately is two answers waiting to disagree about
+     * what `3 / 12` means. Cheap to ask — [model] is memoized by value.
+     */
+    val searchMatches: List<Int>
+        get() =
+            if (searchQuery.isBlank()) {
+                emptyList()
+            } else {
+                val items = model.items
+                items.indices.filter { i -> (items[i] as? DiffItem.Line)?.let { matchesSearch(it.line) } == true }
+            }
+
     // ---------------------------------------------------------------------------- the model
 
     /**

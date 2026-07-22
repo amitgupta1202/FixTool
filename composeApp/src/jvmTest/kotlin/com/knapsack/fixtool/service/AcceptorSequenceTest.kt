@@ -179,4 +179,68 @@ class AcceptorSequenceTest {
 
         assertNull(rule.validationError())
     }
+
+    // ------------------------------------------------------- computed fields
+
+    private fun requestMessage(raw: String) =
+        com.knapsack.fixtool.model.FixMessage(
+            timestamp = java.time.LocalDateTime.now(),
+            direction = com.knapsack.fixtool.model.FixMessage.Direction.INCOMING,
+            rawMessage = raw,
+            quickfixMessage = AcceptorResponder.buildMessage(raw),
+        )
+
+    /**
+     * The partial fill a sequence is *for*. Without arithmetic an author has to hardcode the quantity,
+     * so the rule works for exactly one order size and lies about every other — a client sending 1000
+     * gets told it filled 50.
+     */
+    @Test
+    fun `a step can compute a field from the request rather than hardcoding it`() {
+        val raw = "35=D|11=ORD-9|55=ACME|54=1|38=1000|"
+        val rule =
+            AcceptorResponseRule(
+                whenMsgType = "D",
+                steps = listOf(ResponseStep(template = "35=8|150=F|39=1|11=\${req.11}|14=\${req.38 / 2}|")),
+            )
+
+        val built =
+            AcceptorResponder
+                .plan(rule, AcceptorResponder.buildMessage(raw), requestMessage(raw))
+                .single()
+                .build()
+
+        assertEquals("500", built.getString(14), "half of 1000 is 500, whatever the author hardcoded")
+        assertEquals("ORD-9", built.getString(11), "the standalone \${req.N} form still resolves alongside it")
+    }
+
+    @Test
+    fun `the same rule computes a different fill for a different order size`() {
+        val rule =
+            AcceptorResponseRule(
+                whenMsgType = "D",
+                steps = listOf(ResponseStep(template = "35=8|150=F|14=\${req.38 / 2}|")),
+            )
+
+        fun fillFor(qty: String): String {
+            val raw = "35=D|11=ORD|55=ACME|38=$qty|"
+            return AcceptorResponder
+                .plan(rule, AcceptorResponder.buildMessage(raw), requestMessage(raw))
+                .single()
+                .build()
+                .getString(14)
+        }
+
+        assertEquals("50", fillFor("100"))
+        assertEquals("2500", fillFor("5000"))
+    }
+
+    /** No request, no engine — and a template with no expressions never wakes the script engine at all. */
+    @Test
+    fun `a template without expressions is untouched by the evaluator`() {
+        val plain = "35=8|150=0|39=0|11=ORD-1|"
+
+        assertEquals(plain, AcceptorResponder.resolveExpressions(plain, requestMessage("35=D|11=ORD-1|"), null))
+        assertEquals(plain, AcceptorResponder.resolveExpressions(plain, null, null))
+    }
 }

@@ -476,6 +476,9 @@ class FixMessageSession(
 
     fun sendTestRequest(testReqId: String): Boolean = quickFixService?.sendTestRequest(testReqId) ?: false
 
+    /** Drops this session's queued acceptor auto-responses; returns how many were still waiting. */
+    fun stopPendingResponses(): Int = quickFixService?.stopPendingResponses() ?: 0
+
     fun sendResendRequest(beginSeqNo: Int, endSeqNo: Int): Boolean =
         quickFixService?.sendResendRequest(beginSeqNo, endSeqNo) ?: false
 

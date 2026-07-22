@@ -1441,6 +1441,24 @@ fun ConnectionPanel(
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
+                    // A sequence is a claim about time — "then, four seconds later, the fill" — so the
+                    // moment an author sees it is the wrong claim they need it to stop now, not after
+                    // it has finished being wrong. Offered only while a session exists to stop it on.
+                    val liveSessions = selectedProfile?.let { onGetProfileSessions(it.id) }.orEmpty()
+                    if (liveSessions.isNotEmpty()) {
+                        TooltipIconButton(
+                            tooltip = "Drop replies still queued on this session",
+                            onClick = { liveSessions.forEach { it.stopPendingResponses() } },
+                            modifier = iconSize18,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "Stop queued responses",
+                                tint = AppTheme.Colors.warning,
+                                modifier = iconSize14,
+                            )
+                        }
+                    }
                     Icon(
                         imageVector = if (showAcceptorRules) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = if (showAcceptorRules) "Collapse" else "Expand",

@@ -88,7 +88,8 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
 `test-request` (`id`), `resend-request` (`begin`/`end`), `sequence-reset` (`newSeq`/`gapFill`),
-`logout` (`reason`), `disconnect` (`reason`, ungraceful). Used for session-recovery / gap-fill QA.
+`logout` (`reason`), `disconnect` (`reason`, ungraceful), `stop-responses` (drop this session's queued
+acceptor auto-responses → `{dropped}`). Used for session-recovery / gap-fill QA.
 | `POST /select`       | `{"session"?, "index"?, "messageType"?, "direction"?}` | selects a message in the browser → opens the detail panel |
 | `POST /assert`       | `{"session"?, "messageType"?, "direction"?, "index"?, "timeoutMs"?, "mode"?, "fields":[{tag, matcher}]}` | machine-checks a received message tag-by-tag → `{passed, tags:[{tag, matcher, expected, actual, passed, index, occurrence, status}]}`. `fields` is an **ordered** list: the *k*-th row for a tag asserts the *k*-th occurrence of it, and the rows must be a subsequence of the reply — do not sort or de-duplicate. A top-level `status` of `timeout` or `no-wire-bytes` means nothing was judged (`no-wire-bytes` is a FixTool limitation, not a venue failure). |
 | `POST /expectation/capture` | `{"session"?, "messageType"?, "direction"?, "index"?}` | builds an auto-seeded expectation from a message → `{messageType, mode, fields:[…]}` |
@@ -257,13 +258,18 @@ on Save. The new profile then appears in the panel's profile dropdown.
 
 When FixTool runs as an **acceptor** (`connectionType: ACCEPTOR`), it can auto-respond to incoming
 application messages using rules carried on the profile's config as `acceptorResponseRules`. Each
-rule is `{whenMsgType, conditions?, steps}`; the first rule whose whole trigger matches the incoming
-message wins. Rules are set via the normal `/profiles` upsert and inspected via `GET /acceptor/rules`.
+rule is `{whenMsgType, conditions?, steps, enabled?}`; the first **enabled** rule whose whole trigger
+matches the incoming message wins. `enabled` defaults true; a rule switched off is kept and skipped, so
+the message falls through to the rule after it — which is what an author toggling one off is asking to
+see. Replies already queued on a session are dropped with
+`POST /admin {"action":"stop-responses"}`, which reports how many it dropped. Rules are set via the normal `/profiles` upsert and inspected via `GET /acceptor/rules`.
 
 A trigger is `whenMsgType` plus `conditions: [{tag, matcher}]`, all **ANDed**. The `matcher` is the
 same JSON the scenario assertions use (see `docs/scenario-assertion-model.md`), so `38 > 10000` is
 `{"tag":38,"matcher":{"type":"range","min":10000,"minInclusive":false}}` and `exact`, `presence`,
-`absent`, `oneOf`, `regex`, `numeric` and `temporal` all work too. `reference` does **not** — it
+`absent`, `oneOf`, `regex`, `numeric`, `notEqual` and `temporal` all work too. `notEqual` is not
+`absent`: a tag that never arrived satisfies neither, because "not X" about a field the message does
+not carry is a question with no answer. `reference` does **not** — it
 resolves against a scenario run's scope, and a trigger has none; one is refused by name rather than
 silently never matching. Express OR as a second rule; first match wins.
 
@@ -288,6 +294,13 @@ Each `template` is raw FIX (app fields only — QuickFIX stamps the session head
 `${req.<tag>}` (echo a request field), `${uuid}`, and `${now}`. `${req.<tag>}` is fixed when the
 trigger arrives; `${uuid}` and `${now}` are resolved **per step as that step is sent**, so a fill
 carries its own ExecID and its own TransactTime rather than the acknowledgement's.
+
+A `req` reference **inside** a larger expression is computed, by the same Kotlin engine the message
+editor uses: `14=${req.38 / 2}` fills half the order quantity, so one partial-fill rule works for every
+order size instead of the one its author hardcoded. The value is substituted raw, which is what makes
+the arithmetic work and what keeps this to numbers — a string field is read with the standalone
+`${req.11}` form, which needs none of it. Expressions are scoped to the message that **triggered the
+rule**, not "the latest incoming", so two orders in flight cannot read each other's quantities.
 
 Replies always leave *after* the inbound callback has returned, on a dispatch thread of their own —
 including a zero-delay one. A reply sent inline can reach the counterparty before their own `send()`

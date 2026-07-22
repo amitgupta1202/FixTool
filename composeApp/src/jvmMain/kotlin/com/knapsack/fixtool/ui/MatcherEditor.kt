@@ -23,7 +23,8 @@ import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.model.scenario.validationError
 
 /** The matcher type names, in the order shown in the editor's dropdown. */
-val MATCHER_TYPES = listOf("exact", "presence", "absent", "oneOf", "regex", "numeric", "range", "temporal", "reference")
+val MATCHER_TYPES =
+    listOf("exact", "notEqual", "presence", "absent", "oneOf", "regex", "numeric", "range", "temporal", "reference")
 
 /**
  * Every matcher's parameters render inside one slot of this width. Each type used to bring its own —
@@ -35,6 +36,7 @@ private val PARAMS_WIDTH = 210.dp
 /** One-line explanation per matcher type, shown in the type dropdown for users new to FIX testing. */
 private val MATCHER_HELP = mapOf(
     "exact" to "value must equal exactly",
+    "notEqual" to "value must be anything else",
     "presence" to "tag must exist, any value",
     "absent" to "tag must NOT appear",
     "oneOf" to "value in a set",
@@ -49,6 +51,7 @@ private val MATCHER_HELP = mapOf(
 fun matcherTypeName(matcher: Matcher): String =
     when (matcher) {
         is Matcher.Exact -> "exact"
+        is Matcher.NotEqual -> "notEqual"
         is Matcher.Presence -> "presence"
         is Matcher.Absent -> "absent"
         is Matcher.OneOf -> "oneOf"
@@ -76,6 +79,7 @@ private fun literalPattern(value: String): String = value.replace(REGEX_META) { 
 /** A sensible default [Matcher] when switching to [type], seeded from the captured [value]. */
 fun defaultMatcherForType(type: String, value: String): Matcher =
     when (type) {
+        "notEqual" -> Matcher.NotEqual(value)
         "presence" -> Matcher.Presence
         "absent" -> Matcher.Absent
         "oneOf" -> Matcher.OneOf(if (value.isBlank()) emptyList() else listOf(value))
@@ -184,15 +188,11 @@ private fun MatcherParams(
 ) {
     when (matcher) {
         is Matcher.Presence, is Matcher.Absent -> Unit
-        is Matcher.Exact ->
-            if (enumValues.isEmpty()) {
-                SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.fillMaxWidth())
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SlimField(matcher.value, { onChange(Matcher.Exact(it)) }, monospace = true, modifier = Modifier.width(48.dp))
-                    NamedValuePicker(enumValues, matcher.value, "pick…") { onChange(Matcher.Exact(it)) }
-                }
-            }
+        // exact and notEqual differ only in the verdict they draw from the same one value, so they edit
+        // identically — including the named picker, because "anything but Rejected" wants the dictionary
+        // just as much as "Rejected" does.
+        is Matcher.Exact -> ValueParams(matcher.value, enumValues) { onChange(Matcher.Exact(it)) }
+        is Matcher.NotEqual -> ValueParams(matcher.value, enumValues) { onChange(Matcher.NotEqual(it)) }
         is Matcher.Regex -> {
             // The one place a pattern is judged. The codec carries a bad one through unharmed, so the
             // author never loses a scenario to a half-typed character class — they are told here,
@@ -356,6 +356,19 @@ private fun MatcherParams(
 
 /** Renders a double without a trailing ".0" so integer-ish values read cleanly. */
 private fun numText(d: Double): String = if (d == d.toLong().toDouble()) d.toLong().toString() else d.toString()
+
+/** One value, edited as a field plus — when the dictionary names this tag's values — a picker. */
+@Composable
+private fun ValueParams(value: String, enumValues: List<Pair<String, String>>, onChange: (String) -> Unit) {
+    if (enumValues.isEmpty()) {
+        SlimField(value, onChange, monospace = true, modifier = Modifier.fillMaxWidth())
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            SlimField(value, onChange, monospace = true, modifier = Modifier.width(48.dp))
+            NamedValuePicker(enumValues, value, "pick…", onPick = onChange)
+        }
+    }
+}
 
 /**
  * The dictionary's named values for a tag, as a menu: `8 (REJECTED)`.

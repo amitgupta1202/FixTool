@@ -294,11 +294,14 @@ class ControlServer(
                         "detail" -> viewModel.showDetailPanel.value to viewModel::toggleDetailPanel
                         "settings" -> viewModel.showSettingsDialog.value to viewModel::toggleSettingsDialog
                         "scenarios" -> viewModel.showScenariosRail.value to viewModel::toggleScenariosRail
+                        // Not a panel, but the same shape: a visible-state boolean the automation
+                        // surface must be able to drive — the toolbar button has no HTTP hook.
+                        "conversations" -> viewModel.groupByConversation.value to viewModel::toggleGroupByConversation
                         else -> return@onEdt null
                     }
                 if (state != show) toggle()
                 show
-            } ?: return errorObject("unknown panel '$name' (connection|editor|detail|settings|scenarios)")
+            } ?: return errorObject("unknown panel '$name' (connection|editor|detail|settings|scenarios|conversations)")
         return buildJsonObject {
             put("status", "ok")
             put("panel", name)

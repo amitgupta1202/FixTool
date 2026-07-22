@@ -1,7 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
-import com.knapsack.fixtool.model.TagRole
+import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -64,14 +64,11 @@ object ExpectationSeeder {
      */
     internal val PRESENCE_TAGS = VENUE_MINTED_IDS + SessionTags.VALUE_NOT_PORTABLE
 
-    /**
-     * Quote/order lifetime stamps: a UTCTIMESTAMP whose *meaning* is "a moment shortly after sending",
-     * so neither of the type rule's answers is right — Temporal(~now) reds on any quote that lives
-     * longer than the tolerance, and Exact reds on everything for ever. Presence: the venue said how
-     * long it is good for, and that it says so is the behaviour. (The send side has its own rule —
-     * see ScenarioCapture: a *replayed* expiry must lie in the future, not at `now`.)
-     */
-    private val LIFETIME_TAGS = setOf(62, 126) // ValidUntilTime, ExpireTime
+    // Lifetime stamps (ValidUntilTime, ExpireTime) used to be listed again here. One decider now:
+    // [Minting.isLifetime] reads ScenarioCapture's set, so the send side and the assert side cannot drift.
+    // Why Presence and not Temporal(~now): a UTCTIMESTAMP whose *meaning* is "a moment shortly after
+    // sending" reds under ~now on any quote that outlives the tolerance, and reds under Exact for ever.
+    // That the venue said how long it is good for is the behaviour.
 
     /** Default tolerances per numeric family. 0 still ignores formatting (parsed as numbers). */
     private const val DEFAULT_NUMERIC_TOLERANCE = 0.0
@@ -87,10 +84,14 @@ object ExpectationSeeder {
     /** One seeded assertion plus the captured value it was seeded from (for editor/preview rows). */
     data class SeededField(val field: FieldExpectation, val capturedValue: String)
 
-    fun seed(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): Expectation {
+    fun seed(
+        fields: List<Pair<Int, String>>,
+        dictionary: FixDictionaryAdapter?,
+        side: MintingSide = MintingSide.CLIENT,
+    ): Expectation {
         val messageType = fields.firstOrNull { it.first == 35 }?.second
         return Expectation(
-            fields = seedDetailed(fields, dictionary).map { it.field },
+            fields = seedDetailed(fields, dictionary, side).map { it.field },
             messageType = messageType,
             mode = MatchMode.OPEN,
         )
@@ -107,12 +108,16 @@ object ExpectationSeeder {
      * indistinguishable by any identity, which the old model refused to assert at all, is asserted like
      * anything else. Position is the identity, and every message has one.
      */
-    fun seedDetailed(fields: List<Pair<Int, String>>, dictionary: FixDictionaryAdapter?): List<SeededField> =
+    fun seedDetailed(
+        fields: List<Pair<Int, String>>,
+        dictionary: FixDictionaryAdapter?,
+        side: MintingSide = MintingSide.CLIENT,
+    ): List<SeededField> =
         fields
             .filterNot { it.first in OMITTED_TAGS }
             .map { (tag, value) ->
                 SeededField(
-                    field = FieldExpectation(tag = tag, matcher = seedMatcher(tag, value, dictionary)),
+                    field = FieldExpectation(tag = tag, matcher = seedMatcher(tag, value, dictionary, side)),
                     capturedValue = value,
                 )
             }
@@ -158,19 +163,25 @@ object ExpectationSeeder {
         return name == null || name.endsWith("ID")
     }
 
-    private fun seedMatcher(tag: Int, value: String, dictionary: FixDictionaryAdapter?): Matcher {
+    private fun seedMatcher(
+        tag: Int,
+        value: String,
+        dictionary: FixDictionaryAdapter?,
+        side: MintingSide,
+    ): Matcher {
         val fieldType = fieldTypeName(tag, dictionary)
         return when {
             // Ahead of the type rules, not after them: OrigSendingTime(122) is a UTCTIMESTAMP, so a
             // type-first walk seeded it "~now ±60s" — and a resend's OrigSendingTime is *by definition*
             // the old message's, minutes or hours in the past. Every resend scenario went red on every
             // run, on the environment it was captured on.
-            // The standard set, plus whatever this venue declares about its OWN ids — a proprietary tag
-            // belongs in the overlay beside the venue's dictionary, never in FixTool's source, because
-            // this source is shared by every venue. See [TagRoleOverlay].
-            tag in PRESENCE_TAGS || dictionary?.hasRole(tag, TagRole.VENUE_MINTED_ID) == true -> Matcher.Presence
+            // Whose id it is depends on which end we are: on an acceptor session the counterparty's
+            // ClOrdID is the value new on every run, and OUR ExecID is the one we mint. [Minting] holds
+            // that resolution, and the venue's own tags reach it through the overlay beside its
+            // dictionary — never through FixTool's source, which is shared by every venue.
+            Minting.byThem(tag, dictionary, side) || tag in SessionTags.VALUE_NOT_PORTABLE -> Matcher.Presence
             // Also ahead of the type rules, for the mirror reason: an expiry is deliberately NOT ~now.
-            tag in LIFETIME_TAGS || dictionary?.hasRole(tag, TagRole.LIFETIME) == true -> Matcher.Presence
+            Minting.isLifetime(tag, dictionary) -> Matcher.Presence
             fieldType in TIMESTAMP_TYPES ->
                 Matcher.Temporal(TemporalKind.NOW_WITHIN_TOLERANCE, DEFAULT_TIME_TOLERANCE_SECONDS)
             // Only *current* UTC dates land here (an MDEntryDate on a live snapshot is today's date). Business

@@ -184,6 +184,7 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                         onSetDirection = { index, direction -> viewModel.setCandidateDirection(index, direction) },
                         sessionOptions = viewModel.sessions.map { it.title },
                         onDeclareRoles = { roles -> viewModel.declareVenueTagRoles(roles) },
+                        sides = viewModel.mintingSides(),
                     )
             }
         }

@@ -370,7 +370,7 @@ private fun DiffHeader(
             }
             SlimButton(
                 "Re-seed from reference",
-                onClick = { session.apply(EditOp.reseed(session.reference.view, session.dictionary)) },
+                onClick = { session.apply(EditOp.reseed(session.reference.view, session.dictionary, session.side)) },
                 color = AppTheme.Colors.textSecondary,
                 modifier = Modifier.padding(end = 6.dp).testTag("diff-reseed"),
             )

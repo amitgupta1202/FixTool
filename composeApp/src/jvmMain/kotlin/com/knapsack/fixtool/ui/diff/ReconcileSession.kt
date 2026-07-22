@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
@@ -198,8 +199,8 @@ class EditOp(
                 fixes.fold(draft) { d, fix -> ScenarioReconcile.loosen(d, fix.index, fix.proposed) }
             }
 
-        fun reseed(message: MessageView, dictionary: FixDictionaryAdapter?) =
-            pure("Re-seeded the step") { ScenarioReconcile.reseed(it, message, dictionary) }
+        fun reseed(message: MessageView, dictionary: FixDictionaryAdapter?, side: MintingSide = MintingSide.CLIENT) =
+            pure("Re-seeded the step") { ScenarioReconcile.reseed(it, message, dictionary, side) }
 
         fun setMode(mode: MatchMode) =
             pure(if (mode == MatchMode.STRICT) "Switched to STRICT" else "Switched to OPEN") {
@@ -421,6 +422,8 @@ class ReconcileSession(
     original: Expectation,
     initialReference: ReferenceMessage,
     val dictionary: FixDictionaryAdapter?,
+    /** Which end of the conversation this step's session is — see [MintingSide]. Re-seeding depends on it. */
+    val side: MintingSide = MintingSide.CLIENT,
     private val resolver: (String) -> String? = { null },
     private val onChange: (Expectation) -> Unit = {},
 ) {

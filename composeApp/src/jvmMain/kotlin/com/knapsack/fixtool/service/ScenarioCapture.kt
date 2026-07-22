@@ -2,7 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
-import com.knapsack.fixtool.model.TagRole
+import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchOp
@@ -84,32 +84,20 @@ object ScenarioCapture {
     internal val LIFETIME_TAGS = setOf(62, 126) // ValidUntilTime, ExpireTime
 
     /**
-     * **The standard set, plus whatever this venue says about its own tags.**
+     * **Which end of the relationship FixTool is on, per session.**
      *
-     * [ID_TAGS] is standard FIX and stays that way — a proprietary tag in FixTool's source is a claim
-     * about every venue, and FixTool is one tool across a dozen. A venue's own correlation ids
-     * (BrokerTec's `LegQuoteReqID(20013)`, say) arrive through the overlay beside its dictionary
-     * instead, so the declaration lives with the dialect it describes. See [TagRoleOverlay].
+     * Absent means [MintingSide.CLIENT] — the historical assumption, and right for every initiator. It is
+     * a map rather than one value because a both-sides scenario captures an acceptor session and an
+     * initiator session in the same act, and the two invert each other's answers. See [Minting].
      */
-    private fun isClientMintedId(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
-        tag in ID_TAGS || dictionary?.hasRole(tag, TagRole.CLIENT_MINTED_ID) == true
-
-    /** As [isClientMintedId], for the stamps whose replay must lie in the future. */
-    private fun isLifetime(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
-        tag in LIFETIME_TAGS || dictionary?.hasRole(tag, TagRole.LIFETIME) == true
-
-    /** A value the **venue** mints per reply — ours to read, never to invent. */
-    private fun isVenueMintedId(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
-        tag in ExpectationSeeder.VENUE_MINTED_IDS || dictionary?.hasRole(tag, TagRole.VENUE_MINTED_ID) == true
+    private fun Map<String, MintingSide>.sideOf(session: String): MintingSide = this[session] ?: MintingSide.CLIENT
 
     /**
-     * **Ids the venue minted and a later send has to quote back** — value → the variable that will carry it.
+     * **Ids the counterparty minted and a later send has to quote back** — value → the variable carrying it.
      *
-     * The mirror of [idExpr]. Where a correlation id we mint is invented fresh each run, one the *venue*
-     * minted cannot be: a replay must send back whatever **this run's** reply actually contained. Captured
-     * as a literal it is stale on the second run — the venue is asked to cancel an OrderID from last
-     * Tuesday — and that is true of standard FIX (`OrderID(37)` on a cancel) exactly as it is of a venue's
-     * own handle.
+     * The mirror of [idExpr]. Where a correlation id *we* mint is invented fresh each run, one **they**
+     * minted cannot be: a replay must send back whatever this run actually contained. Captured as a literal
+     * it is stale on the second run — the venue is asked to cancel an OrderID from last Tuesday.
      *
      * So a value that arrives on an incoming message and is later sent back becomes a **capture**: the
      * Expect row that received it gets `bindAs`, and the Send that quotes it gets `${name}`. Both halves
@@ -118,20 +106,26 @@ object ScenarioCapture {
      *
      * Order matters twice over: only a value received **before** it is sent is a capture. The same value
      * seen the other way round is something we minted and they echoed, which is [idExpr]'s business.
+     *
+     * Which ids are "theirs" is [MintingSide]'s answer, not a constant. On an acceptor session this is the
+     * path that carries the client's `ClOrdID(11)` from their order onto our ExecutionReport — the echo
+     * that makes the reply answer the order rather than invent a new one.
      */
-    private fun venueMintedCaptures(
+    private fun theirIdCaptures(
         selection: List<Candidate>,
         dictionary: FixDictionaryAdapter?,
         takenNames: MutableSet<String>,
+        sides: Map<String, MintingSide>,
     ): Map<String, String> {
         val firstReceipt = mutableMapOf<String, Int>() // value -> tag it first arrived in
         val receivedAt = mutableMapOf<String, Int>()
         val captures = mutableMapOf<String, String>()
         selection.forEachIndexed { index, candidate ->
+            val side = sides.sideOf(candidate.session)
             for ((tag, value) in candidate.fields) {
                 if (value.isBlank()) continue
                 if (!candidate.outgoing) {
-                    if (isVenueMintedId(tag, dictionary) && value !in firstReceipt) {
+                    if (Minting.byThem(tag, dictionary, side) && value !in firstReceipt) {
                         firstReceipt[value] = tag
                         receivedAt[value] = index
                     }
@@ -328,7 +322,8 @@ object ScenarioCapture {
         profile: String?,
         sessions: List<CapturedSession>,
         dictionary: FixDictionaryAdapter?,
-    ): Scenario = captureFrom(id, name, profile, candidates(sessions), dictionary)
+        sides: Map<String, MintingSide> = emptyMap(),
+    ): Scenario = captureFrom(id, name, profile, candidates(sessions), dictionary, sides)
 
     // There is no `unassertable` any more, and nothing to warn the author about. It existed to name the
     // groups whose entries shared an identity, which the old model could not assert and therefore
@@ -342,6 +337,7 @@ object ScenarioCapture {
         profile: String?,
         selection: List<Candidate>,
         dictionary: FixDictionaryAdapter?,
+        sides: Map<String, MintingSide> = emptyMap(),
     ): Scenario {
         // capturedValue -> "${varName}" reference, scenario-wide (so a response on any session can echo it).
         val refByValue = mutableMapOf<String, String>()
@@ -353,21 +349,22 @@ object ScenarioCapture {
         // bytes of two same-type replies and seed a discriminator that tells them apart.
         val expectCandidates = mutableListOf<Pair<Int, Candidate>>()
         // Decided before the walk, because the send that quotes a venue id back comes AFTER the reply that
-        // minted it, and a forward pass would already have written the literal. See [venueMintedCaptures].
-        val captures = venueMintedCaptures(selection, dictionary, takenNames)
+        // minted it, and a forward pass would already have written the literal. See [theirIdCaptures].
+        val captures = theirIdCaptures(selection, dictionary, takenNames, sides)
 
         for (candidate in selection) {
             // An undirected row cannot become a step: it would become a Send that asserts nothing, silently.
             // The review refuses the save before this, by name; this is the engine keeping the same rule.
             if (candidate.direction == null) continue
+            val side = sides.sideOf(candidate.session)
             if (candidate.outgoing) {
-                steps += sendStep(candidate, dictionary, refByValue, takenNames, captures)
+                steps += sendStep(candidate, dictionary, refByValue, takenNames, captures, side)
             } else {
                 expectCandidates += steps.size to candidate
-                steps += expectStep(candidate, dictionary, refByValue, captures)
+                steps += expectStep(candidate, dictionary, refByValue, captures, side)
             }
         }
-        disambiguateSameType(steps, expectCandidates, dictionary)
+        disambiguateSameType(steps, expectCandidates, dictionary, sides)
 
         val setup = selection.map { it.session.orNoneNamed() }.distinct().map { ScenarioStep.ClearMessages(it) }
         return Scenario(id = id, name = name, profile = profile, setup = setup, steps = steps)
@@ -405,15 +402,17 @@ object ScenarioCapture {
         steps: MutableList<ScenarioStep>,
         expects: List<Pair<Int, Candidate>>,
         dictionary: FixDictionaryAdapter?,
+        sides: Map<String, MintingSide>,
     ) {
         val groups = expects.groupBy { (_, c) -> c.session to c.messageType }
-        for ((_, members) in groups) {
+        // A group is one session's replies, so one side answers for all of its members.
+        for ((key, members) in groups) {
             if (members.size < 2) continue
             // Already separable by the constraints capture seeded (distinct echoed ids)? Arrival order + the
             // consumed cursor then suffice, and adding anything would only be noise.
             if (members.map { (idx, _) -> bindSignature(steps[idx]) }.toSet().size == members.size) continue
             if (seedValueDiscriminator(steps, members)) continue
-            if (members.size == 2 && seedPresenceDiscriminator(steps, members, dictionary)) continue
+            if (members.size == 2 && seedPresenceDiscriminator(steps, members, dictionary, sides.sideOf(key.first))) continue
             seedOrdinals(steps, members)
         }
     }
@@ -439,6 +438,7 @@ object ScenarioCapture {
         steps: MutableList<ScenarioStep>,
         members: List<Pair<Int, Candidate>>,
         dictionary: FixDictionaryAdapter?,
+        side: MintingSide,
     ): Boolean {
         val (a, b) = members
         val aTags = a.second.fields.mapTo(mutableSetOf()) { it.first }
@@ -447,7 +447,7 @@ object ScenarioCapture {
         // the field an author would themselves reach for — then the lowest-numbered tag for a stable choice.
         val distinguishing = (aTags - bTags) + (bTags - aTags)
         val tag =
-            distinguishing.filter { isClientMintedId(it, dictionary) }.minOrNull()
+            distinguishing.filter { Minting.byUs(it, dictionary, side) }.minOrNull()
                 ?: distinguishing.minOrNull()
                 ?: return false
         val presentInA = tag in aTags
@@ -580,6 +580,7 @@ object ScenarioCapture {
         refByValue: MutableMap<String, String>,
         takenNames: MutableSet<String>,
         captures: Map<String, String>,
+        side: MintingSide,
     ): ScenarioStep.Send {
         val fields = entry.fields.filter { (tag, _) -> tag !in TRANSPORT_TAGS }.map { (tag, value) ->
             val out = when {
@@ -590,9 +591,9 @@ object ScenarioCapture {
                 // Before the general timestamp rule: an expiry stamped "now" is expired on arrival.
                 // Unconditional, like tag 60 in isTimestamp: these are UTCTIMESTAMP by the spec, and a
                 // dictionary-less capture still must not replay a stale quote lifetime.
-                isLifetime(tag, dictionary) -> FUTURE_EXPR
+                Minting.isLifetime(tag, dictionary) -> FUTURE_EXPR
                 isTimestamp(tag, dictionary) -> NOW_EXPR
-                isClientMintedId(tag, dictionary) && value.isNotBlank() ->
+                Minting.byUs(tag, dictionary, side) && value.isNotBlank() ->
                     idExpr(tag, value, refByValue, takenNames, dictionary)
                 else -> value
             }
@@ -642,13 +643,14 @@ object ScenarioCapture {
         dictionary: FixDictionaryAdapter?,
         refByValue: Map<String, String>,
         captures: Map<String, String>,
+        side: MintingSide,
     ): ScenarioStep.Expect {
         // Each seeded row carries the value it was seeded from, so a row that echoes something we sent
         // becomes a reference check. Rows must be correlated by *their own* captured value, not by
         // looking the tag up in the message: `firstOrNull { it.first == tag }` answers with the first
         // occurrence, so on a two-leg order the second leg's ClOrdID row would have been correlated
         // against the first leg's value — an assertion pointing at a field it does not describe.
-        val seeded = ExpectationSeeder.seedDetailed(entry.fields, dictionary)
+        val seeded = ExpectationSeeder.seedDetailed(entry.fields, dictionary, side)
         val correlated = seeded.map { sf ->
             // Correlated by TAG as well as by value. Keying on the raw value alone rewrote every seeded row
             // whose captured value merely *equalled* a sent id — across every tag in the message. A tester
@@ -657,11 +659,11 @@ object ScenarioCapture {
             // fresh uuid, so the scenario asserted that Side equals a uuid and was permanently red for a
             // reason pointing at nothing the author wrote. An echo comes back in a correlation-id field —
             // which is precisely the filter the bind constraints below already apply.
-            val ref = if (isClientMintedId(sf.field.tag, dictionary)) refByValue[sf.capturedValue] else null
+            val ref = if (Minting.byUs(sf.field.tag, dictionary, side)) refByValue[sf.capturedValue] else null
             // A venue id a later send quotes back is READ here rather than asserted against a literal: the
             // matcher stays whatever it was seeded (Presence for a venue id), and `bindAs` puts this run's
             // actual value into scope for the send that needs it. Assert nothing new, capture the one fact.
-            val capture = captures[sf.capturedValue]?.takeIf { isVenueMintedId(sf.field.tag, dictionary) }
+            val capture = captures[sf.capturedValue]?.takeIf { Minting.byThem(sf.field.tag, dictionary, side) }
             when {
                 ref != null -> sf.field.copy(matcher = Matcher.Reference(ref))
                 capture != null -> sf.field.copy(bindAs = capture)
@@ -672,7 +674,7 @@ object ScenarioCapture {
         // to *the response to this run's ids* — not merely the first message of the same type. The
         // ${idN} values are resolved against the scenario scope by the runner.
         val bindConstraints = entry.fields
-            .filter { (tag, value) -> isClientMintedId(tag, dictionary) && refByValue.containsKey(value) }
+            .filter { (tag, value) -> Minting.byUs(tag, dictionary, side) && refByValue.containsKey(value) }
             .map { (tag, value) -> TagValue(tag, refByValue.getValue(value)) }
             .distinctBy { it.tag }
         return ScenarioStep.Expect(

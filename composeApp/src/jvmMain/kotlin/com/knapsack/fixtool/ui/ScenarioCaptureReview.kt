@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -63,6 +64,8 @@ fun ScenarioCaptureReview(
     dictionary: FixDictionary?,
     onSave: (String, List<ScenarioCapture.Candidate>) -> Boolean,
     modifier: Modifier = Modifier,
+    /** Per-session [MintingSide], so the preview below seeds exactly what Save will write. */
+    sides: Map<String, MintingSide> = emptyMap(),
     /** Messages FixTool could not read the wire bytes for — see [UnreadableNotice]. */
     unreadable: List<FixMessage> = emptyList(),
     /**
@@ -94,7 +97,7 @@ fun ScenarioCaptureReview(
     // excluding the send that mints an id visibly downgrades its echoes from reference to exact.
     val previewSteps =
         remember(state.included) {
-            ScenarioCapture.captureFrom("preview", "preview", null, selection, dictionary).steps
+            ScenarioCapture.captureFrom("preview", "preview", null, selection, dictionary, sides).steps
         }
     val stepVars = remember(previewSteps) { ScenarioAnnotations.annotate(previewSteps) }
     // The badge tooltips cite row numbers, and here a row is not its step: excluded and undirected rows

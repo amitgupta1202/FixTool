@@ -81,7 +81,7 @@ enum class MintingSide {
  * `fix-dictionary-4-4.xml.roles.json`:
  *
  * ```json
- * { "20013": "CLIENT_MINTED_ID", "1751": "CLIENT_MINTED_ID", "20040": "VENUE_MINTED_ID" }
+ * { "20001": "CLIENT_MINTED_ID", "1701": "CLIENT_MINTED_ID", "20002": "VENUE_MINTED_ID" }
  * ```
  *
  * A tag may carry more than one role, as an array — `QuoteID(117)` is the standard case and it is real:
@@ -126,8 +126,8 @@ class TagRoleOverlay private constructor(
         /**
          * Writes [roles] to the sidecar beside [dictionaryPath], and returns the file written.
          *
-         * Tags with **no** roles are dropped rather than written as an empty list: "I considered 20040 and
-         * decided it is nothing" and "I have never heard of 20040" lead to identical behaviour, and a file
+         * Tags with **no** roles are dropped rather than written as an empty list: "I considered 20002 and
+         * decided it is nothing" and "I have never heard of 20002" lead to identical behaviour, and a file
          * that records the difference invites a reader to believe the tool acts on it.
          *
          * Sorted by tag and pretty-printed, because this file belongs in the venue's repo beside the

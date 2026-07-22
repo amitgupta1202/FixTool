@@ -996,8 +996,8 @@
                 <td>Explicit outgoing with tag name</td>
             </tr>
             <tr>
-                <td><code>${R.20013.0}</code></td>
-                <td><code>${incoming["R"].valueOfTag(20013, 0)}</code></td>
+                <td><code>${R.20001.0}</code></td>
+                <td><code>${incoming["R"].valueOfTag(20001, 0)}</code></td>
                 <td>Repeating group: first occurrence (index 0)</td>
             </tr>
             <tr>
@@ -1241,7 +1241,7 @@
     <h3>Real-World Example: Multi-Leg Quote Request</h3>
     <div class="example">
         <h4>Scenario:</h4>
-        <p>You receive a QuoteRequest (35=R) with 2 legs, each with a unique Leg Quote Request ID (tag 20013):</p>
+        <p>You receive a QuoteRequest (35=R) with 2 legs, each with a unique Leg Reference ID (tag 20001):</p>
 
         <h4>Incoming QuoteRequest:</h4>
         <table class="fix-table">
@@ -1264,7 +1264,7 @@
                 <td class="desc">(NoLegs = 2 legs)</td>
             </tr>
             <tr>
-                <td class="tag">20013</td>
+                <td class="tag">20001</td>
                 <td class="sep">=</td>
                 <td class="value">8c2b290c-f292-4ae9-af8f-66340623deec</td>
                 <td class="desc">(Leg 1 Quote Request ID)</td>
@@ -1282,7 +1282,7 @@
                 <td class="desc">(Leg 1 Currency)</td>
             </tr>
             <tr>
-                <td class="tag">20013</td>
+                <td class="tag">20001</td>
                 <td class="sep">=</td>
                 <td class="value">d119dad0-2dd9-4ef3-af56-de9395d5b57e</td>
                 <td class="desc">(Leg 2 Quote Request ID)</td>
@@ -1323,9 +1323,9 @@
                 <td class="desc">(2 legs in response)</td>
             </tr>
             <tr>
-                <td class="tag">Tag 20013</td>
+                <td class="tag">Tag 20001</td>
                 <td class="sep">:</td>
-                <td class="value">${incoming["R"].valueOfTag(20013, 0)}</td>
+                <td class="value">${incoming["R"].valueOfTag(20001, 0)}</td>
                 <td class="desc">(Leg 1 ID - index 0)</td>
             </tr>
             <tr>
@@ -1341,9 +1341,9 @@
                 <td class="desc">(Leg 1 BidPx)</td>
             </tr>
             <tr>
-                <td class="tag">Tag 20013</td>
+                <td class="tag">Tag 20001</td>
                 <td class="sep">:</td>
-                <td class="value">${incoming["R"].valueOfTag(20013, 1)}</td>
+                <td class="value">${incoming["R"].valueOfTag(20001, 1)}</td>
                 <td class="desc">(Leg 2 ID - index 1)</td>
             </tr>
             <tr>
@@ -1381,7 +1381,7 @@
                 <td class="desc"></td>
             </tr>
             <tr>
-                <td class="tag">20013</td>
+                <td class="tag">20001</td>
                 <td class="sep">=</td>
                 <td class="value">8c2b290c-f292-4ae9-af8f-66340623deec</td>
                 <td class="desc">(Matched from leg 1)</td>
@@ -1399,7 +1399,7 @@
                 <td class="desc"></td>
             </tr>
             <tr>
-                <td class="tag">20013</td>
+                <td class="tag">20001</td>
                 <td class="sep">=</td>
                 <td class="value">d119dad0-2dd9-4ef3-af56-de9395d5b57e</td>
                 <td class="desc">(Matched from leg 2)</td>
@@ -1431,22 +1431,22 @@
                 <th>Description</th>
             </tr>
             <tr>
-                <td><code>${incoming["R"].allValuesOfTag(20013)}</code></td>
+                <td><code>${incoming["R"].allValuesOfTag(20001)}</code></td>
                 <td><code>[leg1-id, leg2-id]</code></td>
                 <td>Get all leg IDs as a list</td>
             </tr>
             <tr>
-                <td><code>${incoming["R"].allValuesOfTag(20013).size}</code></td>
+                <td><code>${incoming["R"].allValuesOfTag(20001).size}</code></td>
                 <td><code>2</code></td>
                 <td>Count number of legs</td>
             </tr>
             <tr>
-                <td><code>${incoming["R"].allValuesOfTag(20013)[0]}</code></td>
+                <td><code>${incoming["R"].allValuesOfTag(20001)[0]}</code></td>
                 <td><code>leg1-id</code></td>
                 <td>Access first leg via list</td>
             </tr>
             <tr>
-                <td><code>${incoming["R"].allValuesOfTag(20013)[1]}</code></td>
+                <td><code>${incoming["R"].allValuesOfTag(20001)[1]}</code></td>
                 <td><code>leg2-id</code></td>
                 <td>Access second leg via list</td>
             </tr>
@@ -2196,8 +2196,8 @@ stunnel stunnel.conf</code></pre>
 
     <p>Capture parameterizes the correlation ids <em>standard FIX</em> defines &mdash; <code>ClOrdID</code>,
     <code>QuoteReqID</code>, <code>MDReqID</code> and a dozen more &mdash; so every replay is fresh and each
-    reply is matched against <em>this run's</em> id. Most venues also define their own: BrokerTec's
-    <code>LegQuoteReqID(20013)</code>, a proprietary <code>BatchID</code>, a deal handle in the 20000s.
+    reply is matched against <em>this run's</em> id. Most venues also define their own: a
+    proprietary <code>BatchID</code>, a leg-level request id, a deal handle in the 20000s.
     FixTool cannot know those, and it must not guess: a FIX dictionary records a field's <em>name</em> and
     <em>type</em>, never <strong>who mints its value</strong>. <code>ClOrdID(11)</code> and
     <code>OrderID(37)</code> are both <code>STRING</code> fields whose names end in <code>ID</code>, and
@@ -2216,7 +2216,7 @@ stunnel stunnel.conf</code></pre>
     <code>ID</code> is exactly what a filter would lose, so nothing is hidden. Give each one a role:</p>
     <ul>
         <li><strong>we mint it &mdash; fresh per run.</strong> The send gets a new value every run
-        (<code>20013=${legQuoteReqID = uuid:20}</code>), the reply's echo becomes a
+        (<code>20001=${legRefID = uuid:20}</code>), the reply's echo becomes a
         <strong>reference</strong> check, and the expect gains a <strong>bind constraint</strong> so it
         waits for the response to <em>your</em> id even on a busy session.</li>
         <li><strong>the venue mints it.</strong> Asserted for <strong>presence</strong>, never its value

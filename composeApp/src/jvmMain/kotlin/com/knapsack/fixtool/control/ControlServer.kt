@@ -1678,7 +1678,7 @@ class ControlServer(
      * **The venue's own tags, and what the author has said about them** — `GET` to list, `POST` to declare.
      *
      * The same list and the same write path the settings editor uses, so an agent and a human cannot
-     * produce different files. `POST {"roles": {"20013": "CLIENT_MINTED_ID"}}` replaces the declaration
+     * produce different files. `POST {"roles": {"20001": "CLIENT_MINTED_ID"}}` replaces the declaration
      * wholesale (a role map is small and a merge semantics nobody can see is worse than a replace they
      * can), writes the sidecar beside the loaded dictionary, and reloads so the next capture uses it.
      */

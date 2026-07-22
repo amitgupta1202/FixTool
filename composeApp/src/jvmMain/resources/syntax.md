@@ -259,7 +259,7 @@ quickest way to a working, correctly-templated scenario.
 
 ### Correlation ids the spec never named
 
-Capture parameterizes the correlation ids **standard FIX** defines. A venue's own — `LegQuoteReqID(20013)`,
+Capture parameterizes the correlation ids **standard FIX** defines. A venue's own — `LegRefID(20001)`,
 a proprietary batch id, a deal handle in the 20000s — are declared per dictionary, because a FIX dictionary
 records a field's name and type but never **who mints its value**, and `ClOrdID(11)` and `OrderID(37)` are
 indistinguishable by either.

@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
  * it asserts the k-th occurrence of a tag and needs no structure at all, which is what removed the
  * seam where this walker and QuickFIX/J disagreed about what a group entry contained.
  *
- * Venue dialects nest legs several levels deep — BrokerTec's AONX quote flow runs
+ * Venue dialects nest legs several levels deep — a real quote flow runs
  * NoLegs(555) > NoNestedPartyIDs(539) > NoNestedPartySubIDs(804). A walker that scans a nested group's
  * fields flat stops at the first tag only a *deeper* group's dictionary defines (545, which lives in
  * 804's scope, not 539's), unwinds to top level, and mis-classifies every field after it — which

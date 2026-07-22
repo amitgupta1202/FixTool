@@ -40,7 +40,7 @@ class VenueTagScanTest {
                 <field number="35" name="MsgType" type="STRING"/>
                 <field number="48" name="SecurityID" type="STRING"/>
                 <field number="131" name="QuoteReqID" type="STRING"/>
-                <field number="20013" name="LegQuoteReqID" type="STRING"/>
+                <field number="20001" name="LegRefID" type="STRING"/>
                 <field number="20071" name="SecondaryTradeLinkID" type="STRING"/>
                 <field number="20050" name="Note1" type="STRING"/>
                 <field number="20063" name="Cleared" type="BOOLEAN"/>
@@ -59,7 +59,7 @@ class VenueTagScanTest {
     fun `the venue's own tags are offered, standard FIX is not`() {
         val scanned = scan()
 
-        assertTrue(20013 in tags(scanned), "the venue's leg id must be offered")
+        assertTrue(20001 in tags(scanned), "the venue's leg id must be offered")
         assertTrue(20071 in tags(scanned))
         // Standard FIX 4.4 is FixTool's own business — QuoteReqID(131) is already a correlation id, and
         // BeginString(8) is transport. Neither is a question for the author.
@@ -81,12 +81,12 @@ class VenueTagScanTest {
         val scanned = scan()
 
         val identifiers = scanned.filter { it.tier == VenueTagScan.Tier.IDENTIFIER }.map { it.tag }
-        assertEquals(listOf(20013, 20071), identifiers)
+        assertEquals(listOf(20001, 20071), identifiers)
         // …and the venue's other additions are still in the list, below them — a tier is an ordering, not
         // a filter, because a correlation id whose name does not end in ID must stay reachable.
         val others = scanned.filter { it.tier == VenueTagScan.Tier.OTHER }.map { it.tag }
         assertTrue(others.containsAll(listOf(20044, 20050, 20063)), others.toString())
-        assertTrue(scanned.indexOfFirst { it.tag == 20013 } < scanned.indexOfFirst { it.tag == 20050 })
+        assertTrue(scanned.indexOfFirst { it.tag == 20001 } < scanned.indexOfFirst { it.tag == 20050 })
     }
 
     @Test
@@ -121,19 +121,19 @@ class VenueTagScanTest {
             TagRoleOverlay.writeBeside(
                 xml.absolutePath,
                 mapOf(
-                    20013 to setOf(TagRole.CLIENT_MINTED_ID),
+                    20001 to setOf(TagRole.CLIENT_MINTED_ID),
                     117 to setOf(TagRole.CLIENT_MINTED_ID, TagRole.VENUE_MINTED_ID),
                 ),
             )
 
         val read = TagRoleOverlay.read(written.readText())
-        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), read.rolesOf(20013))
+        assertEquals(setOf(TagRole.CLIENT_MINTED_ID), read.rolesOf(20001))
         assertEquals(setOf(TagRole.CLIENT_MINTED_ID, TagRole.VENUE_MINTED_ID), read.rolesOf(117))
     }
 
     /**
      * "Considered and decided it is nothing" and "never heard of it" produce identical behaviour, so the
-     * file records one of them. A reader who sees `"20040": []` will believe the tool acts on it.
+     * file records one of them. A reader who sees `"20002": []` will believe the tool acts on it.
      */
     @Test
     fun `a tag with no roles is dropped rather than written empty`() {
@@ -143,10 +143,10 @@ class VenueTagScanTest {
         val written =
             TagRoleOverlay.writeBeside(
                 xml.absolutePath,
-                mapOf(20013 to setOf(TagRole.CLIENT_MINTED_ID), 20040 to emptySet()),
+                mapOf(20001 to setOf(TagRole.CLIENT_MINTED_ID), 20002 to emptySet()),
             )
 
-        assertTrue("20040" !in written.readText(), written.readText())
+        assertTrue("20002" !in written.readText(), written.readText())
         assertEquals(1, TagRoleOverlay.read(written.readText()).size)
     }
 

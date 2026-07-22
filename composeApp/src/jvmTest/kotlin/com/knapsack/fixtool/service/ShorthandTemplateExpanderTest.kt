@@ -66,9 +66,9 @@ class ShorthandTemplateExpanderTest {
 
     @Test
     fun `test explicit incoming with repeating group index expands correctly`() {
-        val template = "\${in.R.20013.1}"
+        val template = "\${in.R.20001.1}"
         val expanded = ShorthandTemplateExpander.expand(template, null)
-        assertEquals("\${incoming[\"R\"].valueOfTag(20013, 1)}", expanded)
+        assertEquals("\${incoming[\"R\"].valueOfTag(20001, 1)}", expanded)
     }
 
     @Test

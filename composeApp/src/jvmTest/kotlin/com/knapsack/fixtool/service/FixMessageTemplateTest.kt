@@ -904,13 +904,13 @@ class FixMessageTemplateTest {
 
         // Create first leg group
         val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg1.setString(20013, "8c2b290c-f292-4ae9-af8f-66340623deec")
+        leg1.setString(20001, "8c2b290c-f292-4ae9-af8f-66340623deec")
         leg1.setString(687, "1000")
         message.addGroup(leg1)
 
         // Create second leg group
         val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg2.setString(20013, "d119dad0-2dd9-4ef3-af56-de9395d5b57e")
+        leg2.setString(20001, "d119dad0-2dd9-4ef3-af56-de9395d5b57e")
         leg2.setString(687, "2000")
         message.addGroup(leg2)
 
@@ -918,7 +918,7 @@ class FixMessageTemplateTest {
             FixMessage(
                 timestamp = LocalDateTime.now(),
                 direction = FixMessage.Direction.INCOMING,
-                rawMessage = "8=FIX.4.4|9=100|35=R|131=quote-req-id|146=2|20013=...|10=123|",
+                rawMessage = "8=FIX.4.4|9=100|35=R|131=quote-req-id|146=2|20001=...|10=123|",
                 messageType = "R",
                 quickfixMessage = message,
             )
@@ -926,17 +926,17 @@ class FixMessageTemplateTest {
         val incomingMap = mapOf("R" to fixMessage)
 
         // Test accessing first leg (index 0)
-        val template1 = "\${incoming[\"R\"].valueOfTag(20013, 0)}"
+        val template1 = "\${incoming[\"R\"].valueOfTag(20001, 0)}"
         val result1 = FixMessageTemplate.evaluate(template1, incomingMessages = incomingMap)
         assertEquals("8c2b290c-f292-4ae9-af8f-66340623deec", result1)
 
         // Test accessing second leg (index 1)
-        val template2 = "\${incoming[\"R\"].valueOfTag(20013, 1)}"
+        val template2 = "\${incoming[\"R\"].valueOfTag(20001, 1)}"
         val result2 = FixMessageTemplate.evaluate(template2, incomingMessages = incomingMap)
         assertEquals("d119dad0-2dd9-4ef3-af56-de9395d5b57e", result2)
 
         // Test accessing non-existent index (should return null)
-        val template3 = "\${incoming[\"R\"].valueOfTag(20013, 2)}"
+        val template3 = "\${incoming[\"R\"].valueOfTag(20001, 2)}"
         val result3 = FixMessageTemplate.evaluate(template3, incomingMessages = incomingMap)
         assertEquals("null", result3)
     }
@@ -949,11 +949,11 @@ class FixMessageTemplateTest {
         message.setString(131, "quote-req-id")
 
         val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg1.setString(20013, "first-value")
+        leg1.setString(20001, "first-value")
         message.addGroup(leg1)
 
         val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg2.setString(20013, "second-value")
+        leg2.setString(20001, "second-value")
         message.addGroup(leg2)
 
         val fixMessage =
@@ -968,7 +968,7 @@ class FixMessageTemplateTest {
         val incomingMap = mapOf("R" to fixMessage)
 
         // Test backwards compatibility: valueOfTag(tag) without index should return first value
-        val template = "\${incoming[\"R\"].valueOfTag(20013)}"
+        val template = "\${incoming[\"R\"].valueOfTag(20001)}"
         val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
         assertEquals("first-value", result)
     }
@@ -981,15 +981,15 @@ class FixMessageTemplateTest {
         message.setString(131, "quote-req-id")
 
         val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg1.setString(20013, "leg1-id")
+        leg1.setString(20001, "leg1-id")
         message.addGroup(leg1)
 
         val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg2.setString(20013, "leg2-id")
+        leg2.setString(20001, "leg2-id")
         message.addGroup(leg2)
 
         val leg3 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg3.setString(20013, "leg3-id")
+        leg3.setString(20001, "leg3-id")
         message.addGroup(leg3)
 
         val fixMessage =
@@ -1004,17 +1004,17 @@ class FixMessageTemplateTest {
         val incomingMap = mapOf("R" to fixMessage)
 
         // Test getting all values as a list
-        val template = "\${incoming[\"R\"].allValuesOfTag(20013)}"
+        val template = "\${incoming[\"R\"].allValuesOfTag(20001)}"
         val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
         assertEquals("[leg1-id, leg2-id, leg3-id]", result)
 
         // Test getting size of the list
-        val template2 = "\${incoming[\"R\"].allValuesOfTag(20013).size}"
+        val template2 = "\${incoming[\"R\"].allValuesOfTag(20001).size}"
         val result2 = FixMessageTemplate.evaluate(template2, incomingMessages = incomingMap)
         assertEquals("3", result2)
 
         // Test accessing by index via allValuesOfTag
-        val template3 = "\${incoming[\"R\"].allValuesOfTag(20013)[1]}"
+        val template3 = "\${incoming[\"R\"].allValuesOfTag(20001)[1]}"
         val result3 = FixMessageTemplate.evaluate(template3, incomingMessages = incomingMap)
         assertEquals("leg2-id", result3)
     }
@@ -1051,14 +1051,14 @@ class FixMessageTemplateTest {
 
         // First leg
         val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg1.setString(20013, "8c2b290c-f292-4ae9-af8f-66340623deec")
+        leg1.setString(20001, "8c2b290c-f292-4ae9-af8f-66340623deec")
         leg1.setString(687, "1000")
         leg1.setString(556, "EUR")
         message.addGroup(leg1)
 
         // Second leg
         val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg2.setString(20013, "d119dad0-2dd9-4ef3-af56-de9395d5b57e")
+        leg2.setString(20001, "d119dad0-2dd9-4ef3-af56-de9395d5b57e")
         leg2.setString(687, "2000")
         leg2.setString(556, "USD")
         message.addGroup(leg2)
@@ -1078,15 +1078,15 @@ class FixMessageTemplateTest {
         val template =
             "35=S|131=\${incoming[\"R\"].valueOfTag(131)}|" +
                 "555=2|" +
-                "20013=\${incoming[\"R\"].valueOfTag(20013, 0)}|687=\${incoming[\"R\"].valueOfTag(687, 0)}|" +
-                "20013=\${incoming[\"R\"].valueOfTag(20013, 1)}|687=\${incoming[\"R\"].valueOfTag(687, 1)}"
+                "20001=\${incoming[\"R\"].valueOfTag(20001, 0)}|687=\${incoming[\"R\"].valueOfTag(687, 0)}|" +
+                "20001=\${incoming[\"R\"].valueOfTag(20001, 1)}|687=\${incoming[\"R\"].valueOfTag(687, 1)}"
 
         val result = FixMessageTemplate.evaluate(template, incomingMessages = incomingMap)
 
         assertEquals(
             "35=S|131=quote-req-id|555=2|" +
-                "20013=8c2b290c-f292-4ae9-af8f-66340623deec|687=1000|" +
-                "20013=d119dad0-2dd9-4ef3-af56-de9395d5b57e|687=2000",
+                "20001=8c2b290c-f292-4ae9-af8f-66340623deec|687=1000|" +
+                "20001=d119dad0-2dd9-4ef3-af56-de9395d5b57e|687=2000",
             result,
         )
     }
@@ -1100,11 +1100,11 @@ class FixMessageTemplateTest {
         message.setString(11, "another-single") // Another single tag
 
         val leg1 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg1.setString(20013, "repeat1")
+        leg1.setString(20001, "repeat1")
         message.addGroup(leg1)
 
         val leg2 = quickfix.fix44.QuoteRequest.NoRelatedSym()
-        leg2.setString(20013, "repeat2")
+        leg2.setString(20001, "repeat2")
         message.addGroup(leg2)
 
         val fixMessage =
@@ -1124,11 +1124,11 @@ class FixMessageTemplateTest {
         assertEquals("single-value", result1)
 
         // Repeating tags with index
-        val template2 = "\${incoming[\"R\"].valueOfTag(20013, 0)}"
+        val template2 = "\${incoming[\"R\"].valueOfTag(20001, 0)}"
         val result2 = FixMessageTemplate.evaluate(template2, incomingMessages = incomingMap)
         assertEquals("repeat1", result2)
 
-        val template3 = "\${incoming[\"R\"].valueOfTag(20013, 1)}"
+        val template3 = "\${incoming[\"R\"].valueOfTag(20001, 1)}"
         val result3 = FixMessageTemplate.evaluate(template3, incomingMessages = incomingMap)
         assertEquals("repeat2", result3)
 
@@ -1138,7 +1138,7 @@ class FixMessageTemplateTest {
         assertEquals("1", result4)
 
         // Repeating tag accessed as list should have size 2
-        val template5 = "\${incoming[\"R\"].allValuesOfTag(20013).size}"
+        val template5 = "\${incoming[\"R\"].allValuesOfTag(20001).size}"
         val result5 = FixMessageTemplate.evaluate(template5, incomingMessages = incomingMap)
         assertEquals("2", result5)
     }
@@ -1336,10 +1336,10 @@ class FixMessageTemplateTest {
     @Test
     fun testValidateExpressions_RepeatingGroupAccess_Valid() {
         // Given: An incoming message with repeating groups
-        val incomingMsg = createMockFixMessage("R", 131 to "quote1", 20013 to "value1")
+        val incomingMsg = createMockFixMessage("R", 131 to "quote1", 20001 to "value1")
         val incomingMap = mapOf("R" to incomingMsg)
 
-        val value = "\${incoming[\"R\"].valueOfTag(20013, 0)}"
+        val value = "\${incoming[\"R\"].valueOfTag(20001, 0)}"
 
         // When: Validating the expressions
         val errors = FixMessageTemplate.validateExpressions(value, incomingMessages = incomingMap)

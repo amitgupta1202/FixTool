@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 /**
  * The dictionary-mismatch lint: tags a message carries that the loaded dictionary does not define
  * for its message type are named locally — instead of surfacing minutes later as a cryptic
- * counterparty reject (the live BrokerTec-vs-standard-FIX44 QuoteRequest confusion).
+ * counterparty reject (a venue-dialect-vs-standard-FIX44 QuoteRequest confusion seen live).
  */
 class DictionaryLintTest {
     private val dictionary = FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4)

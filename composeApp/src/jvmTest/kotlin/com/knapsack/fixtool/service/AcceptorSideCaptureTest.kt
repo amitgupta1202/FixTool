@@ -83,7 +83,9 @@ class AcceptorSideCaptureTest {
     }
 
     private fun matcherFor(expect: ScenarioStep.Expect, tag: Int): Matcher? =
-        expect.expectation.fields.firstOrNull { it.tag == tag }?.matcher
+        expect.expectation.fields
+            .firstOrNull { it.tag == tag }
+            ?.matcher
 
     private fun valueFor(send: ScenarioStep.Send, tag: Int): String? =
         FixMessageHelper.parseFixMessage(send.raw).firstOrNull { it.first == tag }?.second
@@ -105,7 +107,10 @@ class AcceptorSideCaptureTest {
     @Test
     fun `an acceptor echoes the counterparty's ClOrdID on its reply rather than minting a new one`() {
         val (expect, send) = capture(MintingSide.VENUE)
-        val bound = expect.expectation.fields.firstOrNull { it.tag == 11 }?.bindAs
+        val bound =
+            expect.expectation.fields
+                .firstOrNull { it.tag == 11 }
+                ?.bindAs
         assertNotNull(bound, "the inbound ClOrdID must be captured into scope for the reply to quote")
         assertEquals("\${$bound}", valueFor(send, 11), "the reply must echo the bound ClOrdID")
     }
@@ -153,6 +158,7 @@ class AcceptorSideCaptureTest {
                 sessions = listOf(orderAndReply()),
                 dictionary = dictionary,
             )
-        assertEquals(declared.second.raw, undeclared.steps.filterIsInstance<ScenarioStep.Send>().single().raw)
+        val undeclaredSend = undeclared.steps.filterIsInstance<ScenarioStep.Send>().single()
+        assertEquals(declared.second.raw, undeclaredSend.raw)
     }
 }

@@ -154,7 +154,7 @@ object Conversations {
      * reason: a proprietary tag in this source is a claim about every venue. A venue whose status lives
      * in its own tag shows up through [composition] instead, which needs no declaration.
      */
-    private val STATUS_TAGS = listOf(39, 297, 88) // OrdStatus, QuoteStatus, AllocStatus
+    private val STATUS_TAGS = listOf(39, 297, 87) // OrdStatus, QuoteStatus, AllocStatus
 
     fun summarize(conversation: Conversation, dictionary: FixDictionaryAdapter?): Summary {
         val messages = conversation.messages

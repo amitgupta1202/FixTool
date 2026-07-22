@@ -152,6 +152,28 @@ class ConversationsTest {
         assertTrue(summary.status?.valueName?.contains("FILL", ignoreCase = true) == true, "was ${summary.status}")
     }
 
+    /**
+     * The status set is standard FIX and each entry is the tag it claims to be. Written as
+     * `88 // AllocStatus`, which is AllocRejCode — a header would then quote a reject code as the
+     * allocation's state, or quote nothing where 87 was sent. Cheap to get wrong, invisible once shipped.
+     */
+    @Test
+    fun `the status tags are the fields they are named for`() {
+        val dict = dictionary
+        assertEquals("OrdStatus", dict.getFieldName(39))
+        assertEquals("QuoteStatus", dict.getFieldName(297))
+        assertEquals("AllocStatus", dict.getFieldName(87))
+
+        val allocated =
+            listOf(msg("35=J|70=ALLOC-1|87=2|", out), msg("35=P|70=ALLOC-1|87=3|"))
+        val summary =
+            Conversations.summarize(
+                Conversations.group(allocated, dictionary).conversations.single(),
+                dictionary,
+            )
+        assertEquals(87, summary.status?.tag, "an allocation's state is AllocStatus, not AllocRejCode")
+    }
+
     /** Nothing stated a status, so the header states none — rather than inferring one from the absence. */
     @Test
     fun `a conversation that never stated a status has none`() {

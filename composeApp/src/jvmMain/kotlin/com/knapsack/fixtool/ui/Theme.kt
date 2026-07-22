@@ -146,6 +146,17 @@ object AppTheme {
         /** Empty/blank field background highlight */
         val emptyFieldBackground = Color(0xFF3A3520) // Muted yellow-brown for dark theme
 
+        /**
+         * A field grid row answering the search box. Every grid that tints a match uses this one gold, so a
+         * reader who has learned it in the message editor already knows it in the scenario editor's Send step.
+         * Surfaces whose row background already means something — the reconcile diff, where it is the
+         * pass/fail ledger — outline the row in [searchMatchEdge] instead of repainting it.
+         */
+        val searchMatch = Color(0xFF3D3D1F) // Dark yellow/gold tint for search matches
+
+        /** The same match, said as an edge, for rows whose background is already spoken for. */
+        val searchMatchEdge = Color(0xFFD7BA7D)
+
         // ========== Field & Tag Colors ==========
         /** Field names/labels */
         val fieldName = Color(0xFF4EC9B0)

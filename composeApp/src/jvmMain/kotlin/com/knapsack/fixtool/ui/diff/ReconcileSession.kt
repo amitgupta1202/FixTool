@@ -12,6 +12,7 @@ import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.ExpectationEvaluator
+import com.knapsack.fixtool.service.FieldSearch
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -24,6 +25,7 @@ import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.SemanticsRegistry
 import com.knapsack.fixtool.service.compare.Verdict
 import com.knapsack.fixtool.service.mintName
+import com.knapsack.fixtool.ui.matcherSummary
 import java.time.Instant
 
 /**
@@ -682,6 +684,42 @@ class ReconcileSession(
         val carriesValue =
             value != null && (line.right?.value == value || (matcher as? Matcher.Exact)?.value == value)
         return mentionsName || carriesValue
+    }
+
+    // ---------------------------------------------------------------------------- the search box
+
+    /**
+     * **The reader's query.** A reading aid like [highlightedVariable], and emphatically not a filter: a
+     * hundred-row reply is exactly where a reader needs to find tag 44, and also exactly where hiding the
+     * other ninety-nine would break the one promise this surface makes — that the right column is the reply,
+     * *whole*, in wire order (see `GhostLineTest`). So every row stays; the ones that answer are outlined.
+     */
+    var searchQuery: String by mutableStateOf("")
+
+    /**
+     * Which match `↓`/`↑` has walked to — an index into the *matches*, not into the rows.
+     *
+     * It is here rather than in the body because the box that moves it and the list that scrolls for it are
+     * different composables, and the body already takes its other two scroll orders ([DiffSelection] and the
+     * deep link's tag) the same way.
+     */
+    var searchCursor: Int by mutableStateOf(0)
+
+    /** Does this line answer [searchQuery]? Both sides of it: what is asserted, and what the venue sent. */
+    fun matchesSearch(line: DiffLine): Boolean {
+        if (searchQuery.isBlank()) return false
+        val tag = line.row.tag
+        val name = dictionary?.getFieldName(tag)
+        // The venue's value, and the assertion's own text. Searching "1.09244" should find the row whether
+        // that number is what arrived, what was expected, or — on a passing row — both.
+        return FieldSearch.matches(searchQuery, tag, name, line.right?.value) ||
+            FieldSearch.matches(searchQuery, null, null, line.row.matcher?.let { matcherSummary(it) })
+    }
+
+    /** Reset the walk. A new query starts at its first match, not wherever the last one had got to. */
+    fun search(query: String) {
+        searchQuery = query
+        searchCursor = 0
     }
 
     // ---------------------------------------------------------------------------- the model

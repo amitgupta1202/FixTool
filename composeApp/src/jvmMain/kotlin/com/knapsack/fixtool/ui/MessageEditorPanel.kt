@@ -1514,7 +1514,8 @@ fun MessageEditorPanel(
 
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
 
-        // Search bar
+        // Search bar — the app's one field-grid search box, which this panel invented and now shares with
+        // the scenario editor's Send grid and the reconcile diff. See [SlimSearchBar].
         Box(
             modifier =
                 Modifier
@@ -1522,74 +1523,12 @@ fun MessageEditorPanel(
                     .background(AppTheme.Colors.surface)
                     .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            SlimSearchBar(
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                testTag = "editor-search",
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = "Search",
-                    tint = AppTheme.Colors.textDisabled,
-                    modifier = iconSize16,
-                )
-
-                val searchInteractionSource = remember { MutableInteractionSource() }
-                val searchIsFocused by searchInteractionSource.collectIsFocusedAsState()
-
-                BasicTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .height(22.dp)
-                            .background(AppTheme.Colors.background, RoundedCornerShape(2.dp))
-                            .border(
-                                width = 1.dp,
-                                color = if (searchIsFocused) AppTheme.Colors.primary else AppTheme.Colors.border,
-                                shape = RoundedCornerShape(2.dp),
-                            ).padding(horizontal = 6.dp, vertical = 3.dp),
-                    textStyle =
-                        TextStyle(
-                            fontSize = 10.sp,
-                            color = AppTheme.Colors.text,
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                    singleLine = true,
-                    cursorBrush = SolidColor(AppTheme.Colors.primary),
-                    interactionSource = searchInteractionSource,
-                    decorationBox = { innerTextField ->
-                        if (searchQuery.isEmpty() && !searchIsFocused) {
-                            Text(
-                                text = "Search tags, names, or values...",
-                                style =
-                                    TextStyle(
-                                        fontSize = 10.sp,
-                                        color = AppTheme.Colors.textDisabled,
-                                        fontFamily = FontFamily.Monospace,
-                                    ),
-                            )
-                        }
-                        innerTextField()
-                    },
-                )
-
-                if (searchQuery.isNotEmpty()) {
-                    TooltipIconButton(
-                        tooltip = "Clear Search",
-                        onClick = { searchQuery = "" },
-                        modifier = iconSize20,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Clear",
-                            tint = AppTheme.Colors.textSecondary,
-                            modifier = iconSize14,
-                        )
-                    }
-                }
-            }
+            )
         }
 
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
@@ -1744,20 +1683,15 @@ fun MessageEditorPanel(
                             // Mark managed fields as disabled/dimmed
                             val isManaged = field.tag in managedTags && field.tag.isNotBlank()
 
-                            // Determine if field matches search query
+                            // Does this field answer the query? The rule is shared with every other field
+                            // grid in the app, deliberately — see [FieldSearch].
                             val isHighlighted =
-                                if (searchQuery.isNotEmpty()) {
-                                    val query = searchQuery.lowercase()
-                                    val tagInt = field.tag.toIntOrNull()
-                                    val fieldName = tagInt?.let { dictionary.getFieldName(it) } ?: ""
-
-                                    // Match against tag, tag name, or value (case-insensitive)
-                                    field.tag.lowercase().contains(query) ||
-                                        fieldName.lowercase().contains(query) ||
-                                        field.value.lowercase().contains(query)
-                                } else {
-                                    false
-                                }
+                                com.knapsack.fixtool.service.FieldSearch.matches(
+                                    query = searchQuery,
+                                    tag = field.tag,
+                                    name = field.tag.toIntOrNull()?.let { dictionary.getFieldName(it) },
+                                    value = field.value,
+                                )
 
                             FieldEditorRow(
                                 field = field,
@@ -2073,7 +2007,7 @@ private fun FieldEditorRow(
         when {
             isPrimarySelection -> AppTheme.Colors.selectionPrimary // Primary selection - darker blue
             isSelected -> selectionSecondaryColor // Part of multi-selection - lighter blue
-            isHighlighted -> searchHighlightColor // Matches search query - yellow tint
+            isHighlighted -> AppTheme.Colors.searchMatch // Matches search query - the app's one gold
             else -> AppTheme.Colors.background // Not selected
         }
 
@@ -2469,7 +2403,6 @@ private val disabledIconColor = Color(0xFF4A4A4A)
 private val selectionSecondaryColor = Color(0xFF1E4A6B)
 private val placeholderColor = Color(0xFF888888)
 private val descriptionColor = Color(0xFF9A9A9A)
-private val searchHighlightColor = Color(0xFF3D3D1F) // Dark yellow/gold tint for search matches
 
 // Common modifiers
 private val iconSize28 = Modifier.size(28.dp)

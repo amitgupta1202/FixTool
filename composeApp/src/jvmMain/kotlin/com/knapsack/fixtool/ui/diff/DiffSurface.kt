@@ -80,6 +80,7 @@ import com.knapsack.fixtool.ui.MATCHER_TYPES
 import com.knapsack.fixtool.ui.MatcherEditor
 import com.knapsack.fixtool.ui.SlimButton
 import com.knapsack.fixtool.ui.SlimLabeled
+import com.knapsack.fixtool.ui.SlimSearchBar
 import com.knapsack.fixtool.ui.SlimTagPicker
 import com.knapsack.fixtool.ui.VarBadge
 import com.knapsack.fixtool.ui.VarRole
@@ -267,11 +268,87 @@ fun DiffSurface(
                 modifier = Modifier.padding(horizontal = ROW_PADDING, vertical = 2.dp),
             )
         }
+        // Every row index this query answers, in list order — computed once, here, because both the box that
+        // walks it and the body that scrolls for it need the same list and must not each build their own.
+        val matches =
+            remember(session.searchQuery, model) {
+                model.items.indices.filter { i -> (model.items[i] as? DiffItem.Line)?.let { session.matchesSearch(it.line) } == true }
+            }
+        DiffSearchStrip(session, matches.size)
         ColumnHeaders(session, session.reference.label)
-        DiffBody(session, model, focusTag, dragging, focusRequester) { dragging = it }
+        DiffBody(session, model, focusTag, matches, dragging, focusRequester) { dragging = it }
         DiffFooter(session)
     }
 }
+
+/**
+ * **The reader's search box, and the two arrows that walk it.**
+ *
+ * It sits above the column headers rather than in the header block, because it is about the *rows* and an
+ * author uses it while looking at them. It highlights and never filters — the argument is in
+ * [ReconcileSession.searchQuery], and it is the same one the ghost lines were built for.
+ *
+ * `3 / 12` rather than a bare count: in a reply this long the useful fact is not only how many rows answered
+ * but which of them the arrows have reached, and a walk with no position is a walk you lose your place in.
+ */
+@Composable
+private fun DiffSearchStrip(session: ReconcileSession, matches: Int) {
+    // The cursor can outlive the matches it indexed — edit a value and the row stops answering. Clamp on read
+    // rather than on write: the alternative is every edit path in the session remembering the search exists.
+    val cursor = if (matches == 0) 0 else session.searchCursor.coerceIn(0, matches - 1)
+
+    fun walk(delta: Int) {
+        if (matches == 0) return
+        // Wrapping, because the alternative is an arrow that goes dead at the end of a list the author cannot
+        // see the end of. `n`/`p` over the rows already wrap; two walks in one surface must agree.
+        session.searchCursor = (cursor + delta + matches) % matches
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ROW_PADDING, vertical = 3.dp),
+    ) {
+        SlimSearchBar(
+            query = session.searchQuery,
+            onQueryChange = { session.search(it) },
+            placeholder = "Search tags, names, or values…",
+            testTag = "diff-search",
+            modifier = Modifier.width(DIFF_SEARCH_WIDTH),
+            trailing = {
+                if (session.searchQuery.isNotBlank()) {
+                    Text(
+                        if (matches == 0) "no match" else "${cursor + 1} / $matches",
+                        color = if (matches == 0) AppTheme.Colors.warning else AppTheme.Colors.textSecondary,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        modifier = Modifier.testTag("diff-search-tally"),
+                    )
+                    // Glyph buttons, like ⟲ undo beside them — this surface does not wear Material icons.
+                    AppTooltip("Previous match") {
+                        SlimButton("↑", onClick = { walk(-1) }, enabled = matches > 0, modifier = Modifier.testTag("diff-search-prev"))
+                    }
+                    AppTooltip("Next match") {
+                        SlimButton("↓", onClick = { walk(1) }, enabled = matches > 0, modifier = Modifier.testTag("diff-search-next"))
+                    }
+                }
+            },
+        )
+        if (session.searchQuery.isNotBlank() && session.highlightedVariable != null) {
+            // Both highlights are outlines, and one row cannot wear two. Say which one is showing rather than
+            // letting the author wonder why the chip they clicked stopped marking anything.
+            Text(
+                "search is marking rows — the \${${session.highlightedVariable}} highlight resumes when you clear it",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
+}
+
+/** The diff's search box. Wider than the Send grid's — it shares its line with nothing else. */
+private val DIFF_SEARCH_WIDTH = 300.dp
 
 // ------------------------------------------------------------------------------------------- the header
 
@@ -1116,6 +1193,7 @@ private fun androidx.compose.foundation.layout.ColumnScope.DiffBody(
     session: ReconcileSession,
     model: DiffModel,
     focusTag: Int?,
+    searchMatches: List<Int>,
     dragging: Dragging?,
     focusRequester: FocusRequester,
     onDrag: (Dragging?) -> Unit,
@@ -1129,6 +1207,13 @@ private fun androidx.compose.foundation.layout.ColumnScope.DiffBody(
         if (focusTag == null) return@LaunchedEffect
         val at = items.indexOfFirst { it is DiffItem.Line && it.line.row.tag == focusTag }
         if (at >= 0) listState.scrollToItem(at)
+    }
+
+    // The match `↓`/`↑` walked to. A highlight the author still has to scroll for answers half the question,
+    // and on a 200-field snapshot the half it answers is the one they could already see.
+    LaunchedEffect(session.searchCursor, searchMatches) {
+        val at = searchMatches.getOrNull(session.searchCursor.coerceIn(0, (searchMatches.size - 1).coerceAtLeast(0)))
+        if (at != null) listState.scrollToItem(at)
     }
 
     // Keep the selection on screen when the KEYBOARD moved it — and only then. Scrolling because the author
@@ -1327,12 +1412,16 @@ private fun DiffRow(
     handlers: DragHandlers,
 ) {
     // The strip's highlight: a border in the variable's own color, on top of whatever tint the row earns —
-    // the highlight says "this line is about ${id0}", it must not repaint what the line IS.
+    // the highlight says "this line is about ${id0}", it must not repaint what the line IS. The search mark
+    // is the same idea and therefore the same channel, and where both apply search wins: a query is something
+    // the author is doing right now, the variable highlight is something they left switched on. The strip
+    // says so when it takes over, so the chip does not merely appear to have stopped working.
+    val matchesSearch = session.matchesSearch(line)
     val highlightColor =
-        if (session.highlights(line)) {
-            varColorMap(session.reference.variables.map { it.name })[session.highlightedVariable]
-        } else {
-            null
+        when {
+            matchesSearch -> AppTheme.Colors.searchMatchEdge
+            session.highlights(line) -> varColorMap(session.reference.variables.map { it.name })[session.highlightedVariable]
+            else -> null
         }
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -1343,7 +1432,13 @@ private fun DiffRow(
                 .then(if (highlightColor != null) Modifier.border(1.dp, highlightColor) else Modifier)
                 .selectable(onSelect)
                 .padding(horizontal = ROW_PADDING, vertical = 2.dp)
-                .testTag(if (highlightColor != null) "diff-row-highlighted" else "diff-row"),
+                .testTag(
+                    when {
+                        matchesSearch -> "diff-row-search-match"
+                        highlightColor != null -> "diff-row-highlighted"
+                        else -> "diff-row"
+                    },
+                ),
     ) {
         Box(modifier = Modifier.weight(LEFT_WEIGHT)) { LeftCell(session, line, depth, handlers) }
         Box(modifier = Modifier.width(GUTTER), contentAlignment = Alignment.Center) { Gutter(session, line) }

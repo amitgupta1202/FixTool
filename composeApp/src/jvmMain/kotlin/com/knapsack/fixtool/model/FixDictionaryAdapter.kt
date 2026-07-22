@@ -21,7 +21,40 @@ class FixDictionaryAdapter private constructor(
     /** Transport dictionary for FIXT.1.1 sessions (FIX 5.0+), null for FIX 4.x */
     private val transportDictionary: DataDictionary? = null,
     private val transportDictionaryPath: String? = null,
+    /** True for the bundled standard dictionaries, which are the floor and so have none themselves. */
+    private val isStandard: Boolean = false,
 ) {
+    /**
+     * **The standard FIX dictionary for this version — the comprehension floor.**
+     *
+     * A dictionary does two different jobs, and only one of them belongs to the venue:
+     *
+     *  - **Conformance** — *what will this counterparty accept?* Only the loaded file can answer, and
+     *    [getDataDictionary] hands it over untouched. Validation, session setup and the group walker all
+     *    go there and are unaffected by anything below.
+     *  - **Comprehension** — *what kind of thing is this field?* Is `AvgPx(6)` a price, is `TransactTime`
+     *    a timestamp, what are `OrdRejReason`'s values. Standard FIX has answered that for twenty years.
+     *
+     * Both questions used to go to the loaded file, so a venue dictionary — which is *correctly* a subset,
+     * listing only what that venue speaks — silently un-defined standard fields. Capture then read "no
+     * type" as "untyped string" and seeded `Exact` on a price; the row went permanently red; and the fix
+     * plan offered *loosen to presence* while **refusing** *widen the tolerance*, because `numericFamily`
+     * needs a type it no longer had. Coverage removed, wearing the costume of a repair.
+     *
+     * So a venue dictionary states **which** fields exist and adds its own. It does not get to say what
+     * `AvgPx` means. Consulted only after the loaded dictionary has had its say, so a venue that
+     * deliberately redefines a standard tag still wins.
+     */
+    private val standard: FixDictionaryAdapter? by lazy {
+        // Only when a dictionary IS loaded. "No dictionary" is a different state with its own meaning —
+        // isLoaded() is false, the toolbar says so, and a field genuinely has no name. Silently answering
+        // as though FIX 4.4 were loaded would make that state indistinguishable from a real one.
+        if (isStandard || dataDictionary == null) {
+            null
+        } else {
+            runCatching { forVersion(fixVersion) }.getOrNull()?.takeIf { it !== this }
+        }
+    }
     /**
      * Gets the field name for a given tag number
      */
@@ -62,8 +95,20 @@ class FixDictionaryAdapter private constructor(
         if (appName != null) return appName
 
         // For FIX 5.0+, also check transport dictionary for header/trailer fields
-        return transportDictionary?.getFieldName(tag)
+        return transportDictionary?.getFieldName(tag) ?: standard?.getFieldName(tag)
     }
+
+    /**
+     * **The field's declared type** — `PRICE`, `UTCTIMESTAMP`, `QTY` — or null if nobody knows it.
+     *
+     * A comprehension question, so it goes through [standard] rather than straight to the conformance
+     * dictionary. Callers deciding how to *treat* a value (seed a matcher, stamp a replay) ask this;
+     * callers deciding whether a message is *acceptable* keep asking [getDataDictionary].
+     */
+    fun fieldType(tag: Int): String? =
+        runCatching { dataDictionary?.getFieldType(tag)?.name }.getOrNull()
+            ?: runCatching { transportDictionary?.getFieldType(tag)?.name }.getOrNull()
+            ?: standard?.fieldType(tag)
 
     /**
      * Gets the enum value description for a field tag and value
@@ -72,9 +117,10 @@ class FixDictionaryAdapter private constructor(
         try {
             dataDictionary?.getValueName(tag, value)
                 ?: transportDictionary?.getValueName(tag, value)
+                ?: standard?.getFieldValueDescription(tag, value)
         } catch (e: Exception) {
             // DataDictionary throws exception if value name not found
-            null
+            standard?.getFieldValueDescription(tag, value)
         }
 
     /**
@@ -445,6 +491,7 @@ class FixDictionaryAdapter private constructor(
 
                     logger.info("Created FixDictionaryAdapter for version: {}", version.displayName)
                     FixDictionaryAdapter(
+                        isStandard = true,
                         dataDictionary = appDictionary,
                         dictionaryPath = appTempFile.absolutePath,
                         fieldEnumValues = enumValues,
@@ -569,13 +616,20 @@ class FixDictionaryAdapter private constructor(
     /**
      * Checks if a field has enumerated values defined in the dictionary
      */
-    fun hasFieldValues(tag: Int): Boolean = fieldEnumValues.containsKey(tag) && fieldEnumValues[tag]!!.isNotEmpty()
+    fun hasFieldValues(tag: Int): Boolean = getFieldEnumValues(tag).isNotEmpty()
 
     /**
      * Gets all possible enum values for a field.
      * Returns a list of value-description pairs.
      */
-    fun getFieldEnumValues(tag: Int): List<Pair<String, String>> = fieldEnumValues[tag] ?: emptyList()
+    fun getFieldEnumValues(tag: Int): List<Pair<String, String>> =
+        fieldEnumValues[tag]?.takeIf { it.isNotEmpty() } ?: standard?.getFieldEnumValues(tag) ?: emptyList()
+
+    /** The enum values the LOADED dictionary declares, with no standard fallback — what [DictionaryLint] compares. */
+    fun declaredEnumValues(tag: Int): List<Pair<String, String>> = fieldEnumValues[tag] ?: emptyList()
+
+    /** Does the loaded dictionary itself define this tag? The conformance question, for lint and warnings. */
+    fun declaresField(tag: Int): Boolean = runCatching { dataDictionary?.getFieldName(tag) != null }.getOrDefault(false)
 
     /**
      * Gets all fields defined in the dictionary.

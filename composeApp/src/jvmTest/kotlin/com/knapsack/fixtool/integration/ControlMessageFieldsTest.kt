@@ -15,7 +15,6 @@ import org.junit.Before
 import org.junit.Test
 import quickfix.Message
 import java.io.File
-import java.net.ServerSocket
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -57,7 +56,8 @@ class ControlMessageFieldsTest {
         "8=FIX.4.4${soh}35=8${soh}34=2${soh}49=VENUE${soh}56=US${soh}11=ORD-1${soh}39=8$soh" +
             "58=filled|in full${soh}10=004$soh"
 
-    private fun freePort(): Int = ServerSocket(0).use { it.localPort }
+    /** See [TestPorts]: an ephemeral port closed before it is bound is a race this suite kept losing. */
+    private fun freePort(): Int = TestPorts.free()
 
     @Before
     fun setup() {

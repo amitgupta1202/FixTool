@@ -405,23 +405,38 @@ fun HierarchicalGridView(
     // Track if user is at the bottom.
     // remember is load-bearing: without it a fresh DerivedState is allocated on every
     // recomposition, so the caching derivedStateOf exists to provide never happens and the
+    // The render list: flat indices, or conversations spliced in. Hoisted above the scroll
+    // effects because scroll targets are ROW indices — in grouped mode the header rows offset
+    // every position, and a collapsed group removes its members from the list entirely, so a
+    // message index used as an item index points at the wrong row (or past the end).
+    val renderRows =
+        remember(messages, groupByConversation, collapsedConversations, dictionary) {
+            if (!groupByConversation) {
+                messages.indices.map { ConversationRows.Row.Message(it) }
+            } else {
+                ConversationRows.build(messages, dictionary, collapsedConversations)
+            }
+        }
+
+    /** The row showing [messageIndex], or -1 while a collapsed group hides it. */
+    fun rowIndexOf(messageIndex: Int): Int =
+        renderRows.indexOfFirst { it is ConversationRows.Row.Message && it.index == messageIndex }
+
     // dependency on listState is re-subscribed each time.
     val isAtBottom by remember(listState) {
         derivedStateOf { !listState.canScrollForward }
     }
 
-    // When a new message arrives, scroll to bottom if autoScroll is enabled
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty() && autoScroll) {
+    // When a new message arrives (or the grouping refolds), scroll to the table's bottom if
+    // autoScroll is enabled. Row count, not message count: in grouped mode the last row may be
+    // the Ungrouped section rather than the newest arrival — "stick to the bottom of the table"
+    // is the honest reading of auto-scroll there.
+    LaunchedEffect(renderRows.size) {
+        if (renderRows.isNotEmpty() && autoScroll) {
             // Wait for layout to complete before scrolling
             kotlinx.coroutines.delay(50)
-            // Double-check messages still exist and index is valid
-            if (messages.isNotEmpty()) {
-                val targetIndex = messages.size - 1
-                // Only scroll if the target index is within bounds of the layout info
-                if (targetIndex >= 0 && targetIndex < messages.size) {
-                    listState.scrollToItem(targetIndex)
-                }
+            if (renderRows.isNotEmpty()) {
+                listState.scrollToItem(renderRows.size - 1)
             }
         }
     }
@@ -451,8 +466,8 @@ fun HierarchicalGridView(
 
     // React to scroll-to-bottom trigger from parent
     LaunchedEffect(scrollToBottomTrigger) {
-        if (scrollToBottomTrigger > 0 && messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+        if (scrollToBottomTrigger > 0 && renderRows.isNotEmpty()) {
+            listState.animateScrollToItem(renderRows.size - 1)
             autoScroll = true
         }
     }
@@ -549,13 +564,15 @@ fun HierarchicalGridView(
         }
     }
 
-    // Scroll to selected message when it changes
-    LaunchedEffect(selectedMessage) {
+    // Scroll to selected message when it changes — by ROW index, which differs from the message
+    // index whenever headers are spliced in. -1 means a collapsed group hides it; scrolling
+    // nowhere is right, jumping to an unrelated row was not.
+    LaunchedEffect(selectedMessage, renderRows) {
         if (selectedMessage != null) {
-            val messageIndex = messages.indexOf(selectedMessage)
-            if (messageIndex >= 0) {
+            val rowIndex = messages.indexOf(selectedMessage).takeIf { it >= 0 }?.let(::rowIndexOf) ?: -1
+            if (rowIndex >= 0) {
                 coroutineScope.launch {
-                    listState.animateScrollToItem(messageIndex)
+                    listState.animateScrollToItem(rowIndex)
                 }
             }
         }
@@ -972,19 +989,7 @@ fun HierarchicalGridView(
                         Spacer(modifier = Modifier.weight(1f))
                     }
 
-                    // The render list: flat indices, or conversations spliced in. Either way each
-                    // Message row keeps its index into `messages` — selection ranges, assertion
-                    // overlays and shift-click all key on it. See [ConversationRows].
-                    val renderRows =
-                        remember(messages, groupByConversation, collapsedConversations, dictionary) {
-                            if (!groupByConversation) {
-                                messages.indices.map { ConversationRows.Row.Message(it) }
-                            } else {
-                                ConversationRows.build(messages, dictionary, collapsedConversations)
-                            }
-                        }
-
-                    // Message rows
+                    // Message rows (renderRows is hoisted above the scroll effects — see there)
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.weight(1f),

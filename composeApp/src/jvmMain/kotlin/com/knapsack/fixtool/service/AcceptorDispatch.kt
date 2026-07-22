@@ -46,33 +46,30 @@ class AcceptorDispatch(
     private val pending = ConcurrentHashMap<SessionID, MutableSet<ScheduledFuture<*>>>()
 
     /**
-     * Schedules [message] to be sent to [sessionId] after [delayMillis].
+     * Schedules the message [build] returns to be sent to [sessionId] after [delayMillis].
      *
      * Returns immediately — a zero delay means "as soon as this thread is free", never "now, on
-     * yours". A delay in the past is treated as zero rather than refused; the caller's arithmetic
-     * over a sequence's offsets is allowed to be sloppy at the edges.
+     * yours". A negative delay is treated as zero rather than refused; the caller's arithmetic over a
+     * sequence's offsets is allowed to be sloppy at the edges.
+     *
+     * [build] runs on the dispatch thread, immediately before the send, so a step's `${uuid}` and
+     * `${now}` describe that step and not the trigger that queued it. A build that throws is reported
+     * exactly like a send that throws — the step is lost, the rest of the sequence is not.
      */
-    fun schedule(message: Message, sessionId: SessionID, delayMillis: Long) {
+    fun schedule(sessionId: SessionID, delayMillis: Long, build: () -> Message) {
         val futures = pending.computeIfAbsent(sessionId) { ConcurrentHashMap.newKeySet() }
-        // The future has to be reachable from inside its own body to un-track itself, and it does not
-        // exist until schedule() returns. The holder closes that gap; it is only ever touched from
-        // the single dispatch thread plus this one write, both after the array is allocated.
-        val holder = arrayOfNulls<ScheduledFuture<*>>(1)
-        val future =
-            executor.schedule(
-                {
-                    holder[0]?.let { futures.remove(it) }
-                    dispatch(message, sessionId)
-                },
-                delayMillis.coerceAtLeast(0),
-                TimeUnit.MILLISECONDS,
-            )
-        holder[0] = future
+        // Finished work is pruned here rather than by each task removing itself. Self-removal needs
+        // the future to be reachable from inside its own body, which it is not until schedule()
+        // returns — and a zero-delay task can run before that, so the reference it reads is racily
+        // null and the entry never leaves. Pruning on the way in has neither problem.
+        futures.removeIf { it.isDone }
+        val future = executor.schedule({ dispatch(build, sessionId) }, delayMillis.coerceAtLeast(0), TimeUnit.MILLISECONDS)
         futures.add(future)
-        // Lost the race with cancelAll: the session went away between computeIfAbsent and here, so
-        // this future is in a set nobody will cancel. Cancel it ourselves rather than let it fire at
-        // a session that has already logged out.
-        if (!pending.containsKey(sessionId)) future.cancel(false)
+        // Lost the race with cancelAll: the session went away while this was being queued, so the set
+        // just added to is one nobody will ever cancel. Identity, not mere presence — a same-named
+        // session logging straight back on installs a *different* set, and this future belongs to
+        // neither it nor anyone.
+        if (pending[sessionId] !== futures) future.cancel(false)
     }
 
     /** Drops everything still queued for [sessionId] — called when the session logs out. */
@@ -80,8 +77,8 @@ class AcceptorDispatch(
         pending.remove(sessionId)?.forEach { it.cancel(false) }
     }
 
-    /** How many sends are still queued for [sessionId]. For tests and diagnostics. */
-    fun pendingCount(sessionId: SessionID): Int = pending[sessionId]?.size ?: 0
+    /** How many sends are still waiting for their moment on [sessionId]. For tests and diagnostics. */
+    fun pendingCount(sessionId: SessionID): Int = pending[sessionId]?.count { !it.isDone } ?: 0
 
     override fun close() {
         pending.keys.toList().forEach { cancelAll(it) }
@@ -89,8 +86,9 @@ class AcceptorDispatch(
     }
 
     @Suppress("TooGenericExceptionCaught")
-    private fun dispatch(message: Message, sessionId: SessionID) {
+    private fun dispatch(build: () -> Message, sessionId: SessionID) {
         try {
+            val message = build()
             send(message, sessionId)
             onSent(message)
         } catch (e: Exception) {

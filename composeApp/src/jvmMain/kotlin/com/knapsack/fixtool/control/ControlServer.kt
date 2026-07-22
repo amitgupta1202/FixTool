@@ -1649,6 +1649,42 @@ class ControlServer(
                                         buildJsonObject { rule.whenFields.forEach { (k, v) -> put(k, v) } },
                                     )
                                     put("responseTemplate", rule.responseTemplate)
+                                    // The reply as it will actually be played, with the offset each step
+                                    // goes out at — a reader asking "what does this rule do" should not
+                                    // have to re-do the accumulation, nor work out which of the two
+                                    // spellings won. `steps` echoes what was written; `sequence` resolves it.
+                                    put(
+                                        "steps",
+                                        buildJsonArray {
+                                            rule.steps.forEach { step ->
+                                                add(
+                                                    buildJsonObject {
+                                                        put("template", step.template)
+                                                        put("delayMillis", step.delayMillis)
+                                                    },
+                                                )
+                                            }
+                                        },
+                                    )
+                                    var offset = 0L
+                                    put(
+                                        "sequence",
+                                        buildJsonArray {
+                                            rule.sequence().forEach { step ->
+                                                offset += step.delayMillis.coerceAtLeast(0)
+                                                add(
+                                                    buildJsonObject {
+                                                        put("template", step.template)
+                                                        put("offsetMillis", offset)
+                                                    },
+                                                )
+                                            }
+                                        },
+                                    )
+                                    // A rule nobody can act on is worse than no rule: it looks configured.
+                                    // There is no authoring UI to catch this, so the read surface is the
+                                    // only place it can be said.
+                                    rule.validationError()?.let { put("validationError", it) }
                                 },
                             )
                         }

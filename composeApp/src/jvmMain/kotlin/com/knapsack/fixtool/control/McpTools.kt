@@ -424,9 +424,15 @@ object McpTools {
             tool(
                 "fixtool_acceptor_rules",
                 "Inspect a profile's acceptor auto-response rules (rules are set via fixtool_save_profile's config, " +
-                    "as acceptorResponseRules:[{whenMsgType, whenFields?, responseTemplate}]). A responseTemplate " +
-                    "understands a restricted subset of the template language — \${req.<tag>} to echo a request " +
-                    "field, \${uuid} and \${now} — and nothing else; see fixtool_syntax.",
+                    "as acceptorResponseRules:[{whenMsgType, whenFields?, steps:[{template, delayMillis}]}]). " +
+                    "A rule replies with a sequence: each step's delayMillis is measured from the step before it, " +
+                    "so 0/500/500 is ack, half a second later a partial fill, half a second after that the rest. " +
+                    "The older single-message spelling (responseTemplate) still works and reads as one immediate " +
+                    "step. A template understands a restricted subset of the template language — \${req.<tag>} to " +
+                    "echo a request field, \${uuid} and \${now} — and nothing else; see fixtool_syntax. \${req.<tag>} " +
+                    "is fixed when the trigger arrives, \${uuid} and \${now} are resolved per step as it is sent. " +
+                    "The response reports each rule's played `sequence` with the offset each step goes out at, and a " +
+                    "`validationError` on any rule that cannot reply.",
                 props("profile" to string("profile id or name")),
                 required = listOf("profile"),
             ),

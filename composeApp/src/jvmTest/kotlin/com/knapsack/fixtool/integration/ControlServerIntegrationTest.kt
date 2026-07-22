@@ -5,7 +5,9 @@ import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
+import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.MatchContextMode
+import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.put
@@ -691,6 +693,116 @@ class ControlServerIntegrationTest {
         assertEquals("matched", status(reply), "client should receive the acceptor's templated ExecutionReport")
         val raw = obj(reply)["message"]!!.jsonObject["raw"]!!.jsonPrimitive.content
         assertTrue(raw.contains("11=ORD-ACC"), "response should echo the request ClOrdID; got $raw")
+    }
+
+    /**
+     * The order lifecycle a real venue sends — ack, partial fill, fill — over a real socket, from one
+     * inbound order.
+     *
+     * The elapsed-time assertion is the point of doing this end to end. Everything above it would pass
+     * against a rule that fired all three replies at once; only the clock catches an acceptor that
+     * ignores the delays it was given, and only the clock shows the reply is no longer racing the
+     * client's own `send()` back down the wire.
+     */
+    @Test
+    fun `acceptor plays a sequence in order, taking the time the author asked for`() {
+        val port = freePort()
+        val ackThenFill =
+            AcceptorResponseRule(
+                whenMsgType = "D",
+                steps =
+                    listOf(
+                        ResponseStep(template = "35=8|150=0|39=0|37=\${uuid}|17=\${uuid}|11=\${req.11}|14=0|"),
+                        ResponseStep(
+                            template = "35=8|150=F|39=1|37=\${uuid}|17=\${uuid}|11=\${req.11}|14=50|",
+                            delayMillis = 400,
+                        ),
+                        ResponseStep(
+                            template = "35=8|150=F|39=2|37=\${uuid}|17=\${uuid}|11=\${req.11}|14=100|",
+                            delayMillis = 400,
+                        ),
+                    ),
+            )
+        val acceptor =
+            FixConnectionProfile(
+                name = "ACC",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "SEQA$runId",
+                        targetCompID = "SEQC$runId",
+                        port = port.toString(),
+                        socketAcceptPort = port.toString(),
+                        beginString = "FIX.4.4",
+                        fileStorePath = File(testDir, "seqaccstore").absolutePath,
+                        fileLogPath = File(testDir, "seqacclog").absolutePath,
+                        acceptorResponseRules = listOf(ackThenFill),
+                    ),
+            )
+        val client =
+            FixConnectionProfile(
+                name = "CLI",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                        senderCompID = "SEQC$runId",
+                        targetCompID = "SEQA$runId",
+                        host = "localhost",
+                        port = port.toString(),
+                        socketConnectHost = "localhost",
+                        beginString = "FIX.4.4",
+                        autoReconnect = false,
+                        resetOnLogon = true,
+                        fileStorePath = File(testDir, "seqclistore").absolutePath,
+                        fileLogPath = File(testDir, "seqclilog").absolutePath,
+                    ),
+            )
+
+        listOf(acceptor, client).forEach {
+            viewModel.saveConnectionProfile(it)
+            viewModel.connectProfile(it.id, it)
+        }
+        assertTrue(
+            awaitCondition(15_000) {
+                viewModel.sessions.any { it.title == "CLI" && it.connectionState.value == FixConnectionState.LOGGED_ON }
+            },
+            "client should log on to the FixTool acceptor",
+        )
+
+        fun executionReports(): List<String> =
+            viewModel.sessions
+                .first { it.title == "CLI" }
+                .messages.value
+                .filterIsInstance<FixMessage>()
+                .filter { it.direction == FixMessage.Direction.INCOMING && it.messageType == "8" }
+                .map { it.rawMessage }
+
+        val startedAt = System.nanoTime()
+        assertTrue(
+            status(post("/send", """{"session":"CLI","raw":"35=D|11=ORD-SEQ|55=EUR/USD|54=1|38=100|40=1|"}"""))
+                in listOf("sent", "warning"),
+        )
+        assertTrue(
+            awaitCondition(15_000) { executionReports().size >= 3 },
+            "the client should receive all three steps; got ${executionReports().size}",
+        )
+        val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
+
+        val reports = executionReports()
+        assertEquals(3, reports.size, "the sequence is three steps, and it plays once: $reports")
+        assertEquals(
+            listOf("39=0", "39=1", "39=2"),
+            reports.map { report -> listOf("39=0", "39=1", "39=2").first { report.contains("|$it|") } },
+            "the lifecycle must arrive in the order it was written: $reports",
+        )
+        assertTrue(
+            elapsedMillis >= 700,
+            "0/400/400ms of delay cannot complete in ${elapsedMillis}ms — the acceptor is ignoring them",
+        )
+
+        val execIds = reports.mapNotNull { Regex("\\|17=([^|]+)\\|").find(it)?.groupValues?.get(1) }
+        assertEquals(3, execIds.toSet().size, "each step mints its own ExecID; got $execIds")
+        assertTrue(reports.all { it.contains("|11=ORD-SEQ|") }, "every step echoes the request ClOrdID: $reports")
     }
 
     /**

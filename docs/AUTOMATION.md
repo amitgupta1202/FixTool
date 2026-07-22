@@ -83,7 +83,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /validate`     | `{"raw"}`                              | `{isValid, errors}` against the loaded dictionary    |
 | `GET /dictionary`    | —                                      | current FIX version + validity                       |
 | `POST /dictionary`   | `{"version"}` or `{"path", "transportPath"?}` | switch the data dictionary                    |
-| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules (set via `/profiles`) |
+| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules, each with its played `sequence` and any `validationError` (set via `/profiles`) |
 | `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
@@ -257,11 +257,29 @@ on Save. The new profile then appears in the panel's profile dropdown.
 
 When FixTool runs as an **acceptor** (`connectionType: ACCEPTOR`), it can auto-respond to incoming
 application messages using rules carried on the profile's config as `acceptorResponseRules`. Each
-rule is `{whenMsgType, whenFields?, responseTemplate}`; the first rule whose `whenMsgType` (and every
-`whenFields` entry, by exact value) matches the incoming message wins. The `responseTemplate` is raw
-FIX (app fields only — QuickFIX stamps the session header) supporting `${req.<tag>}` (echo a request
-field), `${uuid}`, and `${now}`. Rules are set via the normal `/profiles` upsert and inspected via
-`GET /acceptor/rules`.
+rule is `{whenMsgType, whenFields?, steps}`; the first rule whose `whenMsgType` (and every
+`whenFields` entry, by exact value) matches the incoming message wins. Rules are set via the normal
+`/profiles` upsert and inspected via `GET /acceptor/rules`.
+
+A rule's reply is a **sequence**: `steps` is `[{template, delayMillis?}]`, and a step's `delayMillis`
+is measured **from the step before it**, so `0 / 400 / 400` is an ack, a partial fill 400ms later,
+and the rest 400ms after that. The author writes the gaps; FixTool does the accumulation.
+
+Each `template` is raw FIX (app fields only — QuickFIX stamps the session header) supporting
+`${req.<tag>}` (echo a request field), `${uuid}`, and `${now}`. `${req.<tag>}` is fixed when the
+trigger arrives; `${uuid}` and `${now}` are resolved **per step as that step is sent**, so a fill
+carries its own ExecID and its own TransactTime rather than the acknowledgement's.
+
+Replies always leave *after* the inbound callback has returned, on a dispatch thread of their own —
+including a zero-delay one. A reply sent inline can reach the counterparty before their own `send()`
+has returned, which would let a client with wrong ordering assumptions pass here and fail against a
+real venue. Steps of one sequence keep their order; sequences triggered by different inbound messages
+interleave. Anything still queued for a session is dropped when that session logs out.
+
+The older one-message spelling, `{whenMsgType, responseTemplate}`, still works and reads as a single
+step with no delay. A rule carrying both plays `steps` and says so in `validationError` on
+`GET /acceptor/rules` — which also reports the played `sequence` with the offset each step goes out
+at, so you never have to redo the arithmetic.
 
 ```bash
 curl -s -XPOST $B/profiles -d '{
@@ -270,10 +288,17 @@ curl -s -XPOST $B/profiles -d '{
             "socketAcceptPort":"9100","beginString":"FIX.4.4",
             "acceptorResponseRules":[
               {"whenMsgType":"D",
-               "responseTemplate":"35=8|150=0|39=0|37=${uuid}|11=${req.11}|55=${req.55}|38=${req.38}"}
+               "steps":[
+                 {"template":"35=8|150=0|39=0|37=${uuid}|17=${uuid}|11=${req.11}|38=${req.38}|14=0"},
+                 {"delayMillis":400,
+                  "template":"35=8|150=F|39=1|37=${uuid}|17=${uuid}|11=${req.11}|38=${req.38}|14=50"},
+                 {"delayMillis":400,
+                  "template":"35=8|150=F|39=2|37=${uuid}|17=${uuid}|11=${req.11}|38=${req.38}|14=100"}
+               ]}
             ]}
 }'
-curl -s -XPOST $B/connect -d '{"profile":"My Acceptor"}'   # now auto-acks any NewOrderSingle
+curl -s -XPOST $B/connect -d '{"profile":"My Acceptor"}'   # a NewOrderSingle now gets ack, fill, fill
+curl -s "$B/acceptor/rules?profile=My%20Acceptor"          # offsets: 0, 400, 800
 ```
 
 ### Message templates

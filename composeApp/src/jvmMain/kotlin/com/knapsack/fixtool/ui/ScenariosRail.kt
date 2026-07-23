@@ -18,11 +18,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
@@ -157,8 +160,49 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 )
                 return@Column
             }
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                visible.forEach { scenario ->
+            // weight(1f), not a bare height: the list owns whatever the header and run report leave, and
+            // scrolls *within* it. Without the weight it was measured against the full pane height, rendered
+            // below the report, and ran off the bottom edge — the rows down there were unreachable, which is
+            // exactly what a tall failure report made routine.
+            // The scenario that just ran, lifted to the top so a failure is not buried behind the alphabet.
+            // The report above says WHAT failed; this puts the scenario itself — its row, its steps, their
+            // verdicts and per-step reconcile routes — where the eye already is, until the report is dismissed.
+            val pinned = ran?.id?.let { id -> scenarios.firstOrNull { it.id == id } }?.takeIf { result != null }
+            val pinnedId = pinned?.id
+            val listVisible = if (pinnedId != null) visible.filterNot { it.id == pinnedId } else visible
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                if (pinned != null) {
+                    item(key = "current-run-header") {
+                        Text(
+                            "CURRENT RUN",
+                            color = AppTheme.Colors.textDisabled,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 4.dp, bottom = 1.dp).testTag("current-run-header"),
+                        )
+                    }
+                    scenarioTree(
+                        viewModel = viewModel,
+                        scenario = pinned,
+                        run = RunView(ran, result, running),
+                        modifiedAt = modified[pinned.id],
+                        expanded = pinned.id in expanded,
+                        confirmingDelete = confirmingDeleteId == pinned.id,
+                        onToggle = { expanded = if (pinned.id in expanded) expanded - pinned.id else expanded + pinned.id },
+                        onRequestDelete = { confirmingDeleteId = pinned.id },
+                        onDeleted = { confirmingDeleteId = null },
+                        onRemap = { remapFor = pinned },
+                    )
+                    item(key = "current-run-divider") {
+                        HorizontalDivider(
+                            color = AppTheme.Separators.color,
+                            thickness = AppTheme.Separators.dividerThickness,
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        )
+                    }
+                }
+                listVisible.forEach { scenario ->
                     scenarioTree(
                         viewModel = viewModel,
                         scenario = scenario,
@@ -784,12 +828,55 @@ private fun RunStatusLine(
                             else -> "step ${firstFailure.stepIndex + 1} ${firstFailure.kind}"
                         }
                     val detail = firstFailure.detail?.let { " ($it)" } ?: ""
-                    Text(
-                        text = "First failure: $where$detail" + (if (failedTags.isNotEmpty()) " — failed tags: $tagText" else ""),
-                        color = AppTheme.Colors.textSecondary,
-                        fontSize = 10.sp,
-                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp).testTag("run-failure-line"),
-                    )
+                    val failureText =
+                        "First failure: $where$detail" + (if (failedTags.isNotEmpty()) " — failed tags: $tagText" else "")
+                    // **What else arrived** — the reject on the other leg, the reply a bind predicate turned
+                    // down. Kept out of the default view: it is context for a failure the essentials already
+                    // name, and on a busy run it is what turned the report into a wall.
+                    val diagnosis = result.steps.filterNot { it.isStepVerdict() }
+                    // Default to the essentials — verdict, the one failure line, the route. A long detail or a
+                    // stack of diagnosis lines is exactly what buried the scenario list, so it waits behind an
+                    // explicit "Show full error". Reset per run: a fresh failure opens compact, as its own thing.
+                    var showFull by remember(result) { mutableStateOf(false) }
+                    val canExpand = diagnosis.isNotEmpty() || (firstFailure.detail?.length ?: 0) > 140
+                    if (showFull) {
+                        // Even expanded it is bounded and scrolls, so "see the whole error" never costs the
+                        // author the list underneath it — the one regression this whole area is about.
+                        Column(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 300.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .testTag("run-report-detail"),
+                        ) {
+                            Text(
+                                text = failureText,
+                                color = AppTheme.Colors.textSecondary,
+                                fontSize = 10.sp,
+                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp).testTag("run-failure-line"),
+                            )
+                            diagnosis.forEach { d ->
+                                val diverging = d.tags.filterNot { it.passed }
+                                val tags = if (diverging.isEmpty()) "" else " — ${namedTags(diverging, dictionary, drift = true)}"
+                                Text(
+                                    text = "· ${d.detail.orEmpty()}$tags",
+                                    color = AppTheme.Colors.textDisabled,
+                                    fontSize = 9.sp,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp).testTag("run-diagnosis-line"),
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = failureText,
+                            color = AppTheme.Colors.textSecondary,
+                            fontSize = 10.sp,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp).testTag("run-failure-line"),
+                        )
+                    }
                     if (route is FixMessageViewModel.ReconcileRoute.Open) {
                         SlimButton(
                             text = "Reconcile assertions →",
@@ -806,19 +893,21 @@ private fun RunStatusLine(
                             modifier = Modifier.padding(top = 2.dp).testTag("reconcile-refused"),
                         )
                     }
-                    // **What else arrived.** The failure line above names an absence; these name the
-                    // presences that may explain it — the reject that came back on the other leg, the reply
-                    // whose bind predicate turned it down. Without them the runner's post-mortem would reach
-                    // CI and the control surface and never the one surface a tester is actually looking at.
-                    val diagnosis = result.steps.filterNot { it.isStepVerdict() }
-                    diagnosis.forEach { d ->
-                        val diverging = d.tags.filterNot { it.passed }
-                        val tags = if (diverging.isEmpty()) "" else " — ${namedTags(diverging, dictionary, drift = true)}"
+                    if (canExpand) {
                         Text(
-                            text = "· ${d.detail.orEmpty()}$tags",
-                            color = AppTheme.Colors.textDisabled,
-                            fontSize = 9.sp,
-                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp).testTag("run-diagnosis-line"),
+                            text =
+                                if (showFull) {
+                                    "Show less ▴"
+                                } else {
+                                    "Show full error ▾" + (if (diagnosis.isNotEmpty()) " (${diagnosis.size})" else "")
+                                },
+                            color = AppTheme.Colors.info,
+                            fontSize = 9.5.sp,
+                            modifier =
+                                Modifier
+                                    .padding(top = 2.dp)
+                                    .clickable { showFull = !showFull }
+                                    .testTag("report-expand"),
                         )
                     }
                 }

@@ -233,6 +233,58 @@ class ScenarioRunReportTest {
         )
     }
 
+    /** A diagnosis row — "what else arrived" — is context for the failure, not the headline. */
+    private val diagnosisStep =
+        StepResult(
+            stepIndex = 2,
+            kind = "diagnosis",
+            phase = "steps",
+            passed = false,
+            detail = "unexpected ExecutionReport arrived and no expect bound it",
+            tags = listOf(TagResult(150, "exact 0", "0", "F", passed = false)),
+        )
+
+    /** A failing run that also carries a post-mortem diagnosis line. */
+    private fun stageFailedRunWithDiagnosis() {
+        assertTrue(viewModel.scenarioService.save(scenario))
+        viewModel.noteScenarioRun(scenario)
+        viewModel.setAssertionResults(mapOf(failedMessage() to failedStep))
+        viewModel.publishScenarioResult(
+            ScenarioResult(scenario.name, passed = false, steps = listOf(failedStep, diagnosisStep)),
+        )
+    }
+
+    /**
+     * The report opens as the headline — verdict, the one failure line, the route — and keeps the extra
+     * "what else arrived" detail behind an explicit expand. A stack of diagnosis lines was exactly what grew
+     * the report until it buried the scenario list; it does not get to do that by default.
+     */
+    @Test
+    fun `a busy failure opens compact, and Show full error reveals the diagnosis`() {
+        stageFailedRunWithDiagnosis()
+        composeTestRule.setContent { RailAndDocuments(viewModel) }
+
+        composeTestRule.onNodeWithTag("run-failure-line").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("run-diagnosis-line").assertDoesNotExist()
+
+        composeTestRule.onNodeWithTag("report-expand").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("report-expand").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("run-diagnosis-line").assertIsDisplayed()
+    }
+
+    /**
+     * The report says WHAT failed; the scenario that produced it must be reachable too. Sorted alphabetically
+     * it can sit far below the fold, so the just-run scenario is pinned to the top of the list until the
+     * report is dismissed — a failure the author cannot find is a failure they will not fix.
+     */
+    @Test
+    fun `the scenario that just ran is pinned to the top of the list`() {
+        stageFailedRun(failedMessage())
+        composeTestRule.setContent { RailAndDocuments(viewModel) }
+        composeTestRule.onNodeWithTag("current-run-header").assertIsDisplayed()
+    }
+
     /** The rail and the document host, wired exactly as `App` wires them. */
     @Composable
     private fun RailAndDocuments(viewModel: FixMessageViewModel) {

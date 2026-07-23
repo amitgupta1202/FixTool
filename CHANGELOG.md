@@ -5,6 +5,24 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-07-23
+
+### ✨ Added
+
+#### The Scenarios rail, made usable at 20–30 scenarios
+- **Sort.** A picker (⇅) in the rail header orders the list three ways: **Name** (A–Z, the default and prior behaviour), **Recently modified** (by the file's mtime, so the one you just touched floats up), or **Creation order** (oldest first — the order the suite was built). Ordering lives in a pure, unit-tested helper, so every sort is total and the list never reshuffles on an idle redraw.
+- **★ Favourites.** A star on each row — filled and always shown once starred, an outline on hover for the rest. Starred scenarios lift into a **★ Favourites** section pinned above **All**; each section sorts independently and folds shut on its own header. With nothing starred the rail reads exactly as it did before: one flat list, no headers.
+- **Collapse-all / expand-all.** One button (⊟/⊞) in the header folds every open scenario's steps shut at once, or opens them all.
+- **A scenario carries a `createdAt`**, minted once at first save — the birth time the "Creation order" sort reads. Additive and default-omitting on disk: a file authored before the field existed grows no key and is never rewritten to add one (it sorts by mtime instead), so the change touches nothing already on disk.
+
+### 🔧 Changed
+- **The run report opens compact** — the verdict, the one first-failure line, and the route — with the "what else arrived" diagnosis behind an explicit **Show full error ▾**. Expanding reveals the whole error in a bounded, scrolling box, so seeing all of it can never reclaim the list's height.
+- **The scenario that just ran is pinned** to a **CURRENT RUN** block at the top of the list until the report is dismissed, so a failure sorted down the alphabet is where the eye already is — its steps, their verdicts, and each step's reconcile route in reach.
+- **Sort, favourites, and collapsed sections persist locally**, to `~/.fixtool/scenario_view.json` — never in a scenario file (a star never rewrites one) and never in app settings. A missing or corrupt file loads as defaults and never throws.
+
+### 🐛 Fixed
+- **A tall failure report could push the scenario list off the bottom of the rail, with no way to scroll to it.** The list was measured against the full pane height and rendered *below* the report, so a large error left its lower rows unreachable — routine on a list of 20–30. The list now owns the height the header and report leave and scrolls within it; the report is height-capped either way.
+
 ## [1.10.0] - 2026-07-20
 
 ### ✨ Added

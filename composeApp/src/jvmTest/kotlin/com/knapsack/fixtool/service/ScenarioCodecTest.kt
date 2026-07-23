@@ -406,6 +406,40 @@ class ScenarioCodecTest {
         assertEquals(1, ScenarioCodec.fromJson(noVersion).version)
     }
 
+    // ----- createdAt ---------------------------------------------------------------------------------
+
+    /**
+     * Additive and default-omitting: a scenario with no birth time grows no key — so a file older than the
+     * field round-trips byte-identical — and one with a birth time writes it and reads it straight back.
+     */
+    @Test
+    fun `createdAt is written only when set, and round-trips`() {
+        val without = ScenarioCodec.toJson(Scenario(id = "c", name = "n"))
+        assertFalse("createdAt" in without.keys, "a null createdAt must not grow a key: $without")
+
+        val withIt = ScenarioCodec.toJson(Scenario(id = "c", name = "n", createdAt = 1_700_000_000_000L))
+        assertTrue("createdAt" in withIt.keys)
+        assertEquals(1_700_000_000_000L, ScenarioCodec.fromJson(withIt).createdAt)
+    }
+
+    /**
+     * A new file's createdAt key does not trip the version gate — it loads at version 1, which is what lets
+     * the already-released build (which knows nothing of the key) keep opening files this build writes.
+     */
+    @Test
+    fun `a file carrying createdAt loads at version 1`() {
+        val obj = Json.parseToJsonElement("""{"id":"c","name":"n","createdAt":1700000000000}""").jsonObject
+        val loaded = ScenarioCodec.fromJson(obj)
+        assertEquals(1, loaded.version)
+        assertEquals(1_700_000_000_000L, loaded.createdAt)
+    }
+
+    /** Absent createdAt is unknown, not an error: it reads as null, and the rail sorts such a file by mtime. */
+    @Test
+    fun `a file with no createdAt reads as null`() {
+        assertNull(ScenarioCodec.fromJson(Json.parseToJsonElement("""{"id":"c","name":"n"}""").jsonObject).createdAt)
+    }
+
     // ----- muted -------------------------------------------------------------------------------------
 
     /** Muted survives the round trip on every step kind that can carry it. */

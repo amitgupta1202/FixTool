@@ -23,6 +23,13 @@ data class Scenario(
     val traffic: TrafficMode = TrafficMode.OPEN,
     /** Which messages an Expect may bind. Additive on disk — written only when THIS_RUN. */
     val binding: BindScope = BindScope.ANY,
+    /**
+     * When this scenario was first authored (epoch millis), for the rail's "creation order" sort. Null on
+     * every file written before this field existed — those are **never rewritten** to add it, so the sort
+     * falls back to the file's mtime for them. Minted once, at first save (see `ScenarioService.save`).
+     * Additive and default-omitting on disk, the same bargain as [traffic] and [binding].
+     */
+    val createdAt: Long? = null,
 )
 
 /**

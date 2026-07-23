@@ -25,6 +25,9 @@ import java.io.File
 class ScenarioService(
     private val onError: ((String) -> Unit)? = null,
     customDir: String = "",
+    // The one clock createdAt is minted from — injectable so a test can pin the birth time. Production
+    // reads the wall clock, exactly as SavedFixMessage and FixConnectionProfile do for their own createdAt.
+    private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
     private val logger = NotifyingLogger(ScenarioService::class.java, onError)
     private val lock = Any()
@@ -84,9 +87,15 @@ class ScenarioService(
     fun save(scenario: Scenario): Boolean =
         synchronized(lock) {
             try {
-                val scen = scenario.withIds()
+                val withIds = scenario.withIds()
+                val previous = fileForId(withIds.id)
+                // The one place createdAt is minted: the first save of a genuinely new scenario (no file yet,
+                // no stamp yet). A scenario already on disk keeps what it had — null for a file older than the
+                // field, which is therefore **never rewritten to add the key** (it stays byte-identical, and
+                // the rail sorts it by mtime). This covers every creation path — new, capture, duplicate,
+                // remap — with nothing to remember at each of them.
+                val scen = if (previous == null && withIds.createdAt == null) withIds.copy(createdAt = clock()) else withIds
                 val target = File(dir, chooseFileName(scen))
-                val previous = fileForId(scen.id)
                 val content = prettyJson.encodeToString(JsonObject.serializer(), ScenarioCodec.toJson(scen))
                 AtomicFiles.writeAtomically(target, content)
                 // A rename (the name, hence the slug, changed) would otherwise leave the old file behind. Drop

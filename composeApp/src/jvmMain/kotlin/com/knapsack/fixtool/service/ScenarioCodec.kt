@@ -49,6 +49,10 @@ object ScenarioCodec {
             // strict never grows the key, and every pre-traffic file keeps loading (and re-saving) unchanged.
             scenario.traffic.takeIf { it != TrafficMode.OPEN }?.let { put("traffic", it.name.lowercase()) }
             scenario.binding.takeIf { it != BindScope.ANY }?.let { put("binding", it.name.lowercase()) }
+            // Additive and default-omitting: a file authored before createdAt existed grows no key by being
+            // read and re-saved, so it stays byte-identical (and old FixTools keep loading new files — the
+            // key is unknown to them, and an unknown key is ignored, never refused). Version stays 1.
+            scenario.createdAt?.let { put("createdAt", it) }
             put("setup", buildJsonArray { scenario.setup.forEach { add(stepToJson(it)) } })
             put("steps", buildJsonArray { scenario.steps.forEach { add(stepToJson(it)) } })
             put("teardown", buildJsonArray { scenario.teardown.forEach { add(stepToJson(it)) } })
@@ -87,6 +91,8 @@ object ScenarioCodec {
             version = version,
             traffic = trafficFrom(obj["traffic"]?.jsonPrimitive?.contentOrNull),
             binding = bindingFrom(obj["binding"]?.jsonPrimitive?.contentOrNull),
+            // Absent = unknown (a file older than the field): read as null, and the rail sorts it by mtime.
+            createdAt = obj["createdAt"]?.jsonPrimitive?.longOrNull,
         ).withIds()
     }
 

@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.model.ScenarioSort
+import com.knapsack.fixtool.model.ScenarioViewState
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.FixConnectionProfile
@@ -46,6 +48,7 @@ import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
+import com.knapsack.fixtool.service.ScenarioViewStateService
 import com.knapsack.fixtool.service.SessionIdentityResolver
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
@@ -214,6 +217,35 @@ class FixMessageViewModel(
     fun refreshScenarios() {
         _scenarios.value = scenarioService.list()
     }
+
+    // The rail's local view chrome — sort, favourites, collapsed sections. Persisted to scenario_view.json,
+    // never to a scenario file or to AppSettings (see ScenarioViewState). Loaded once at startup.
+    private val _scenarioViewState = MutableStateFlow(ScenarioViewState())
+    val scenarioViewState: StateFlow<ScenarioViewState> = _scenarioViewState.asStateFlow()
+
+    private fun mutateViewState(block: (ScenarioViewState) -> ScenarioViewState) {
+        val next = block(_scenarioViewState.value)
+        _scenarioViewState.value = next
+        scenarioViewStateService.save(next)
+    }
+
+    /** Rail: how the list is ordered within each section. */
+    fun setScenarioSort(sort: ScenarioSort) = mutateViewState { it.copy(sortMode = sort) }
+
+    /** Rail: star or un-star a scenario. Weightless — it writes only scenario_view.json, never the scenario. */
+    fun toggleScenarioFavourite(id: String) =
+        mutateViewState {
+            it.copy(favouriteIds = if (id in it.favouriteIds) it.favouriteIds - id else it.favouriteIds + id)
+        }
+
+    /** Rail: fold a section (`"favourites"`/`"all"`) shut, or open it. */
+    fun toggleScenarioSection(key: String) =
+        mutateViewState {
+            it.copy(
+                collapsedSections =
+                    if (key in it.collapsedSections) it.collapsedSections - key else it.collapsedSections + key,
+            )
+        }
 
     // Last scenario run result (drives the in-app red/green report) and the running flag
     private val _scenarioResult = MutableStateFlow<ScenarioResult?>(null)
@@ -1538,6 +1570,10 @@ class FixMessageViewModel(
     /** Delete a scenario, and close every document looking at it — a view of a file that is gone is a trap. */
     fun deleteScenario(id: String) {
         scenarioService.delete(id)
+        // A star pointing at a scenario that no longer exists is inert, but prune it so the set does not grow.
+        if (id in _scenarioViewState.value.favouriteIds) {
+            mutateViewState { it.copy(favouriteIds = it.favouriteIds - id) }
+        }
         documentsOf(id).forEach { closeDocument(it.id) }
         // The diff windows are views of the scenario too (F4) — a window onto a file that is gone is a trap.
         _openDiffWindows.value.filter { it.scenarioId == id }.forEach { closeDiffWindow(it.id) }
@@ -1987,6 +2023,14 @@ class FixMessageViewModel(
         )
     }
 
+    // The rail's view-chrome store — a small local JSON beside app_settings.json, never in the scenarios dir.
+    private val scenarioViewStateService by lazy {
+        ScenarioViewStateService(
+            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            customPath = resolveStoragePath("", "scenario_view.json"),
+        )
+    }
+
     /**
      * Resolves where a JSON store (connection profiles, saved messages) is kept. An explicit
      * setting always wins. Otherwise, when constructed with a [testSettingsDir] the store is kept
@@ -2064,6 +2108,8 @@ class FixMessageViewModel(
         // fixtool_save_scenario) do not come through here at all.
         scenarioService.onChanged = { refreshScenarios() }
         refreshScenarios()
+        // The rail's sort/favourites/collapsed-sections, restored from last session (defaults if absent).
+        _scenarioViewState.value = scenarioViewStateService.load()
 
         // Initialize global view mode from settings
         _viewMode.value =

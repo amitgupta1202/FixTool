@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -80,6 +81,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     val running by viewModel.scenarioRunning.collectAsState()
     val result by viewModel.scenarioResult.collectAsState()
     val ran by viewModel.lastRunScenario.collectAsState()
+    val viewState by viewModel.scenarioViewState.collectAsState()
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var confirmingDeleteId by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("") }
@@ -119,6 +121,13 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 running = running,
                 filter = filter,
                 onFilter = { filter = it },
+                sort = viewState.sortMode,
+                onSort = { viewModel.setScenarioSort(it) },
+                anyExpanded = expanded.isNotEmpty(),
+                onToggleExpandAll = {
+                    // Collapse-all when anything is open, expand-all when nothing is — one button, two jobs.
+                    expanded = if (expanded.isNotEmpty()) emptySet() else scenarios.map { it.id }.toSet()
+                },
                 onCapture = { viewModel.captureAllSessionsToEditor() },
                 onPasteCapture = { viewModel.openPasteCapture() },
                 onNew = { viewModel.openScenarioEditor(newScenario()) },
@@ -170,29 +179,34 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             val pinned = ran?.id?.let { id -> scenarios.firstOrNull { it.id == id } }?.takeIf { result != null }
             val pinnedId = pinned?.id
             val listVisible = if (pinnedId != null) visible.filterNot { it.id == pinnedId } else visible
+            // Split into ★ favourites and the rest, each ordered by the author's chosen sort. A favourited
+            // scenario shows only in its own section (never twice), and the pinned current run is out of both.
+            val sections =
+                remember(listVisible, viewState.favouriteIds, viewState.sortMode, modified) {
+                    railSections(listVisible, viewState.favouriteIds, viewState.sortMode) { modified[it] }
+                }
+            val run = RunView(ran, result, running)
+            val onToggleExpand: (String) -> Unit = { id -> expanded = if (id in expanded) expanded - id else expanded + id }
+            val onRequestDelete: (String) -> Unit = { confirmingDeleteId = it }
+            val onDeleted = { confirmingDeleteId = null }
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 if (pinned != null) {
                     item(key = "current-run-header") {
-                        Text(
-                            "CURRENT RUN",
-                            color = AppTheme.Colors.textDisabled,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.8.sp,
-                            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 4.dp, bottom = 1.dp).testTag("current-run-header"),
-                        )
+                        SectionHeader("CURRENT RUN", count = null, collapsed = false, tag = "current-run-header", onToggle = null)
                     }
                     scenarioTree(
                         viewModel = viewModel,
                         scenario = pinned,
-                        run = RunView(ran, result, running),
+                        run = run,
                         modifiedAt = modified[pinned.id],
                         expanded = pinned.id in expanded,
+                        isFavourite = pinned.id in viewState.favouriteIds,
                         confirmingDelete = confirmingDeleteId == pinned.id,
-                        onToggle = { expanded = if (pinned.id in expanded) expanded - pinned.id else expanded + pinned.id },
-                        onRequestDelete = { confirmingDeleteId = pinned.id },
-                        onDeleted = { confirmingDeleteId = null },
+                        onToggle = { onToggleExpand(pinned.id) },
+                        onRequestDelete = { onRequestDelete(pinned.id) },
+                        onDeleted = onDeleted,
                         onRemap = { remapFor = pinned },
+                        onToggleFavourite = { viewModel.toggleScenarioFavourite(pinned.id) },
                     )
                     item(key = "current-run-divider") {
                         HorizontalDivider(
@@ -202,18 +216,40 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         )
                     }
                 }
-                listVisible.forEach { scenario ->
-                    scenarioTree(
-                        viewModel = viewModel,
-                        scenario = scenario,
-                        run = RunView(ran, result, running),
-                        modifiedAt = modified[scenario.id],
-                        expanded = scenario.id in expanded,
-                        confirmingDelete = confirmingDeleteId == scenario.id,
-                        onToggle = { expanded = if (scenario.id in expanded) expanded - scenario.id else expanded + scenario.id },
-                        onRequestDelete = { confirmingDeleteId = scenario.id },
-                        onDeleted = { confirmingDeleteId = null },
-                        onRemap = { remapFor = scenario },
+                if (sections.favourites.isNotEmpty()) {
+                    // Sections only appear once something is starred: with no favourites the rail reads exactly
+                    // as it did before, a single flat list under no header.
+                    val favCollapsed = "favourites" in viewState.collapsedSections
+                    item(key = "sec-favourites") {
+                        SectionHeader("★ Favourites", sections.favourites.size, favCollapsed, "section-favourites") {
+                            viewModel.toggleScenarioSection("favourites")
+                        }
+                    }
+                    if (!favCollapsed) {
+                        scenarioTrees(
+                            sections.favourites, viewModel, run, modified, expanded, viewState.favouriteIds,
+                            confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
+                            onRemap = { remapFor = it }, onToggleFavourite = viewModel::toggleScenarioFavourite,
+                        )
+                    }
+                    val allCollapsed = "all" in viewState.collapsedSections
+                    item(key = "sec-all") {
+                        SectionHeader("All", sections.others.size, allCollapsed, "section-all") {
+                            viewModel.toggleScenarioSection("all")
+                        }
+                    }
+                    if (!allCollapsed) {
+                        scenarioTrees(
+                            sections.others, viewModel, run, modified, expanded, viewState.favouriteIds,
+                            confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
+                            onRemap = { remapFor = it }, onToggleFavourite = viewModel::toggleScenarioFavourite,
+                        )
+                    }
+                } else {
+                    scenarioTrees(
+                        sections.others, viewModel, run, modified, expanded, viewState.favouriteIds,
+                        confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
+                        onRemap = { remapFor = it }, onToggleFavourite = viewModel::toggleScenarioFavourite,
                     )
                 }
             }
@@ -228,6 +264,76 @@ private data class RunView(
     val running: Boolean,
 )
 
+/**
+ * Renders each of [items] as a [scenarioTree], sharing the rail's expand/delete/favourite wiring. Kept
+ * apart so the favourites section, the "all" section, and the flat no-favourites list all draw their rows
+ * the one way — differing only in which scenarios they are handed.
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTrees(
+    items: List<Scenario>,
+    viewModel: FixMessageViewModel,
+    run: RunView,
+    modified: Map<String, Long?>,
+    expanded: Set<String>,
+    favouriteIds: Set<String>,
+    confirmingDeleteId: String?,
+    onToggleExpand: (String) -> Unit,
+    onRequestDelete: (String) -> Unit,
+    onDeleted: () -> Unit,
+    onRemap: (Scenario) -> Unit,
+    onToggleFavourite: (String) -> Unit,
+) {
+    items.forEach { scenario ->
+        scenarioTree(
+            viewModel = viewModel,
+            scenario = scenario,
+            run = run,
+            modifiedAt = modified[scenario.id],
+            expanded = scenario.id in expanded,
+            isFavourite = scenario.id in favouriteIds,
+            confirmingDelete = confirmingDeleteId == scenario.id,
+            onToggle = { onToggleExpand(scenario.id) },
+            onRequestDelete = { onRequestDelete(scenario.id) },
+            onDeleted = onDeleted,
+            onRemap = { onRemap(scenario) },
+            onToggleFavourite = { onToggleFavourite(scenario.id) },
+        )
+    }
+}
+
+/**
+ * A section label in the rail — "★ Favourites", "All", "CURRENT RUN". Clickable to fold the section shut
+ * when [onToggle] is given; the pinned current-run label passes null, because it is never collapsible.
+ */
+@Composable
+private fun SectionHeader(title: String, count: Int?, collapsed: Boolean, tag: String, onToggle: (() -> Unit)?) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .let { if (onToggle != null) it.clickable(onClick = onToggle) else it }
+                .padding(start = 8.dp, end = 6.dp, top = 5.dp, bottom = 1.dp)
+                .testTag(tag),
+    ) {
+        if (onToggle != null) {
+            Text(
+                if (collapsed) "▸" else "▾",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 8.sp,
+                modifier = Modifier.width(10.dp),
+            )
+        }
+        Text(
+            title + (if (count != null) "  ($count)" else ""),
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 8.5.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+        )
+    }
+}
+
 /** One scenario: its row, and — when expanded — its steps, each carrying its own verdict and route. */
 private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
     viewModel: FixMessageViewModel,
@@ -235,11 +341,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
     run: RunView,
     modifiedAt: Long?,
     expanded: Boolean,
+    isFavourite: Boolean,
     confirmingDelete: Boolean,
     onToggle: () -> Unit,
     onRequestDelete: () -> Unit,
     onDeleted: () -> Unit,
     onRemap: () -> Unit,
+    onToggleFavourite: () -> Unit,
 ) {
     val ranThis = run.ran?.id == scenario.id
     item(key = scenario.id) {
@@ -284,9 +392,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
                 },
             onReconcile = { failure?.let { viewModel.openReconcile(it) } },
             expanded = expanded,
+            isFavourite = isFavourite,
             runEnabled = !run.running,
             confirmingDelete = confirmingDelete,
             onToggle = onToggle,
+            onToggleFavourite = onToggleFavourite,
             onRun = { viewModel.runScenario(scenario) },
             onRemap = onRemap,
             onEdit = { viewModel.openScenarioEditor(scenario) },
@@ -431,6 +541,10 @@ private fun RailHeader(
     running: Boolean,
     filter: String,
     onFilter: (String) -> Unit,
+    sort: ScenarioSort,
+    onSort: (ScenarioSort) -> Unit,
+    anyExpanded: Boolean,
+    onToggleExpandAll: () -> Unit,
     onCapture: () -> Unit,
     onPasteCapture: () -> Unit,
     onNew: () -> Unit,
@@ -471,6 +585,23 @@ private fun RailHeader(
                 onValueChange = onFilter,
                 placeholder = "filter…",
                 modifier = Modifier.weight(1f).testTag("rail-filter"),
+            )
+            // Sort — how the list orders itself within each section.
+            Box {
+                var sortOpen by remember { mutableStateOf(false) }
+                SlimButton("⇅", onClick = { sortOpen = true }, color = AppTheme.Colors.textSecondary, modifier = Modifier.testTag("rail-sort"))
+                DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                    SortItem("Name (A–Z)", ScenarioSort.NAME, sort) { onSort(it); sortOpen = false }
+                    SortItem("Recently modified", ScenarioSort.RECENTLY_MODIFIED, sort) { onSort(it); sortOpen = false }
+                    SortItem("Creation order", ScenarioSort.CREATED, sort) { onSort(it); sortOpen = false }
+                }
+            }
+            // Collapse-all / expand-all — one button that folds every open scenario shut, or opens them all.
+            SlimButton(
+                if (anyExpanded) "⊟" else "⊞",
+                onClick = onToggleExpandAll,
+                color = AppTheme.Colors.textSecondary,
+                modifier = Modifier.testTag("rail-collapse-all"),
             )
             Box {
                 var open by remember { mutableStateOf(false) }
@@ -527,6 +658,17 @@ private fun RailMenuItem(text: String, enabled: Boolean = true, tag: String, onC
     )
 }
 
+/** One row of the sort menu, its current choice marked with a tick. */
+@Composable
+private fun SortItem(label: String, value: ScenarioSort, current: ScenarioSort, onPick: (ScenarioSort) -> Unit) {
+    DropdownMenuItem(
+        text = { Text((if (value == current) "✓ " else "     ") + label, color = AppTheme.Colors.text, fontSize = 11.sp) },
+        onClick = { onPick(value) },
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+        modifier = Modifier.height(26.dp).testTag("sort-${value.name.lowercase()}"),
+    )
+}
+
 @Composable
 private fun ScenarioRailRow(
     scenario: Scenario,
@@ -539,9 +681,11 @@ private fun ScenarioRailRow(
     reconcileLabel: String?,
     onReconcile: () -> Unit,
     expanded: Boolean,
+    isFavourite: Boolean,
     runEnabled: Boolean,
     confirmingDelete: Boolean,
     onToggle: () -> Unit,
+    onToggleFavourite: () -> Unit,
     onRun: () -> Unit,
     /** Opens the "Save as scenario for other sessions" dialog — the environment-copy door. */
     onRemap: () -> Unit,
@@ -576,6 +720,26 @@ private fun ScenarioRailRow(
             // Not Modifier.size(): a 10dp box clips a 9sp glyph away to nothing, and the tree then looks like
             // a flat list — the one affordance that says these rows open, invisible. Found by looking at it.
             Text(if (expanded) "▾" else "▸", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, modifier = Modifier.width(10.dp))
+            // The star: filled and always shown once starred (that is what a favourite looks like), an outline
+            // that appears on hover for the rest — click to move a scenario into, or out of, ★ Favourites.
+            Box(modifier = Modifier.width(15.dp), contentAlignment = Alignment.Center) {
+                when {
+                    isFavourite ->
+                        Text(
+                            "★",
+                            color = AppTheme.Colors.warning,
+                            fontSize = 10.sp,
+                            modifier = Modifier.clickable(onClick = onToggleFavourite).testTag("fav-${scenario.id}"),
+                        )
+                    hovered ->
+                        Text(
+                            "☆",
+                            color = AppTheme.Colors.textDisabled,
+                            fontSize = 10.sp,
+                            modifier = Modifier.clickable(onClick = onToggleFavourite).testTag("fav-${scenario.id}"),
+                        )
+                }
+            }
             Text(
                 text = scenario.name,
                 color = AppTheme.Colors.text,

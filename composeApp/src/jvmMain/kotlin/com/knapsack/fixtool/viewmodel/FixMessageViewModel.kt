@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.model.LayoutState
 import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.ScenarioViewState
 import com.knapsack.fixtool.model.FixConnectionConfig
@@ -34,6 +35,7 @@ import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.model.scenario.withSessions
 import com.knapsack.fixtool.service.AppSettingsService
+import com.knapsack.fixtool.service.LayoutStateService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
@@ -79,12 +81,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -108,6 +113,9 @@ import com.knapsack.fixtool.model.TagRoleOverlay
  * the same window rather than hard-coding a number that could drift away from this one.
  */
 internal const val GLOBAL_SEARCH_DEBOUNCE_MS = 200L
+
+/** How long the layout stays still before it is written to disk — see [FixMessageViewModel.updateLayout]. */
+private const val SETTINGS_SAVE_DEBOUNCE_MS = 600L
 
 class FixMessageViewModel(
     private val testSettingsDir: String? = null,
@@ -423,6 +431,39 @@ class FixMessageViewModel(
     private val _activeDocumentId = MutableStateFlow<String?>(null)
     val activeDocumentId: StateFlow<String?> = _activeDocumentId.asStateFlow()
 
+    /**
+     * Is the scenario dock collapsed to its header row? Snapshot state so the dock's own chevron and every
+     * surface that opens a document read one source of truth. Like the terminal's `minimized`, but with one
+     * rule that makes it usable: it is **cleared by opening or focusing any document** (see [openDocument] and
+     * [focusDocument]), so clicking a step in the rail — or a document tab — always brings the editor back, at
+     * that document. See `ScenarioDock`.
+     */
+    private val _scenarioDockMinimized = MutableStateFlow(false)
+    val scenarioDockMinimized: StateFlow<Boolean> = _scenarioDockMinimized.asStateFlow()
+
+    fun toggleScenarioDockMinimized() {
+        _scenarioDockMinimized.value = !_scenarioDockMinimized.value
+    }
+
+    /**
+     * The workbench layout — panel sizes, which panels are open, dock heights. View state, not settings, so it
+     * has its own store ([layoutStateService], `layout.json`), the sibling of the rail's `scenario_view.json`.
+     * Composables read [layoutState] to seed panel sizes and write back through [updateLayout] on drag end.
+     *
+     * Declared here, before `init`, because `init` → `restoreLayoutState()` reads both this flow and the store.
+     */
+    private val _layoutState = MutableStateFlow(LayoutState())
+    val layoutState: StateFlow<LayoutState> = _layoutState.asStateFlow()
+
+    // The layout store — a small local JSON beside app_settings.json, never in the scenarios dir. Lazy, but the
+    // delegate is created here (before init) so restoreLayoutState can trigger it during construction.
+    private val layoutStateService by lazy {
+        LayoutStateService(
+            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            customPath = resolveStoragePath("", "layout.json"),
+        )
+    }
+
     val activeDocument: ScenarioDoc?
         get() = _openDocuments.value.firstOrNull { it.id == _activeDocumentId.value }
 
@@ -432,7 +473,11 @@ class FixMessageViewModel(
     }
 
     fun focusDocument(id: String) {
-        if (_openDocuments.value.any { it.id == id }) _activeDocumentId.value = id
+        if (_openDocuments.value.any { it.id == id }) {
+            _activeDocumentId.value = id
+            // Focusing a document restores the dock — see [_scenarioDockMinimized].
+            _scenarioDockMinimized.value = false
+        }
     }
 
     /** The document's own state, coming back from the composable that is editing it. See [ScenarioDoc]. */
@@ -592,6 +637,8 @@ class FixMessageViewModel(
                 _openDocuments.value + doc
             }
         _activeDocumentId.value = doc.id
+        // Opening a document restores the dock — see [_scenarioDockMinimized].
+        _scenarioDockMinimized.value = false
     }
 
     /**
@@ -2100,8 +2147,10 @@ class FixMessageViewModel(
     val dictionaryErrorMessage: StateFlow<String?> = _dictionaryErrorMessage.asStateFlow()
 
     init {
-        // Load app settings first (this also loads the data dictionary)
+        // Load app settings first (this also loads the data dictionary and restores the layout flags)
         loadAppSettings()
+        // ...then start persisting layout changes. After the restore, so the first emission is a no-op save.
+        observeLayoutVisibility()
 
         // The rail renders this list; nothing else may hold a copy of it — and it is refreshed by the service,
         // not by each caller, because two of the four doors that write a scenario (the control surface and
@@ -2152,8 +2201,68 @@ class FixMessageViewModel(
 
     private fun loadAppSettings() {
         _appSettings.value = settingsService.loadSettings()
+        // Bring the panels back the way the user left them, before anyone observes them (below).
+        restoreLayoutState()
         // Load data dictionary from app settings after loading settings
         loadDictionaryFromSettings()
+    }
+
+    /** Load the persisted layout and bring the panel-visibility flags back to how they were left. */
+    private fun restoreLayoutState() {
+        val l = layoutStateService.load()
+        _layoutState.value = l
+        _showScenariosRail.value = l.showScenariosRail
+        _showDetailPanel.value = l.showDetailPanel
+        _showMessageEditor.value = l.showMessageEditor
+        _showConnectionPanel.value = l.showConnectionPanel
+        _showLatencyPanel.value = l.showLatencyPanel
+        _scenarioDockMinimized.value = l.scenarioDockMinimized
+    }
+
+    /**
+     * Persist the panel-visibility flags whenever they change, by whatever path — a toolbar toggle, a message
+     * selection that opens the detail panel, a deep-link that opens the rail. Observing the flows is why none
+     * of those call sites has to remember to save. `drop(1)` skips each flow's current (just-restored) value,
+     * so startup does not write back exactly what it loaded — only real changes are persisted.
+     */
+    private fun observeLayoutVisibility() {
+        _showScenariosRail.drop(1).onEach { v -> updateLayout { it.copy(showScenariosRail = v) } }.launchIn(viewModelScope)
+        _showDetailPanel.drop(1).onEach { v -> updateLayout { it.copy(showDetailPanel = v) } }.launchIn(viewModelScope)
+        _showMessageEditor.drop(1).onEach { v -> updateLayout { it.copy(showMessageEditor = v) } }.launchIn(viewModelScope)
+        _showConnectionPanel.drop(1).onEach { v -> updateLayout { it.copy(showConnectionPanel = v) } }.launchIn(viewModelScope)
+        _showLatencyPanel.drop(1).onEach { v -> updateLayout { it.copy(showLatencyPanel = v) } }.launchIn(viewModelScope)
+        _scenarioDockMinimized.drop(1).onEach { v -> updateLayout { it.copy(scenarioDockMinimized = v) } }.launchIn(viewModelScope)
+    }
+
+    /**
+     * The single, debounced write of the layout file. Every layout change routes through here; the coalescing
+     * matters because a resize drag would otherwise write the file on every frame. Cancelled and rescheduled on
+     * each change, so the disk is touched once the layout has been still for [SETTINGS_SAVE_DEBOUNCE_MS].
+     */
+    private var layoutSaveJob: Job? = null
+
+    /**
+     * Mutate the layout. Cheap (a data-class copy) and safe to call on every drag frame; the disk write itself
+     * is debounced. A composable reading [layoutState] observes the result, so a size the user dragged is
+     * reflected and, a moment later, saved.
+     */
+    fun updateLayout(transform: (LayoutState) -> LayoutState) {
+        _layoutState.value = transform(_layoutState.value)
+        layoutSaveJob?.cancel()
+        layoutSaveJob =
+            viewModelScope.launch {
+                delay(SETTINGS_SAVE_DEBOUNCE_MS)
+                withContext(Dispatchers.IO) { layoutStateService.save(_layoutState.value) }
+            }
+    }
+
+    /** The session view mode is persisted through [AppSettings.defaultLayout] — the field that already seeds it. */
+    fun persistViewMode(mode: String) {
+        if (_appSettings.value.defaultLayout != mode) {
+            val updated = _appSettings.value.copy(defaultLayout = mode)
+            _appSettings.value = updated
+            viewModelScope.launch { withContext(Dispatchers.IO) { settingsService.saveSettings(updated) } }
+        }
     }
 
     private fun loadDictionaryFromSettings() {

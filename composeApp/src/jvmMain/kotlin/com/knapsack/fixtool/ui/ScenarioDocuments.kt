@@ -95,10 +95,11 @@ sealed interface ScenarioDoc {
         /**
          * The step-list/detail divider, as the author dragged it — kept out here for the same reason as
          * the cursor: a split that lived in the composable's `remember` snapped back to the default on
-         * every glance at the session grid. 60/40 to start: the step list is a column of sentences and
-         * earns the room; the divider is still draggable when the detail pane needs it back.
+         * every glance at the session grid. 55/45 to start: the step list is a column of sentences and
+         * earns the room, but the detail form wants enough width to edit a matcher; the divider is still
+         * draggable either way.
          */
-        val split: Float = 0.60f,
+        val split: Float = 0.55f,
         /**
          * Bumped by every deep-link into this document, and the composable is keyed on it.
          *

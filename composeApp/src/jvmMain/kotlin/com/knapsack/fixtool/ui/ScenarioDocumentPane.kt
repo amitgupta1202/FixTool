@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -188,37 +187,5 @@ fun ScenarioDocumentPane(viewModel: FixMessageViewModel, doc: ScenarioDoc, modif
                     )
             }
         }
-    }
-}
-
-/**
- * The document area as the SPLIT layouts show it: its own tab strip, and the active document beneath.
- *
- * In SPLIT there are no session tabs to click, so a document cannot be *deselected* — which means a strip
- * with nothing selected would be a strip you could not get out of. The area therefore falls back to the last
- * document opened, and it renders only while there is one.
- */
-@Composable
-fun ScenarioDocumentArea(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
-    val documents by viewModel.openDocuments.collectAsState()
-    val workspace by viewModel.openScenarios.collectAsState()
-    val activeId by viewModel.activeDocumentId.collectAsState()
-    val confirmingCloseId by viewModel.confirmingCloseId.collectAsState()
-    val active = documents.firstOrNull { it.id == activeId } ?: documents.lastOrNull() ?: return
-    Column(modifier = modifier.fillMaxSize()) {
-        // No top rule here: the draggable grid/document separator already draws one directly above this area,
-        // so a divider under it read as a doubled line. The tab strip's surface fill is the header edge.
-        Row(modifier = Modifier.fillMaxWidth().background(AppTheme.Colors.surface).padding(horizontal = 6.dp, vertical = 2.dp)) {
-            DocumentTabs(
-                tabs = documentTabsOf(documents, workspace),
-                activeId = active.id,
-                confirmingCloseId = confirmingCloseId,
-                onFocus = { viewModel.focusDocument(it) },
-                onRequestClose = { viewModel.requestCloseDocument(it) },
-                onConfirmClose = { viewModel.closeDocument(it) },
-                onCancelClose = { viewModel.cancelCloseDocument() },
-            )
-        }
-        ScenarioDocumentPane(viewModel, active, modifier = Modifier.fillMaxSize())
     }
 }

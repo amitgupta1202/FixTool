@@ -216,7 +216,7 @@ fun ScenarioEditor(
     selectedStep: Int? = null,
     onSelectStep: (Int) -> Unit = {},
     /** The list/detail divider, hoisted for the same reason again. See [ScenarioDoc.Editor.split]. */
-    split: Float = 0.60f,
+    split: Float = 0.55f,
     onSplitChange: (Float) -> Unit = {},
     /** The last run's scope, when the run report stands for THIS scenario — the strip shows the values. */
     runVariables: List<ScenarioVariable> = emptyList(),
@@ -345,9 +345,9 @@ fun ScenarioEditor(
             androidx.compose.foundation.lazy.rememberLazyListState(
                 initialFirstVisibleItemIndex = (focusStep ?: 0).coerceAtLeast(0),
             )
-        // Draggable, seeded from the hoisted value so the author's drag survives a tab switch. 60/40 by
-        // default: the step list is a column of sentences (labels, session badges, var chips) and was
-        // truncating them all at the old 34%; the detail pane reflows, and the divider gives room back.
+        // Draggable, seeded from the hoisted value so the author's drag survives a tab switch. 55/45 by
+        // default: the step list is a column of sentences (labels, session badges, var chips) and earns the
+        // room, but the detail form needs enough width to edit a matcher; the divider gives room back either way.
         var splitState by remember { mutableStateOf(split.coerceIn(0.18f, 0.80f)) }
         var paneWidth by remember { mutableStateOf(0) }
         Row(modifier = Modifier.weight(1f).fillMaxWidth().onSizeChanged { paneWidth = it.width }) {

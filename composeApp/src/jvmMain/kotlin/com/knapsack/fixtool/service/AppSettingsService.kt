@@ -65,6 +65,7 @@ class AppSettingsService(
     fun saveSettings(settings: AppSettings): Boolean =
         try {
             val content = json.encodeToString(settings)
+            settingsFile.parentFile?.mkdirs()
             settingsFile.writeText(content)
             logger.info("Settings saved to: {}. Dictionary path: '{}'", settingsFile.absolutePath, settings.defaultDataDictionary)
             true

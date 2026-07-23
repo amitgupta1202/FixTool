@@ -1,7 +1,6 @@
 package com.knapsack.fixtool.ui.terminal
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,14 +24,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.ui.AppTheme
-import java.awt.Cursor
+import com.knapsack.fixtool.ui.HeightResizeHandle
 import java.io.File
 
 /**
@@ -49,6 +45,8 @@ fun TerminalDock(
     controlUrl: String,
     controlToken: String?,
     onClose: () -> Unit,
+    initialHeightDp: Float = 320f,
+    onHeightPersist: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -57,33 +55,22 @@ fun TerminalDock(
             System.getenv("FIXTOOL_TERMINAL_CWD")?.ifBlank { null }?.let(::File)
                 ?: File(System.getProperty("user.home"))
         }
-    var heightDp by remember { mutableStateOf(320.dp) }
+    var heightDp by remember { mutableStateOf(initialHeightDp.dp) }
     val minimized = TerminalController.minimized
 
     Column(modifier.fillMaxWidth()) {
-        // 1px top border. Expanded, it doubles as the resize handle — drag up to grow, down to shrink;
-        // minimized there is no body to size, so it is a plain divider. Matches the app's other 1dp lines.
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(Color(0xFF3A3A3A))
-                    .then(
-                        if (minimized) {
-                            Modifier
-                        } else {
-                            Modifier
-                                .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
-                                .pointerInput(Unit) {
-                                    detectVerticalDragGestures { change, dragAmount ->
-                                        change.consume()
-                                        heightDp = (heightDp - with(density) { dragAmount.toDp() }).coerceIn(120.dp, 720.dp)
-                                    }
-                                }
-                        },
-                    ),
-        )
+        // Top edge. Expanded it is the resize handle (drag up to grow, persist on release); minimized there is
+        // no body to size, so it is a plain 1px divider like the app's other seams.
+        if (minimized) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF3A3A3A)))
+        } else {
+            HeightResizeHandle(
+                onDeltaPx = { dy ->
+                    heightDp = (heightDp - with(density) { dy.toDp() }).coerceIn(120.dp, 720.dp)
+                },
+                onDragEnd = { onHeightPersist(heightDp.value) },
+            )
+        }
         // Header — title on the left, close on the right.
         Row(
             modifier =
@@ -140,13 +127,19 @@ fun TerminalDock(
  * centre content column so the dock is only as wide as the message area — like the search-results pane.
  */
 @Composable
-fun TerminalDockSlot(automationControlPort: Int) {
+fun TerminalDockSlot(
+    automationControlPort: Int,
+    initialHeightDp: Float = 320f,
+    onHeightPersist: (Float) -> Unit = {},
+) {
     if (TerminalController.visible) {
         val port = System.getenv("FIXTOOL_CONTROL_PORT")?.toIntOrNull() ?: automationControlPort
         TerminalDock(
             controlUrl = "http://127.0.0.1:$port",
             controlToken = System.getenv("FIXTOOL_CONTROL_TOKEN")?.ifBlank { null },
             onClose = { TerminalController.hide() },
+            initialHeightDp = initialHeightDp,
+            onHeightPersist = onHeightPersist,
         )
     }
 }

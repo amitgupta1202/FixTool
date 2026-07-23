@@ -4,8 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -16,6 +19,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -153,43 +157,32 @@ class ScenarioDocumentsScreenshotTest {
     }
 
     /**
-     * The main window, as `App` composes it: the rail docked left, the document tabs in the same strip as the
-     * session tabs, and the active document holding the centre. No second window — that is the phase.
+     * The main window, as `App` composes it: the rail docked left, the sessions as the centre "code area", and
+     * the scenario editor riding beneath them in the bottom dock (its own tab strip, resize and minimize). No
+     * second window — that is the phase.
      */
     @Composable
     private fun MainWindow() {
-        val documents by viewModel.openDocuments.collectAsState()
-        val workspace by viewModel.openScenarios.collectAsState()
-        val activeId by viewModel.activeDocumentId.collectAsState()
-        val confirming by viewModel.confirmingCloseId.collectAsState()
-        val active = documents.firstOrNull { it.id == activeId }
-        Row(modifier = Modifier.size(1600.dp, 900.dp).background(AppTheme.Colors.background)) {
-            ScenariosRail(viewModel, modifier = Modifier.size(300.dp, 900.dp))
-            Column(modifier = Modifier.fillMaxSize()) {
-                TabBar(
-                    sessions = viewModel.sessions,
-                    activeIndex = viewModel.activeSessionIndex,
-                    viewMode = com.knapsack.fixtool.model.FixMessageSession.ViewMode.PARSED,
-                    onTabClick = { index ->
-                        viewModel.setActiveSession(index)
-                        viewModel.showSessions()
-                    },
-                    onCloseTab = {},
-                    onToggleWrapText = {},
-                    onConnect = {},
-                    onDisconnect = {},
-                    documents = documentTabsOf(documents, workspace),
-                    activeDocumentId = activeId,
-                    confirmingCloseId = confirming,
-                    onFocusDocument = { viewModel.focusDocument(it) },
-                    onRequestCloseDocument = { viewModel.requestCloseDocument(it) },
-                    onConfirmCloseDocument = { viewModel.closeDocument(it) },
-                    onCancelCloseDocument = { viewModel.cancelCloseDocument() },
-                )
-                Box(modifier = Modifier.fillMaxSize()) {
-                    if (active != null) ScenarioDocumentPane(viewModel, active)
+        Column(modifier = Modifier.size(1600.dp, 900.dp).background(AppTheme.Colors.background)) {
+            // The rail and the sessions share the upper row; the dock spans the full width beneath them —
+            // mirroring App()'s structure, so a document is never coupled to the session view mode.
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                ScenariosRail(viewModel, modifier = Modifier.width(300.dp).fillMaxHeight())
+                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    TabBar(
+                        sessions = viewModel.sessions,
+                        activeIndex = viewModel.activeSessionIndex,
+                        viewMode = com.knapsack.fixtool.model.FixMessageSession.ViewMode.PARSED,
+                        onTabClick = { index -> viewModel.setActiveSession(index) },
+                        onCloseTab = {},
+                        onToggleWrapText = {},
+                        onConnect = {},
+                        onDisconnect = {},
+                    )
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth())
                 }
             }
+            ScenarioDock(viewModel)
         }
     }
 
@@ -420,5 +413,55 @@ class ScenarioDocumentsScreenshotTest {
         composeTestRule.onNodeWithTag("rail-filter").performTextReplacement("zzz")
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("rail-filter-empty").assertIsDisplayed()
+    }
+
+    /**
+     * **The editor is a bottom dock now, not a pane in the session split.** Opening it must not touch the
+     * session strip: the sessions stay the centre "code area", and the editor — its own tab and body — rides
+     * beneath them in the dock. This is the coupling the change exists to remove: where the editor appears no
+     * longer depends on the session view mode.
+     */
+    @Test
+    fun `the scenario editor opens in the bottom dock, beneath the sessions`() {
+        stageFailedRun() // two live sessions + the saved scenario
+        viewModel.openScenarioEditor(scenario)
+        composeTestRule.setContent { MainWindow() }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("scenario-dock").assertIsDisplayed()
+        // The editor's own tab, in the dock's strip — and its body, since it opens expanded.
+        composeTestRule.onNodeWithTag("doc-tab-${ScenarioDoc.editorId(scenario.id)}").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("scenario-name").assertIsDisplayed()
+        assertEquals(ScenarioDoc.editorId(scenario.id), viewModel.activeDocumentId.value)
+        assertTrue(!viewModel.scenarioDockMinimized.value, "it opens expanded")
+        snapshot("dock_editor_open.png")
+    }
+
+    /**
+     * Minimize is what makes the dock usable — collapse it to its header when you want the sessions to
+     * yourself. And the rule that makes minimize usable in turn: clicking a step in the rail is
+     * `openScenarioEditor(focusStep=…)`, and that must bring the editor straight back, at that step. Without
+     * the restore, a minimized dock would swallow every subsequent click into the rail.
+     */
+    @Test
+    fun `minimize collapses the dock, and opening a step restores it`() {
+        stageFailedRun()
+        viewModel.openScenarioEditor(scenario)
+        composeTestRule.setContent { MainWindow() }
+        composeTestRule.waitForIdle()
+
+        // Minimize: the flag flips and the chevron becomes a Restore affordance.
+        composeTestRule.onNodeWithTag("scenario-dock-minimize").performClick()
+        composeTestRule.waitForIdle()
+        assertTrue(viewModel.scenarioDockMinimized.value, "the dock is minimized")
+        composeTestRule.onNodeWithContentDescription("Restore Edit Scenario").assertIsDisplayed()
+
+        // A rail step click (openScenarioEditor with a focusStep) restores the dock, at that step.
+        viewModel.openScenarioEditor(scenario, focusStep = 2)
+        composeTestRule.waitForIdle()
+        assertTrue(!viewModel.scenarioDockMinimized.value, "opening a step restored the dock")
+        composeTestRule.onNodeWithContentDescription("Minimize Edit Scenario").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("scenario-name").assertIsDisplayed()
+        snapshot("dock_restore_on_step.png")
     }
 }

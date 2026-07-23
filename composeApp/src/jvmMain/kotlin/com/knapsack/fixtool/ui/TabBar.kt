@@ -30,22 +30,6 @@ fun TabBar(
     onDisconnect: (Int) -> Unit,
     isAtBottom: Boolean = true,
     onScrollToBottom: () -> Unit = {},
-    /**
-     * Scenario documents, in the same strip as the sessions — an IDE mixes editors and diffs with its files.
-     * A document tab does **not** move the active session: [activeDocumentId] is the centre pane's selection
-     * and `null` is the session view. See [ScenarioDoc].
-     *
-     * These are [DocumentTab]s and not documents, because a document of a scenario cannot say on its own what
-     * that scenario is called or whether it is dirty — the draft belongs to the scenario now. See
-     * [documentTabsOf].
-     */
-    documents: List<DocumentTab> = emptyList(),
-    activeDocumentId: String? = null,
-    confirmingCloseId: String? = null,
-    onFocusDocument: (String) -> Unit = {},
-    onRequestCloseDocument: (String) -> Unit = {},
-    onConfirmCloseDocument: (String) -> Unit = {},
-    onCancelCloseDocument: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -63,26 +47,17 @@ fun TabBar(
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Tab items
+            // Tab items. Scenario documents no longer share this strip — they live in the scenario dock
+            // (see [ScenarioDock]), so a session tab is active on the active index alone.
             sessions.forEachIndexed { index, session ->
                 Tab(
                     session = session,
-                    isActive = index == activeIndex && activeDocumentId == null,
+                    isActive = index == activeIndex,
                     onClick = { onTabClick(index) },
                     onClose = { onCloseTab(index) },
                 )
                 Spacer(modifier = Modifier.width(4.dp))
             }
-
-            DocumentTabs(
-                tabs = documents,
-                activeId = activeDocumentId,
-                confirmingCloseId = confirmingCloseId,
-                onFocus = onFocusDocument,
-                onRequestClose = onRequestCloseDocument,
-                onConfirmClose = onConfirmCloseDocument,
-                onCancelClose = onCancelCloseDocument,
-            )
 
             Spacer(modifier = Modifier.weight(1f))
 

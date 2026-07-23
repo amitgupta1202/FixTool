@@ -1,7 +1,6 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -11,9 +10,6 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,7 +27,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.slf4j.LoggerFactory
-import java.awt.Cursor
 
 private val logger = LoggerFactory.getLogger("com.knapsack.fixtool.ui.App")
 
@@ -93,13 +88,8 @@ fun App(
             val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
             val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
             val showScenariosRail by viewModel.showScenariosRail.collectAsState()
-            val documents by viewModel.openDocuments.collectAsState()
-            val workspace by viewModel.openScenarios.collectAsState()
-            val activeDocumentId by viewModel.activeDocumentId.collectAsState()
-            val activeDocument = documents.firstOrNull { it.id == activeDocumentId }
-            // The tab strip is derived from both: a document of a scenario does not know the scenario's name
-            // or whether it is dirty, because the draft is the scenario's. See documentTabsOf.
-            val documentTabs = documentTabsOf(documents, workspace)
+            // Documents live in the scenario dock now (see ScenarioDock), not in the session centre, so the
+            // layout no longer tracks the active document or its tabs at this level.
 
             // Load saved messages when active session changes
             LaunchedEffect(viewModel.activeSessionIndex) {
@@ -127,15 +117,27 @@ fun App(
                 }
             }
 
-            var scenariosRailSplitRatio by remember { mutableStateOf(0.18f) }
-            var documentSplitRatio by remember { mutableStateOf(0.5f) } // SPLIT only: the document's share of the centre
-            var detailPanelSplitRatio by remember { mutableStateOf(0.2f) }
-            var editorPanelSplitRatio by remember {
-                mutableStateOf(0.28f)
-            } // Message editor panel width (28% when description shown, 20% when hidden) - starts at 28% since description is visible by default
-            var connectionPanelSplitRatio by remember { mutableStateOf(0.2f) }
-            var searchResultsPanelHeight by remember { mutableStateOf(200.dp) } // Height of search results pane at bottom
-            var latencyPanelSplitRatio by remember { mutableStateOf(0.25f) } // Latency panel width (25%)
+            // Panel sizes are seeded from the persisted layout (defaults on first run) and written back on drag
+            // end via viewModel.updateLayout — so a resize survives a restart. Held locally so the drag itself
+            // is smooth; only the release touches settings. See ResizeHandle and LayoutState.
+            val savedLayout = remember { viewModel.layoutState.value }
+            var scenariosRailSplitRatio by remember { mutableStateOf(savedLayout.railRatio) }
+            var detailPanelSplitRatio by remember { mutableStateOf(savedLayout.detailRatio) }
+            var editorPanelSplitRatio by remember { mutableStateOf(savedLayout.editorRatio) }
+            var connectionPanelSplitRatio by remember { mutableStateOf(savedLayout.connectionRatio) }
+            var searchResultsPanelHeight by remember { mutableStateOf(savedLayout.searchHeightDp.dp) }
+            var latencyPanelSplitRatio by remember { mutableStateOf(savedLayout.latencyRatio) }
+
+            // Bring the terminal back the way it was left, and persist changes to it thereafter. The height
+            // rides through the dock slot below; visible/minimized live on the (global) TerminalController.
+            LaunchedEffect(Unit) {
+                TerminalController.restore(savedLayout.terminalVisible, savedLayout.terminalMinimized)
+                TerminalController.onChange = {
+                    viewModel.updateLayout {
+                        it.copy(terminalVisible = TerminalController.visible, terminalMinimized = TerminalController.minimized)
+                    }
+                }
+            }
 
             // The docked terminal is hosted as *movable* content. TABS and the two SPLIT branches each place
             // it at a different call site, and closing the last side panel switches SPLIT branches. Composed
@@ -146,9 +148,15 @@ fun App(
             val terminalSlot =
                 remember {
                     movableContentOf {
-                        TerminalDockSlot(viewModel.appSettings.automationControlPort)
+                        TerminalDockSlot(
+                            automationControlPort = viewModel.appSettings.automationControlPort,
+                            initialHeightDp = savedLayout.terminalHeightDp,
+                            onHeightPersist = { h -> viewModel.updateLayout { it.copy(terminalHeightDp = h) } },
+                        )
                     }
                 }
+            // The scenario dock is NOT movable content: unlike the terminal (three centre-column call sites), it
+            // lives at one stable site beneath the whole layout, so it is never recomposed at a new site.
 
             Box(
                 modifier =
@@ -162,15 +170,10 @@ fun App(
                             ) {
                                 viewModel.toggleGlobalSearchDialog()
                                 true // Consume the event
-                            } else if (event.type == KeyEventType.KeyDown &&
-                                event.key == Key.Escape &&
-                                activeDocumentId != null
-                            ) {
-                                // esc closes the focused document — and a dirty one asks first, in the tab
-                                // strip, because the ViewModel is the only thing that knows it is dirty.
-                                viewModel.requestCloseDocument(activeDocumentId!!)
-                                true
                             } else {
+                                // esc no longer closes the scenario document: the editor is a bottom dock, not a
+                                // full-screen pane, so esc-from-anywhere reads as a stray close. The dock tab's ×
+                                // is the way to close it.
                                 false // Don't consume other events
                             }
                         },
@@ -183,7 +186,17 @@ fun App(
                 ) {
                     Toolbar(
                         viewMode = viewMode,
-                        onViewModeChange = { viewMode = it },
+                        onViewModeChange = { mode ->
+                            viewMode = mode
+                            // Persist through defaultLayout — the field that already seeds the initial layout.
+                            viewModel.persistViewMode(
+                                when (mode) {
+                                    ViewMode.TABS -> "tabs"
+                                    ViewMode.SPLIT_VERTICAL -> "vertical"
+                                    ViewMode.SPLIT_HORIZONTAL -> "horizontal"
+                                },
+                            )
+                        },
                         showMessageEditor = showMessageEditor,
                         showDetailPanel = showDetailPanel,
                         showConnectionPanel = showConnectionPanel,
@@ -263,8 +276,11 @@ fun App(
                                         viewModel = viewModel,
                                         show = showScenariosRail,
                                         ratio = scenariosRailSplitRatio,
-                                        onRatioChange = { scenariosRailSplitRatio = it },
                                         maxWidthPx = maxWidthPx,
+                                        onDeltaPx = { dx ->
+                                            scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.45f)
+                                        },
+                                        onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
                                     )
 
                                     // Leftmost panel - Message editor (if shown)
@@ -287,21 +303,11 @@ fun App(
                                         }
 
                                         // Resizable divider for editor panel
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .width(AppTheme.Separators.panelSeparatorWidth)
-                                                    .fillMaxHeight()
-                                                    .background(AppTheme.Separators.color)
-                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                    .pointerInput(maxWidthPx) {
-                                                        detectDragGestures { change, dragAmount ->
-                                                            change.consume()
-                                                            val newOffset =
-                                                                editorPanelSplitRatio + (dragAmount.x / maxWidthPx)
-                                                            editorPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                        }
-                                                    },
+                                        WidthResizeHandle(
+                                            onDeltaPx = { dx ->
+                                                editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
                                         )
                                     }
 
@@ -310,18 +316,11 @@ fun App(
                                         var isAtBottom by remember { mutableStateOf(true) }
                                         var scrollToBottomTrigger by remember { mutableStateOf(0) }
 
-                                        val confirmingCloseId by viewModel.confirmingCloseId.collectAsState()
                                         TabBar(
                                             sessions = viewModel.sessions,
                                             activeIndex = viewModel.activeSessionIndex,
                                             viewMode = globalViewMode,
-                                            // A session tab is the way back to the sessions — it is what
-                                            // clears the centre's document selection, and the only thing that
-                                            // does. It never moves because a document was focused.
-                                            onTabClick = { index ->
-                                                viewModel.setActiveSession(index)
-                                                viewModel.showSessions()
-                                            },
+                                            onTabClick = { index -> viewModel.setActiveSession(index) },
                                             onCloseTab = { index -> viewModel.closeSession(index) },
                                             onToggleWrapText = { index ->
                                                 viewModel.sessions.getOrNull(index)?.toggleWrapText()
@@ -334,18 +333,10 @@ fun App(
                                             },
                                             isAtBottom = isAtBottom,
                                             onScrollToBottom = { scrollToBottomTrigger++ },
-                                            documents = documentTabs,
-                                            activeDocumentId = activeDocumentId,
-                                            confirmingCloseId = confirmingCloseId,
-                                            onFocusDocument = { viewModel.focusDocument(it) },
-                                            onRequestCloseDocument = { viewModel.requestCloseDocument(it) },
-                                            onConfirmCloseDocument = { viewModel.closeDocument(it) },
-                                            onCancelCloseDocument = { viewModel.cancelCloseDocument() },
                                         )
 
-                                        if (activeDocument != null) {
-                                            ScenarioDocumentPane(viewModel, activeDocument, modifier = Modifier.weight(1f))
-                                        } else {
+                                        // The centre is always the sessions now — the scenario editor is a
+                                        // bottom dock (see ScenarioDock), not a pane that replaces the grid.
                                         viewModel.activeSession?.let { session ->
                                             val messages by session.messages.collectAsState()
                                             val wrapText by session.wrapText.collectAsState()
@@ -394,24 +385,15 @@ fun App(
                                                 fontSize = 14.sp,
                                             )
                                         }
-                                        }
 
                                         // Search results pane at bottom (if visible)
                                         if (showSearchResultsPane) {
-                                            Box(
-                                                modifier =
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .height(AppTheme.Separators.panelSeparatorWidth)
-                                                        .background(AppTheme.Separators.color)
-                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
-                                                        .pointerInput(Unit) {
-                                                            detectDragGestures { change, dragAmount ->
-                                                                change.consume()
-                                                                val newHeight = searchResultsPanelHeight - dragAmount.y.dp
-                                                                searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
-                                                            }
-                                                        },
+                                            HeightResizeHandle(
+                                                onDeltaPx = { dy ->
+                                                    searchResultsPanelHeight =
+                                                        (searchResultsPanelHeight - with(density) { dy.toDp() }).coerceIn(100.dp, 600.dp)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(searchHeightDp = searchResultsPanelHeight.value) } },
                                             )
 
                                             Box(modifier = Modifier.height(searchResultsPanelHeight)) {
@@ -432,21 +414,11 @@ fun App(
                                     // Message detail panel (if shown)
                                     if (showDetailPanel) {
                                         // Resizable divider for detail panel
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .width(AppTheme.Separators.panelSeparatorWidth)
-                                                    .fillMaxHeight()
-                                                    .background(AppTheme.Separators.color)
-                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                    .pointerInput(maxWidthPx) {
-                                                        detectDragGestures { change, dragAmount ->
-                                                            change.consume()
-                                                            val newOffset =
-                                                                detailPanelSplitRatio - (dragAmount.x / maxWidthPx)
-                                                            detailPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                        }
-                                                    },
+                                        WidthResizeHandle(
+                                            onDeltaPx = { dx ->
+                                                detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
                                         )
 
                                         Box(
@@ -466,21 +438,11 @@ fun App(
                                     // Rightmost panel - Connection panel (if shown)
                                     if (showConnectionPanel) {
                                         // Resizable divider for connection panel
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .width(AppTheme.Separators.panelSeparatorWidth)
-                                                    .fillMaxHeight()
-                                                    .background(AppTheme.Separators.color)
-                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                    .pointerInput(maxWidthPx) {
-                                                        detectDragGestures { change, dragAmount ->
-                                                            change.consume()
-                                                            val newOffset =
-                                                                connectionPanelSplitRatio - (dragAmount.x / maxWidthPx)
-                                                            connectionPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                        }
-                                                    },
+                                        WidthResizeHandle(
+                                            onDeltaPx = { dx ->
+                                                connectionPanelSplitRatio = (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
                                         )
 
                                         Box(
@@ -525,21 +487,11 @@ fun App(
                                     // Latency panel (if shown)
                                     if (showLatencyPanel) {
                                         // Resizable divider for latency panel
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .width(AppTheme.Separators.panelSeparatorWidth)
-                                                    .fillMaxHeight()
-                                                    .background(AppTheme.Separators.color)
-                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                    .pointerInput(maxWidthPx) {
-                                                        detectDragGestures { change, dragAmount ->
-                                                            change.consume()
-                                                            val newOffset =
-                                                                latencyPanelSplitRatio - (dragAmount.x / maxWidthPx)
-                                                            latencyPanelSplitRatio = newOffset.coerceIn(0.1f, 0.5f)
-                                                        }
-                                                    },
+                                        WidthResizeHandle(
+                                            onDeltaPx = { dx ->
+                                                latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.5f)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
                                         )
 
                                         Box(
@@ -617,8 +569,11 @@ fun App(
                                             viewModel = viewModel,
                                             show = showScenariosRail,
                                             ratio = scenariosRailSplitRatio,
-                                            onRatioChange = { scenariosRailSplitRatio = it },
                                             maxWidthPx = maxWidthPx,
+                                            onDeltaPx = { dx ->
+                                                scenariosRailSplitRatio = (scenariosRailSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.45f)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(railRatio = scenariosRailSplitRatio) } },
                                         )
 
                                         // Leftmost panel - Message editor (if shown)
@@ -641,52 +596,31 @@ fun App(
                                             }
 
                                             // Resizable divider for editor panel
-                                            Box(
-                                                modifier =
-                                                    Modifier
-                                                        .width(1.dp)
-                                                        .fillMaxHeight()
-                                                        .background(Color(0xFF3A3A3A))
-                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                        .pointerInput(maxWidthPx) {
-                                                            detectDragGestures { change, dragAmount ->
-                                                                change.consume()
-                                                                val newOffset =
-                                                                    editorPanelSplitRatio + (dragAmount.x / maxWidthPx)
-                                                                editorPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                            }
-                                                        },
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    editorPanelSplitRatio = (editorPanelSplitRatio + dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(editorRatio = editorPanelSplitRatio) } },
                                             )
                                         }
 
-                                        // Center panel - Split view (with the document area beside it, if any)
+                                        // Center panel - the sessions (the scenario editor is the bottom dock now)
                                         Column(modifier = Modifier.weight(1f)) {
                                             SplitCentre(
                                                 viewModel = viewModel,
                                                 orientation = splitOrientation,
                                                 globalViewMode = globalViewMode,
                                                 selectedMessage = selectedMessage,
-                                                hasDocuments = documents.isNotEmpty(),
-                                                ratio = documentSplitRatio,
-                                                onRatioChange = { documentSplitRatio = it },
                                             )
 
                                             // Search results pane at bottom (if visible)
                                             if (showSearchResultsPane) {
-                                                Box(
-                                                    modifier =
-                                                        Modifier
-                                                            .fillMaxWidth()
-                                                            .height(AppTheme.Separators.panelSeparatorWidth)
-                                                            .background(AppTheme.Separators.color)
-                                                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
-                                                            .pointerInput(Unit) {
-                                                                detectDragGestures { change, dragAmount ->
-                                                                    change.consume()
-                                                                    val newHeight = searchResultsPanelHeight - dragAmount.y.dp
-                                                                    searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
-                                                                }
-                                                            },
+                                                HeightResizeHandle(
+                                                    onDeltaPx = { dy ->
+                                                        searchResultsPanelHeight =
+                                                            (searchResultsPanelHeight - with(density) { dy.toDp() }).coerceIn(100.dp, 600.dp)
+                                                    },
+                                                    onDragEnd = { viewModel.updateLayout { it.copy(searchHeightDp = searchResultsPanelHeight.value) } },
                                                 )
 
                                                 Box(modifier = Modifier.height(searchResultsPanelHeight)) {
@@ -706,21 +640,11 @@ fun App(
                                         // Message detail panel (if shown)
                                         if (showDetailPanel) {
                                             // Resizable divider for detail panel
-                                            Box(
-                                                modifier =
-                                                    Modifier
-                                                        .width(1.dp)
-                                                        .fillMaxHeight()
-                                                        .background(Color(0xFF3A3A3A))
-                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                        .pointerInput(maxWidthPx) {
-                                                            detectDragGestures { change, dragAmount ->
-                                                                change.consume()
-                                                                val newOffset =
-                                                                    detailPanelSplitRatio - (dragAmount.x / maxWidthPx)
-                                                                detailPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                            }
-                                                        },
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    detailPanelSplitRatio = (detailPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(detailRatio = detailPanelSplitRatio) } },
                                             )
 
                                             Box(
@@ -740,21 +664,11 @@ fun App(
                                         // Rightmost panel - Connection panel (if shown)
                                         if (showConnectionPanel) {
                                             // Resizable divider for connection panel
-                                            Box(
-                                                modifier =
-                                                    Modifier
-                                                        .width(1.dp)
-                                                        .fillMaxHeight()
-                                                        .background(Color(0xFF3A3A3A))
-                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                        .pointerInput(maxWidthPx) {
-                                                            detectDragGestures { change, dragAmount ->
-                                                                change.consume()
-                                                                val newOffset =
-                                                                    connectionPanelSplitRatio - (dragAmount.x / maxWidthPx)
-                                                                connectionPanelSplitRatio = newOffset.coerceIn(0.1f, 0.6f)
-                                                            }
-                                                        },
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    connectionPanelSplitRatio = (connectionPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.6f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(connectionRatio = connectionPanelSplitRatio) } },
                                             )
 
                                             Box(
@@ -807,21 +721,11 @@ fun App(
                                         // Latency panel (if shown)
                                         if (showLatencyPanel) {
                                             // Resizable divider for latency panel
-                                            Box(
-                                                modifier =
-                                                    Modifier
-                                                        .width(AppTheme.Separators.panelSeparatorWidth)
-                                                        .fillMaxHeight()
-                                                        .background(AppTheme.Separators.color)
-                                                        .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                                                        .pointerInput(maxWidthPx) {
-                                                            detectDragGestures { change, dragAmount ->
-                                                                change.consume()
-                                                                val newOffset =
-                                                                    latencyPanelSplitRatio - (dragAmount.x / maxWidthPx)
-                                                                latencyPanelSplitRatio = newOffset.coerceIn(0.1f, 0.5f)
-                                                            }
-                                                        },
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    latencyPanelSplitRatio = (latencyPanelSplitRatio - dx / maxWidthPx).coerceIn(0.1f, 0.5f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(latencyRatio = latencyPanelSplitRatio) } },
                                             )
 
                                             Box(
@@ -886,27 +790,16 @@ fun App(
                                         orientation = splitOrientation,
                                         globalViewMode = globalViewMode,
                                         selectedMessage = selectedMessage,
-                                        hasDocuments = documents.isNotEmpty(),
-                                        ratio = documentSplitRatio,
-                                        onRatioChange = { documentSplitRatio = it },
                                     )
 
                                     // Search results pane at bottom (if visible)
                                     if (showSearchResultsPane) {
-                                        Box(
-                                            modifier =
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .height(AppTheme.Separators.panelSeparatorWidth)
-                                                    .background(AppTheme.Separators.color)
-                                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
-                                                    .pointerInput(Unit) {
-                                                        detectDragGestures { change, dragAmount ->
-                                                            change.consume()
-                                                            val newHeight = searchResultsPanelHeight - dragAmount.y.dp
-                                                            searchResultsPanelHeight = newHeight.coerceIn(100.dp, 600.dp)
-                                                        }
-                                                    },
+                                        HeightResizeHandle(
+                                            onDeltaPx = { dy ->
+                                                searchResultsPanelHeight =
+                                                    (searchResultsPanelHeight - with(density) { dy.toDp() }).coerceIn(100.dp, 600.dp)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(searchHeightDp = searchResultsPanelHeight.value) } },
                                         )
 
                                         Box(modifier = Modifier.height(searchResultsPanelHeight)) {
@@ -925,6 +818,11 @@ fun App(
                             }
                         }
                     }
+
+                    // The scenario editor dock — full width, beneath everything, so it spans the whole window
+                    // (unlike the terminal, which stays as wide as the centre pane). It is decoupled from the
+                    // session view mode: the same dock in TABS and both SPLITs. Absent when no document is open.
+                    ScenarioDock(viewModel)
                 }
 
                 // Notification popup overlay in bottom-right corner
@@ -946,37 +844,22 @@ private fun ScenariosRailDock(
     viewModel: FixMessageViewModel,
     show: Boolean,
     ratio: Float,
-    onRatioChange: (Float) -> Unit,
     maxWidthPx: Float,
+    onDeltaPx: (Float) -> Unit,
+    onDragEnd: () -> Unit,
 ) {
     if (!show) return
     val density = LocalDensity.current
     Box(modifier = Modifier.width(with(density) { (maxWidthPx * ratio).toDp() })) {
         ScenariosRail(viewModel, modifier = Modifier.fillMaxSize())
     }
-    Box(
-        modifier =
-            Modifier
-                .width(AppTheme.Separators.panelSeparatorWidth)
-                .fillMaxHeight()
-                .background(AppTheme.Separators.color)
-                .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                .pointerInput(maxWidthPx) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        onRatioChange((ratio + (dragAmount.x / maxWidthPx)).coerceIn(0.1f, 0.45f))
-                    }
-                },
-    )
+    WidthResizeHandle(onDeltaPx = onDeltaPx, onDragEnd = onDragEnd)
 }
 
 /**
- * The SPLIT layouts' centre: the session grid, and — while any scenario document is open — **the document
- * beside it**, split along the axis the author already chose. That is the promise SPLIT makes and a document
- * tab must not break it: SPLIT exists to keep more than one thing on screen, so a document that took the whole
- * centre would have quietly turned SPLIT back into TABS.
- *
- * With no document open this is exactly the SplitView that was here before, and nothing else is composed.
+ * The SPLIT layouts' centre: the session grid, and nothing else. The scenario editor used to share this
+ * split, which coupled where it appeared to the *session* view mode; it is a bottom dock now (see
+ * [ScenarioDock]), so the centre is purely the sessions in both TABS and SPLIT.
  */
 @Composable
 private fun ColumnScope.SplitCentre(
@@ -984,77 +867,23 @@ private fun ColumnScope.SplitCentre(
     orientation: SplitOrientation,
     globalViewMode: com.knapsack.fixtool.model.FixMessageSession.ViewMode,
     selectedMessage: FixMessage?,
-    hasDocuments: Boolean,
-    ratio: Float,
-    onRatioChange: (Float) -> Unit,
 ) {
-    val grid: @Composable (Modifier) -> Unit = { m ->
-        SplitView(
-            sessions = viewModel.sessions,
-            dictionary = viewModel.dictionary,
-            viewMode = globalViewMode,
-            onCloseSession = { index -> viewModel.closeSession(index) },
-            onMoveSession = { from, to -> viewModel.moveSession(from, to) },
-            selectedMessage = selectedMessage,
-            onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
-            onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },
-            onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
-            orientation = orientation,
-            gridViewColumns = viewModel.appSettings.gridViewColumns,
-            assertionResults = viewModel.assertionResults,
-            appSettings = viewModel.appSettings,
-            modifier = m,
-        )
-    }
-    if (!hasDocuments) {
-        grid(Modifier.weight(1f))
-        return
-    }
-    val documentWeight = ratio.coerceIn(0.2f, 0.85f)
-    BoxWithConstraints(modifier = Modifier.weight(1f)) {
-        val density = LocalDensity.current
-        if (orientation == SplitOrientation.HORIZONTAL) {
-            val widthPx = with(density) { maxWidth.toPx() }
-            Row(modifier = Modifier.fillMaxSize()) {
-                Box(modifier = Modifier.weight(1f - documentWeight)) { grid(Modifier.fillMaxSize()) }
-                Box(
-                    modifier =
-                        Modifier
-                            .width(AppTheme.Separators.panelSeparatorWidth)
-                            .fillMaxHeight()
-                            .background(AppTheme.Separators.color)
-                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)))
-                            .pointerInput(widthPx) {
-                                detectDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    onRatioChange((documentWeight - (dragAmount.x / widthPx)).coerceIn(0.2f, 0.85f))
-                                }
-                            },
-                )
-                Box(modifier = Modifier.weight(documentWeight)) { ScenarioDocumentArea(viewModel) }
-            }
-        } else {
-            val heightPx = with(density) { maxHeight.toPx() }
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box(modifier = Modifier.weight(1f - documentWeight)) { grid(Modifier.fillMaxSize()) }
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(AppTheme.Separators.panelSeparatorWidth)
-                            .background(AppTheme.Separators.color)
-                            .pointerHoverIcon(PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)))
-                            .pointerInput(heightPx) {
-                                detectDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    onRatioChange((documentWeight - (dragAmount.y / heightPx)).coerceIn(0.2f, 0.85f))
-                                }
-                            },
-                )
-                Box(modifier = Modifier.weight(documentWeight)) { ScenarioDocumentArea(viewModel) }
-            }
-        }
-    }
+    SplitView(
+        sessions = viewModel.sessions,
+        dictionary = viewModel.dictionary,
+        viewMode = globalViewMode,
+        onCloseSession = { index -> viewModel.closeSession(index) },
+        onMoveSession = { from, to -> viewModel.moveSession(from, to) },
+        selectedMessage = selectedMessage,
+        onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
+        onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },
+        onPasteMessage = { rawMessage -> viewModel.pasteAndDisplayMessage(rawMessage) },
+        orientation = orientation,
+        gridViewColumns = viewModel.appSettings.gridViewColumns,
+        assertionResults = viewModel.assertionResults,
+        appSettings = viewModel.appSettings,
+        modifier = Modifier.weight(1f),
+    )
 }
 
 /**

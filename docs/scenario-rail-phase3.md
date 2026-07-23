@@ -1,6 +1,15 @@
 # Scenarios rail — Phase 3: favourites, sort, sections, collapse
 
-**Status:** proposed (not started). Phases 1–2 ship first and independently; this doc is Phase 3 only.
+**Status: SHIPPED (2026-07-23).**
+- Phase 1+2 (list-weight fix, compact/expandable report, Current-run pin): commit `7c2c969`.
+- `createdAt` foundation: commit `fb94b1e`.
+- Sort + ★ favourites sections + collapse-all: commit `d668062`.
+
+**One deviation from the plan below, deliberate:** `createdAt` is minted at **first `save()`**
+(`previous == null && createdAt == null`), not at each named creation site. One mint point covers
+new/capture/duplicate/remap, and — the property that matters — a pre-existing file is *provably* never
+rewritten to add the key (an edit has `previous != null`, so it is never stamped). The clock is injected for
+tests. This supersedes §1's "Stamp sites" table and §9's duplicate/remap note.
 
 ## Where this sits
 

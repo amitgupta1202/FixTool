@@ -5,6 +5,20 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-07-24
+
+### ✨ Added
+
+#### Latency simulation for acceptor mode
+- **The acceptor delays its auto-responses the way a network does.** FixTool replied to an incoming order as fast as the machine allowed — a latency a real venue never has, so a client whose timeout/retry logic is wrong passed here and failed against a real venue. Latency is now a per-profile property of the simulated venue, configured in a **Latency** section beside the auto-response rules: **Off**, **Fixed**, **Random range**, or **Normal distribution**, plus an independent **spike** probability that occasionally stalls a reply to a large draw (e.g. 5% of replies to 2000–5000ms).
+- **One sample per triggering message, shifting the whole reply.** The delay is drawn once for each incoming message that fires a rule and shifts that rule's entire reply — ack, partial, fill — by the one number, so a sequence's authored inter-step order can never invert under an unlucky draw. The per-step delays remain the venue's own processing time, layered on top of the network hop. The applied value is written to the log per trigger, so a delayed reply is explained rather than mysterious.
+- **Inert by default.** A profile with no latency configured behaves exactly as before, and nothing samples on the response path until a latency is set — so existing profiles are untouched.
+
+#### The scenario editor is a bottom dock, and the workbench layout persists
+- **The scenario editor is now an IntelliJ-style tool window docked full-width beneath the sessions**, the same idiom the terminal already uses, instead of rendering inside the session split where its position was a side effect of the view mode (and, in TABS, could not be resized at all). The dock has its own document tab strip, drag-to-resize, and minimize-to-header that survives composition; opening or focusing any document — a rail step click, a failure deep-link, a capture — restores a minimized dock and lands on that step.
+- **Workbench layout persists across launches.** Panel sizes, which panels are open, and the dock heights are saved to a new `layout.json` (view state, kept out of app settings) and restored on launch; writes are debounced and drag sizes persisted on release.
+- **A shared resize grab-handle replaces the 1px dividers everywhere** — which also fixes a rail divider that captured its ratio by value and barely moved per drag; the handle applies the delta against live state instead.
+
 ## [1.11.0] - 2026-07-23
 
 ### ✨ Added

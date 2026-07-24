@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
@@ -83,6 +84,7 @@ fun ConnectionPanel(
     var customParameters by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var logonFields by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var acceptorRules by remember { mutableStateOf<List<AcceptorResponseRule>>(emptyList()) }
+    var acceptorLatency by remember { mutableStateOf(AcceptorLatencyConfig()) }
 
     // SSL/TLS state
     var useSSL by remember { mutableStateOf(false) }
@@ -150,6 +152,7 @@ fun ConnectionPanel(
         customParameters = profile.config.customParameters.map { it.key to it.value }
         logonFields = profile.config.logonFields.map { it.key to it.value }
         acceptorRules = profile.config.acceptorResponseRules
+        acceptorLatency = profile.config.acceptorLatency
         // SSL/TLS
         useSSL = profile.config.useSSL
         keyStorePath = profile.config.keyStorePath
@@ -323,6 +326,7 @@ fun ConnectionPanel(
                             customParameters = customParameters.toMap(),
                             logonFields = logonFields.toMap(),
                             acceptorResponseRules = acceptorRules,
+                            acceptorLatency = acceptorLatency,
                         )
                     val profile =
                         FixConnectionProfile(
@@ -375,6 +379,7 @@ fun ConnectionPanel(
                         customParameters = emptyList()
                         logonFields = emptyList()
                         acceptorRules = emptyList()
+                        acceptorLatency = AcceptorLatencyConfig()
                     }
                 },
                 onCloneProfile = { profile ->
@@ -414,6 +419,7 @@ fun ConnectionPanel(
                     customParameters = clonedProfile.config.customParameters.map { it.key to it.value }
                     logonFields = clonedProfile.config.logonFields.map { it.key to it.value }
                     acceptorRules = clonedProfile.config.acceptorResponseRules
+                    acceptorLatency = clonedProfile.config.acceptorLatency
                 },
             )
 
@@ -1474,6 +1480,68 @@ fun ConnectionPanel(
                         dictionary = dictionary,
                     )
                 }
+
+                // Latency (collapsible) — its own section beside the rules because it is the other half
+                // of the venue's timing: the rules say what comes back and how far apart, this says how
+                // long the wire takes. Acceptor-only for the same reason the rules are — the delay is
+                // applied in QuickFixService.maybeAutoRespond, which an initiator never reaches.
+                var showAcceptorLatency by remember { mutableStateOf(false) }
+
+                // Open itself when the loaded profile has latency configured, the same auto-expand the
+                // rules section does — a venue that delays its replies should not look, at a glance,
+                // like one that answers instantly.
+                LaunchedEffect(acceptorLatency.isActive()) {
+                    if (acceptorLatency.isActive()) showAcceptorLatency = true
+                }
+
+                HorizontalDivider(
+                    color = AppTheme.Separators.color,
+                    thickness = AppTheme.Separators.dividerThickness,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { showAcceptorLatency = !showAcceptorLatency }
+                            .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Timer,
+                        contentDescription = "Latency",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = iconSize16,
+                    )
+                    Text(
+                        text = "Latency",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 10.sp,
+                    )
+                    if (acceptorLatency.isActive()) {
+                        Text(
+                            text = describeLatency(acceptorLatency),
+                            color = AppTheme.Colors.textDisabled,
+                            fontSize = 9.sp,
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Icon(
+                        imageVector = if (showAcceptorLatency) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (showAcceptorLatency) "Collapse" else "Expand",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = iconSize16,
+                    )
+                }
+
+                if (showAcceptorLatency) {
+                    AcceptorLatencyEditor(
+                        latency = acceptorLatency,
+                        onLatencyChange = { acceptorLatency = it },
+                    )
+                }
             }
 
             // Demo Server section (collapsible)
@@ -1695,6 +1763,7 @@ fun ConnectionPanel(
                             customParameters = customParameters.toMap(),
                             logonFields = logonFields.toMap(),
                             acceptorResponseRules = acceptorRules,
+                            acceptorLatency = acceptorLatency,
                         )
                     // Create or update the profile with current form values
                     val profile =

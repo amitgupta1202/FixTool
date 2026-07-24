@@ -52,6 +52,8 @@ data class FixConnectionConfig(
     val logonFields: Map<String, String> = emptyMap(),
     // Acceptor mode only: auto-response rules applied to incoming application messages (first match wins)
     val acceptorResponseRules: List<AcceptorResponseRule> = emptyList(),
+    // Acceptor mode only: how long the venue waits before an auto-response goes out (default: no delay)
+    val acceptorLatency: AcceptorLatencyConfig = AcceptorLatencyConfig(),
 ) {
     enum class ConnectionType {
         INITIATOR, // Client - initiates connection

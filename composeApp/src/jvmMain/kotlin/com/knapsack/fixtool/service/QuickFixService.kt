@@ -64,6 +64,14 @@ class QuickFixService(
     }
 
     /**
+     * The source of each response's simulated latency. One per service, so a config's random-range and
+     * normal modes draw an independent sample per triggering message; `java.util.Random` for its
+     * `nextGaussian`, and thread-safe, which matters because the draw happens on the QuickFIX callback
+     * thread. Deterministic under a seed — see the config's own tests.
+     */
+    private val latencyRandom = java.util.Random()
+
+    /**
      * The one place an acceptor auto-response reaches the wire. Off the callback thread on purpose —
      * see [AcceptorDispatch] for why a reply sent inline is not merely early but impossibly early.
      */
@@ -392,8 +400,16 @@ class QuickFixService(
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
         val rule = AcceptorResponder.firstMatch(compiledRules, incoming) ?: return
         try {
+            // Drawn once for this triggering message, then added to every step's offset so the whole
+            // reply slides by the one number and its authored order cannot invert. Skipped entirely
+            // for an inert config, so a rule-less-latency acceptor puts no RNG on the callback thread
+            // and behaves exactly as it did before this existed. See [AcceptorLatencyConfig].
+            val latencyMillis = if (config.acceptorLatency.isActive()) config.acceptorLatency.sample(latencyRandom) else 0L
+            if (latencyMillis > 0L) {
+                logger.info("Acceptor applying {}ms simulated latency to {} response", latencyMillis, rule.whenMsgType)
+            }
             AcceptorResponder.plan(rule, incoming, request, dictionary).forEach { planned ->
-                autoResponseDispatch.schedule(sessionId, planned.offsetMillis, planned.build)
+                autoResponseDispatch.schedule(sessionId, planned.offsetMillis + latencyMillis, planned.build)
             }
         } catch (e: Exception) {
             logger.error("Acceptor auto-response failed to plan: ${e.message}", e)

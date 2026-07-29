@@ -47,6 +47,21 @@ const DOWN_HINT =
 
 let rpcId = 0;
 
+/**
+ * How long to give one call before giving up on it.
+ *
+ * A tool that takes its own `timeoutMs` — `fixtool_wait` blocks for up to 120s, and a scenario run
+ * can outlast any fixed ceiling — is waited for **as long as it asked for**, plus a margin for the
+ * round trip. The flat 15s otherwise aborts the call while FixTool is still doing exactly what it was
+ * told to do, and reports it as "could not reach FixTool", so a caller who asked to wait 25 seconds
+ * for a logon is told the app is down at 15. The default still applies to everything that answers
+ * immediately, so a genuinely unreachable app is still noticed quickly.
+ */
+function timeoutFor(params) {
+  const asked = Number(params?.arguments?.timeoutMs);
+  return Number.isFinite(asked) && asked > 0 ? asked + TIMEOUT_MS : TIMEOUT_MS;
+}
+
 /** One JSON-RPC call to FixTool's /mcp endpoint. Throws if unreachable or if the app reports an error. */
 async function rpc(method, params) {
   const headers = { "Content-Type": "application/json" };
@@ -55,7 +70,7 @@ async function rpc(method, params) {
     method: "POST",
     headers,
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params: params ?? {} }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutFor(params)),
   });
   if (!res.ok) throw new Error(`FixTool returned HTTP ${res.status} for ${method}`);
   const body = await res.json();

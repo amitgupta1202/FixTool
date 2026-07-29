@@ -40,6 +40,26 @@ sealed class SendResult {
     ) : SendResult()
 }
 
+/**
+ * A live acceptor's own state — what it is running and what it is in the middle of doing.
+ *
+ * [triggersMatched] counts inbound messages that matched a rule; [responsesSent] counts replies that
+ * have reached the wire. They are reported separately because the gap between them *is* a state: a
+ * sequence that has been triggered and is still playing out has the first ahead of the second, and
+ * that is indistinguishable, from the message log alone, from a rule that never matched.
+ *
+ * [rulesLive] is how many rules are compiled and in force, which is not necessarily how many are
+ * saved — a disabled or unusable rule is compiled away, and the difference is the answer to "I saved
+ * it, why does nothing happen".
+ */
+data class AcceptorStatus(
+    val rulesLive: Int,
+    val latencyActive: Boolean,
+    val triggersMatched: Long,
+    val responsesSent: Long,
+    val pendingResponses: Int,
+)
+
 class QuickFixService(
     private val config: FixConnectionConfig,
     private val dictionary: FixDictionary,
@@ -110,10 +130,45 @@ class QuickFixService(
     private val autoResponseDispatch =
         AcceptorDispatch(
             onSent = { response ->
+                responsesSent.incrementAndGet()
                 logger.info("Acceptor auto-responded with {}", response.header.getString(35))
             },
             onError = { message, e -> logger.error(message, e) },
         )
+
+    /**
+     * How many inbound messages have matched a rule, and how many replies have actually left.
+     *
+     * Two numbers rather than one because they answer different questions and their *difference* is
+     * the interesting state: a sequence that has matched but is still playing out reads as
+     * `triggersMatched` ahead of `responsesSent`, which is exactly the window a latency or ordering
+     * test is looking at. Cumulative for the life of the session, so they only ever go up and a reader
+     * can diff two reads rather than reason about when something was reset.
+     */
+    private val triggersMatched = java.util.concurrent.atomic.AtomicLong()
+    private val responsesSent = java.util.concurrent.atomic.AtomicLong()
+
+    /**
+     * What this acceptor is doing right now.
+     *
+     * Answering "did my rule fire?" and "is a sequence still in flight?" otherwise means reading the
+     * message list and inferring — which cannot distinguish a rule that never matched from one that
+     * matched and whose reply is still sitting in the dispatch queue behind a delay. Those look the
+     * same in the log (nothing there yet) and have completely different causes.
+     *
+     * Null for a session that is not an acceptor, so the caller reports the section only where it
+     * means something rather than showing five zeroes on every initiator.
+     */
+    fun acceptorStatus(): AcceptorStatus? {
+        if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return null
+        return AcceptorStatus(
+            rulesLive = compiledRules.size,
+            latencyActive = acceptorLatency.isActive(),
+            triggersMatched = triggersMatched.get(),
+            responsesSent = responsesSent.get(),
+            pendingResponses = currentSessionID?.let { autoResponseDispatch.pendingCount(it) } ?: 0,
+        )
+    }
 
     /**
      * Capture current time in microseconds for latency tracking.
@@ -431,6 +486,7 @@ class QuickFixService(
     private fun maybeAutoRespond(incoming: Message, request: FixMessage, sessionId: SessionID) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
         val rule = AcceptorResponder.firstMatch(compiledRules, incoming) ?: return
+        triggersMatched.incrementAndGet()
         try {
             // Drawn once for this triggering message, then added to every step's offset so the whole
             // reply slides by the one number and its authored order cannot invert. Skipped entirely

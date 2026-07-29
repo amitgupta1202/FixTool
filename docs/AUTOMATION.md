@@ -108,7 +108,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | -------------------- | -------------------------------------- | ---------------------------------------------------- |
 | `GET /syntax`        | —                                      | `text/markdown`: the template-expression + matcher reference (see below) |
 | `GET /health`        | —                                      | `{status, sessionCount, version}`                    |
-| `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …)       |
+| `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …); an ACCEPTOR session also carries an `acceptor` block — see below |
 | `GET /profiles`      | —                                      | array of connection profiles (summary: id, name, type, host, port, CompIDs) |
 | `GET /profiles?profile=` | query: `profile` (id or name)      | **one profile's whole config** — every field, for a read → edit → save round-trip. Passwords read as `[REDACTED]` |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?, "replace"?}` | create, or **merge** into an existing profile if `id` is given → `{status, id, name, mode, applied[], warnings?}`. `replace:true` replaces the whole config instead |
@@ -487,6 +487,28 @@ judgement with `firstMatch`, and the reply comes from `plan`), so a dry run cann
 live session would do nothing. It reads the profile **as saved** — which is also what a connected
 acceptor is running, since saving now applies to live sessions, so testing here and connecting there
 cannot disagree about the ruleset.
+
+#### What a running acceptor is doing
+
+`GET /sessions` gives an `acceptor` block on any session whose profile is an `ACCEPTOR`:
+
+```json
+"acceptor": {"acceptPort":"9100","rulesLive":2,"latencyActive":true,
+             "triggersMatched":3,"responsesSent":7,"pendingResponses":2}
+```
+
+`rulesLive` is how many rules are **compiled and in force**, which is not necessarily how many are
+saved — a disabled or unusable rule is compiled away, and that difference is the answer to "I saved
+it, why does nothing happen".
+
+`triggersMatched` and `responsesSent` are cumulative and separate on purpose: the gap between them is
+a state. `triggersMatched` ahead of `responsesSent` with `pendingResponses` non-zero means a reply
+sequence has been triggered and is still playing out behind its delays — which, read from the message
+log alone, looks exactly like a rule that never matched. Both only ever go up, so two reads can be
+diffed rather than reasoned about.
+
+The block is absent on initiators rather than reported as zeroes, for the same reason `discarded` is:
+a field that reads 0 on every healthy session teaches a reader to stop looking at it.
 
 #### Simulated latency
 

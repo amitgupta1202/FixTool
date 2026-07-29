@@ -1103,6 +1103,123 @@ class ControlServerIntegrationTest {
     }
 
     /**
+     * **A sequence mid-flight is a state, and it must be visible as one.**
+     *
+     * Between the trigger and the last step, an acceptor has matched a rule and sent only part of its
+     * reply. From the message log that is indistinguishable from a rule that never matched — both are
+     * "the thing I expected is not there yet" — so a test driving an acceptor cannot tell "wait longer"
+     * from "your rule is wrong". The counters separate them: `triggersMatched` ahead of
+     * `responsesSent`, with `pendingResponses` non-zero, is the sequence still playing out.
+     */
+    @Test
+    fun `a running acceptor reports what it is mid-way through`() {
+        val port = freePort()
+        val acceptor =
+            FixConnectionProfile(
+                name = "ACC",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "ACC$runId",
+                        targetCompID = "CLI$runId",
+                        port = port.toString(),
+                        socketAcceptPort = port.toString(),
+                        beginString = "FIX.4.4",
+                        fileStorePath = File(testDir, "accstore").absolutePath,
+                        fileLogPath = File(testDir, "acclog").absolutePath,
+                        acceptorResponseRules =
+                            listOf(
+                                AcceptorResponseRule(
+                                    whenMsgType = "D",
+                                    steps =
+                                        listOf(
+                                            ResponseStep(template = "35=8|150=0|39=0|11=\${req.11}|"),
+                                            ResponseStep(template = "35=8|150=F|39=2|11=\${req.11}|", delayMillis = 2_000),
+                                        ),
+                                ),
+                                // Disabled, so it is compiled away — rulesLive must say 1, not 2.
+                                AcceptorResponseRule(
+                                    whenMsgType = "F",
+                                    enabled = false,
+                                    steps = listOf(ResponseStep(template = "35=9|")),
+                                ),
+                            ),
+                    ),
+            )
+        val client =
+            FixConnectionProfile(
+                name = "CLI",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                        senderCompID = "CLI$runId",
+                        targetCompID = "ACC$runId",
+                        host = "localhost",
+                        port = port.toString(),
+                        socketConnectHost = "localhost",
+                        beginString = "FIX.4.4",
+                        autoReconnect = false,
+                        resetOnLogon = true,
+                        fileStorePath = File(testDir, "clistore").absolutePath,
+                        fileLogPath = File(testDir, "clilog").absolutePath,
+                    ),
+            )
+        listOf(acceptor, client).forEach {
+            viewModel.saveConnectionProfile(it)
+            viewModel.connectProfile(it.id, it)
+        }
+        assertTrue(
+            awaitCondition(15_000) {
+                viewModel.sessions.any { it.title == "CLI" && it.connectionState.value == FixConnectionState.LOGGED_ON }
+            },
+            "client should log on to the FixTool acceptor",
+        )
+
+        fun acceptorBlock(): JsonObject? =
+            arr(get("/sessions"))
+                .map { it.jsonObject }
+                .firstOrNull { it["title"]!!.jsonPrimitive.content == "ACC" }
+                ?.get("acceptor")
+                ?.jsonObject
+
+        val idle = acceptorBlock()
+        assertTrue(idle != null, "an acceptor session must carry the block at all")
+        assertEquals(port.toString(), idle!!["acceptPort"]!!.jsonPrimitive.content)
+        assertEquals(1, idle["rulesLive"]!!.jsonPrimitive.int, "the disabled rule is compiled away, so only one is in force")
+        assertEquals(0, idle["triggersMatched"]!!.jsonPrimitive.int)
+
+        // An initiator has nothing to say here, and says nothing rather than a row of zeroes.
+        val clientRow = arr(get("/sessions")).map { it.jsonObject }.first { it["title"]!!.jsonPrimitive.content == "CLI" }
+        assertTrue(clientRow["acceptor"] == null, "an initiator must not carry an acceptor block")
+
+        post("/send", """{"session":"CLI","raw":"35=D|11=ORD-MID|55=EUR/USD|54=1|38=100|40=1|"}""")
+        // The ack lands immediately; the fill is 2s behind it. Between them the counters disagree.
+        assertEquals(
+            "matched",
+            status(post("/wait", """{"session":"CLI","match":{"messageType":"8","direction":"in"},"timeoutMs":8000}""")),
+        )
+        val midFlight = acceptorBlock()!!
+        assertEquals(1, midFlight["triggersMatched"]!!.jsonPrimitive.int, "one order matched one rule")
+        assertTrue(
+            midFlight["pendingResponses"]!!.jsonPrimitive.int > 0,
+            "the second step is still waiting out its 2s, and that must be visible: $midFlight",
+        )
+        assertTrue(
+            midFlight["responsesSent"]!!.jsonPrimitive.int < 2,
+            "not everything has gone out yet, which is the whole point of the gap: $midFlight",
+        )
+
+        // Once it has all played out the two agree and nothing is queued.
+        assertTrue(
+            awaitCondition(10_000) {
+                val done = acceptorBlock()!!
+                done["responsesSent"]!!.jsonPrimitive.int == 2 && done["pendingResponses"]!!.jsonPrimitive.int == 0
+            },
+            "both steps should eventually be sent and the queue drain; got ${acceptorBlock()}",
+        )
+    }
+
+    /**
      * **Saving a rule changes what the acceptor does, without dropping the session.**
      *
      * Rules were compiled once, when the session connected, and nothing re-read them: editing one

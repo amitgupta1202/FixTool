@@ -203,6 +203,27 @@ class ControlServer(
             // [FixMessageSession.discarded]. Its absence means nothing was lost.
             val lost = session.discarded.value
             if (lost > 0) put("discarded", lost)
+            // Only on an acceptor, and only once it is running — five zeroes on every initiator would
+            // teach a reader to skip the section, the same reason `discarded` hides itself at zero.
+            session.acceptorStatus()?.let { acceptor ->
+                put(
+                    "acceptor",
+                    buildJsonObject {
+                        put("acceptPort", session.currentConfig?.socketAcceptPort ?: "")
+                        // Compiled and in force, which is not necessarily how many are saved: a
+                        // disabled or unusable rule is compiled away. That difference is the answer
+                        // to "I saved it, why does nothing happen".
+                        put("rulesLive", acceptor.rulesLive)
+                        put("latencyActive", acceptor.latencyActive)
+                        put("triggersMatched", acceptor.triggersMatched)
+                        put("responsesSent", acceptor.responsesSent)
+                        // Still queued behind their delays. `triggersMatched` ahead of `responsesSent`
+                        // with this non-zero is a sequence mid-flight — which reads from the message
+                        // log exactly like a rule that never matched.
+                        put("pendingResponses", acceptor.pendingResponses)
+                    },
+                )
+            }
             put("senderCompID", session.currentConfig?.senderCompID ?: "")
             put("targetCompID", session.currentConfig?.targetCompID ?: "")
         }

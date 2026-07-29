@@ -28,7 +28,15 @@ object McpTools {
                     "expectation — it is the only complete statement of either grammar.",
             ),
             tool("fixtool_health", "Check that the control server is reachable; returns status and session count."),
-            tool("fixtool_sessions", "List all FIX sessions with index, id, title, connection state and message count."),
+            tool(
+                "fixtool_sessions",
+                "List all FIX sessions with index, id, title, connection state and message count. An ACCEPTOR " +
+                    "session also reports an `acceptor` block: acceptPort, rulesLive (compiled and in force — a " +
+                    "disabled or unusable rule is compiled away, so this can be lower than the number saved), " +
+                    "latencyActive, triggersMatched, responsesSent and pendingResponses. triggersMatched ahead of " +
+                    "responsesSent with pendingResponses non-zero means a reply sequence is still playing out — " +
+                    "which from the message log alone looks identical to a rule that never matched.",
+            ),
             tool(
                 "fixtool_profiles",
                 "List the connection profiles (id, name, host, port, sender/target CompID), or pass `profile` " +

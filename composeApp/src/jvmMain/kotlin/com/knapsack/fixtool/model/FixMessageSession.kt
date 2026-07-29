@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.model
 
 // Latency tracking model imports are in this package (CaptureStatus, PacketDirection, TimestampSource)
+import com.knapsack.fixtool.service.AcceptorStatus
 import com.knapsack.fixtool.service.FixConnectionManager
 import com.knapsack.fixtool.service.LatencyTrackingManager
 import com.knapsack.fixtool.service.QuickFixService
@@ -478,6 +479,9 @@ class FixMessageSession(
 
     /** Drops this session's queued acceptor auto-responses; returns how many were still waiting. */
     fun stopPendingResponses(): Int = quickFixService?.stopPendingResponses() ?: 0
+
+    /** What this session's acceptor is running and mid-way through, or null if it is not an acceptor. */
+    fun acceptorStatus(): AcceptorStatus? = quickFixService?.acceptorStatus()
 
     /**
      * Applies a ruleset saved since this session connected. Returns how many rules are live, or null

@@ -157,7 +157,90 @@ class MultiClientAcceptorIntegrationTest {
         assertTrue(viewModel.sessions.none { it.clientSessionId != null }, "no pane for a client we refused")
     }
 
+    /**
+     * **A rule saved while a venue is up reaches every client, not just the busy one.**
+     *
+     * Saving applies to live sessions, and a venue's rules are compiled once on the service that all
+     * its clients share — so the reload either reaches all of them or the model is wrong. The failure
+     * this guards against is the plausible one: a reload that follows the *session that happened to
+     * trigger it* and leaves every other client on the old ruleset. Two clients would then answer the
+     * same order differently, which is the hardest kind of venue bug to see, because each client's own
+     * log is internally consistent.
+     *
+     * Beta is deliberately silent until after the edit. If both clients traded before it, a
+     * per-session reload would look identical to a per-venue one.
+     */
+    @Test
+    fun `a rule saved while the venue is up reaches every connected client`() {
+        connectVenue(
+            rules =
+                listOf(
+                    AcceptorResponseRule(
+                        whenMsgType = "D",
+                        responseTemplate = "35=8|39=0|150=0|11=\${req.11}|58=BEFORE",
+                    ),
+                ),
+        )
+        val alpha = connectClient("ALPHA")
+        val beta = connectClient("BETA")
+        awaitPane("ALPHA")
+        awaitPane("BETA")
+
+        alpha.sendFixMessage("35=D|11=ORDER-1|55=VOD.L|54=1|38=100|40=1", viewModel.dictionary)
+        assertTrue(
+            awaitCondition(15_000) { textOfReply(alpha, "ORDER-1") == "BEFORE" },
+            "alpha should get the original rule's reply first",
+        )
+
+        // The edit: same profile, new rule, venue still up and both clients still logged on.
+        val profile = viewModel.connectionProfiles.first { it.name == "VENUE" }
+        assertTrue(
+            viewModel.saveConnectionProfile(
+                profile.copy(
+                    config =
+                        profile.config.copy(
+                            acceptorResponseRules =
+                                listOf(
+                                    AcceptorResponseRule(
+                                        whenMsgType = "D",
+                                        responseTemplate = "35=8|39=0|150=0|11=\${req.11}|58=AFTER",
+                                    ),
+                                ),
+                        ),
+                ),
+            ),
+            "the profile should persist",
+        )
+
+        // The client that had already traded picks up the new rule...
+        alpha.sendFixMessage("35=D|11=ORDER-2|55=VOD.L|54=1|38=100|40=1", viewModel.dictionary)
+        assertTrue(
+            awaitCondition(15_000) { textOfReply(alpha, "ORDER-2") == "AFTER" },
+            "alpha should get the edited rule without reconnecting; got ${textOfReply(alpha, "ORDER-2")}",
+        )
+
+        // ...and so does the one that had not, which is what makes this about the venue and not a session.
+        beta.sendFixMessage("35=D|11=ORDER-3|55=VOD.L|54=1|38=100|40=1", viewModel.dictionary)
+        assertTrue(
+            awaitCondition(15_000) { textOfReply(beta, "ORDER-3") == "AFTER" },
+            "beta must be on the same ruleset as alpha; got ${textOfReply(beta, "ORDER-3")}",
+        )
+
+        assertEquals(
+            1,
+            venuePane().acceptorStatus()?.rulesLive,
+            "the venue should be running exactly the one rule that is saved",
+        )
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /** The Text (58) of the execution report answering [clOrdId] on this session, or null if none yet. */
+    private fun textOfReply(session: FixMessageSession, clOrdId: String): String? =
+        fixMessages(session)
+            .filter { field(it, 35) == "8" && field(it, 11) == clOrdId }
+            .mapNotNull { field(it, 58) }
+            .firstOrNull()
 
     private fun connectVenue(rules: List<AcceptorResponseRule> = emptyList()) {
         val profile =

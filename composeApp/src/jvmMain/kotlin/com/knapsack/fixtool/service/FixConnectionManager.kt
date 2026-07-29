@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory
 import quickfix.*
 import java.io.File
 import java.io.FileInputStream
+import java.net.InetSocketAddress
 
 /**
  * Manages the lifecycle of a QuickFIX/J connection
@@ -179,6 +180,17 @@ class FixConnectionManager(
                 appendLine("SenderCompID=${config.senderCompID}")
                 appendLine("TargetCompID=${config.targetCompID}")
 
+                // A venue's [SESSION] is a *template*, not a session: QuickFIX/J registers the socket
+                // and binds the port without creating a session for it, and every counterparty's
+                // session is then created from this block as they log on. Without it the wildcard
+                // TargetCompID would be taken literally, and only a client calling itself "*" could
+                // connect. See VenueSessionProvider, which supplies the sessions themselves — this
+                // setting alone accepts nobody.
+                if (config.acceptsAnyClient()) {
+                    appendLine("AcceptorTemplate=Y")
+                    logger.info("Acceptor accepts any client addressed to {}", config.senderCompID)
+                }
+
                 // Add SessionQualifier if specified (to differentiate sessions with same SenderCompID/TargetCompID)
                 if (config.sessionQualifier.isNotBlank()) {
                     appendLine("SessionQualifier=${config.sessionQualifier}")
@@ -243,6 +255,7 @@ class FixConnectionManager(
                             logFactory,
                             messageFactory,
                         )
+                    if (config.acceptsAnyClient()) attachVenueSessionProvider(acceptor!!, settings)
                     acceptor?.start()
                     logger.info("QuickFIX Acceptor started")
                 }
@@ -251,6 +264,40 @@ class FixConnectionManager(
             logger.error("Failed to start QuickFIX connection: {}", e.message, e)
             throw e
         }
+    }
+
+    /**
+     * Gives the acceptor a provider that creates a session per client, and points it at the port the
+     * settings bind.
+     *
+     * **Must precede `start()`.** The provider is read once, when the port is bound, and an acceptor
+     * without one falls back to a map of statically configured sessions — which for a venue is empty,
+     * so every logon would be refused by an acceptor that is nevertheless listening.
+     *
+     * The address has to be the *same* address QuickFIX/J derives from the settings, since that is
+     * the key it looks this up under. No `SocketAcceptAddress` is written, so it is the port alone.
+     */
+    private fun attachVenueSessionProvider(acceptor: SocketAcceptor, settings: SessionSettings) {
+        val templateId = settings.sectionIterator().asSequence().firstOrNull() ?: run {
+            logger.error("No session template in the acceptor settings — no client will be able to log on")
+            return
+        }
+        val port = config.socketAcceptPort.ifBlank { config.port }.toIntOrNull() ?: run {
+            logger.error("Acceptor port '{}' is not a number — cannot accept clients", config.socketAcceptPort)
+            return
+        }
+        acceptor.setSessionProvider(
+            InetSocketAddress(port),
+            VenueSessionProvider(
+                settings = settings,
+                template = templateId,
+                application = quickFixService,
+                messageStoreFactory = messageStoreFactory,
+                logFactory = logFactory,
+                messageFactory = messageFactory,
+                onRefused = quickFixService::noteRefusedLogon,
+            ),
+        )
     }
 
     /**
@@ -284,7 +331,14 @@ class FixConnectionManager(
             val storeDir = File(config.fileStorePath)
             if (storeDir.exists() && storeDir.isDirectory) {
                 storeDir.listFiles()?.forEach { file ->
-                    val matchesSenderTarget = file.name.contains(config.senderCompID) && file.name.contains(config.targetCompID)
+                    // A venue's counterparty is not known until a client logs on, so its store files
+                    // are named for clients this config has never heard of. Matching on the target
+                    // too would therefore match nothing at all, and ResetOnLogon would quietly stop
+                    // resetting — sequence numbers surviving a reset that reported success. Our own
+                    // CompID is the whole identity we have, and it is enough: these are our files.
+                    val matchesSenderTarget =
+                        file.name.contains(config.senderCompID) &&
+                            (config.acceptsAnyClient() || file.name.contains(config.targetCompID))
                     val matchesQualifier = config.sessionQualifier.isBlank() || file.name.contains(config.sessionQualifier)
 
                     if (matchesSenderTarget && matchesQualifier) {

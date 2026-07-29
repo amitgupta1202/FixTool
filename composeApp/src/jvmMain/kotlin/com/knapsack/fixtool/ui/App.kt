@@ -343,6 +343,23 @@ fun App(
                                             val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
                                             val latencyTrackingEnabled by session.latencyTrackingEnabled.collectAsState()
 
+                                            if (session.isVenue) {
+                                                // Nothing to grid: a venue's traffic all belongs to its
+                                                // clients, and each of them has a tab.
+                                                AcceptorOverviewPane(
+                                                    venue = session,
+                                                    clients = viewModel.sessions.filter { it.isClientOf(session) },
+                                                    onFocusClient = { client ->
+                                                        viewModel.sessions
+                                                            .indexOf(client)
+                                                            .takeIf { it >= 0 }
+                                                            ?.let { viewModel.setActiveSession(it) }
+                                                    },
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                return@let
+                                            }
+
                                             FixMessageDisplay(
                                                 messages = messages,
                                                 viewMode = globalViewMode,
@@ -874,6 +891,7 @@ private fun ColumnScope.SplitCentre(
         viewMode = globalViewMode,
         onCloseSession = { index -> viewModel.closeSession(index) },
         onMoveSession = { from, to -> viewModel.moveSession(from, to) },
+        onFocusSession = { index -> viewModel.setActiveSession(index) },
         selectedMessage = selectedMessage,
         onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
         onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },

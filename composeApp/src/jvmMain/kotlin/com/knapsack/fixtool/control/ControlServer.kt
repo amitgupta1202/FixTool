@@ -221,9 +221,19 @@ class ControlServer(
                         // with this non-zero is a sequence mid-flight — which reads from the message
                         // log exactly like a rule that never matched.
                         put("pendingResponses", acceptor.pendingResponses)
+                        // Only for a venue, where they mean something. On an acceptor naming one
+                        // counterparty "0 clients refused" is not news, it is furniture.
+                        if (session.isVenue) {
+                            put("clientsConnected", acceptor.clientsConnected)
+                            put("logonsRefused", acceptor.logonsRefused)
+                        }
                     },
                 )
             }
+            // Which counterparty this pane speaks to, when it is one client of a venue. Its CompIDs
+            // below are the same pair, but this says *that* it is a venue client — which is what
+            // decides whether disconnecting it stops a port or ends one conversation.
+            session.clientSessionId?.let { put("venueClientOf", it.senderCompID) }
             put("senderCompID", session.currentConfig?.senderCompID ?: "")
             put("targetCompID", session.currentConfig?.targetCompID ?: "")
         }

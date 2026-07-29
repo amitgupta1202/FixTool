@@ -108,7 +108,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | -------------------- | -------------------------------------- | ---------------------------------------------------- |
 | `GET /syntax`        | —                                      | `text/markdown`: the template-expression + matcher reference (see below) |
 | `GET /health`        | —                                      | `{status, sessionCount, version}`                    |
-| `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …); an ACCEPTOR session also carries an `acceptor` block — see below |
+| `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …); an ACCEPTOR session also carries an `acceptor` block, and a venue's per-client session carries `venueClientOf` — see below |
 | `GET /profiles`      | —                                      | array of connection profiles (summary: id, name, type, host, port, CompIDs) |
 | `GET /profiles?profile=` | query: `profile` (id or name)      | **one profile's whole config** — every field, for a read → edit → save round-trip. Passwords read as `[REDACTED]` |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?, "replace"?}` | create, or **merge** into an existing profile if `id` is given → `{status, id, name, mode, applied[], warnings?}`. `replace:true` replaces the whole config instead |
@@ -337,6 +337,31 @@ curl -s -XPOST $B/panel   -d '{"panel":"connection"}'   # open the panel for a s
 The agent does not keystroke into the on-canvas form (Compose renders to Skia, so there are
 no focusable DOM fields); it writes the profile directly, which is exactly what the panel does
 on Save. The new profile then appears in the panel's profile dropdown.
+
+### One acceptor, many clients
+
+Set an acceptor's `targetCompID` to `*` and it becomes a **venue**: it binds the port once and accepts
+a logon from any counterparty addressed to its `senderCompID`, opening a session — and a session pane
+— per client. `GET /sessions` then shows the venue plus one entry per client, each carrying
+`venueClientOf` and its own `messageCount`; the venue's `acceptor` block adds `clientsConnected` and
+`logonsRefused`. Drive a specific client by passing its session id or title to `/send`, `/messages`,
+`/admin` and scenario steps, exactly as for any other session.
+
+`senderCompID` is never wildcarded, so a logon naming a different acceptor is still refused — and
+because QuickFIX/J answers an unrecognised logon with *nothing at all* (no Logout, no Reject), those
+refusals are surfaced rather than dropped: they raise a notification, appear on the venue's pane, and
+increment `logonsRefused`. When nobody can connect, that counter is the difference between "wrong
+CompID" and "wrong port".
+
+An acceptor naming one counterparty is unchanged in every respect, including refusing every other
+CompID. Auto-response rules live on the venue, so one rule set serves every client.
+
+```bash
+curl -s -XPOST $B/profiles -d '{"name":"Venue","config":{"connectionType":"ACCEPTOR",
+  "senderCompID":"VENUE","targetCompID":"*","socketAcceptPort":"9876","beginString":"FIX.4.4"}}'
+curl -s -XPOST $B/connect -d '{"profile":"Venue"}'
+curl -s $B/sessions      # → Venue (CONNECTED) + "Venue ← BUYSIDE1", "Venue ← BUYSIDE2" as they arrive
+```
 
 ### Acceptor auto-responses
 

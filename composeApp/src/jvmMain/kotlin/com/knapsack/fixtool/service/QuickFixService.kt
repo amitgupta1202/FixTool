@@ -58,7 +58,71 @@ data class AcceptorStatus(
     val triggersMatched: Long,
     val responsesSent: Long,
     val pendingResponses: Int,
+    /** Counterparties with a session on this acceptor right now. Zero for an acceptor nobody has reached. */
+    val clientsConnected: Int = 0,
+    /** Logons turned away because they were not addressed to this acceptor — see [VenueEvent.LogonRefused]. */
+    val logonsRefused: Long = 0,
 )
+
+/**
+ * **Something that happened to the venue itself**, as opposed to on one of its sessions.
+ *
+ * A venue accepting any client has state no single session owns: who arrived, and who was turned
+ * away. The second is the more valuable of the two — a refused logon is otherwise the quietest
+ * failure in FIX, since the engine answers a logon it does not recognise with nothing at all.
+ */
+sealed interface VenueEvent {
+    val sessionId: SessionID
+    val at: LocalDateTime
+
+    /** A counterparty logged on and now has a session of its own. */
+    data class ClientArrived(
+        override val sessionId: SessionID,
+        override val at: LocalDateTime = LocalDateTime.now(),
+    ) : VenueEvent
+
+    /**
+     * A logon was turned away. [sessionId] is the session that *would* have been created, so its
+     * SenderCompID is the venue name the client addressed and its TargetCompID is who they claimed
+     * to be — which is exactly the pair a reader needs to see the typo.
+     */
+    data class LogonRefused(
+        override val sessionId: SessionID,
+        override val at: LocalDateTime = LocalDateTime.now(),
+    ) : VenueEvent
+}
+
+/**
+ * **Everything a pane can do to one FIX session**, without knowing which one it is.
+ *
+ * An initiator's pane owns its session; a venue client's pane is one of many sharing a single
+ * transport and engine. Both need to send, log out, and drive sequence numbers, and neither should
+ * be written twice. [sessionId] is null before a session exists, which is the same "not connected
+ * yet" that every operation below already answers for.
+ */
+interface SessionEndpoint {
+    val sessionId: SessionID?
+
+    fun send(rawMessage: String, dictionary: FixDictionary): SendResult
+
+    fun logout()
+
+    fun resetSequenceNumbers(sender: Int?, target: Int?): Boolean
+
+    fun sequenceNumbers(): Pair<Int, Int>?
+
+    fun sendTestRequest(testReqId: String): Boolean
+
+    fun sendResendRequest(beginSeqNo: Int, endSeqNo: Int): Boolean
+
+    fun sendSequenceReset(newSeqNo: Int, gapFill: Boolean): Boolean
+
+    fun forceLogout(reason: String?): Boolean
+
+    fun forceDisconnect(reason: String): Boolean
+
+    fun stopPendingResponses(): Int
+}
 
 class QuickFixService(
     private val config: FixConnectionConfig,
@@ -68,9 +132,30 @@ class QuickFixService(
     private val onError: ((String) -> Unit)? = null,
     private val onConnectionFailed: (() -> Unit)? = null,
     private val onWarning: ((String) -> Unit)? = null,
+    /**
+     * Where a venue's own news goes — a client arriving, a logon refused. Null for everything that is
+     * not an acceptor open to any client, which is every connection that has exactly one session and
+     * therefore nothing to report that its own state does not already say.
+     */
+    private val onVenueEvent: ((VenueEvent) -> Unit)? = null,
 ) : Application {
     private val logger = NotifyingLogger(QuickFixService::class.java, onError, onWarning)
-    private var currentSessionID: SessionID? = null
+
+    /**
+     * The one session this service is bound to — an initiator's, or the single counterparty of an
+     * acceptor that names one. Null for a venue, whose sessions are held in [channels] instead
+     * because there is no "the" session to be bound to.
+     */
+    private var boundSessionId: SessionID? = null
+
+    /** True when this acceptor creates a session per client; see [FixConnectionConfig.acceptsAnyClient]. */
+    private val isVenue = config.acceptsAnyClient()
+
+    /** One per counterparty that has reached this venue, alive for as long as its pane is. */
+    private val channels = java.util.concurrent.ConcurrentHashMap<SessionID, ClientChannel>()
+
+    /** Logons turned away, counted for [acceptorStatus] and reported one by one through [onVenueEvent]. */
+    private val logonsRefused = java.util.concurrent.atomic.AtomicLong()
 
     /**
      * The rules' triggers, parsed **once per ruleset** rather than per inbound message — re-parsing
@@ -166,7 +251,16 @@ class QuickFixService(
             latencyActive = acceptorLatency.isActive(),
             triggersMatched = triggersMatched.get(),
             responsesSent = responsesSent.get(),
-            pendingResponses = currentSessionID?.let { autoResponseDispatch.pendingCount(it) } ?: 0,
+            // Summed across every client on a venue: a reply still queued is in flight whoever it is
+            // owed to, and a caller asking "is this acceptor finished?" wants all of them.
+            pendingResponses =
+                if (isVenue) {
+                    channels.keys.sumOf { autoResponseDispatch.pendingCount(it) }
+                } else {
+                    boundSessionId?.let { autoResponseDispatch.pendingCount(it) } ?: 0
+                },
+            clientsConnected = channels.values.count { it.isLoggedOn() },
+            logonsRefused = logonsRefused.get(),
         )
     }
 
@@ -179,22 +273,43 @@ class QuickFixService(
 
     override fun onCreate(sessionId: SessionID) {
         logger.info("QuickFIX Session created: {}", sessionId)
-        currentSessionID = sessionId
+        if (isVenue) {
+            channelFor(sessionId).state(CONNECTING)
+            return
+        }
+        boundSessionId = sessionId
         onStateChanged(CONNECTING)
     }
 
     override fun onLogon(sessionId: SessionID) {
         logger.info("QuickFIX Session logged on: {}", sessionId)
-        currentSessionID = sessionId
+        if (isVenue) {
+            // Also the *re*connect path: QuickFIX/J keeps a dynamically created session registered, so
+            // a client that logs out and comes back gets no second onCreate. Resolving the channel here
+            // too is what lets that client find its old pane instead of arriving as a stranger.
+            channelFor(sessionId).state(LOGGED_ON)
+            return
+        }
+        boundSessionId = sessionId
         onStateChanged(LOGGED_ON)
     }
 
     override fun onLogout(sessionId: SessionID) {
         logger.info("QuickFIX Session logged out: {}", sessionId)
-        currentSessionID = null
         // Replies still queued for a counterparty that has gone away are dropped, not attempted. A
         // half-played sequence whose remaining steps fail one by one buries the logout that caused it.
         autoResponseDispatch.cancelAll(sessionId)
+
+        if (isVenue) {
+            // One client leaving is not the venue closing. The channel is kept so its pane keeps the
+            // history that usually explains the departure, and onConnectionFailed is deliberately not
+            // called: for an acceptor that means "stop listening", which would let a single client's
+            // logout take the venue and every other client down with it.
+            channels[sessionId]?.state(DISCONNECTED)
+            return
+        }
+
+        boundSessionId = null
         onStateChanged(DISCONNECTED)
 
         // If auto-reconnect is disabled, stop trying after any disconnect
@@ -202,6 +317,50 @@ class QuickFixService(
             logger.info("Auto-reconnect disabled - stopping connection attempts")
             onConnectionFailed?.invoke()
         }
+    }
+
+    // ---------------------------------------------------------------- venue channels
+
+    /**
+     * This counterparty's channel, announcing it the first time it is asked for.
+     *
+     * The channel is created *here*, on the engine's thread, rather than by whoever handles the
+     * announcement — because the Logon that caused it is already on its way to [fromAdmin] and pane
+     * creation has a UI thread to reach first. A channel that does not exist yet buffers; a channel
+     * that is created late loses the Logon, which is the one message a reader most often wants.
+     */
+    private fun channelFor(sessionId: SessionID): ClientChannel {
+        var arrived = false
+        val channel = channels.computeIfAbsent(sessionId) { arrived = true; ClientChannel() }
+        if (arrived) {
+            logger.info("Client session on venue {}: {}", config.senderCompID, sessionId)
+            onVenueEvent?.invoke(VenueEvent.ClientArrived(sessionId))
+        }
+        return channel
+    }
+
+    /** Records a logon this venue turned away. Called by [VenueSessionProvider]. */
+    fun noteRefusedLogon(sessionId: SessionID) {
+        logonsRefused.incrementAndGet()
+        onVenueEvent?.invoke(VenueEvent.LogonRefused(sessionId))
+    }
+
+    /**
+     * Points a client's pane at its session: everything buffered since the session was created is
+     * delivered, in order, before this returns, and everything after it goes straight through.
+     */
+    fun attachClient(sessionId: SessionID, onMessage: (FixMessage) -> Unit, onState: (FixConnectionState) -> Unit) {
+        channelFor(sessionId).attach(onMessage, onState)
+    }
+
+    /** Detaches a closed pane. The session itself is untouched — closing a pane is not a logout. */
+    fun detachClient(sessionId: SessionID) {
+        channels.remove(sessionId)
+    }
+
+    /** Where a message for [sessionId] belongs. Falls back to the owner's sink for a single-session connection. */
+    private fun deliver(sessionId: SessionID, message: FixMessage) {
+        if (isVenue) channelFor(sessionId).deliver(message) else onMessageReceived(message)
     }
 
     /**
@@ -268,7 +427,7 @@ class QuickFixService(
                     captureTimeMicros = captureMicros,
                     wireRaw = if (rewrittenAfterThisCallback(message)) null else wire,
                 )
-            onMessageReceived(fixMessage)
+            deliver(sessionId, fixMessage)
         } catch (e: Exception) {
             logger.error("Error displaying outgoing admin message: ${e.message}", e)
         }
@@ -370,7 +529,7 @@ class QuickFixService(
                     captureTimeMicros = captureMicros,
                     wireRaw = wireMessage,
                 )
-            onMessageReceived(fixMessage)
+            deliver(sessionId, fixMessage)
         } catch (e: Exception) {
             logger.error("Error processing admin message: ${e.message}", e)
         }
@@ -404,7 +563,7 @@ class QuickFixService(
                     // what was sent, not what was meant.)
                     wireRaw = wire,
                 )
-            onMessageReceived(fixMessage)
+            deliver(sessionId, fixMessage)
         } catch (e: Exception) {
             logger.error("Error displaying outgoing app message: ${e.message}", e)
         }
@@ -465,7 +624,7 @@ class QuickFixService(
                 )
 
             // Route to the message handler
-            onMessageReceived(fixMessage)
+            deliver(sessionId, fixMessage)
 
             // Acceptor auto-response: if configured, reply to the incoming message per the rules.
             maybeAutoRespond(parsedMessage, fixMessage, sessionId)
@@ -514,8 +673,8 @@ class QuickFixService(
      * author realises it is the wrong claim they need it to stop *now*, not after it has finished
      * being wrong. Rules already sent are not recalled; there is no such thing on a wire.
      */
-    fun stopPendingResponses(): Int {
-        val sessionId = currentSessionID ?: return 0
+    private fun stopPendingResponses(sessionID: SessionID?): Int {
+        val sessionId = sessionID ?: return 0
         val dropped = autoResponseDispatch.pendingCount(sessionId)
         autoResponseDispatch.cancelAll(sessionId)
         if (dropped > 0) logger.info("Dropped {} queued acceptor response(s)", dropped)
@@ -541,9 +700,12 @@ class QuickFixService(
      *
      * @return SendResult indicating success, success with warning, or failure
      */
-    fun sendMessage(rawMessage: String, dictionary: com.knapsack.fixtool.model.FixDictionary): SendResult {
+    private fun sendMessage(
+        sessionID: SessionID?,
+        rawMessage: String,
+        dictionary: com.knapsack.fixtool.model.FixDictionary,
+    ): SendResult {
         val startTime = System.nanoTime()
-        val sessionID = currentSessionID
         if (sessionID == null) {
             logger.error("Cannot send message: No active FIX session", notifyUser = true)
             return SendResult.Failed("No active FIX session")
@@ -620,8 +782,7 @@ class QuickFixService(
      * Sends a FIX Logout message to gracefully disconnect from the server
      * Safe to call even if session is not logged on
      */
-    fun logout() {
-        val sessionID = currentSessionID
+    private fun logout(sessionID: SessionID?) {
         if (sessionID == null) {
             logger.warn("Cannot logout: No active session")
             return
@@ -638,9 +799,9 @@ class QuickFixService(
 
     // ---------------------------------------------------------------- admin / session control
 
-    /** Looks up the active QuickFIX session and runs [action]; returns false if absent or on error. */
-    private fun withSession(action: (Session, SessionID) -> Unit): Boolean {
-        val sessionID = currentSessionID ?: run {
+    /** Looks up the named QuickFIX session and runs [action]; returns false if absent or on error. */
+    private fun withSession(sessionID: SessionID?, action: (Session, SessionID) -> Unit): Boolean {
+        if (sessionID == null) {
             logger.warn("No active session for admin action")
             return false
         }
@@ -658,8 +819,8 @@ class QuickFixService(
     }
 
     /** Resets sequence numbers. With both null, performs a full session reset (clears the store). */
-    fun resetSequenceNumbers(sender: Int?, target: Int?): Boolean =
-        withSession { session, _ ->
+    private fun resetSequenceNumbers(sessionID: SessionID?, sender: Int?, target: Int?): Boolean =
+        withSession(sessionID) { session, _ ->
             if (sender == null && target == null) {
                 session.reset()
             } else {
@@ -669,9 +830,8 @@ class QuickFixService(
         }
 
     /** Current next expected sender/target sequence numbers, or null if there is no active session. */
-    fun sequenceNumbers(): Pair<Int, Int>? {
-        val sessionID = currentSessionID ?: return null
-        val session = Session.lookupSession(sessionID) ?: return null
+    private fun sequenceNumbers(sessionID: SessionID?): Pair<Int, Int>? {
+        val session = sessionID?.let { Session.lookupSession(it) } ?: return null
         return try {
             session.expectedSenderNum to session.expectedTargetNum
         } catch (e: Exception) {
@@ -680,32 +840,125 @@ class QuickFixService(
         }
     }
 
-    fun sendTestRequest(testReqId: String): Boolean =
-        withSession { session, _ -> session.generateTestRequest(testReqId) }
+    /**
+     * The endpoint for **this connection's own session** — an initiator's, or the single counterparty
+     * of an acceptor that names one. Resolved at each call rather than captured, because the session
+     * does not exist until logon and the pane holding this is created before that.
+     */
+    fun ownerEndpoint(): SessionEndpoint = BoundEndpoint { boundSessionId }
 
-    fun sendResendRequest(beginSeqNo: Int, endSeqNo: Int): Boolean =
-        withSession { _, sessionID ->
-            val msg = Message()
-            msg.header.setString(35, "2") // MsgType = ResendRequest
-            msg.setInt(7, beginSeqNo) // BeginSeqNo
-            msg.setInt(16, endSeqNo) // EndSeqNo (0 = up to latest)
-            Session.sendToTarget(msg, sessionID)
+    /** The endpoint for one client of a venue. Fixed: this pane speaks to this counterparty and no other. */
+    fun endpointFor(sessionId: SessionID): SessionEndpoint = BoundEndpoint { sessionId }
+
+    /**
+     * A pane's whole view of the engine, narrowed to one session.
+     *
+     * The session is resolved through a function rather than held, so the same class serves the
+     * initiator (whose session arrives later) and a venue client (whose session is why the pane
+     * exists at all) without either needing to know which it is.
+     */
+    private inner class BoundEndpoint(private val resolve: () -> SessionID?) : SessionEndpoint {
+        override val sessionId: SessionID? get() = resolve()
+
+        override fun send(rawMessage: String, dictionary: FixDictionary): SendResult =
+            sendMessage(resolve(), rawMessage, dictionary)
+
+        override fun logout() = this@QuickFixService.logout(resolve())
+
+        override fun resetSequenceNumbers(sender: Int?, target: Int?): Boolean =
+            this@QuickFixService.resetSequenceNumbers(resolve(), sender, target)
+
+        override fun sequenceNumbers(): Pair<Int, Int>? = this@QuickFixService.sequenceNumbers(resolve())
+
+        override fun sendTestRequest(testReqId: String): Boolean =
+            withSession(resolve()) { session, _ -> session.generateTestRequest(testReqId) }
+
+        override fun sendResendRequest(beginSeqNo: Int, endSeqNo: Int): Boolean =
+            withSession(resolve()) { _, sessionID ->
+                val msg = Message()
+                msg.header.setString(35, "2") // MsgType = ResendRequest
+                msg.setInt(7, beginSeqNo) // BeginSeqNo
+                msg.setInt(16, endSeqNo) // EndSeqNo (0 = up to latest)
+                Session.sendToTarget(msg, sessionID)
+            }
+
+        override fun sendSequenceReset(newSeqNo: Int, gapFill: Boolean): Boolean =
+            withSession(resolve()) { _, sessionID ->
+                val msg = Message()
+                msg.header.setString(35, "4") // MsgType = SequenceReset
+                msg.setInt(36, newSeqNo) // NewSeqNo
+                msg.setBoolean(123, gapFill) // GapFillFlag
+                Session.sendToTarget(msg, sessionID)
+            }
+
+        override fun forceLogout(reason: String?): Boolean =
+            withSession(resolve()) { session, _ ->
+                if (reason.isNullOrBlank()) session.logout() else session.logout(reason)
+            }
+
+        /** Drops the connection without a graceful logout (for resilience/recovery testing). */
+        override fun forceDisconnect(reason: String): Boolean =
+            withSession(resolve()) { session, _ -> session.disconnect(reason, false) }
+
+        override fun stopPendingResponses(): Int = this@QuickFixService.stopPendingResponses(resolve())
+    }
+
+    /**
+     * **One counterparty's traffic and state, and where they are delivered** — which is not known at
+     * the moment the session is created.
+     *
+     * Everything is buffered until a pane attaches, and the buffer is what makes the client's Logon
+     * survive: it reaches [fromAdmin] on the engine's thread within microseconds of the session
+     * existing, while creating the pane has a UI thread to get to first. The lock is held only long
+     * enough to decide *where* a message goes, never while delivering it, so a slow pane cannot stall
+     * the engine's callback thread.
+     */
+    private class ClientChannel {
+        private val lock = Any()
+        private var messages: ((FixMessage) -> Unit)? = null
+        private var states: ((FixConnectionState) -> Unit)? = null
+        private val buffered = ArrayDeque<FixMessage>()
+        private var lastState: FixConnectionState = CONNECTING
+
+        fun deliver(message: FixMessage) {
+            val sink =
+                synchronized(lock) {
+                    messages.also { sink ->
+                        if (sink == null) {
+                            // Bounded: a pane that never arrives is a bug, and an unbounded buffer would
+                            // turn it into an OOM that takes the evidence with it.
+                            if (buffered.size >= MAX_BUFFERED) buffered.removeFirst()
+                            buffered.addLast(message)
+                        }
+                    }
+                }
+            sink?.invoke(message)
         }
 
-    fun sendSequenceReset(newSeqNo: Int, gapFill: Boolean): Boolean =
-        withSession { _, sessionID ->
-            val msg = Message()
-            msg.header.setString(35, "4") // MsgType = SequenceReset
-            msg.setInt(36, newSeqNo) // NewSeqNo
-            msg.setBoolean(123, gapFill) // GapFillFlag
-            Session.sendToTarget(msg, sessionID)
+        fun state(newState: FixConnectionState) {
+            val sink = synchronized(lock) { lastState = newState; states }
+            sink?.invoke(newState)
         }
 
-    fun forceLogout(reason: String?): Boolean =
-        withSession { session, _ -> if (reason.isNullOrBlank()) session.logout() else session.logout(reason) }
+        fun isLoggedOn(): Boolean = synchronized(lock) { lastState == LOGGED_ON }
 
-    /** Drops the connection without a graceful logout (for resilience/recovery testing). */
-    fun forceDisconnect(reason: String): Boolean = withSession { session, _ -> session.disconnect(reason, false) }
+        fun attach(onMessage: (FixMessage) -> Unit, onState: (FixConnectionState) -> Unit) {
+            val (drained, state) =
+                synchronized(lock) {
+                    messages = onMessage
+                    states = onState
+                    val pending = buffered.toList()
+                    buffered.clear()
+                    pending to lastState
+                }
+            drained.forEach(onMessage)
+            onState(state)
+        }
+
+        private companion object {
+            const val MAX_BUFFERED = 1000
+        }
+    }
 
     private companion object {
         /** ResetSeqNumFlag — the one field whose presence means QFJ will rewrite the Logon after toAdmin. */

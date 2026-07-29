@@ -5,7 +5,10 @@ import com.knapsack.fixtool.service.AcceptorStatus
 import com.knapsack.fixtool.service.FixConnectionManager
 import com.knapsack.fixtool.service.LatencyTrackingManager
 import com.knapsack.fixtool.service.QuickFixService
+import com.knapsack.fixtool.service.SessionEndpoint
+import com.knapsack.fixtool.service.VenueEvent
 import com.knapsack.fixtool.util.NotifyingLogger
+import quickfix.SessionID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -65,6 +68,9 @@ class FixMessageSession(
          * process. A drop is recoverable and now counted; an OOM takes the evidence with it.
          */
         private const val MIN_QUEUE_DEPTH = 20_000
+
+        /** How many refused logons a venue remembers. Enough to see a pattern, not a leak. */
+        private const val MAX_REFUSED_LOGONS = 50
     }
 
     private val logger = NotifyingLogger(FixMessageSession::class.java, onError)
@@ -150,6 +156,83 @@ class FixMessageSession(
     private var isActive = true
     private var quickFixService: QuickFixService? = null
     private var connectionManager: FixConnectionManager? = null
+
+    /**
+     * **The one FIX session this pane speaks to.**
+     *
+     * Set when this pane's own connection comes up, or injected by whoever created it when the pane
+     * is one client of a venue. Every send and every admin action goes through it, so neither this
+     * class nor the UI above it has to know which of the two it is looking at.
+     */
+    private var endpoint: SessionEndpoint? = null
+
+    /**
+     * The venue this pane's counterparty is connected *to*, when this pane is one client of many.
+     *
+     * Its presence is what makes this pane a guest rather than a host: it owns no transport, so
+     * "disconnect" means log this one client out and "close" means stop watching — neither may
+     * unbind the port, which belongs to the venue and to every other client on it.
+     */
+    private var venue: QuickFixService? = null
+
+    /** The counterparty this pane is bound to, when it is a venue client. */
+    private var venueSessionId: SessionID? = null
+
+    /** Which counterparty of a venue this pane shows, or null if it is not a venue client. */
+    val clientSessionId: SessionID? get() = venueSessionId
+
+    /** Is this pane one of [candidate]'s clients? Identity, not configuration: two venues can share a port history. */
+    fun isClientOf(candidate: FixMessageSession): Boolean = venue != null && venue === candidate.venueService()
+
+    /** True when this pane is one client of a venue rather than a connection of its own. */
+    val isVenueClient: Boolean get() = venue != null
+
+    /** True when this pane *is* a venue: it holds the port, and its counterparties have panes of their own. */
+    val isVenue: Boolean get() = _connectionConfig.value?.acceptsAnyClient() == true && !isVenueClient
+
+    /**
+     * **Logons this venue turned away**, most recent last.
+     *
+     * The only record that they happened. QuickFIX/J answers a logon it does not recognise with
+     * silence — no Logout, no Reject — so from the client's side a wrong CompID and a wrong port and
+     * a closed firewall all look identical, and from this side nothing appeared at all. Kept even
+     * though it is not FIX traffic, because it is the answer to the question that traffic cannot
+     * answer: *nobody is connecting, and I do not know why*.
+     */
+    private val _refusedLogons = MutableStateFlow<List<VenueEvent.LogonRefused>>(emptyList())
+    val refusedLogons: StateFlow<List<VenueEvent.LogonRefused>> = _refusedLogons.asStateFlow()
+
+    /** Where this session's venue events go. Set by whoever owns the pane, before it connects. */
+    var venueEventListener: ((VenueEvent) -> Unit)? = null
+
+    /** This venue's engine, for binding a client's pane to one of its sessions. Null unless it is a venue. */
+    fun venueService(): QuickFixService? = quickFixService
+
+    private fun handleVenueEvent(event: VenueEvent) {
+        if (event is VenueEvent.LogonRefused) {
+            _refusedLogons.value = (_refusedLogons.value + event).takeLast(MAX_REFUSED_LOGONS)
+        }
+        venueEventListener?.invoke(event)
+    }
+
+    /**
+     * Binds this pane to one counterparty of [venueService].
+     *
+     * Everything the session has already said — its Logon above all — arrives during this call, from
+     * the buffer the engine kept while the pane was being created.
+     */
+    fun bindToVenueClient(venueService: QuickFixService, sessionId: SessionID, config: FixConnectionConfig) {
+        venue = venueService
+        venueSessionId = sessionId
+        endpoint = venueService.endpointFor(sessionId)
+        _connectionConfig.value = config
+        venueService.attachClient(
+            sessionId = sessionId,
+            onMessage = { message -> addMessage(message) },
+            onState = { state -> _connectionState.value = state },
+        )
+        logger.info("Pane '{}' bound to venue client {}", title, sessionId)
+    }
     private val latestIncomingByType = ConcurrentHashMap<String, FixMessage>()
     private val latestOutgoingByType = ConcurrentHashMap<String, FixMessage>()
 
@@ -339,6 +422,12 @@ class FixMessageSession(
     }
 
     fun connect(config: FixConnectionConfig, appSettings: AppSettings, dictionary: FixDictionary? = null) {
+        if (isVenueClient) {
+            // This pane's counterparty connected to us; there is nothing here to dial. Reconnecting is
+            // the client's move to make, and if it makes it the venue routes it back to this same pane.
+            logger.info("Session '{}' is a venue client — nothing to connect", title)
+            return
+        }
         try {
             // Use provided dictionary or create a default empty one
             val effectiveDictionary = dictionary ?: FixDictionaryAdapter.createDefault()
@@ -370,16 +459,25 @@ class FixMessageSession(
                             connectionManager?.stop()
                             connectionManager = null
                             quickFixService = null
+                            endpoint = null
                             _connectionState.value = FixConnectionState.ERROR
                         }
                     },
+                    onVenueEvent = { event -> handleVenueEvent(event) },
                 )
+            endpoint = quickFixService?.ownerEndpoint()
 
             // Create connection manager
             connectionManager = FixConnectionManager(config, quickFixService!!, appSettings, effectiveDictionary)
 
             // Start the connection
             connectionManager?.start()
+
+            // A venue has no session of its own to log on, so nothing would ever move it off
+            // CONNECTING and its tab would read as perpetually half-open. What it *has* done is bind
+            // the port, which is the whole of what an acceptor does before anyone arrives — and it
+            // stays that way as clients come and go, since no one client's departure closes it.
+            if (config.acceptsAnyClient()) _connectionState.value = FixConnectionState.CONNECTED
 
             logger.info("Connection initiated for session: {}", title)
         } catch (e: Exception) {
@@ -390,6 +488,13 @@ class FixMessageSession(
     }
 
     fun disconnect() {
+        if (isVenueClient) {
+            // Logs this one counterparty out. The venue keeps listening and every other client stays
+            // up — a pane's disconnect button is about the conversation it shows, not the port.
+            logger.info("Logging out venue client: {}", title)
+            endpoint?.logout()
+            return
+        }
         scope.launch {
             try {
                 // Stop latency tracking
@@ -398,7 +503,7 @@ class FixMessageSession(
                 // Send logout message if currently logged on
                 if (_connectionState.value == FixConnectionState.LOGGED_ON) {
                     logger.info("Sending logout before disconnect for session: {}", title)
-                    quickFixService?.logout()
+                    endpoint?.logout()
 
                     // Wait for QuickFIX/J to complete the logout sequence via onLogout callback
                     // The onLogout callback will set state to DISCONNECTED
@@ -422,6 +527,7 @@ class FixMessageSession(
                 connectionManager?.stop()
                 connectionManager = null
                 quickFixService = null
+                endpoint = null
                 _connectionState.value = FixConnectionState.DISCONNECTED
 
                 logger.info("Disconnected session: {}", title)
@@ -436,7 +542,7 @@ class FixMessageSession(
     fun sendFixMessage(rawMessage: String, dictionary: FixDictionary): com.knapsack.fixtool.service.SendResult {
         // Send via QuickFIX - outgoing message will be captured by toApp/toAdmin callbacks
         val result =
-            quickFixService?.sendMessage(rawMessage, dictionary)
+            endpoint?.send(rawMessage, dictionary)
                 ?: return com.knapsack.fixtool.service.SendResult
                     .Failed("No QuickFIX service available")
 
@@ -471,14 +577,14 @@ class FixMessageSession(
 
     // Admin / session-level controls (delegate to the underlying QuickFIX session).
     fun resetSequenceNumbers(sender: Int?, target: Int?): Boolean =
-        quickFixService?.resetSequenceNumbers(sender, target) ?: false
+        endpoint?.resetSequenceNumbers(sender, target) ?: false
 
-    fun sequenceNumbers(): Pair<Int, Int>? = quickFixService?.sequenceNumbers()
+    fun sequenceNumbers(): Pair<Int, Int>? = endpoint?.sequenceNumbers()
 
-    fun sendTestRequest(testReqId: String): Boolean = quickFixService?.sendTestRequest(testReqId) ?: false
+    fun sendTestRequest(testReqId: String): Boolean = endpoint?.sendTestRequest(testReqId) ?: false
 
     /** Drops this session's queued acceptor auto-responses; returns how many were still waiting. */
-    fun stopPendingResponses(): Int = quickFixService?.stopPendingResponses() ?: 0
+    fun stopPendingResponses(): Int = endpoint?.stopPendingResponses() ?: 0
 
     /** What this session's acceptor is running and mid-way through, or null if it is not an acceptor. */
     fun acceptorStatus(): AcceptorStatus? = quickFixService?.acceptorStatus()
@@ -498,14 +604,14 @@ class FixMessageSession(
     }
 
     fun sendResendRequest(beginSeqNo: Int, endSeqNo: Int): Boolean =
-        quickFixService?.sendResendRequest(beginSeqNo, endSeqNo) ?: false
+        endpoint?.sendResendRequest(beginSeqNo, endSeqNo) ?: false
 
     fun sendSequenceReset(newSeqNo: Int, gapFill: Boolean): Boolean =
-        quickFixService?.sendSequenceReset(newSeqNo, gapFill) ?: false
+        endpoint?.sendSequenceReset(newSeqNo, gapFill) ?: false
 
-    fun forceLogout(reason: String?): Boolean = quickFixService?.forceLogout(reason) ?: false
+    fun forceLogout(reason: String?): Boolean = endpoint?.forceLogout(reason) ?: false
 
-    fun forceDisconnect(reason: String): Boolean = quickFixService?.forceDisconnect(reason) ?: false
+    fun forceDisconnect(reason: String): Boolean = endpoint?.forceDisconnect(reason) ?: false
 
     // ========================================
     // Latency Tracking Methods
@@ -676,7 +782,16 @@ class FixMessageSession(
     fun getLatencyTimestampSource(): TimestampSource = latencyTrackingManager?.getCurrentTimestampSource() ?: TimestampSource.APPLICATION
 
     fun destroy() {
-        disconnect()
+        if (isVenueClient) {
+            // Closing a client's pane stops us watching that counterparty; it does not log them out
+            // and it certainly does not touch the venue. If the same client speaks again a fresh pane
+            // opens for them — better than a live session with nowhere to show what it is saying.
+            venueSessionId?.let { venue?.detachClient(it) }
+            venue = null
+            endpoint = null
+        } else {
+            disconnect()
+        }
         disableLatencyTracking()
         isActive = false
         messageQueue.clear()

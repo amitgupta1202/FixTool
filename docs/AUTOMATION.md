@@ -40,7 +40,9 @@ drive FixTool while you work in a different FIX codebase. The Settings → Autom
 shows this exact command. All tools (`fixtool_connect`, `fixtool_send`, `fixtool_wait`,
 `fixtool_assert`, …) are
 served by the in-app Kotlin registry (`control/McpTools.kt`); the standalone Node server in
-`tools/fixtool-mcp/` remains as an alternative stdio transport for FixTool developers.
+`tools/fixtool-mcp/` remains as an alternative stdio transport for FixTool developers, and now
+**forwards `tools/list` and `tools/call` verbatim** rather than declaring its own copy of every
+tool — so there is exactly one definition of each and the two transports cannot disagree.
 
 Optional shared-secret auth — when set, every request must carry an `X-Control-Token` header
 with the same value:
@@ -107,8 +109,9 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /syntax`        | —                                      | `text/markdown`: the template-expression + matcher reference (see below) |
 | `GET /health`        | —                                      | `{status, sessionCount, version}`                    |
 | `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …)       |
-| `GET /profiles`      | —                                      | array of connection profiles                         |
-| `POST /profiles`     | `{"name", "config":{…}, "id"?}`        | create (or update if `id` given) a profile → `{status, id, name}` |
+| `GET /profiles`      | —                                      | array of connection profiles (summary: id, name, type, host, port, CompIDs) |
+| `GET /profiles?profile=` | query: `profile` (id or name)      | **one profile's whole config** — every field, for a read → edit → save round-trip. Passwords read as `[REDACTED]` |
+| `POST /profiles`     | `{"name", "config":{…}, "id"?, "replace"?}` | create, or **merge** into an existing profile if `id` is given → `{status, id, name, mode, applied[], warnings?}`. `replace:true` replaces the whole config instead |
 | `DELETE /profiles`   | `{"id"}` (or `?id=`)                   | delete a profile (demo profiles are protected)       |
 | `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations", "show"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does) |
 | `GET /templates`     | query: `profile`?                      | list saved templates (name, type, userTags, isFavorite, fields) |
@@ -128,7 +131,10 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /validate`     | `{"raw"}`                              | `{isValid, errors}` against the loaded dictionary    |
 | `GET /dictionary`    | —                                      | current FIX version + validity                       |
 | `POST /dictionary`   | `{"version"}` or `{"path", "transportPath"?}` | switch the data dictionary                    |
-| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules, each with its ANDed `trigger`, its played `sequence`, and any `validationError` (set via `/profiles`) |
+| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules, each with its `index`, its ANDed `trigger`, its played `sequence` and any `validationError`, plus the profile's simulated `latency` |
+| `POST /acceptor/rules` | `{"profile", "rule"?, "index"?, "enabled"?}` | add (`rule`, no index), replace (`rule` + `index`) or toggle (`index` + `enabled`) **one** rule, leaving the rest of the profile alone |
+| `DELETE /acceptor/rules` | `{"profile", "index"}`             | remove one rule; the rules after it shift up                |
+| `POST /acceptor/test` | `{"profile", "raw"}`                  | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset |
 | `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
@@ -293,7 +299,29 @@ connection panel produces, so the result is immediately connectable via `/connec
 `config` object only needs the fields that differ from the model defaults; everything in
 `FixConnectionConfig` is accepted (host, port, senderCompID, targetCompID, beginString,
 connectionType, heartBtInt, resetOnLogon, useSSL/keyStorePath/…, applVerID, sessionCount,
-logonFields, …).
+logonFields, acceptorResponseRules, acceptorLatency, …).
+
+**Updating merges.** A `config` posted with an `id` sets the keys it carries and leaves every
+other key exactly as it was, so adding one setting cannot silently delete the rest. This used to
+replace the whole config, which made the endpoint destructive in its commonest use: nothing could
+*read* a profile's SSL settings, logon fields or existing rules — the list gives eight fields — so
+"add a rule to my acceptor" was necessarily a POST carrying a rule and nothing else, and it took
+the keystore path and every other rule with it, then answered `{"status":"updated"}`.
+
+Merging is per top-level key, so an explicitly sent value always wins and clearing stays
+expressible: `"acceptorResponseRules": []` is present in the JSON, therefore applied. `replace:
+true` asks for the old wholesale behaviour when you want a profile to be exactly what you send.
+The response says which it did (`mode`) and which keys it took (`applied`).
+
+`GET /profiles?profile=<id or name>` is the other half — the whole config, not the summary, so a
+read → edit → save round-trip preserves what it did not touch. Passwords come back as
+`[REDACTED]`; post that value again (or leave the key out) and the stored secret is untouched.
+
+```bash
+curl -s "$B/profiles?profile=My%20Acceptor"                      # read everything
+curl -s -XPOST $B/profiles -d '{"id":"<id>","name":"My Acceptor",
+  "config":{"acceptorLatency":{"mode":"FIXED","fixedMillis":250}}}'   # change one thing
+```
 
 ```bash
 # create a profile, then connect it
@@ -395,6 +423,81 @@ curl -s -XPOST $B/profiles -d '{
 curl -s -XPOST $B/connect -d '{"profile":"My Acceptor"}'   # a NewOrderSingle now gets ack, fill, fill
 curl -s "$B/acceptor/rules?profile=My%20Acceptor"          # offsets: 0, 400, 800
 ```
+
+#### Editing one rule at a time
+
+`POST /acceptor/rules` changes a single rule and leaves the rest of the profile alone. Needed even
+though `/profiles` merges, because merging is per top-level key: the rule *list* is one key, so
+adding a rule through it still means re-sending every other rule.
+
+A rule's **index is its identity** — the list is ordered and first-match-wins, so position is
+itself meaningful and there is nothing else to name a rule by. `GET /acceptor/rules` reports it.
+
+```bash
+# append a rule
+curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor",
+  "rule":{"whenMsgType":"F","steps":[{"template":"35=9|434=1|11=${req.11}|"}]}}'
+# replace rule 0 in place
+curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","index":0,"rule":{…}}'
+# "what happens without this one" — kept, skipped, falls through to the next rule
+curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","index":1,"enabled":false}'
+# remove it (everything after it shifts up)
+curl -s -XDELETE $B/acceptor/rules -d '{"profile":"My Acceptor","index":1}'
+```
+
+#### Testing a rule without a counterparty
+
+`POST /acceptor/test` runs a message through the rules and reports what would happen. It connects
+nothing, sends nothing and saves nothing.
+
+This is the fast authoring loop. Without it, checking a rule costs a full round trip through
+reality — save, connect, arrange for someone to send the trigger, read the message list — and when
+nothing comes back, that round trip has told you only that nothing came back. A typo'd tag, a
+condition reading a field the message does not carry, a rule shadowed by an earlier one, a rule
+switched off, and a rule on a profile that is not an acceptor all look identical from outside, and
+each needs a different fix.
+
+```bash
+curl -s -XPOST $B/acceptor/test -d '{"profile":"My Acceptor",
+  "raw":"35=D|11=ORD-1|55=EUR/USD|54=1|38=1000|"}'
+```
+
+For **every** rule it reports `matched`, and per condition the verdict plus `actual` — the value it
+actually read off the message, with `absent: true` when the tag is not there at all, which is the
+commonest cause of a rule that never fires and the one an empty string would hide. A rule that never
+reached the matcher says `skipped` (disabled, or an unusable trigger); a rule that matched but lost
+says `shadowedBy: <index>`. For the winner it renders the whole reply — each step's exact FIX text
+with `${req.<tag>}` already substituted, and the offset it goes out at. `inactive` appears when the
+profile is not an `ACCEPTOR`, in which case none of the rules would ever run.
+
+The evaluation is the same code the wire uses (`AcceptorResponder.explain` shares its per-condition
+judgement with `firstMatch`, and the reply comes from `plan`), so a dry run cannot pass where the
+live session would do nothing. It reads the profile **as saved**, which is also the one way the two
+can disagree: rules compile when a session connects, so a rule edited under a logged-on session is
+tested here but not yet live there — `/disconnect` then `/connect` to pick it up.
+
+#### Simulated latency
+
+FixTool otherwise replies as fast as the machine allows, which is a latency no real venue has — so a
+client whose timeout or retry logic is wrong passes here and fails in production. `acceptorLatency`
+on the profile config puts the delay back:
+
+```bash
+curl -s -XPOST $B/profiles -d '{"id":"<id>","name":"My Acceptor","config":{"acceptorLatency":{
+  "mode":"RANDOM_RANGE","minMillis":20,"maxMillis":80,
+  "spikeProbability":0.05,"spikeMinMillis":2000,"spikeMaxMillis":5000}}}'
+```
+
+`mode` is `NONE` (default), `FIXED` (`fixedMillis`), `RANDOM_RANGE` (`minMillis`/`maxMillis`) or
+`NORMAL` (`meanMillis`/`stdDevMillis`, clamped at zero). `spikeProbability` is independent of `mode`:
+that fraction of replies stalls to `spikeMinMillis`–`spikeMaxMillis` **instead of** the ordinary
+sample, so an otherwise instant venue can still stall occasionally.
+
+One sample is drawn **per triggering message** and the rule's whole reply shifts by it; the authored
+step-to-step gaps are left as written, so a sequence keeps its order and its shape and only its start
+slides. The two add: a step that says "+500ms" means 500ms after the step before it however late the
+reply started. `GET /acceptor/rules` reports the config, the millisecond range it adds, and any
+setting that would do nothing.
 
 ### Message templates
 

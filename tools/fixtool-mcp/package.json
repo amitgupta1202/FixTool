@@ -1,9 +1,9 @@
 {
   "name": "fixtool-mcp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "MCP server exposing FixTool's automation control surface (connect, send, read messages, screenshot).",
+  "description": "Stdio transport shim in front of FixTool's own MCP endpoint; forwards tools/list and tools/call verbatim.",
   "bin": {
     "fixtool-mcp": "index.mjs"
   },
@@ -14,7 +14,6 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^3.23.8"
+    "@modelcontextprotocol/sdk": "^1.12.0"
   }
 }

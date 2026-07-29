@@ -24,7 +24,7 @@ cd tools/fixtool-mcp
 npm install
 ```
 
-Requires Node ≥ 18 (global `fetch`). Only deps are the MCP SDK and zod.
+Requires Node ≥ 18 (global `fetch`). The only dep is the MCP SDK.
 
 ## Run FixTool with the control surface enabled
 
@@ -55,48 +55,29 @@ claude mcp add fixtool -- node tools/fixtool-mcp/index.mjs
 | `FIXTOOL_CONTROL_URL`      | `http://127.0.0.1:8765`  | Where the FixTool control server listens   |
 | `FIXTOOL_CONTROL_TOKEN`    | _(none)_                 | Sent as `X-Control-Token`; must match app  |
 | `FIXTOOL_CONTROL_TIMEOUT_MS` | `15000`                | Per-request timeout                        |
+| `FIXTOOL_CONTROL_RECHECK_MS` | `5000`                 | How often to re-check a FixTool that was down |
 
 ## Tools
 
-| Tool                    | What it does                                                            |
-| ----------------------- | ---------------------------------------------------------------------- |
-| `fixtool_syntax`        | **The `${…}` template + matcher grammar.** Read it before authoring a scenario, a templated message or an expectation |
-| `fixtool_health`        | Liveness check + session count                                         |
-| `fixtool_sessions`      | List sessions (index, id, title, state, message count, comp IDs)       |
-| `fixtool_profiles`      | List connection profiles                                               |
-| `fixtool_save_profile`  | Create/update a connection profile (set up a connection from scratch)  |
-| `fixtool_delete_profile`| Delete a connection profile by id                                      |
-| `fixtool_panel`         | Show/hide a UI panel (connection, editor, detail, settings, scenarios) |
-| `fixtool_list_templates`| List saved message templates (optionally per profile)                  |
-| `fixtool_save_template` | Create/update a reusable template (from fields or a raw FIX string)     |
-| `fixtool_delete_template`| Delete a template by id                                               |
-| `fixtool_load_template` | Load a template into the message editor                                |
-| `fixtool_demo`          | Start/stop the built-in demo FIX server (registers "Demo User N")      |
-| `fixtool_connect`       | Connect a profile by name or id                                        |
-| `fixtool_disconnect`    | Disconnect a profile                                                   |
-| `fixtool_send`          | Send a raw FIX message from a session (optionally resolving templates)  |
-| `fixtool_send_all`      | Bulk-send one message to all logged-on sessions                        |
-| `fixtool_send_template` | Send a saved template (expressions resolved) from a session            |
-| `fixtool_clear_messages`| Clear a session's message log between test phases                      |
-| `fixtool_wait`          | Block until a session state or matching message arrives (vs polling)   |
-| `fixtool_admin`         | Session/admin control: seq nums, test/resend request, sequence reset, logout/disconnect |
-| `fixtool_validate`      | Validate a raw FIX message against the loaded dictionary               |
-| `fixtool_dictionary`    | Read or switch the active FIX data dictionary (version or custom file) |
-| `fixtool_acceptor_rules`| Inspect a profile's acceptor auto-response rules (set via save_profile) |
-| `fixtool_get_messages`  | Read parsed messages (ordered `{tag, value}` fields) for verification  |
-| `fixtool_select`        | Select a message in the browser → opens the detail/inspection panel    |
-| `fixtool_detail_search` | Drive the detail panel's tag search: query + mode (bare\|identity\|full) so a nested tag keeps its context |
-| `fixtool_search`        | Cross-session search → chronological timeline; pins to the search pane  |
-| `fixtool_filter`        | Filter the grid (global or per-session) for a focused screenshot        |
-| `fixtool_assert`        | Machine-check a received message tag-by-tag against per-tag matchers    |
-| `fixtool_capture_expectation` | Draft an expectation from a received message, matchers pre-seeded from the dictionary |
-| `fixtool_capture_scenario` | Record the live message flow into a scenario, already parameterized  |
-| `fixtool_save_scenario` | Create/update a repeatable scenario (sends + assertions)               |
-| `fixtool_list_scenarios`| List saved scenarios (optionally per profile)                          |
-| `fixtool_get_scenario`  | Fetch one scenario's full JSON — read → edit → save back losslessly    |
-| `fixtool_run_scenario`  | Run a scenario deterministically → per-step/per-tag report (or JUnit XML) |
-| `fixtool_delete_scenario` | Delete a scenario by id                                              |
-| `fixtool_screenshot`    | Capture a PNG of the window                                            |
+**This server defines no tools of its own.** `tools/list` and `tools/call` are forwarded verbatim to
+FixTool's own MCP endpoint, so the tool set is whatever the running app serves — see
+`composeApp/src/jvmMain/kotlin/com/knapsack/fixtool/control/McpTools.kt`, or just ask the app:
+
+```bash
+curl -s -XPOST http://127.0.0.1:8765/mcp \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools[].name'
+```
+
+It used to declare all ~40 tools a second time, in JS, with a second copy of every description.
+Nothing kept the copies honest and they drifted: after acceptor rules grew `steps`, `conditions` and
+`enabled`, this server still described a rule as `{whenMsgType, whenFields?, responseTemplate}` — the
+spelling from before sequences existed. Both files were internally consistent, so nothing anywhere
+reported a disagreement; an agent simply got told to write rules in a shape that had not been current
+for several releases. There is now one definition of every tool, next to the code that implements it.
+
+While FixTool is not running this server advertises a single `fixtool_health` tool whose description
+says so; it re-checks every `FIXTOOL_CONTROL_RECHECK_MS` and notifies the client when the real tool
+list becomes available, so starting the app after Claude Code is fine.
 
 ## Example flow (self-contained, no external server)
 

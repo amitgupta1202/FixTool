@@ -18,19 +18,57 @@ import java.util.UUID
  * [offsetMillis] is cumulative from the trigger, where a step's own delay is measured from the step
  * before it — the accumulation happens once, here, so no caller repeats it.
  *
- * [build] is deliberately a thunk rather than a finished [Message]: `${uuid}` and `${now}` resolve
- * when it runs, which is at the moment of sending, so each step of a sequence carries its own ExecID
- * and its own TransactTime. Everything that reads the *request* has already been resolved.
+ * [render] is deliberately a thunk rather than a finished string: `${uuid}` and `${now}` resolve when
+ * it runs, which is at the moment of sending, so each step of a sequence carries its own ExecID and
+ * its own TransactTime. Everything that reads the *request* has already been resolved.
+ *
+ * The raw text is the thunk and [build] is derived from it, rather than the other way around, so that
+ * anything wanting to *show* a planned reply — the dry run behind `/acceptor/test` — shows the very
+ * string the wire would get. Rendering separately would be a second implementation of the same
+ * substitution, free to drift, and a dry run that lies is worse than no dry run.
  */
 data class PlannedSend(
     val offsetMillis: Long,
-    val build: () -> Message,
-)
+    val render: () -> String,
+) {
+    fun build(): Message = AcceptorResponder.buildMessage(render())
+}
 
 /** A rule whose trigger has been parsed once, ready to be asked of every inbound message. */
 data class CompiledRule(
     val rule: AcceptorResponseRule,
     val conditions: List<Pair<Int, Matcher>>,
+)
+
+/** What one condition of a trigger said about one message, and the value it read to say it. */
+data class ConditionOutcome(
+    val tag: Int,
+    val matcher: Matcher,
+    /** The value the trigger actually read off the message; null means the tag is not present. */
+    val actual: String?,
+    val satisfied: Boolean,
+)
+
+/**
+ * How one rule answered one message — the whole of why it did or did not fire.
+ *
+ * [matched] is about this rule's own trigger; [selected] is about the list, since under
+ * first-match-wins a rule can match and still not be the one that replies. Both are reported because
+ * "my rule matches but nothing happens" and "my rule does not match" are different problems with
+ * different fixes, and a reader who is only told "no" cannot tell which one they have.
+ *
+ * [skipped] is why the trigger was never asked at all: the rule is disabled, or its trigger does not
+ * parse. Such a rule is silently absent from the live ruleset ([AcceptorResponder.compile] drops it),
+ * which is exactly the state that looks from outside like a rule that simply has not come up yet.
+ */
+data class RuleOutcome(
+    /** Position in the profile's rule list, so a reader can address the rule to edit it. */
+    val index: Int,
+    val rule: AcceptorResponseRule,
+    val matched: Boolean,
+    val selected: Boolean,
+    val skipped: String?,
+    val conditions: List<ConditionOutcome>,
 )
 
 /**
@@ -79,6 +117,53 @@ object AcceptorResponder {
         }?.rule
 
     /**
+     * The same question [firstMatch] asks, answered for **every** rule and with its working shown:
+     * which conditions passed, what value each one read, and which rule wins.
+     *
+     * This exists so a rule can be tested without a counterparty. Authoring one otherwise means
+     * save, connect, get someone to send the trigger, read the log — and when nothing comes back,
+     * the tool says only that nothing came back, which is equally the shape of a typo'd tag, a rule
+     * shadowed by an earlier one, and a rule that is simply switched off.
+     *
+     * Takes the rules **as written** rather than a compiled list, so the indices line up with the
+     * profile the caller is going to edit, and so a rule [compile] would drop can be reported as
+     * dropped instead of vanishing.
+     *
+     * This is a **second** implementation of the judgement in [firstMatch], and deliberately so:
+     * that one runs on the callback thread of a loaded acceptor and short-circuits, this one
+     * evaluates every condition because it has to report each. They share the two pieces that decide
+     * anything — `valueOf` reads the tag, [ExpectationEvaluator.satisfies] judges it — but the
+     * "MsgType matches and every condition holds, first one wins" shape is written twice, so
+     * `AcceptorResponderExplainTest` re-asks each case through both and fails if they ever disagree.
+     * A dry run that passes where the wire does nothing moves the bug from the rule into the tool.
+     */
+    fun explain(rules: List<AcceptorResponseRule>, incoming: Message): List<RuleOutcome> {
+        val msgType = valueOf(incoming, MSG_TYPE_TAG)
+        var alreadyWon = false
+        return rules.mapIndexed { index, rule ->
+            // Compiled one at a time: compile() drops what it cannot use, and a rule that is *absent*
+            // from the result cannot be told apart from a rule that did not match. Alone, the drop is
+            // attributable to the rule it happened to.
+            val compiled = compile(listOf(rule)).firstOrNull()
+            val skipped =
+                when {
+                    !rule.enabled -> "the rule is disabled, so the message falls through to the rule after it"
+                    compiled == null -> rule.validationError() ?: "the rule's trigger is not usable"
+                    else -> null
+                }
+            val conditions =
+                compiled?.conditions.orEmpty().map { (tag, matcher) ->
+                    val actual = valueOf(incoming, tag)
+                    ConditionOutcome(tag, matcher, actual, ExpectationEvaluator.satisfies(matcher, actual))
+                }
+            val matched = skipped == null && msgType == rule.whenMsgType && conditions.all { it.satisfied }
+            val selected = matched && !alreadyWon
+            if (selected) alreadyWon = true
+            RuleOutcome(index, rule, matched, selected, skipped, conditions)
+        }
+    }
+
+    /**
      * The whole of [rule]'s reply to [incoming], as sends waiting for their moment.
      *
      * `${req.<tag>}` is substituted here, against the message that triggered the rule and while that
@@ -95,7 +180,7 @@ object AcceptorResponder {
             offset += step.delayMillis.coerceAtLeast(0)
             val againstRequest = resolveRequestRefs(step.template, incoming)
             PlannedSend(offset) {
-                buildMessage(resolveExpressions(resolveAtSendTime(againstRequest), request, dictionary))
+                resolveExpressions(resolveAtSendTime(againstRequest), request, dictionary)
             }
         }
     }

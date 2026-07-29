@@ -5,8 +5,11 @@
 
 package com.knapsack.fixtool.control
 
+import com.knapsack.fixtool.model.AcceptorLatencyConfig
+import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
@@ -19,6 +22,7 @@ import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
+import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.EchoDetector
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.ExpectationSeeder
@@ -27,6 +31,7 @@ import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
+import com.knapsack.fixtool.service.RuleOutcome
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -154,7 +159,8 @@ class ControlServer(
         httpServer.createContext("/validate") { ex -> handle(ex) { validate(ex) } }
         httpServer.createContext("/dictionary/roles") { ex -> handle(ex) { dictionaryRoles(ex) } }
         httpServer.createContext("/dictionary") { ex -> handle(ex) { dictionaryEndpoint(ex) } }
-        httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRules(ex) } }
+        httpServer.createContext("/acceptor/test") { ex -> handle(ex) { acceptorTest(ex) } }
+        httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRulesEndpoint(ex) } }
         httpServer.createContext("/syntax") { ex -> syntax(ex) }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
         httpServer.createContext("/mcp") { ex -> mcpHandle(ex) }
@@ -219,12 +225,58 @@ class ControlServer(
             }
         }
 
-    /** `/profiles` is method-aware: GET lists, POST creates/updates, DELETE removes. */
+    /**
+     * One profile's **whole** config, not the summary the list gives.
+     *
+     * The list carries the eight fields that identify a profile, which is the right size for choosing
+     * one and the wrong size for changing one: an editor that cannot read `useSSL`, `logonFields`,
+     * `acceptorLatency` or the existing rules cannot preserve them. That was survivable only while a
+     * `/profiles` POST replaced the config wholesale — a caller had to send everything anyway, and
+     * silently lost whatever it could not see. Now that the POST merges, this is the other half: read
+     * what is there, send back only what changes.
+     *
+     * Secrets are reported as [REDACTED] rather than echoed. A merging POST never needs them sent
+     * back, so the round trip does not depend on it — and a password read into an agent's transcript
+     * is in the transcript for good.
+     */
+    private fun profileDetail(profileKey: String): JsonElement {
+        val profile =
+            onEdt {
+                viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }
+            } ?: return errorObject("unknown profile: $profileKey")
+        val config = profileJson.encodeToJsonElement(FixConnectionConfig.serializer(), profile.config).jsonObject
+        return buildJsonObject {
+            put("id", profile.id)
+            put("name", profile.name)
+            put(
+                "config",
+                JsonObject(
+                    config.mapValues { (key, value) ->
+                        if (key in SECRET_CONFIG_KEYS && value.jsonPrimitive.contentOrNull?.isNotEmpty() == true) {
+                            JsonPrimitive(REDACTED)
+                        } else {
+                            value
+                        }
+                    },
+                ),
+            )
+            put(
+                "redacted",
+                buildJsonArray {
+                    SECRET_CONFIG_KEYS
+                        .filter { config[it]?.jsonPrimitive?.contentOrNull?.isNotEmpty() == true }
+                        .forEach { add(it) }
+                },
+            )
+        }
+    }
+
+    /** `/profiles` is method-aware: GET lists (or details one via `?profile=`), POST upserts, DELETE removes. */
     private fun profilesEndpoint(ex: HttpExchange): JsonElement =
         when (ex.requestMethod.uppercase()) {
             "POST" -> upsertProfile(ex)
             "DELETE" -> deleteProfile(ex)
-            else -> profiles()
+            else -> queryParams(ex)["profile"]?.let { profileDetail(it) } ?: profiles()
         }
 
     /**
@@ -232,21 +284,55 @@ class ControlServer(
      * form `{ "name": "...", "config": { ... } }`. `config` only needs the fields that differ
      * from the model defaults (host, port, senderCompID, targetCompID, connectionType, useSSL, …).
      * The saved profile is immediately connectable via `/connect`.
+     *
+     * ### Updating merges; it does not replace
+     *
+     * A `config` sent against an existing `id` sets **the keys it carries and no others**. Anything
+     * absent keeps the value it had.
+     *
+     * It replaced the whole config until this, which made the endpoint quietly destructive in the one
+     * situation it is most used for. Nothing here can read a profile's SSL settings, logon fields,
+     * latency or existing rules — `/profiles` listed eight fields — so "add a rule to my acceptor"
+     * was necessarily a POST carrying a rule and nothing else, and it silently took the keystore path,
+     * the logon fields and every other rule down with it, then answered `{"status":"updated"}`. The
+     * caller could not have avoided it and could not see that it happened.
+     *
+     * Merging is per top-level key, so an *explicitly* sent value always wins and clearing is still
+     * expressible: `"acceptorResponseRules": []` is present, therefore applied. `replace: true` asks
+     * for the old wholesale behaviour, for a caller that wants a profile to be exactly what it sends.
      */
     private fun upsertProfile(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val name = body["name"]?.jsonPrimitive?.content ?: return errorObject("missing 'name'")
-        val configElement = body["config"] ?: return errorObject("missing 'config' object")
-        val config =
-            try {
-                profileJson.decodeFromJsonElement(FixConnectionConfig.serializer(), configElement)
-            } catch (e: Exception) {
-                return errorObject("invalid config: ${e.message}")
-            }
-
+        val configElement = body["config"] as? JsonObject ?: return errorObject("missing 'config' object")
+        val replace = body["replace"]?.jsonPrimitive?.booleanOrNull ?: false
         val existingId = body["id"]?.jsonPrimitive?.content
+
         return onEdt {
             val existing = existingId?.let { id -> viewModel.connectionProfiles.firstOrNull { it.id == id } }
+            // A redaction marker read back from `GET /profiles?profile=` and posted again means "leave
+            // this alone", never "set the password to the literal string [REDACTED]" — which is what a
+            // round trip would otherwise do, locking the user out of their own keystore.
+            val incoming =
+                JsonObject(
+                    configElement.filterNot { (key, value) ->
+                        key in SECRET_CONFIG_KEYS && value.jsonPrimitive.contentOrNull == REDACTED
+                    },
+                )
+            val merged =
+                if (replace || existing == null) {
+                    incoming
+                } else {
+                    val current =
+                        profileJson.encodeToJsonElement(FixConnectionConfig.serializer(), existing.config).jsonObject
+                    JsonObject(current + incoming)
+                }
+            val config =
+                try {
+                    profileJson.decodeFromJsonElement(FixConnectionConfig.serializer(), merged)
+                } catch (e: Exception) {
+                    return@onEdt errorObject("invalid config: ${e.message}")
+                }
             val profile =
                 existing?.copy(name = name, config = config)
                     ?: if (existingId != null) {
@@ -261,9 +347,29 @@ class ControlServer(
                 put("status", if (existing != null) "updated" else "created")
                 put("id", profile.id)
                 put("name", profile.name)
+                // Said out loud because the two modes differ precisely in what they do to keys the
+                // caller did not mention, which is the part a caller cannot see in its own request.
+                put("mode", if (replace || existing == null) "replace" else "merge")
+                put("applied", buildJsonArray { incoming.keys.sorted().forEach { add(it) } })
+                acceptorProblems(config).takeIf { it.isNotEmpty() }?.let { problems ->
+                    put("warnings", buildJsonArray { problems.forEach { add(it) } })
+                }
             }
         }
     }
+
+    /**
+     * Everything wrong with [config]'s acceptor settings, in the author's words.
+     *
+     * Reported as warnings on a write rather than refusing it: a half-written rule is a normal state
+     * to save through, and [AcceptorResponseRule.validationError] is deliberately not a load-time
+     * failure. But a rule that can never fire is also indistinguishable, from outside, from one whose
+     * trigger has not come up yet — so the one moment it can be said usefully is when it is written.
+     */
+    private fun acceptorProblems(config: FixConnectionConfig): List<String> =
+        config.acceptorResponseRules.mapIndexedNotNull { index, rule ->
+            rule.validationError()?.let { "rule $index (${rule.whenMsgType.ifBlank { "no MsgType" }}): $it" }
+        } + listOfNotNull(config.acceptorLatency.validationError()?.let { "acceptorLatency: $it" })
 
     private fun deleteProfile(ex: HttpExchange): JsonElement {
         val id =
@@ -1645,9 +1751,138 @@ class ControlServer(
         }
     }
 
+    /** `/acceptor/rules` is method-aware: GET inspects, POST adds/replaces/toggles one, DELETE removes one. */
+    private fun acceptorRulesEndpoint(ex: HttpExchange): JsonElement =
+        when (ex.requestMethod.uppercase()) {
+            "POST" -> upsertAcceptorRule(ex)
+            "DELETE" -> deleteAcceptorRule(ex)
+            else -> acceptorRules(ex)
+        }
+
     /**
-     * Inspects the acceptor auto-response rules on a profile. Rules are *set* via the normal
-     * `/profiles` upsert (they live on the profile's config), so this is read-only.
+     * Adds, replaces or toggles **one** rule, leaving the rest of the profile untouched.
+     *
+     * A rule list is ordered and first-match-wins, so its index is its identity — there is nothing
+     * else to name a rule by, and the position is itself meaningful. `index` omitted appends;
+     * `index` given replaces in place. `enabled` on its own toggles the rule already there, which is
+     * the edit an author narrowing down a venue's behaviour makes most often ("what happens without
+     * this one") and the one they least want to spell out a whole rule for.
+     *
+     * This exists even though `/profiles` now merges, because merging is per top-level key: the rule
+     * *list* is one key, so adding a rule through it still means sending every other rule back, read
+     * from somewhere else and hoping nothing changed in between.
+     */
+    private fun upsertAcceptorRule(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val profileKey = body["profile"]?.jsonPrimitive?.content
+            ?: queryParams(ex)["profile"]
+            ?: return errorObject("missing 'profile'")
+        val index = body["index"]?.jsonPrimitive?.intOrNull
+        val enabled = body["enabled"]?.jsonPrimitive?.booleanOrNull
+        val ruleElement = body["rule"] as? JsonObject
+
+        return onEdt {
+            val profile =
+                viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }
+                    ?: return@onEdt errorObject("unknown profile: $profileKey")
+            val rules = profile.config.acceptorResponseRules.toMutableList()
+            if (index != null && index !in rules.indices && ruleElement == null) {
+                return@onEdt errorObject("index $index is out of range (the profile has ${rules.size} rule(s))")
+            }
+            val edit =
+                when {
+                    ruleElement != null -> {
+                        val parsed =
+                            try {
+                                profileJson.decodeFromJsonElement(AcceptorResponseRule.serializer(), ruleElement)
+                            } catch (e: Exception) {
+                                return@onEdt errorObject("invalid rule: ${e.message}")
+                            }
+                        // `enabled` alongside a rule body is an override, so one call can add a rule
+                        // already switched off — an author staging the next case without arming it yet.
+                        placeRule(rules, if (enabled == null) parsed else parsed.copy(enabled = enabled), index)
+                    }
+                    enabled != null && index != null -> {
+                        rules[index] = rules[index].copy(enabled = enabled)
+                        (if (enabled) "enabled" else "disabled") to index
+                    }
+                    else ->
+                        return@onEdt errorObject("provide 'rule' (with optional 'index'), or 'index' with 'enabled'")
+                } ?: return@onEdt errorObject(
+                    "index $index is out of range (the profile has ${rules.size} rule(s))",
+                )
+            val (action, position) = edit
+            val updated = profile.copy(config = profile.config.copy(acceptorResponseRules = rules))
+            if (!viewModel.saveConnectionProfile(updated)) {
+                return@onEdt errorObject("failed to persist profile")
+            }
+            buildJsonObject {
+                put("status", action)
+                put("profile", profile.name)
+                put("index", position)
+                put("ruleCount", rules.size)
+                rules[position].validationError()?.let { put("validationError", it) }
+            }
+        }
+    }
+
+    /**
+     * Puts [rule] into [rules] — appended when [index] is null, replacing that position otherwise —
+     * and reports what it did. Null means the index does not exist, which is refused rather than
+     * quietly appended: a replace that silently becomes an append leaves the rule it was meant to
+     * correct still in place and still winning.
+     */
+    private fun placeRule(
+        rules: MutableList<AcceptorResponseRule>,
+        rule: AcceptorResponseRule,
+        index: Int?,
+    ): Pair<String, Int>? =
+        when {
+            index == null -> {
+                rules += rule
+                "appended" to rules.lastIndex
+            }
+            index in rules.indices -> {
+                rules[index] = rule
+                "replaced" to index
+            }
+            else -> null
+        }
+
+    /** Removes one rule by index. The rules after it shift up, which changes what first-match-wins means. */
+    private fun deleteAcceptorRule(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val profileKey = body["profile"]?.jsonPrimitive?.content
+            ?: queryParams(ex)["profile"]
+            ?: return errorObject("missing 'profile'")
+        val index = body["index"]?.jsonPrimitive?.intOrNull
+            ?: queryParams(ex)["index"]?.toIntOrNull()
+            ?: return errorObject("missing 'index'")
+        return onEdt {
+            val profile =
+                viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }
+                    ?: return@onEdt errorObject("unknown profile: $profileKey")
+            val rules = profile.config.acceptorResponseRules.toMutableList()
+            if (index !in rules.indices) {
+                return@onEdt errorObject("index $index is out of range (the profile has ${rules.size} rule(s))")
+            }
+            val removed = rules.removeAt(index)
+            val updated = profile.copy(config = profile.config.copy(acceptorResponseRules = rules))
+            if (!viewModel.saveConnectionProfile(updated)) {
+                return@onEdt errorObject("failed to persist profile")
+            }
+            buildJsonObject {
+                put("status", "deleted")
+                put("profile", profile.name)
+                put("index", index)
+                put("whenMsgType", removed.whenMsgType)
+                put("ruleCount", rules.size)
+            }
+        }
+    }
+
+    /**
+     * Inspects the acceptor auto-response rules on a profile, and the latency they are played through.
      */
     private fun acceptorRules(ex: HttpExchange): JsonElement {
         val profileKey = queryParams(ex)["profile"] ?: return errorObject("missing 'profile'")
@@ -1658,80 +1893,293 @@ class ControlServer(
             buildJsonObject {
                 put("profile", profile.name)
                 put("connectionType", profile.config.connectionType.name)
+                // Rules on an initiator are inert — nothing reads them — and that is invisible from the
+                // rules alone, which look configured and correct. Said here because this is the surface
+                // someone asks "why does my rule never fire" of.
+                if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) {
+                    put(
+                        "inactive",
+                        "this profile is an ${profile.config.connectionType.name}; auto-response rules " +
+                            "only run when connectionType is ACCEPTOR",
+                    )
+                }
+                put("latency", latencyJson(profile.config.acceptorLatency))
                 put(
                     "rules",
                     buildJsonArray {
-                        profile.config.acceptorResponseRules.forEach { rule ->
-                            add(
-                                buildJsonObject {
-                                    put("whenMsgType", rule.whenMsgType)
-                                    put("enabled", rule.enabled)
-                                    put(
-                                        "whenFields",
-                                        buildJsonObject { rule.whenFields.forEach { (k, v) -> put(k, v) } },
-                                    )
-                                    // `trigger` is every condition from both spellings, ANDed, exactly
-                                    // as the engine will ask them — so a reader never has to work out
-                                    // which of the two forms a rule used, or whether they combine.
-                                    put(
-                                        "trigger",
-                                        buildJsonArray {
-                                            rule.trigger().forEach { condition ->
-                                                add(
-                                                    buildJsonObject {
-                                                        put("tag", condition.tag)
-                                                        put("matcher", condition.matcher)
-                                                        condition.reason()?.let { put("problem", it) }
-                                                    },
-                                                )
-                                            }
-                                        },
-                                    )
-                                    put("responseTemplate", rule.responseTemplate)
-                                    // The reply as it will actually be played, with the offset each step
-                                    // goes out at — a reader asking "what does this rule do" should not
-                                    // have to re-do the accumulation, nor work out which of the two
-                                    // spellings won. `steps` echoes what was written; `sequence` resolves it.
-                                    put(
-                                        "steps",
-                                        buildJsonArray {
-                                            rule.steps.forEach { step ->
-                                                add(
-                                                    buildJsonObject {
-                                                        put("template", step.template)
-                                                        put("delayMillis", step.delayMillis)
-                                                    },
-                                                )
-                                            }
-                                        },
-                                    )
-                                    var offset = 0L
-                                    put(
-                                        "sequence",
-                                        buildJsonArray {
-                                            rule.sequence().forEach { step ->
-                                                offset += step.delayMillis.coerceAtLeast(0)
-                                                add(
-                                                    buildJsonObject {
-                                                        put("template", step.template)
-                                                        put("offsetMillis", offset)
-                                                    },
-                                                )
-                                            }
-                                        },
-                                    )
-                                    // A rule nobody can act on is worse than no rule: it looks configured.
-                                    // There is no authoring UI to catch this, so the read surface is the
-                                    // only place it can be said.
-                                    rule.validationError()?.let { put("validationError", it) }
-                                },
-                            )
+                        profile.config.acceptorResponseRules.forEachIndexed { ruleIndex, rule ->
+                            add(acceptorRuleJson(ruleIndex, rule))
                         }
                     },
                 )
             }
         }
     }
+
+    /** One rule as it reads: what was written, what it means, and anything wrong with it. */
+    private fun acceptorRuleJson(index: Int, rule: AcceptorResponseRule): JsonObject =
+        buildJsonObject {
+            // The index is the rule's identity for /acceptor/rules POST and DELETE, and its priority
+            // under first-match-wins. Both need it named.
+            put("index", index)
+            put("whenMsgType", rule.whenMsgType)
+            put("enabled", rule.enabled)
+            put("whenFields", buildJsonObject { rule.whenFields.forEach { (k, v) -> put(k, v) } })
+            // `trigger` is every condition from both spellings, ANDed, exactly as the engine will ask
+            // them — so a reader never has to work out which of the two forms a rule used, or whether
+            // they combine.
+            put(
+                "trigger",
+                buildJsonArray {
+                    rule.trigger().forEach { condition ->
+                        add(
+                            buildJsonObject {
+                                put("tag", condition.tag)
+                                put("matcher", condition.matcher)
+                                condition.reason()?.let { put("problem", it) }
+                            },
+                        )
+                    }
+                },
+            )
+            put("responseTemplate", rule.responseTemplate)
+            // The reply as it will actually be played, with the offset each step goes out at — a reader
+            // asking "what does this rule do" should not have to re-do the accumulation, nor work out
+            // which of the two spellings won. `steps` echoes what was written; `sequence` resolves it.
+            put(
+                "steps",
+                buildJsonArray {
+                    rule.steps.forEach { step ->
+                        add(
+                            buildJsonObject {
+                                put("template", step.template)
+                                put("delayMillis", step.delayMillis)
+                            },
+                        )
+                    }
+                },
+            )
+            var offset = 0L
+            put(
+                "sequence",
+                buildJsonArray {
+                    rule.sequence().forEach { step ->
+                        offset += step.delayMillis.coerceAtLeast(0)
+                        add(
+                            buildJsonObject {
+                                put("template", step.template)
+                                put("offsetMillis", offset)
+                            },
+                        )
+                    }
+                },
+            )
+            // A rule nobody can act on is worse than no rule: it looks configured. There is no
+            // authoring UI to catch this, so the read surface is the only place it can be said.
+            rule.validationError()?.let { put("validationError", it) }
+        }
+
+    /**
+     * The simulated venue latency, as configured, plus what it will actually do.
+     *
+     * [AcceptorLatencyConfig] has been settable since it shipped — a `/profiles` POST decodes the whole
+     * config — but no read surface mentioned it and no tool description named it, so nothing could
+     * discover it existed. A delay nobody knows about is worse than no delay: it is an unexplained
+     * gap between a trigger and its reply, in the exact data a latency test reads.
+     *
+     * [addedMillis] is the trigger→first-reply delay this config produces, as a range, because it is
+     * usually a draw and a single number would be a fiction. It does **not** include the authored
+     * step-to-step gaps, which sit on top of it.
+     */
+    private fun latencyJson(latency: AcceptorLatencyConfig): JsonObject =
+        buildJsonObject {
+            put("active", latency.isActive())
+            put("mode", latency.mode.name)
+            put("config", profileJson.encodeToJsonElement(AcceptorLatencyConfig.serializer(), latency))
+            val ordinary =
+                when (latency.mode) {
+                    AcceptorLatencyConfig.Mode.NONE -> 0L to 0L
+                    AcceptorLatencyConfig.Mode.FIXED -> latency.fixedMillis to latency.fixedMillis
+                    AcceptorLatencyConfig.Mode.RANDOM_RANGE -> latency.minMillis to latency.maxMillis
+                    // A normal draw has no bound, so a range would be a lie either way; ±2 standard
+                    // deviations is named as such rather than presented as a limit.
+                    AcceptorLatencyConfig.Mode.NORMAL ->
+                        (latency.meanMillis - 2 * latency.stdDevMillis).coerceAtLeast(0) to
+                            (latency.meanMillis + 2 * latency.stdDevMillis)
+                }
+            // A spike replaces the ordinary sample rather than adding to it, so it widens the range
+            // rather than shifting it — see AcceptorLatencyConfig.sample.
+            val spiking = latency.spikeProbability > 0.0
+            val low = if (spiking) minOf(ordinary.first, latency.spikeMinMillis) else ordinary.first
+            val high = if (spiking) maxOf(ordinary.second, latency.spikeMaxMillis) else ordinary.second
+            put(
+                "addedMillis",
+                buildJsonObject {
+                    put("min", low.coerceAtLeast(0))
+                    put("max", high.coerceAtLeast(0))
+                    if (latency.mode == AcceptorLatencyConfig.Mode.NORMAL) {
+                        put("basis", "mean ± 2 standard deviations; unbounded")
+                    }
+                },
+            )
+            if (latency.spikeProbability > 0.0) {
+                put(
+                    "spike",
+                    "${(latency.spikeProbability * PERCENT).toInt()}% of replies stall to " +
+                        "${latency.spikeMinMillis}-${latency.spikeMaxMillis}ms instead of the ordinary sample",
+                )
+            }
+            latency.validationError()?.let { put("validationError", it) }
+        }
+
+    /**
+     * **Answers "what would this acceptor do with this message" without a counterparty.**
+     *
+     * Authoring a rule otherwise costs a full round trip through reality: save the profile, connect,
+     * arrange for someone to send the trigger, then read the message list. And when nothing comes
+     * back, that round trip has told you only that nothing came back — which is equally the shape of
+     * a typo'd tag, a condition that reads a field the message does not carry, a rule shadowed by an
+     * earlier one, a rule switched off, and a rule on a profile that is not even an acceptor. Every
+     * one of those has a different fix and none of them is visible from the outcome.
+     *
+     * So this reports every rule's verdict and its working: which conditions passed, **what value each
+     * one actually read**, which rule wins, and the reply it would play with each step's offset. The
+     * evaluation is [AcceptorResponder.explain] and the reply is [AcceptorResponder.plan] — the same
+     * functions the live path uses, so a dry run cannot pass where the wire would fail.
+     *
+     * Nothing is sent and nothing is saved; the profile is read as it stands on disk, which is also
+     * why a dry run and a *connected* session can disagree — rules compile when a session connects.
+     */
+    private fun acceptorTest(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val profileKey = body["profile"]?.jsonPrimitive?.content ?: return errorObject("missing 'profile'")
+        val raw = body["raw"]?.jsonPrimitive?.content ?: return errorObject("missing 'raw'")
+        if (raw.isBlank()) return errorObject("'raw' is empty")
+
+        val profile =
+            onEdt { viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey } }
+                ?: return errorObject("unknown profile: $profileKey")
+        val dictionary = onEdt { viewModel.dictionary }
+
+        val incoming =
+            try {
+                AcceptorResponder.buildMessage(raw)
+            } catch (e: Exception) {
+                return errorObject("could not parse 'raw' as a FIX message: ${e.message}")
+            }
+        // The expression engine reads the *request* through a FixMessage, exactly as the live path
+        // hands it the message QuickFIX just delivered, so `${req.38 / 2}` computes here too.
+        val request =
+            FixMessage(
+                timestamp = java.time.LocalDateTime.now(),
+                direction = FixMessage.Direction.INCOMING,
+                rawMessage = raw,
+                quickfixMessage = incoming,
+            )
+        val outcomes = AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming)
+        val winner = outcomes.firstOrNull { it.selected }
+        val incomingType = request.messageType ?: ""
+
+        return buildJsonObject {
+            put("profile", profile.name)
+            put("connectionType", profile.config.connectionType.name)
+            if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) {
+                put(
+                    "inactive",
+                    "this profile is an ${profile.config.connectionType.name}; the rules below are " +
+                        "evaluated for you but would never run — auto-responses need connectionType ACCEPTOR",
+                )
+            }
+            put("msgType", incomingType)
+            put("matched", winner != null)
+            put("latency", latencyJson(profile.config.acceptorLatency))
+            put(
+                "rules",
+                buildJsonArray {
+                    outcomes.forEach { outcome -> add(ruleOutcomeJson(outcome, outcomes, incomingType)) }
+                },
+            )
+            winner?.let { selected ->
+                put("response", plannedReplyJson(selected.rule, incoming, request, dictionary))
+                put(
+                    "note",
+                    "offsets are from the trigger and exclude simulated latency, which is drawn once per " +
+                        "trigger and shifts the whole reply; \${uuid} and \${now} are resolved per step as it is sent",
+                )
+            }
+        }
+    }
+
+    /**
+     * The whole reply [rule] would play, rendered as the wire would carry it.
+     *
+     * Rendered, not described: `${req.<tag>}` is already filled in from the message that triggered it,
+     * so what is shown is what would be sent. `${uuid}` and `${now}` resolve per step as it goes out,
+     * so a real reply differs from this in exactly those two and nowhere else.
+     */
+    private fun plannedReplyJson(
+        rule: AcceptorResponseRule,
+        incoming: quickfix.Message,
+        request: FixMessage,
+        dictionary: FixDictionary?,
+    ): JsonArray =
+        buildJsonArray {
+            AcceptorResponder.plan(rule, incoming, request, dictionary).forEach { planned ->
+                add(
+                    buildJsonObject {
+                        put("offsetMillis", planned.offsetMillis)
+                        put("message", planned.render().replace(SOH, '|'))
+                    },
+                )
+            }
+        }
+
+    /** One rule's verdict on the tested message, with the working that produced it. */
+    private fun ruleOutcomeJson(
+        outcome: RuleOutcome,
+        all: List<RuleOutcome>,
+        incomingType: String,
+    ): JsonObject =
+        buildJsonObject {
+            put("index", outcome.index)
+            put("whenMsgType", outcome.rule.whenMsgType)
+            put("matched", outcome.matched)
+            put("selected", outcome.selected)
+            outcome.skipped?.let { put("skipped", it) }
+            // A rule that matches but does not fire has been beaten by an earlier one. That is the
+            // failure that looks least like itself, so it is named rather than left to be inferred
+            // from two booleans.
+            if (outcome.matched && !outcome.selected) {
+                put("shadowedBy", all.first { it.selected }.index)
+            }
+            if (outcome.skipped == null && outcome.rule.whenMsgType != incomingType) {
+                put("mismatch", "MsgType is $incomingType, the rule wants ${outcome.rule.whenMsgType}")
+            }
+            put(
+                "conditions",
+                buildJsonArray {
+                    outcome.conditions.forEach { condition ->
+                        add(
+                            buildJsonObject {
+                                put("tag", condition.tag)
+                                put("matcher", MatcherCodec.matcherToJson(condition.matcher))
+                                put("satisfied", condition.satisfied)
+                                // Null and empty-string are different answers here: one is "the message
+                                // has no such tag", the other is "it has it and it is blank". Conflating
+                                // them hides the commonest typo.
+                                if (condition.actual == null) {
+                                    put("actual", JsonNull)
+                                    put("absent", true)
+                                } else {
+                                    put("actual", condition.actual)
+                                }
+                            },
+                        )
+                    }
+                },
+            )
+            outcome.rule.validationError()?.let { put("validationError", it) }
+        }
 
     /** Validates a raw FIX message against the loaded data dictionary. */
     private fun validate(ex: HttpExchange): JsonElement {
@@ -1948,7 +2396,9 @@ class ControlServer(
         mapOf(
             "fixtool_health" to { _ -> health() },
             "fixtool_sessions" to { _ -> sessions() },
-            "fixtool_profiles" to { _ -> profiles() },
+            "fixtool_profiles" to { a ->
+                a["profile"]?.jsonPrimitive?.contentOrNull?.let { profileDetail(it) } ?: profiles()
+            },
             "fixtool_save_profile" to { a -> upsertProfile(mcpExchange(a)) },
             "fixtool_delete_profile" to { a -> deleteProfile(mcpExchange(a)) },
             "fixtool_panel" to { a -> panel(mcpExchange(a)) },
@@ -1984,6 +2434,17 @@ class ControlServer(
             "fixtool_validate" to { a -> validate(mcpExchange(a)) },
             "fixtool_dictionary" to { a -> if (a.isEmpty()) getDictionary() else setDictionary(mcpExchange(a)) },
             "fixtool_acceptor_rules" to { a -> acceptorRules(mcpExchange(a)) },
+            "fixtool_acceptor_rule" to { a ->
+                // One tool, both directions, because "delete" is a mode of editing a rule list and a
+                // separate tool for it would be a fourth thing to find. `delete:true` is explicit so
+                // removal can never be what a malformed edit degrades into.
+                if (a["delete"]?.jsonPrimitive?.booleanOrNull == true) {
+                    deleteAcceptorRule(mcpExchange(a))
+                } else {
+                    upsertAcceptorRule(mcpExchange(a))
+                }
+            },
+            "fixtool_acceptor_test" to { a -> acceptorTest(mcpExchange(a)) },
         )
 
     /**
@@ -2252,6 +2713,22 @@ class ControlServer(
                 selector == "diff" -> candidates.firstOrNull { it.first != MAIN_WINDOW_TITLE && it.first.isNotBlank() }
                 else -> candidates.firstOrNull { it.first.contains(selector, ignoreCase = true) }
             }
+
+        /**
+         * What a redacted secret reads as, and what a caller may post back to mean "unchanged".
+         *
+         * One token for both directions on purpose: the value `GET` hands out is the value `POST`
+         * ignores, so a read-modify-write of a whole config is safe without the caller having to know
+         * which of its keys were secrets.
+         */
+        internal const val REDACTED = "[REDACTED]"
+
+        /** Config keys never echoed by a read. See [REDACTED]. */
+        internal val SECRET_CONFIG_KEYS = setOf("password", "keyStorePassword", "trustStorePassword")
+
+        /** FIX's field delimiter, swapped for `|` when a raw message is reported for reading. */
+        private const val SOH = '\u0001'
+        private const val PERCENT = 100
 
         private const val HTTP_OK = 200
         private const val HTTP_UNAUTHORIZED = 401

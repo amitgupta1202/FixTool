@@ -921,6 +921,135 @@ class ControlServerIntegrationTest {
         assertTrue(warnings.any { it.contains("acceptorLatency") }, "got: $warnings")
     }
 
+    // ------------------------------------------- the edges of the authoring surface
+
+    /**
+     * A message nothing answers. Every other dry-run test here asserts a rule *won*, which leaves the
+     * commonest real outcome — "I sent it a message and got nothing" — unpinned. The absence of
+     * `response` is the assertion that matters: an empty array would read as "it replies with nothing",
+     * which is a different and much more alarming claim than "no rule applies".
+     */
+    @Test
+    fun `the dry run reports no match, and offers no reply to read`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Venue","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                       {"whenMsgType":"D","conditions":[{"tag":38,"matcher":{"type":"range","min":500}}],
+                        "steps":[{"template":"35=8|39=0|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val body = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=D|11=SMALL|38=10|"}"""))
+        assertFalse(body["matched"]!!.jsonPrimitive.boolean)
+        assertTrue(body["response"] == null, "no rule fired, so there is no reply to render: $body")
+        assertFalse(body["rules"]!!.jsonArray.single().jsonObject["selected"]!!.jsonPrimitive.boolean)
+        assertEquals("10", body["rules"]!!.jsonArray.single().jsonObject["conditions"]!!.jsonArray.single().jsonObject["actual"]!!.jsonPrimitive.content)
+    }
+
+    /**
+     * The dry run is handed raw text by whoever is authoring, so it is handed typos. It must answer
+     * them — a 500 from a debugging tool costs the author the one thing they came for, which is to be
+     * told what is wrong.
+     */
+    @Test
+    fun `the dry run answers bad input instead of throwing`() {
+        val id =
+            obj(post("/profiles", """{"name":"Venue","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content
+
+        assertEquals("error", status(post("/acceptor/test", """{"profile":"$id","raw":""}""")), "an empty message is refused by name")
+        assertEquals("error", status(post("/acceptor/test", """{"profile":"$id"}""")), "a missing message is refused by name")
+        assertEquals("error", status(post("/acceptor/test", """{"raw":"35=D|"}""")), "a missing profile is refused by name")
+        assertEquals("error", status(post("/acceptor/test", """{"profile":"nope","raw":"35=D|"}""")))
+
+        // Not FIX at all: there are no tags to read, so nothing can match — but it is an answer, with a
+        // 200 and a readable body, not a stack trace.
+        val garbage = post("/acceptor/test", """{"profile":"$id","raw":"this is not a fix message"}""")
+        assertEquals(200, garbage.statusCode())
+        assertFalse(obj(garbage)["matched"]!!.jsonPrimitive.boolean)
+    }
+
+    /**
+     * A refused edit must leave the rule list exactly as it was. An out-of-range *delete* that removed
+     * the wrong rule, or a toggle that silently hit index 0, would be worse than the error it replaced.
+     */
+    @Test
+    fun `an out of range index is refused on delete and on toggle, and changes nothing`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Venue","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                       {"whenMsgType":"D","steps":[{"template":"35=8|39=0|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        assertEquals("error", status(delete("/acceptor/rules", """{"profile":"$id","index":5}""")))
+        assertEquals("error", status(post("/acceptor/rules", """{"profile":"$id","index":5,"enabled":false}""")))
+        assertEquals("error", status(delete("/acceptor/rules", """{"profile":"$id","index":-1}""")))
+
+        val rules = obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray
+        assertEquals(1, rules.size, "the rule list must be untouched by a refusal")
+        assertTrue(rules.single().jsonObject["enabled"]!!.jsonPrimitive.boolean, "and the surviving rule still enabled")
+    }
+
+    /**
+     * `appliedToLiveSessions` is **absent**, not zero, when a save had nothing running to reach. Same
+     * convention as the acceptor block and `discarded`: a field that reads 0 on every quiet save
+     * teaches a reader to ignore it, and this one exists precisely to be noticed.
+     */
+    @Test
+    fun `appliedToLiveSessions is absent when there is nothing live to apply to`() {
+        val acceptor =
+            post(
+                "/profiles",
+                """{"name":"Venue","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                   {"whenMsgType":"D","steps":[{"template":"35=8|39=0|"}]}]}}""",
+            )
+        assertEquals("created", status(acceptor))
+        assertTrue(obj(acceptor)["appliedToLiveSessions"] == null, "nothing is connected: ${obj(acceptor)}")
+
+        // An initiator carries rules inertly, so the question never arises for it at all.
+        val initiator =
+            post(
+                "/profiles",
+                """{"name":"Client","config":{"connectionType":"INITIATOR","acceptorResponseRules":[
+                   {"whenMsgType":"D","steps":[{"template":"35=8|39=0|"}]}]}}""",
+            )
+        assertTrue(obj(initiator)["appliedToLiveSessions"] == null, "an initiator has no live acceptor to apply to")
+    }
+
+    /**
+     * **Both dispatch-level branches, over the transport that has them.** `fixtool_profiles` and
+     * `fixtool_acceptor_rule` each choose between two handlers inside the MCP dispatch map, and the
+     * suite's "advertised means callable" probe calls every tool with `{}` — which reaches the
+     * missing-argument error and neither branch. So the branches were wired and never dialled.
+     */
+    @Test
+    fun `the acceptor tools reach both of their branches over mcp`() {
+        val created = mcpCall("fixtool_save_profile", """{"name":"MCP-ACC","config":{"connectionType":"ACCEPTOR"}}""")
+        val id = Json.parseToJsonElement(created).jsonObject["id"]!!.jsonPrimitive.content
+
+        // fixtool_profiles: the list branch is a summary, the profile branch is the whole config.
+        assertFalse(mcpCall("fixtool_profiles", "{}").contains("\"config\""), "the list branch stays a summary")
+        val detail = mcpCall("fixtool_profiles", """{"profile":"$id"}""")
+        assertTrue(detail.contains("\"config\""), "the profile branch returns the whole config: $detail")
+        assertTrue(detail.contains("acceptorLatency"), "including the fields only the detail view carries")
+
+        // fixtool_acceptor_rule: the upsert branch, then the delete branch behind delete:true.
+        val appended =
+            mcpCall("fixtool_acceptor_rule", """{"profile":"$id","rule":{"whenMsgType":"D","steps":[{"template":"35=8|39=0|"}]}}""")
+        assertTrue(appended.contains("\"appended\""), "got: $appended")
+        val deleted = mcpCall("fixtool_acceptor_rule", """{"profile":"$id","index":0,"delete":true}""")
+        assertTrue(deleted.contains("\"deleted\""), "delete:true must reach the delete handler, not the upsert: $deleted")
+        assertEquals(0, obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray.size)
+
+        // fixtool_acceptor_test over the same transport, since only HTTP has exercised it.
+        val dry = mcpCall("fixtool_acceptor_test", """{"profile":"$id","raw":"35=D|11=X|"}""")
+        assertTrue(dry.contains("\"matched\""), "got: $dry")
+    }
+
     // ----------------------------------------------------------- acceptor rules
 
     @Test
@@ -1320,6 +1449,109 @@ class ControlServerIntegrationTest {
     }
 
     /**
+     * **The other half of a live reload.** `reloadAcceptorRules` swaps the rules *and* the latency, and
+     * only the rules half was pinned — the latency half was shipped on the strength of one manual run,
+     * which protects nothing.
+     *
+     * The delay is asserted by the clock, because there is no other way to catch it. Everything else
+     * about a latency change is invisible: the reply is byte-identical whether it left immediately or a
+     * second late, so a test reading the message can pass against a latency that was never applied. The
+     * `latencyActive` flag is asserted too, but only the elapsed time distinguishes "the config was
+     * stored" from "the config governs the wire".
+     */
+    @Test
+    fun `latency edited under a live session takes effect without reconnecting`() {
+        val port = freePort()
+        val acceptor =
+            FixConnectionProfile(
+                name = "ACC",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "ACC$runId",
+                        targetCompID = "CLI$runId",
+                        port = port.toString(),
+                        socketAcceptPort = port.toString(),
+                        beginString = "FIX.4.4",
+                        fileStorePath = File(testDir, "accstore").absolutePath,
+                        fileLogPath = File(testDir, "acclog").absolutePath,
+                        acceptorResponseRules =
+                            listOf(
+                                AcceptorResponseRule(
+                                    whenMsgType = "D",
+                                    steps = listOf(ResponseStep(template = "35=8|150=0|39=0|11=\${req.11}|")),
+                                ),
+                            ),
+                    ),
+            )
+        val client =
+            FixConnectionProfile(
+                name = "CLI",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                        senderCompID = "CLI$runId",
+                        targetCompID = "ACC$runId",
+                        host = "localhost",
+                        port = port.toString(),
+                        socketConnectHost = "localhost",
+                        beginString = "FIX.4.4",
+                        autoReconnect = false,
+                        resetOnLogon = true,
+                        fileStorePath = File(testDir, "clistore").absolutePath,
+                        fileLogPath = File(testDir, "clilog").absolutePath,
+                    ),
+            )
+        listOf(acceptor, client).forEach {
+            viewModel.saveConnectionProfile(it)
+            viewModel.connectProfile(it.id, it)
+        }
+        assertTrue(
+            awaitCondition(15_000) {
+                viewModel.sessions.any { it.title == "CLI" && it.connectionState.value == FixConnectionState.LOGGED_ON }
+            },
+            "client should log on to the FixTool acceptor",
+        )
+
+        fun acceptorBlock(): JsonObject =
+            arr(get("/sessions"))
+                .map { it.jsonObject }
+                .first { it["title"]!!.jsonPrimitive.content == "ACC" }["acceptor"]!!
+                .jsonObject
+
+        assertFalse(acceptorBlock()["latencyActive"]!!.jsonPrimitive.boolean, "the acceptor starts with no simulated latency")
+
+        // The edit, mid-session: latency only, nothing else mentioned.
+        val edited =
+            post("/profiles", """{"id":"${acceptor.id}","name":"ACC","config":{"acceptorLatency":{"mode":"FIXED","fixedMillis":$LIVE_LATENCY_MS}}}""")
+        assertEquals("updated", status(edited))
+        assertEquals(
+            1,
+            obj(edited)["appliedToLiveSessions"]!!.jsonPrimitive.int,
+            "a latency edit reaches the running session just as a rule edit does",
+        )
+        assertTrue(acceptorBlock()["latencyActive"]!!.jsonPrimitive.boolean, "and the session says so")
+
+        post("/messages/clear", """{"session":"CLI"}""")
+        val startedAt = System.currentTimeMillis()
+        post("/send", """{"session":"CLI","raw":"35=D|11=ORD-SLOW|55=EUR/USD|54=1|38=100|40=1|"}""")
+        val reply =
+            post("/wait", """{"session":"CLI","match":{"messageType":"8","direction":"in"},"timeoutMs":15000}""")
+        val elapsedMillis = System.currentTimeMillis() - startedAt
+        assertEquals("matched", status(reply), "the reply must still arrive, only later")
+        // One-sided on purpose: a slow machine can only push this up, so the test cannot flake by being
+        // late — only by the latency not being applied at all, which is the thing under test.
+        assertTrue(
+            elapsedMillis >= LIVE_LATENCY_MS - LATENCY_TOLERANCE_MS,
+            "a ${LIVE_LATENCY_MS}ms venue latency cannot be answered in ${elapsedMillis}ms — the live session is ignoring it",
+        )
+
+        // And it can be taken away again while the session stays up.
+        post("/profiles", """{"id":"${acceptor.id}","name":"ACC","config":{"acceptorLatency":{"mode":"NONE"}}}""")
+        assertFalse(acceptorBlock()["latencyActive"]!!.jsonPrimitive.boolean, "turning it off must be live too")
+    }
+
+    /**
      * **W2, without a hand on the mouse.** The paste box is click-only, so the control surface grew a door to
      * it (as it grew one to reconcile in Phase 4) — and this drives it: a fake-venue log fragment, pasted, read
      * by the same reader the sheet uses, becomes a saved, badged, runnable scenario.
@@ -1456,5 +1688,16 @@ class ControlServerIntegrationTest {
             .first()
             .jsonObject["text"]!!
             .jsonPrimitive.content
+    }
+
+    private companion object {
+        /**
+         * The simulated venue latency applied mid-session. Large enough that no scheduling jitter can
+         * account for it, small enough not to pad the suite.
+         */
+        const val LIVE_LATENCY_MS = 800L
+
+        /** Slack for timer granularity. Only the *lower* bound is asserted, so this cannot mask a miss. */
+        const val LATENCY_TOLERANCE_MS = 100L
     }
 }

@@ -104,6 +104,29 @@ Editable: true (user can modify before sending)
 
 ## Feature 3: Multi-Session Acceptor Support
 
+**Shipped.** Option C, opt-in: `TargetCompID = *` on an acceptor profile turns it into a venue that
+accepts a logon from any counterparty and gives each its own tab. An acceptor naming one
+counterparty is unchanged, including its refusal of every other CompID — that refusal is a test
+result, not a limitation.
+
+What was built, and where it differs from the proposal below:
+
+- **`AcceptorTemplate=Y` plus a `VenueSessionProvider`** (`service/VenueSessionProvider.kt`). The
+  setting alone accepts nobody: QuickFIX/J falls back to the statically configured sessions, which
+  for a venue is an empty map. The provider wildcards the counterparty and the sub/location IDs but
+  pins our own SenderCompID and the BeginString.
+- **Refused logons are reported.** Not in the proposal, and the most valuable part. Left to itself
+  the engine answers an unrecognised logon with *nothing* — no Logout, no Reject — so a wrong CompID,
+  a wrong port and a firewall are indistinguishable from the client's side and invisible from ours.
+  They now appear on the venue pane and as a notification.
+- **The acceptor's tab became a venue overview** (`ui/AcceptorOverviewPane.kt`): port, client list,
+  refused logons, rule/latency status. It shows no message grid, because every message on a venue
+  belongs to one client and each client has a pane.
+- **A client's pane outlives its session**, marked disconnected, and a reconnect from the same CompID
+  reuses it. What explains a drop is usually the traffic just before it.
+- **Rules stay profile-wide** — they live on the one engine, so they serve every client. Per-session
+  overrides remain a follow-up.
+
 ### Problem
 Currently, FixTool generates a single `[SESSION]` block in the QuickFIX config with one SenderCompID/TargetCompID pair. A real exchange accepts connections from many different clients simultaneously.
 

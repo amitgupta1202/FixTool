@@ -554,10 +554,33 @@ fun ConnectionPanel(
                         label = "TargetCompID",
                         value = targetCompID,
                         onValueChange = { targetCompID = it },
-                        placeholder = "TargetCompID",
+                        placeholder =
+                            if (connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) {
+                                "TargetCompID, or * for any client"
+                            } else {
+                                "TargetCompID"
+                            },
                         isError = isTargetCompIDError,
                         errorMessage = "Required",
                         modifier = Modifier.weight(1f),
+                    )
+                }
+
+                // What a venue's wildcard does, and — when it is not set — that it is available. A real
+                // exchange is one endpoint many clients reach, and the alternative to saying so here is
+                // a tester discovering it by running out of ports.
+                if (connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) {
+                    val venue = targetCompID.trim() == FixConnectionConfig.ANY_CLIENT
+                    Text(
+                        text =
+                            if (venue) {
+                                "Accepts a logon from any client addressed to ${senderCompID.ifBlank { "?" }}, " +
+                                    "each in its own tab. A logon naming a different acceptor is still refused."
+                            } else {
+                                "Only ${targetCompID.ifBlank { "?" }} can connect. Use * to accept any client."
+                            },
+                        color = if (venue) AppTheme.Colors.info else AppTheme.Colors.textDisabled,
+                        fontSize = 8.sp,
                     )
                 }
 

@@ -52,6 +52,7 @@ import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.ScenarioViewStateService
 import com.knapsack.fixtool.service.SessionIdentityResolver
+import com.knapsack.fixtool.service.VenueEvent
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
@@ -100,6 +101,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import quickfix.SessionID
 import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.time.ZoneId
@@ -2421,7 +2423,28 @@ class FixMessageViewModel(
         return session
     }
 
+    /**
+     * Closes a venue, and its clients' panes with it.
+     *
+     * They have no existence apart from it: each is a view onto a session that only its port holds
+     * open. Left behind, they would show a conversation that can no longer be continued, on an engine
+     * that has stopped — a pane that looks live and answers nothing.
+     */
     fun closeSession(index: Int) {
+        val closing = _sessions.getOrNull(index) ?: return
+        if (closing.isVenue) {
+            // Highest index first, so removing one does not shift the position of the next.
+            _sessions
+                .withIndex()
+                .filter { (_, session) -> session.isClientOf(closing) }
+                .map { (i, _) -> i }
+                .sortedDescending()
+                .forEach { closeSession(it) }
+            // Its own index has moved as its clients were removed from around it.
+            val venueIndex = _sessions.indexOf(closing)
+            if (venueIndex < 0) return
+            if (venueIndex != index) return closeSession(venueIndex)
+        }
         if (index in _sessions.indices) {
             // The run report is a claim about this session's log. Closing the session closes the question:
             // the failed message is gone, the Reconcile route would refuse, and the banner would just sit
@@ -3399,6 +3422,7 @@ class FixMessageViewModel(
                         profile.config
                     }
                 enableLatencyTrackingIfConfigured(session)
+                if (profile.config.acceptsAnyClient()) listenForVenueClients(session, profile.id, profile)
                 session.connect(config, _appSettings.value, _dictionary.value)
                 reconnected = true
             }
@@ -3438,9 +3462,65 @@ class FixMessageViewModel(
             profileToSessionMap.getOrPut(profileId) { mutableListOf() }.add(_sessions.size - 1)
 
             enableLatencyTrackingIfConfigured(session)
+            if (profile.config.acceptsAnyClient()) listenForVenueClients(session, profileId, profile)
             session.connect(config, _appSettings.value, _dictionary.value)
         }
         return true
+    }
+
+    /**
+     * Makes a venue's arrivals and refusals visible: a pane per counterparty that logs on, and a
+     * notification for one that is turned away.
+     *
+     * Set before connecting, because the first client can log on the moment the port is bound.
+     */
+    private fun listenForVenueClients(listener: FixMessageSession, profileId: String, profile: FixConnectionProfile) {
+        listener.venueEventListener = { event ->
+            // Off the engine's callback thread and onto the UI's: this ends in a pane being added to
+            // the session list, which Compose reads.
+            viewModelScope.launch {
+                when (event) {
+                    is VenueEvent.ClientArrived -> attachVenueClient(listener, profileId, profile, event.sessionId)
+                    is VenueEvent.LogonRefused ->
+                        showNotification(
+                            "${profile.name}: refused a logon addressed to ${event.sessionId.senderCompID} " +
+                                "from ${event.sessionId.targetCompID}",
+                            NotificationType.WARNING,
+                        )
+                }
+            }
+        }
+    }
+
+    /**
+     * Gives a counterparty of [listener] its own pane, or hands it back the one it had.
+     *
+     * A client that logs out and returns finds its history where it left it — which is the reason the
+     * pane outlives the session, since what usually explains a drop is the traffic just before it.
+     */
+    private fun attachVenueClient(
+        listener: FixMessageSession,
+        profileId: String,
+        profile: FixConnectionProfile,
+        sessionId: SessionID,
+    ) {
+        val venue = listener.venueService() ?: return
+        val existing = _sessions.firstOrNull { it.clientSessionId == sessionId }
+        if (existing != null) {
+            logger.info("Client {} is back on venue '{}'", sessionId, listener.title)
+            return
+        }
+
+        val clientConfig =
+            profile.config.copy(
+                senderCompID = sessionId.senderCompID,
+                targetCompID = sessionId.targetCompID,
+                sessionQualifier = sessionId.sessionQualifier.orEmpty(),
+            )
+        val session = createNewSession(title = "${profile.name} ← ${sessionId.targetCompID}")
+        profileToSessionMap.getOrPut(profileId) { mutableListOf() }.add(_sessions.size - 1)
+        session.bindToVenueClient(venue, sessionId, clientConfig)
+        logger.info("Opened pane '{}' for venue client {}", session.title, sessionId)
     }
 
     private fun enableLatencyTrackingIfConfigured(session: FixMessageSession) {

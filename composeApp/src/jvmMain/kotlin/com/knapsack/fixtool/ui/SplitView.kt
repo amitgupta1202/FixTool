@@ -46,6 +46,8 @@ fun SplitView(
     viewMode: FixMessageSession.ViewMode,
     onCloseSession: (Int) -> Unit,
     onMoveSession: ((Int, Int) -> Unit)? = null,
+    /** Bring one session to the front — a venue's overview lists its clients and each one is a way in. */
+    onFocusSession: (Int) -> Unit = {},
     selectedMessage: FixMessage? = null,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
     onDiffSelected: ((FixMessage, FixMessage) -> Unit)? = null,
@@ -139,6 +141,10 @@ fun SplitView(
                             ) {
                                 SessionPanel(
                                     session = sessions[index],
+                                    venueClients = sessions.filter { it.isClientOf(sessions[index]) },
+                                    onFocusClient = { client ->
+                                        sessions.indexOf(client).takeIf { it >= 0 }?.let(onFocusSession)
+                                    },
                                     dictionary = dictionary,
                                     viewMode = viewMode,
                                     onClose = { onCloseSession(index) },
@@ -253,6 +259,8 @@ private fun HorizontalDivider(
 @Composable
 private fun SessionPanel(
     session: FixMessageSession,
+    venueClients: List<FixMessageSession>,
+    onFocusClient: (FixMessageSession) -> Unit,
     dictionary: FixDictionary,
     viewMode: FixMessageSession.ViewMode,
     onClose: (() -> Unit)?,
@@ -818,7 +826,18 @@ private fun SessionPanel(
                 )
             }
 
-        // Panel content
+        // Panel content. A venue's own pane has no traffic to show — every message on it belongs to
+        // one of its clients, and each of those has a pane of its own.
+        if (session.isVenue) {
+            AcceptorOverviewPane(
+                venue = session,
+                clients = venueClients,
+                onFocusClient = onFocusClient,
+                modifier = Modifier.weight(1f),
+            )
+            return@Column
+        }
+
         FixMessageDisplay(
             messages = filteredMessages,
             viewMode = viewMode,

@@ -59,4 +59,23 @@ data class FixConnectionConfig(
         INITIATOR, // Client - initiates connection
         ACCEPTOR, // Server - accepts connections
     }
+
+    /**
+     * **Does this acceptor accept a logon from any counterparty**, creating a session per client?
+     *
+     * A real venue is one endpoint many clients reach, and this is how a profile says so: a literal
+     * `*` for TargetCompID. Opt-in on purpose. An acceptor naming one counterparty keeps refusing
+     * every other CompID, which is not a limitation to be fixed but a test result — a client
+     * addressing the wrong venue *should* fail, and a simulator that silently accepted it would
+     * report a green run for a misconfiguration that would have failed in production.
+     *
+     * [senderCompID] is never wildcarded: it is who this acceptor *is*, and the one identity a
+     * counterparty must get right. See [com.knapsack.fixtool.service.VenueSessionProvider].
+     */
+    fun acceptsAnyClient(): Boolean = connectionType == ConnectionType.ACCEPTOR && targetCompID.trim() == ANY_CLIENT
+
+    companion object {
+        /** The TargetCompID that means "any client" — QuickFIX/J's own wildcard, so the two agree. */
+        const val ANY_CLIENT = "*"
+    }
 }

@@ -29,16 +29,38 @@ object McpTools {
             ),
             tool("fixtool_health", "Check that the control server is reachable; returns status and session count."),
             tool("fixtool_sessions", "List all FIX sessions with index, id, title, connection state and message count."),
-            tool("fixtool_profiles", "List the available connection profiles (id, name, host, port, sender/target CompID)."),
+            tool(
+                "fixtool_profiles",
+                "List the connection profiles (id, name, host, port, sender/target CompID), or pass `profile` " +
+                    "(id or name) for ONE profile's whole config — every field, including acceptorResponseRules, " +
+                    "acceptorLatency, logonFields and the SSL settings. Read this before editing a profile: the " +
+                    "list form is a summary and does not carry enough to preserve what you are not changing. " +
+                    "Passwords read back as [REDACTED]; post that value again (or omit the key) to leave them alone.",
+                props("profile" to string("id or name; omit to list all")),
+            ),
             tool(
                 "fixtool_save_profile",
-                "Create (or update, if id is given) a FIX connection profile so it can be connected. config " +
-                    "only needs fields that differ from defaults: host, port, senderCompID, targetCompID, " +
+                "Create (or update, if id is given) a FIX connection profile so it can be connected. " +
+                    "UPDATING MERGES: a config sent with an id sets the keys it carries and leaves every other " +
+                    "key as it was, so adding one setting cannot wipe the rest — pass replace:true for the old " +
+                    "whole-config-replacement behaviour. An explicitly sent value always wins, so " +
+                    "\"acceptorResponseRules\": [] does clear the rules. " +
+                    "config only needs fields that differ from defaults: host, port, senderCompID, targetCompID, " +
                     "beginString, connectionType (INITIATOR|ACCEPTOR), heartBtInt, resetOnLogon, useSSL, " +
-                    "socketAcceptPort (acceptor), sessionCount, logonFields, and acceptorResponseRules " +
+                    "socketAcceptPort (acceptor), sessionCount, logonFields, acceptorResponseRules " +
                     "([{whenMsgType, conditions?, enabled?, steps:[{template, delayMillis}]}]) for auto-responding " +
-                    "as an acceptor — see fixtool_acceptor_rules for the full shape.",
-                props("name" to string("display name"), "config" to objectSchema("FixConnectionConfig fields (partial)"), "id" to string("existing id to update")),
+                    "as an acceptor — see fixtool_acceptor_rules for the full shape, and fixtool_acceptor_rule to " +
+                    "edit one rule at a time — and acceptorLatency to give those replies a realistic delay " +
+                    "({mode:NONE|FIXED|RANDOM_RANGE|NORMAL, fixedMillis, minMillis, maxMillis, meanMillis, " +
+                    "stdDevMillis, spikeProbability, spikeMinMillis, spikeMaxMillis}). " +
+                    "Returns the keys it applied, whether it merged or replaced, and warnings for any acceptor " +
+                    "rule or latency setting that cannot work.",
+                props(
+                    "name" to string("display name"),
+                    "config" to objectSchema("FixConnectionConfig fields (partial; merged into the existing config when id is given)"),
+                    "id" to string("existing id to update"),
+                    "replace" to boolean("true = replace the whole config instead of merging (default false)"),
+                ),
                 required = listOf("name", "config"),
             ),
             tool(
@@ -441,10 +463,53 @@ object McpTools {
                     "is fixed when the trigger arrives, \${uuid} and \${now} are resolved per step as it is sent. " +
                     "A req reference inside a larger expression is computed: 14=\${req.38 / 2} is half the order " +
                     "quantity, scoped to the message that triggered this rule. " +
-                    "The response reports each rule's played `sequence` with the offset each step goes out at, and a " +
-                    "`validationError` on any rule that cannot reply.",
+                    "The response reports each rule's `index` (its identity for fixtool_acceptor_rule, and its " +
+                    "priority under first-match-wins), its played `sequence` with the offset each step goes out at, " +
+                    "a `validationError` on any rule that cannot reply, and the profile's `latency` — the simulated " +
+                    "venue delay applied to every reply, with the millisecond range it adds.",
                 props("profile" to string("profile id or name")),
                 required = listOf("profile"),
+            ),
+            tool(
+                "fixtool_acceptor_rule",
+                "Add, replace, toggle or delete ONE acceptor auto-response rule, leaving the rest of the profile " +
+                    "untouched. Use this rather than fixtool_save_profile when changing rules: the rule list is a " +
+                    "single config key, so saving it through the profile still means re-sending every other rule. " +
+                    "`rule` with no `index` appends; `rule` with an `index` replaces that position; `index` plus " +
+                    "`enabled` toggles the rule already there (disabled rules are kept and skipped, so the message " +
+                    "falls through to the next rule — the fastest way to ask 'what happens without this one'); " +
+                    "`index` plus delete:true removes it. Rules are ordered and first-match-wins, so the index is " +
+                    "both the rule's identity and its priority; deleting one shifts everything after it up. " +
+                    "A rule is {whenMsgType, conditions?, whenFields?, enabled?, steps:[{template, delayMillis}]} — " +
+                    "see fixtool_acceptor_rules for the full vocabulary. Test it with fixtool_acceptor_test before " +
+                    "connecting anything.",
+                props(
+                    "profile" to string("profile id or name"),
+                    "rule" to objectSchema("the rule to add or replace; omit to toggle or delete"),
+                    "index" to integer("which rule; omit with 'rule' to append"),
+                    "enabled" to boolean("toggle a rule on/off, or set the state of a rule being written"),
+                    "delete" to boolean("true = remove the rule at 'index'"),
+                ),
+                required = listOf("profile"),
+            ),
+            tool(
+                "fixtool_acceptor_test",
+                "Dry-run a message against a profile's acceptor rules WITHOUT connecting, sending, or changing " +
+                    "anything — the fast way to author a rule. Give it a profile and a raw FIX message (pipe- or " +
+                    "SOH-delimited, e.g. \"35=D|11=ORD-1|55=EUR/USD|38=100000|54=1\") and it reports, for EVERY " +
+                    "rule: whether its trigger matched, each condition's verdict with the value it actually read " +
+                    "off the message (`absent:true` when the tag is not there at all — the commonest cause of a " +
+                    "rule that never fires), whether the rule was skipped because it is disabled or unusable, and " +
+                    "`shadowedBy` when it matched but an earlier rule won. For the winning rule it renders the " +
+                    "whole reply it would play: each step's exact FIX text with \${req.<tag>} already substituted, " +
+                    "and the offset it goes out at. Also reports `inactive` if the profile is not an ACCEPTOR, in " +
+                    "which case none of the rules would ever run. Offsets exclude the simulated latency, which is " +
+                    "drawn per trigger and reported separately.",
+                props(
+                    "profile" to string("profile id or name"),
+                    "raw" to string("the incoming FIX message to test the rules against"),
+                ),
+                required = listOf("profile", "raw"),
             ),
             tool(
                 "fixtool_screenshot",

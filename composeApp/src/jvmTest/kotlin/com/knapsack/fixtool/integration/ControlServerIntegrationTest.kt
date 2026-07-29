@@ -436,7 +436,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(40, tools.size)
+        assertEquals(42, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_reconcile" },
             "the diff is reachable without a hand on the mouse, or an agent can never open the surface that repairs",
@@ -622,6 +622,303 @@ class ControlServerIntegrationTest {
         } finally {
             fixServer.stop()
         }
+    }
+
+    // ------------------------------------------------- authoring a profile without losing it
+
+    /**
+     * **The regression this suite most needed and did not have.**
+     *
+     * A `/profiles` POST used to replace the config wholesale. Nothing could read a profile's SSL
+     * settings, logon fields or existing rules — the list gave eight fields — so the only way to add
+     * a rule was to post a config carrying that rule and nothing else, which silently deleted
+     * everything the caller could not see and then answered `{"status":"updated"}`.
+     */
+    @Test
+    fun `updating a profile keeps the settings the caller did not mention`() {
+        val created =
+            post(
+                "/profiles",
+                """{"name":"Venue","config":{"connectionType":"ACCEPTOR","senderCompID":"ME","targetCompID":"THEM",
+                   "socketAcceptPort":"9100","useSSL":true,"keyStorePath":"/certs/venue.jks","heartBtInt":"45",
+                   "logonFields":{"553":"user"}}}""",
+            )
+        val id = obj(created)["id"]!!.jsonPrimitive.content
+
+        // The edit an agent actually makes: one key, nothing else known.
+        val updated =
+            post(
+                "/profiles",
+                """{"id":"$id","name":"Venue","config":{"acceptorResponseRules":[
+                   {"whenMsgType":"D","steps":[{"template":"35=8|39=0|11=${'$'}{req.11}|"}]}]}}""",
+            )
+        assertEquals("updated", status(updated))
+        assertEquals("merge", obj(updated)["mode"]!!.jsonPrimitive.content)
+
+        val config = obj(get("/profiles?profile=$id"))["config"]!!.jsonObject
+        assertTrue(config["useSSL"]!!.jsonPrimitive.boolean, "SSL must survive an edit that never mentioned it")
+        assertEquals("/certs/venue.jks", config["keyStorePath"]!!.jsonPrimitive.content)
+        assertEquals("45", config["heartBtInt"]!!.jsonPrimitive.content)
+        assertEquals("9100", config["socketAcceptPort"]!!.jsonPrimitive.content)
+        assertEquals("user", config["logonFields"]!!.jsonObject["553"]!!.jsonPrimitive.content)
+        assertEquals(1, config["acceptorResponseRules"]!!.jsonArray.size, "and the edit itself must have landed")
+    }
+
+    @Test
+    fun `an explicitly empty value still clears, and replace still replaces`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Venue","config":{"connectionType":"ACCEPTOR","heartBtInt":"45","acceptorResponseRules":[
+                       {"whenMsgType":"D","steps":[{"template":"35=8|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        // Present in the JSON, therefore applied: merging must not make clearing inexpressible.
+        post("/profiles", """{"id":"$id","name":"Venue","config":{"acceptorResponseRules":[]}}""")
+        assertEquals(0, obj(get("/profiles?profile=$id"))["config"]!!.jsonObject["acceptorResponseRules"]!!.jsonArray.size)
+
+        val replaced = post("/profiles", """{"id":"$id","name":"Venue","config":{"connectionType":"ACCEPTOR"},"replace":true}""")
+        assertEquals("replace", obj(replaced)["mode"]!!.jsonPrimitive.content)
+        assertEquals(
+            "30",
+            obj(get("/profiles?profile=$id"))["config"]!!.jsonObject["heartBtInt"]!!.jsonPrimitive.content,
+            "replace:true must still mean 'the profile is exactly what I sent' — heartBtInt back to its default",
+        )
+    }
+
+    /**
+     * A read that hands out passwords puts them in the caller's transcript for good; a read that
+     * omits them cannot be posted back. The sentinel is both: shown by the read, ignored by the write.
+     */
+    @Test
+    fun `secrets are redacted on read and unharmed by a round trip`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Venue","config":{"keyStorePassword":"hunter2","password":"s3cret","heartBtInt":"45"}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val detail = obj(get("/profiles?profile=$id"))
+        val config = detail["config"]!!.jsonObject
+        assertEquals("[REDACTED]", config["keyStorePassword"]!!.jsonPrimitive.content)
+        assertEquals("[REDACTED]", config["password"]!!.jsonPrimitive.content)
+        assertTrue(detail["redacted"]!!.jsonArray.map { it.jsonPrimitive.content }.contains("keyStorePassword"))
+
+        // Post the whole config back, marker and all — the naive read-modify-write.
+        post("/profiles", """{"id":"$id","name":"Venue","config":$config}""")
+        assertEquals(
+            "hunter2",
+            viewModel.connectionProfiles.first { it.id == id }.config.keyStorePassword,
+            "a round trip must leave the password alone, never set it to the literal marker",
+        )
+    }
+
+    @Test
+    fun `saving a rule that cannot fire says so instead of reporting plain success`() {
+        val saved =
+            post(
+                "/profiles",
+                """{"name":"Venue","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                   {"whenMsgType":"D"}]}}""",
+            )
+        assertEquals("created", status(saved))
+        val warnings = obj(saved)["warnings"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(warnings.any { it.contains("nothing to reply with") }, "got: $warnings")
+    }
+
+    // ------------------------------------------------------- editing one rule at a time
+
+    @Test
+    fun `a rule can be appended, replaced, toggled and deleted without touching the profile`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Venue","config":{"connectionType":"ACCEPTOR","useSSL":true}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val appended =
+            post("/acceptor/rules", """{"profile":"$id","rule":{"whenMsgType":"D","steps":[{"template":"35=8|39=0|"}]}}""")
+        assertEquals("appended", status(appended))
+        assertEquals(0, obj(appended)["index"]!!.jsonPrimitive.int)
+
+        assertEquals(
+            "appended",
+            status(post("/acceptor/rules", """{"profile":"$id","rule":{"whenMsgType":"F","steps":[{"template":"35=9|"}]}}""")),
+        )
+
+        val replaced =
+            post("/acceptor/rules", """{"profile":"$id","index":0,"rule":{"whenMsgType":"D","steps":[{"template":"35=8|39=2|"}]}}""")
+        assertEquals("replaced", status(replaced))
+
+        val disabled = post("/acceptor/rules", """{"profile":"$id","index":1,"enabled":false}""")
+        assertEquals("disabled", status(disabled))
+
+        val rules = obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray
+        assertEquals(2, rules.size)
+        assertEquals(0, rules[0].jsonObject["index"]!!.jsonPrimitive.int, "the index is the rule's identity, so it must be reported")
+        assertEquals("35=8|39=2|", rules[0].jsonObject["sequence"]!!.jsonArray[0].jsonObject["template"]!!.jsonPrimitive.content)
+        assertFalse(rules[1].jsonObject["enabled"]!!.jsonPrimitive.boolean)
+
+        val deleted = delete("/acceptor/rules", """{"profile":"$id","index":0}""")
+        assertEquals("deleted", status(deleted))
+        assertEquals(1, obj(deleted)["ruleCount"]!!.jsonPrimitive.int)
+
+        assertTrue(
+            viewModel.connectionProfiles.first { it.id == id }.config.useSSL,
+            "editing a rule must not disturb the rest of the profile",
+        )
+    }
+
+    @Test
+    fun `an out of range rule index is refused rather than silently appending`() {
+        val id = obj(post("/profiles", """{"name":"Venue","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content
+
+        val resp = post("/acceptor/rules", """{"profile":"$id","index":3,"rule":{"whenMsgType":"D","steps":[{"template":"35=8|"}]}}""")
+        assertEquals("error", status(resp))
+        assertEquals(0, viewModel.connectionProfiles.first { it.id == id }.config.acceptorResponseRules.size)
+    }
+
+    // ------------------------------------------------------------- the dry run
+
+    /**
+     * The whole point of `/acceptor/test`: every way a rule can fail to fire looks identical from
+     * outside (nothing comes back), and each one has a different fix. So each is asserted to be
+     * *distinguishable*, not merely detected.
+     */
+    @Test
+    fun `the dry run says which rule wins and why the others did not`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Venue","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                       {"whenMsgType":"F","steps":[{"template":"35=9|"}]},
+                       {"whenMsgType":"D","enabled":false,"steps":[{"template":"35=8|39=8|"}]},
+                       {"whenMsgType":"D","conditions":[{"tag":44,"matcher":{"type":"exact","value":"1.25"}}],
+                        "steps":[{"template":"35=8|39=1|"}]},
+                       {"whenMsgType":"D","conditions":[{"tag":38,"matcher":{"type":"range","min":500}}],
+                        "steps":[{"template":"35=8|39=0|11=${'$'}{req.11}|38=${'$'}{req.38}|"}]},
+                       {"whenMsgType":"D","steps":[{"template":"35=8|39=4|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val resp = post("/acceptor/test", """{"profile":"$id","raw":"35=D|11=ORD-1|55=EUR/USD|54=1|38=1000|"}""")
+        val body = obj(resp)
+        assertTrue(body["matched"]!!.jsonPrimitive.boolean)
+        val rules = body["rules"]!!.jsonArray
+
+        // 0: wrong MsgType — named, so a typo'd trigger is not mistaken for a failed condition.
+        assertFalse(rules[0].jsonObject["matched"]!!.jsonPrimitive.boolean)
+        assertTrue(rules[0].jsonObject["mismatch"]!!.jsonPrimitive.content.contains("MsgType is D"))
+
+        // 1: switched off — kept and skipped, so the message falls through rather than stopping here.
+        assertTrue(rules[1].jsonObject["skipped"]!!.jsonPrimitive.content.contains("disabled"))
+
+        // 2: a condition on a tag the message does not carry — the commonest silent failure.
+        val absent = rules[2].jsonObject["conditions"]!!.jsonArray.single().jsonObject
+        assertEquals(44, absent["tag"]!!.jsonPrimitive.int)
+        assertTrue(absent["absent"]!!.jsonPrimitive.boolean, "tag 44 is missing, which is not the same as blank")
+        assertFalse(absent["satisfied"]!!.jsonPrimitive.boolean)
+
+        // 3: the winner, with the value its condition read.
+        assertTrue(rules[3].jsonObject["selected"]!!.jsonPrimitive.boolean)
+        assertEquals("1000", rules[3].jsonObject["conditions"]!!.jsonArray.single().jsonObject["actual"]!!.jsonPrimitive.content)
+
+        // 4: would have matched, but a rule above it won first.
+        assertTrue(rules[4].jsonObject["matched"]!!.jsonPrimitive.boolean)
+        assertFalse(rules[4].jsonObject["selected"]!!.jsonPrimitive.boolean)
+        assertEquals(3, rules[4].jsonObject["shadowedBy"]!!.jsonPrimitive.int)
+
+        // The reply, rendered as the wire would carry it.
+        val response = body["response"]!!.jsonArray
+        assertEquals(1, response.size)
+        val rendered = response[0].jsonObject["message"]!!.jsonPrimitive.content
+        assertTrue(rendered.contains("11=ORD-1"), "\${req.11} must be substituted from the tested message: $rendered")
+        assertTrue(rendered.contains("38=1000"), "got: $rendered")
+    }
+
+    @Test
+    fun `the dry run reports a sequence's offsets and changes nothing`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Venue","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                       {"whenMsgType":"D","steps":[
+                          {"template":"35=8|150=0|39=0|"},
+                          {"template":"35=8|150=F|39=1|","delayMillis":400},
+                          {"template":"35=8|150=F|39=2|","delayMillis":400}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val response = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=D|11=ORD-1|"}"""))["response"]!!.jsonArray
+        assertEquals(
+            listOf(0, 400, 800),
+            response.map { it.jsonObject["offsetMillis"]!!.jsonPrimitive.int },
+            "a step's delay is measured from the step before it; the caller must not have to accumulate",
+        )
+        assertEquals(0, viewModel.sessions.size, "a dry run must not connect anything")
+    }
+
+    @Test
+    fun `the dry run says when the profile is not an acceptor at all`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Client","config":{"connectionType":"INITIATOR","acceptorResponseRules":[
+                       {"whenMsgType":"D","steps":[{"template":"35=8|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val body = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=D|11=ORD-1|"}"""))
+        assertTrue(body["matched"]!!.jsonPrimitive.boolean, "the rule itself does match")
+        assertTrue(
+            body["inactive"]!!.jsonPrimitive.content.contains("ACCEPTOR"),
+            "but it would never run, and that is invisible from the rule",
+        )
+        assertTrue(obj(get("/acceptor/rules?profile=$id"))["inactive"] != null)
+    }
+
+    // ------------------------------------------------------------- simulated latency
+
+    @Test
+    fun `latency is reported beside the rules it delays`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Venue","config":{"connectionType":"ACCEPTOR","acceptorLatency":{
+                       "mode":"RANDOM_RANGE","minMillis":20,"maxMillis":80,"spikeProbability":0.05,
+                       "spikeMinMillis":2000,"spikeMaxMillis":5000}}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val latency = obj(get("/acceptor/rules?profile=$id"))["latency"]!!.jsonObject
+        assertTrue(latency["active"]!!.jsonPrimitive.boolean)
+        assertEquals("RANDOM_RANGE", latency["mode"]!!.jsonPrimitive.content)
+        assertEquals(20, latency["addedMillis"]!!.jsonObject["min"]!!.jsonPrimitive.int)
+        // A spike replaces the ordinary sample rather than adding to it, so it widens the range.
+        assertEquals(5000, latency["addedMillis"]!!.jsonObject["max"]!!.jsonPrimitive.int)
+        assertTrue(latency["spike"]!!.jsonPrimitive.content.contains("5%"))
+    }
+
+    @Test
+    fun `a latency setting that would do nothing is reported as such`() {
+        val saved =
+            post(
+                "/profiles",
+                """{"name":"Venue","config":{"connectionType":"ACCEPTOR","acceptorLatency":{
+                   "mode":"RANDOM_RANGE","minMillis":500,"maxMillis":100}}}""",
+            )
+        val warnings = obj(saved)["warnings"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(warnings.any { it.contains("acceptorLatency") }, "got: $warnings")
     }
 
     // ----------------------------------------------------------- acceptor rules

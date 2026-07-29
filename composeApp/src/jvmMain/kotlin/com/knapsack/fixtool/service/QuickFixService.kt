@@ -409,7 +409,7 @@ class QuickFixService(
                 logger.info("Acceptor applying {}ms simulated latency to {} response", latencyMillis, rule.whenMsgType)
             }
             AcceptorResponder.plan(rule, incoming, request, dictionary).forEach { planned ->
-                autoResponseDispatch.schedule(sessionId, planned.offsetMillis + latencyMillis, planned.build)
+                autoResponseDispatch.schedule(sessionId, planned.offsetMillis + latencyMillis, planned::build)
             }
         } catch (e: Exception) {
             logger.error("Acceptor auto-response failed to plan: ${e.message}", e)

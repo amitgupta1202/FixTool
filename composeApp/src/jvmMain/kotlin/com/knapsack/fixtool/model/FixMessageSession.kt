@@ -479,6 +479,20 @@ class FixMessageSession(
     /** Drops this session's queued acceptor auto-responses; returns how many were still waiting. */
     fun stopPendingResponses(): Int = quickFixService?.stopPendingResponses() ?: 0
 
+    /**
+     * Applies a ruleset saved since this session connected. Returns how many rules are live, or null
+     * if there is no live session to apply them to.
+     *
+     * [currentConfig] is moved with them, so the config this session reports is the one it is actually
+     * running — a session answering with rules it is no longer using is the same lie in a second place.
+     */
+    fun reloadAcceptorRules(rules: List<AcceptorResponseRule>, latency: AcceptorLatencyConfig): Int? {
+        val live = quickFixService?.reloadAcceptorRules(rules, latency) ?: return null
+        _connectionConfig.value =
+            _connectionConfig.value?.copy(acceptorResponseRules = rules, acceptorLatency = latency)
+        return live
+    }
+
     fun sendResendRequest(beginSeqNo: Int, endSeqNo: Int): Boolean =
         quickFixService?.sendResendRequest(beginSeqNo, endSeqNo) ?: false
 

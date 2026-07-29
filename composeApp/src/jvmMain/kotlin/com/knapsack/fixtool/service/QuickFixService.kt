@@ -1,5 +1,7 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.AcceptorLatencyConfig
+import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixConnectionState.*
@@ -51,16 +53,46 @@ class QuickFixService(
     private var currentSessionID: SessionID? = null
 
     /**
-     * The rules' triggers, parsed once. [config] does not change for the life of a service, so neither
-     * can these — and re-parsing per inbound message would put JSON on the path of every message a
-     * loaded acceptor receives. A rule that cannot be compiled is left out and said so here, once,
-     * rather than failing quietly on each message that would have matched it.
+     * The rules' triggers, parsed **once per ruleset** rather than per inbound message — re-parsing
+     * per message would put JSON on the path of every message a loaded acceptor receives, to reach an
+     * answer that has not changed. A rule that cannot be compiled is left out and said so once, when
+     * it is compiled, rather than failing quietly on each message that would have matched it.
+     *
+     * Swappable, via [reloadAcceptorRules], because the ruleset *can* change while a session is up:
+     * these used to be compiled once for the life of the service, so editing a rule under a logged-on
+     * session changed the file and nothing else. The author then watched the old rule keep firing with
+     * no indication anywhere that they were driving a stale ruleset — which reads exactly like a rule
+     * that does not work, and sends them off to rewrite a rule that was already correct.
+     *
+     * The reference is swapped, never mutated, and each compiled list is immutable, so a reader on the
+     * callback thread sees one whole ruleset or the other and never a half-applied edit. Replies
+     * already queued keep the templates they were planned with; the swap governs the next trigger.
      */
-    private val compiledRules by lazy {
-        config.acceptorResponseRules
+    @Volatile
+    private var compiledRules: List<CompiledRule> = compileAcceptorRules(config.acceptorResponseRules)
+
+    /** The latency in force, swapped alongside the rules — it is edited on the same panel and the same save. */
+    @Volatile
+    private var acceptorLatency: AcceptorLatencyConfig = config.acceptorLatency
+
+    private fun compileAcceptorRules(rules: List<AcceptorResponseRule>): List<CompiledRule> {
+        rules
             .filter { it.validationError() != null }
             .forEach { logger.warn("Acceptor rule on {}: {}", it.whenMsgType, it.validationError()) }
-        AcceptorResponder.compile(config.acceptorResponseRules)
+        return AcceptorResponder.compile(rules)
+    }
+
+    /**
+     * Swaps in a ruleset saved since this session connected, without dropping the session.
+     *
+     * Returns how many rules are now live — which is not necessarily how many were passed, since a
+     * disabled or unusable one is compiled away. That difference is the whole answer to "I saved it,
+     * why does nothing happen", so it is what the caller gets rather than a bare success.
+     */
+    fun reloadAcceptorRules(rules: List<AcceptorResponseRule>, latency: AcceptorLatencyConfig): Int {
+        compiledRules = compileAcceptorRules(rules)
+        acceptorLatency = latency
+        return compiledRules.size
     }
 
     /**
@@ -404,7 +436,10 @@ class QuickFixService(
             // reply slides by the one number and its authored order cannot invert. Skipped entirely
             // for an inert config, so a rule-less-latency acceptor puts no RNG on the callback thread
             // and behaves exactly as it did before this existed. See [AcceptorLatencyConfig].
-            val latencyMillis = if (config.acceptorLatency.isActive()) config.acceptorLatency.sample(latencyRandom) else 0L
+            // Read once into a local: the field is swappable, and a sequence must be shifted by one
+            // sample even if a save lands between the check and the draw.
+            val latency = acceptorLatency
+            val latencyMillis = if (latency.isActive()) latency.sample(latencyRandom) else 0L
             if (latencyMillis > 0L) {
                 logger.info("Acceptor applying {}ms simulated latency to {} response", latencyMillis, rule.whenMsgType)
             }

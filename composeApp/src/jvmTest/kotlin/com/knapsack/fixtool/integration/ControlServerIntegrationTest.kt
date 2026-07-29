@@ -1103,6 +1103,106 @@ class ControlServerIntegrationTest {
     }
 
     /**
+     * **Saving a rule changes what the acceptor does, without dropping the session.**
+     *
+     * Rules were compiled once, when the session connected, and nothing re-read them: editing one
+     * under a logged-on acceptor wrote the file and changed nothing on the wire. Nothing said so
+     * either, so the author watched the *old* rule keep firing — indistinguishable from a new rule
+     * that does not work — and the natural response is to go and rewrite a rule that was already
+     * correct. The reconnect that would have picked it up is exactly what someone mid-test does not
+     * want to do.
+     *
+     * Asserted over a real socket, because that is the only place the distinction exists: the saved
+     * profile was always right, and a test reading it back would have passed throughout the bug.
+     */
+    @Test
+    fun `a rule edited under a live session takes effect without reconnecting`() {
+        val port = freePort()
+        val acceptor =
+            FixConnectionProfile(
+                name = "ACC",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "ACC$runId",
+                        targetCompID = "CLI$runId",
+                        port = port.toString(),
+                        socketAcceptPort = port.toString(),
+                        beginString = "FIX.4.4",
+                        fileStorePath = File(testDir, "accstore").absolutePath,
+                        fileLogPath = File(testDir, "acclog").absolutePath,
+                        acceptorResponseRules =
+                            listOf(
+                                AcceptorResponseRule(
+                                    whenMsgType = "D",
+                                    steps = listOf(ResponseStep(template = "35=8|150=0|39=0|11=\${req.11}|58=first|")),
+                                ),
+                            ),
+                    ),
+            )
+        val client =
+            FixConnectionProfile(
+                name = "CLI",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                        senderCompID = "CLI$runId",
+                        targetCompID = "ACC$runId",
+                        host = "localhost",
+                        port = port.toString(),
+                        socketConnectHost = "localhost",
+                        beginString = "FIX.4.4",
+                        autoReconnect = false,
+                        resetOnLogon = true,
+                        fileStorePath = File(testDir, "clistore").absolutePath,
+                        fileLogPath = File(testDir, "clilog").absolutePath,
+                    ),
+            )
+        listOf(acceptor, client).forEach {
+            viewModel.saveConnectionProfile(it)
+            viewModel.connectProfile(it.id, it)
+        }
+        assertTrue(
+            awaitCondition(15_000) {
+                viewModel.sessions.any { it.title == "CLI" && it.connectionState.value == FixConnectionState.LOGGED_ON }
+            },
+            "client should log on to the FixTool acceptor",
+        )
+
+        post("/send", """{"session":"CLI","raw":"35=D|11=ORD-A|55=EUR/USD|54=1|38=100|40=1|"}""")
+        val before =
+            post("/wait", """{"session":"CLI","match":{"messageType":"8","direction":"in"},"timeoutMs":8000}""")
+        assertEquals("matched", status(before))
+        assertTrue(
+            obj(before)["message"]!!.jsonObject["raw"]!!.jsonPrimitive.content.contains("58=first"),
+            "the original rule should be what fires first",
+        )
+
+        // The edit, mid-session. No disconnect, no reconnect.
+        val edited =
+            post(
+                "/acceptor/rules",
+                """{"profile":"${acceptor.id}","index":0,"rule":{"whenMsgType":"D",
+                   "steps":[{"template":"35=8|150=0|39=0|11=${'$'}{req.11}|58=second|"}]}}""",
+            )
+        assertEquals("replaced", status(edited))
+        assertEquals(
+            1,
+            obj(edited)["appliedToLiveSessions"]!!.jsonPrimitive.int,
+            "the caller must be told the edit reached the running session, not just the file",
+        )
+
+        post("/messages/clear", """{"session":"CLI"}""")
+        post("/send", """{"session":"CLI","raw":"35=D|11=ORD-B|55=EUR/USD|54=1|38=100|40=1|"}""")
+        val after =
+            post("/wait", """{"session":"CLI","match":{"messageType":"8","direction":"in"},"timeoutMs":8000}""")
+        assertEquals("matched", status(after))
+        val raw = obj(after)["message"]!!.jsonObject["raw"]!!.jsonPrimitive.content
+        assertTrue(raw.contains("58=second"), "the saved rule must be the one that fires; got $raw")
+        assertTrue(raw.contains("11=ORD-B"), "and it must still be answering the new order; got $raw")
+    }
+
+    /**
      * **W2, without a hand on the mouse.** The paste box is click-only, so the control surface grew a door to
      * it (as it grew one to reconcile in Phase 4) — and this drives it: a fake-venue log fragment, pasted, read
      * by the same reader the sheet uses, becomes a saved, badged, runnable scenario.

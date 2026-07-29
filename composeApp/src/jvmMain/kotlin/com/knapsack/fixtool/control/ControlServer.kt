@@ -351,11 +351,26 @@ class ControlServer(
                 // caller did not mention, which is the part a caller cannot see in its own request.
                 put("mode", if (replace || existing == null) "replace" else "merge")
                 put("applied", buildJsonArray { incoming.keys.sorted().forEach { add(it) } })
+                liveAcceptorSessions(profile)?.let { put("appliedToLiveSessions", it) }
                 acceptorProblems(config).takeIf { it.isNotEmpty() }?.let { problems ->
                     put("warnings", buildJsonArray { problems.forEach { add(it) } })
                 }
             }
         }
+    }
+
+    /**
+     * How many of [profile]'s connected sessions a rule edit just reached, or null when the question
+     * does not arise (not an acceptor, or nothing connected).
+     *
+     * Reported because a save that changes the file and a save that changes the wire used to look
+     * identical from here, and for a live acceptor they were different things. Saving now applies to
+     * live sessions — see `FixMessageViewModel.pushAcceptorRulesToLiveSessions` — and this is how the
+     * caller sees that it happened rather than having to trust it.
+     */
+    private fun liveAcceptorSessions(profile: FixConnectionProfile): Int? {
+        if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return null
+        return viewModel.liveAcceptorSessionCount(profile).takeIf { it > 0 }
     }
 
     /**
@@ -1821,6 +1836,7 @@ class ControlServer(
                 put("profile", profile.name)
                 put("index", position)
                 put("ruleCount", rules.size)
+                liveAcceptorSessions(updated)?.let { put("appliedToLiveSessions", it) }
                 rules[position].validationError()?.let { put("validationError", it) }
             }
         }

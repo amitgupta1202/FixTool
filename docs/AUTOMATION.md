@@ -348,10 +348,22 @@ the message falls through to the rule after it — which is what an author toggl
 see. Replies already queued on a session are dropped with
 `POST /admin {"action":"stop-responses"}`, which reports how many it dropped. Rules are set via the normal `/profiles` upsert and inspected via `GET /acceptor/rules`.
 
-**Rules are compiled once, when the session connects.** A `/profiles` upsert that changes them does not
-reach a session already logged on — `/disconnect` then `/connect` after editing, or you will be driving
-the old ruleset. (Re-parsing per inbound message would put JSON on the path of every message a loaded
-acceptor receives, to reach an answer that cannot have changed.)
+**Saving applies to live sessions.** Editing a rule on a profile whose acceptor is already logged on
+takes effect on the next trigger — no disconnect, no reconnect. Both write paths (the Auto-Responses
+panel and the control surface) go through the same save, so both do this; the response reports
+`appliedToLiveSessions` when a save reached a running session, so you can tell the file changing from
+the wire changing.
+
+Rules are still compiled once **per ruleset**, not per message — re-parsing on every inbound message
+would put JSON on the path of every message a loaded acceptor receives, to reach an answer that has
+not changed. Saving recompiles and swaps the whole ruleset atomically, so a trigger sees one ruleset or
+the other and never a half-applied edit. Replies already queued keep the templates they were planned
+with; the swap governs the next trigger. Only rules and latency travel this way — CompIDs, ports and
+SSL are session *identity*, and changing those still needs a reconnect.
+
+(Before this, rules were compiled once when the session connected and nothing re-read them, so an edit
+under a logged-on acceptor changed the file and nothing else — and nothing said so, which reads exactly
+like a rule that does not work.)
 
 A trigger is `whenMsgType` plus `conditions: [{tag, matcher}]`, all **ANDed**. The `matcher` is the
 same JSON the scenario assertions use (see `docs/scenario-assertion-model.md`), so `38 > 10000` is
@@ -472,9 +484,9 @@ profile is not an `ACCEPTOR`, in which case none of the rules would ever run.
 
 The evaluation is the same code the wire uses (`AcceptorResponder.explain` shares its per-condition
 judgement with `firstMatch`, and the reply comes from `plan`), so a dry run cannot pass where the
-live session would do nothing. It reads the profile **as saved**, which is also the one way the two
-can disagree: rules compile when a session connects, so a rule edited under a logged-on session is
-tested here but not yet live there — `/disconnect` then `/connect` to pick it up.
+live session would do nothing. It reads the profile **as saved** — which is also what a connected
+acceptor is running, since saving now applies to live sessions, so testing here and connecting there
+cannot disagree about the ruleset.
 
 #### Simulated latency
 

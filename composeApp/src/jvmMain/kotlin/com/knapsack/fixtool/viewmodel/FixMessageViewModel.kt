@@ -3525,12 +3525,47 @@ class FixMessageViewModel(
             .saveProfile(profile)
             .onSuccess {
                 loadConnectionProfiles()
+                pushAcceptorRulesToLiveSessions(profile)
                 persisted = true
             }.onFailure { error ->
                 logger.error("Failed to save connection profile: ${error.message}", error)
             }
         return persisted
     }
+
+    /**
+     * Applies a just-saved profile's acceptor rules and latency to that profile's **already connected**
+     * sessions, so saving is enough to change what the acceptor does.
+     *
+     * Rules were compiled once, when a session connected, and nothing re-read them — so editing one
+     * under a logged-on session wrote the file and changed nothing on the wire, with no indication
+     * anywhere that the running session and the saved profile had diverged. The author watches the old
+     * rule keep firing, which is indistinguishable from a new rule that does not work, and goes off to
+     * rewrite something that was already right. It is fixed here, on the one write path both the
+     * Auto-Responses panel and the control surface go through, rather than in either of them.
+     *
+     * Only rules and latency travel. Everything else on a profile — CompIDs, ports, SSL — is *session
+     * identity*, and changing that under a live session would mean reconnecting it, which is a thing
+     * to be asked for rather than done as a side effect of pressing Save.
+     */
+    private fun pushAcceptorRulesToLiveSessions(profile: FixConnectionProfile) {
+        if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
+        getProfileSessions(profile.id).forEach { session ->
+            val live =
+                session.reloadAcceptorRules(profile.config.acceptorResponseRules, profile.config.acceptorLatency)
+                    ?: return@forEach
+            logger.info("Reloaded {} acceptor rule(s) on live session '{}'", live, session.title)
+        }
+    }
+
+    /**
+     * How many of [profile]'s sessions are live enough to have taken a rule edit — what the control
+     * surface reports back so a caller knows whether a save reached the wire or only the file.
+     */
+    fun liveAcceptorSessionCount(profile: FixConnectionProfile): Int =
+        getProfileSessions(profile.id).count {
+            it.currentConfig != null && it.connectionState.value != FixConnectionState.DISCONNECTED
+        }
 
     fun deleteConnectionProfile(profileId: String) {
         // Don't delete demo profiles - they're managed by the demo server

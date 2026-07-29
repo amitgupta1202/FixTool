@@ -53,8 +53,10 @@ object McpTools {
                     "edit one rule at a time — and acceptorLatency to give those replies a realistic delay " +
                     "({mode:NONE|FIXED|RANDOM_RANGE|NORMAL, fixedMillis, minMillis, maxMillis, meanMillis, " +
                     "stdDevMillis, spikeProbability, spikeMinMillis, spikeMaxMillis}). " +
-                    "Returns the keys it applied, whether it merged or replaced, and warnings for any acceptor " +
-                    "rule or latency setting that cannot work.",
+                    "Returns the keys it applied, whether it merged or replaced, warnings for any acceptor rule " +
+                    "or latency setting that cannot work, and appliedToLiveSessions when the save also took " +
+                    "effect on an already-connected acceptor (rule and latency edits apply without reconnecting; " +
+                    "CompID/port/SSL changes still need one).",
                 props(
                     "name" to string("display name"),
                     "config" to objectSchema("FixConnectionConfig fields (partial; merged into the existing config when id is given)"),
@@ -482,7 +484,8 @@ object McpTools {
                     "both the rule's identity and its priority; deleting one shifts everything after it up. " +
                     "A rule is {whenMsgType, conditions?, whenFields?, enabled?, steps:[{template, delayMillis}]} — " +
                     "see fixtool_acceptor_rules for the full vocabulary. Test it with fixtool_acceptor_test before " +
-                    "connecting anything.",
+                    "connecting anything. An edit applies to an already-connected acceptor on its next trigger — no " +
+                    "reconnect — and the response says appliedToLiveSessions when it did.",
                 props(
                     "profile" to string("profile id or name"),
                     "rule" to objectSchema("the rule to add or replace; omit to toggle or delete"),
@@ -504,7 +507,8 @@ object McpTools {
                     "whole reply it would play: each step's exact FIX text with \${req.<tag>} already substituted, " +
                     "and the offset it goes out at. Also reports `inactive` if the profile is not an ACCEPTOR, in " +
                     "which case none of the rules would ever run. Offsets exclude the simulated latency, which is " +
-                    "drawn per trigger and reported separately.",
+                    "drawn per trigger and reported separately. It reads the profile as saved, which is also what " +
+                    "a connected acceptor is running, so a dry run and a live session cannot disagree.",
                 props(
                     "profile" to string("profile id or name"),
                     "raw" to string("the incoming FIX message to test the rules against"),

@@ -1,9 +1,14 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -13,6 +18,7 @@ import com.knapsack.fixtool.model.ResponseStep
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -102,6 +108,91 @@ class AcceptorRulesEditorActionsTest {
         assertEquals(1, rules.size)
         assertEquals("F", rules.single().whenMsgType, "the menu must insert the entry that was clicked")
         assertEquals(2, rules.single().sequence().size, "pending cancel, then canceled")
+    }
+
+    /**
+     * Every button in the step row, one at a time. Not a formality: these are 16dp buttons 4dp apart,
+     * and Material3's default 48dp touch target had each one covering its left neighbour — so the row
+     * looked complete and only its rightmost button did anything. Clicking each is the only assertion
+     * that can tell the difference.
+     */
+    /**
+     * Every button in the step row, one at a time. Not a formality: these are 16dp buttons 4dp apart,
+     * and Material3's default 48dp touch target had each one covering its left neighbour — so the row
+     * looked complete and only its rightmost button did anything. Clicking each is the only assertion
+     * that can tell the difference.
+     */
+    @Test
+    fun `every button on a step row acts, not just the last one`() {
+        var latest = listOf(twoStepRule)
+        val opened = mutableListOf<Pair<Int, Int>>()
+        composeTestRule.setContent {
+            // Held as state, so the row the next click lands on is the row the last click produced.
+            var rules by remember { mutableStateOf(listOf(twoStepRule)) }
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(
+                    rules = rules,
+                    onRulesChange = {
+                        rules = it
+                        latest = it
+                    },
+                    onOpenStepInEditor = { r, st -> opened += r to st },
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("step-edit-0-2").performClick()
+        assertEquals(listOf(0 to 1), opened, "the open button")
+
+        composeTestRule.onAllNodesWithContentDescription("Move step earlier")[1].performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(
+            listOf(250L, 0L),
+            latest.single().sequence().map { it.delayMillis },
+            "Move earlier on step 2 — the button its neighbour used to swallow",
+        )
+
+        composeTestRule.onAllNodesWithContentDescription("Move step later")[0].performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(listOf(0L, 250L), latest.single().sequence().map { it.delayMillis }, "Move later puts it back")
+
+        composeTestRule.onAllNodesWithContentDescription("Delete step")[0].performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(1, latest.single().sequence().size, "Delete step")
+    }
+
+    @Test
+    fun `every button on a rule's own row acts`() {
+        val second = AcceptorResponseRule(whenMsgType = "F", steps = listOf(ResponseStep("35=9")))
+        var latest = listOf(twoStepRule, second)
+        composeTestRule.setContent {
+            var rules by remember { mutableStateOf(listOf(twoStepRule, second)) }
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(
+                    rules = rules,
+                    onRulesChange = {
+                        rules = it
+                        latest = it
+                    },
+                )
+            }
+        }
+
+        composeTestRule.onAllNodesWithContentDescription("Enabled")[0].performClick()
+        composeTestRule.waitForIdle()
+        assertFalse(latest.first().enabled, "the enable toggle")
+
+        composeTestRule.onAllNodesWithContentDescription("Move rule later")[0].performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(listOf("F", "D"), latest.map { it.whenMsgType }, "Move later on rule 1")
+
+        composeTestRule.onAllNodesWithContentDescription("Move rule earlier")[1].performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(listOf("D", "F"), latest.map { it.whenMsgType }, "Move earlier on rule 2 puts it back")
+
+        composeTestRule.onAllNodesWithContentDescription("Delete rule")[1].performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(listOf("D"), latest.map { it.whenMsgType }, "Delete rule")
     }
 
     @Test

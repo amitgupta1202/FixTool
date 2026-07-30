@@ -43,6 +43,15 @@ import com.knapsack.fixtool.util.NotifyingLogger
 import java.awt.Cursor
 import java.awt.Toolkit
 
+/** What the editor needs to know to show, and finish, a rule's reply step. */
+data class ReplyStepEditing(
+    val profileName: String,
+    val ruleIndex: Int,
+    val stepIndex: Int,
+    val onApply: () -> Unit,
+    val onCancel: () -> Unit,
+)
+
 data class FixField(
     val tag: String = "",
     val value: String = "",
@@ -299,6 +308,15 @@ fun MessageEditorPanel(
     selectedEditorProfile: com.knapsack.fixtool.model.FixConnectionProfile? = null,
     onEditorProfileChange: ((com.knapsack.fixtool.model.FixConnectionProfile?) -> Unit)? = null,
     onError: ((String) -> Unit)? = null,
+    /**
+     * Set while the editor holds one step of an acceptor rule's reply rather than a message.
+     *
+     * The grid, the enum pickers and the raw preview are the same in both modes — that is the whole
+     * reason a step is edited here rather than in a second grid grown inside the connection panel.
+     * What changes is the terminal action: a template has no session to go to, so Send is replaced by
+     * Apply, which writes the step back to the staged rule.
+     */
+    replyStep: ReplyStepEditing? = null,
     modifier: Modifier = Modifier,
 ) {
     // Create logger with notification support
@@ -402,6 +420,31 @@ fun MessageEditorPanel(
         }
 
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+
+        // What the editor is editing, when it is not a message. Above the session controls rather than
+        // in place of them: which session is selected still means something for the rest of the panel,
+        // and hiding it would make returning to a message feel like a different editor.
+        replyStep?.let { editing ->
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(AppTheme.Colors.surfaceVariant)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "Reply · rule ${editing.ruleIndex + 1}, step ${editing.stepIndex + 1} — ${editing.profileName}",
+                    color = AppTheme.Colors.text,
+                    fontSize = 10.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                SlimButton(text = "Apply", onClick = editing.onApply, color = AppTheme.Colors.primary)
+                SlimButton(text = "Cancel", onClick = editing.onCancel)
+            }
+            HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        }
 
         // Session selector, toolbar buttons, and Send button
         BoxWithConstraints(
@@ -516,8 +559,9 @@ fun MessageEditorPanel(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Button 0: Send
-                if (visibleButtonsCount > 0) {
+                // Button 0: Send. Withheld while a rule's step is loaded — a template has no session
+                // to go to, and the action that finishes it is Apply, in the bar above.
+                if (visibleButtonsCount > 0 && replyStep == null) {
                     // A profile that has never been connected owns no session, so name it rather
                     // than reporting the state of a session that does not exist.
                     val unconnectedProfileName =
@@ -595,7 +639,7 @@ fun MessageEditorPanel(
                 // Button 0b: Send to all logged-on sessions (rendered with Send - they are a pair).
                 // Templates are re-resolved per session, so e.g. ${UUID.randomUUID()} in MDReqID
                 // yields a unique value per session.
-                if (visibleButtonsCount > 0 && onSendToAll != null) {
+                if (visibleButtonsCount > 0 && onSendToAll != null && replyStep == null) {
                     val canSendToAll = loggedOnSessionCount > 0
                     val sendToAllTooltip =
                         if (canSendToAll) {

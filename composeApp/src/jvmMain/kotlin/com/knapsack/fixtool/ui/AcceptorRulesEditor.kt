@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -33,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,6 +74,13 @@ fun AcceptorRulesEditor(
     modifier: Modifier = Modifier,
     /** Names the values a condition's tag can take, so a trigger reads `8 (REJECTED)` and not `8`. */
     dictionary: FixDictionary? = null,
+    /**
+     * Opens one step in the message editor. Null where there is no editor to open it in — the raw
+     * field stays either way, so this adds a way in and takes none away.
+     */
+    onOpenStepInEditor: ((ruleIndex: Int, stepIndex: Int) -> Unit)? = null,
+    /** The step currently being edited elsewhere, so its row can say so. */
+    editingStep: Pair<Int, Int>? = null,
 ) {
     // The connection panel is drag-resizable from a tenth of the window to six tenths of it, so this
     // editor is asked to live at anything from ~250dp to ~1000dp. Sized for the narrow end only, it
@@ -153,6 +162,8 @@ fun AcceptorRulesEditor(
                     wide = wide,
                     shadowedBy = AcceptorResponder.shadowingRule(rules, ruleIndex),
                     note = placement?.takeIf { it.first == ruleIndex }?.second,
+                    onOpenStep = onOpenStepInEditor?.let { open -> { step -> open(ruleIndex, step) } },
+                    editingStep = editingStep?.takeIf { it.first == ruleIndex }?.second,
                     onChange = { updated -> edit(rules.replaced(ruleIndex, updated)) },
                     onDelete = { edit(rules.without(ruleIndex)) },
                     onMove = { by -> edit(rules.moved(ruleIndex, by)) },
@@ -262,6 +273,9 @@ private fun RuleCard(
     shadowedBy: Int?,
     /** Why this rule is where it is, when it did not simply go on the end. Cleared by the next edit. */
     note: String?,
+    onOpenStep: ((Int) -> Unit)?,
+    /** Which of this rule's steps is open in the message editor, if one is. */
+    editingStep: Int?,
     onChange: (AcceptorResponseRule) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
@@ -364,10 +378,13 @@ private fun RuleCard(
             StepRow(
                 step = step,
                 number = stepIndex + 1,
+                ruleNumber = position,
                 offsetMillis = offset,
                 wide = wide,
                 canMoveUp = stepIndex > 0,
                 canMoveDown = stepIndex < steps.size - 1,
+                onOpen = onOpenStep?.let { open -> { open(stepIndex) } },
+                editing = editingStep == stepIndex,
                 onChange = { updated -> withSteps(steps.replaced(stepIndex, updated)) },
                 onDelete = { withSteps(steps.without(stepIndex)) },
                 onMove = { by -> withSteps(steps.moved(stepIndex, by)) },
@@ -517,16 +534,37 @@ private val TRIGGER_MATCHER_TYPES = MATCHER_TYPES.filterNot { it == "reference" 
 private fun StepRow(
     step: ResponseStep,
     number: Int,
+    /** This step's rule, so a test can address one step of one rule and not the third icon on screen. */
+    ruleNumber: Int,
     offsetMillis: Long,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     wide: Boolean,
+    /** Opens this step in the message editor, where the tags have names and the values have menus. */
+    onOpen: (() -> Unit)?,
+    editing: Boolean,
     onChange: (ResponseStep) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
 ) {
     val timing: @Composable () -> Unit = {
         Text("$number.", color = AppTheme.Colors.textDisabled, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+        // Beside the step's number, because that is what it opens. Kept away from the template field:
+        // a control sharing an edge with a text field is a control that field can take the click for.
+        onOpen?.let { open ->
+            TooltipIconButton(
+                tooltip = "Edit this step in the message editor",
+                onClick = open,
+                modifier = Modifier.size(16.dp).testTag("step-edit-$ruleNumber-$number"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.OpenInNew,
+                    contentDescription = "Edit in the message editor",
+                    tint = if (editing) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(10.dp),
+                )
+            }
+        }
         Text("+", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
         SlimField(
             // Only digits reach the model, so a half-typed value cannot silently become 0 and move

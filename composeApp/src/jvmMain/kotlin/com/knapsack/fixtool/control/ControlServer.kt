@@ -22,6 +22,7 @@ import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
+import com.knapsack.fixtool.service.AcceptorPresets
 import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.EchoDetector
 import com.knapsack.fixtool.service.ExpectationEvaluator
@@ -161,6 +162,7 @@ class ControlServer(
         httpServer.createContext("/dictionary") { ex -> handle(ex) { dictionaryEndpoint(ex) } }
         httpServer.createContext("/acceptor/test") { ex -> handle(ex) { acceptorTest(ex) } }
         httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRulesEndpoint(ex) } }
+        httpServer.createContext("/acceptor/presets") { ex -> handle(ex) { acceptorPresets() } }
         httpServer.createContext("/syntax") { ex -> syntax(ex) }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
         httpServer.createContext("/mcp") { ex -> mcpHandle(ex) }
@@ -1797,6 +1799,34 @@ class ControlServer(
         }
     }
 
+    /**
+     * The shipped venue behaviours, by name — what `POST /acceptor/rules {"preset": …}` can insert.
+     *
+     * Readable rather than a bare list of ids, because choosing between "cancel accepted" and "cancel
+     * rejected" needs the trigger and the reply, and reproducing those from the templates is the work
+     * the presets exist to remove. Profile-independent: these are the same for every profile, so this
+     * takes no arguments and reads nothing.
+     */
+    private fun acceptorPresets(): JsonElement =
+        buildJsonArray {
+            AcceptorPresets.all.forEach { preset ->
+                add(
+                    buildJsonObject {
+                        put("id", preset.id)
+                        put("name", preset.name)
+                        put("group", preset.group)
+                        put("summary", preset.summary)
+                        put(
+                            "rules",
+                            buildJsonArray {
+                                preset.rules.forEachIndexed { index, rule -> add(acceptorRuleJson(index, rule)) }
+                            },
+                        )
+                    },
+                )
+            }
+        }
+
     /** `/acceptor/rules` is method-aware: GET inspects, POST adds/replaces/toggles one, DELETE removes one. */
     private fun acceptorRulesEndpoint(ex: HttpExchange): JsonElement =
         when (ex.requestMethod.uppercase()) {
@@ -1826,6 +1856,13 @@ class ControlServer(
         val index = body["index"]?.jsonPrimitive?.intOrNull
         val enabled = body["enabled"]?.jsonPrimitive?.booleanOrNull
         val ruleElement = body["rule"] as? JsonObject
+        val presetId = body["preset"]?.jsonPrimitive?.content
+        // Where a preset goes is part of what it is — a conditioned rule appended below an
+        // unconditioned one for the same MsgType can never fire. Naming the conflict beats honouring
+        // one of the two and leaving the caller to discover which.
+        if (presetId != null && index != null) {
+            return errorObject("a preset chooses its own position so it can fire; drop 'index'")
+        }
 
         return onEdt {
             val profile =
@@ -1835,8 +1872,25 @@ class ControlServer(
             if (index != null && index !in rules.indices && ruleElement == null) {
                 return@onEdt errorObject("index $index is out of range (the profile has ${rules.size} rule(s))")
             }
+            var placement: AcceptorPresets.Insertion? = null
             val edit =
                 when {
+                    presetId != null -> {
+                        val preset =
+                            AcceptorPresets.byId(presetId)
+                                ?: return@onEdt errorObject(
+                                    "unknown preset: $presetId (known: ${AcceptorPresets.ids.joinToString(", ")})",
+                                )
+                        // `enabled:false` alongside a preset stages a venue without arming it, the same
+                        // override the `rule` branch offers.
+                        val staged =
+                            if (enabled == null) preset else preset.copy(rules = preset.rules.map { it.copy(enabled = enabled) })
+                        val insertion = AcceptorPresets.insert(rules, staged)
+                        rules.clear()
+                        rules.addAll(insertion.rules)
+                        placement = insertion
+                        "added" to insertion.index
+                    }
                     ruleElement != null -> {
                         val parsed =
                             try {
@@ -1867,8 +1921,19 @@ class ControlServer(
                 put("profile", profile.name)
                 put("index", position)
                 put("ruleCount", rules.size)
+                placement?.let { inserted ->
+                    put("preset", presetId)
+                    put("rulesAdded", inserted.added)
+                    // Said whenever a rule had to go anywhere but the end, because a caller that
+                    // assumed "append" would otherwise read the wrong index back as a coincidence.
+                    inserted.placedAbove?.let { above ->
+                        put("placedAbove", above)
+                        put("placedBecause", "rule ${above + 1} also answers 35=${rules[position].whenMsgType}")
+                    }
+                }
                 liveAcceptorSessions(updated)?.let { put("appliedToLiveSessions", it) }
                 rules[position].validationError()?.let { put("validationError", it) }
+                AcceptorResponder.shadowingRule(rules, position)?.let { put("shadowedBy", it) }
             }
         }
     }
@@ -1955,7 +2020,13 @@ class ControlServer(
                     "rules",
                     buildJsonArray {
                         profile.config.acceptorResponseRules.forEachIndexed { ruleIndex, rule ->
-                            add(acceptorRuleJson(ruleIndex, rule))
+                            add(
+                                acceptorRuleJson(
+                                    ruleIndex,
+                                    rule,
+                                    AcceptorResponder.shadowingRule(profile.config.acceptorResponseRules, ruleIndex),
+                                ),
+                            )
                         }
                     },
                 )
@@ -1964,7 +2035,7 @@ class ControlServer(
     }
 
     /** One rule as it reads: what was written, what it means, and anything wrong with it. */
-    private fun acceptorRuleJson(index: Int, rule: AcceptorResponseRule): JsonObject =
+    private fun acceptorRuleJson(index: Int, rule: AcceptorResponseRule, shadowedBy: Int? = null): JsonObject =
         buildJsonObject {
             // The index is the rule's identity for /acceptor/rules POST and DELETE, and its priority
             // under first-match-wins. Both need it named.
@@ -2024,6 +2095,10 @@ class ControlServer(
             // A rule nobody can act on is worse than no rule: it looks configured. There is no
             // authoring UI to catch this, so the read surface is the only place it can be said.
             rule.validationError()?.let { put("validationError", it) }
+            // The other way a well-formed rule does nothing: an earlier one already answers every
+            // message of this type, so this one is unreachable. Named the same as the dry run's field
+            // because it is the same fact — this one just did not need a message to establish it.
+            shadowedBy?.let { put("shadowedBy", it) }
         }
 
     /**
@@ -2481,6 +2556,7 @@ class ControlServer(
             "fixtool_validate" to { a -> validate(mcpExchange(a)) },
             "fixtool_dictionary" to { a -> if (a.isEmpty()) getDictionary() else setDictionary(mcpExchange(a)) },
             "fixtool_acceptor_rules" to { a -> acceptorRules(mcpExchange(a)) },
+            "fixtool_acceptor_presets" to { _ -> acceptorPresets() },
             "fixtool_acceptor_rule" to { a ->
                 // One tool, both directions, because "delete" is a mode of editing a rule list and a
                 // separate tool for it would be a fourth thing to find. `delete:true` is explicit so

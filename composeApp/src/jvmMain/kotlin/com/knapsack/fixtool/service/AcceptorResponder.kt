@@ -164,6 +164,28 @@ object AcceptorResponder {
     }
 
     /**
+     * The earlier rule that makes the rule at [index] unreachable, or null when nothing proves one does.
+     *
+     * The dry run already reports this per message ([RuleOutcome.selected]), but it needs a message to
+     * do it, and by then the author has had to guess that shadowing is what they are looking at. This
+     * is the part that can be settled by looking: an **enabled** earlier rule for the same MsgType with
+     * **no conditions** answers every message of that type, so nothing after it for that type can ever
+     * be reached.
+     *
+     * That is the whole claim, and deliberately the whole claim. Whether two *conditioned* rules
+     * overlap — `38 > 1000` against `38 > 500`, a regex against an oneOf — is not decidable in general,
+     * and a warning that is sometimes wrong is one authors learn to scroll past, taking the true ones
+     * with it. A blank MsgType shadows nothing either: it matches no message at all.
+     */
+    fun shadowingRule(rules: List<AcceptorResponseRule>, index: Int): Int? {
+        val rule = rules.getOrNull(index) ?: return null
+        if (rule.whenMsgType.isBlank()) return null
+        return rules.take(index).indexOfFirst { earlier ->
+            earlier.enabled && earlier.whenMsgType == rule.whenMsgType && earlier.trigger().isEmpty()
+        }.takeIf { it >= 0 }
+    }
+
+    /**
      * The whole of [rule]'s reply to [incoming], as sends waiting for their moment.
      *
      * `${req.<tag>}` is substituted here, against the message that triggered the rule and while that
@@ -176,9 +198,12 @@ object AcceptorResponder {
         dictionary: FixDictionary? = null,
     ): List<PlannedSend> {
         var offset = 0L
+        // One id for the whole reply, drawn here because here is where the trigger is. An OrderID that
+        // changed between the ack and the fill would be two unrelated orders to a client tracking it.
+        val requestId = UUID.randomUUID().toString()
         return rule.sequence().map { step ->
             offset += step.delayMillis.coerceAtLeast(0)
-            val againstRequest = resolveRequestRefs(step.template, incoming)
+            val againstRequest = resolveRequestRefs(step.template, incoming, requestId)
             PlannedSend(offset) {
                 resolveExpressions(resolveAtSendTime(againstRequest), request, dictionary)
             }
@@ -211,9 +236,9 @@ object AcceptorResponder {
             )
         }
 
-    /** Substitutes `${req.<tag>}`, `${uuid}` and `${now}` in [template] against the incoming message. */
+    /** Substitutes `${req.<tag>}`, `${req.uuid}`, `${uuid}` and `${now}` in [template]. */
     fun resolve(template: String, incoming: Message): String =
-        resolveAtSendTime(resolveRequestRefs(template, incoming))
+        resolveAtSendTime(resolveRequestRefs(template, incoming, UUID.randomUUID().toString()))
 
     /**
      * The half of [resolve] that reads the request: `${req.<tag>}`. Fixed when the trigger arrives.
@@ -226,9 +251,16 @@ object AcceptorResponder {
      * The value goes in raw, which is what makes the arithmetic work and what limits this to numbers:
      * a string substituted into an expression would need quoting, and quoting would break the sums.
      * A string field is read with the standalone form, which needs none of this.
+     *
+     * **`${req.uuid}` is an id belonging to the request**, and [requestId] is that id — one draw for
+     * the whole reply, so every step of a sequence carries the same OrderID. It sits in the `req.`
+     * namespace because that namespace already means "fixed when the trigger arrived", which is
+     * exactly what distinguishes it from `${uuid}`: that one resolves per step, as each step is sent,
+     * and is right for an ExecID. Substituted first, so the expression pass never sees it.
      */
-    fun resolveRequestRefs(template: String, incoming: Message): String {
-        val whole = REQ_REF.replace(template) { m -> valueOf(incoming, m.groupValues[1].toInt()) ?: "" }
+    fun resolveRequestRefs(template: String, incoming: Message, requestId: String): String {
+        val withId = template.replace("\${req.uuid}", requestId)
+        val whole = REQ_REF.replace(withId) { m -> valueOf(incoming, m.groupValues[1].toInt()) ?: "" }
         return ANY_EXPR.replace(whole) { m ->
             "\${" + REQ_IN_EXPR.replace(m.groupValues[1]) { r -> valueOf(incoming, r.groupValues[1].toInt()) ?: "" } + "}"
         }

@@ -2407,12 +2407,48 @@ stunnel stunnel.conf</code></pre>
     <p>Rules are stored <strong>on the profile</strong>, so <strong>Save</strong> is what commits them, and
     they travel with the profile when it is copied or exported.</p>
 
+    <p><strong>Saving reaches a session that is already up.</strong> A rule you save while the
+    counterparty is logged on applies to that session from its next trigger &mdash; no reconnect. Only the
+    rules and the latency travel that way: CompIDs, ports and SSL are the session's identity and still need
+    a reconnect to change.</p>
+
+    <h3>Starting from a preset</h3>
+
+    <p>An empty acceptor answers nothing, and writing the first ExecutionReport by hand means knowing which
+    tags it owes. <strong>+ preset</strong> in the Auto-Responses header offers the common order flow ready
+    made &mdash; acknowledge, fill, partial fill, reject, cancel accept and reject, replace, business reject
+    &mdash; and, while the list is still empty, a <strong>Starter venue</strong> button that inserts the
+    four rules making a plausible venue in one click. Hovering an entry shows exactly what will be inserted,
+    and nothing is written until you click.</p>
+
+    <p>An inserted preset is an <strong>ordinary rule</strong> from that moment: edit it, reorder it, switch
+    it off, delete it. Nothing on disk records where it came from.</p>
+
+    <p><strong>Where a preset lands is part of it.</strong> Because first match wins, a preset that carries
+    conditions goes <em>above</em> the first rule already answering its MsgType &mdash; otherwise the
+    size-limit reject added to a venue that already fills orders would sit below the fill, and a
+    two-million-share order would fill rather than reject. One with no conditions is appended, since it
+    answers everything of its type. The card says where it went until your next edit, and the up/down
+    arrows are still yours.
+
+    <p>Two habits worth copying from them when you write your own:</p>
+
+    <ul>
+        <li><code>${req.uuid}</code> for OrderID and <code>${uuid}</code> for ExecID. The first is drawn
+        once for the whole reply, so every step of a sequence carries the same OrderID; the second resolves
+        as each step is sent. An ack and its fill carrying <em>different</em> OrderIDs are two unrelated
+        orders to a client tracking tag 37.</li>
+        <li>Never read a tag the trigger does not guarantee. <code>${req.44}</code> against a market order
+        substitutes nothing and puts <code>31=</code> on the wire &mdash; a malformed message your client
+        gets blamed for. That is why the fill presets ask for <code>40 = 2</code> first.</li>
+    </ul>
+
     <div class="warning">
-        <strong>A rule change does not reach a session that is already up.</strong> The rules are read and
-        their triggers compiled once, when the session connects &mdash; so an edit you save while the
-        counterparty is logged on has no effect on that session. <strong>Disconnect and reconnect</strong>
-        after changing a rule, or you will be watching the old ruleset and wondering why your edit did
-        nothing.
+        <strong>&#9888; never fires</strong> on a card means an earlier rule already answers every message
+        of that type, so this one is unreachable. Move it earlier, or give it a condition. The warning is
+        only shown when it is certain &mdash; an earlier <em>enabled</em> rule for the same MsgType with
+        <em>no</em> conditions. Two rules that both have conditions are left alone, because whether they
+        overlap cannot be settled by looking at them.
     </div>
 
     <h3>The trigger</h3>

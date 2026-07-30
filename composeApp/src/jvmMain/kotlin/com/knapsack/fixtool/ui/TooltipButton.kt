@@ -108,6 +108,9 @@ fun TooltipIconButton(
 fun AppTooltip(
     text: String,
     modifier: Modifier = Modifier,
+    /** For a tooltip whose content is FIX rather than prose — a template reads as one line or not at all. */
+    monospace: Boolean = false,
+    maxWidth: androidx.compose.ui.unit.Dp = 360.dp,
     content: @Composable () -> Unit,
 ) {
     TooltipArea(
@@ -119,9 +122,10 @@ fun AppTooltip(
                         .shadow(4.dp, tooltipShape)
                         .background(AppTheme.Colors.border, tooltipShape)
                         .padding(horizontal = 8.dp, vertical = 4.dp)
-                        .widthIn(max = 360.dp),
+                        .widthIn(max = maxWidth),
                 color = AppTheme.Colors.text,
                 fontSize = 11.sp,
+                fontFamily = if (monospace) androidx.compose.ui.text.font.FontFamily.Monospace else null,
             )
         },
         delayMillis = 500,

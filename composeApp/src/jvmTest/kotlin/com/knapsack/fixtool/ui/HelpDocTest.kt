@@ -45,7 +45,7 @@ class HelpDocTest {
      * each is a fact an author gets wrong at a cost, and each was undocumented until this chapter existed.
      */
     @Test
-    fun `the acceptor chapter states the rules engine's four load-bearing facts`() {
+    fun `the acceptor chapter states the rules engine's load-bearing facts`() {
         val chapter = html.substringAfter("""id="acceptor-rules"""").substringBefore("""<h2 id=""")
 
         val claims =
@@ -53,7 +53,13 @@ class HelpDocTest {
                 "first match wins" to "first match wins",
                 "conditions are ANDed" to "ANDed",
                 "a step's delay is from the previous step" to "from the step before it",
-                "rules compile at connect, so an edit needs a reconnect" to "does not reach a session that is already up",
+                // Was "an edit needs a reconnect" until c858bae made saving reach live sessions. The
+                // claim and this test agreed with each other for two releases while both were wrong,
+                // which is the argument for pinning the fact rather than the sentence.
+                "saving reaches a live session" to "Saving reaches a session that is already up",
+                "a preset is where an empty acceptor starts" to "Starting from a preset",
+                "one OrderID for the whole reply" to "\${req.uuid}",
+                "an unreachable rule is named" to "never fires",
             )
         val missing = claims.filterValues { it !in chapter }.keys
 

@@ -134,7 +134,8 @@ class AcceptorSequenceTest {
 
     @Test
     fun `the trigger-time half of resolution leaves the clock alone`() {
-        val resolved = AcceptorResponder.resolveRequestRefs("35=8|11=\${req.11}|60=\${now}|17=\${uuid}|", order())
+        val resolved =
+            AcceptorResponder.resolveRequestRefs("35=8|11=\${req.11}|60=\${now}|17=\${uuid}|", order(), "req-id")
 
         assertEquals(
             "35=8|11=ORD-1|60=\${now}|17=\${uuid}|",

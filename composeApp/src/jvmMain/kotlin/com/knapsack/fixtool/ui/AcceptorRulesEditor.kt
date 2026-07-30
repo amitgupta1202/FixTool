@@ -25,8 +25,10 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +83,33 @@ fun AcceptorRulesEditor(
     onOpenStepInEditor: ((ruleIndex: Int, stepIndex: Int) -> Unit)? = null,
     /** The step currently being edited elsewhere, so its row can say so. */
     editingStep: Pair<Int, Int>? = null,
+) {
+    // ---- why the touch target is set here
+    //
+    // Material3 gives every IconButton a 48dp minimum *touch target*, whatever it is drawn at. These
+    // rows are 16dp buttons 4dp apart — a pitch of 20dp — so each button's target swallowed its left
+    // neighbour's whole visual area, and hit-testing goes to the last sibling drawn. The result: in a
+    // row of four, only the rightmost one could be clicked. Everything else looked enabled, drew its
+    // hover, and did nothing, which is the worst way for a control to fail because nothing about it
+    // says so.
+    //
+    // Named here rather than by spacing the buttons out: the density is the design, and this is the
+    // knob Material3 provides for it — the same one ScenarioDocumentPane and ScenariosRail already set
+    // for their own dense rows. DenseIconRowClickTest holds the general case; the row tests below click
+    // each button of each row on this surface.
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 16.dp) {
+        AcceptorRulesEditorContent(rules, onRulesChange, modifier, dictionary, onOpenStepInEditor, editingStep)
+    }
+}
+
+@Composable
+private fun AcceptorRulesEditorContent(
+    rules: List<AcceptorResponseRule>,
+    onRulesChange: (List<AcceptorResponseRule>) -> Unit,
+    modifier: Modifier,
+    dictionary: FixDictionary?,
+    onOpenStepInEditor: ((ruleIndex: Int, stepIndex: Int) -> Unit)?,
+    editingStep: Pair<Int, Int>?,
 ) {
     // The connection panel is drag-resizable from a tenth of the window to six tenths of it, so this
     // editor is asked to live at anything from ~250dp to ~1000dp. Sized for the narrow end only, it
@@ -324,10 +353,10 @@ private fun RuleCard(
             Spacer(Modifier.weight(1f))
             // First match wins, so a rule's position is part of what it means — not a display preference.
             TooltipIconButton("Move earlier", { onMove(-1) }, Modifier.size(16.dp), enabled = position > 0) {
-                Icon(Icons.Default.ArrowUpward, "Up", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
+                Icon(Icons.Default.ArrowUpward, "Move rule earlier", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
             }
             TooltipIconButton("Move later", { onMove(1) }, Modifier.size(16.dp), enabled = position < total - 1) {
-                Icon(Icons.Default.ArrowDownward, "Down", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
+                Icon(Icons.Default.ArrowDownward, "Move rule later", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
             }
             TooltipIconButton("Delete rule", onDelete, Modifier.size(16.dp)) {
                 Icon(Icons.Default.Close, "Delete rule", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
@@ -584,10 +613,10 @@ private fun StepRow(
     }
     val buttons: @Composable () -> Unit = {
         TooltipIconButton("Move earlier", { onMove(-1) }, Modifier.size(16.dp), enabled = canMoveUp) {
-            Icon(Icons.Default.ArrowUpward, "Up", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
+            Icon(Icons.Default.ArrowUpward, "Move step earlier", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
         }
         TooltipIconButton("Move later", { onMove(1) }, Modifier.size(16.dp), enabled = canMoveDown) {
-            Icon(Icons.Default.ArrowDownward, "Down", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
+            Icon(Icons.Default.ArrowDownward, "Move step later", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(10.dp))
         }
         TooltipIconButton("Delete step", onDelete, Modifier.size(16.dp)) {
             Icon(Icons.Default.Close, "Delete step", tint = AppTheme.Colors.error, modifier = Modifier.size(10.dp))

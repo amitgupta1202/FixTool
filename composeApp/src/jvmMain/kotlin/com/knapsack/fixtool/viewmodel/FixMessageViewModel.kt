@@ -18,7 +18,9 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.MatchContextMode
+import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.MessageEditorState
+import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.model.Notification
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixField
@@ -3920,6 +3922,122 @@ class FixMessageViewModel(
                 )
         }
         // If already Dirty or New, no change needed
+    }
+
+    // ---------------------------------------------------------------- editing a rule's reply step
+    //
+    // A reply step is a raw FIX string on a rule, and until now that was also how it was *edited* —
+    // one monospace field, no field names, no enum values, no idea which tags the message type owes.
+    // The editor already round-trips exactly this: its preview pane is a live two-way binding between
+    // the field grid and a raw string, and field values already carry `${...}`. So this is an entry
+    // point, not a second editor.
+
+    private val _editorTarget = mutableStateOf<EditorTarget>(EditorTarget.Wire)
+    val editorTarget: EditorTarget
+        get() = _editorTarget.value
+
+    /**
+     * The message being composed, while a rule's step borrows the editor.
+     *
+     * One list and a stash rather than two live lists: every field mutator here writes
+     * `_editorFields`, and routing seven of them by target would be seven chances to route one wrong.
+     * The guarantee is the same one either way — open a step, cancel, and the half-written message
+     * you were composing is exactly where you left it, with no discard prompt because nothing was
+     * discarded.
+     */
+    private var stashedEditorFields: List<FixField>? = null
+    private var stashedEditorSelection: Int = 0
+    private var stashedEditorState: MessageEditorState = MessageEditorState.New
+
+    /** Set by [applyReplyStep] for the connection panel to consume; it owns the staged rule list. */
+    private val _pendingReplyStepApply = mutableStateOf<ReplyStepApply?>(null)
+    val pendingReplyStepApply: ReplyStepApply?
+        get() = _pendingReplyStepApply.value
+
+    fun consumeReplyStepApply() {
+        _pendingReplyStepApply.value = null
+    }
+
+    /** Loads one step of one rule into the editor and opens it. */
+    fun openReplyStep(profileId: String, ruleIndex: Int, stepIndex: Int, template: String) {
+        // Re-opening a step while another is open must not stash the first step over the message.
+        if (_editorTarget.value is EditorTarget.Wire) {
+            stashedEditorFields = _editorFields.toList()
+            stashedEditorSelection = _editorSelectedFieldIndex.value
+            stashedEditorState = _editorState.value
+        }
+        val loaded = rawToFields(template).ifEmpty { listOf(FixField()) }
+        _editorFields.clear()
+        _editorFields.addAll(loaded)
+        _editorSelectedFieldIndex.value = 0
+        _editorSelectedIndices.clear()
+        _editorSelectedIndices.add(0)
+        _editorValidationErrors.clear()
+        _editorState.value = MessageEditorState.New
+        _editorTarget.value = EditorTarget.ReplyStep(profileId, ruleIndex, stepIndex, template)
+        _showMessageEditor.value = true
+    }
+
+    /**
+     * The edited step as a template, or the reason it cannot be one.
+     *
+     * The round trip is lossless only while both ends agree about what a field is, so the two ways
+     * they can disagree are refused **by tag** rather than absorbed: a value carrying the delimiter
+     * would come back as two fields, and a tag with no value goes on the wire as `31=`, which is a
+     * malformed message the counterparty gets blamed for. Both are visible in the grid — which is the
+     * argument for the grid — but only if something says so.
+     */
+    fun applyReplyStep(): ReplyStepApply? {
+        val target = _editorTarget.value as? EditorTarget.ReplyStep ?: return null
+        val fields = _editorFields.filterNot { it.excluded }.filterNot { it.tag.isBlank() && it.value.isBlank() }
+        val problems =
+            fields.mapNotNull { field ->
+                when {
+                    field.tag.isBlank() -> "a value with no tag: '${field.value}'"
+                    field.value.isBlank() -> "tag ${field.tag} has no value, which goes on the wire as '${field.tag}='"
+                    field.value.contains('|') ->
+                        "tag ${field.tag}'s value contains '|', which is the template's field separator"
+                    else -> null
+                }
+            }
+        if (problems.isNotEmpty()) {
+            setEditorValidationErrors(listOf("Cannot apply this step:") + problems)
+            return null
+        }
+        if (fields.isEmpty()) {
+            setEditorValidationErrors(listOf("Cannot apply this step:", "there are no fields to send"))
+            return null
+        }
+        val applied =
+            ReplyStepApply(
+                profileId = target.profileId,
+                ruleIndex = target.ruleIndex,
+                stepIndex = target.stepIndex,
+                snapshot = target.snapshot,
+                template = fields.joinToString("|") { "${it.tag}=${it.value}" },
+            )
+        _pendingReplyStepApply.value = applied
+        restoreStashedEditor()
+        return applied
+    }
+
+    /** Leaves reply-step mode with the rule untouched, and the message from before restored. */
+    fun cancelReplyStep() {
+        if (_editorTarget.value is EditorTarget.ReplyStep) restoreStashedEditor()
+    }
+
+    private fun restoreStashedEditor() {
+        val stashed = stashedEditorFields
+        _editorFields.clear()
+        _editorFields.addAll(stashed?.takeIf { it.isNotEmpty() } ?: listOf(FixField()))
+        _editorSelectedFieldIndex.value = stashedEditorSelection.coerceIn(0, _editorFields.size - 1)
+        _editorSelectedIndices.clear()
+        _editorSelectedIndices.add(_editorSelectedFieldIndex.value)
+        _editorState.value = stashedEditorState
+        _editorValidationErrors.clear()
+        stashedEditorFields = null
+        stashedEditorState = MessageEditorState.New
+        _editorTarget.value = EditorTarget.Wire
     }
 
     fun clearEditorFields(resetSelection: Boolean = true) {

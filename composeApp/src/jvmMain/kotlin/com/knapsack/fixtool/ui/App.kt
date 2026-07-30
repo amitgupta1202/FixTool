@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
@@ -496,6 +497,12 @@ fun App(
                                                 demoServerFixVersion = demoServerFixVersion,
                                                 onStartDemoServer = { viewModel.startDemoServer(it) },
                                                 onStopDemoServer = { viewModel.stopDemoServer() },
+                                                onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
+                                                    viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
+                                                },
+                                                replyStepApply = viewModel.pendingReplyStepApply,
+                                                onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
+                                                editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
                                                 modifier = Modifier.fillMaxSize(),
                                             )
                                         }
@@ -730,6 +737,12 @@ fun App(
                                                     demoServerFixVersion = demoServerFixVersion,
                                                     onStartDemoServer = { viewModel.startDemoServer(it) },
                                                     onStopDemoServer = { viewModel.stopDemoServer() },
+                                                    onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
+                                                        viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
+                                                    },
+                                                    replyStepApply = viewModel.pendingReplyStepApply,
+                                                    onReplyStepConsumed = { viewModel.consumeReplyStepApply() },
+                                                    editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
                                             }
@@ -919,8 +932,20 @@ private fun AppMessageEditorPanel(
     modifier: Modifier = Modifier,
 ) {
     val activeSession by viewModel.activeSessionState
+    val replyStepTarget = viewModel.editorTarget as? EditorTarget.ReplyStep
 
     MessageEditorPanel(
+        replyStep =
+            replyStepTarget?.let { target ->
+                ReplyStepEditing(
+                    profileName =
+                        viewModel.connectionProfiles.firstOrNull { it.id == target.profileId }?.name.orEmpty(),
+                    ruleIndex = target.ruleIndex,
+                    stepIndex = target.stepIndex,
+                    onApply = { viewModel.applyReplyStep() },
+                    onCancel = { viewModel.cancelReplyStep() },
+                )
+            },
         sessions = viewModel.sessions,
         selectedSession = activeSession,
         dictionary = viewModel.dictionary,

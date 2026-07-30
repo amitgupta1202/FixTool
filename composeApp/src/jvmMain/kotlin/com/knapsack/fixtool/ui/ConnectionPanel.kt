@@ -24,6 +24,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
+import com.knapsack.fixtool.model.EditorTarget
+import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
@@ -53,6 +55,13 @@ fun ConnectionPanel(
     demoServerFixVersion: FixVersion? = null,
     onStartDemoServer: ((FixVersion) -> Unit)? = null,
     onStopDemoServer: (() -> Unit)? = null,
+    /** Loads one reply step into the message editor. Null where there is no editor to load it into. */
+    onOpenReplyStepInEditor: ((profileId: String, ruleIndex: Int, stepIndex: Int, template: String) -> Unit)? = null,
+    /** A step the editor has finished with, to be verified and staged here. Consumed by [onReplyStepConsumed]. */
+    replyStepApply: ReplyStepApply? = null,
+    onReplyStepConsumed: (() -> Unit)? = null,
+    /** Which step the editor currently holds, so its row can say so. */
+    editingReplyStep: EditorTarget.ReplyStep? = null,
     modifier: Modifier = Modifier,
 ) {
     // Form state
@@ -1497,11 +1506,77 @@ fun ConnectionPanel(
                 }
 
                 if (showAcceptorRules) {
+                    // Applied is not saved. The step is written into the staged list, exactly as
+                    // typing into its raw field would have been; Save is still what persists it and,
+                    // since rules travel to live sessions, still the only thing the venue notices.
+                    var applyNote by remember { mutableStateOf<String?>(null) }
+                    LaunchedEffect(replyStepApply) {
+                        val applied = replyStepApply ?: return@LaunchedEffect
+                        val profile = selectedProfile
+                        applyNote =
+                            when {
+                                // The panel moved on — a different profile is loaded, so the rule list
+                                // in front of the author is not the one this step came from.
+                                profile == null || profile.id != applied.profileId ->
+                                    "the step was applied to a profile that is no longer loaded"
+                                // An index is only an address while the list holds still. Deleting or
+                                // reordering a rule with a step of it open moves what lives here.
+                                acceptorRules.getOrNull(applied.ruleIndex)
+                                    ?.sequence()
+                                    ?.getOrNull(applied.stepIndex)
+                                    ?.template != applied.snapshot ->
+                                    "rule ${applied.ruleIndex + 1} step ${applied.stepIndex + 1} has changed since " +
+                                        "it was opened, so the edit was not applied over it"
+                                else -> {
+                                    val rule = acceptorRules[applied.ruleIndex]
+                                    val steps = rule.sequence().replaced(
+                                        applied.stepIndex,
+                                        rule.sequence()[applied.stepIndex].copy(template = applied.template),
+                                    )
+                                    acceptorRules =
+                                        acceptorRules.replaced(
+                                            applied.ruleIndex,
+                                            rule.copy(steps = steps, responseTemplate = ""),
+                                        )
+                                    null
+                                }
+                            }
+                        onReplyStepConsumed?.invoke()
+                    }
+
                     AcceptorRulesEditor(
                         rules = acceptorRules,
-                        onRulesChange = { acceptorRules = it },
+                        onRulesChange = {
+                            applyNote = null
+                            acceptorRules = it
+                        },
                         dictionary = dictionary,
+                        onOpenStepInEditor =
+                            onOpenReplyStepInEditor?.let { open ->
+                                { ruleIndex, stepIndex ->
+                                    selectedProfile?.let { profile ->
+                                        acceptorRules
+                                            .getOrNull(ruleIndex)
+                                            ?.sequence()
+                                            ?.getOrNull(stepIndex)
+                                            ?.let { step -> open(profile.id, ruleIndex, stepIndex, step.template) }
+                                    }
+                                }
+                            },
+                        editingStep =
+                            editingReplyStep
+                                ?.takeIf { it.profileId == selectedProfile?.id }
+                                ?.let { it.ruleIndex to it.stepIndex },
                     )
+
+                    applyNote?.let {
+                        Text(
+                            text = "⚠ $it",
+                            color = AppTheme.Colors.warning,
+                            fontSize = 9.sp,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                 }
 
                 // Latency (collapsible) — its own section beside the rules because it is the other half

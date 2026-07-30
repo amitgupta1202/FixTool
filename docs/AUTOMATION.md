@@ -131,8 +131,9 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /validate`     | `{"raw"}`                              | `{isValid, errors}` against the loaded dictionary    |
 | `GET /dictionary`    | —                                      | current FIX version + validity                       |
 | `POST /dictionary`   | `{"version"}` or `{"path", "transportPath"?}` | switch the data dictionary                    |
-| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules, each with its `index`, its ANDed `trigger`, its played `sequence` and any `validationError`, plus the profile's simulated `latency` |
-| `POST /acceptor/rules` | `{"profile", "rule"?, "index"?, "enabled"?}` | add (`rule`, no index), replace (`rule` + `index`) or toggle (`index` + `enabled`) **one** rule, leaving the rest of the profile alone |
+| `GET /acceptor/rules` | query: `profile`                      | a profile's acceptor auto-response rules, each with its `index`, its ANDed `trigger`, its played `sequence`, any `validationError` and `shadowedBy` when an earlier rule already answers everything it would, plus the profile's simulated `latency` |
+| `POST /acceptor/rules` | `{"profile", "rule"?, "preset"?, "index"?, "enabled"?}` | add (`rule`, no index), replace (`rule` + `index`), toggle (`index` + `enabled`) or insert a ready-made behaviour (`preset`) — **one** rule at a time, leaving the rest of the profile alone |
+| `GET /acceptor/presets` | —                                    | the shipped acceptor behaviours by `id`, each with what triggers it and the reply it inserts |
 | `DELETE /acceptor/rules` | `{"profile", "index"}`             | remove one rule; the rules after it shift up                |
 | `POST /acceptor/test` | `{"profile", "raw"}`                  | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset |
 | `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
@@ -481,6 +482,50 @@ curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","index":1,"enabled
 # remove it (everything after it shifts up)
 curl -s -XDELETE $B/acceptor/rules -d '{"profile":"My Acceptor","index":1}'
 ```
+
+#### Presets — the common order flow, ready made
+
+`GET /acceptor/presets` lists the shipped behaviours; `POST /acceptor/rules` inserts one by `preset`
+instead of a hand-written `rule`. They are ordinary rules once inserted — editable, reorderable,
+deletable, indistinguishable on disk from typed ones.
+
+```bash
+curl -s $B/acceptor/presets                                   # ids, triggers, replies
+curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"starter-venue"}'
+curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"order-reject-size"}'
+```
+
+| id | answers |
+|---|---|
+| `starter-venue` | the four below that make a venue: ack + fill for limits, ack for the rest, cancel, replace |
+| `order-ack` | `35=D` → ExecutionReport, New |
+| `ack-then-fill` | `35=D` with `40=2` → ack, then a fill 250ms later |
+| `ack-partial-fill` | `35=D` with `40=2` → ack, half, then the rest |
+| `order-reject-size` | `35=D` with `38 > 1000000` → rejected, `103=3` |
+| `cancel-accepted` | `35=F` → pending cancel, then canceled |
+| `cancel-rejected` | `35=F` → `35=9`, unknown order |
+| `replace-accepted` | `35=G` carrying `38` → replaced |
+| `unsupported-message` | `35=H` → `35=j`, unsupported message type |
+
+**A preset chooses its own position, so it cannot be given an `index`.** Rules are first-match-wins,
+so a preset that carries conditions goes **above the first enabled rule for its MsgType** — otherwise
+`order-reject-size` added to a venue that already fills orders would sit below the fill and a
+two-million-share order would fill rather than reject. An unconditioned preset appends, since it
+answers everything of its type and would take the type from the rules already there. The response
+says `placedAbove` and `placedBecause`; every rule keeps its up/down arrows. For the same
+reason `GET /acceptor/rules` and every write report **`shadowedBy`** on a rule an earlier one already
+answers in full. That claim is only made when it is provable — an earlier *enabled* rule for the same
+MsgType with *no* conditions. Whether two conditioned rules overlap is not decidable in general, and
+is left alone.
+
+Two things every preset does that a hand-written rule should copy:
+
+- **`${req.uuid}` for OrderID, `${uuid}` for ExecID.** The first is drawn once per triggering message,
+  so every step of a sequence carries the same OrderID; the second resolves as each step is sent. An
+  ack and its fill carrying different OrderIDs are two unrelated orders to a client tracking tag 37.
+- **Never read a tag the trigger does not guarantee.** `${req.44}` against a market order substitutes
+  nothing and puts `31=` on the wire, which is a malformed message the client gets blamed for. That
+  is why the fill presets are conditioned on `40 = 2` and the replace preset requires `38`.
 
 #### Testing a rule without a counterparty
 

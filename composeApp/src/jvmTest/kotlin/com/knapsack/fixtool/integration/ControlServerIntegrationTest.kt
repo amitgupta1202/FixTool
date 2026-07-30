@@ -29,6 +29,7 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -436,7 +437,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(42, tools.size)
+        assertEquals(43, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_reconcile" },
             "the diff is reachable without a hand on the mouse, or an agent can never open the surface that repairs",
@@ -773,6 +774,68 @@ class ControlServerIntegrationTest {
             viewModel.connectionProfiles.first { it.id == id }.config.useSSL,
             "editing a rule must not disturb the rest of the profile",
         )
+    }
+
+    // ------------------------------------------------------- presets
+
+    @Test
+    fun `a preset is inserted by name, and lands where it can fire`() {
+        val id = obj(post("/profiles", """{"name":"Venue","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content
+
+        val listed = Json.parseToJsonElement(get("/acceptor/presets").body()).jsonArray
+        assertTrue(listed.any { it.jsonObject["id"]!!.jsonPrimitive.content == "starter-venue" })
+        assertTrue(
+            listed.all { it.jsonObject["rules"]!!.jsonArray.isNotEmpty() },
+            "a preset that inserts nothing is not a preset",
+        )
+
+        val venue = post("/acceptor/rules", """{"profile":"$id","preset":"starter-venue"}""")
+        assertEquals("added", status(venue))
+        assertEquals(4, obj(venue)["rulesAdded"]!!.jsonPrimitive.int)
+        assertEquals(4, viewModel.connectionProfiles.first { it.id == id }.config.acceptorResponseRules.size)
+
+        // The starter venue ends with an unconditioned 35=D rule in it, so a conditioned D preset
+        // appended after it could never fire. The response has to say where it went instead.
+        val reject = post("/acceptor/rules", """{"profile":"$id","preset":"order-reject-size"}""")
+        assertEquals("added", status(reject))
+        val placedAbove = obj(reject)["placedAbove"]!!.jsonPrimitive.int
+        assertEquals(obj(reject)["index"]!!.jsonPrimitive.int, placedAbove, "it went above the rule it names")
+        assertTrue(obj(reject)["placedBecause"]!!.jsonPrimitive.content.contains("35=D"))
+        assertNull(obj(reject)["shadowedBy"], "the placement exists precisely so this is not shadowed")
+    }
+
+    @Test
+    fun `an unknown preset is refused by name, and a preset cannot be given an index`() {
+        val id = obj(post("/profiles", """{"name":"Venue","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content
+
+        val unknown = post("/acceptor/rules", """{"profile":"$id","preset":"full-fil"}""")
+        assertEquals("error", status(unknown))
+        assertTrue(
+            obj(unknown)["error"]!!.jsonPrimitive.content.contains("ack-then-fill"),
+            "a refusal that does not say what the known ids are leaves the caller guessing",
+        )
+
+        assertEquals(
+            "error",
+            status(post("/acceptor/rules", """{"profile":"$id","preset":"order-ack","index":0}""")),
+            "a preset chooses its own position; honouring one of the two silently would be worse",
+        )
+        assertEquals(0, viewModel.connectionProfiles.first { it.id == id }.config.acceptorResponseRules.size)
+    }
+
+    @Test
+    fun `a rule an earlier one already answers is reported as unreachable when the list is read`() {
+        val id = obj(post("/profiles", """{"name":"Venue","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content
+
+        post("/acceptor/rules", """{"profile":"$id","rule":{"whenMsgType":"D","steps":[{"template":"35=8|39=0|"}]}}""")
+        val second =
+            post("/acceptor/rules", """{"profile":"$id","rule":{"whenMsgType":"D","steps":[{"template":"35=8|39=8|"}]}}""")
+
+        assertEquals(0, obj(second)["shadowedBy"]!!.jsonPrimitive.int, "said when the rule is written, not only when read")
+
+        val rules = obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray
+        assertNull(rules[0].jsonObject["shadowedBy"], "the rule that answers everything is not itself shadowed")
+        assertEquals(0, rules[1].jsonObject["shadowedBy"]!!.jsonPrimitive.int)
     }
 
     @Test

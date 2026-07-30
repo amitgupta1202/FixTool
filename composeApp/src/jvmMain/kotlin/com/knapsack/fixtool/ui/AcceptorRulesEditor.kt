@@ -2,8 +2,10 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,10 +21,15 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -34,6 +41,10 @@ import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.service.AcceptorPreset
+import com.knapsack.fixtool.service.AcceptorPresets
+import com.knapsack.fixtool.service.AcceptorResponder
+import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.MatcherCodec
 
 /**
@@ -69,6 +80,22 @@ fun AcceptorRulesEditor(
     // row of every rule agrees about which layout it is in.
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val wide = maxWidth >= WIDE_LAYOUT_MIN
+
+        // Which rule was just displaced, and why. Transient on purpose: it explains the edit that has
+        // just happened, not a property of the rule, so the next edit of any kind clears it.
+        var placement by remember { mutableStateOf<Pair<Int, String>?>(null) }
+
+        fun edit(updated: List<AcceptorResponseRule>) {
+            placement = null
+            onRulesChange(updated)
+        }
+
+        fun add(preset: AcceptorPreset) {
+            val insertion = AcceptorPresets.insert(rules, preset)
+            onRulesChange(insertion.rules)
+            placement = insertion.note?.let { insertion.index to it }
+        }
+
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -80,12 +107,40 @@ fun AcceptorRulesEditor(
                     color = AppTheme.Colors.textSecondary,
                     fontSize = 9.sp,
                 )
-                TooltipIconButton(
-                    tooltip = "Add rule",
-                    onClick = { onRulesChange(rules + AcceptorResponseRule(whenMsgType = "", steps = listOf(ResponseStep(template = "")))) },
-                    modifier = Modifier.size(18.dp),
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PresetMenu(existing = rules, onPick = { add(it) })
+                    TooltipIconButton(
+                        tooltip = "Add an empty rule",
+                        onClick = {
+                            edit(rules + AcceptorResponseRule(whenMsgType = "", steps = listOf(ResponseStep(template = ""))))
+                        },
+                        modifier = Modifier.size(18.dp),
+                    ) {
+                        Icon(Icons.Default.Add, "Add rule", tint = AppTheme.Colors.primary, modifier = Modifier.size(14.dp))
+                    }
+                }
+            }
+
+            // Offered only while there is nothing here. It is the answer to the question an empty list
+            // poses — "what does this venue do?" — and once anything answers it, the menu is the way in.
+            if (rules.isEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Icon(Icons.Default.Add, "Add rule", tint = AppTheme.Colors.primary, modifier = Modifier.size(14.dp))
+                    AcceptorPresets.byId(AcceptorPresets.STARTER_VENUE)?.let { starter ->
+                        SlimButton(
+                            text = "Starter venue — ${starter.rules.size} rules",
+                            onClick = { add(starter) },
+                            color = AppTheme.Colors.primary,
+                        )
+                    }
+                    Text(
+                        text = "acknowledge and fill, cancel, replace",
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 9.sp,
+                    )
                 }
             }
 
@@ -96,12 +151,94 @@ fun AcceptorRulesEditor(
                     total = rules.size,
                     dictionary = dictionary,
                     wide = wide,
-                    onChange = { updated -> onRulesChange(rules.replaced(ruleIndex, updated)) },
-                    onDelete = { onRulesChange(rules.without(ruleIndex)) },
-                    onMove = { by -> onRulesChange(rules.moved(ruleIndex, by)) },
+                    shadowedBy = AcceptorResponder.shadowingRule(rules, ruleIndex),
+                    note = placement?.takeIf { it.first == ruleIndex }?.second,
+                    onChange = { updated -> edit(rules.replaced(ruleIndex, updated)) },
+                    onDelete = { edit(rules.without(ruleIndex)) },
+                    onMove = { by -> edit(rules.moved(ruleIndex, by)) },
                 )
             }
         }
+    }
+}
+
+/**
+ * The preset library, as a menu.
+ *
+ * Grouped by what a venue does rather than by message type, because a tester arrives wanting "an order
+ * that fills" or "a cancel that gets rejected" and not wanting 35=D. Each entry's tooltip is the rule
+ * **as it will be inserted** — the template text, not a rendering of it, so what lands in the editor is
+ * what was read. `/acceptor/test` is where a rendering belongs; it has a message to render against.
+ */
+@Composable
+private fun PresetMenu(existing: List<AcceptorResponseRule>, onPick: (AcceptorPreset) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+
+    Box {
+        SlimButton(text = "+ preset", onClick = { open = true }, color = AppTheme.Colors.primary)
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            modifier = Modifier.background(AppTheme.Colors.surface),
+        ) {
+            var lastGroup: String? = null
+            AcceptorPresets.all.forEach { preset ->
+                if (preset.group != lastGroup) {
+                    lastGroup = preset.group
+                    Text(
+                        text = preset.group,
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 9.sp,
+                        modifier = Modifier.padding(start = 8.dp, top = 6.dp, bottom = 2.dp),
+                    )
+                }
+                AppTooltip(text = presetPreview(preset, existing), monospace = true, maxWidth = 520.dp) {
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(preset.name, color = AppTheme.Colors.text, fontSize = 10.sp)
+                                Text(preset.summary, color = AppTheme.Colors.textDisabled, fontSize = 9.sp)
+                            }
+                        },
+                        onClick = {
+                            onPick(preset)
+                            open = false
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** What a preset will insert, and — when it matters — where. */
+internal fun presetPreview(preset: AcceptorPreset, existing: List<AcceptorResponseRule>): String {
+    val body =
+        if (preset.rules.size == 1) {
+            val rule = preset.rules.single()
+            (listOf(triggerLine(rule)) + stepLines(rule)).joinToString("\n")
+        } else {
+            preset.rules.joinToString("\n") { rule ->
+                "• ${triggerLine(rule)} · ${rule.sequence().size} step(s)"
+            }
+        }
+    val note = AcceptorPresets.insert(existing, preset).note
+    return body + (note?.let { "\n\n$it" } ?: "")
+}
+
+private fun triggerLine(rule: AcceptorResponseRule): String =
+    "when 35=${rule.whenMsgType}" +
+        rule.trigger().joinToString("") { condition ->
+            val matcher = condition.parsed()
+            " and ${condition.tag} " + (matcher?.let { ExpectationEvaluator.describe(it) } ?: "?")
+        }
+
+private fun stepLines(rule: AcceptorResponseRule): List<String> {
+    var offset = 0L
+    return rule.sequence().mapIndexed { index, step ->
+        offset += step.delayMillis.coerceAtLeast(0)
+        "${index + 1}. +${offset}ms  ${step.template}"
     }
 }
 
@@ -121,6 +258,10 @@ private fun RuleCard(
     total: Int,
     dictionary: FixDictionary?,
     wide: Boolean,
+    /** The earlier rule that answers every message of this type, if one provably does. */
+    shadowedBy: Int?,
+    /** Why this rule is where it is, when it did not simply go on the end. Cleared by the next edit. */
+    note: String?,
     onChange: (AcceptorResponseRule) -> Unit,
     onDelete: () -> Unit,
     onMove: (Int) -> Unit,
@@ -239,6 +380,29 @@ private fun RuleCard(
             Text(
                 text = "⚠ $problem",
                 color = AppTheme.Colors.warning,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+
+        // The same slot, for the fault a well-formed rule can still have: it is unreachable. Nothing
+        // about the rule is wrong, so it validates, and nothing comes back at run time either — which
+        // reads as the venue being broken rather than the list being ordered.
+        shadowedBy?.let { earlier ->
+            Text(
+                text =
+                    "⚠ never fires — rule ${earlier + 1} answers every 35=${rule.whenMsgType}. " +
+                        "Move it earlier, or give it a condition.",
+                color = AppTheme.Colors.warning,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+
+        note?.let {
+            Text(
+                text = "↳ $it",
+                color = AppTheme.Colors.textDisabled,
                 fontSize = 9.sp,
                 modifier = Modifier.padding(top = 2.dp),
             )

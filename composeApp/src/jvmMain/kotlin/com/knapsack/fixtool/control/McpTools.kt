@@ -481,6 +481,18 @@ object McpTools {
                 required = listOf("profile"),
             ),
             tool(
+                "fixtool_acceptor_presets",
+                "List the ready-made acceptor behaviours for the common order flow — acknowledge, fill, partial " +
+                    "fill, reject, cancel accept/reject, replace, business reject — plus the `starter-venue` bundle " +
+                    "that makes a plausible venue in one call. Takes no arguments. Each entry reports its `id` " +
+                    "(what fixtool_acceptor_rule's `preset` takes), what triggers it, and the exact reply it will " +
+                    "insert. They are ordinary rules once inserted: editable, reorderable, deletable, and " +
+                    "indistinguishable from hand-written ones. Use these rather than composing an ExecutionReport " +
+                    "by hand — each already carries the tags its message type owes, and only reads request tags its " +
+                    "own trigger guarantees are there.",
+                props(),
+            ),
+            tool(
                 "fixtool_acceptor_rule",
                 "Add, replace, toggle or delete ONE acceptor auto-response rule, leaving the rest of the profile " +
                     "untouched. Use this rather than fixtool_save_profile when changing rules: the rule list is a " +
@@ -493,10 +505,16 @@ object McpTools {
                     "A rule is {whenMsgType, conditions?, whenFields?, enabled?, steps:[{template, delayMillis}]} — " +
                     "see fixtool_acceptor_rules for the full vocabulary. Test it with fixtool_acceptor_test before " +
                     "connecting anything. An edit applies to an already-connected acceptor on its next trigger — no " +
-                    "reconnect — and the response says appliedToLiveSessions when it did.",
+                    "reconnect — and the response says appliedToLiveSessions when it did. " +
+                    "`preset` inserts a ready-made behaviour instead of a hand-written `rule` (ids from " +
+                    "fixtool_acceptor_presets) and chooses its own position, so it cannot be combined with `index`: " +
+                    "a conditioned rule placed below an unconditioned one for the same MsgType would never fire, so " +
+                    "one lands above it and the response says `placedAbove`. The response also reports `shadowedBy` " +
+                    "when the rule you just wrote is unreachable for that reason.",
                 props(
                     "profile" to string("profile id or name"),
                     "rule" to objectSchema("the rule to add or replace; omit to toggle or delete"),
+                    "preset" to string("insert a ready-made behaviour by id — see fixtool_acceptor_presets"),
                     "index" to integer("which rule; omit with 'rule' to append"),
                     "enabled" to boolean("toggle a rule on/off, or set the state of a rule being written"),
                     "delete" to boolean("true = remove the rule at 'index'"),

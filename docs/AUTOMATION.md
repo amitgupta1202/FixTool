@@ -113,7 +113,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /profiles?profile=` | query: `profile` (id or name)      | **one profile's whole config** — every field, for a read → edit → save round-trip. Passwords read as `[REDACTED]` |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?, "replace"?}` | create, or **merge** into an existing profile if `id` is given → `{status, id, name, mode, applied[], warnings?}`. `replace:true` replaces the whole config instead |
 | `DELETE /profiles`   | `{"id"}` (or `?id=`)                   | delete a profile (demo profiles are protected)       |
-| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations", "show"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does) |
+| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations", "show"?, "profile"?, "rule"?, "step"?, "action"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does; `editor` with a `profile` and a `rule` (+ optional `step`) opens that acceptor rule's reply step in the message editor, and `action:apply`/`action:cancel` finishes it) |
 | `GET /templates`     | query: `profile`?                      | list saved templates (name, type, userTags, isFavorite, fields) |
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
@@ -526,6 +526,28 @@ Two things every preset does that a hand-written rule should copy:
 - **Never read a tag the trigger does not guarantee.** `${req.44}` against a market order substitutes
   nothing and puts `31=` on the wire, which is a malformed message the client gets blamed for. That
   is why the fill presets are conditioned on `40 = 2` and the replace preset requires `38`.
+
+#### Editing a reply step in the message editor
+
+A step is a raw FIX string, and reading one is the same problem writing one was. `POST /panel` opens
+it in the message editor instead, where its tags carry dictionary names and its values carry enum
+menus:
+
+```bash
+curl -s -XPOST $B/panel -d '{"panel":"editor","profile":"My Acceptor","rule":0,"step":1}'
+curl -s -XPOST $B/panel -d '{"panel":"editor","action":"apply"}'    # or "cancel"
+```
+
+**Apply stages the step; it does not save it** — exactly as typing into the raw field would, so Save
+is still what persists it and still the only thing a live venue notices. The response says
+`saved:false` for that reason.
+
+Two things are refused **by tag** rather than written, because the round trip is lossless only while
+both ends agree what a field is: a value containing `|`, which would come back as two fields, and a
+tag left with no value, which goes on the wire as `31=`.
+
+The message being composed in the editor is not disturbed — it comes back when the step is applied or
+cancelled.
 
 #### Testing a rule without a counterparty
 

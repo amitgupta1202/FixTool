@@ -22,6 +22,7 @@ import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
+import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.service.AcceptorPresets
 import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.EchoDetector
@@ -461,6 +462,16 @@ class ControlServer(
                 put("show", show)
                 sessionKey?.let { put("session", it) }
             }
+        }
+        // Editing one rule's reply step in the grid rather than as a raw string, which is otherwise a
+        // mouse-only path: the button on the step row is the only way in, so nothing without a hand on
+        // the mouse could reach it — or check that it works. Same reason `profile` exists below.
+        //
+        // `action` finishes what was opened: `apply` writes the edited step back to the staged rule
+        // (Save still persists it), `cancel` leaves the rule alone. Both restore whatever message was
+        // being composed before the step borrowed the editor.
+        if (name == "editor" && (body.containsKey("rule") || body.containsKey("action"))) {
+            return editorReplyStep(body)
         }
         // `profile` loads that profile onto the connection form, as clicking it in the list does —
         // the only way to reach the acceptor rules editor, the SSL fields, or anything else the form
@@ -1826,6 +1837,82 @@ class ControlServer(
                 )
             }
         }
+
+    /**
+     * Opens one rule's reply step in the message editor, or finishes the one that is open.
+     *
+     * The apply path deliberately goes through the **ViewModel**, not through the rules list: it is the
+     * same call the Apply button makes, so the refusals it owes — a value carrying the field separator,
+     * a tag with no value — are the ones an author gets, and a change to either cannot pass here while
+     * failing there. What it does *not* do is save: the step lands in the connection panel's staged
+     * rules, exactly as typing into the raw field would, and Save is still what persists it.
+     */
+    private fun editorReplyStep(body: JsonObject): JsonElement {
+        val action = body["action"]?.jsonPrimitive?.content?.lowercase()
+        return onEdt {
+            when (action) {
+                "apply" -> {
+                    val target = viewModel.editorTarget as? EditorTarget.ReplyStep
+                        ?: return@onEdt errorObject("the editor is not holding a reply step")
+                    val applied = viewModel.applyReplyStep()
+                        ?: return@onEdt errorObject(
+                            viewModel.editorValidationErrors.joinToString(" ").ifBlank { "the step could not be applied" },
+                        )
+                    buildJsonObject {
+                        put("status", "applied")
+                        put("rule", applied.ruleIndex)
+                        put("step", applied.stepIndex)
+                        put("template", applied.template)
+                        // Staged, not saved — said plainly, because a venue that has not changed must
+                        // never read as one that has.
+                        put("saved", false)
+                        put("profile", target.profileId)
+                    }
+                }
+                "cancel" -> {
+                    if (viewModel.editorTarget !is EditorTarget.ReplyStep) {
+                        return@onEdt errorObject("the editor is not holding a reply step")
+                    }
+                    viewModel.cancelReplyStep()
+                    buildJsonObject {
+                        put("status", "cancelled")
+                    }
+                }
+                null -> {
+                    val profileKey = body["profile"]?.jsonPrimitive?.content
+                        ?: return@onEdt errorObject("missing 'profile'")
+                    val ruleIndex = body["rule"]?.jsonPrimitive?.intOrNull
+                        ?: return@onEdt errorObject("missing 'rule' (the rule's index)")
+                    val stepIndex = body["step"]?.jsonPrimitive?.intOrNull ?: 0
+                    val profile =
+                        viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey }
+                            ?: return@onEdt errorObject("unknown profile: $profileKey")
+                    val rules = profile.config.acceptorResponseRules
+                    val rule = rules.getOrNull(ruleIndex)
+                        ?: return@onEdt errorObject(
+                            "rule $ruleIndex is out of range (the profile has ${rules.size} rule(s))",
+                        )
+                    val step = rule.sequence().getOrNull(stepIndex)
+                        ?: return@onEdt errorObject(
+                            "step $stepIndex is out of range (rule $ruleIndex replies with ${rule.sequence().size} step(s))",
+                        )
+                    // The panel has to be showing this profile, or Apply would arrive at a rule list
+                    // that is not the one this step came from and be refused for it.
+                    viewModel.requestConnectionPanelSelection(profile.id)
+                    if (!viewModel.showConnectionPanel.value) viewModel.toggleConnectionPanel()
+                    viewModel.openReplyStep(profile.id, ruleIndex, stepIndex, step.template)
+                    buildJsonObject {
+                        put("status", "editing")
+                        put("profile", profile.name)
+                        put("rule", ruleIndex)
+                        put("step", stepIndex)
+                        put("template", step.template)
+                    }
+                }
+                else -> errorObject("unknown action '$action' (apply|cancel), or omit it to open a step")
+            }
+        }
+    }
 
     /** `/acceptor/rules` is method-aware: GET inspects, POST adds/replaces/toggles one, DELETE removes one. */
     private fun acceptorRulesEndpoint(ex: HttpExchange): JsonElement =

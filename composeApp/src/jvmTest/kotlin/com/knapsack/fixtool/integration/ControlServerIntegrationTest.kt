@@ -838,6 +838,59 @@ class ControlServerIntegrationTest {
         assertEquals(0, rules[1].jsonObject["shadowedBy"]!!.jsonPrimitive.int)
     }
 
+    /**
+     * The step-in-the-editor hand-off, which is otherwise reachable only with a mouse — so without
+     * this it could neither be driven nor checked without a hand on one.
+     */
+    @Test
+    fun `a reply step can be opened in the editor, applied, and left unsaved`() {
+        val id = obj(post("/profiles", """{"name":"Venue","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content
+        post("/acceptor/rules", """{"profile":"$id","preset":"ack-then-fill"}""")
+        val original =
+            viewModel.connectionProfiles.first { it.id == id }.config.acceptorResponseRules.first().sequence()[1].template
+
+        val opened = post("/panel", """{"panel":"editor","profile":"$id","rule":0,"step":1}""")
+        assertEquals("editing", status(opened))
+        assertEquals(original, obj(opened)["template"]!!.jsonPrimitive.content, "the editor gets the step as written")
+
+        val applied = post("/panel", """{"panel":"editor","action":"apply"}""")
+        assertEquals("applied", status(applied))
+        assertEquals(
+            original,
+            obj(applied)["template"]!!.jsonPrimitive.content,
+            "a step that was not edited must come back exactly as it went in",
+        )
+        assertFalse(
+            obj(applied)["saved"]!!.jsonPrimitive.boolean,
+            "applying stages the step; a venue that has not changed must not read as one that has",
+        )
+        assertEquals(
+            original,
+            viewModel.connectionProfiles.first { it.id == id }.config.acceptorResponseRules.first().sequence()[1].template,
+            "and the saved profile is the proof of it",
+        )
+    }
+
+    @Test
+    fun `the editor hand-off refuses what it cannot address, by name`() {
+        val id = obj(post("/profiles", """{"name":"Venue","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content
+        post("/acceptor/rules", """{"profile":"$id","preset":"order-ack"}""")
+
+        assertEquals("error", status(post("/panel", """{"panel":"editor","profile":"nope","rule":0}""")))
+        assertEquals("error", status(post("/panel", """{"panel":"editor","profile":"$id","rule":4}""")))
+        val badStep = post("/panel", """{"panel":"editor","profile":"$id","rule":0,"step":3}""")
+        assertEquals("error", status(badStep))
+        assertTrue(obj(badStep)["error"]!!.jsonPrimitive.content.contains("1 step"), "the refusal says what is there")
+
+        // Finishing something that was never started is a different mistake from finishing it wrongly.
+        assertEquals("error", status(post("/panel", """{"panel":"editor","action":"apply"}""")))
+        assertEquals("error", status(post("/panel", """{"panel":"editor","action":"cancel"}""")))
+
+        post("/panel", """{"panel":"editor","profile":"$id","rule":0}""")
+        assertEquals("error", status(post("/panel", """{"panel":"editor","action":"applyy"}""")))
+        assertEquals("cancelled", status(post("/panel", """{"panel":"editor","action":"cancel"}""")))
+    }
+
     @Test
     fun `an out of range rule index is refused rather than silently appending`() {
         val id = obj(post("/profiles", """{"name":"Venue","config":{"connectionType":"ACCEPTOR"}}"""))["id"]!!.jsonPrimitive.content

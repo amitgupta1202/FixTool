@@ -2431,7 +2431,24 @@ stunnel stunnel.conf</code></pre>
     answers everything of its type. The card says where it went until your next edit, and the up/down
     arrows are still yours.
 
-    <p>Two habits worth copying from them when you write your own:</p>
+    <h3>Editing a step in the message editor</h3>
+
+    <p>A reply step is a raw FIX string, and reading one is the same problem writing one was. The
+    <strong>&#8599;</strong> button beside a step's number opens it in the <strong>message editor</strong>
+    &mdash; the same panel you compose anything else in, so its tags carry dictionary names and its values
+    carry the enum menus. <strong>Apply</strong> writes the step back; <strong>Cancel</strong> leaves the
+    rule alone. Send is not offered while a step is loaded: a template has no session to go to.</p>
+
+    <p><strong>Applying is not saving.</strong> The step lands in the form exactly as typing into its raw
+    field would, so <strong>Save</strong> is still what commits it. And a half-written message you were
+    composing is not the price of looking at a rule &mdash; it comes back when you apply or cancel.</p>
+
+    <p>Two edits are refused rather than written, and named by tag: a value containing <code>|</code>,
+    which is the separator between fields and would come back as two of them, and a tag left with no
+    value, which goes on the wire as <code>31=</code> &mdash; a malformed message your counterparty gets
+    blamed for.</p>
+
+    <p>Two habits worth copying from the presets when you write your own:</p>
 
     <ul>
         <li><code>${req.uuid}</code> for OrderID and <code>${uuid}</code> for ExecID. The first is drawn

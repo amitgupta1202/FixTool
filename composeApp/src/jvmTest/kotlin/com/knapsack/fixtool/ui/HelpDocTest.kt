@@ -60,6 +60,8 @@ class HelpDocTest {
                 "a preset is where an empty acceptor starts" to "Starting from a preset",
                 "one OrderID for the whole reply" to "\${req.uuid}",
                 "an unreachable rule is named" to "never fires",
+                "a step can be edited in the message editor" to "Editing a step in the message editor",
+                "applying a step is not saving it" to "Applying is not saving",
             )
         val missing = claims.filterValues { it !in chapter }.keys
 

@@ -82,8 +82,23 @@ object McpTools {
             tool(
                 "fixtool_panel",
                 "Show or hide a UI pane for verification screenshots: connection, editor, detail, settings or " +
-                    "scenarios (the Scenarios rail, docked in the main window).",
-                props("panel" to enumStr("connection", "editor", "detail", "settings", "scenarios", "conversations"), "show" to boolean("default true")),
+                    "scenarios (the Scenarios rail, docked in the main window). " +
+                    "`connection` takes a `profile` to load onto the form, as clicking it in the list does. " +
+                    "`editor` with a `profile` and a `rule` (and optional `step`, default 0) opens that acceptor " +
+                    "rule's reply step in the message editor, where its tags carry dictionary names and its values " +
+                    "carry enum menus — the same hand-off the button on the step row performs, which is otherwise " +
+                    "reachable only with a mouse. Finish it with action:apply (writes the step back to the staged " +
+                    "rule; Save still persists it, and the response says saved:false) or action:cancel. Apply " +
+                    "refuses, by tag, a value carrying the '|' field separator or a tag left with no value — both " +
+                    "would put a malformed message on the wire.",
+                props(
+                    "panel" to enumStr("connection", "editor", "detail", "settings", "scenarios", "conversations"),
+                    "show" to boolean("default true"),
+                    "profile" to string("profile id or name (connection, or editor with a rule)"),
+                    "rule" to integer("editor: which acceptor rule's reply to edit"),
+                    "step" to integer("editor: which step of that reply (default 0)"),
+                    "action" to enumStr("apply", "cancel"),
+                ),
                 required = listOf("panel"),
             ),
             tool(

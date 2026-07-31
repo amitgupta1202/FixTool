@@ -76,6 +76,13 @@ fun TooltipIconButton(
             }
         },
         delayMillis = 0, // We handle delay manually now
+        // The hover watch belongs OUT here, on the tooltip's own box, not on the button's modifier. Inside,
+        // `Modifier.size(16.dp).hoverable(…)` puts the hover node OUTSIDE Material3's
+        // `minimumInteractiveComponentSize`, so it measures that node's 48dp — a hit area four times the
+        // button, overhanging its neighbours, which is how a row of dense buttons came to eat each other's
+        // clicks. Out here the box is the size the button was laid out at, so what is clickable is what is
+        // drawn. See DenseIconRowClickTest and TooltipButtonHitAreaTest.
+        modifier = Modifier.hoverable(interactionSource),
         tooltipPlacement =
             TooltipPlacement.ComponentRect(
                 anchor = Alignment.BottomCenter,
@@ -85,7 +92,7 @@ fun TooltipIconButton(
     ) {
         IconButton(
             onClick = onClick,
-            modifier = modifier.hoverable(interactionSource),
+            modifier = modifier,
             enabled = enabled,
             colors =
                 IconButtonDefaults.iconButtonColors(

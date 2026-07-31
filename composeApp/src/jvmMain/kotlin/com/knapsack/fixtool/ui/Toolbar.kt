@@ -36,6 +36,7 @@ fun Toolbar(
     showDetailPanel: Boolean = false,
     showConnectionPanel: Boolean = false,
     showLatencyPanel: Boolean = false,
+    showOrderBookPanel: Boolean = false,
     connectionProfiles: List<FixConnectionProfile> = emptyList(),
     isDictionaryValid: Boolean = true,
     globalSessionViewMode: FixMessageSession.ViewMode,
@@ -48,6 +49,7 @@ fun Toolbar(
     onToggleDetailPanel: (() -> Unit)? = null,
     onToggleConnectionPanel: (() -> Unit)? = null,
     onToggleLatencyPanel: (() -> Unit)? = null,
+    onToggleOrderBookPanel: (() -> Unit)? = null,
     onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
@@ -564,6 +566,28 @@ fun Toolbar(
                     imageVector = Icons.Default.Article,
                     contentDescription = "Toggle Message Detail Panel",
                     tint = toggleActiveColor(showDetailPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
+                    modifier = tooltipIconModifier,
+                )
+            }
+        }
+
+        // The venue's own memory. Offered beside the latency toggle because both answer "what is this
+        // acceptor doing" rather than "what is on the wire", and neither belongs in the message grid.
+        if (onToggleOrderBookPanel != null) {
+            TooltipIconButton(
+                tooltip =
+                    if (showOrderBookPanel) {
+                        "Order Book: On (click to hide)"
+                    } else {
+                        "Order Book: what this venue is holding, per counterparty"
+                    },
+                onClick = onToggleOrderBookPanel,
+                modifier = tooltipModifier,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ListAlt,
+                    contentDescription = "Toggle Order Book",
+                    tint = toggleActiveColor(showOrderBookPanel, AppTheme.Colors.primary, AppTheme.Colors.textSecondary),
                     modifier = tooltipIconModifier,
                 )
             }

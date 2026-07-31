@@ -154,6 +154,22 @@ private fun ClientRow(client: FixMessageSession, onFocus: (FixMessageSession) ->
             modifier = Modifier.weight(1.2f),
         )
         Cell(text = "${messages.size} msgs", color = AppTheme.Colors.textSecondary, modifier = Modifier.weight(1f))
+        // What the venue is holding *for this client*. The roll-up rather than the book itself: this
+        // pane answers "who is on my venue", and the orders belong to the pane that holds that
+        // client's messages. Absent rather than zeroed when there is nothing booked — a column of
+        // "0 orders" on a venue nobody has traded with is furniture, the same reason a refused-logon
+        // count is only drawn for a venue.
+        val book = client.orderBook()
+        Cell(
+            text =
+                when {
+                    book == null || book.orders.isEmpty() -> ""
+                    book.working > 0 -> "${book.orders.size} orders · ${book.working} working"
+                    else -> "${book.orders.size} orders"
+                },
+            color = if ((book?.working ?: 0) > 0) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+            modifier = Modifier.weight(1.6f),
+        )
     }
 }
 

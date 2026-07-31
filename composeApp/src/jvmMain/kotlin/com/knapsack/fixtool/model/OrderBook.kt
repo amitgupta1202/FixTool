@@ -322,18 +322,39 @@ object OrderBook {
             !event.sent -> Outcome.Ignored
             event.msgType !in spec.movedBy -> Outcome.Ignored
             key != null && key in known -> Outcome.Moved(key)
-            // A replacement the venue has just reported: the key is new, and 41 names the order it
-            // supersedes. This is the only way a chain link is born, which is why a book never invents
-            // one from an inbound 35=G — the client asking is not the venue agreeing.
-            key != null && chain != null && chain in known -> Outcome.Chained(key, chain)
+            // A report naming an order this book holds, under a ClOrdID of its own. **What it is
+            // depends on whether it replaces that order or merely reports on it**, and the difference
+            // is [supersedes]:
+            //
+            //   150=5  11=ORD-7  41=ORD-6   a replacement — ORD-6 ends, ORD-7 begins
+            //   150=4  11=CXL-2  41=ORD-1   ORD-1 is canceled; CXL-2 is the *request's* id, not an order
+            //
+            // Chaining both meant a cancel reply opened a book entry for the cancel request and left
+            // the order it canceled reading `working` — the book disagreeing with the client's own
+            // view of the message it had just sent them, which is the one direction decision 2 says
+            // not to be wrong in. Only the venue can open a chain link either way: a book never
+            // invents one from an inbound 35=G, because the client asking is not the venue agreeing.
+            chain != null && chain in known ->
+                if (key != null && supersedes(event)) Outcome.Chained(key, chain) else Outcome.Moved(chain)
             // A report about an order this book has never seen. Includes the cancel reject naming an
             // unknown OrigClOrdID, which is exactly the message a venue sends when it agrees.
             else -> Outcome.Unattributed
         }
     }
 
-    /** True when this report ends the order it supersedes — the other half of a replace. */
-    fun supersedes(event: OrderEvent): Boolean = event.sent && event.execType == "5"
+    /**
+     * True when this report **replaces** the order it names in 41, rather than merely reporting on it.
+     *
+     * `150=5` is ExecType *Replaced* and is what says so; `39=5` is accepted alongside it because a
+     * venue that sets one and not the other is common enough, and reading a replace as a cancel would
+     * lose the chain entirely. Everything else naming a 41 — a cancel, a pending cancel, a reject — is
+     * about the order already in the book and belongs to it.
+     *
+     * Written when the fold was, and left uncalled: [route] chained on "new key, known 41" alone,
+     * which is also the shape of every cancel reply a venue sends.
+     */
+    fun supersedes(event: OrderEvent): Boolean =
+        event.sent && (event.execType == "5" || event.field(TAG_ORD_STATUS) == "5")
 }
 
 private fun String.toBigDecimalOrNull(): BigDecimal? =

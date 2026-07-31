@@ -135,7 +135,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /acceptor/rules` | `{"profile", "rule"?, "preset"?, "index"?, "enabled"?}` | add (`rule`, no index), replace (`rule` + `index`), toggle (`index` + `enabled`) or insert a ready-made behaviour (`preset`) — **one** rule at a time, leaving the rest of the profile alone |
 | `GET /acceptor/presets` | —                                    | the shipped acceptor behaviours by `id`, each with what triggers it and the reply it inserts |
 | `DELETE /acceptor/rules` | `{"profile", "index"}`             | remove one rule; the rules after it shift up                |
-| `POST /acceptor/test` | `{"profile", "raw", "orderState"?}`   | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `whenOrder` when the rule asks the book, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset. `orderState` is the venue state to assume (`unknown`\|`pending`\|`working`\|`done`, default `unknown`); the answer always reports `assumedOrderState` back |
+| `POST /acceptor/test` | `{"profile", "raw", "orderState"?, "order"?}` | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `whenOrder` when the rule asks the book, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset. `orderState` is the venue state to assume (`unknown`\|`pending`\|`working`\|`done`, default `unknown`); the answer always reports `assumedOrderState` back. `order` is the order to render `${order.…}` against, by the book's own names |
 | `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
@@ -501,15 +501,18 @@ curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"order-re
 | `order-ack` | `35=D` → ExecutionReport, New |
 | `ack-then-fill` | `35=D` with `40=2` → ack, then a fill 250ms later |
 | `ack-partial-fill` | `35=D` with `40=2` → ack, half, then the rest |
+| `ack-accumulating-fills` | `35=D` with `40=2` → ack, then three fills that each read what the last one left |
 | `order-reject-size` | `35=D` with `38 > 1000000` → rejected, `103=3` |
 | `duplicate-clordid` | `35=D` whose ClOrdID the venue already holds live → rejected, `103=6` (two rules: `pending` and `working`) |
 | `cancel-accepted` | `35=F` → pending cancel, then canceled, whatever the book holds |
 | `cancel-accepted-working` | `35=F` **and the order is working** → pending cancel, then canceled |
 | `cancel-rejected` | `35=F` → `35=9`, unknown order, whatever the book holds |
 | `cancel-rejected-unknown` | `35=F` **and the order is unknown** → `35=9`, `102=1` |
-| `replace-accepted` | `35=G` carrying `38` → replaced |
+| `replace-accepted` | `35=G` carrying `38` → replaced, with a **new** OrderID |
+| `replace-accepted-same-id` | `35=G` **and the order is working** → replaced, **keeping** the chain's OrderID |
 | `unsupported-message` | `35=H` → `35=j`, unsupported message type (a venue that answers no status requests) |
 | `status-request-unknown` | `35=H` **and the order is unknown** → `35=j`, `380=1` Unknown ID |
+| `status-request-working` | `35=H` **and the order is working** → `150=I` with the quantities the book holds |
 
 **A preset chooses its own position, so it cannot be given an `index`.** Rules are first-match-wins,
 so a preset that carries conditions goes **above the first enabled rule for its MsgType** — otherwise
@@ -555,6 +558,40 @@ curl -s -XPOST $B/acceptor/test -d '{"profile":"My Acceptor","raw":"35=F|11=CXL-
 **A rule that asks the book cannot be judged without one, so it does not fire** — the same call
 `compile` makes for a trigger it cannot parse, and the safe direction: a rule firing on messages its
 author excluded is the dangerous way to be wrong. `GET /acceptor/orders` is the book itself.
+
+#### Templates that read the book
+
+A step's template can also **read** what the venue is holding: `${order.<name>}`, where the names are
+`orderId`, `clOrdId`, `origClOrdId`, `symbol`, `side`, `orderQty`, `cumQty`, `leavesQty`, `avgPx`,
+`price`, `ordStatus`. Names and not tag numbers on purpose — half of them are facts the venue
+*computed* rather than fields of any message, and `${order.14}` would send a reader looking at the
+wire for something that was never on it.
+
+Both spellings work, exactly as `${req.…}` does: `${order.leavesQty}` is the value and
+`${order.leavesQty / 2}` is arithmetic.
+
+**Resolved per step, as that step is sent** — which is the difference from `${req.…}`, a fact about
+the triggering message that cannot change. The book can, and does, *within one reply*:
+
+```
+35=8|150=0|151=${req.38}|                                    ack — 1000 open
+35=8|150=F|14=${order.cumQty + order.leavesQty / 2}|…        +250ms → 14=500  151=500
+35=8|150=F|14=${order.cumQty + order.leavesQty / 2}|…        +250ms → 14=750  151=250
+35=8|150=F|14=${order.orderQty}|151=0|32=${order.leavesQty}| +250ms → 14=1000 151=0
+```
+
+Written statelessly, those three fills report the same `14=` three times and a client tracking CumQty
+watches each one undo the last.
+
+**A reply that reads the book has to be sure of getting one**, and that is checked on the rule rather
+than at send time: set `whenOrder` to `pending`/`working`/`done`, *or* trigger on `35=D`, which brings
+the order with it. Anything else is a `validationError`. If a reference cannot be resolved anyway — a
+book cleared mid-sequence, an evicted order — the step **is not sent** and says why, rather than
+putting `37=` on the wire as a real field with no value.
+
+"Reply With…" applies the same rule with the message in hand: a shape reading the book against an
+order the venue has not got is offered and greyed out with the reason, the way Fill is already
+refused on a market order.
 
 Two things every preset does that a hand-written rule should copy:
 

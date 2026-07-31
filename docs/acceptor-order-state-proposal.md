@@ -1,9 +1,9 @@
 # Order state for acceptor mode — proposal
 
 **Issue:** [#35](https://github.com/amitgupta1202/FixTool/issues/35)
-**Status:** approved 2026-07-31 as sliced; amended by that review (decisions 2a, 3a, 3b). **Slices A
-and B shipped 2026-07-31**, both live-verified; C and D not started. Slice B added decision 4a and
-found the routing defect fixed with it.
+**Status:** approved 2026-07-31 as sliced; amended by that review (decisions 2a, 3a, 3b). **Slices A,
+B and C shipped 2026-07-31**, all live-verified; D remains out of scope. Slice B added decisions 4a
+and 4b; slice C added 5a and widened 4a's own consequence.
 **Depends on:** #30 (rules engine, shipped), #34 (conditional triggers, shipped), #31 (presets, shipped),
 #32 (multi-client venue, shipped), #40 ("Reply With…", shipped)
 **Mockups:** https://claude.ai/code/artifact/47dbc8fa-ce28-4f94-b4fa-7d155f2a4875
@@ -256,6 +256,36 @@ either:             37=${order.orderId}    ← the OrderID the client was alread
 *Rejected:* a new binding in the script engine. `KotlinJsr223` freezes binding identifiers at compile
 time, which this codebase has been bitten by before, and the textual pass has no such hazard.
 
+### 5a. `${order.…}` resolves **per step, as that step is sent**.
+
+*Added by slice C's build; it is the difference between the feature working and being decorative.*
+
+`${req.…}` is a fact about the triggering message and is fixed the moment that message arrives.
+The book is not fixed — and it moves **inside a single reply**, because each step reaches the wire and
+is recorded before the next is built (decision 2). So the book is read afresh by every step:
+
+```
+ack                                                      1000 open
+14=${order.cumQty + order.leavesQty / 2}   +250ms   →     14=500   151=500
+14=${order.cumQty + order.leavesQty / 2}   +250ms   →     14=750   151=250
+14=${order.orderQty}  151=0                +250ms   →     14=1000  151=0
+```
+
+Captured once at trigger time instead, all three report `14=500` and a client tracking CumQty watches
+each fill undo the last — which is the *stateless* behaviour this slice exists to replace. `plan`
+therefore takes a lookup rather than a value, and that is the whole of why.
+
+**Consequence for the refusal.** Settled question 1 made `${order.…}` imply `whenOrder` is at least
+`pending`. That is right for a message that does not bring an order with it, and wrong for the one
+that does: a `35=D` *creates* the entry, so an order exists by the time any step renders, even though
+the trigger read `unknown` a moment earlier (decision 4a). Without widening it, an accumulating fill
+sequence — the flagship of this slice — could not be written as a rule at all. So the guarantee is
+now: **`whenOrder` required an order, or the trigger is a message type that opens one.**
+
+The runtime backstop stays, because the structural guarantee can still be defeated — a book cleared
+mid-sequence, an evicted order, an order with no ClOrdID. A step whose references cannot resolve **is
+not sent** and says why, exactly as a step that throws already did. It never substitutes empty.
+
 ### 6. Nothing is written to disk.
 
 The book is in memory and dies with the app. A venue simulator that remembered yesterday's orders
@@ -375,6 +405,7 @@ same reason: a number the user can see beats a silence they cannot.
 | `service/AcceptorResponder.kt` | `firstMatch`/`explain` consult the book and report what it said; `${order.…}` resolved alongside `${req.…}` |
 | `model/SendReason.kt` *(new, slice B)* | the reason a reply carries, and the thread-local handoff from whoever decided to the capture in `toApp` |
 | `service/AcceptorPresets.kt` | book-aware rules and reply shapes; the existing ones keep working untouched |
+| `model/OrderBook.kt` *(slice C)* | `fields` — the `${order.…}` vocabulary as a pure function of a booked order, and `names`, so a template naming something else is told it is not a name at all |
 | `ui/OrderBookPanel.kt` *(new)* | the table, the trail, the unattributed list, and the roll-up on the overview pane |
 | `ui/MessageDetailPanel.kt` | the reason a reply was sent, beside the bytes it explains |
 | `control/ControlServer.kt` | `GET /acceptor/orders` (orders, trails, unattributed, evictions); a state argument to `/acceptor/test` |
@@ -424,12 +455,35 @@ The structural refusal from settled question 1 ships here too, ahead of the feat
 rule whose reply contains `${order.…}` and whose `whenOrder` is absent or `unknown` is a
 `validationError`. Slice C therefore cannot ship the hazard.
 
-**C — templates can read.** `${order.…}`, and the presets and `Reply With…` shapes rewritten to use
-it: fills that accumulate, and `37=${order.orderId}` so an order keeps one OrderID across every reply
-it ever gets — where the author wants that (decision 3a). Fixes the identity defect named at the top.
+**C — templates can read. SHIPPED 2026-07-31**, live-verified. `${order.…}` in both spellings,
+resolved per step as it is sent (decision 5a), with `Reply With…` shapes and presets that use it:
+fills that accumulate, and `37=${order.orderId}` so an order keeps one OrderID across every reply it
+ever gets — where the author wants that (decision 3a). Fixes the identity defect named at the top.
+
+Shipped beside the stateless ones, never replacing them (the settled question below): a venue whose
+book was just cleared, or one pointed at a client mid-session, still has the rules that need no
+history. New content — `ack-accumulating-fills` (the sequence whose steps read each other),
+`status-request-working` (the `150=I` sketched below), `replace-accepted-same-id` (decision 3a made
+choosable rather than assumed, beside the one that mints a fresh id), and two `Reply With…` shapes
+that fill what is actually left.
+
+Three calls the build settled:
+
+- **Decision 5a**, above: per-step resolution, and the widening of settled question 1 that it forces.
+- **A refusal, never an empty substitution**, at three layers: the rule refuses to validate, the offer
+  greys the shape out with the reason, and the step refuses to render. The last is a backstop rather
+  than the mechanism — settled question 1 asked for structural — but it has to exist, because a book
+  can be cleared between a rule matching and its third step going out.
+- **`status-request-working` is two rules, `working` and `done`.** Live verification caught the first
+  version: conditioned `working` alone, a status request for a *filled* order fell past it to the
+  unknown-order reject, and the venue disowned an order whose fills it had just sent. `pending` is
+  deliberately still absent — a venue holding an order it has told the client nothing about has no
+  OrderID to quote, so that rule would refuse at send time. Excluding it is the structural version of
+  the same refusal.
 
 Also the preset that only becomes writable here, and needs no new mechanism at all — **status request
-answered from the book**:
+answered from the book** (shipped as `status-request-working`, with the `done` twin the live run
+found was missing):
 
 ```
 when 35=H and the order is working →
@@ -461,7 +515,9 @@ The layers this codebase distinguishes, and what only each can say:
   the venue sent each time** (decision 3a — the test that fails if inheritance is ever hard-coded);
   and **a `150=H` bust moves CumQty down**, from a hand-sent report as readily as a rule's (2a).
 - **Engine** — `explain` reports `whenOrder` like any other condition; a rule conditioned `unknown`
-  does not fire for an order the book holds; `${order.…}` resolves in both spellings.
+  does not fire for an order the book holds; `${order.…}` resolves in both spellings, and a plan's
+  steps read the book **separately** — a test whose fake book returns a fresh map per call, because
+  one shared mutable map would pass against the captured-once implementation it exists to refuse.
 - **Integration (real venue, real client, real port)** — the claims nothing below can make: a cancel
   for an order that was never sent comes back `35=9`, and one for a live order comes back canceled,
   *from the same rule list*; a partial then a full fill leave the client's own view of CumQty

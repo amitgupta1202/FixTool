@@ -5,6 +5,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import quickfix.Message
 import java.time.LocalDateTime
@@ -208,6 +209,67 @@ object AcceptorResponder {
                 resolveExpressions(resolveAtSendTime(againstRequest), request, dictionary)
             }
         }
+    }
+
+    /**
+     * Every tag [template] reads off the request, both spellings, in the order they first appear.
+     *
+     * The two spellings are the two [resolveRequestRefs] fills in — `${req.44}` standing alone, and
+     * `req.38` inside a larger expression — and a caller asking "what does this reply need?" has to
+     * see both or it will pronounce a partial fill safe on a message with no OrderQty.
+     */
+    fun requestTags(template: String): List<Int> =
+        (
+            REQ_REF.findAll(template).map { it.groupValues[1] } +
+                ANY_EXPR.findAll(template).flatMap { expr ->
+                    REQ_IN_EXPR.findAll(expr.groupValues[1]).map { it.groupValues[1] }
+                }
+        ).mapNotNull { it.toIntOrNull() }.distinct().toList()
+
+    /**
+     * The reply shapes on offer for [incoming], each with the reason it cannot be sent, if any.
+     *
+     * Filtered by MsgType alone. A *rule* has to be conservative about tags it might not get, because
+     * it is written before the message arrives — which is why the fill presets are conditioned on
+     * `40 = 2`. Here the message is in hand, so the question is answerable rather than guessable: the
+     * shape is offered, and if it reads a tag this message does not carry, it says so instead of
+     * quietly building `31=` and letting the client take the blame.
+     */
+    fun offersFor(incoming: Message, dictionary: FixDictionary? = null): List<ReplyOffer> {
+        val msgType = valueOf(incoming, MSG_TYPE_TAG) ?: return emptyList()
+        return AcceptorPresets.replyShapes
+            .filter { it.answers == msgType }
+            .map { shape ->
+                val missing = requestTags(shape.template).filter { valueOf(incoming, it) == null }
+                ReplyOffer(shape, refusal = missing.takeIf { it.isNotEmpty() }?.let { refusal(it, dictionary) })
+            }
+    }
+
+    private fun refusal(missing: List<Int>, dictionary: FixDictionary?): String {
+        val named =
+            missing.joinToString(", ") { tag ->
+                dictionary?.getFieldName(tag)?.let { "$tag ($it)" } ?: "$tag"
+            }
+        return if (missing.size == 1) {
+            "this message carries no $named, and the reply reads it"
+        } else {
+            "this message carries none of $named, and the reply reads them"
+        }
+    }
+
+    /**
+     * [shape] resolved against [incoming] — the message an author is about to edit and send by hand.
+     *
+     * Deliberately routed through [plan] rather than through [resolve]: a one-step rule *is* what this
+     * is, and going the long way round means the manual reply and the automatic one cannot resolve
+     * differently. The expression pass is the difference that would have been missed —
+     * `${req.38 / 2}` is half an order to [plan] and a literal to [resolve].
+     */
+    fun replyTo(shape: ReplyShape, incoming: Message, request: FixMessage? = null, dictionary: FixDictionary? = null): String {
+        val rule = AcceptorResponseRule(whenMsgType = shape.answers, steps = listOf(ResponseStep(shape.template)))
+        return plan(rule, incoming, request, dictionary)
+            .single()
+            .render()
     }
 
     /**

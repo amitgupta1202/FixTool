@@ -13,6 +13,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -43,6 +45,8 @@ import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.ReplyOffer
+import com.knapsack.fixtool.service.ReplyShape
 import com.knapsack.fixtool.service.groupCountSafe
 import quickfix.Field
 import quickfix.FieldMap
@@ -84,6 +88,12 @@ fun MessageDetailPanel(
     // "Diff against…" — open the plain diff viewer with this message as side A and the other side armed
     // for a session pick or a paste (Phase 7 entry point). Available on any message with wire bytes.
     onDiffAgainst: ((FixMessage) -> Unit)? = null,
+    // "Reply With…" — the shapes this message can be answered with, and what to do when one is picked.
+    // Empty for anything an acceptor would not answer; the host decides, because whether a message
+    // arrived on a venue's session is not something this panel can see. See
+    // FixMessageViewModel.replyOffersFor.
+    replyOffers: List<ReplyOffer> = emptyList(),
+    onReplyWith: ((ReplyShape) -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -132,6 +142,13 @@ fun MessageDetailPanel(
 
                     // Only show message-specific buttons when a message is selected
                     if (message != null) {
+                        // "Reply With…" — first, because on a venue's session it is the thing being done to
+                        // this message; the rest of the row is about reading it.
+                        if (onReplyWith != null && replyOffers.isNotEmpty()) {
+                            ReplyWithMenu(offers = replyOffers, onPick = onReplyWith)
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
                         // "Diff against…" — start a plain diff with this message on one side (Phase 7 entry point).
                         if (onDiffAgainst != null) {
                             TooltipIconButton(
@@ -1679,6 +1696,64 @@ private val groupInstanceBackgroundColor = AppTheme.Colors.surfaceHeader
 
 private val headerTextColor = AppTheme.Colors.text
 private val iconTintColor = AppTheme.Colors.textSecondary
+/**
+ * **Answer this message by hand**, with one of the shapes the rules engine would have used.
+ *
+ * The refusals are shown rather than hidden, in the offer's own second line where the summary would
+ * be: a tester looking for "Fill" and not finding it learns nothing, and a tester who reads "this
+ * message carries no 44 (Price), and the reply reads it" has just been told their order was a market
+ * order. Disabled, so the answer cannot be clicked past. See [ReplyOffer].
+ */
+@Composable
+private fun ReplyWithMenu(offers: List<ReplyOffer>, onPick: (ReplyShape) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TooltipIconButton(
+            tooltip = "Reply With… — open a reply to this message in the editor",
+            onClick = { open = true },
+            modifier = buttonSize.testTag("detail-reply-with"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Reply,
+                contentDescription = "Reply With",
+                tint = iconTintColor,
+                modifier = iconSize,
+            )
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            modifier = Modifier.background(AppTheme.Colors.surface),
+        ) {
+            offers.forEach { offer ->
+                DropdownMenuItem(
+                    enabled = offer.available,
+                    text = {
+                        Column {
+                            Text(
+                                offer.shape.name,
+                                color = if (offer.available) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
+                                fontSize = 10.sp,
+                            )
+                            Text(
+                                offer.refusal ?: offer.shape.summary,
+                                color = if (offer.available) AppTheme.Colors.textDisabled else AppTheme.Colors.warning,
+                                fontSize = 9.sp,
+                            )
+                        }
+                    },
+                    onClick = {
+                        onPick(offer.shape)
+                        open = false
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.testTag("reply-shape-${offer.shape.id}"),
+                )
+            }
+        }
+    }
+}
+
 private val searchIconColor = AppTheme.Colors.textDisabled
 private val timestampColor = AppTheme.Colors.textSecondary
 private val rawMessageTextColor = AppTheme.Colors.text

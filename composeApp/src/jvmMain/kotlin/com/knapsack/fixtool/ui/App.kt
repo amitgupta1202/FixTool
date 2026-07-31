@@ -19,6 +19,7 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
+import com.knapsack.fixtool.service.ReplyShape
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.terminal.TerminalController
@@ -1176,6 +1177,10 @@ private fun AppMessageDetailPanel(
         tagResultsAreDiagnostic = selectedMessage?.let { viewModel.assertionResults[it]?.kind } == "diagnosis",
         onEditAssertion = selectedMessage?.let { msg -> ({ tag: Int? -> viewModel.openScenarioEditorForFailure(msg, tag) }) },
         onDiffAgainst = { msg -> viewModel.openDiffAgainst(msg) },
+        // Empty for everything that is not an order sitting on a venue's session, which is what keeps
+        // "Reply With…" off the panel entirely for the initiator half of the app.
+        replyOffers = selectedMessage?.let { viewModel.replyOffersFor(it) } ?: emptyList(),
+        onReplyWith = selectedMessage?.let { msg -> ({ shape: ReplyShape -> viewModel.replyWith(msg, shape); Unit }) },
     )
 }
 

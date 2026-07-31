@@ -2,7 +2,10 @@
 
 **Issue:** [#31](https://github.com/amitgupta1202/FixTool/issues/31)
 **Depends on:** #30 (auto-response rules engine, shipped), #34 (conditional logic, shipped)
-**Unblocks:** [#40](https://github.com/amitgupta1202/FixTool/issues/40) ("Reply With…")
+**Unblocks:** [#40](https://github.com/amitgupta1202/FixTool/issues/40) ("Reply With…") — **shipped**, as
+`AcceptorPresets.replyShapes` and the `Reply With…` menu in the message detail panel. A shape is a *step*
+where a preset is a *rule*: every template it offers is one a preset here already plays, referenced rather
+than re-typed, so the venue answers the same way whether a rule sends it or a tester does.
 **Mockups:** https://claude.ai/code/artifact/521f1b1f-2ce4-4a3f-a69c-1e010cb49429
 
 ---

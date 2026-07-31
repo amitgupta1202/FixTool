@@ -21,6 +21,39 @@ data class AcceptorPreset(
 )
 
 /**
+ * One message an acceptor can answer a received message with, chosen by hand.
+ *
+ * [template] carries the same `${req.<tag>}` / `${uuid}` / `${now}` substitutions a rule's step does,
+ * and is resolved by the same engine — see [AcceptorResponder.replyTo]. What arrives in the editor is
+ * therefore the message the rules engine would have sent, for this message, at this moment.
+ */
+data class ReplyShape(
+    val id: String,
+    val name: String,
+    /** The second line in the menu: what this says, in FIX. */
+    val summary: String,
+    /** The MsgType this answers. */
+    val answers: String,
+    val template: String,
+)
+
+/**
+ * A [ReplyShape] as offered for one particular received message.
+ *
+ * [refusal] is why this shape cannot be built from *this* message — the tags it reads that the message
+ * does not carry. It is not a rule being cautious: the value would substitute empty, `31=` would go on
+ * the wire as a real field with no value, and the client would be blamed for the malformed message.
+ * The offer is shown either way, because "Fill needs a price and this is a market order" is the answer
+ * the tester came for; it just cannot be clicked.
+ */
+data class ReplyOffer(
+    val shape: ReplyShape,
+    val refusal: String? = null,
+) {
+    val available: Boolean get() = refusal == null
+}
+
+/**
  * The acceptor's shipped content: the common order flow, ready to insert.
  *
  * Everything needed to *author* a venue shipped with the rules engine. What did not ship is anything
@@ -265,6 +298,41 @@ object AcceptorPresets {
 
     /** Preset ids, for naming what an unknown one could have meant. */
     val ids: List<String> get() = all.map { it.id }
+
+    // ------------------------------------------------------------------ replying by hand
+
+    /**
+     * The same templates, offered one message at a time — what "Reply With…" answers a received
+     * message with.
+     *
+     * **A shape is a step, where a preset is a rule.** A rule carries a trigger and may reply with a
+     * sequence, because it has to decide for messages that have not arrived yet. Replying by hand has
+     * the message in front of it and sends one thing, so the trigger is the author's own choice of
+     * message and the sequence is them choosing twice. Every template here is one a preset already
+     * plays, referenced rather than re-typed: a fill that drifted from the fill the rules engine sends
+     * would make the manual path a different venue from the automatic one.
+     *
+     * [answers] is the MsgType this replies to, and is the whole of what filters the menu. The
+     * conditions the *presets* carry (`40 = 2` on the fill ones, OrderQty on the replace) have no
+     * counterpart here: a trigger has to be conservative because it is answering messages it has not
+     * seen, while this can simply look at the message and say what it cannot read — see
+     * [AcceptorResponder.offersFor].
+     */
+    val replyShapes: List<ReplyShape> =
+        listOf(
+            ReplyShape("ack", "Acknowledge", "150=0 (NEW) 39=0 — the order is live", "D", ACK),
+            ReplyShape("fill", "Fill", "150=F 39=2 — the whole quantity, at the order's price", "D", FILL),
+            ReplyShape("partial-fill", "Partial fill", "150=F 39=1 — half now, half still working", "D", PARTIAL_FILL),
+            ReplyShape("fill-remainder", "Fill the remainder", "150=F 39=2 — the half a partial left", "D", FILL_REMAINDER),
+            ReplyShape("order-reject", "Reject the order", "150=8 39=8 · 103=3 — with a reason in 58", "D", ORDER_REJECT),
+            ReplyShape("pending-cancel", "Pending cancel", "150=6 39=6 — the cancel is accepted, not done", "F", PENDING_CANCEL),
+            ReplyShape("canceled", "Canceled", "150=4 39=4 — the order is gone", "F", CANCELED),
+            ReplyShape("cancel-reject", "Reject the cancel", "35=9 · 102=1 — unknown order", "F", CANCEL_REJECT),
+            ReplyShape("replaced", "Replaced", "150=5 39=0 — the replacement is live", "G", REPLACED),
+            ReplyShape("business-reject", "Business reject", "35=j · 380=3 — not supported here", "H", BUSINESS_REJECT),
+        )
+
+    fun shapeById(id: String): ReplyShape? = replyShapes.firstOrNull { it.id == id }
 
     // ------------------------------------------------------------------ placement
 

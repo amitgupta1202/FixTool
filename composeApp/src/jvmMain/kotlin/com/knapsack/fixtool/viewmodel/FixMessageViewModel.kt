@@ -36,8 +36,11 @@ import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.model.scenario.withSessions
+import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.LayoutStateService
+import com.knapsack.fixtool.service.ReplyOffer
+import com.knapsack.fixtool.service.ReplyShape
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
@@ -4021,6 +4024,71 @@ class FixMessageViewModel(
         return applied
     }
 
+    /**
+     * The reply shapes on offer for [message] — empty unless it is something an acceptor could answer.
+     *
+     * Three gates, and each one is a different "no". An **outgoing** message is this venue's own reply
+     * and answering it would be talking to itself. A message on an **initiator** session came from a
+     * venue, and replying to a venue's ExecutionReport with another ExecutionReport is not a thing a
+     * client does. A message whose **MsgType** no shape answers is the ordinary empty menu, and is why
+     * this returns a list rather than a boolean: the caller draws nothing at all rather than an
+     * affordance that opens onto nothing.
+     */
+    fun replyOffersFor(message: FixMessage): List<ReplyOffer> {
+        if (message.direction != FixMessage.Direction.INCOMING) return emptyList()
+        val session = sessionContaining(message) ?: return emptyList()
+        val profile = profileForSession(session) ?: return emptyList()
+        if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return emptyList()
+        return AcceptorResponder.offersFor(message.quickfixMessage, dictionary)
+    }
+
+    /**
+     * Loads [shape], resolved against [message], into the message editor. **Nothing is sent.**
+     *
+     * The reply goes back to the client that sent the order, so the session holding [message] is made
+     * active first — the editor sends to the active session, and in a venue with several clients
+     * logged on, the one whose order this is is the only right answer. The author may still change it
+     * in the editor; what they may not do is have it silently default to whichever tab they last
+     * looked at.
+     *
+     * Returns false when the shape cannot be built from this message ([ReplyOffer.refusal]) — the menu
+     * already refuses those, so this is the second lock on the same door, for the path where an offer
+     * is held while the selection moves on.
+     */
+    fun replyWith(message: FixMessage, shape: ReplyShape): Boolean {
+        val offer = replyOffersFor(message).firstOrNull { it.shape.id == shape.id }
+        if (offer == null || !offer.available) {
+            showNotification(
+                offer?.refusal?.let { "Cannot reply with ${shape.name}: $it" }
+                    ?: "${shape.name} does not answer a 35=${message.messageType}",
+                NotificationType.WARNING,
+            )
+            return false
+        }
+        sessionContaining(message)?.let { session ->
+            val index = _sessions.indexOf(session)
+            if (index >= 0 && index != _activeSessionIndex.value) setActiveSession(index)
+        }
+        val resolved = AcceptorResponder.replyTo(shape, message.quickfixMessage, message, dictionary)
+        val fields = rawToFields(resolved).ifEmpty { listOf(FixField()) }
+        // A reply is composed for the wire, so any reply step borrowing the editor is given back first —
+        // otherwise Apply would write this message into somebody's rule.
+        cancelReplyStep()
+        _editorFields.clear()
+        _editorFields.addAll(fields)
+        _editorSelectedFieldIndex.value = 0
+        _editorSelectedIndices.clear()
+        _editorSelectedIndices.add(0)
+        _editorValidationErrors.clear()
+        _editorState.value = MessageEditorState.New
+        _showMessageEditor.value = true
+        return true
+    }
+
+    /** The session whose buffer holds [message], by identity — see [selectMessage]. */
+    private fun sessionContaining(message: FixMessage): FixMessageSession? =
+        _sessions.firstOrNull { session -> session.messages.value.any { it.uid == message.uid } }
+
     /** Leaves reply-step mode with the rule untouched, and the message from before restored. */
     fun cancelReplyStep() {
         if (_editorTarget.value is EditorTarget.ReplyStep) restoreStashedEditor()
@@ -4590,8 +4658,11 @@ class FixMessageViewModel(
      * @param profileName Name for the profile
      * @return Pair of the created profile and session
      */
-    fun createSessionWithProfileForTest(profileName: String): Pair<FixConnectionProfile, FixMessageSession> {
-        val profile = createProfileWithoutSessionForTest(profileName)
+    fun createSessionWithProfileForTest(
+        profileName: String,
+        connectionType: FixConnectionConfig.ConnectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+    ): Pair<FixConnectionProfile, FixMessageSession> {
+        val profile = createProfileWithoutSessionForTest(profileName, connectionType)
 
         val session = createNewSession(profileName)
         val sessionIndex = _sessions.size - 1
@@ -4623,7 +4694,10 @@ class FixMessageViewModel(
      * @param profileName Name for the profile
      * @return The created profile
      */
-    fun createProfileWithoutSessionForTest(profileName: String): FixConnectionProfile {
+    fun createProfileWithoutSessionForTest(
+        profileName: String,
+        connectionType: FixConnectionConfig.ConnectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+    ): FixConnectionProfile {
         val profile =
             FixConnectionProfile(
                 name = profileName,
@@ -4634,6 +4708,7 @@ class FixMessageViewModel(
                         senderCompID = "TEST_SENDER",
                         targetCompID = "TEST_TARGET",
                         beginString = "FIX.4.4",
+                        connectionType = connectionType,
                     ),
             )
         _connectionProfiles.add(profile)

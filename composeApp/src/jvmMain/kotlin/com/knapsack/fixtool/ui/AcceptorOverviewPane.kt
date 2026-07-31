@@ -159,7 +159,7 @@ private fun ClientRow(client: FixMessageSession, onFocus: (FixMessageSession) ->
         // client's messages. Absent rather than zeroed when there is nothing booked — a column of
         // "0 orders" on a venue nobody has traded with is furniture, the same reason a refused-logon
         // count is only drawn for a venue.
-        val book = client.orderBook()
+        val book = client.orderBookFlow()?.collectAsState()?.value
         Cell(
             text =
                 when {

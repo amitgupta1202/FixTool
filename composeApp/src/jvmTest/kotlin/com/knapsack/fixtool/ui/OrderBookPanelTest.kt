@@ -49,8 +49,11 @@ class OrderBookPanelTest {
             sent = false,
             fields =
                 mapOf(
-                    TAG_MSG_TYPE to "D", TAG_CL_ORD_ID to "ORD-5000", TAG_SYMBOL to "VOD.L",
-                    TAG_SIDE to "1", TAG_ORDER_QTY to "5000",
+                    TAG_MSG_TYPE to "D",
+                    TAG_CL_ORD_ID to "ORD-5000",
+                    TAG_SYMBOL to "VOD.L",
+                    TAG_SIDE to "1",
+                    TAG_ORDER_QTY to "5000",
                 ),
             raw = "35=D|11=ORD-5000|55=VOD.L|54=1|38=5000",
             messageUid = 11,
@@ -61,8 +64,13 @@ class OrderBookPanelTest {
             sent = true,
             fields =
                 mapOf(
-                    TAG_MSG_TYPE to "8", TAG_CL_ORD_ID to "ORD-5000", TAG_ORDER_ID to "EX-100005",
-                    TAG_EXEC_TYPE to "0", TAG_ORD_STATUS to "0", TAG_CUM_QTY to "0", TAG_LEAVES_QTY to "5000",
+                    TAG_MSG_TYPE to "8",
+                    TAG_CL_ORD_ID to "ORD-5000",
+                    TAG_ORDER_ID to "EX-100005",
+                    TAG_EXEC_TYPE to "0",
+                    TAG_ORD_STATUS to "0",
+                    TAG_CUM_QTY to "0",
+                    TAG_LEAVES_QTY to "5000",
                 ),
             raw = "35=8|11=ORD-5000|150=0",
             messageUid = 12,
@@ -73,9 +81,14 @@ class OrderBookPanelTest {
             sent = true,
             fields =
                 mapOf(
-                    TAG_MSG_TYPE to "8", TAG_CL_ORD_ID to "ORD-5000", TAG_ORDER_ID to "EX-100005",
-                    TAG_EXEC_TYPE to "F", TAG_ORD_STATUS to "1", TAG_CUM_QTY to "2500",
-                    TAG_LEAVES_QTY to "2500", TAG_LAST_QTY to "2500",
+                    TAG_MSG_TYPE to "8",
+                    TAG_CL_ORD_ID to "ORD-5000",
+                    TAG_ORDER_ID to "EX-100005",
+                    TAG_EXEC_TYPE to "F",
+                    TAG_ORD_STATUS to "1",
+                    TAG_CUM_QTY to "2500",
+                    TAG_LEAVES_QTY to "2500",
+                    TAG_LAST_QTY to "2500",
                 ),
             raw = "35=8|11=ORD-5000|150=F|32=2500",
             messageUid = 13,
@@ -149,7 +162,13 @@ class OrderBookPanelTest {
             sessionKey = "ALPHA",
             at = tick(),
             sent = true,
-            fields = mapOf(TAG_MSG_TYPE to "8", TAG_CL_ORD_ID to "GHOST-9", TAG_EXEC_TYPE to "F", TAG_CUM_QTY to "10"),
+            fields =
+                mapOf(
+                    TAG_MSG_TYPE to "8",
+                    TAG_CL_ORD_ID to "GHOST-9",
+                    TAG_EXEC_TYPE to "F",
+                    TAG_CUM_QTY to "10",
+                ),
             raw = "35=8|11=GHOST-9|150=F|14=10",
             messageUid = 99,
         )
@@ -202,8 +221,12 @@ class OrderBookPanelTest {
                 sent = true,
                 fields =
                     mapOf(
-                        TAG_MSG_TYPE to "8", TAG_CL_ORD_ID to "ORD-$i", TAG_EXEC_TYPE to "2",
-                        TAG_ORD_STATUS to "2", TAG_CUM_QTY to "10", TAG_LEAVES_QTY to "0",
+                        TAG_MSG_TYPE to "8",
+                        TAG_CL_ORD_ID to "ORD-$i",
+                        TAG_EXEC_TYPE to "2",
+                        TAG_ORD_STATUS to "2",
+                        TAG_CUM_QTY to "10",
+                        TAG_LEAVES_QTY to "0",
                     ),
                 raw = "35=8|11=ORD-$i|150=2",
             )

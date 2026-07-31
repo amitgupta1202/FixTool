@@ -495,6 +495,10 @@ class ControlServer(
                         "detail" -> viewModel.showDetailPanel.value to viewModel::toggleDetailPanel
                         "settings" -> viewModel.showSettingsDialog.value to viewModel::toggleSettingsDialog
                         "scenarios" -> viewModel.showScenariosRail.value to viewModel::toggleScenariosRail
+                        // The book's own panel. Without this the only way to put it on screen is a
+                        // click, which is exactly the hole "Reply With…" left and this slice set out
+                        // not to repeat — see the note on /acceptor/orders.
+                        "orderbook" -> viewModel.showOrderBookPanel.value to viewModel::toggleOrderBookPanel
                         else -> return@onEdt null
                     }
                 if (state != show) toggle()
@@ -1949,7 +1953,12 @@ class ControlServer(
         val params = queryParams(ex)
         val requested = params["session"]
         val sessions = onEdt { viewModel.sessions.toList() }
-        val books = sessions.mapNotNull { session -> session.orderBook()?.let { session to it } }
+        val books =
+            sessions
+                // A venue that accepts any client is a listener: its counterparties each have a pane,
+                // and a line for the listener itself would always read zero.
+                .filterNot { it.isVenue }
+                .mapNotNull { session -> session.orderBook()?.let { session to it } }
         if (requested == null) {
             return buildJsonObject {
                 put(

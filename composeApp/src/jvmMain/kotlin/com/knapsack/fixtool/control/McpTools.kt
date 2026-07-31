@@ -81,8 +81,10 @@ object McpTools {
             ),
             tool(
                 "fixtool_panel",
-                "Show or hide a UI pane for verification screenshots: connection, editor, detail, settings or " +
-                    "scenarios (the Scenarios rail, docked in the main window). " +
+                "Show or hide a UI pane for verification screenshots: connection, editor, detail, settings, " +
+                    "scenarios (the Scenarios rail, docked in the main window) or orderbook (what the selected " +
+                    "acceptor session is holding, with each order's trail — see fixtool_acceptor_orders for the " +
+                    "same data as JSON). " +
                     "`connection` takes a `profile` to load onto the form, as clicking it in the list does. " +
                     "`editor` with a `profile` and a `rule` (and optional `step`, default 0) opens that acceptor " +
                     "rule's reply step in the message editor, where its tags carry dictionary names and its values " +
@@ -92,7 +94,7 @@ object McpTools {
                     "refuses, by tag, a value carrying the '|' field separator or a tag left with no value — both " +
                     "would put a malformed message on the wire.",
                 props(
-                    "panel" to enumStr("connection", "editor", "detail", "settings", "scenarios", "conversations"),
+                    "panel" to enumStr("connection", "editor", "detail", "settings", "scenarios", "conversations", "orderbook"),
                     "show" to boolean("default true"),
                     "profile" to string("profile id or name (connection, or editor with a rule)"),
                     "rule" to integer("editor: which acceptor rule's reply to edit"),

@@ -228,6 +228,10 @@ class QuickFixService(
     fun orderBook(sessionId: SessionID? = null): BookView =
         orderBooks.view((sessionId ?: boundSessionId)?.toString().orEmpty())
 
+    /** The same book, as something a panel can watch — see [OrderBookService.views]. */
+    fun orderBookFlow(sessionId: SessionID? = null): kotlinx.coroutines.flow.StateFlow<BookView> =
+        orderBooks.views((sessionId ?: boundSessionId)?.toString().orEmpty())
+
     /** Every counterparty this venue has booked anything for. */
     fun orderBookSessions(): List<String> = orderBooks.sessions()
 

@@ -146,10 +146,65 @@ would answer today's cancel with a state nobody can see the history of, and the 
 a format, a version, and a migration. Clearing a book by hand is a button; the same button covers
 "start this test again".
 
-### 7. What the book cannot attribute is counted, not hidden.
+### 6a. A stateful venue cannot re-derive its own reasons, so it records them.
+
+**This is the decision the rest of the surfacing hangs off, and it is a property being lost rather
+than a feature being added.**
+
+Today the engine is pure. "Why did the venue answer this cancel that way?" can be reconstructed at any
+time from the rule list and the message — which is exactly what `/acceptor/test` does, and why nothing
+anywhere records which rule answered which message. It does not need to. The answer is a function of
+two things that are both still on screen.
+
+The book breaks that. A cancel rejected at 09:14:22 because the order was unknown will, at 09:14:25,
+re-derive as *accepted* — because by then the order exists. Nothing is wrong with either answer; they
+were asked at different times. But a tool that re-derives the reason after the fact would state the
+wrong one **confidently**, and a QA tool that misreports why it did something is worse than one that
+declines to say.
+
+So from slice B, the reply carries its reason, written when the decision is made:
+
+```
+sent by rule 3 — 35=F matched, and the book said ORD-1 was unknown at 09:14:22.418
+```
+
+Attached to the outgoing message, so it is on the message row and in the detail panel next to the
+bytes it explains. `RuleOutcome` already reports the value each tag condition read (`actual`); the
+book constraint reports what the book said, by the same mechanism and in the same place.
+
+*Consequence for the dry run:* `/acceptor/test` renders what a rule **would** send, and once a trigger
+can read state that rendering is conditional. It has to name the state it assumed — and take one, so
+"what would this rule do if the order were already filled" is answerable without arranging for an
+order to be already filled.
+
+### 6b. The book is a fold over a log, and the log is what is shown.
+
+A row saying `CumQty 2500` is a claim. The same row backed by the two fills that made it is evidence,
+and evidence is what a QA tool is for.
+
+So `BookedOrder` is derived — a fold over an ordered list of events, each one a message that moved
+the order: what changed, when, and the message that caused it. That is the same work the book was
+already doing; recording it costs a list.
+
+What it buys is that every number on the panel opens:
+
+```
+ORD-5000  ▾
+  09:14:22.418  →  working    35=8 150=0  ack            17=E-1  ↑ sent
+  09:14:23.006  →  working    35=8 150=F  fill 1500      17=E-2  ↑ sent   cum 1500 · leaves 3500
+  09:14:23.418  →  working    35=8 150=F  fill 1000      17=E-3  ↑ sent   cum 2500 · leaves 2500
+```
+
+It also answers the issue's own "click an order to see full execution history" better than filtering
+the grid does, because the grid shows messages and this shows *what they did to the state* — which is
+the thing that was previously in nobody's head but the venue's.
+
+### 7. What the book cannot attribute is counted, and the count opens.
 
 A report with no ClOrdID, or one naming an order the book has never seen, is not silently dropped: it
-increments an *unattributed* counter shown beside the book. A book that quietly ignores what it does
+increments an *unattributed* counter shown beside the book — and the counter is a link to the list of
+those messages, because "2 unattributed" tells a tester that something is wrong and nothing about
+what. A book that quietly ignores what it does
 not understand looks identical to a book that is working, which is the failure mode that would waste
 a tester's afternoon.
 
@@ -160,36 +215,63 @@ beside that counterparty's messages. The venue overview (`AcceptorOverviewPane`)
 line per client: how many orders, how many working.
 
 A row per order: ClOrdID, OrderID, Symbol, Side, OrderQty, CumQty, LeavesQty, Status, and the time of
-the last thing that moved it. Selecting one filters the grid to that order's messages, which is the
-question a row prompts — *what did we tell them?*
+the last thing that moved it. A row expands to its trail (decision 6b). Selecting one filters the grid
+to that order's messages, which is the other question a row prompts — *what did we tell them?*
+
+Three things are shown that are not orders, because each one is a way the book can be wrong:
+
+- **the unattributed list** — reports the book could not tie to an order;
+- **the eviction count** (decision 8a) — orders dropped to stay inside the cap;
+- **when the book was last cleared, and by what** — an empty book otherwise reads identically as "no
+  orders yet" and "somebody pressed clear", and those lead a tester to opposite conclusions.
+
+### 8a. The book is bounded, and says when it drops something.
+
+A QA tool gets pointed at load tests. An unbounded book under a soak run is a leak, and one that
+silently evicts is worse than one that leaks — a cancel for an evicted order comes back "unknown",
+which is a venue behaviour the tester did not configure and cannot see the cause of.
+
+So: a per-session cap on booked orders, oldest *finished* orders evicted first (a working order is
+never evicted ahead of a done one), with the count of evictions shown beside the book and the cap
+settable. This follows the discard counter the session ingestion path already carries, and for the
+same reason: a number the user can see beats a silence they cannot.
 
 ## What changes where
 
 | file | change |
 |------|--------|
-| `model/OrderBook.kt` *(new)* | `OrderState`, `BookedOrder`, and the state machine as a pure function of (current, message, direction) |
-| `service/OrderBookService.kt` *(new)* | one book per `SessionID`, fed from `fromApp`/`toApp`, thread-safe |
-| `service/QuickFixService.kt` | feed the book from both callbacks; expose it for the pane and the responder |
+| `model/OrderBook.kt` *(new)* | `OrderState`, `OrderEvent`, `BookedOrder` as a **fold** over its events, and the transition as a pure function of (current, message, direction) |
+| `service/OrderBookService.kt` *(new)* | one book per `SessionID`, fed from `fromApp`/`toApp`, thread-safe, bounded |
+| `service/QuickFixService.kt` | feed the book from both callbacks; expose it for the pane and the responder; record the decision on each auto-reply |
 | `model/AcceptorResponseRule.kt` | `whenOrder: OrderConstraint? = null`, folded into `trigger()`'s report and `validationError()` |
-| `service/AcceptorResponder.kt` | `firstMatch`/`explain` consult the book; `${order.…}` resolved alongside `${req.…}` |
+| `service/AcceptorResponder.kt` | `firstMatch`/`explain` consult the book and report what it said; `${order.…}` resolved alongside `${req.…}` |
 | `service/AcceptorPresets.kt` | book-aware rules and reply shapes; the existing ones keep working untouched |
-| `ui/OrderBookPanel.kt` *(new)* | the table, and the roll-up on the overview pane |
-| `control/ControlServer.kt` | `GET /acceptor/orders` |
+| `ui/OrderBookPanel.kt` *(new)* | the table, the trail, the unattributed list, and the roll-up on the overview pane |
+| `ui/MessageDetailPanel.kt` | the reason a reply was sent, beside the bytes it explains |
+| `control/ControlServer.kt` | `GET /acceptor/orders` (orders, trails, unattributed, evictions); a state argument to `/acceptor/test` |
 
 ## Slices
 
-**A — the book, recording and shown.** No behaviour change: no rule can ask about it and no template
-can read it, so nothing that works today works differently. The panel, the roll-up, the unattributed
-counter, and `GET /acceptor/orders` (+ `fixtool_acceptor_orders`). Shippable alone, and immediately
-worth having — "what does the venue think it is holding" currently has no answer at all.
+**A — the book, recording and shown, with its working.** No behaviour change: no rule can ask about it
+and no template can read it, so nothing that works today works differently. The panel, the per-order
+trail, the roll-up, the unattributed list, the eviction count and the cleared-at line, and
+`GET /acceptor/orders` (+ `fixtool_acceptor_orders`). Shippable alone, and immediately worth having —
+"what does the venue think it is holding" currently has no answer at all.
 
-The endpoint is deliberately in the *first* slice: it is what lets this be driven and verified
+The trail is in this slice rather than a later one because it is not a nicety on top of the book: it
+is the difference between a number the tester has to trust and a number they can check, and a QA tool
+that asks to be trusted has picked the wrong side of that.
+
+The endpoint is deliberately in the *first* slice too: it is what lets this be driven and verified
 without a mouse, which is the gap #40 left open.
 
-**B — rules can ask.** `whenOrder` on the rule, in the editor, in `explain`, in `/acceptor/rules`, and
-in `/acceptor/test`. Presets: *cancel rejected — unknown order* (conditioned `unknown`), *cancel
-accepted* (conditioned `working`), *duplicate ClOrdID rejected* (a `35=D` whose ClOrdID is already
-known). This is the slice that answers the issue's acceptance criteria about validation.
+**B — rules can ask, and say what they read.** `whenOrder` on the rule, in the editor, in `explain`,
+in `/acceptor/rules`, and in `/acceptor/test` — which gains a state argument, since a dry run of a
+stateful trigger has to name the state it assumed. Every auto-reply records the rule that chose it and
+what the book said at that moment (decision 6a), shown against the reply in the detail panel. Presets:
+*cancel rejected — unknown order* (conditioned `unknown`), *cancel accepted* (conditioned `working`),
+*duplicate ClOrdID rejected* (a `35=D` whose ClOrdID is already known). This is the slice that answers
+the issue's acceptance criteria about validation.
 
 **C — templates can read.** `${order.…}`, and the presets and `Reply With…` shapes rewritten to use
 it: fills that accumulate, and `37=${order.orderId}` so an order keeps one OrderID across every reply
@@ -206,14 +288,18 @@ The layers this codebase distinguishes, and what only each can say:
 
 - **Unit** — the state machine, as message sequences: an order acked then partially filled twice ends
   `working` with the right CumQty; a replace supersedes and carries CumQty across; a fill for an
-  unknown ClOrdID lands in the unattributed count.
+  unknown ClOrdID lands in the unattributed count; **every row's numbers are the fold of its own
+  trail**, which is the assertion that stops the panel and the evidence drifting apart; eviction takes
+  a finished order before a working one.
 - **Engine** — `explain` reports `whenOrder` like any other condition; a rule conditioned `unknown`
   does not fire for an order the book holds; `${order.…}` resolves in both spellings.
 - **Integration (real venue, real client, real port)** — the claims nothing below can make: a cancel
   for an order that was never sent comes back `35=9`, and one for a live order comes back canceled,
   *from the same rule list*; a partial then a full fill leave the client's own view of CumQty
   consistent; two clients each sending `ORD-1` get two books and neither cancel answers the other's
-  order; a two-step reply reads its own first step's effect.
+  order; a two-step reply reads its own first step's effect; **and the reason recorded against a reply
+  still names the state that produced it after the order has moved on** — the one claim that fails the
+  moment reasons are re-derived instead of recorded.
 
 ## What this is not
 
@@ -221,6 +307,13 @@ Not a matching engine: no book of *other people's* orders, no price-time priorit
 market data. Not positions or P&L. Not persistence. Not an initiator-side view of orders a client has
 sent — that is a different feature for a different user, and folding it in here would make the book
 answer two questions with one table.
+
+**Not an assertion target, yet.** "At this point in the run the venue holds ORD-1 filled" is a
+scenario expectation over venue state, and it is the natural next thing a QA user asks for once the
+book exists. It is deliberately out of these four slices — it needs the scenario engine's
+expectation vocabulary, not the acceptor's — but it is the reason the book is a fold over an
+addressable log rather than a live table: a shape you can assert against later costs nothing to
+choose now.
 
 ## Open questions
 
@@ -231,3 +324,7 @@ answer two questions with one table.
    with the stateless ones kept — they work on a venue whose book was cleared, and a preset that
    silently needs state is a preset that silently does nothing.
 3. **Slice D** — in scope, or leave the manual path where #40 put it?
+4. **The cap** (decision 8a) — a fixed default with a setting, or derived from the session's own
+   message buffer size? Recommendation: its own setting. Retention of *orders* and retention of
+   *messages* are different questions, and deriving one from the other is the mistake the session
+   ingestion path already made once with its queue depth.

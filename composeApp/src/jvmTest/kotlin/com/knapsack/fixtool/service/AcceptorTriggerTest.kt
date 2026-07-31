@@ -230,16 +230,17 @@ class AcceptorTriggerTest {
 
     /**
      * The structural refusal (settled open question 1). A reply that reads `${order.…}` cannot be sent
-     * for an order the book does not hold: every reference would substitute empty and the venue would
+     * for an order the venue will not have: every reference would substitute empty and the venue would
      * put `37=` on the wire as a real field with no value. Refused on the rule, the same way the fill
      * presets are conditioned on `40 = 2` rather than testing for a price at send time.
      *
-     * The substitution itself is slice C. This is the lock, shipped before the door, so slice C cannot
-     * ship the hazard.
+     * Asked of `35=F` because a cancel does not bring an order with it — see the test below for the
+     * message type that does.
      */
     @Test
     fun `a reply that reads the book must require an order to read`() {
-        val reads = rule().copy(steps = listOf(ResponseStep("35=8|37=\${order.orderId}|11=\${req.11}|")))
+        val reads =
+            rule().copy(whenMsgType = "F", steps = listOf(ResponseStep("35=8|37=\${order.orderId}|11=\${req.11}|")))
 
         val problem = assertNotNull(reads.validationError(), "an unconditioned rule reading the book is a broken rule")
         assertTrue(problem.contains("\${order."), "the problem names what it found: $problem")
@@ -251,6 +252,35 @@ class AcceptorTriggerTest {
         assertNull(reads.copy(whenOrder = OrderConstraint.PENDING).validationError())
         assertNull(reads.copy(whenOrder = OrderConstraint.WORKING).validationError())
         assertNull(reads.copy(whenOrder = OrderConstraint.DONE).validationError())
+    }
+
+    /**
+     * **The message that creates the order is its own guarantee.**
+     *
+     * A `35=D` opens the book entry itself — the wire feeds the book before the rules are asked — so
+     * an order exists by the time any step of the reply is rendered, even though `whenOrder` a moment
+     * earlier read `unknown` (decision 4a). Without this, an accumulating fill sequence could not be
+     * written as a rule at all: it answers the very message that brings the order, so no constraint it
+     * could carry would ever hold.
+     */
+    @Test
+    fun `a reply to the message that creates the order may read the book with no constraint at all`() {
+        val fill =
+            rule().copy(
+                whenMsgType = "D",
+                steps =
+                    listOf(
+                        ResponseStep("35=8|150=0|39=0|11=\${req.11}|151=\${req.38}|"),
+                        ResponseStep("35=8|150=F|14=\${order.leavesQty / 2}|", delayMillis = 250),
+                    ),
+            )
+
+        assertNull(fill.validationError(), "the 35=D that triggers this is what puts the order in the book")
+        assertTrue(fill.willHaveAnOrder())
+        assertFalse(
+            fill.copy(whenMsgType = "F").willHaveAnOrder(),
+            "a cancel brings no order with it, so the same reply on 35=F is unsafe",
+        )
     }
 
     /**

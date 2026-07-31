@@ -165,6 +165,24 @@ data class AcceptorResponseRule(
     fun isUnconditional(): Boolean = trigger().isEmpty() && whenOrder == null
 
     /**
+     * True when the venue is **guaranteed** to hold an order by the time this rule's reply is built —
+     * which is what a reply reading `${order.…}` requires, and the whole of why the requirement is
+     * structural rather than a check at send time.
+     *
+     * Two ways to be sure, and the second is the one slice C had to add:
+     *
+     * - **[whenOrder] required one.** `pending`, `working` or `done` all mean the venue was already
+     *   holding it when the message arrived. `unknown` is the exact opposite and does not count.
+     * - **The triggering message is what creates it.** A `35=D` opens the entry itself — the book is
+     *   fed from the wire before the rules are asked — so an order exists by the time any step of the
+     *   reply is rendered, even though `whenOrder` read `unknown` a moment earlier (decision 4a).
+     *   Without this an accumulating fill sequence would be unwritable as a rule: it answers the
+     *   message that brings the order, so no constraint it could carry would ever hold.
+     */
+    fun willHaveAnOrder(): Boolean =
+        (whenOrder != null && whenOrder != OrderConstraint.UNKNOWN) || whenMsgType in BookSpec.ORDERS.bornBy
+
+    /**
      * What is wrong with this rule, in the author's words, or null if it is usable.
      *
      * Judged where it can be acted on — the control surface reports it beside the rule — and
@@ -180,14 +198,13 @@ data class AcceptorResponseRule(
             whenFields.keys.any { it.toIntOrNull() == null } ->
                 "'${whenFields.keys.first { it.toIntOrNull() == null }}' is not a tag number, so this rule can never match"
             conditions.any { it.reason() != null } -> conditions.firstNotNullOf { it.reason() }
-            // A reply that reads the book cannot be sent for an order the book does not hold: every
+            // A reply that reads the book cannot be sent for an order the venue will not have: every
             // `${order.…}` would substitute empty and the venue would put `37=` on the wire as a real
             // field with no value — the malformed message the preset discipline exists to prevent.
             // Refused *structurally*, the way the fill presets are conditioned on `40 = 2` rather than
             // testing for a price at send time: the rule simply does not match, and the next rule for
-            // that MsgType answers instead. (Settled open question 1. The substitution itself is
-            // slice C; this is the lock that has to exist before the door does.)
-            readsTheBook() && (whenOrder == null || whenOrder == OrderConstraint.UNKNOWN) ->
+            // that MsgType answers instead. (Settled open question 1.)
+            readsTheBook() && !willHaveAnOrder() ->
                 "the reply reads \${order.…}, so the trigger has to require an order to read — " +
                     "set 'when the order is' to pending, working or done"
             steps.isNotEmpty() && responseTemplate.isNotBlank() ->

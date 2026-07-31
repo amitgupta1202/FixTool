@@ -1,6 +1,9 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.BookedOrder
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.OrderBook
+import com.knapsack.fixtool.model.OrderEvent
 import org.junit.Test
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
@@ -36,10 +39,52 @@ class AcceptorReplyShapesTest {
             quickfixMessage = AcceptorResponder.buildMessage(raw),
         )
 
-    private fun offers(raw: String) = AcceptorResponder.offersFor(AcceptorResponder.buildMessage(raw))
+    /**
+     * ORD-1 as this venue would be holding it: received, acknowledged, half of 1001 already traded.
+     *
+     * Read through [OrderBook.fields] from a real [BookedOrder] rather than hand-written, so a shape
+     * naming something the fold does not produce fails here rather than in front of a client.
+     */
+    private val booked: Map<String, String> =
+        OrderBook.fields(
+            BookedOrder(
+                key = "ORD-1",
+                events =
+                    listOf(
+                        OrderEvent(
+                            at = LocalDateTime.now(),
+                            sent = false,
+                            msgType = "D",
+                            fields = mapOf(11 to "ORD-1", 55 to "ACME", 54 to "1", 38 to "1001", 44 to "185.25"),
+                        ),
+                        OrderEvent(
+                            at = LocalDateTime.now(),
+                            sent = true,
+                            msgType = "8",
+                            fields =
+                                mapOf(
+                                    11 to "ORD-1",
+                                    37 to "EX-1",
+                                    150 to "F",
+                                    39 to "1",
+                                    14 to "500",
+                                    151 to "501",
+                                ),
+                        ),
+                    ),
+            ),
+        )
 
-    private fun reply(shapeId: String, raw: String): String =
-        AcceptorResponder.replyTo(AcceptorPresets.shapeById(shapeId)!!, AcceptorResponder.buildMessage(raw), request(raw))
+    private fun offers(raw: String, order: Map<String, String>? = null) =
+        AcceptorResponder.offersFor(AcceptorResponder.buildMessage(raw), order = order)
+
+    private fun reply(shapeId: String, raw: String, order: Map<String, String>? = null): String =
+        AcceptorResponder.replyTo(
+            AcceptorPresets.shapeById(shapeId)!!,
+            AcceptorResponder.buildMessage(raw),
+            request(raw),
+            order = order,
+        )
 
     private fun fieldsOf(raw: String): Map<String, String> =
         raw.split('|').filter { it.isNotBlank() }.associate { it.substringBefore('=') to it.substringAfter('=') }
@@ -89,12 +134,12 @@ class AcceptorReplyShapesTest {
     @Test
     fun `the menu is filtered by what the message is`() {
         assertEquals(
-            listOf("ack", "fill", "partial-fill", "fill-remainder", "order-reject"),
+            listOf("ack", "fill", "partial-fill", "fill-remainder", "partial-of-remainder", "fill-what-is-left", "order-reject"),
             offers(limitOrder).map { it.shape.id },
         )
         assertEquals(listOf("pending-cancel", "canceled", "cancel-reject"), offers(cancel).map { it.shape.id })
         assertEquals(listOf("replaced"), offers(replace).map { it.shape.id })
-        assertEquals(listOf("business-reject"), offers(statusRequest).map { it.shape.id })
+        assertEquals(listOf("business-reject", "order-status"), offers(statusRequest).map { it.shape.id })
     }
 
     @Test
@@ -118,8 +163,76 @@ class AcceptorReplyShapesTest {
     }
 
     @Test
-    fun `a limit order refuses nothing`() {
-        offers(limitOrder).forEach { assertNull(it.refusal, "'${it.shape.name}' was refused a message that has everything") }
+    fun `a limit order with a book behind it refuses nothing`() {
+        offers(limitOrder, booked).forEach {
+            assertNull(it.refusal, "'${it.shape.name}' was refused a message that has everything")
+        }
+    }
+
+    /**
+     * The refusal one level up from a missing tag: the message is complete and the *venue* has
+     * nothing. A shape that reads the book against a venue holding no such order must be greyed out
+     * with the reason, not offered and then discovered to build `37=`.
+     */
+    @Test
+    fun `a shape that reads the book is refused when there is no order to read`() {
+        val offered = offers(limitOrder).associateBy { it.shape.id }
+
+        listOf("partial-of-remainder", "fill-what-is-left").forEach { id ->
+            val refusal = offered.getValue(id).refusal
+            assertTrue(refusal != null && "no order here" in refusal, "$id must be refused, and say why: $refusal")
+        }
+        assertNull(offered.getValue("fill").refusal, "the stateless fill needs no book and must still stand")
+    }
+
+    /** A name outside the vocabulary is a typo in the template, not a venue that has not said it yet. */
+    @Test
+    fun `a name the book does not have is refused as a name, not as a missing value`() {
+        val refusal = AcceptorResponder.orderRefusal("35=8|37=\${order.leaves}|", booked)
+
+        assertTrue(refusal != null && "is not a name" in refusal, "got: $refusal")
+        assertTrue(refusal!!.contains("leavesQty"), "and it lists what the names are: $refusal")
+    }
+
+    // ------------------------------------------------------------------ what the book makes truthful
+
+    /**
+     * **The identity defect from the top of the proposal, fixed.** Acknowledging an order and then
+     * filling it by hand drew two OrderIDs for one order, because `${req.uuid}` is one draw per
+     * *triggering message* and a hand-sent reply is its own draw. Read from the book, the fill carries
+     * the id the client already has.
+     */
+    @Test
+    fun `a fill read from the book carries the OrderID the client was already given`() {
+        val stateless = fieldsOf(reply("fill", limitOrder))
+        val fromBook = fieldsOf(reply("fill-what-is-left", limitOrder, booked))
+
+        assertNotEquals("EX-1", stateless["37"], "the stateless fill mints its own id — which is the defect")
+        assertEquals("EX-1", fromBook["37"], "the book's fill is about the order the ack acknowledged")
+    }
+
+    @Test
+    fun `a fill read from the book fills what is left rather than what a template guessed`() {
+        val fields = fieldsOf(reply("fill-what-is-left", limitOrder, booked))
+
+        assertEquals("1001", fields["14"], "the whole order is now done")
+        assertEquals("0", fields["151"])
+        assertEquals("501", fields["32"], "and this fill is the 501 that were still open, not half of 1001")
+    }
+
+    @Test
+    fun `a partial of the remainder accumulates instead of restating the same quantity`() {
+        val fields = fieldsOf(reply("partial-of-remainder", limitOrder, booked))
+
+        // 500 already done, 501 left: half of what is left is 250, so CumQty is 750 and 251 remain.
+        assertEquals("750", fields["14"], "CumQty has to move forward from what the venue already reported")
+        assertEquals("251", fields["151"])
+        assertEquals("250", fields["32"])
+        assertEquals(
+            fields["14"]!!.toInt() + fields["151"]!!.toInt(),
+            1001,
+            "CumQty and LeavesQty still make the order, which is what a client checks",
+        )
     }
 
     @Test

@@ -2438,6 +2438,72 @@ class ControlServer(
      * Nothing is sent and nothing is saved; the profile is read as it stands on disk, which is also
      * why a dry run and a *connected* session can disagree — rules compile when a session connects.
      */
+    private fun acceptorTest(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val profileKey = body["profile"]?.jsonPrimitive?.content ?: return errorObject("missing 'profile'")
+        val raw = body["raw"]?.jsonPrimitive?.content ?: return errorObject("missing 'raw'")
+        if (raw.isBlank()) return errorObject("'raw' is empty")
+
+        val profile =
+            onEdt { viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey } }
+                ?: return errorObject("unknown profile: $profileKey")
+        val dictionary = onEdt { viewModel.dictionary }
+
+        val incoming =
+            try {
+                AcceptorResponder.buildMessage(raw)
+            } catch (e: Exception) {
+                return errorObject("could not parse 'raw' as a FIX message: ${e.message}")
+            }
+        val request = asRequest(raw, incoming)
+        val assumedWord = body["orderState"]?.jsonPrimitive?.contentOrNull
+        val assumed =
+            assumedState(assumedWord, incoming)
+                ?: return errorObject(
+                    "'$assumedWord' is not an order state; known: ${OrderConstraint.words.joinToString(", ")}",
+                )
+
+        val assumedOrder = assumedOrder(body)
+
+        val outcomes = AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming, assumed)
+        val winner = outcomes.firstOrNull { it.selected }
+        val incomingType = request.messageType ?: ""
+
+        return buildJsonObject {
+            put("profile", profile.name)
+            put("connectionType", profile.config.connectionType.name)
+            put("assumedOrderState", assumedStateJson(assumed, given = assumedWord != null))
+            putIfNotAcceptor(profile)
+            put("msgType", incomingType)
+            put("matched", winner != null)
+            put("latency", latencyJson(profile.config.acceptorLatency))
+            put(
+                "rules",
+                buildJsonArray {
+                    outcomes.forEach { outcome -> add(ruleOutcomeJson(outcome, outcomes, incomingType)) }
+                },
+            )
+            winner?.let { selected ->
+                put("response", plannedReplyJson(selected.rule, incoming, request, dictionary, assumedOrder))
+                put(
+                    "note",
+                    "offsets are from the trigger and exclude simulated latency, which is drawn once per " +
+                        "trigger and shifts the whole reply; \${uuid} and \${now} are resolved per step as it is sent",
+                )
+                // Said only when it is true, and it is the difference between "your rule is broken"
+                // and "this dry run had nothing to read". A live venue reads its own book per step.
+                if (selected.rule.readsTheBook() && assumedOrder == null) {
+                    put(
+                        "orderNote",
+                        "this reply reads \${order.…} and no 'order' was given, so the steps that read it are " +
+                            "reported unrendered; pass order:{${OrderBook.names.take(3).joinToString(", ")}, …} " +
+                            "to see what would be sent",
+                    )
+                }
+            }
+        }
+    }
+
     /**
      * **A dry run of a stateful trigger has to name the state it assumed, and take one.**
      *
@@ -2471,6 +2537,34 @@ class ControlServer(
         )
     }
 
+    /**
+     * The tested message as the *request* the engine reads.
+     *
+     * The expression pass reaches the triggering message through a [FixMessage], exactly as the live
+     * path hands it the one QuickFIX just delivered — so `${req.38 / 2}` computes here too, and a dry
+     * run cannot quietly differ from the wire in the one place authors most rely on it.
+     */
+    private fun asRequest(raw: String, incoming: quickfix.Message): FixMessage =
+        FixMessage(
+            timestamp = java.time.LocalDateTime.now(),
+            direction = FixMessage.Direction.INCOMING,
+            rawMessage = raw,
+            quickfixMessage = incoming,
+        )
+
+    /**
+     * The order a dry run renders `${order.…}` against, or null if the caller supplied none.
+     *
+     * The other half of [assumedState]'s argument: that one says what a *trigger* would read, this
+     * says what a *reply* would substitute. A dry run of a template that reads the book needs both,
+     * or it can only report that it could not render. Taken as the book's own names, so the caller
+     * writes what the template writes — see `OrderBook.fields`.
+     */
+    private fun assumedOrder(body: JsonObject): Map<String, String>? =
+        (body["order"] as? JsonObject)
+            ?.mapNotNull { (name, value) -> value.jsonPrimitive.contentOrNull?.let { name to it } }
+            ?.toMap()
+
     /** The assumption, reported back whether or not it was given — see [assumedState]. */
     private fun assumedStateJson(assumed: BookReading, given: Boolean): JsonObject =
         buildJsonObject {
@@ -2487,68 +2581,6 @@ class ControlServer(
             }
         }
 
-    private fun acceptorTest(ex: HttpExchange): JsonElement {
-        val body = readJson(ex)
-        val profileKey = body["profile"]?.jsonPrimitive?.content ?: return errorObject("missing 'profile'")
-        val raw = body["raw"]?.jsonPrimitive?.content ?: return errorObject("missing 'raw'")
-        if (raw.isBlank()) return errorObject("'raw' is empty")
-
-        val profile =
-            onEdt { viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey } }
-                ?: return errorObject("unknown profile: $profileKey")
-        val dictionary = onEdt { viewModel.dictionary }
-
-        val incoming =
-            try {
-                AcceptorResponder.buildMessage(raw)
-            } catch (e: Exception) {
-                return errorObject("could not parse 'raw' as a FIX message: ${e.message}")
-            }
-        // The expression engine reads the *request* through a FixMessage, exactly as the live path
-        // hands it the message QuickFIX just delivered, so `${req.38 / 2}` computes here too.
-        val request =
-            FixMessage(
-                timestamp = java.time.LocalDateTime.now(),
-                direction = FixMessage.Direction.INCOMING,
-                rawMessage = raw,
-                quickfixMessage = incoming,
-            )
-        val assumedWord = body["orderState"]?.jsonPrimitive?.contentOrNull
-        val assumed =
-            assumedState(assumedWord, incoming)
-                ?: return errorObject(
-                    "'$assumedWord' is not an order state; known: ${OrderConstraint.words.joinToString(", ")}",
-                )
-
-        val outcomes = AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming, assumed)
-        val winner = outcomes.firstOrNull { it.selected }
-        val incomingType = request.messageType ?: ""
-
-        return buildJsonObject {
-            put("profile", profile.name)
-            put("connectionType", profile.config.connectionType.name)
-            put("assumedOrderState", assumedStateJson(assumed, given = assumedWord != null))
-            putIfNotAcceptor(profile)
-            put("msgType", incomingType)
-            put("matched", winner != null)
-            put("latency", latencyJson(profile.config.acceptorLatency))
-            put(
-                "rules",
-                buildJsonArray {
-                    outcomes.forEach { outcome -> add(ruleOutcomeJson(outcome, outcomes, incomingType)) }
-                },
-            )
-            winner?.let { selected ->
-                put("response", plannedReplyJson(selected.rule, incoming, request, dictionary))
-                put(
-                    "note",
-                    "offsets are from the trigger and exclude simulated latency, which is drawn once per " +
-                        "trigger and shifts the whole reply; \${uuid} and \${now} are resolved per step as it is sent",
-                )
-            }
-        }
-    }
-
     /**
      * The whole reply [rule] would play, rendered as the wire would carry it.
      *
@@ -2556,18 +2588,31 @@ class ControlServer(
      * so what is shown is what would be sent. `${uuid}` and `${now}` resolve per step as it goes out,
      * so a real reply differs from this in exactly those two and nowhere else.
      */
+    @Suppress("TooGenericExceptionCaught")
     private fun plannedReplyJson(
         rule: AcceptorResponseRule,
         incoming: quickfix.Message,
         request: FixMessage,
         dictionary: FixDictionary?,
+        /** The order to render `${order.…}` against, or null when the caller supplied none. */
+        order: Map<String, String>?,
     ): JsonArray =
         buildJsonArray {
-            AcceptorResponder.plan(rule, incoming, request, dictionary).forEach { planned ->
+            val steps = rule.sequence()
+            AcceptorResponder.plan(rule, incoming, request, dictionary) { order }.forEachIndexed { index, planned ->
                 add(
                     buildJsonObject {
                         put("offsetMillis", planned.offsetMillis)
-                        put("message", planned.render().replace(SOH, '|'))
+                        // A step reading the book with no book to read refuses rather than rendering
+                        // `37=`, and here that refusal *is* the answer: the dry run says which step
+                        // could not be built and why, instead of showing a message the wire would
+                        // never carry. Passing `order` is how a caller gets the rendering.
+                        try {
+                            put("message", planned.render().replace(SOH, '|'))
+                        } catch (e: Exception) {
+                            put("unrendered", e.message ?: "this step could not be built")
+                            steps.getOrNull(index)?.let { put("template", it.template) }
+                        }
                     },
                 )
             }

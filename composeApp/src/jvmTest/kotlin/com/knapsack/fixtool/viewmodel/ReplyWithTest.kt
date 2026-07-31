@@ -12,6 +12,7 @@ import java.io.File
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -81,9 +82,32 @@ class ReplyWithTest {
         val (_, msg) = venueWith(order)
 
         assertEquals(
-            listOf("ack", "fill", "partial-fill", "fill-remainder", "order-reject"),
+            listOf("ack", "fill", "partial-fill", "fill-remainder", "partial-of-remainder", "fill-what-is-left", "order-reject"),
             viewModel.replyOffersFor(msg).map { it.shape.id },
         )
+    }
+
+    /**
+     * The shapes that read the book are offered against an order this venue is not holding — and
+     * refused, with the reason, rather than left to build `37=` out of nothing.
+     *
+     * This is the same refusal Fill already gets on a market order, one level up: there the message
+     * was missing a tag, here the venue is missing an order. An author sees both the same way.
+     */
+    @Test
+    fun `a shape that reads the book is refused when the venue holds no such order`() {
+        val (_, msg) = venueWith(order)
+
+        val offered = viewModel.replyOffersFor(msg).associateBy { it.shape.id }
+
+        listOf("partial-of-remainder", "fill-what-is-left").forEach { id ->
+            val refusal = offered.getValue(id).refusal
+            assertTrue(
+                refusal != null && "no order here" in refusal,
+                "$id reads the book and this venue holds nothing; got: $refusal",
+            )
+        }
+        assertNull(offered.getValue("ack").refusal, "the stateless shapes are exactly the ones that still work")
     }
 
     @Test

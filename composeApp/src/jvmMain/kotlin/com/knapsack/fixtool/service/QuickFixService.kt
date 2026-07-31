@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.BookReading
+import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.PendingSendReason
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.FixConnectionConfig
@@ -270,6 +271,18 @@ class QuickFixService(
      */
     fun orderReading(sessionId: SessionID?, message: Message): BookReading =
         orderBooks.reading((sessionId ?: boundSessionId)?.toString().orEmpty(), bookFields(message))
+
+    /**
+     * What `${order.…}` reads for the order [message] names — **as the book stands at this instant**.
+     *
+     * Deliberately a fresh lookup rather than anything captured: a reply's later steps read this after
+     * its earlier steps have already gone out and moved the order, which is what lets a fill sequence
+     * accumulate instead of reporting the same quantity three times. See [AcceptorResponder.plan].
+     */
+    fun orderFields(sessionId: SessionID?, message: Message): Map<String, String>? =
+        orderBooks
+            .booked((sessionId ?: boundSessionId)?.toString().orEmpty(), bookFields(message))
+            ?.let { OrderBook.fields(it) }
 
     fun clearOrderBook(sessionId: SessionID? = null, by: String = "manually") =
         orderBooks.clear((sessionId ?: boundSessionId)?.toString().orEmpty(), by)
@@ -785,7 +798,11 @@ class QuickFixService(
             if (latencyMillis > 0L) {
                 logger.info("Acceptor applying {}ms simulated latency to {} response", latencyMillis, rule.whenMsgType)
             }
-            val planned = AcceptorResponder.plan(rule, incoming, request, dictionary)
+            // The book, read afresh by each step as it goes out — not once, here. Within one reply the
+            // earlier steps have already reached the wire and moved the order, and a fill that read a
+            // snapshot taken now would report the same quantity every time. See AcceptorResponder.plan.
+            val planned =
+                AcceptorResponder.plan(rule, incoming, request, dictionary) { orderFields(sessionId, incoming) }
             planned.forEachIndexed { index, send ->
                 // **The decision was made here, once, and every step of the reply carries it.** Taken
                 // now rather than when each step goes out, because there was one decision — a sequence

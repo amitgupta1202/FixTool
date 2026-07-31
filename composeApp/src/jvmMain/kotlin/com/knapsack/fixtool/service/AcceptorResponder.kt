@@ -6,6 +6,7 @@ import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
@@ -111,6 +112,11 @@ object AcceptorResponder {
 
     // A req reference sitting inside a larger expression, e.g. the `req.38` of ${req.38 / 2}.
     private val REQ_IN_EXPR = Regex("\\breq\\.(\\d+)\\b")
+
+    // The same two spellings for the book: ${order.leavesQty} standing alone, and the `order.leavesQty`
+    // of ${order.leavesQty / 2}. Names rather than digits — see OrderBook.fields.
+    private val ORDER_REF = Regex("\\\$\\{order\\.([A-Za-z][A-Za-z0-9]*)}")
+    private val ORDER_IN_EXPR = Regex("\\border\\.([A-Za-z][A-Za-z0-9]*)\\b")
     private val NOW_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss.SSS")
 
     /**
@@ -246,13 +252,26 @@ object AcceptorResponder {
      * The whole of [rule]'s reply to [incoming], as sends waiting for their moment.
      *
      * `${req.<tag>}` is substituted here, against the message that triggered the rule and while that
-     * message is unambiguously the current one. `${uuid}` and `${now}` are left for [PlannedSend.build].
+     * message is unambiguously the current one. `${uuid}`, `${now}` and **`${order.…}`** are left for
+     * [PlannedSend.build].
+     *
+     * [order] is a **thunk, read once per step as that step is sent**, and that is the difference
+     * between this and everything else here. `${req.…}` is a fact about the triggering message and
+     * cannot change; the book can, and within one reply it *does* — step one's `toApp` runs inside its
+     * own `send()`, which returns before step two is built, so step two's `${order.leavesQty}` sees
+     * what step one filled. A reading captured once at trigger time would make every step of a
+     * three-step fill report the same quantity, which is precisely the defect the book was built to
+     * fix (see the proposal's opening, and decision 2).
+     *
+     * Null means no book — an initiator, or a dry run with nothing supplied. A step that reads the
+     * book then refuses to render rather than substituting empty; see [resolveOrderRefs].
      */
     fun plan(
         rule: AcceptorResponseRule,
         incoming: Message,
         request: FixMessage? = null,
         dictionary: FixDictionary? = null,
+        order: () -> Map<String, String>? = { null },
     ): List<PlannedSend> {
         var offset = 0L
         // One id for the whole reply, drawn here because here is where the trigger is. An OrderID that
@@ -262,7 +281,9 @@ object AcceptorResponder {
             offset += step.delayMillis.coerceAtLeast(0)
             val againstRequest = resolveRequestRefs(step.template, incoming, requestId)
             PlannedSend(offset) {
-                resolveExpressions(resolveAtSendTime(againstRequest), request, dictionary)
+                // Order refs before the expression pass, exactly as request refs are, so
+                // `${order.leavesQty / 2}` is arithmetic and not a literal.
+                resolveExpressions(resolveOrderRefs(resolveAtSendTime(againstRequest), order()), request, dictionary)
             }
         }
     }
@@ -282,6 +303,42 @@ object AcceptorResponder {
                 }
         ).mapNotNull { it.toIntOrNull() }.distinct().toList()
 
+    /** Every name [template] reads off the book, both spellings, in the order they first appear. */
+    fun orderNames(template: String): List<String> =
+        (
+            ORDER_REF.findAll(template).map { it.groupValues[1] } +
+                ANY_EXPR.findAll(template).flatMap { expr ->
+                    ORDER_IN_EXPR.findAll(expr.groupValues[1]).map { it.groupValues[1] }
+                }
+        ).distinct().toList()
+
+    /**
+     * Why [template] cannot be built from [order], or null when it can.
+     *
+     * Three answers rather than one, because they send an author to three different places: a name
+     * that is not in the vocabulary at all is a typo in the template; a book with no such order is a
+     * trigger that should have been conditioned; and a name this order has simply not got is a venue
+     * that has not said that yet — an unacknowledged order has no LeavesQty because nobody has
+     * claimed one.
+     */
+    fun orderRefusal(template: String, order: Map<String, String>?): String? {
+        val wanted = orderNames(template)
+        if (wanted.isEmpty()) return null
+        val unknown = wanted.filterNot { it in OrderBook.names }
+        if (unknown.isNotEmpty()) {
+            return "${unknown.joinToString(", ") { "\${order.$it}" }} is not a name the book has; " +
+                "the names are ${OrderBook.names.joinToString(", ")}"
+        }
+        if (order == null) return "this reply reads the book, and there is no order here to read"
+        val absent = wanted.filterNot { order.containsKey(it) }
+        if (absent.isEmpty()) return null
+        return if (absent.size == 1) {
+            "the venue has not said this order's ${absent.single()} yet, and the reply reads it"
+        } else {
+            "the venue has not said this order's ${absent.joinToString(", ")} yet, and the reply reads them"
+        }
+    }
+
     /**
      * The reply shapes on offer for [incoming], each with the reason it cannot be sent, if any.
      *
@@ -291,13 +348,27 @@ object AcceptorResponder {
      * shape is offered, and if it reads a tag this message does not carry, it says so instead of
      * quietly building `31=` and letting the client take the blame.
      */
-    fun offersFor(incoming: Message, dictionary: FixDictionary? = null): List<ReplyOffer> {
+    fun offersFor(
+        incoming: Message,
+        dictionary: FixDictionary? = null,
+        /** What the venue holds for this message's order, or null if it holds nothing. */
+        order: Map<String, String>? = null,
+    ): List<ReplyOffer> {
         val msgType = valueOf(incoming, MSG_TYPE_TAG) ?: return emptyList()
         return AcceptorPresets.replyShapes
             .filter { it.answers == msgType }
             .map { shape ->
                 val missing = requestTags(shape.template).filter { valueOf(incoming, it) == null }
-                ReplyOffer(shape, refusal = missing.takeIf { it.isNotEmpty() }?.let { refusal(it, dictionary) })
+                ReplyOffer(
+                    shape,
+                    // The message is checked first because a shape that reads a tag this message does
+                    // not carry is broken whatever the book holds. Both refusals are the same kind of
+                    // answer — "this shape cannot be built from what is here" — and the author gets
+                    // whichever is true rather than a list of everything wrong at once.
+                    refusal =
+                        missing.takeIf { it.isNotEmpty() }?.let { refusal(it, dictionary) }
+                            ?: orderRefusal(shape.template, order),
+                )
             }
     }
 
@@ -321,9 +392,18 @@ object AcceptorResponder {
      * differently. The expression pass is the difference that would have been missed —
      * `${req.38 / 2}` is half an order to [plan] and a literal to [resolve].
      */
-    fun replyTo(shape: ReplyShape, incoming: Message, request: FixMessage? = null, dictionary: FixDictionary? = null): String {
+    fun replyTo(
+        shape: ReplyShape,
+        incoming: Message,
+        request: FixMessage? = null,
+        dictionary: FixDictionary? = null,
+        order: Map<String, String>? = null,
+    ): String {
         val rule = AcceptorResponseRule(whenMsgType = shape.answers, steps = listOf(ResponseStep(shape.template)))
-        return plan(rule, incoming, request, dictionary)
+        // Read now rather than as a thunk: a hand-picked reply is one message composed at one moment,
+        // and the moment is this one. The sequencing that makes `plan` read the book per step is a
+        // property of a *rule's* reply, which this is not.
+        return plan(rule, incoming, request, dictionary) { order }
             .single()
             .render()
     }
@@ -381,6 +461,33 @@ object AcceptorResponder {
         val whole = REQ_REF.replace(withId) { m -> valueOf(incoming, m.groupValues[1].toInt()) ?: "" }
         return ANY_EXPR.replace(whole) { m ->
             "\${" + REQ_IN_EXPR.replace(m.groupValues[1]) { r -> valueOf(incoming, r.groupValues[1].toInt()) ?: "" } + "}"
+        }
+    }
+
+    /**
+     * The half that reads **the book**: `${order.<name>}`, in both spellings, as the step is sent.
+     *
+     * The mechanics are [resolveRequestRefs]'s exactly — standing alone the braces are consumed, and
+     * inside a larger expression the name is replaced in place and the braces left for the Kotlin
+     * engine, so `${order.leavesQty}` is the value and `${order.leavesQty / 2}` is arithmetic. Textual
+     * and before the expression pass on purpose: a *binding* in the script engine would be the
+     * `KotlinJsr223` hazard this codebase has been bitten by, where an identifier frozen at compile
+     * time silently returns a stale value. There is no such thing to freeze here.
+     *
+     * **Refuses rather than substituting empty.** A missing name would go on the wire as `37=` — a
+     * real field with no value, the malformed message the preset discipline exists to prevent, and
+     * the client would be blamed for it. The structural answer is a trigger that cannot match an
+     * order the venue has not got ([AcceptorResponseRule.validationError]); this is the backstop for
+     * everything that defeats it — a book cleared mid-sequence, an eviction, an order with no
+     * ClOrdID. The throw is reported exactly like a send that throws: the step is lost and said so,
+     * and the rest of the sequence is not.
+     */
+    fun resolveOrderRefs(template: String, order: Map<String, String>?): String {
+        orderRefusal(template, order)?.let { throw IllegalStateException(it) }
+        val fields = order ?: return template
+        val whole = ORDER_REF.replace(template) { m -> fields.getValue(m.groupValues[1]) }
+        return ANY_EXPR.replace(whole) { m ->
+            "\${" + ORDER_IN_EXPR.replace(m.groupValues[1]) { r -> fields.getValue(r.groupValues[1]) } + "}"
         }
     }
 

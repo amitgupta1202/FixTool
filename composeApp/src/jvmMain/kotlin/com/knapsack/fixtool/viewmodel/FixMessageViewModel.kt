@@ -4090,7 +4090,11 @@ class FixMessageViewModel(
         val session = sessionContaining(message) ?: return emptyList()
         val profile = profileForSession(session) ?: return emptyList()
         if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return emptyList()
-        return AcceptorResponder.offersFor(message.quickfixMessage, dictionary)
+        // The book goes in so a shape that reads it can be refused *here*, greyed out with the reason,
+        // the same way Fill is already refused on a market order. A shape that needs an order the
+        // venue has not got is not a shape to be offered and then discovered to be broken.
+        val incoming = message.quickfixMessage
+        return AcceptorResponder.offersFor(incoming, dictionary, session.orderFields(incoming))
     }
 
     /**
@@ -4122,7 +4126,14 @@ class FixMessageViewModel(
             val index = _sessions.indexOf(session)
             if (index >= 0) setActiveSession(index)
         }
-        val resolved = AcceptorResponder.replyTo(shape, message.quickfixMessage, message, dictionary)
+        val resolved =
+            AcceptorResponder.replyTo(
+                shape,
+                message.quickfixMessage,
+                message,
+                dictionary,
+                sessionContaining(message)?.orderFields(message.quickfixMessage),
+            )
         val fields = rawToFields(resolved).ifEmpty { listOf(FixField()) }
         // Written now, while the book still says what it said when the author picked this shape.
         // Decision 6a covers hand-sent replies as much as rules: the client cannot tell which of them

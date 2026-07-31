@@ -181,6 +181,94 @@ object AcceptorPresets {
     private const val UNKNOWN_ORDER_REJECT =
         "35=j|372=H|379=\${req.11}|380=1|58=Unknown order"
 
+    // ------------------------------------------------------------------ templates that read the book
+    //
+    // Everything below reads `${order.…}`, and each one is truthful in a way its stateless sibling
+    // above cannot be. The difference is not decoration:
+    //
+    //   ack-partial-fill    14=${req.38 / 2}                       half the order, always, every time
+    //   this one            14=${order.cumQty + order.leavesQty/2} half of what is actually left
+    //
+    // Two stateless partials in a row report the same 14= twice and a client tracking CumQty watches
+    // the second fill undo the first. These accumulate, because each step reads the book *after* the
+    // step before it reached the wire.
+    //
+    // They are strictly more fragile in exchange, which is why the stateless ones stay: on a venue
+    // whose book was just cleared, or one pointed at a client mid-session, these do not fire at all.
+
+    /**
+     * An ExecutionReport about an order the venue is already holding.
+     *
+     * `37=${order.orderId}` rather than `${req.uuid}` is the whole point, and it is the defect named
+     * at the top of the proposal: acknowledging an order and then filling it by hand draws two ids
+     * for one order, and a client tracking tag 37 sees two unrelated orders. Read from the book, the
+     * fill carries the id the ack already gave the client.
+     *
+     * Whether a *replacement* inherits its predecessor's id is a different question and deliberately
+     * the author's — see decision 3a and [replaceAcceptedSameId].
+     */
+    private fun bookedReport(vararg fields: String): String =
+        (listOf("35=8", "37=\${order.orderId}", "17=\${uuid}") + fields + "60=\${now}").joinToString("|")
+
+    /** Echoed from the book rather than the request, so a reply is about the order and not the message. */
+    private const val BOOK_ECHO = "11=\${order.clOrdId}|55=\${order.symbol}|54=\${order.side}|38=\${order.orderQty}"
+
+    // Integer halves of what is *left*, taken the same way twice, so CumQty + LeavesQty is OrderQty
+    // at every step for any remainder — including an odd one.
+    private val PARTIAL_OF_REMAINDER =
+        bookedReport(
+            "150=F",
+            "39=1",
+            BOOK_ECHO,
+            "14=\${order.cumQty + order.leavesQty / 2}",
+            "151=\${order.leavesQty - order.leavesQty / 2}",
+            "32=\${order.leavesQty / 2}",
+            "31=\${order.price}",
+            "6=\${order.price}",
+        )
+
+    private val FILL_WHAT_IS_LEFT =
+        bookedReport(
+            "150=F",
+            "39=2",
+            BOOK_ECHO,
+            "14=\${order.orderQty}",
+            "151=0",
+            "32=\${order.leavesQty}",
+            "31=\${order.price}",
+            "6=\${order.price}",
+        )
+
+    /**
+     * `150=I` is ExecType *Order Status*, which is exactly what an unsolicited state dump is — and
+     * every field of it is a fact the book already holds. It needed no new primitive at all, which is
+     * the clearest evidence that decision 1 was the right shape: the book is worth having because
+     * rules can *read* it, not because it acts.
+     */
+    private val ORDER_STATUS =
+        bookedReport(
+            "150=I",
+            "11=\${req.11}",
+            "39=\${order.ordStatus}",
+            "14=\${order.cumQty}",
+            "151=\${order.leavesQty}",
+            "55=\${order.symbol}",
+            "54=\${order.side}",
+            "38=\${order.orderQty}",
+        )
+
+    /** A replacement that keeps the chain's OrderID, where [REPLACED] mints a new one. Decision 3a. */
+    private val REPLACED_SAME_ID =
+        bookedReport(
+            "150=5",
+            "39=0",
+            CANCEL_ECHO,
+            "38=\${req.38}",
+            "14=\${order.cumQty}",
+            "151=\${req.38}",
+            "6=0",
+        )
+
     // ------------------------------------------------------------------ the catalogue
 
     private fun condition(tag: Int, matcher: Matcher) = FieldCondition(tag, MatcherCodec.matcherToJson(matcher))
@@ -315,6 +403,85 @@ object AcceptorPresets {
             steps = listOf(ResponseStep(UNKNOWN_ORDER_REJECT)),
         )
 
+    // ------------------------------------------------------------------ rules that read the book
+
+    /**
+     * **Fills that accumulate**, and the demonstration that a sequence's steps see each other.
+     *
+     * Each step reads the book *after* the one before it reached the wire, so a 1000-share order
+     * fills 500, then 250, then 125 — every report consistent with the last, which two stateless
+     * partials in a row can never be.
+     *
+     * Note what conditions it: **nothing**. A `35=D` is the message that *creates* the order, so by
+     * the time step two is built the venue is holding it — even though `whenOrder` a moment earlier
+     * would have read `unknown` (decision 4a). That is why [AcceptorResponseRule.willHaveAnOrder]
+     * counts a birth-type trigger as a guarantee; without it this rule could not be written at all.
+     *
+     * Step one is the ordinary stateless ack, because there is nothing in the book to read yet — it
+     * is the message that puts something there.
+     */
+    private val ackThenAccumulatingFills =
+        AcceptorResponseRule(
+            whenMsgType = "D",
+            conditions = limitOrder(),
+            steps =
+                listOf(
+                    ResponseStep(ACK),
+                    ResponseStep(PARTIAL_OF_REMAINDER, delayMillis = 250),
+                    ResponseStep(PARTIAL_OF_REMAINDER, delayMillis = 250),
+                    ResponseStep(FILL_WHAT_IS_LEFT, delayMillis = 250),
+                ),
+        )
+
+    /**
+     * "Where is my order?" answered *from* the book — the other half of [statusRequestUnknown].
+     *
+     * Between them a venue answers the question the way a venue does, and neither needed a primitive
+     * that did not already exist.
+     *
+     * **Two rules, and the state that is missing is the point.** `working` and `done` are the two the
+     * venue can answer: both mean it has already reported on the order, so it has an OrderID and a
+     * CumQty to quote. `pending` means the venue is holding the order and has told the client
+     * *nothing* — there is no id to put in `37` yet — so a rule conditioned that way would refuse at
+     * send time rather than reply. Leaving it out is the structural version of the same refusal, and
+     * a venue that wants to answer a pending order has to decide what to say about an order it has
+     * never named, which is its author's call and not a preset's.
+     *
+     * Found by live verification: the first version shipped `working` alone, and a status request for
+     * a filled order fell through to the unknown-order reject — the venue disowning an order it was
+     * holding.
+     */
+    private val statusRequestWorking =
+        AcceptorResponseRule(
+            whenMsgType = "H",
+            whenOrder = OrderConstraint.WORKING,
+            steps = listOf(ResponseStep(ORDER_STATUS)),
+        )
+
+    private val statusRequestDone =
+        AcceptorResponseRule(
+            whenMsgType = "H",
+            whenOrder = OrderConstraint.DONE,
+            steps = listOf(ResponseStep(ORDER_STATUS)),
+        )
+
+    /**
+     * The replace that keeps one OrderID for the life of the chain.
+     *
+     * Beside [replaceAccepted], which mints a new one, because **venues disagree and both are venues
+     * someone needs to simulate** — plenty keep the id, several crypto exchanges and some futures
+     * venues issue a new one on every replace. Decision 3a is that the fold records whichever the
+     * author's template sent and cannot tell them apart; these two presets are that decision made
+     * choosable rather than assumed.
+     */
+    private val replaceAcceptedSameId =
+        AcceptorResponseRule(
+            whenMsgType = "G",
+            whenOrder = OrderConstraint.WORKING,
+            conditions = listOf(condition(38, Matcher.Presence)),
+            steps = listOf(ResponseStep(REPLACED_SAME_ID)),
+        )
+
     /**
      * Every preset, in menu order.
      *
@@ -361,6 +528,13 @@ object AcceptorPresets {
                 rules = listOf(orderRejectOverSize),
             ),
             AcceptorPreset(
+                id = "ack-accumulating-fills",
+                name = "Acknowledged, then filled from the book",
+                group = GROUP_ORDER_FLOW,
+                summary = "4 steps · each fill reads what the last one left",
+                rules = listOf(ackThenAccumulatingFills),
+            ),
+            AcceptorPreset(
                 id = "duplicate-clordid",
                 name = "Duplicate ClOrdID rejected",
                 group = GROUP_ORDER_FLOW,
@@ -400,10 +574,17 @@ object AcceptorPresets {
             ),
             AcceptorPreset(
                 id = "replace-accepted",
-                name = "Replace accepted",
+                name = "Replace accepted — a new OrderID",
                 group = GROUP_CANCEL_REPLACE,
-                summary = "35=G → 150=5 (REPLACED)",
+                summary = "35=G → 150=5 · 37 is minted fresh",
                 rules = listOf(replaceAccepted),
+            ),
+            AcceptorPreset(
+                id = "replace-accepted-same-id",
+                name = "Replace accepted — the chain keeps its OrderID",
+                group = GROUP_CANCEL_REPLACE,
+                summary = "35=G → 150=5 · 37 is the one the client already has",
+                rules = listOf(replaceAcceptedSameId),
             ),
             AcceptorPreset(
                 id = "unsupported-message",
@@ -418,6 +599,13 @@ object AcceptorPresets {
                 group = GROUP_REJECTS,
                 summary = "when the book has never seen it · 35=j · 380=1 (UNKNOWN_ID)",
                 rules = listOf(statusRequestUnknown),
+            ),
+            AcceptorPreset(
+                id = "status-request-working",
+                name = "Status request — answered from the book",
+                group = GROUP_ORDER_FLOW,
+                summary = "2 rules · working and done · 150=I with the real quantities",
+                rules = listOf(statusRequestWorking, statusRequestDone),
             ),
         )
 
@@ -451,12 +639,39 @@ object AcceptorPresets {
             ReplyShape("fill", "Fill", "150=F 39=2 — the whole quantity, at the order's price", "D", FILL),
             ReplyShape("partial-fill", "Partial fill", "150=F 39=1 — half now, half still working", "D", PARTIAL_FILL),
             ReplyShape("fill-remainder", "Fill the remainder", "150=F 39=2 — the half a partial left", "D", FILL_REMAINDER),
+            // The two that read the book, and the reason #40 needed slice C. Replying by hand is
+            // exactly where the identity defect bit: an ack draws one OrderID and a fill sent a minute
+            // later draws another, and the client is watching two unrelated orders. These carry the id
+            // the client already has, and fill what is actually left rather than what a stateless
+            // template guessed. Refused, greyed out with the reason, when the venue holds no order —
+            // see AcceptorResponder.offersFor.
+            ReplyShape(
+                "partial-of-remainder",
+                "Partial fill — half of what is left",
+                "150=F 39=1 · reads the book · 37 is the id the client has",
+                "D",
+                PARTIAL_OF_REMAINDER,
+            ),
+            ReplyShape(
+                "fill-what-is-left",
+                "Fill what is left",
+                "150=F 39=2 · reads the book · 37 is the id the client has",
+                "D",
+                FILL_WHAT_IS_LEFT,
+            ),
             ReplyShape("order-reject", "Reject the order", "150=8 39=8 · 103=3 — with a reason in 58", "D", ORDER_REJECT),
             ReplyShape("pending-cancel", "Pending cancel", "150=6 39=6 — the cancel is accepted, not done", "F", PENDING_CANCEL),
             ReplyShape("canceled", "Canceled", "150=4 39=4 — the order is gone", "F", CANCELED),
             ReplyShape("cancel-reject", "Reject the cancel", "35=9 · 102=1 — unknown order", "F", CANCEL_REJECT),
             ReplyShape("replaced", "Replaced", "150=5 39=0 — the replacement is live", "G", REPLACED),
             ReplyShape("business-reject", "Business reject", "35=j · 380=3 — not supported here", "H", BUSINESS_REJECT),
+            ReplyShape(
+                "order-status",
+                "Order status",
+                "150=I · reads the book · where the order actually is",
+                "H",
+                ORDER_STATUS,
+            ),
         )
 
     fun shapeById(id: String): ReplyShape? = replyShapes.firstOrNull { it.id == id }

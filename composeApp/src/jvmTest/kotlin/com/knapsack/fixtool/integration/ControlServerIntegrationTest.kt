@@ -1119,6 +1119,40 @@ class ControlServerIntegrationTest {
         assertTrue(message.contains("working"), "and what it could have been: $message")
     }
 
+    /**
+     * The other half of the dry run's assumption. `orderState` says what a *trigger* reads; `order`
+     * says what a *reply* substitutes — and a template reading `${order.…}` cannot be rendered
+     * without one, so the dry run says which step it could not build rather than showing a message
+     * the wire would never carry.
+     */
+    @Test
+    fun `a dry run of a reply that reads the book renders it when given an order, and says so when not`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Reader","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                       {"whenMsgType":"H","whenOrder":"working","steps":[{"template":
+                        "35=8|150=I|37=${'$'}{order.orderId}|14=${'$'}{order.cumQty}|151=${'$'}{order.leavesQty}|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+        val request = """{"profile":"$id","raw":"35=H|11=ORD-1|","orderState":"working""""
+
+        val unrendered = obj(post("/acceptor/test", "$request}"))
+        val step = unrendered["response"]!!.jsonArray[0].jsonObject
+        assertNull(step["message"], "there was no order to read, so there is no message to show")
+        assertTrue(step["unrendered"]!!.jsonPrimitive.content.contains("no order here"), "and it says why")
+        assertTrue(step["template"]!!.jsonPrimitive.content.contains("\${order."), "with the template that needed one")
+        assertTrue(unrendered["orderNote"]!!.jsonPrimitive.content.contains("order:"), "and how to supply it")
+
+        val rendered =
+            obj(post("/acceptor/test", """$request,"order":{"orderId":"EX-7","cumQty":"400","leavesQty":"600"}}"""))
+        val message = replyOf(rendered)
+        assertTrue(message.contains("37=EX-7"), "got: $message")
+        assertTrue(message.contains("14=400") && message.contains("151=600"), "got: $message")
+        assertNull(rendered["orderNote"], "a caller who supplied an order does not need telling to")
+    }
+
     @Test
     fun `the rules endpoint reports the book constraint, and only when there is one`() {
         val id = statefulVenue()

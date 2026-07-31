@@ -317,14 +317,92 @@ choose now.
 
 ## Open questions
 
-1. **`pending`** — worth the fourth word, or is "the venue has it" enough (three words: `unknown`,
-   `working`, `done`)? Recommendation: keep it; the race it names is real and a tester hitting it
-   would blame the tool.
-2. **Do the book-aware presets replace the current ones or sit beside them?** Recommendation: beside,
-   with the stateless ones kept — they work on a venue whose book was cleared, and a preset that
-   silently needs state is a preset that silently does nothing.
-3. **Slice D** — in scope, or leave the manual path where #40 put it?
-4. **The cap** (decision 8a) — a fixed default with a setting, or derived from the session's own
-   message buffer size? Recommendation: its own setting. Retention of *orders* and retention of
-   *messages* are different questions, and deriving one from the other is the mistake the session
-   ingestion path already made once with its queue depth.
+Each is a decision I have taken a position on but would change on a word. The example is what it
+looks like either way, not an abstraction of it.
+
+- **Does `${order.…}` on an order the book has never seen refuse, or substitute empty?**
+
+  This is the same hazard as `${req.44}` on a market order, one level up. A cancel arrives for
+  `ORD-9`, which the book does not hold, and the rule that answers it reads `37=${order.orderId}`:
+
+  ```
+  substitute empty →  35=8|37=|11=CXL-4|...      the exact malformed message the preset
+                                                  discipline exists to prevent
+  refuse           →  the rule does not fire; the next rule for 35=F answers instead
+  ```
+
+  *Recommendation: refuse, and make it structural rather than a check.* A template reading
+  `${order.…}` **implies** `whenOrder` is at least `pending` — the rule cannot match an order that is
+  not there, the same way `AcceptorPresets` conditions the fill on `40 = 2` rather than testing for a
+  price at send time. For a hand-picked reply the shape is greyed out with the reason, exactly as
+  `Reply With…` already refuses Fill on a market order. **This answers the next question too.**
+
+- **Do the book-aware presets replace the stateless ones, or sit beside them?**
+
+  ```
+  ack-partial-fill        (today)  14=${req.38 / 2}          half the order, always
+  partial-fill-remaining  (new)    14=${order.cumQty + order.leavesQty / 2}
+  ```
+
+  The new one is strictly more truthful *and* strictly more fragile: on a venue whose book was just
+  cleared, or one the tester pointed at a client mid-session, it does not fire at all.
+
+  *Recommendation: beside, both shipped, the stateless ones unchanged.* They are the ones that work
+  with no history — which is exactly the state a tester is in for the first five minutes of every
+  session — and a preset that silently needs state is a preset that silently does nothing.
+
+- **Is `pending` worth the fourth word?**
+
+  A client sends the order and cancels it 2ms later, before the ack has left the dispatch thread:
+
+  ```
+  09:14:22.418  ← 35=D  ORD-9
+  09:14:22.420  ← 35=F  CXL-4 (41=ORD-9)      ← the ack has not been sent yet
+  ```
+
+  With three words that cancel reads `unknown` and the venue answers `102=1 Unknown order` for an
+  order it is holding. The client did nothing wrong and the tester has a venue bug to chase that is
+  ours.
+
+  *Recommendation: keep it.* The cost is honest — a fourth entry in the editor's dropdown and a fourth
+  column in every state test — and the race is real rather than theoretical, since replies are
+  deliberately dispatched off the callback thread.
+
+- **Does the recorded reason cover replies a person sent, or only rules?**
+
+  ```
+  rule    sent by rule 3 — 35=F matched, and the book said ORD-9 was unknown at 09:14:22.418
+  hand    sent by hand — "Fill the remainder" against ORD-5000, working, 2500 leaves at 09:14:24.881
+  ```
+
+  *Recommendation: both, one line, same place.* The client cannot tell which of them sent it and
+  neither should the record; a log where hand-sent replies are the silent ones is a log that is
+  hardest to read exactly when a person was improvising. The reply path already knows which shape was
+  picked and what the book said — this is a field, not a mechanism.
+
+- **What bounds the book — its own setting, or the session's message buffer?**
+
+  A soak run sends 50,000 orders through a session whose grid keeps 1,000 messages.
+
+  ```
+  derived   ~1,000 messages of history ⇒ a few hundred orders booked, and a cancel for
+            order 400 comes back "unknown" because the *grid* was scrolled past it
+  own       5,000 orders regardless of how much message history the tester chose to keep
+  ```
+
+  *Recommendation: its own setting, default 5,000, finished orders evicted before working ones.*
+  How much scrollback a tester wants and how much order state the venue keeps are unrelated
+  questions, and tying one to the other is the mistake the ingestion path already made once when it
+  derived queue depth from buffer size — a display preference silently became a throughput limit.
+
+- **Is slice D (act from a book row) in, or does the manual path stay where #40 put it?**
+
+  ```
+  with D      book row ORD-5000 → Fill → editor opens on the remainder
+  without C   grid → find the order's message → Reply With… → Fill the remainder
+  ```
+
+  *Recommendation: leave it out, and revisit after C is in use.* Two clicks versus three is not
+  nothing, but the book row and the message are two entry points to one editor, and the second one
+  already exists. If the answer after a week of use is "I keep going to the book first", that is a
+  much better reason to build it than this document guessing.

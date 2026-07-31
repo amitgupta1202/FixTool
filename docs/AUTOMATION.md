@@ -557,7 +557,9 @@ curl -s -XPOST $B/acceptor/test -d '{"profile":"My Acceptor","raw":"35=F|11=CXL-
 
 **A rule that asks the book cannot be judged without one, so it does not fire** — the same call
 `compile` makes for a trigger it cannot parse, and the safe direction: a rule firing on messages its
-author excluded is the dangerous way to be wrong. `GET /acceptor/orders` is the book itself.
+author excluded is the dangerous way to be wrong. `GET /acceptor/orders` is the book itself,
+and reports the `cap` each book is running — set in **Settings → Sessions → Order book**, applied to
+books already open, with the oldest *finished* orders evicted first and every eviction counted.
 
 #### Templates that read the book
 

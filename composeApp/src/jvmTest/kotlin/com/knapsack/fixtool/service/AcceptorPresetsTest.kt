@@ -1,13 +1,17 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.OrderState
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import org.junit.Test
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -44,6 +48,22 @@ class AcceptorPresetsTest {
             "H" -> statusRequest
             else -> error("no sample message for 35=${rule.whenMsgType}")
         }
+
+    /**
+     * The venue state **each rule** is designed against, which for a rule that asks the book is the
+     * state it asks for.
+     *
+     * Not a convenience: a preset conditioned `working` is a claim about a venue holding a live order,
+     * and judging it against a venue holding nothing would be asking whether it fires in the one
+     * situation it promises not to. Keyed off the rule's own constraint so a preset added later cannot
+     * be quietly exempted from the checks below.
+     */
+    private fun bookFor(rule: AcceptorResponseRule) =
+        BookReading(
+            key = "ORD-1",
+            state = rule.whenOrder?.takeIf { it != OrderConstraint.UNKNOWN }?.let { OrderState.valueOf(it.name) },
+            leavesQty = "1000",
+        )
 
     private fun eachRule(action: (String, AcceptorResponseRule, String) -> Unit) =
         AcceptorPresets.all.forEach { preset ->
@@ -86,11 +106,35 @@ class AcceptorPresetsTest {
     fun `every rule of every preset fires against the message it claims to answer`() {
         eachRule { id, rule, raw ->
             // Asked alone, so nothing else in the list can be the reason it did or did not win.
-            val outcomes = AcceptorResponder.explain(listOf(rule), AcceptorResponder.buildMessage(raw))
+            val outcomes = AcceptorResponder.explain(listOf(rule), AcceptorResponder.buildMessage(raw), bookFor(rule))
             assertTrue(
                 outcomes.single().selected,
-                "$id answers nothing when sent $raw — the one thing a preset must not do",
+                "$id answers nothing when sent $raw against a ${rule.whenOrder?.word ?: "any"} order — " +
+                    "the one thing a preset must not do",
             )
+        }
+    }
+
+    /**
+     * The other half of the claim above, and the one that is actually new: a preset that asks the book
+     * **does not** fire in the state it did not ask for. Without this, `whenOrder` could be ignored
+     * entirely by the engine and every test here would still pass.
+     */
+    @Test
+    fun `a preset that asks the book stays silent in every state but its own`() {
+        val states = listOf(null, OrderState.PENDING, OrderState.WORKING, OrderState.DONE)
+        eachRule { id, rule, raw ->
+            val wanted = rule.whenOrder ?: return@eachRule
+            states.filterNot { wanted.matches(it) }.forEach { state ->
+                val outcome =
+                    AcceptorResponder
+                        .explain(listOf(rule), AcceptorResponder.buildMessage(raw), BookReading("ORD-1", state))
+                        .single()
+                assertFalse(
+                    outcome.matched,
+                    "$id asks for ${wanted.word} but fired against ${state?.name?.lowercase() ?: "an order the book has never seen"}",
+                )
+            }
         }
     }
 
@@ -346,5 +390,133 @@ class AcceptorPresetsTest {
             AcceptorResponder.shadowingRule(listOf(blank, blank), 1),
             "a rule with no MsgType answers nothing, so it takes nothing from the rule after it",
         )
+    }
+
+    // ------------------------------------------------------------------ the presets that ask the book
+
+    /**
+     * **The venue the whole feature was for**, assembled the way a tester would assemble it: two
+     * presets off the menu, no hand-editing, and the cancel is answered two different ways by one rule
+     * list. Before the book, showing a client both behaviours meant switching a rule off between them.
+     */
+    @Test
+    fun `the two cancel presets together answer an unknown cancel and a live one differently`() {
+        var rules = AcceptorPresets.insert(emptyList(), AcceptorPresets.byId(AcceptorPresets.STARTER_VENUE)!!).rules
+        rules = AcceptorPresets.insert(rules, AcceptorPresets.byId("cancel-rejected-unknown")!!).rules
+        rules = AcceptorPresets.insert(rules, AcceptorPresets.byId("cancel-accepted-working")!!).rules
+
+        val rejected =
+            AcceptorResponder
+                .explain(rules, AcceptorResponder.buildMessage(cancel), BookReading.unknown("ORD-1"))
+                .first { it.selected }
+        assertTrue(
+            rejected.rule
+                .sequence()
+                .single()
+                .template
+                .startsWith("35=9"),
+            "a cancel for an order nobody sent has to come back as a cancel reject",
+        )
+
+        val accepted =
+            AcceptorResponder
+                .explain(rules, AcceptorResponder.buildMessage(cancel), BookReading("ORD-1", OrderState.WORKING))
+                .first { it.selected }
+        assertEquals(2, accepted.rule.sequence().size, "a cancel for a live order gets pending-cancel then canceled")
+        assertTrue(
+            accepted.rule
+                .sequence()
+                .last()
+                .template
+                .contains("150=4"),
+        )
+    }
+
+    /**
+     * A duplicate is not "the book holds this ClOrdID" — by the time any rule is asked the book holds
+     * it either way, because the order's own arrival booked it. What separates the two is the state
+     * the venue held *before* the message, which is what `whenOrder` reads (decision 4a). This is the
+     * test that fails if that ever becomes an after-reading.
+     */
+    @Test
+    fun `the duplicate preset rejects a repeated ClOrdID and lets a new order through`() {
+        val rules =
+            AcceptorPresets
+                .insert(
+                    AcceptorPresets.insert(emptyList(), AcceptorPresets.byId("order-ack")!!).rules,
+                    AcceptorPresets.byId("duplicate-clordid")!!,
+                ).rules
+
+        val fresh =
+            AcceptorResponder
+                .explain(rules, AcceptorResponder.buildMessage(limitOrder), BookReading.unknown("ORD-1"))
+                .first { it.selected }
+        assertTrue(
+            fresh.rule
+                .sequence()
+                .single()
+                .template
+                .contains("150=0"),
+            "a new order is acknowledged",
+        )
+
+        val repeated =
+            AcceptorResponder
+                .explain(rules, AcceptorResponder.buildMessage(limitOrder), BookReading("ORD-1", OrderState.WORKING))
+                .first { it.selected }
+        assertTrue(
+            repeated.rule
+                .sequence()
+                .single()
+                .template
+                .contains("103=6"),
+            "a repeat is rejected as a duplicate",
+        )
+    }
+
+    /**
+     * Two 35=H presets that are two different venues: one that does not support status requests at
+     * all, and one that supports them but has never heard of this order. Conditioning the first into
+     * the second would have left neither available.
+     */
+    @Test
+    fun `the two status-request presets stay distinguishable`() {
+        val unsupported = leadRule("unsupported-message")
+        val unknown = leadRule("status-request-unknown")
+
+        assertNull(unsupported.whenOrder, "'unsupported' is a property of the venue, not of the order")
+        assertEquals(OrderConstraint.UNKNOWN, unknown.whenOrder)
+        assertTrue(
+            unsupported
+                .sequence()
+                .single()
+                .template
+                .contains("380=3"),
+            "unsupported message type",
+        )
+        assertTrue(
+            unknown
+                .sequence()
+                .single()
+                .template
+                .contains("380=1"),
+            "unknown id — a different reject",
+        )
+    }
+
+    /**
+     * `whenOrder` is a constraint, so a rule carrying only one must be placed and judged as a
+     * conditioned rule. Read off `trigger()` alone — which is what both callers did before this
+     * slice — it looks unconditioned, gets appended below the rule it was meant to precede, and never
+     * fires.
+     */
+    @Test
+    fun `a preset conditioned only on the book still lands where it can fire`() {
+        val existing = listOf(unconditioned("F"))
+
+        val insertion = AcceptorPresets.insert(existing, AcceptorPresets.byId("cancel-rejected-unknown")!!)
+
+        assertEquals(0, insertion.index, "appended, it would sit below a rule that answers every 35=F")
+        assertNull(AcceptorResponder.shadowingRule(insertion.rules, 0))
     }
 }

@@ -289,6 +289,20 @@ fun MessageDetailPanel(
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                         )
+                        // **Why the venue sent this** — recorded when the decision was made, beside the
+                        // bytes it explains. Not derived here and deliberately not derivable: once a
+                        // trigger can read the book, the same rule list re-run against the same message
+                        // gives a different answer a second later, and this panel would state it
+                        // confidently. See SendReason, decision 6a.
+                        message.sendReason?.let { reason ->
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = reason.line(),
+                                color = AppTheme.Colors.textSecondary,
+                                fontSize = 10.sp,
+                                modifier = Modifier.testTag("detail-send-reason"),
+                            )
+                        }
                     }
 
                     HorizontalDivider(

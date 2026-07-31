@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.service.AcceptorPreset
@@ -272,7 +273,10 @@ private fun triggerLine(rule: AcceptorResponseRule): String =
         rule.trigger().joinToString("") { condition ->
             val matcher = condition.parsed()
             " and ${condition.tag} " + (matcher?.let { ExpectationEvaluator.describe(it) } ?: "?")
-        }
+        } +
+        // Last, and in words, because it is the one constraint that is not about the message at all —
+        // reading it as though it were another tag is the misreading worth spending four characters on.
+        (rule.whenOrder?.let { " and the order is ${it.word}" } ?: "")
 
 private fun stepLines(rule: AcceptorResponseRule): List<String> {
     var offset = 0L
@@ -380,6 +384,16 @@ private fun RuleCard(
                 onDelete = { withConditions(conditions.without(index)) },
             )
         }
+
+        // The one condition no tag can express, so it gets a row of its own rather than a place in the
+        // list above. It is always shown — including as "any", its off position — because a rule that
+        // *could* ask the book and does not is a thing an author needs to see in order to change, and
+        // hiding it behind an "+ add" would make the venue's memory a feature you have to already know
+        // about. See decision 1: everything the book causes is on a card that can be read.
+        OrderConstraintRow(
+            constraint = rule.whenOrder,
+            onChange = { updated -> onChange(rule.copy(whenOrder = updated)) },
+        )
 
         Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 8.dp)) {
             SlimButton(
@@ -558,6 +572,69 @@ private fun ConditionRow(
 
 /** Every matcher type except `reference`, which needs a scenario scope a trigger does not have. */
 private val TRIGGER_MATCHER_TYPES = MATCHER_TYPES.filterNot { it == "reference" }
+
+/**
+ * "and the order is [ any ▾ ]" — the book constraint, as one word from a closed list.
+ *
+ * A menu rather than a field, because the vocabulary *is* the feature: four words chosen so a tester
+ * can hold them in their head (decision 4), and a free-text box would invite `39=1` and then silently
+ * never fire. Each entry carries what it means, since "pending" and "working" are the pair an author
+ * has to choose between and the difference between them is the venue's own answer having left or not.
+ */
+@Composable
+private fun OrderConstraintRow(constraint: OrderConstraint?, onChange: (OrderConstraint?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 3.dp, start = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("and the order is", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+        Box {
+            SlimButton(
+                text = (constraint?.word ?: "any") + " ▾",
+                onClick = { open = true },
+                color = if (constraint == null) AppTheme.Colors.textDisabled else AppTheme.Colors.primary,
+                modifier = Modifier.testTag("rule-when-order"),
+            )
+            DropdownMenu(
+                expanded = open,
+                onDismissRequest = { open = false },
+                modifier = Modifier.background(AppTheme.Colors.surface),
+            ) {
+                (listOf(null) + OrderConstraint.entries).forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(option?.word ?: "any", color = AppTheme.Colors.text, fontSize = 10.sp)
+                                Text(
+                                    text = orderConstraintMeaning(option),
+                                    color = AppTheme.Colors.textDisabled,
+                                    fontSize = 9.sp,
+                                )
+                            }
+                        },
+                        onClick = {
+                            onChange(option)
+                            open = false
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+internal fun orderConstraintMeaning(constraint: OrderConstraint?): String =
+    when (constraint) {
+        null -> "the rule does not ask the book"
+        OrderConstraint.UNKNOWN -> "this venue has never seen it"
+        OrderConstraint.PENDING -> "the venue has it; the client has not been told anything yet"
+        OrderConstraint.WORKING -> "acknowledged and not finished"
+        OrderConstraint.DONE -> "filled, canceled, replaced or rejected"
+    }
 
 @Composable
 private fun StepRow(

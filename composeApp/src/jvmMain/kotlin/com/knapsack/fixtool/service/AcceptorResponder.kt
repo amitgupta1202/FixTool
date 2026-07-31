@@ -3,8 +3,10 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 import quickfix.Message
@@ -51,6 +53,25 @@ data class ConditionOutcome(
 )
 
 /**
+ * What a rule's `whenOrder` asked of the book, and what the book said — the same shape as
+ * [ConditionOutcome] and for the same reason.
+ *
+ * A reader who is told only "did not match" cannot tell a rule that wanted `working` from a book that
+ * had never heard of the order. [actual] is the value this constraint read, exactly as
+ * [ConditionOutcome.actual] is the value a tag condition read, and [key] says *which* order was asked
+ * after — a cancel names two ids and only one of them is the order.
+ *
+ * [actual] is null only when there was no book to ask, which is a caller that supplied none rather
+ * than a book with nothing in it. Those are different answers and neither may be reported as the other.
+ */
+data class OrderOutcome(
+    val constraint: OrderConstraint,
+    val key: String?,
+    val actual: String?,
+    val satisfied: Boolean,
+)
+
+/**
  * How one rule answered one message — the whole of why it did or did not fire.
  *
  * [matched] is about this rule's own trigger; [selected] is about the list, since under
@@ -70,6 +91,8 @@ data class RuleOutcome(
     val selected: Boolean,
     val skipped: String?,
     val conditions: List<ConditionOutcome>,
+    /** What the rule asked of the book, and what it heard. Null when the rule asked nothing. */
+    val order: OrderOutcome? = null,
 )
 
 /**
@@ -110,12 +133,29 @@ object AcceptorResponder {
             CompiledRule(rule, trigger.map { it.tag to (it.parsed() ?: return@mapNotNull null) })
         }
 
-    /** The first rule whose MsgType and every condition the incoming message satisfies. */
-    fun firstMatch(compiled: List<CompiledRule>, incoming: Message): AcceptorResponseRule? =
+    /**
+     * The first rule whose MsgType, every tag condition **and** book constraint the incoming message
+     * satisfies.
+     *
+     * [book] is what the venue held before this message arrived (decision 4a) — one reading, taken
+     * once by the caller, because every rule in the list is asking about the same order and the answer
+     * must not be able to change halfway down. Null means no book was available to ask, which makes a
+     * rule that asks one unjudgeable; such a rule does not fire. That is the safe direction, and the
+     * same one [compile] takes with a trigger it cannot parse: a rule firing on messages its author
+     * excluded is the dangerous way to be wrong.
+     */
+    fun firstMatch(compiled: List<CompiledRule>, incoming: Message, book: BookReading? = null): AcceptorResponseRule? =
         compiled.firstOrNull { (rule, conditions) ->
             valueOf(incoming, MSG_TYPE_TAG) == rule.whenMsgType &&
-                conditions.all { (tag, matcher) -> ExpectationEvaluator.satisfies(matcher, valueOf(incoming, tag)) }
+                conditions.all { (tag, matcher) -> ExpectationEvaluator.satisfies(matcher, valueOf(incoming, tag)) } &&
+                satisfiesBook(rule, book)
         }?.rule
+
+    /** Whether [rule]'s book constraint holds, given what [book] said. See [firstMatch] for the null case. */
+    private fun satisfiesBook(rule: AcceptorResponseRule, book: BookReading?): Boolean {
+        val constraint = rule.whenOrder ?: return true
+        return book != null && book.satisfies(constraint)
+    }
 
     /**
      * The same question [firstMatch] asks, answered for **every** rule and with its working shown:
@@ -138,7 +178,7 @@ object AcceptorResponder {
      * `AcceptorResponderExplainTest` re-asks each case through both and fails if they ever disagree.
      * A dry run that passes where the wire does nothing moves the bug from the rule into the tool.
      */
-    fun explain(rules: List<AcceptorResponseRule>, incoming: Message): List<RuleOutcome> {
+    fun explain(rules: List<AcceptorResponseRule>, incoming: Message, book: BookReading? = null): List<RuleOutcome> {
         val msgType = valueOf(incoming, MSG_TYPE_TAG)
         var alreadyWon = false
         return rules.mapIndexed { index, rule ->
@@ -157,10 +197,26 @@ object AcceptorResponder {
                     val actual = valueOf(incoming, tag)
                     ConditionOutcome(tag, matcher, actual, ExpectationEvaluator.satisfies(matcher, actual))
                 }
-            val matched = skipped == null && msgType == rule.whenMsgType && conditions.all { it.satisfied }
+            // Reported for a *skipped* rule too, since "disabled" and "the book said no" are both
+            // reasons a rule did nothing and an author toggling one back on wants to know the other
+            // one is waiting for them.
+            val order =
+                rule.whenOrder?.let { constraint ->
+                    OrderOutcome(
+                        constraint = constraint,
+                        key = book?.key,
+                        actual = book?.word,
+                        satisfied = book != null && book.satisfies(constraint),
+                    )
+                }
+            val matched =
+                skipped == null &&
+                    msgType == rule.whenMsgType &&
+                    conditions.all { it.satisfied } &&
+                    (order?.satisfied ?: true)
             val selected = matched && !alreadyWon
             if (selected) alreadyWon = true
-            RuleOutcome(index, rule, matched, selected, skipped, conditions)
+            RuleOutcome(index, rule, matched, selected, skipped, conditions, order)
         }
     }
 
@@ -182,7 +238,7 @@ object AcceptorResponder {
         val rule = rules.getOrNull(index) ?: return null
         if (rule.whenMsgType.isBlank()) return null
         return rules.take(index).indexOfFirst { earlier ->
-            earlier.enabled && earlier.whenMsgType == rule.whenMsgType && earlier.trigger().isEmpty()
+            earlier.enabled && earlier.whenMsgType == rule.whenMsgType && earlier.isUnconditional()
         }.takeIf { it >= 0 }
     }
 

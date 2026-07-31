@@ -613,6 +613,17 @@ class FixMessageSession(
         venue?.orderBookFlow(venueSessionId)
             ?: quickFixService?.takeIf { isAcceptor }?.orderBookFlow()
 
+    /**
+     * What this book holds **right now** for the order [message] names.
+     *
+     * The one-shot form, for a reader that is about to write down what it heard — a hand-sent reply
+     * recording the state it was composed against. The rules engine takes its own reading a moment
+     * earlier, from the wire; this one is for a person, at the moment they picked a reply.
+     */
+    fun orderReading(message: quickfix.Message): BookReading? =
+        venue?.orderReading(venueSessionId, message)
+            ?: quickFixService?.takeIf { isAcceptor }?.orderReading(null, message)
+
     /** Wipes this counterparty's book, recording that it was wiped rather than never filled. */
     fun clearOrderBook(by: String = "manually") {
         venue?.clearOrderBook(venueSessionId, by) ?: quickFixService?.takeIf { isAcceptor }?.clearOrderBook(by = by)

@@ -98,6 +98,20 @@ data class AcceptorResponseRule(
     val responseTemplate: String = "",
     val steps: List<ResponseStep> = emptyList(),
     /**
+     * What the venue must already be holding for this rule to fire — **one more condition, ANDed**
+     * with every tag condition above, and the only one no tag can express.
+     *
+     * Null is the whole of backward compatibility: a rule written before the book existed asks the
+     * book nothing and fires exactly as it did. See `docs/acceptor-order-state-proposal.md`,
+     * decisions 1 and 4 — the book answers, the rules still decide, and a venue behaviour it causes
+     * is a rule on a card that can be read, reordered and switched off.
+     *
+     * **The question is what the venue held *before* this message** (decision 4a). Otherwise a rule
+     * conditioned `unknown` on `35=D` could never fire — the book records from the wire, so by the
+     * time the rule is asked the order it is about has already been booked by its own arrival.
+     */
+    val whenOrder: OrderConstraint? = null,
+    /**
      * A rule switched off is **kept and skipped**, not deleted.
      *
      * Narrowing down a venue's behaviour means asking "what happens without this one" a dozen times,
@@ -136,6 +150,20 @@ data class AcceptorResponseRule(
             else -> emptyList()
         }
 
+    /** True when any step of the reply reads the book — see [validationError] for what that implies. */
+    fun readsTheBook(): Boolean = sequence().any { ORDER_REF in it.template }
+
+    /**
+     * True when nothing narrows this rule: it answers **every** message of its type.
+     *
+     * The question two different callers ask — where a preset has to be inserted for it to be
+     * reachable, and whether an earlier rule makes a later one unreachable — and both were asking it
+     * of [trigger] alone. [whenOrder] is a constraint no tag can express, so a rule carrying one is
+     * conditioned even with an empty trigger, and a caller that missed that would place it as though
+     * it answered everything.
+     */
+    fun isUnconditional(): Boolean = trigger().isEmpty() && whenOrder == null
+
     /**
      * What is wrong with this rule, in the author's words, or null if it is usable.
      *
@@ -152,6 +180,16 @@ data class AcceptorResponseRule(
             whenFields.keys.any { it.toIntOrNull() == null } ->
                 "'${whenFields.keys.first { it.toIntOrNull() == null }}' is not a tag number, so this rule can never match"
             conditions.any { it.reason() != null } -> conditions.firstNotNullOf { it.reason() }
+            // A reply that reads the book cannot be sent for an order the book does not hold: every
+            // `${order.…}` would substitute empty and the venue would put `37=` on the wire as a real
+            // field with no value — the malformed message the preset discipline exists to prevent.
+            // Refused *structurally*, the way the fill presets are conditioned on `40 = 2` rather than
+            // testing for a price at send time: the rule simply does not match, and the next rule for
+            // that MsgType answers instead. (Settled open question 1. The substitution itself is
+            // slice C; this is the lock that has to exist before the door does.)
+            readsTheBook() && (whenOrder == null || whenOrder == OrderConstraint.UNKNOWN) ->
+                "the reply reads \${order.…}, so the trigger has to require an order to read — " +
+                    "set 'when the order is' to pending, working or done"
             steps.isNotEmpty() && responseTemplate.isNotBlank() ->
                 "the rule carries both 'steps' and the older 'responseTemplate'; the sequence is played and " +
                     "the single template is ignored — remove it to say so"
@@ -163,3 +201,13 @@ data class AcceptorResponseRule(
             else -> null
         }
 }
+
+/**
+ * How a template says it reads the book.
+ *
+ * A file-private constant rather than a companion: `@Serializable` puts `serializer()` in the
+ * companion, and a *private* one takes that with it. Named here rather than in the resolver because
+ * the **refusal** ships before the substitution does — slice B has to be unable to write the rule
+ * slice C would break on.
+ */
+private const val ORDER_REF = "\${order."

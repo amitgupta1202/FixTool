@@ -5,8 +5,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.SendReason
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -500,5 +503,51 @@ class MessageDetailPanelIntegrationTest {
 
         // Then: The symbols should be visible in the raw message
         composeTestRule.onNodeWithText("EUR/USD", substring = true).assertExists()
+    }
+
+    // ========================================
+    // Why the venue sent this
+    // ========================================
+
+    /**
+     * The recorded reason, beside the bytes it explains.
+     *
+     * Read off the message rather than worked out here, which is the whole of decision 6a: by the time
+     * anybody opens this panel the book has moved on, and a panel that re-derived the reason would
+     * state a different one — confidently, and about the wrong moment.
+     */
+    @Test
+    fun `an auto-reply shows the rule that chose it and what the book said`() {
+        val reply =
+            createQuoteRequest().copy(
+                direction = FixMessage.Direction.OUTGOING,
+                sendReason =
+                    SendReason(
+                        source = SendReason.Source.RULE,
+                        at = LocalDateTime.of(2026, 7, 31, 9, 14, 22, 418_000_000),
+                        ruleIndex = 2,
+                        whenMsgType = "F",
+                        constraint = OrderConstraint.UNKNOWN,
+                        reading = BookReading.unknown("ORD-9"),
+                    ),
+            )
+
+        composeTestRule.setContent {
+            MessageDetailPanel(message = reply, dictionary = dictionary, onClose = {})
+        }
+
+        composeTestRule.onNodeWithTag("detail-send-reason").assertExists()
+        composeTestRule
+            .onNodeWithText("sent by rule 3 — 35=F matched, and the book said ORD-9 was unknown at 09:14:22.418")
+            .assertExists()
+    }
+
+    @Test
+    fun `a message nobody claimed draws no reason at all`() {
+        composeTestRule.setContent {
+            MessageDetailPanel(message = createQuoteRequest(), dictionary = dictionary, onClose = {})
+        }
+
+        composeTestRule.onNodeWithTag("detail-send-reason").assertDoesNotExist()
     }
 }

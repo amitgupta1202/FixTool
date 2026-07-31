@@ -14,11 +14,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -103,11 +105,33 @@ class AcceptorRulesEditorActionsTest {
         }
 
         composeTestRule.onNodeWithText("+ preset").performClick()
-        composeTestRule.onNodeWithText("Cancel accepted").performClick()
+        // "— always" because there is now a second cancel-accepted preset, conditioned on the book
+        // holding the order. Naming which one is being clicked is the point of both names.
+        composeTestRule.onNodeWithText("Cancel accepted — always").performClick()
 
         assertEquals(1, rules.size)
         assertEquals("F", rules.single().whenMsgType, "the menu must insert the entry that was clicked")
         assertEquals(2, rules.single().sequence().size, "pending cancel, then canceled")
+        assertNull(rules.single().whenOrder, "the stateless preset stays stateless — it works with no history at all")
+    }
+
+    /**
+     * The same menu, the entry beside it. Two presets whose names differ only in what they ask of the
+     * book, so a click that landed on the wrong one would be invisible in everything but the rule.
+     */
+    @Test
+    fun `the preset menu inserts the conditioned cancel rule with its constraint intact`() {
+        var rules = listOf<AcceptorResponseRule>()
+        composeTestRule.setContent {
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(rules = rules, onRulesChange = { rules = it })
+            }
+        }
+
+        composeTestRule.onNodeWithText("+ preset").performClick()
+        composeTestRule.onNodeWithText("Cancel rejected — unknown order").performClick()
+
+        assertEquals(OrderConstraint.UNKNOWN, rules.single().whenOrder)
     }
 
     /**
@@ -213,5 +237,64 @@ class AcceptorRulesEditorActionsTest {
         composeTestRule
             .onNodeWithText("⚠ never fires — rule 1 answers every 35=D. Move it earlier, or give it a condition.")
             .assertExists()
+    }
+
+    // ---------------------------------------------------------------- the constraint no tag can express
+
+    /**
+     * The book constraint is always on the card, including in its off position. A rule that *could*
+     * ask the venue's memory and does not is a thing an author has to be able to see in order to
+     * change it — hiding the control behind an "add" would make the whole feature something you have
+     * to already know about before you can find it.
+     */
+    @Test
+    fun `every rule shows what it asks the book, including the rules that ask nothing`() {
+        composeTestRule.setContent {
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(rules = listOf(twoStepRule), onRulesChange = {})
+            }
+        }
+
+        composeTestRule.onNodeWithText("and the order is").assertExists()
+        composeTestRule.onNodeWithTag("rule-when-order").assertExists()
+        composeTestRule.onNodeWithText("any ▾").assertExists()
+    }
+
+    @Test
+    fun `picking a word from the menu writes it onto the rule, and 'any' takes it back off`() {
+        var latest: AcceptorResponseRule? = null
+        composeTestRule.setContent {
+            var rules by remember { mutableStateOf(listOf(twoStepRule)) }
+            latest = rules.single()
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(rules = rules, onRulesChange = { rules = it })
+            }
+        }
+
+        composeTestRule.onNodeWithTag("rule-when-order").performClick()
+        composeTestRule.onNodeWithText("working").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(OrderConstraint.WORKING, latest?.whenOrder)
+
+        composeTestRule.onNodeWithTag("rule-when-order").performClick()
+        composeTestRule.onNodeWithText("any").performClick()
+        composeTestRule.waitForIdle()
+        assertNull(latest?.whenOrder, "a rule must be able to stop asking, not only start")
+    }
+
+    /** `pending` and `working` are the pair an author has to choose between, so each says what it is. */
+    @Test
+    fun `each word in the menu says what it means`() {
+        composeTestRule.setContent {
+            Box(modifier = Modifier.width(700.dp)) {
+                AcceptorRulesEditor(rules = listOf(twoStepRule), onRulesChange = {})
+            }
+        }
+
+        composeTestRule.onNodeWithTag("rule-when-order").performClick()
+
+        composeTestRule.onNodeWithText("this venue has never seen it").assertExists()
+        composeTestRule.onNodeWithText("the venue has it; the client has not been told anything yet").assertExists()
+        composeTestRule.onNodeWithText("acknowledged and not finished").assertExists()
     }
 }

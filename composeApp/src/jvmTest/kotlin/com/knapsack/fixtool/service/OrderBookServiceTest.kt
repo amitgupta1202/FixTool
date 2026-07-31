@@ -299,4 +299,47 @@ class OrderBookServiceTest {
         assertTrue(view.orders.all { it.events.size == 2 }, "an order lost one of its two messages")
         assertNotNull(service.order("ALPHA", "ORD-7-49"))
     }
+
+    // ------------------------------------------------------------------ what a trigger reads
+
+    @Test
+    fun `a reading is per counterparty, so one client's cancel never reads another's order`() {
+        val service = OrderBookService()
+        service.receive("ALPHA", *order("ORD-1"))
+        service.send("ALPHA", *ack("ORD-1"))
+        val cancel = mapOf(TAG_MSG_TYPE to "F", TAG_CL_ORD_ID to "CXL-1", TAG_ORIG_CL_ORD_ID to "ORD-1")
+
+        assertEquals(OrderState.WORKING, service.reading("ALPHA", cancel).state)
+        assertNull(
+            service.reading("BETA", cancel).state,
+            "BETA never sent ORD-1, and answering its cancel from ALPHA's book is the bug the per-session key exists to stop",
+        )
+    }
+
+    @Test
+    fun `a book nothing has happened on reads unknown rather than failing`() {
+        val service = OrderBookService()
+
+        val reading = service.reading("NOBODY", mapOf(TAG_MSG_TYPE to "F", TAG_ORIG_CL_ORD_ID to "ORD-1"))
+
+        assertEquals("ORD-1", reading.key)
+        assertNull(reading.state)
+    }
+
+    /**
+     * The reduction is the one place a `quickfix.Message` meets the book. A second one that read a tag
+     * differently would put two books in the same app, agreeing on everything until they didn't.
+     */
+    @Test
+    fun `a message reduces to the tags the book reads and nothing else`() {
+        val message =
+            AcceptorResponder.buildMessage("35=F|11=CXL-1|41=ORD-1|55=VOD.L|54=1|60=20260731-09:14:22.000|9999=noise")
+
+        val fields = OrderBookService.fieldsOf(message)
+
+        assertEquals("F", fields[TAG_MSG_TYPE])
+        assertEquals("ORD-1", fields[TAG_ORIG_CL_ORD_ID])
+        assertEquals("CXL-1", fields[TAG_CL_ORD_ID])
+        assertNull(fields[9999], "a tag no spec names has no business in the book")
+    }
 }

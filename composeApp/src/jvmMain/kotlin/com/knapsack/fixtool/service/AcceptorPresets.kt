@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FieldCondition
+import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
 
@@ -160,6 +161,26 @@ object AcceptorPresets {
     private const val BUSINESS_REJECT =
         "35=j|372=H|380=3|58=OrderStatusRequest is not supported by this venue"
 
+    // 103=6 is OrdRejReason *Duplicate Order*, which is the whole of what this rule found out: the
+    // ClOrdID naming this order is one the venue is already using for another.
+    private val DUPLICATE_REJECT =
+        executionReport(
+            "150=8",
+            "39=8",
+            ORDER_ECHO,
+            "14=0",
+            "151=0",
+            "6=0",
+            "103=6",
+            "58=ClOrdID is already in use on this session",
+        )
+
+    // 380=1 is BusinessRejectReason *Unknown ID*, and 379 says which id — the ClOrdID the client
+    // asked about. A venue that supports status requests but has never heard of this order says
+    // exactly this, and it is a different venue from the one below that supports none of them.
+    private const val UNKNOWN_ORDER_REJECT =
+        "35=j|372=H|379=\${req.11}|380=1|58=Unknown order"
+
     // ------------------------------------------------------------------ the catalogue
 
     private fun condition(tag: Int, matcher: Matcher) = FieldCondition(tag, MatcherCodec.matcherToJson(matcher))
@@ -219,6 +240,81 @@ object AcceptorPresets {
     private val unsupportedMessage =
         AcceptorResponseRule(whenMsgType = "H", steps = listOf(ResponseStep(BUSINESS_REJECT)))
 
+    // ------------------------------------------------------------------ rules that ask the book
+    //
+    // Everything below carries a `whenOrder`, and each one is a venue behaviour that could not be
+    // written before the book existed — not because the reply needed state, but because the *trigger*
+    // did. They sit beside the stateless rules above rather than replacing them: those are the ones
+    // that work with no history, which is the state a tester is in for the first five minutes of every
+    // session, and a preset that silently needs state is a preset that silently does nothing.
+    //
+    // Note what none of them do: read the book to *build* a reply. That is slice C. These only ask.
+
+    /**
+     * The case the whole feature exists for. A cancel for an order that was never placed is answered
+     * the way a real venue answers it, **without** taking every legitimate cancel down with it — which
+     * is exactly what the unconditional reject above cannot avoid doing.
+     */
+    private val cancelRejectedUnknown =
+        AcceptorResponseRule(
+            whenMsgType = "F",
+            whenOrder = OrderConstraint.UNKNOWN,
+            steps = listOf(ResponseStep(CANCEL_REJECT)),
+        )
+
+    /** Its other half: a cancel for an order the venue is actually holding gets accepted. */
+    private val cancelAcceptedWorking =
+        AcceptorResponseRule(
+            whenMsgType = "F",
+            whenOrder = OrderConstraint.WORKING,
+            steps = listOf(ResponseStep(PENDING_CANCEL), ResponseStep(CANCELED, delayMillis = 150)),
+        )
+
+    /**
+     * A ClOrdID the venue is already using — **two rules, because "already in use" is two states**.
+     *
+     * `working` is the ordinary duplicate: the original was acknowledged and is live. `pending` is the
+     * one a burst produces, where the same id arrives twice before the venue has answered either. Both
+     * are duplicates and the client's error handling for them is the same, but the vocabulary has no
+     * word for "either", and inventing one to save a card would cost the four words their whole point
+     * (decision 4). A duplicate of a *finished* order is deliberately not here: plenty of venues accept
+     * that, and the author who wants it rejected adds the same rule with `done`.
+     *
+     * Neither can be written as "the book already holds this ClOrdID", because by the time any rule is
+     * asked the book holds it either way — the arrival of the order booked it. What separates a
+     * duplicate from a new order is what the venue held *before* it, which is what `whenOrder` reads
+     * (decision 4a).
+     */
+    private val duplicateWorking =
+        AcceptorResponseRule(
+            whenMsgType = "D",
+            whenOrder = OrderConstraint.WORKING,
+            steps = listOf(ResponseStep(DUPLICATE_REJECT)),
+        )
+
+    private val duplicatePending =
+        AcceptorResponseRule(
+            whenMsgType = "D",
+            whenOrder = OrderConstraint.PENDING,
+            steps = listOf(ResponseStep(DUPLICATE_REJECT)),
+        )
+
+    /**
+     * "Where is my order?" answered for an order the venue does not have.
+     *
+     * Distinct from [unsupportedMessage], which is a venue that does not answer status requests at
+     * all — the same MsgType, two entirely different venues, and conditioning the one into the other
+     * would have left neither available. This is the half of the pair slice B can write; the other
+     * half — the same request answered *from* the book for an order it holds — needs `${order.…}` and
+     * lands with slice C.
+     */
+    private val statusRequestUnknown =
+        AcceptorResponseRule(
+            whenMsgType = "H",
+            whenOrder = OrderConstraint.UNKNOWN,
+            steps = listOf(ResponseStep(UNKNOWN_ORDER_REJECT)),
+        )
+
     /**
      * Every preset, in menu order.
      *
@@ -265,18 +361,42 @@ object AcceptorPresets {
                 rules = listOf(orderRejectOverSize),
             ),
             AcceptorPreset(
+                id = "duplicate-clordid",
+                name = "Duplicate ClOrdID rejected",
+                group = GROUP_ORDER_FLOW,
+                summary = "when the id is already live · 39=8 · 103=6 (DUPLICATE)",
+                rules = listOf(duplicateWorking, duplicatePending),
+            ),
+            AcceptorPreset(
                 id = "cancel-accepted",
-                name = "Cancel accepted",
+                name = "Cancel accepted — always",
                 group = GROUP_CANCEL_REPLACE,
-                summary = "35=F → pending, then canceled",
+                summary = "35=F → pending, then canceled, whatever the book holds",
                 rules = listOf(cancelAccepted),
             ),
             AcceptorPreset(
+                id = "cancel-accepted-working",
+                name = "Cancel accepted — the order is working",
+                group = GROUP_CANCEL_REPLACE,
+                summary = "when the book holds it live · pending, then canceled",
+                rules = listOf(cancelAcceptedWorking),
+            ),
+            // Renamed rather than replaced. Beside the conditioned rule below it, "Cancel rejected —
+            // unknown order" was a name this one had never earned: it rejects every cancel, including
+            // the legitimate ones, which is the very thing the issue opens by complaining about.
+            AcceptorPreset(
                 id = "cancel-rejected",
+                name = "Cancel rejected — always",
+                group = GROUP_CANCEL_REPLACE,
+                summary = "35=F → 35=9 · 102=1, whatever the book holds",
+                rules = listOf(cancelRejected),
+            ),
+            AcceptorPreset(
+                id = "cancel-rejected-unknown",
                 name = "Cancel rejected — unknown order",
                 group = GROUP_CANCEL_REPLACE,
-                summary = "35=F → 35=9 · 102=1 (UNKNOWN_ORDER)",
-                rules = listOf(cancelRejected),
+                summary = "when the book has never seen it · 35=9 · 102=1 (UNKNOWN_ORDER)",
+                rules = listOf(cancelRejectedUnknown),
             ),
             AcceptorPreset(
                 id = "replace-accepted",
@@ -291,6 +411,13 @@ object AcceptorPresets {
                 group = GROUP_REJECTS,
                 summary = "35=H → 35=j · 380=3 (UNSUPPORTED)",
                 rules = listOf(unsupportedMessage),
+            ),
+            AcceptorPreset(
+                id = "status-request-unknown",
+                name = "Status request — unknown order",
+                group = GROUP_REJECTS,
+                summary = "when the book has never seen it · 35=j · 380=1 (UNKNOWN_ID)",
+                rules = listOf(statusRequestUnknown),
             ),
         )
 
@@ -358,7 +485,7 @@ object AcceptorPresets {
      * A disabled rule does not displace anything: it is skipped at match time, so it takes nothing.
      */
     fun placementFor(rules: List<AcceptorResponseRule>, rule: AcceptorResponseRule): Int {
-        if (rule.trigger().isEmpty()) return rules.size
+        if (rule.isUnconditional()) return rules.size
         val blocking =
             rules.indexOfFirst { earlier ->
                 earlier.enabled &&

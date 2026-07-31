@@ -74,6 +74,15 @@ data class FixMessage(
      * string — it is a fact the caller must report. See `FixMessageHelper.wireFields`.
      */
     val wireRaw: String? = null,
+    /**
+     * Why the venue sent this — the rule that chose it and what the book said at that moment, or the
+     * shape a person picked. Null for everything else, which is every message on an initiator, every
+     * received message, and any reply nobody claimed.
+     *
+     * Recorded rather than re-derived: see [SendReason] and decision 6a. This is the field that makes
+     * an outgoing message able to answer "why" after the state that produced it has moved on.
+     */
+    val sendReason: SendReason? = null,
 ) : AppMessage(timestamp) {
     enum class Direction {
         INCOMING,

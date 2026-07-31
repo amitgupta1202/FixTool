@@ -1,5 +1,7 @@
 package com.knapsack.fixtool.model
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import java.math.BigDecimal
 import java.time.LocalDateTime
 
@@ -19,6 +21,83 @@ enum class OrderState {
     /** Filled, canceled, replaced or rejected — nothing more will happen to it. */
     DONE,
 }
+
+/**
+ * The one thing a trigger can ask the book — four words, and deliberately not the `OrdStatus` zoo.
+ *
+ * Decision 4: four words a tester can hold in their head, each one naming a rule somebody actually
+ * wants to write. `unknown` is the fourth because it is not an [OrderState] — it is the absence of
+ * an entry, which is the whole point of the cancel-for-an-order-that-was-never-placed case.
+ *
+ * Spelled lowercase on disk so a hand-written profile reads as the sentence it is: *when 35=F and
+ * the order is unknown*.
+ */
+@Serializable
+enum class OrderConstraint {
+    @SerialName("unknown")
+    UNKNOWN,
+
+    @SerialName("pending")
+    PENDING,
+
+    @SerialName("working")
+    WORKING,
+
+    @SerialName("done")
+    DONE,
+
+    ;
+
+    /** The word as it is written and read — the same string in a profile, a rule card and a reason. */
+    val word: String get() = name.lowercase()
+
+    /** True when [state] — null meaning the book holds no such entry — is what this asks for. */
+    fun matches(state: OrderState?): Boolean =
+        when (this) {
+            UNKNOWN -> state == null
+            PENDING -> state == OrderState.PENDING
+            WORKING -> state == OrderState.WORKING
+            DONE -> state == OrderState.DONE
+        }
+
+    companion object {
+        /** The constraint [word] names, or null — used where a word arrives from JSON or a query string. */
+        fun byWord(word: String): OrderConstraint? = entries.firstOrNull { it.word == word.trim().lowercase() }
+
+        /** The vocabulary, for saying what an unrecognised word could have been. */
+        val words: List<String> get() = entries.map { it.word }
+    }
+}
+
+/**
+ * **What the book said about one message's order, at one moment.**
+ *
+ * A value rather than a live lookup, and that is the whole of decision 6a: the answer is only true of
+ * the instant it was taken. A cancel judged `unknown` at 09:14:22 re-reads as `working` at 09:14:25,
+ * and a tool that re-derives the reason after the fact would state the second one confidently about
+ * the first one's reply.
+ *
+ * [state] null means the book has never seen this entry — the `unknown` of [OrderConstraint].
+ */
+data class BookReading(
+    /** The key the book was asked about: the order the message named, or null if it named none. */
+    val key: String?,
+    val state: OrderState?,
+    /** LeavesQty as the book had it, so a recorded reason can say what was still open. */
+    val leavesQty: String? = null,
+) {
+    /** What the book said, in the words a trigger is written in. */
+    val word: String get() = state?.word ?: OrderConstraint.UNKNOWN.word
+
+    fun satisfies(constraint: OrderConstraint): Boolean = constraint.matches(state)
+
+    companion object {
+        /** A book that has never seen the order — also what a venue with no history says about everything. */
+        fun unknown(key: String? = null) = BookReading(key = key, state = null)
+    }
+}
+
+private val OrderState.word: String get() = name.lowercase()
 
 /**
  * One message that touched an order, as **facts off the message** and nothing else.
@@ -355,6 +434,38 @@ object OrderBook {
      */
     fun supersedes(event: OrderEvent): Boolean =
         event.sent && (event.execType == "5" || event.field(TAG_ORD_STATUS) == "5")
+
+    /**
+     * The entries [fields] names, in the order a lookup should try them.
+     *
+     * **41 before 11**, because when a message carries both, 41 is the order it is *about* and 11 is
+     * what the message calls itself. A cancel request `11=CXL-4 41=ORD-9` is a question about ORD-9;
+     * answering it with whatever the book happens to hold under CXL-4 would be answering a different
+     * question. 11 is the fallback for everything that names no predecessor — an order, a status
+     * request — where the message's own id *is* the order's.
+     */
+    fun namedKeys(fields: Map<Int, String>, spec: BookSpec): List<String> =
+        listOfNotNull(fields[spec.chainTag], fields[spec.keyTag])
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
+    /**
+     * What the book — reached through [lookup] — says about the order [fields] names.
+     *
+     * The first key [namedKeys] offers that [lookup] knows wins. When it knows none, the reading is
+     * `unknown` *keyed by the first name the message offered*, so a reason can still say which order
+     * was asked after and not merely that something was.
+     */
+    fun reading(fields: Map<Int, String>, spec: BookSpec, lookup: (String) -> BookedOrder?): BookReading {
+        val names = namedKeys(fields, spec)
+        names.forEach { key ->
+            val found = lookup(key) ?: return@forEach
+            val current = found.current
+            return BookReading(key = key, state = current.state, leavesQty = current.leavesQty)
+        }
+        return BookReading.unknown(names.firstOrNull())
+    }
 }
 
 private fun String.toBigDecimalOrNull(): BigDecimal? =

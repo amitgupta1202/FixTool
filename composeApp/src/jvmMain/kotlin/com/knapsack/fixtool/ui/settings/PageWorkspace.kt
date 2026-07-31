@@ -81,8 +81,19 @@ fun sessionsPage(): SettingsPage =
         id = "sessions",
         title = "Sessions",
         subtitle = "How a connected session behaves on this machine.",
-        contains = listOf("message buffer size", "retained messages", "memory", "auto-sync session to editor"),
-        owns = { listOf(it.sessionBufferSize, it.autoSyncSessionToEditor) },
+        contains =
+            listOf(
+                "message buffer size",
+                "retained messages",
+                "memory",
+                "auto-sync session to editor",
+                "order book size",
+                "booked orders",
+                "acceptor",
+                "venue memory",
+                "eviction",
+            ),
+        owns = { listOf(it.sessionBufferSize, it.orderBookCap, it.autoSyncSessionToEditor) },
         content = { SessionsContent(it) },
     )
 
@@ -95,6 +106,22 @@ private fun SessionsContent(context: SettingsContext) {
         description = "How many messages a session keeps before the oldest are dropped. Applies to new sessions.",
     ) {
         NumberField(draft = draft, setting = NumberSetting.SESSION_BUFFER)
+    }
+
+    // Directly beneath the message buffer, and that placement is the argument. These two bound
+    // different things and are constantly mistaken for one number: how much conversation you can
+    // scroll back through, and how many orders the venue still knows about. Deriving the second from
+    // the first would mean a cancel for order 400 coming back "unknown" because the *grid* had
+    // scrolled past it — a venue behaviour nobody configured. Side by side, that they are two
+    // questions is visible rather than asserted in a comment.
+    SettingsBlock(
+        title = "Order book",
+        description =
+            "How many orders an acceptor remembers per counterparty before the oldest finished ones are " +
+                "dropped. A working order is never dropped ahead of a finished one, and every eviction is " +
+                "counted beside the book. Applies immediately, to books already open.",
+    ) {
+        NumberField(draft = draft, setting = NumberSetting.ORDER_BOOK_CAP)
     }
 
     SettingsBlock(title = "Editor", description = "How the message editor follows the session you are looking at.") {

@@ -124,6 +124,55 @@ class SettingsDialogTest {
         assertEquals(2500, saved?.sessionBufferSize)
     }
 
+    /**
+     * The book cap is reachable, edits, and saves what was typed.
+     *
+     * This is the layer that has to say so: the dialog has no HTTP click endpoints, so nothing else in
+     * the suite can press the control. `SettingsPagesTest` proves the *field* is claimed by a page;
+     * only a click proves the page actually draws something to change it with.
+     */
+    @Test
+    fun `the order book cap can be edited and saved`() {
+        showDialog()
+        composeTestRule.onNodeWithTag("settings-page-sessions").performClick()
+
+        composeTestRule.onNodeWithTag("settings-number-ORDER_BOOK_CAP").performTextReplacement("250")
+        composeTestRule.onNodeWithTag("settings-save").performClick()
+
+        assertEquals(250, saved?.orderBookCap)
+        assertEquals(AppSettings.default().sessionBufferSize, saved?.sessionBufferSize, "and nothing beside it moved")
+    }
+
+    /**
+     * The two bounds sit on one page and are constantly mistaken for one number. Editing either must
+     * leave the other alone — a page where changing the book cap also moved the message buffer would
+     * be the derivation this setting was chosen instead of, reintroduced by accident.
+     */
+    @Test
+    fun `the message buffer and the book cap are two independent numbers on one page`() {
+        showDialog()
+        composeTestRule.onNodeWithTag("settings-page-sessions").performClick()
+
+        composeTestRule.onNodeWithTag("settings-number-SESSION_BUFFER").performTextReplacement("2500")
+        composeTestRule.onNodeWithTag("settings-number-ORDER_BOOK_CAP").performTextReplacement("400")
+        composeTestRule.onNodeWithTag("settings-save").performClick()
+
+        assertEquals(2500, saved?.sessionBufferSize)
+        assertEquals(400, saved?.orderBookCap)
+    }
+
+    @Test
+    fun `an out-of-range book cap is refused the same way any other number is`() {
+        showDialog()
+        composeTestRule.onNodeWithTag("settings-page-sessions").performClick()
+
+        composeTestRule.onNodeWithTag("settings-number-ORDER_BOOK_CAP").performTextReplacement("10")
+
+        composeTestRule.onNodeWithTag("settings-status").assertTextContains("must be at least 100", substring = true)
+        composeTestRule.onNodeWithTag("settings-save").performClick()
+        assertNull(saved, "a book of 10 orders is not silently corrected to 100")
+    }
+
     @Test
     fun `leaving with an edit asks first`() {
         showDialog()

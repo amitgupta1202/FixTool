@@ -28,6 +28,7 @@ internal fun customisedSettings(): AppSettings =
         validateUserDefinedFields = true,
         validateIncomingMessage = true,
         sessionBufferSize = 5000,
+        orderBookCap = 250,
         gridViewColumns = listOf(35, 55),
         hideProtocolTags = false,
         protocolTags = setOf(8, 9),

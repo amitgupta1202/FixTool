@@ -61,6 +61,8 @@ data class BookView(
  */
 class OrderBookService(
     private val spec: BookSpec = BookSpec.ORDERS,
+    initialCap: Int = DEFAULT_CAP,
+) {
     /**
      * How many orders one counterparty's book keeps.
      *
@@ -68,9 +70,15 @@ class OrderBookService(
      * tester wants and how much order state a venue keeps are unrelated questions, and deriving one
      * from the other is the mistake the ingest path already made once, when a display preference
      * silently became a throughput limit.
+     *
+     * **Settable while books are open**, because the moment a tester discovers the cap is too small is
+     * the middle of the soak run that proved it — and a setting you can only apply by reconnecting is
+     * one that costs the very state it was raised to preserve. Volatile: read on the callback thread
+     * of every session, written on the UI thread that saved Settings.
      */
-    private val cap: Int = DEFAULT_CAP,
-) {
+    @Volatile
+    private var cap: Int = initialCap.coerceAtLeast(1)
+
     companion object {
         const val DEFAULT_CAP = 5_000
 
@@ -123,6 +131,33 @@ class OrderBookService(
     }
 
     private val books = ConcurrentHashMap<String, Book>()
+
+    /**
+     * Changes the cap, and brings every book already open **within it**.
+     *
+     * Lowering evicts on the spot rather than waiting for the next order, because a book reporting
+     * `cap 100` while holding 5,000 is a book lying about the one number this setting is. Finished
+     * orders go first, as always, and the evictions are counted where every other eviction is counted
+     * — a setting that quietly shrank a venue's memory would be exactly the silence decision 8a was
+     * written against.
+     *
+     * Raising evicts nothing: the cap is a ceiling, and there is no work to do when it moves up.
+     */
+    fun setCap(newCap: Int) {
+        val wanted = newCap.coerceAtLeast(1)
+        if (wanted == cap) return
+        cap = wanted
+        books.values.forEach { book ->
+            synchronized(book) {
+                if (book.orders.size > wanted) {
+                    evictIfNeeded(book)
+                }
+                // Published either way: `cap` is on the view, so a reader is owed the new number even
+                // when nothing was dropped to reach it.
+                publish(book)
+            }
+        }
+    }
 
     /** [sessionKey]'s book, as a flow — created empty for a counterparty nothing has happened on yet. */
     fun views(sessionKey: String): StateFlow<BookView> = books.computeIfAbsent(sessionKey) { Book(cap) }.published.asStateFlow()

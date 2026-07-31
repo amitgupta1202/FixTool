@@ -31,6 +31,18 @@ enum class NumberSetting(
         write = { copy(sessionBufferSize = it.toInt()) },
     ),
 
+    ORDER_BOOK_CAP(
+        label = "Order book size",
+        // Wider at the top than the message buffer, because the two are bounding different things: a
+        // soak run that sends 50,000 orders through a session keeping 1,000 messages is the case this
+        // setting exists for, and a cap that could not be raised past the scrollback would be the
+        // derivation it was chosen instead of.
+        range = 100L..1_000_000L,
+        unit = "orders per counterparty",
+        read = { it.orderBookCap.toLong() },
+        write = { copy(orderBookCap = it.toInt()) },
+    ),
+
     // Stored in microseconds, edited in milliseconds — the conversion belongs here, next to the range
     // it is expressed in, rather than being re-derived at every call site that touches the field.
     LATENCY_WARNING(

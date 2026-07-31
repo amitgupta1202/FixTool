@@ -209,6 +209,45 @@ class OrderBookIntegrationTest {
         assertEquals("the test", book.clearedBy)
     }
 
+    /**
+     * **The cap is a setting, and a setting nothing reads is a text file.**
+     *
+     * Two claims that only a real venue can make: the number `AppSettings` holds is the number the
+     * engine bounds a book by, and changing it reaches a venue that is *already up*. The second is
+     * the one that matters — a cap you can only apply by reconnecting is unusable in the situation it
+     * exists for, since a soak run that has just proved the book too small is exactly the state a
+     * reconnect would throw away.
+     */
+    @Test
+    fun `the book cap comes from settings, and a change reaches a venue already running`() {
+        viewModel.saveAppSettings(viewModel.appSettings.copy(orderBookCap = 2))
+        connectVenue()
+        val client = connectClient("ALPHA")
+        val pane = awaitPane("ALPHA")
+
+        repeat(4) { i ->
+            client.sendFixMessage(order.replace("BOOK-1", "BOOK-$i"), viewModel.dictionary)
+        }
+
+        assertTrue(
+            awaitCondition(15_000) { pane.orderBook()!!.evicted > 0 },
+            "the venue should be holding two orders and counting the rest as evicted; " +
+                "got ${pane.orderBook()!!.orders.size} orders, cap ${pane.orderBook()!!.cap}",
+        )
+        assertEquals(2, pane.orderBook()!!.cap, "the engine has to be running the number Settings holds")
+        assertEquals(2, pane.orderBook()!!.orders.size)
+
+        // Saved while the venue is logged on and the client is still attached — no reconnect.
+        viewModel.saveAppSettings(viewModel.appSettings.copy(orderBookCap = 500))
+
+        assertEquals(500, pane.orderBook()!!.cap, "a cap edited mid-run must reach the book that is open")
+        client.sendFixMessage(order.replace("BOOK-1", "BOOK-9"), viewModel.dictionary)
+        assertTrue(
+            awaitCondition(15_000) { pane.orderBook()!!.orders.size == 3 },
+            "and the raised cap has to actually hold the next order rather than evict for it",
+        )
+    }
+
     @Test
     fun `an initiator holds no book at all`() {
         connectVenue()

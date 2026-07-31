@@ -206,7 +206,7 @@ class OrderBookPanelTest {
 
     @Test
     fun `evictions are on the panel, so a capped book never looks merely quiet`() {
-        val service = OrderBookService(cap = 1)
+        val service = OrderBookService(initialCap = 1)
         repeat(3) { i ->
             service.record(
                 sessionKey = "ALPHA",

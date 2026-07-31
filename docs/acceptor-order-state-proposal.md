@@ -1,7 +1,8 @@
 # Order state for acceptor mode — proposal
 
 **Issue:** [#35](https://github.com/amitgupta1202/FixTool/issues/35)
-**Status:** approved 2026-07-31 as sliced; amended by that review (decisions 2a, 3a, 3b). Building slice A.
+**Status:** approved 2026-07-31 as sliced; amended by that review (decisions 2a, 3a, 3b). **Slice A
+shipped 2026-07-31**, live-verified; B, C and D not started.
 **Depends on:** #30 (rules engine, shipped), #34 (conditional triggers, shipped), #31 (presets, shipped),
 #32 (multi-client venue, shipped), #40 ("Reply With…", shipped)
 **Mockups:** https://claude.ai/code/artifact/47dbc8fa-ce28-4f94-b4fa-7d155f2a4875
@@ -246,6 +247,17 @@ can read state that rendering is conditional. It has to name the state it assume
 "what would this rule do if the order were already filled" is answerable without arranging for an
 order to be already filled.
 
+### 6a-i. Whatever draws the book must *watch* it.
+
+Learned by running slice A: the panel read the book with a plain call, drew `CumQty 0` against a wire
+that had already traded 2500, and every test still passed — the unit tests feed the fold their own
+events, and the panel test hands the panel a fresh view per assertion, so nothing below a running app
+was in a position to notice the panel is never handed a second one.
+
+So the book publishes a view on every change and anything on screen collects it. The snapshot form
+stays, because a one-shot reader (the control surface) wants exactly that. A stale book is worse than
+no book: it is wrong with a straight face, and the reader has no way to tell.
+
 ### 6b. The book is a fold over a log, and the log is what is shown.
 
 A row saying `CumQty 2500` is a claim. The same row backed by the two fills that made it is evidence,
@@ -321,8 +333,9 @@ same reason: a number the user can see beats a silence they cannot.
 
 ## Slices
 
-**A — the book, recording and shown, with its working.** No behaviour change: no rule can ask about it
-and no template can read it, so nothing that works today works differently. The panel, the per-order
+**A — the book, recording and shown, with its working. SHIPPED 2026-07-31** (`b741997`, `21c2f9a`,
+`0a85751`). No behaviour change: no rule can ask about it and no template can read it, so nothing that
+works today works differently. The panel, the per-order
 trail, the roll-up, the unattributed list, the eviction count and the cleared-at line, and
 `GET /acceptor/orders` (+ `fixtool_acceptor_orders`). Shippable alone, and immediately worth having —
 "what does the venue think it is holding" currently has no answer at all.

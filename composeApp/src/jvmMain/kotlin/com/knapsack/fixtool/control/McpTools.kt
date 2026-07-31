@@ -557,6 +557,29 @@ object McpTools {
                 required = listOf("profile", "raw"),
             ),
             tool(
+                "fixtool_acceptor_orders",
+                "Read what a venue is holding for a counterparty: the orders it has booked, and for each one the " +
+                    "trail of messages that put it in that state. The book is fed from the WIRE — every message " +
+                    "received and every reply actually sent, whether a rule sent it, a person typed it, or a " +
+                    "scenario step did — so it is the client's view of the venue rather than the venue's " +
+                    "intentions. Acceptor sessions only; an initiator holds no book. " +
+                    "With no `session` it is a roll-up: one line per counterparty with how many orders and how " +
+                    "many are still working. With `session` it is that book in full — each order's ClOrdID, " +
+                    "OrderID, symbol, side, quantities, OrdStatus and `state` (pending = received but not yet " +
+                    "answered, working, done), plus `trail`: every message that touched it with what the order " +
+                    "looked like after it. `order` narrows to one ClOrdID. " +
+                    "Three fields say how the book may be WRONG, and they are the ones to check when a number " +
+                    "surprises you: `unattributed` counts reports that named an order this book has never seen " +
+                    "(with `unattributedMessages` listing them and why), `evicted` counts orders dropped to stay " +
+                    "inside `cap`, and `clearedAt` says the book was emptied rather than never filled. " +
+                    "`clear:true` empties one session's book — use it to start a test from a known state.",
+                props(
+                    "session" to string("session index, id or title; omit for the roll-up across all venues"),
+                    "order" to string("one ClOrdID, to get just that order and its trail"),
+                    "clear" to boolean("true = empty this session's book, recording that it was cleared"),
+                ),
+            ),
+            tool(
                 "fixtool_screenshot",
                 "Capture a PNG screenshot of a FixTool window for visual verification. `window` picks which: " +
                     "`main` (default) the main window; `diff` the reconcile/diff window; or any substring of a " +

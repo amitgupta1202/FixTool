@@ -437,10 +437,14 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(43, tools.size)
+        assertEquals(44, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_reconcile" },
             "the diff is reachable without a hand on the mouse, or an agent can never open the surface that repairs",
+        )
+        assertTrue(
+            tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_acceptor_orders" },
+            "the venue's own memory is readable from outside, or slice A of #35 is a panel and nothing else",
         )
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_capture_paste" },
@@ -1235,6 +1239,130 @@ class ControlServerIntegrationTest {
         assertEquals("matched", status(reply), "client should receive the acceptor's templated ExecutionReport")
         val raw = obj(reply)["message"]!!.jsonObject["raw"]!!.jsonPrimitive.content
         assertTrue(raw.contains("11=ORD-ACC"), "response should echo the request ClOrdID; got $raw")
+    }
+
+    /**
+     * **`/acceptor/orders` — the book, read from outside the app.**
+     *
+     * This endpoint is in the *first* slice of #35 rather than a later one, and this is what that
+     * buys: the venue's memory can be asserted on by something that never touches a mouse. "Reply
+     * With…" shipped without it and could only ever be checked by hand.
+     *
+     * The roll-up and the full book are separate shapes on purpose — a venue with four clients
+     * holding a thousand orders each is not a useful default response — so both are asked for here.
+     */
+    @Test
+    fun `the order book is readable over the control surface, with the trail that proves it`() {
+        val port = freePort()
+        val ackThenFill =
+            AcceptorResponseRule(
+                whenMsgType = "D",
+                steps =
+                    listOf(
+                        ResponseStep(template = "35=8|150=0|39=0|37=EX-BOOK|17=\${uuid}|11=\${req.11}|14=0|151=100|"),
+                        ResponseStep(
+                            template = "35=8|150=F|39=2|37=EX-BOOK|17=\${uuid}|11=\${req.11}|14=100|151=0|32=100|",
+                            delayMillis = 100,
+                        ),
+                    ),
+            )
+        val acceptor =
+            FixConnectionProfile(
+                name = "BOOKACC",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.ACCEPTOR,
+                        senderCompID = "BACC$runId",
+                        targetCompID = "BCLI$runId",
+                        port = port.toString(),
+                        socketAcceptPort = port.toString(),
+                        beginString = "FIX.4.4",
+                        fileStorePath = File(testDir, "bookaccstore").absolutePath,
+                        fileLogPath = File(testDir, "bookacclog").absolutePath,
+                        acceptorResponseRules = listOf(ackThenFill),
+                    ),
+            )
+        val client =
+            FixConnectionProfile(
+                name = "BOOKCLI",
+                config =
+                    FixConnectionConfig(
+                        connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                        senderCompID = "BCLI$runId",
+                        targetCompID = "BACC$runId",
+                        host = "localhost",
+                        port = port.toString(),
+                        socketConnectHost = "localhost",
+                        beginString = "FIX.4.4",
+                        autoReconnect = false,
+                        resetOnLogon = true,
+                        fileStorePath = File(testDir, "bookclistore").absolutePath,
+                        fileLogPath = File(testDir, "bookclilog").absolutePath,
+                    ),
+            )
+        listOf(acceptor, client).forEach {
+            viewModel.saveConnectionProfile(it)
+            viewModel.connectProfile(it.id, it)
+        }
+        assertTrue(
+            awaitCondition(15_000) {
+                viewModel.sessions.any { it.title == "BOOKCLI" && it.connectionState.value == FixConnectionState.LOGGED_ON }
+            },
+            "client should log on to the acceptor",
+        )
+
+        post("/send", """{"session":"BOOKCLI","raw":"35=D|11=ORD-BOOK|55=EUR/USD|54=1|38=100|40=1|"}""")
+        assertEquals(
+            "matched",
+            status(post("/wait", """{"session":"BOOKCLI","match":{"messageType":"8","direction":"in"},"timeoutMs":8000}""")),
+        )
+        // The fill is 100ms behind the ack, and the book is only interesting once both have landed.
+        assertTrue(
+            awaitCondition(8_000) {
+                val orders = obj(get("/acceptor/orders?session=BOOKACC"))["orders"]?.jsonArray
+                orders
+                    ?.firstOrNull()
+                    ?.jsonObject
+                    ?.get("state")
+                    ?.jsonPrimitive
+                    ?.content == "done"
+            },
+            "the venue's book should show the order filled; got " + get("/acceptor/orders?session=BOOKACC").body(),
+        )
+
+        val book = obj(get("/acceptor/orders?session=BOOKACC"))
+        val order = book["orders"]!!.jsonArray.single().jsonObject
+        assertEquals("ORD-BOOK", order["clOrdId"]!!.jsonPrimitive.content)
+        assertEquals("EX-BOOK", order["orderId"]!!.jsonPrimitive.content, "the id the client was actually given")
+        assertEquals("100", order["cumQty"]!!.jsonPrimitive.content)
+        assertEquals("0", order["leavesQty"]!!.jsonPrimitive.content)
+        assertEquals(0, book["working"]!!.jsonPrimitive.int)
+
+        // The trail is what makes those numbers checkable rather than merely trustworthy.
+        val trail = order["trail"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf("order received", "ack", "fill 100"), trail.map { it["label"]!!.jsonPrimitive.content })
+        assertEquals(listOf("received", "sent", "sent"), trail.map { it["direction"]!!.jsonPrimitive.content })
+        assertEquals("0", trail[1]["cumQty"]!!.jsonPrimitive.content, "nothing had traded at the ack")
+        assertEquals("100", trail[2]["cumQty"]!!.jsonPrimitive.content)
+
+        // The health fields report whether or not anything is wrong — a book with nothing to say still
+        // has to say it, or a reader cannot tell a clean book from one that is not reporting.
+        assertEquals(0, book["unattributed"]!!.jsonPrimitive.int)
+        assertEquals(0, book["evicted"]!!.jsonPrimitive.int)
+        assertNull(book["clearedAt"], "nobody has cleared this book")
+
+        // The roll-up: every venue, no orders.
+        val rollup = obj(get("/acceptor/orders"))["books"]!!.jsonArray.map { it.jsonObject }
+        val venueLine = rollup.single { it["session"]!!.jsonPrimitive.content == "BOOKACC" }
+        assertEquals(1, venueLine["orders"]!!.jsonPrimitive.int)
+        assertEquals(0, venueLine["working"]!!.jsonPrimitive.int)
+        assertTrue(rollup.none { it["session"]!!.jsonPrimitive.content == "BOOKCLI" }, "an initiator holds no book")
+
+        // Cleared says so, because an empty book otherwise reads as one nothing ever happened to.
+        assertEquals("cleared", status(post("/acceptor/orders", """{"session":"BOOKACC"}""")))
+        val afterClear = obj(get("/acceptor/orders?session=BOOKACC"))
+        assertTrue(afterClear["orders"]!!.jsonArray.isEmpty())
+        assertEquals("the control surface", afterClear["clearedBy"]!!.jsonPrimitive.content)
     }
 
     /**

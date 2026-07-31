@@ -24,6 +24,15 @@ data class AppSettings(
     val validateIncomingMessage: Boolean = false,
     // Session Settings
     val sessionBufferSize: Int = 1000, // Maximum number of messages to retain per session
+    /**
+     * How many orders one counterparty's book keeps before the oldest **finished** ones are dropped.
+     *
+     * Its own number, deliberately not derived from [sessionBufferSize]. How much scrollback a tester
+     * wants and how much order state a venue keeps are unrelated questions, and tying one to the other
+     * is the mistake the ingest path already made once, when a display preference silently became a
+     * throughput limit. See `docs/acceptor-order-state-proposal.md`, decision 8a.
+     */
+    val orderBookCap: Int = 5000,
     // Grid View Settings
     val gridViewColumns: List<Int> = listOf(11, 131, 693), // List of FIX tags to display as columns (ClOrdID, QuoteReqID, QuoteRequestRejectReason)
     // Protocol Tags Settings

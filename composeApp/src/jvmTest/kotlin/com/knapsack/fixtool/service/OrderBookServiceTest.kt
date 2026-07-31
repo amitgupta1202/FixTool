@@ -178,7 +178,7 @@ class OrderBookServiceTest {
      */
     @Test
     fun `eviction takes finished orders before working ones`() {
-        val service = OrderBookService(cap = 3)
+        val service = OrderBookService(initialCap = 3)
 
         // Three that are done, then four that are still working.
         repeat(3) { i ->
@@ -206,7 +206,7 @@ class OrderBookServiceTest {
 
     @Test
     fun `the eviction count is visible, so a book that dropped something never looks full and healthy`() {
-        val service = OrderBookService(cap = 2)
+        val service = OrderBookService(initialCap = 2)
         repeat(5) { i ->
             service.receive("ALPHA", *order("ORD-$i"))
             service.send(
@@ -298,6 +298,94 @@ class OrderBookServiceTest {
         assertEquals(threads * each, view.orders.size)
         assertTrue(view.orders.all { it.events.size == 2 }, "an order lost one of its two messages")
         assertNotNull(service.order("ALPHA", "ORD-7-49"))
+    }
+
+    // ------------------------------------------------------------------ the cap, while books are open
+
+    /**
+     * **Raising the cap costs nothing and drops nothing.** The case a soak run is actually in: the
+     * book proved too small, and the fix must not also be the thing that discards what proved it.
+     */
+    @Test
+    fun `raising the cap keeps every order already booked`() {
+        val service = OrderBookService(initialCap = 2)
+        repeat(5) { i ->
+            service.receive("ALPHA", *order("ORD-$i"))
+            service.send("ALPHA", *ack("ORD-$i"))
+        }
+        val droppedBefore = service.view("ALPHA").evicted
+
+        service.setCap(100)
+
+        val view = service.view("ALPHA")
+        assertEquals(100, view.cap, "the reader is owed the new number")
+        assertEquals(droppedBefore, view.evicted, "raising a ceiling evicts nothing")
+        assertEquals(2, view.orders.size, "and what the old cap already cost is not conjured back")
+    }
+
+    /**
+     * **Lowering it brings the book inside the new number immediately**, rather than leaving it over
+     * cap until the next order happens to arrive. A book reporting `cap 2` while holding five is
+     * lying about the one number this setting is — and the eviction counter is what keeps the
+     * shrinking from being silent, which is the whole of decision 8a.
+     */
+    @Test
+    fun `lowering the cap evicts down to it at once, and says how much that cost`() {
+        val service = OrderBookService(initialCap = 100)
+        repeat(5) { i ->
+            service.receive("ALPHA", *order("ORD-$i"))
+            service.send("ALPHA", *ack("ORD-$i"))
+        }
+        assertEquals(0, service.view("ALPHA").evicted, "nothing should have been dropped yet")
+
+        service.setCap(2)
+
+        val view = service.view("ALPHA")
+        assertEquals(2, view.cap)
+        assertEquals(2, view.orders.size, "the book has to be inside the number it reports")
+        assertEquals(3, view.evicted, "and a setting that quietly shrank a venue's memory is the silence 8a forbids")
+    }
+
+    @Test
+    fun `the cap change reaches every counterparty, because a venue's books are per client`() {
+        val service = OrderBookService(initialCap = 100)
+        listOf("ALPHA", "BETA").forEach { client ->
+            repeat(4) { i ->
+                service.receive(client, *order("ORD-$i"))
+                service.send(client, *ack("ORD-$i"))
+            }
+        }
+
+        service.setCap(1)
+
+        listOf("ALPHA", "BETA").forEach { client ->
+            assertEquals(1, service.view(client).orders.size, "$client's book was left over the cap")
+            assertEquals(1, service.view(client).cap)
+        }
+    }
+
+    /** A panel watching the book has to see the new ceiling, whether or not anything was dropped. */
+    @Test
+    fun `a watcher is told the new cap even when nothing had to be evicted`() {
+        val service = OrderBookService(initialCap = 100)
+        service.receive("ALPHA", *order("ORD-1"))
+        val flow = service.views("ALPHA")
+
+        service.setCap(50)
+
+        assertEquals(50, flow.value.cap, "the published view is what a panel draws from")
+        assertEquals(1, flow.value.orders.size)
+    }
+
+    @Test
+    fun `a cap of zero is refused rather than emptying the book on every message`() {
+        val service = OrderBookService(initialCap = 100)
+        service.receive("ALPHA", *order("ORD-1"))
+
+        service.setCap(0)
+
+        assertEquals(1, service.view("ALPHA").cap, "a book that can hold nothing is a book switched off by arithmetic")
+        assertEquals(1, service.view("ALPHA").orders.size)
     }
 
     // ------------------------------------------------------------------ what a trigger reads

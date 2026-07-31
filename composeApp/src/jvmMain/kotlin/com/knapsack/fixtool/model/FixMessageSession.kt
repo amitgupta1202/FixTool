@@ -465,6 +465,7 @@ class FixMessageSession(
                         }
                     },
                     onVenueEvent = { event -> handleVenueEvent(event) },
+                    orderBookCap = appSettings.orderBookCap,
                 )
             endpoint = quickFixService?.ownerEndpoint()
 
@@ -633,6 +634,17 @@ class FixMessageSession(
     fun orderFields(message: quickfix.Message): Map<String, String>? =
         venue?.orderFields(venueSessionId, message)
             ?: quickFixService?.takeIf { isAcceptor }?.orderFields(null, message)
+
+    /**
+     * Applies a book cap saved since this session connected, without dropping the session.
+     *
+     * The same shape as [applyAcceptorRules]: a setting edited while a venue is up has to reach the
+     * venue, or the author is looking at a number the engine is not using. A no-op for anything that
+     * is not an acceptor — a session with no book has no cap to change.
+     */
+    fun applyOrderBookCap(cap: Int) {
+        (venue ?: quickFixService?.takeIf { isAcceptor })?.setOrderBookCap(cap)
+    }
 
     /** Wipes this counterparty's book, recording that it was wiped rather than never filled. */
     fun clearOrderBook(by: String = "manually") {

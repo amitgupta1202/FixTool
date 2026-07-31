@@ -3272,6 +3272,11 @@ class FixMessageViewModel(
         if (!settingsService.saveSettings(settings)) {
             logger.error("Failed to save application settings")
         }
+        // A cap edited while a venue is up has to reach that venue. The alternative — apply on the
+        // next connection — would mean the setting is unusable in the one situation it exists for: a
+        // soak run that has just proved the book too small, where reconnecting costs the state being
+        // measured. Every session, because a venue's books are per counterparty.
+        _sessions.forEach { it.applyOrderBookCap(settings.orderBookCap) }
         // Reload dictionary when settings change
         loadDictionaryFromSettings()
         // Validate the new dictionary

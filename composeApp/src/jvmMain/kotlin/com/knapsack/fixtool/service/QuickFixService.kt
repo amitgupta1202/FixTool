@@ -142,6 +142,12 @@ class QuickFixService(
      * therefore nothing to report that its own state does not already say.
      */
     private val onVenueEvent: ((VenueEvent) -> Unit)? = null,
+    /**
+     * How many orders each counterparty's book keeps — the app setting, handed in at construction and
+     * changeable afterwards through [setOrderBookCap]. Defaulted so the many tests that build a
+     * service without an opinion about it get the shipped one.
+     */
+    orderBookCap: Int = OrderBookService.DEFAULT_CAP,
 ) : Application {
     private val logger = NotifyingLogger(QuickFixService::class.java, onError, onWarning)
 
@@ -242,7 +248,16 @@ class QuickFixService(
      * One per service and keyed inside by `SessionID`, because a multi-client venue is one service
      * with a session per client, and ClOrdID is unique per client rather than per venue.
      */
-    private val orderBooks = OrderBookService()
+    private val orderBooks = OrderBookService(initialCap = orderBookCap)
+
+    /**
+     * Changes how many orders each of this venue's books keeps, on books already open.
+     *
+     * Reached from Settings while sessions are up, because the cap's whole purpose is soak runs and
+     * that is exactly when reconnecting to change it would cost the state being measured. See
+     * [OrderBookService.setCap] for what lowering it does.
+     */
+    fun setOrderBookCap(cap: Int) = orderBooks.setCap(cap)
 
     /**
      * This venue's book for one counterparty, or an empty one for a client it has never heard from.

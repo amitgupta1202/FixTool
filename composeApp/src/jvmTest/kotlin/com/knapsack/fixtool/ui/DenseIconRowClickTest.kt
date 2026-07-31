@@ -35,8 +35,9 @@ class DenseIconRowClickTest {
     fun `each button in a dense row receives its own click`() {
         val clicked = mutableListOf<Int>()
         composeTestRule.setContent {
-            // The surface is what fixes this — a dense row has to declare the touch target its density
-            // implies, or Material3's 48dp default makes each button's target cover its left neighbour.
+            // The rules editor declares the touch target its density implies, and this renders it as the
+            // editor does. The *cause* was never the local, though — see [TooltipButtonHitAreaTest], which
+            // holds the same property with nothing declared, because the hit area is now the button's own.
             CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 16.dp) {
                 Row(modifier = Modifier.width(300.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 repeat(3) { index ->

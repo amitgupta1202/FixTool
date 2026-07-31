@@ -135,7 +135,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /acceptor/rules` | `{"profile", "rule"?, "preset"?, "index"?, "enabled"?}` | add (`rule`, no index), replace (`rule` + `index`), toggle (`index` + `enabled`) or insert a ready-made behaviour (`preset`) — **one** rule at a time, leaving the rest of the profile alone |
 | `GET /acceptor/presets` | —                                    | the shipped acceptor behaviours by `id`, each with what triggers it and the reply it inserts |
 | `DELETE /acceptor/rules` | `{"profile", "index"}`             | remove one rule; the rules after it shift up                |
-| `POST /acceptor/test` | `{"profile", "raw"}`                  | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset |
+| `POST /acceptor/test` | `{"profile", "raw", "orderState"?}`   | **dry-run** a message against the rules — no connection, no send, nothing saved. Per rule: `matched`, each condition's verdict with the value it read, `whenOrder` when the rule asks the book, `skipped`, `shadowedBy`; for the winner, the rendered reply with each step's offset. `orderState` is the venue state to assume (`unknown`\|`pending`\|`working`\|`done`, default `unknown`); the answer always reports `assumedOrderState` back |
 | `POST /mcp`          | JSON-RPC 2.0                           | embedded MCP server (initialize / tools/list / tools/call) |
 
 `/admin` `action`: `seqnum` (read sender/target next seq nums), `reset-seqnum` (`sender`/`target`),
@@ -502,10 +502,14 @@ curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"order-re
 | `ack-then-fill` | `35=D` with `40=2` → ack, then a fill 250ms later |
 | `ack-partial-fill` | `35=D` with `40=2` → ack, half, then the rest |
 | `order-reject-size` | `35=D` with `38 > 1000000` → rejected, `103=3` |
-| `cancel-accepted` | `35=F` → pending cancel, then canceled |
-| `cancel-rejected` | `35=F` → `35=9`, unknown order |
+| `duplicate-clordid` | `35=D` whose ClOrdID the venue already holds live → rejected, `103=6` (two rules: `pending` and `working`) |
+| `cancel-accepted` | `35=F` → pending cancel, then canceled, whatever the book holds |
+| `cancel-accepted-working` | `35=F` **and the order is working** → pending cancel, then canceled |
+| `cancel-rejected` | `35=F` → `35=9`, unknown order, whatever the book holds |
+| `cancel-rejected-unknown` | `35=F` **and the order is unknown** → `35=9`, `102=1` |
 | `replace-accepted` | `35=G` carrying `38` → replaced |
-| `unsupported-message` | `35=H` → `35=j`, unsupported message type |
+| `unsupported-message` | `35=H` → `35=j`, unsupported message type (a venue that answers no status requests) |
+| `status-request-unknown` | `35=H` **and the order is unknown** → `35=j`, `380=1` Unknown ID |
 
 **A preset chooses its own position, so it cannot be given an `index`.** Rules are first-match-wins,
 so a preset that carries conditions goes **above the first enabled rule for its MsgType** — otherwise
@@ -517,6 +521,40 @@ reason `GET /acceptor/rules` and every write report **`shadowedBy`** on a rule a
 answers in full. That claim is only made when it is provable — an earlier *enabled* rule for the same
 MsgType with *no* conditions. Whether two conditioned rules overlap is not decidable in general, and
 is left alone.
+
+#### Rules that ask what the venue is holding
+
+`whenOrder` is one more condition on a trigger, ANDed with the rest, and the only one no tag can
+express: **what the venue was holding for the order this message names** — `41` if it names one, else
+`11`. It takes one of four words: `unknown` (no such order on this session), `pending` (the venue has
+it, the client has not been told anything yet), `working`, `done`. Omit it and the rule asks nothing,
+which is what every rule written before this did.
+
+It reads the state held **before** this message. That is what makes both of these writable, and they
+are the same MsgType:
+
+```bash
+# a new order is acknowledged; a second use of the same ClOrdID is a duplicate
+curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"duplicate-clordid"}'
+# a cancel for an order nobody sent is rejected; one for a live order is accepted — same rule list
+curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"cancel-rejected-unknown"}'
+curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"cancel-accepted-working"}'
+```
+
+A dry run of such a rule has to assume a state, so `/acceptor/test` takes one — which is how "what
+would this rule do if the order were already filled" is answered without arranging for an order to be
+already filled. The answer names its assumption whether or not you gave one:
+
+```bash
+curl -s -XPOST $B/acceptor/test -d '{"profile":"My Acceptor","raw":"35=F|11=CXL-4|41=ORD-1|",
+                                     "orderState":"working"}'
+# → assumedOrderState {state:"working", order:"ORD-1", given:true}
+#   per rule: whenOrder {constraint:"unknown", actual:"working", satisfied:false}
+```
+
+**A rule that asks the book cannot be judged without one, so it does not fire** — the same call
+`compile` makes for a trigger it cannot parse, and the safe direction: a rule firing on messages its
+author excluded is the dangerous way to be wrong. `GET /acceptor/orders` is the book itself.
 
 Two things every preset does that a hand-written rule should copy:
 

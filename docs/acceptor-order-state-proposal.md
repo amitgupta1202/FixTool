@@ -1,8 +1,9 @@
 # Order state for acceptor mode — proposal
 
 **Issue:** [#35](https://github.com/amitgupta1202/FixTool/issues/35)
-**Status:** approved 2026-07-31 as sliced; amended by that review (decisions 2a, 3a, 3b). **Slice A
-shipped 2026-07-31**, live-verified; B, C and D not started.
+**Status:** approved 2026-07-31 as sliced; amended by that review (decisions 2a, 3a, 3b). **Slices A
+and B shipped 2026-07-31**, both live-verified; C and D not started. Slice B added decision 4a and
+found the routing defect fixed with it.
 **Depends on:** #30 (rules engine, shipped), #34 (conditional triggers, shipped), #31 (presets, shipped),
 #32 (multi-client venue, shipped), #40 ("Reply With…", shipped)
 **Mockups:** https://claude.ai/code/artifact/47dbc8fa-ce28-4f94-b4fa-7d155f2a4875
@@ -187,6 +188,52 @@ would mean an author choosing between `39=1` and `39=2` to express "still workin
 cancel arriving 2ms after the order, before the ack has left, must not be answered "unknown order".
 A venue that has the order has the order.
 
+### 4a. `whenOrder` asks what the venue held **before** this message.
+
+*Added by slice B's build, which could not otherwise write the duplicate-ClOrdID rule at all.*
+
+The book is fed from the wire (decision 2) and the wire is read before the rules are (slice A put the
+`book()` call ahead of `maybeAutoRespond` deliberately, so a template could read the order it was
+answering). Both are right. Together they mean that **by the time any rule is asked, the message's own
+arrival has already been recorded** — so a brand-new `35=D` reads `pending`, and a rule conditioned
+`unknown` on `35=D` could never fire for the message that created the order.
+
+```
+35=D ORD-1, never seen before    read after  → pending    read before → unknown
+35=D ORD-1, already working      read after  → working    read before → working
+```
+
+Read *after*, the two are indistinguishable in the case that matters and a duplicate cannot be
+detected. Read *before*, `unknown` means "a new order" and anything else means "we already have this
+id", which is exactly what a tester means by a duplicate.
+
+So the reading is taken in `fromApp` **before** `book()` records the message, and handed to
+`firstMatch`. One reading per inbound message, taken once, so every rule in the list is judged against
+the same answer — a reading reassembled per rule could straddle a message arriving on another thread,
+and the rule that fired would be one no state ever justified.
+
+The vocabulary is unchanged by this: `unknown` still means "no order with this ClOrdID or OrigClOrdID
+on this session", asked at the moment the message arrived. And the `pending` race of decision 4 is
+untouched, because a cancel is not booked at all — the order it names reads `pending` either way.
+
+### 4b. A cancel reports on the order it names; only a replace opens a chain.
+
+*A slice-A defect the cancel presets found, fixed in slice B.*
+
+The router chained on "new ClOrdID naming a 41 the book holds", which is a replacement — and also
+exactly the shape of a venue's own cancel reply:
+
+```
+150=5  11=ORD-7  41=ORD-6    a replacement: ORD-6 ends, ORD-7 begins
+150=4  11=CXL-2  41=ORD-1    ORD-1 is canceled; CXL-2 is the request's id, not an order
+```
+
+Read the same way, the accepted cancel opened a book entry for the *cancel request* and left ORD-1
+reading `working` after the client had been told it was canceled — the book disagreeing with the
+client's own view of the message it had just sent them, which is the one direction decision 2 says
+not to be wrong in. `OrderBook.supersedes` already existed for this distinction (`150=5`, or `39=5`);
+the router simply was not asking it. Nothing about a replace changes.
+
 ### 5. `${order.…}` substitutes where `${req.…}` does.
 
 Same mechanism, same place in the pipeline: resolved textually before the Kotlin expression pass, in
@@ -326,6 +373,7 @@ same reason: a number the user can see beats a silence they cannot.
 | `service/QuickFixService.kt` | feed the book from both callbacks; expose it for the pane and the responder; record the decision on each auto-reply |
 | `model/AcceptorResponseRule.kt` | `whenOrder: OrderConstraint? = null`, folded into `trigger()`'s report and `validationError()` |
 | `service/AcceptorResponder.kt` | `firstMatch`/`explain` consult the book and report what it said; `${order.…}` resolved alongside `${req.…}` |
+| `model/SendReason.kt` *(new, slice B)* | the reason a reply carries, and the thread-local handoff from whoever decided to the capture in `toApp` |
 | `service/AcceptorPresets.kt` | book-aware rules and reply shapes; the existing ones keep working untouched |
 | `ui/OrderBookPanel.kt` *(new)* | the table, the trail, the unattributed list, and the roll-up on the overview pane |
 | `ui/MessageDetailPanel.kt` | the reason a reply was sent, beside the bytes it explains |
@@ -347,14 +395,34 @@ that asks to be trusted has picked the wrong side of that.
 The endpoint is deliberately in the *first* slice too: it is what lets this be driven and verified
 without a mouse, which is the gap #40 left open.
 
-**B — rules can ask, and say what they read.** `whenOrder` on the rule, in the editor, in `explain`,
-in `/acceptor/rules`, and in `/acceptor/test` — which gains a state argument, since a dry run of a
-stateful trigger has to name the state it assumed. Every auto-reply records the rule that chose it and
-what the book said at that moment (decision 6a), shown against the reply in the detail panel. Presets:
-*cancel rejected — unknown order* (conditioned `unknown`), *cancel accepted* (conditioned `working`),
-*duplicate ClOrdID rejected* (a `35=D` whose ClOrdID is already known), and *status request — unknown
-order* (`35=H` conditioned `unknown` → the business reject that ships today, now conditioned instead
-of unconditional). This is the slice that answers the issue's acceptance criteria about validation.
+**B — rules can ask, and say what they read. SHIPPED 2026-07-31**, live-verified. `whenOrder` on the
+rule, in the editor, in `explain`, in `/acceptor/rules`, and in `/acceptor/test` — which gained an
+`orderState` argument and reports `assumedOrderState` back whether or not one was given, since a dry
+run of a stateful trigger has to name the state it assumed. Every auto-reply records the rule that
+chose it and what the book said at that moment (decision 6a), shown against the reply in the detail
+panel; hand-sent replies record the shape that was picked and the state it was composed against.
+Presets: *cancel rejected — unknown order*, *cancel accepted — the order is working*, *duplicate
+ClOrdID rejected* (two rules, `pending` and `working` — see below), and *status request — unknown
+order*. This is the slice that answers the issue's acceptance criteria about validation.
+
+Four things the build settled that the design had not:
+
+- **Decision 4a**, above: the constraint reads the state *before* the message. Without it the
+  duplicate preset is unwritable.
+- **Decision 4b**, above: a routing defect in slice A that the cancel presets exposed.
+- **Duplicate ClOrdID is two rules, not one.** "The book already holds this id" spans `pending` and
+  `working`, and the vocabulary has no word for "either". Inventing one to save a card would cost the
+  four words the property that earns them (decision 4), so the preset ships both and an author who
+  wants duplicates of *finished* orders rejected adds the same rule with `done`.
+- **The status-request presets are two venues, not one.** "Unsupported message" (`380=3`) is a venue
+  that does not answer `35=H` at all; the new one (`380=1`, Unknown ID) answers them but has never
+  heard of this order. Conditioning the first into the second would have left neither available, so
+  the existing preset is untouched and the new one sits beside it. Same call as the settled question
+  about stateless presets, for the same reason.
+
+The structural refusal from settled question 1 ships here too, ahead of the feature it constrains: a
+rule whose reply contains `${order.…}` and whose `whenOrder` is absent or `unknown` is a
+`validationError`. Slice C therefore cannot ship the hazard.
 
 **C — templates can read.** `${order.…}`, and the presets and `Reply With…` shapes rewritten to use
 it: fills that accumulate, and `37=${order.orderId}` so an order keeps one OrderID across every reply
@@ -401,6 +469,13 @@ The layers this codebase distinguishes, and what only each can say:
   order; a two-step reply reads its own first step's effect; **and the reason recorded against a reply
   still names the state that produced it after the order has moved on** — the one claim that fails the
   moment reasons are re-derived instead of recorded.
+
+Slice B added one more layer distinction worth naming. `firstMatch` and `explain` are separate
+implementations on purpose, and `whenOrder` joined the existing cross-check that re-asks every case
+through both — against **all five** book states, including *no book at all*, which is the case a
+caller that forgot to take a reading lands in and whose answer must not be "fires anyway". The
+duplicate-ClOrdID integration test is what pins decision 4a: reverse the two lines in `fromApp` and it
+fails while every unit test still passes.
 
 ## What this is not
 

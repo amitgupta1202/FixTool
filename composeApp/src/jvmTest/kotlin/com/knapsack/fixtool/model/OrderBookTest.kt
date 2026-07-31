@@ -319,6 +319,41 @@ class OrderBookTest {
         assertEquals(OrderBook.Outcome.Unattributed, OrderBook.route(nameless, setOf("ORD-1"), spec))
     }
 
+    /**
+     * A cancel reply carries the *cancel request's* ClOrdID in 11 and the order's in 41, which looks
+     * exactly like a replacement to anything that only checks "new key, known 41". Read that way, the
+     * venue's own cancel opens a book entry for the cancel request and leaves the order it canceled
+     * reading `working` — the book disagreeing with the client's view of the very message it just
+     * sent them. The fold already had [OrderBook.supersedes]; the router was not asking it.
+     */
+    @Test
+    fun `a cancel reports on the order it names, and does not open a chain for the cancel request`() {
+        val pendingCancel =
+            sent("8", TAG_CL_ORD_ID to "CXL-2", TAG_ORIG_CL_ORD_ID to "ORD-1", TAG_EXEC_TYPE to "6", TAG_ORD_STATUS to "6")
+        val canceled =
+            sent("8", TAG_CL_ORD_ID to "CXL-2", TAG_ORIG_CL_ORD_ID to "ORD-1", TAG_EXEC_TYPE to "4", TAG_ORD_STATUS to "4")
+
+        assertEquals(OrderBook.Outcome.Moved("ORD-1"), OrderBook.route(pendingCancel, setOf("ORD-1"), spec))
+        assertEquals(OrderBook.Outcome.Moved("ORD-1"), OrderBook.route(canceled, setOf("ORD-1"), spec))
+        assertEquals(
+            OrderState.DONE,
+            order(newOrder, ack(), pendingCancel, canceled).state,
+            "the client was told the order is canceled, so the book must say so too",
+        )
+    }
+
+    @Test
+    fun `a cancel reject reports on the order it names, when the book has one`() {
+        val reject = sent("9", TAG_CL_ORD_ID to "CXL-2", TAG_ORIG_CL_ORD_ID to "ORD-1", TAG_ORD_STATUS to "8")
+
+        assertEquals(OrderBook.Outcome.Moved("ORD-1"), OrderBook.route(reject, setOf("ORD-1"), spec))
+        assertEquals(
+            OrderState.WORKING,
+            order(newOrder, ack(), reject).state,
+            "refusing a cancel leaves the order exactly where it was",
+        )
+    }
+
     @Test
     fun `a replacement's report opens the chain link, and only the venue can open it`() {
         val replaced =

@@ -4065,9 +4065,11 @@ class FixMessageViewModel(
             )
             return false
         }
+        // Unconditionally, not only when the index differs: sendMessage reads _activeSessionState, and
+        // the index agreeing with it is an assumption rather than a guarantee.
         sessionContaining(message)?.let { session ->
             val index = _sessions.indexOf(session)
-            if (index >= 0 && index != _activeSessionIndex.value) setActiveSession(index)
+            if (index >= 0) setActiveSession(index)
         }
         val resolved = AcceptorResponder.replyTo(shape, message.quickfixMessage, message, dictionary)
         val fields = rawToFields(resolved).ifEmpty { listOf(FixField()) }

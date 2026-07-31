@@ -1230,7 +1230,10 @@ private fun AppMessageDetailPanel(
 @Composable
 private fun AppOrderBookPanel(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
     val session by viewModel.activeSessionState
-    val book = session?.orderBook()
+    // Collected, not called: a panel reading a plain snapshot has nothing to recompose it, and a book
+    // frozen at the moment the panel opened is a book that lies with a straight face.
+    val flow = session?.orderBookFlow()
+    val book = flow?.collectAsState()?.value
     if (session == null || book == null) {
         Box(
             modifier = modifier.fillMaxSize().background(AppTheme.Colors.surface),

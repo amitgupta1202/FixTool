@@ -6,6 +6,9 @@ import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderEvent
 import com.knapsack.fixtool.model.OrderState
 import com.knapsack.fixtool.model.TAG_MSG_TYPE
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.time.LocalDateTime
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -70,24 +73,41 @@ class OrderBookService(
         const val DEFAULT_CAP = 5_000
     }
 
-    private class Book {
+    private class Book(cap: Int) {
         val orders = LinkedHashMap<String, BookedOrder>()
         val unattributed = ArrayDeque<Unattributed>()
         val unattributedCount = AtomicLong()
         val evicted = AtomicLong()
         var clearedAt: LocalDateTime? = null
         var clearedBy: String? = null
+
+        /**
+         * **The book as something a panel can watch.**
+         *
+         * Published on every change rather than read on demand, because a panel that calls a plain
+         * function has nothing to recompose it: the numbers freeze at whatever they were when the
+         * panel first drew, and a stale book is worse than no book — it is a book that lies with a
+         * straight face. Caught in live verification, where the panel showed CumQty 0 against a wire
+         * that had already traded 2500.
+         */
+        val published = MutableStateFlow(BookView(emptyList(), emptyList(), 0, 0, cap))
     }
 
     private val books = ConcurrentHashMap<String, Book>()
 
+    /** [sessionKey]'s book, as a flow — created empty for a counterparty nothing has happened on yet. */
+    fun views(sessionKey: String): StateFlow<BookView> = books.computeIfAbsent(sessionKey) { Book(cap) }.published.asStateFlow()
+
     /** Every counterparty this service has seen, in the order they first appeared. */
     fun sessions(): List<String> = books.keys().toList().sorted()
 
-    fun view(sessionKey: String): BookView {
-        val book = books[sessionKey] ?: return BookView(emptyList(), emptyList(), 0, 0, cap)
-        synchronized(book) {
-            return BookView(
+    fun view(sessionKey: String): BookView =
+        books[sessionKey]?.published?.value ?: BookView(emptyList(), emptyList(), 0, 0, cap)
+
+    /** Rebuilds the published view. Call inside the book's lock, after every change. */
+    private fun publish(book: Book) {
+        book.published.value =
+            BookView(
                 orders = book.orders.values.toList(),
                 unattributed = book.unattributed.toList(),
                 unattributedCount = book.unattributedCount.get(),
@@ -96,7 +116,6 @@ class OrderBookService(
                 clearedAt = book.clearedAt,
                 clearedBy = book.clearedBy,
             )
-        }
     }
 
     fun order(sessionKey: String, key: String): BookedOrder? {
@@ -106,7 +125,7 @@ class OrderBookService(
 
     /** Wipes one counterparty's book, and records that it was wiped rather than never filled. */
     fun clear(sessionKey: String, by: String = "manually", at: LocalDateTime = LocalDateTime.now()) {
-        val book = books.computeIfAbsent(sessionKey) { Book() }
+        val book = books.computeIfAbsent(sessionKey) { Book(cap) }
         synchronized(book) {
             book.orders.clear()
             book.unattributed.clear()
@@ -114,6 +133,7 @@ class OrderBookService(
             book.evicted.set(0)
             book.clearedAt = at
             book.clearedBy = by
+            publish(book)
         }
     }
 
@@ -142,7 +162,7 @@ class OrderBookService(
                 fields = fields.filterKeys { it in spec.readTags },
                 messageUid = messageUid,
             )
-        val book = books.computeIfAbsent(sessionKey) { Book() }
+        val book = books.computeIfAbsent(sessionKey) { Book(cap) }
         synchronized(book) {
             val outcome = OrderBook.route(event, book.orders.keys.toSet(), spec)
             when (outcome) {
@@ -187,6 +207,7 @@ class OrderBookService(
                     while (book.unattributed.size > UNATTRIBUTED_KEPT) book.unattributed.removeFirst()
                 }
             }
+            if (outcome !is OrderBook.Outcome.Ignored) publish(book)
             return outcome
         }
     }

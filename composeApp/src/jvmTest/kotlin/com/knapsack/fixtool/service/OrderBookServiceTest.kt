@@ -226,6 +226,46 @@ class OrderBookServiceTest {
         assertEquals(2, view.cap)
     }
 
+    // ------------------------------------------------------------------ watchability
+
+    /**
+     * **The book has to be watchable, or a panel drawn from it lies.**
+     *
+     * Found in live verification rather than here: the panel read the book with a plain call, so
+     * nothing recomposed it and its numbers froze at whatever they were when it first drew — CumQty 0
+     * on screen against a wire that had already traded 2500. A stale book is worse than no book,
+     * because it is wrong with a straight face and the reader has no way to tell.
+     */
+    @Test
+    fun `every change publishes, so a watcher sees the wire move`() {
+        val service = OrderBookService()
+        val watched = service.views("ALPHA")
+        val before = watched.value
+
+        service.receive("ALPHA", *order("ORD-1"))
+        val afterOrder = watched.value
+        service.send("ALPHA", *ack("ORD-1"))
+        val afterAck = watched.value
+
+        assertTrue(before.orders.isEmpty(), "a book nothing has happened on starts empty rather than absent")
+        assertEquals(1, afterOrder.orders.size, "the order has to reach a watcher, not only the book")
+        assertEquals(OrderState.PENDING, afterOrder.orders.single().state)
+        assertEquals(OrderState.WORKING, afterAck.orders.single().state, "and so does the answer that moved it")
+        assertTrue(afterOrder !== afterAck, "a watcher that is handed the same object cannot know anything changed")
+    }
+
+    @Test
+    fun `clearing publishes too, or the panel keeps drawing a book that is gone`() {
+        val service = OrderBookService()
+        val watched = service.views("ALPHA")
+        service.receive("ALPHA", *order("ORD-1"))
+
+        service.clear("ALPHA", by = "the test", at = clock)
+
+        assertTrue(watched.value.orders.isEmpty())
+        assertEquals("the test", watched.value.clearedBy)
+    }
+
     // ------------------------------------------------------------------ threads
 
     /**

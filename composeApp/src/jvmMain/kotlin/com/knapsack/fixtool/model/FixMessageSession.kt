@@ -603,6 +603,16 @@ class FixMessageSession(
         venue?.orderBook(venueSessionId)
             ?: quickFixService?.takeIf { isAcceptor }?.orderBook()
 
+    /**
+     * The same book as a flow, for anything that has to redraw when it moves.
+     *
+     * [orderBook] is a snapshot and is right for a one-shot reader like the control surface; a panel
+     * needs this, or its numbers freeze at whatever they were when it first drew.
+     */
+    fun orderBookFlow(): StateFlow<BookView>? =
+        venue?.orderBookFlow(venueSessionId)
+            ?: quickFixService?.takeIf { isAcceptor }?.orderBookFlow()
+
     /** Wipes this counterparty's book, recording that it was wiped rather than never filled. */
     fun clearOrderBook(by: String = "manually") {
         venue?.clearOrderBook(venueSessionId, by) ?: quickFixService?.takeIf { isAcceptor }?.clearOrderBook(by = by)

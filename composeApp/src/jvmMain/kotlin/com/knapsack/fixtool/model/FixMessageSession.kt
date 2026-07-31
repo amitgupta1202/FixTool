@@ -2,6 +2,7 @@ package com.knapsack.fixtool.model
 
 // Latency tracking model imports are in this package (CaptureStatus, PacketDirection, TimestampSource)
 import com.knapsack.fixtool.service.AcceptorStatus
+import com.knapsack.fixtool.service.BookView
 import com.knapsack.fixtool.service.FixConnectionManager
 import com.knapsack.fixtool.service.LatencyTrackingManager
 import com.knapsack.fixtool.service.QuickFixService
@@ -588,6 +589,27 @@ class FixMessageSession(
 
     /** What this session's acceptor is running and mid-way through, or null if it is not an acceptor. */
     fun acceptorStatus(): AcceptorStatus? = quickFixService?.acceptorStatus()
+
+    /**
+     * **What this venue is holding for this counterparty.**
+     *
+     * Two shapes of acceptor answer it from two places, and the difference is where the engine lives:
+     * a *venue client pane* borrows its venue's engine and names itself with [clientSessionId], while
+     * a single-client acceptor owns its engine and has exactly one counterparty to be about. Null for
+     * anything that is not an acceptor at all — a client's own view of the orders it sent is a
+     * different feature for a different user, and is out of scope by design.
+     */
+    fun orderBook(): BookView? =
+        venue?.orderBook(venueSessionId)
+            ?: quickFixService?.takeIf { isAcceptor }?.orderBook()
+
+    /** Wipes this counterparty's book, recording that it was wiped rather than never filled. */
+    fun clearOrderBook(by: String = "manually") {
+        venue?.clearOrderBook(venueSessionId, by) ?: quickFixService?.takeIf { isAcceptor }?.clearOrderBook(by = by)
+    }
+
+    private val isAcceptor: Boolean
+        get() = _connectionConfig.value?.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR
 
     /**
      * Applies a ruleset saved since this session connected. Returns how many rules are live, or null

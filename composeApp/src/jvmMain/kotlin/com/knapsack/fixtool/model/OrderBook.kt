@@ -1,0 +1,344 @@
+package com.knapsack.fixtool.model
+
+import java.math.BigDecimal
+import java.time.LocalDateTime
+
+/**
+ * Where an order has got to, as far as the client has been told.
+ *
+ * Three, not the four the trigger vocabulary has: `unknown` is not a state an entry can be in, it is
+ * the absence of one. See `docs/acceptor-order-state-proposal.md`, decision 4.
+ */
+enum class OrderState {
+    /** The venue has the order; nothing has been sent back about it yet. */
+    PENDING,
+
+    /** Acknowledged and unfinished. */
+    WORKING,
+
+    /** Filled, canceled, replaced or rejected — nothing more will happen to it. */
+    DONE,
+}
+
+/**
+ * One message that touched an order, as **facts off the message** and nothing else.
+ *
+ * Deliberately not a snapshot of the order after it. The book's claim is that every number on a row
+ * is the fold of that row's own events (decision 6b), and a claim you can only check by trusting the
+ * thing that made it is not a claim. Storing what each message *said* and folding on read keeps
+ * `OrderBookTest`'s "the row is its trail, folded" assertion honest; storing the running totals here
+ * would make it vacuous.
+ */
+data class OrderEvent(
+    val at: LocalDateTime,
+    /** True for a message the venue sent, false for one it received. */
+    val sent: Boolean,
+    val msgType: String,
+    /** The fields this message carried, of the ones [BookSpec.readTags] names. */
+    val fields: Map<Int, String>,
+    /** Links the event back to the message in the grid, so the trail is clickable. */
+    val messageUid: Long = 0,
+) {
+    fun field(tag: Int): String? = fields[tag]?.takeIf { it.isNotBlank() }
+
+    /** ExecType (150), the field that says what a report *is* rather than where the order got to. */
+    val execType: String? get() = field(TAG_EXEC_TYPE)
+
+    /** What this event did, in the words a trail is read in: "ack", "fill 1500", "bust 1000". */
+    val label: String
+        get() {
+            val qty = field(TAG_LAST_QTY)
+            return when {
+                !sent -> if (msgType == "D") "order received" else "$msgType received"
+                msgType == "9" -> "cancel rejected"
+                execType == "0" -> "ack"
+                execType == "F" || execType == "1" || execType == "2" -> listOfNotNull("fill", qty).joinToString(" ")
+                execType == "H" -> listOfNotNull("bust", qty).joinToString(" ")
+                execType == "G" -> listOfNotNull("correct", qty).joinToString(" ")
+                execType == "4" -> "canceled"
+                execType == "6" -> "pending cancel"
+                execType == "E" -> "pending replace"
+                execType == "5" -> "replaced"
+                execType == "8" -> "rejected"
+                execType == "I" -> "status"
+                execType == "C" -> "expired"
+                else -> "35=$msgType" + (execType?.let { " 150=$it" } ?: "")
+            }
+        }
+}
+
+/**
+ * The order as it stands after some prefix of its events — what a row shows, and what
+ * `${order.…}` will read in slice C.
+ *
+ * Every field is nullable because every one of them is something a venue may simply not have said
+ * yet. A book that invented `CumQty 0` for an order nobody has reported on would be answering for
+ * the venue, which is the one thing decision 2 forbids.
+ */
+data class OrderSnapshot(
+    val state: OrderState,
+    val orderId: String? = null,
+    val ordStatus: String? = null,
+    val orderQty: String? = null,
+    val cumQty: String? = null,
+    val leavesQty: String? = null,
+    val avgPx: String? = null,
+    val price: String? = null,
+    val symbol: String? = null,
+    val side: String? = null,
+)
+
+/**
+ * One order, as the list of messages that touched it plus the chain it belongs to.
+ *
+ * [supersedes] and [supersededBy] are the replace chain, recorded from tag 41. **They carry no
+ * identity** — see [OrderBook.fold] and decision 3a: whether a replacement keeps the OrderID is the
+ * venue's business, expressed by whatever the preset writes into tag 37, and the book records what
+ * was sent rather than deciding what should have been.
+ */
+data class BookedOrder(
+    val key: String,
+    val events: List<OrderEvent>,
+    val supersedes: String? = null,
+    val supersededBy: String? = null,
+    /** The snapshot the chain starts from — a replacement's inherited quantities, not its identity. */
+    val inherited: OrderSnapshot? = null,
+) {
+    /** The state after each event in turn: what the trail draws, and what proves the row. */
+    fun snapshots(): List<OrderSnapshot> = OrderBook.fold(this)
+
+    val current: OrderSnapshot get() = snapshots().lastOrNull() ?: OrderSnapshot(state = OrderState.PENDING)
+
+    val state: OrderState get() = current.state
+
+    /** When something last happened to this order. */
+    val lastAt: LocalDateTime? get() = events.lastOrNull()?.at
+
+    val firstAt: LocalDateTime? get() = events.firstOrNull()?.at
+}
+
+/**
+ * What starts a chain, what moves it, what it is keyed by — **as data**.
+ *
+ * `orders` is one configuration of the fold, not the fold itself (decision 3b). Quote state is the
+ * obvious sibling — keyed by QuoteID, born on `35=S`, moved by `35=AJ`/`35=AG`, and *"an order
+ * referencing a quote we never sent"* is the RFQ desk's version of the unknown cancel. It is
+ * deliberately **not built** (see the proposal's *What this is not*); the point of keeping this as
+ * data is only that building it later is a configuration rather than a second design.
+ */
+data class BookSpec(
+    val name: String,
+    /** The tag that names an entry: ClOrdID for orders. */
+    val keyTag: Int,
+    /** The tag that names the entry a message supersedes: OrigClOrdID for orders. */
+    val chainTag: Int,
+    /** The identity the venue assigns: OrderID for orders. Recorded, never inherited. */
+    val idTag: Int,
+    /** Received message types that open a chain. */
+    val bornBy: Set<String>,
+    /** Sent message types that move one. */
+    val movedBy: Set<String>,
+    /** Everything the fold or the panel reads off a message. */
+    val readTags: Set<Int>,
+) {
+    companion object {
+        val ORDERS =
+            BookSpec(
+                name = "orders",
+                keyTag = TAG_CL_ORD_ID,
+                chainTag = TAG_ORIG_CL_ORD_ID,
+                idTag = TAG_ORDER_ID,
+                bornBy = setOf("D"),
+                movedBy = setOf("8", "9"),
+                readTags =
+                    setOf(
+                        TAG_CL_ORD_ID,
+                        TAG_ORIG_CL_ORD_ID,
+                        TAG_ORDER_ID,
+                        TAG_EXEC_TYPE,
+                        TAG_ORD_STATUS,
+                        TAG_ORDER_QTY,
+                        TAG_CUM_QTY,
+                        TAG_LEAVES_QTY,
+                        TAG_AVG_PX,
+                        TAG_PRICE,
+                        TAG_LAST_QTY,
+                        TAG_SYMBOL,
+                        TAG_SIDE,
+                        TAG_TEXT,
+                    ),
+            )
+    }
+}
+
+const val TAG_MSG_TYPE = 35
+const val TAG_AVG_PX = 6
+const val TAG_CL_ORD_ID = 11
+const val TAG_CUM_QTY = 14
+const val TAG_ORDER_ID = 37
+const val TAG_ORDER_QTY = 38
+const val TAG_ORD_STATUS = 39
+const val TAG_ORIG_CL_ORD_ID = 41
+const val TAG_PRICE = 44
+const val TAG_SIDE = 54
+const val TAG_SYMBOL = 55
+const val TAG_TEXT = 58
+const val TAG_LAST_QTY = 32
+const val TAG_LEAVES_QTY = 151
+const val TAG_EXEC_TYPE = 150
+
+/**
+ * The fold, and the rules for what one message does to one entry.
+ *
+ * Pure: no sessions, no quickfix, no clock. Everything stateful about the book lives in
+ * `OrderBookService`, and everything *decidable* about it lives here, so the state machine can be
+ * asked questions in a unit test rather than over a socket.
+ */
+object OrderBook {
+    /**
+     * The state after each of [order]'s events, oldest first.
+     *
+     * Two rules do all the work, and both are review decisions rather than conveniences:
+     *
+     * **The report wins** (decision 2a). Where a sent report carries `CumQty` or `LeavesQty`, those
+     * are the values booked — the fold never prefers its own running total to what the venue told the
+     * client. This is what makes a bust (`150=H`) or a correct (`150=G`) work: they restate
+     * quantities *downward*, and a fold that only ever added would sit above the client's own view
+     * and then fill quantity that is not there.
+     *
+     * **Identity is stated, never inherited** (decision 3a). [OrderSnapshot.orderId] comes from tag
+     * 37 on a message, or from this same order's previous events — never from the order it
+     * supersedes. Venues disagree about replacement identity: many keep one OrderID for a chain,
+     * several crypto exchanges and some futures venues mint a new one, and both are venues someone
+     * needs to simulate. So `37=${order.orderId}` and `37=${uuid}` in a preset must produce different
+     * books, and nothing here may collapse them.
+     *
+     * Quantities are the deliberate asymmetry: they *do* carry across a replace when the report omits
+     * them ([BookedOrder.inherited]), because how much of a chain has traded is a fact about the
+     * chain, while which id it wears is a fact the venue states.
+     */
+    fun fold(order: BookedOrder): List<OrderSnapshot> {
+        var snapshot =
+            order.inherited?.copy(
+                state = OrderState.PENDING,
+                // The successor's identity is the successor's own business — see above. Cleared here
+                // rather than never copied, so the inherited *quantities* can travel in one object.
+                orderId = null,
+                ordStatus = null,
+            ) ?: OrderSnapshot(state = OrderState.PENDING)
+        val out = mutableListOf<OrderSnapshot>()
+        order.events.forEach { event ->
+            snapshot = advance(snapshot, event)
+            out += snapshot
+        }
+        return out
+    }
+
+    private fun advance(previous: OrderSnapshot, event: OrderEvent): OrderSnapshot {
+        val orderQty = event.field(TAG_ORDER_QTY) ?: previous.orderQty
+        val cumQty = event.field(TAG_CUM_QTY) ?: previous.cumQty
+        val leavesQty = event.field(TAG_LEAVES_QTY) ?: derivedLeaves(orderQty, cumQty, previous.leavesQty)
+        val ordStatus = event.field(TAG_ORD_STATUS) ?: previous.ordStatus
+        return OrderSnapshot(
+            state = stateOf(event, ordStatus, leavesQty, previous.state),
+            orderId = event.field(TAG_ORDER_ID) ?: previous.orderId,
+            ordStatus = ordStatus,
+            orderQty = orderQty,
+            cumQty = cumQty,
+            leavesQty = leavesQty,
+            avgPx = event.field(TAG_AVG_PX) ?: previous.avgPx,
+            price = event.field(TAG_PRICE) ?: previous.price,
+            symbol = event.field(TAG_SYMBOL) ?: previous.symbol,
+            side = event.field(TAG_SIDE) ?: previous.side,
+        )
+    }
+
+    /**
+     * Only when nothing said it. A derived LeavesQty is arithmetic on two values the venue *did*
+     * send; a reported one is what the client was told, and those are not the same claim.
+     */
+    private fun derivedLeaves(orderQty: String?, cumQty: String?, fallback: String?): String? {
+        val total = orderQty?.toBigDecimalOrNull() ?: return fallback
+        val done = cumQty?.toBigDecimalOrNull() ?: BigDecimal.ZERO
+        return (total - done).stripTrailingZeros().toPlainString()
+    }
+
+    /**
+     * OrdStatus decides when the venue sent one, because that is the field whose whole job is to say
+     * where the order is. LeavesQty is the fallback for a report that omits it, and the previous
+     * state is the fallback for a message that says nothing about either — a cancel reject (`35=9`)
+     * is a report *about* an order that leaves it exactly where it was.
+     */
+    private fun stateOf(event: OrderEvent, ordStatus: String?, leavesQty: String?, previous: OrderState): OrderState {
+        if (!event.sent) return if (previous == OrderState.PENDING) OrderState.PENDING else previous
+        if (event.msgType == "9") return previous
+        return when (ordStatus) {
+            "0", "1", "6", "E", "A" -> OrderState.WORKING
+            "2", "4", "5", "8", "C" -> OrderState.DONE
+            null -> if (leavesQty?.toBigDecimalOrNull()?.signum() == 0) OrderState.DONE else OrderState.WORKING
+            else -> if (leavesQty?.toBigDecimalOrNull()?.signum() == 0) OrderState.DONE else OrderState.WORKING
+        }
+    }
+
+    /** What a message did to the book — see `OrderBookService`, which is what acts on it. */
+    sealed interface Outcome {
+        /** Opens a chain: a received order. */
+        data class Born(
+            val key: String,
+        ) : Outcome
+
+        /** Moves one that is already booked. */
+        data class Moved(
+            val key: String,
+        ) : Outcome
+
+        /** Opens a chain from an existing one: a replacement the venue has just reported. */
+        data class Chained(
+            val key: String,
+            val from: String,
+        ) : Outcome
+
+        /** Names no entry this book holds. Counted and listed, never silently dropped (decision 7). */
+        data object Unattributed : Outcome
+
+        /** Nothing to do with this book at all — an admin message, a heartbeat, another MsgType. */
+        data object Ignored : Outcome
+    }
+
+    /**
+     * What [event] does to a book that currently holds [known] keys.
+     *
+     * Kept separate from [fold] because they answer different questions: this one is about *which*
+     * entry a message belongs to, that one is about what the entry then looks like. The routing is
+     * where "unattributed" is decided, and it is the half a test can get wrong without any number
+     * looking odd.
+     */
+    fun route(event: OrderEvent, known: Set<String>, spec: BookSpec): Outcome {
+        val key = event.field(spec.keyTag)
+        val chain = event.field(spec.chainTag)
+        return when {
+            !event.sent && event.msgType in spec.bornBy && key != null ->
+                if (key in known) Outcome.Moved(key) else Outcome.Born(key)
+            !event.sent -> Outcome.Ignored
+            event.msgType !in spec.movedBy -> Outcome.Ignored
+            key != null && key in known -> Outcome.Moved(key)
+            // A replacement the venue has just reported: the key is new, and 41 names the order it
+            // supersedes. This is the only way a chain link is born, which is why a book never invents
+            // one from an inbound 35=G — the client asking is not the venue agreeing.
+            key != null && chain != null && chain in known -> Outcome.Chained(key, chain)
+            // A report about an order this book has never seen. Includes the cancel reject naming an
+            // unknown OrigClOrdID, which is exactly the message a venue sends when it agrees.
+            else -> Outcome.Unattributed
+        }
+    }
+
+    /** True when this report ends the order it supersedes — the other half of a replace. */
+    fun supersedes(event: OrderEvent): Boolean = event.sent && event.execType == "5"
+}
+
+private fun String.toBigDecimalOrNull(): BigDecimal? =
+    try {
+        BigDecimal(trim())
+    } catch (e: NumberFormatException) {
+        null
+    }

@@ -2,6 +2,8 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.BookSpec
+import com.knapsack.fixtool.model.TAG_MSG_TYPE
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixConnectionState.*
@@ -207,6 +209,30 @@ class QuickFixService(
      * thread. Deterministic under a seed — see the config's own tests.
      */
     private val latencyRandom = java.util.Random()
+
+    /**
+     * **What this venue is holding, per counterparty** — fed from `fromApp` and `toApp`, so it
+     * records what the client was told rather than what a rule intended.
+     *
+     * One per service and keyed inside by `SessionID`, because a multi-client venue is one service
+     * with a session per client, and ClOrdID is unique per client rather than per venue.
+     */
+    private val orderBooks = OrderBookService()
+
+    /**
+     * This venue's book for one counterparty, or an empty one for a client it has never heard from.
+     *
+     * [sessionId] null means "whichever session this service is bound to", which is the single-client
+     * acceptor: it has exactly one counterparty and no pane of its own to name it with.
+     */
+    fun orderBook(sessionId: SessionID? = null): BookView =
+        orderBooks.view((sessionId ?: boundSessionId)?.toString().orEmpty())
+
+    /** Every counterparty this venue has booked anything for. */
+    fun orderBookSessions(): List<String> = orderBooks.sessions()
+
+    fun clearOrderBook(sessionId: SessionID? = null, by: String = "manually") =
+        orderBooks.clear((sessionId ?: boundSessionId)?.toString().orEmpty(), by)
 
     /**
      * The one place an acceptor auto-response reaches the wire. Off the callback thread on purpose —
@@ -564,9 +590,60 @@ class QuickFixService(
                     wireRaw = wire,
                 )
             deliver(sessionId, fixMessage)
+
+            // Every reply the client will see passes through here — a rule's, one typed into the
+            // editor, a Reply With… shape, a scenario step. That is exactly why the book is fed from
+            // the wire and not from the rules engine (decision 2): by the time these bytes exist,
+            // who composed them is no longer a distinction the counterparty could make.
+            book(sessionId, fixMessage, message, sent = true)
         } catch (e: Exception) {
             logger.error("Error displaying outgoing app message: ${e.message}", e)
         }
+    }
+
+    /**
+     * Records one application message against this counterparty's order book.
+     *
+     * **Acceptors only.** The book is what a venue is holding *for a client*; a client's own view of
+     * the orders it has sent is a different feature for a different user, and is named as out of
+     * scope in `docs/acceptor-order-state-proposal.md`.
+     *
+     * Failure here is swallowed on purpose and logged without notifying: the book is a view of the
+     * conversation, and no defect in it may cost the user the conversation itself.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun book(sessionId: SessionID, fixMessage: FixMessage, message: Message, sent: Boolean) {
+        if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
+        try {
+            orderBooks.record(
+                sessionKey = sessionId.toString(),
+                at = fixMessage.timestamp,
+                sent = sent,
+                fields = bookFields(message),
+                raw = fixMessage.rawMessage,
+                messageUid = fixMessage.uid,
+            )
+        } catch (e: Exception) {
+            logger.warn("Order book could not record a message: {}", e.message)
+        }
+    }
+
+    /** The message reduced to the tags the book reads — see [OrderBookService.record]. */
+    private fun bookFields(message: Message): Map<Int, String> {
+        val wanted = BookSpec.ORDERS.readTags + TAG_MSG_TYPE
+        return wanted.mapNotNull { tag ->
+            val value =
+                try {
+                    when {
+                        message.header.isSetField(tag) -> message.header.getString(tag)
+                        message.isSetField(tag) -> message.getString(tag)
+                        else -> null
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+            value?.let { tag to it }
+        }.toMap()
     }
 
     /**
@@ -625,6 +702,10 @@ class QuickFixService(
 
             // Route to the message handler
             deliver(sessionId, fixMessage)
+
+            // Before the reply is planned, so a rule that reads the book (slice B) sees the order it
+            // is answering. The book is fed from the wire either way — see book().
+            book(sessionId, fixMessage, parsedMessage, sent = false)
 
             // Acceptor auto-response: if configured, reply to the incoming message per the rules.
             maybeAutoRespond(parsedMessage, fixMessage, sessionId)

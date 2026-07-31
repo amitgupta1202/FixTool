@@ -1,0 +1,216 @@
+package com.knapsack.fixtool.service
+
+import com.knapsack.fixtool.model.BookSpec
+import com.knapsack.fixtool.model.BookedOrder
+import com.knapsack.fixtool.model.OrderBook
+import com.knapsack.fixtool.model.OrderEvent
+import com.knapsack.fixtool.model.OrderState
+import com.knapsack.fixtool.model.TAG_MSG_TYPE
+import java.time.LocalDateTime
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+/** A message the book could not tie to an order, kept rather than counted away. See decision 7. */
+data class Unattributed(
+    val at: LocalDateTime,
+    val msgType: String,
+    val raw: String,
+    val why: String,
+    val messageUid: Long = 0,
+)
+
+/**
+ * One counterparty's book, and everything about it that a reader needs in order to distrust it
+ * correctly.
+ *
+ * [clearedAt] is not decoration. An empty book reads identically as "no orders yet" and "somebody
+ * pressed clear", and those send a tester in opposite directions.
+ */
+data class BookView(
+    val orders: List<BookedOrder>,
+    val unattributed: List<Unattributed>,
+    val unattributedCount: Long,
+    val evicted: Long,
+    val cap: Int,
+    val clearedAt: LocalDateTime? = null,
+    val clearedBy: String? = null,
+) {
+    val working: Int get() = orders.count { it.state == OrderState.WORKING }
+}
+
+/**
+ * **What the venue thinks it is holding, per counterparty.**
+ *
+ * The state is here and the decisions are in [OrderBook], which is a boundary worth keeping: this
+ * class owns concurrency, bounds and eviction, and knows nothing about what a fill does to a
+ * quantity.
+ *
+ * Fed from the wire — `fromApp` and `toApp` — never from the rules engine, so a reply typed by hand
+ * into the editor moves the book exactly as a rule's does (decision 2). That is also why the feed
+ * takes a raw message rather than a rule's plan: by the time these bytes exist, whoever composed them
+ * is no longer a distinction the client could make.
+ *
+ * Thread safety is the ordinary kind and it matters: `fromApp` arrives on QuickFIX's read thread
+ * while `toApp` can be on the dispatch thread or on the UI's send path, and a venue with four clients
+ * has four of each.
+ */
+class OrderBookService(
+    private val spec: BookSpec = BookSpec.ORDERS,
+    /**
+     * How many orders one counterparty's book keeps.
+     *
+     * Its own number rather than one derived from the session's message buffer: how much scrollback a
+     * tester wants and how much order state a venue keeps are unrelated questions, and deriving one
+     * from the other is the mistake the ingest path already made once, when a display preference
+     * silently became a throughput limit.
+     */
+    private val cap: Int = DEFAULT_CAP,
+) {
+    companion object {
+        const val DEFAULT_CAP = 5_000
+    }
+
+    private class Book {
+        val orders = LinkedHashMap<String, BookedOrder>()
+        val unattributed = ArrayDeque<Unattributed>()
+        val unattributedCount = AtomicLong()
+        val evicted = AtomicLong()
+        var clearedAt: LocalDateTime? = null
+        var clearedBy: String? = null
+    }
+
+    private val books = ConcurrentHashMap<String, Book>()
+
+    /** Every counterparty this service has seen, in the order they first appeared. */
+    fun sessions(): List<String> = books.keys().toList().sorted()
+
+    fun view(sessionKey: String): BookView {
+        val book = books[sessionKey] ?: return BookView(emptyList(), emptyList(), 0, 0, cap)
+        synchronized(book) {
+            return BookView(
+                orders = book.orders.values.toList(),
+                unattributed = book.unattributed.toList(),
+                unattributedCount = book.unattributedCount.get(),
+                evicted = book.evicted.get(),
+                cap = cap,
+                clearedAt = book.clearedAt,
+                clearedBy = book.clearedBy,
+            )
+        }
+    }
+
+    fun order(sessionKey: String, key: String): BookedOrder? {
+        val book = books[sessionKey] ?: return null
+        synchronized(book) { return book.orders[key] }
+    }
+
+    /** Wipes one counterparty's book, and records that it was wiped rather than never filled. */
+    fun clear(sessionKey: String, by: String = "manually", at: LocalDateTime = LocalDateTime.now()) {
+        val book = books.computeIfAbsent(sessionKey) { Book() }
+        synchronized(book) {
+            book.orders.clear()
+            book.unattributed.clear()
+            book.unattributedCount.set(0)
+            book.evicted.set(0)
+            book.clearedAt = at
+            book.clearedBy = by
+        }
+    }
+
+    /**
+     * Records one message against [sessionKey]'s book.
+     *
+     * [fields] is the message reduced to the tags [BookSpec.readTags] names — the reduction happens at
+     * the caller because that is where a `quickfix.Message` is, and the whole point of [OrderBook] is
+     * that it never sees one.
+     */
+    @Suppress("ReturnCount")
+    fun record(
+        sessionKey: String,
+        at: LocalDateTime,
+        sent: Boolean,
+        fields: Map<Int, String>,
+        raw: String,
+        messageUid: Long = 0,
+    ): OrderBook.Outcome {
+        val msgType = fields[TAG_MSG_TYPE] ?: return OrderBook.Outcome.Ignored
+        val event =
+            OrderEvent(
+                at = at,
+                sent = sent,
+                msgType = msgType,
+                fields = fields.filterKeys { it in spec.readTags },
+                messageUid = messageUid,
+            )
+        val book = books.computeIfAbsent(sessionKey) { Book() }
+        synchronized(book) {
+            val outcome = OrderBook.route(event, book.orders.keys.toSet(), spec)
+            when (outcome) {
+                is OrderBook.Outcome.Ignored -> Unit
+                is OrderBook.Outcome.Born -> {
+                    book.orders[outcome.key] = BookedOrder(key = outcome.key, events = listOf(event))
+                    evictIfNeeded(book)
+                }
+                is OrderBook.Outcome.Moved -> {
+                    val existing = book.orders.getValue(outcome.key)
+                    book.orders[outcome.key] = existing.copy(events = existing.events + event)
+                }
+                is OrderBook.Outcome.Chained -> {
+                    val from = book.orders.getValue(outcome.from)
+                    // The predecessor ends here, and says what ended it. Recording the report on both
+                    // is not double counting: it is one message that is true of two orders, and a
+                    // trail that omitted it on the superseded one would end mid-sentence.
+                    book.orders[outcome.from] = from.copy(events = from.events + event, supersededBy = outcome.key)
+                    book.orders[outcome.key] =
+                        BookedOrder(
+                            key = outcome.key,
+                            events = listOf(event),
+                            supersedes = outcome.from,
+                            // Quantities travel; identity does not — see OrderBook.fold, decision 3a.
+                            inherited = from.current,
+                        )
+                    evictIfNeeded(book)
+                }
+                is OrderBook.Outcome.Unattributed -> {
+                    book.unattributedCount.incrementAndGet()
+                    book.unattributed.addLast(
+                        Unattributed(
+                            at = at,
+                            msgType = msgType,
+                            raw = raw,
+                            why =
+                                event.field(spec.keyTag)?.let { "names ${spec.keyTag}=$it, which this book has never seen" }
+                                    ?: "carries no ${spec.keyTag}, so there is nothing to attribute it to",
+                            messageUid = messageUid,
+                        ),
+                    )
+                    while (book.unattributed.size > UNATTRIBUTED_KEPT) book.unattributed.removeFirst()
+                }
+            }
+            return outcome
+        }
+    }
+
+    /**
+     * Drops the oldest **finished** order first, and only reaches for a working one when there is
+     * nothing finished left.
+     *
+     * A working order is the one a cancel is most likely to arrive for, and an evicted order answers
+     * that cancel "unknown" — a venue behaviour the tester did not configure. Evicting the done ones
+     * first is what makes the cap cost history rather than behaviour.
+     */
+    private fun evictIfNeeded(book: Book) {
+        if (book.orders.size <= cap) return
+        val victims = book.orders.entries.sortedBy { if (it.value.state == OrderState.DONE) 0 else 1 }
+        var over = book.orders.size - cap
+        for (entry in victims) {
+            if (over <= 0) break
+            book.orders.remove(entry.key)
+            book.evicted.incrementAndGet()
+            over--
+        }
+    }
+}
+
+/** How many unattributed messages one book keeps for reading; the *count* is never truncated. */
+private const val UNATTRIBUTED_KEPT = 50

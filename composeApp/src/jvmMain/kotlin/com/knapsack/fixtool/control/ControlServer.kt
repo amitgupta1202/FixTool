@@ -22,8 +22,10 @@ import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
+import com.knapsack.fixtool.model.BookedOrder
 import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.service.AcceptorPresets
+import com.knapsack.fixtool.service.BookView
 import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.EchoDetector
 import com.knapsack.fixtool.service.ExpectationEvaluator
@@ -58,6 +60,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
@@ -164,6 +167,7 @@ class ControlServer(
         httpServer.createContext("/acceptor/test") { ex -> handle(ex) { acceptorTest(ex) } }
         httpServer.createContext("/acceptor/rules") { ex -> handle(ex) { acceptorRulesEndpoint(ex) } }
         httpServer.createContext("/acceptor/presets") { ex -> handle(ex) { acceptorPresets() } }
+        httpServer.createContext("/acceptor/orders") { ex -> handle(ex) { acceptorOrdersEndpoint(ex) } }
         httpServer.createContext("/syntax") { ex -> syntax(ex) }
         httpServer.createContext("/screenshot") { ex -> screenshot(ex) }
         httpServer.createContext("/mcp") { ex -> mcpHandle(ex) }
@@ -1923,6 +1927,162 @@ class ControlServer(
         }
 
     /**
+     * **What the venue is holding, over HTTP** — and the reason this endpoint is in the *first* slice
+     * of #35 rather than a later one.
+     *
+     * "Reply With…" shipped with no way to drive it but a mouse, so it could only ever be verified by
+     * hand. The book is the state that everything after it reads, and a state nobody can read from
+     * outside the app is a state nobody can test. So: this lands with the book itself.
+     *
+     * `GET` with no `session` is the roll-up — one line per counterparty, no orders, because a venue
+     * with four clients holding a thousand orders each is not a useful default response. With
+     * `session` it is that book in full, every order carrying its trail, which is the shape an
+     * assertion wants. `order` narrows to one.
+     */
+    private fun acceptorOrdersEndpoint(ex: HttpExchange): JsonElement =
+        when (ex.requestMethod.uppercase()) {
+            "POST" -> clearAcceptorOrders(ex)
+            else -> acceptorOrders(ex)
+        }
+
+    private fun acceptorOrders(ex: HttpExchange): JsonElement {
+        val params = queryParams(ex)
+        val requested = params["session"]
+        val sessions = onEdt { viewModel.sessions.toList() }
+        val books = sessions.mapNotNull { session -> session.orderBook()?.let { session to it } }
+        if (requested == null) {
+            return buildJsonObject {
+                put(
+                    "books",
+                    buildJsonArray {
+                        books.forEach { (session, book) ->
+                            add(
+                                buildJsonObject {
+                                    put("session", session.title)
+                                    put("sessionId", session.id)
+                                    put("orders", book.orders.size)
+                                    put("working", book.working)
+                                    putBookHealth(book)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+        val session =
+            resolveSession(requested)
+                ?: return errorObject("no session '$requested'; known: " + sessions.joinToString { it.title })
+        val book =
+            session.orderBook()
+                ?: return errorObject("'${session.title}' is not an acceptor, so it holds no orders for anyone")
+        val only = params["order"]
+        val orders = if (only == null) book.orders else book.orders.filter { it.key == only }
+        if (only != null && orders.isEmpty()) {
+            return errorObject("'${session.title}' holds no order '$only'")
+        }
+        return buildJsonObject {
+            put("session", session.title)
+            put("sessionId", session.id)
+            put("working", book.working)
+            putBookHealth(book)
+            put("orders", buildJsonArray { orders.forEach { add(bookedOrderJson(it)) } })
+            // The count is the number; this is what those messages were. A count alone says something
+            // is wrong and nothing about what — see decision 7.
+            if (book.unattributed.isNotEmpty()) {
+                put(
+                    "unattributedMessages",
+                    buildJsonArray {
+                        book.unattributed.forEach { entry ->
+                            add(
+                                buildJsonObject {
+                                    put("at", entry.at.toString())
+                                    put("msgType", entry.msgType)
+                                    put("why", entry.why)
+                                    put("raw", entry.raw)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+    }
+
+    /** The three ways a book can be wrong, reported whether or not anything is wrong with it. */
+    private fun JsonObjectBuilder.putBookHealth(book: BookView) {
+        put("unattributed", book.unattributedCount)
+        put("evicted", book.evicted)
+        put("cap", book.cap)
+        // An empty book reads identically as "nothing has happened" and "somebody cleared it", and
+        // those send a reader in opposite directions.
+        book.clearedAt?.let {
+            put("clearedAt", it.toString())
+            put("clearedBy", book.clearedBy ?: "")
+        }
+    }
+
+    private fun bookedOrderJson(order: BookedOrder): JsonObject {
+        val snapshots = order.snapshots()
+        val current = order.current
+        return buildJsonObject {
+            put("clOrdId", order.key)
+            current.orderId?.let { put("orderId", it) }
+            current.symbol?.let { put("symbol", it) }
+            current.side?.let { put("side", it) }
+            current.orderQty?.let { put("orderQty", it) }
+            current.cumQty?.let { put("cumQty", it) }
+            current.leavesQty?.let { put("leavesQty", it) }
+            current.avgPx?.let { put("avgPx", it) }
+            current.price?.let { put("price", it) }
+            current.ordStatus?.let { put("ordStatus", it) }
+            put("state", current.state.name.lowercase())
+            order.supersedes?.let { put("supersedes", it) }
+            order.supersededBy?.let { put("supersededBy", it) }
+            order.firstAt?.let { put("firstAt", it.toString()) }
+            order.lastAt?.let { put("lastAt", it.toString()) }
+            // The trail: what each message did, and what the order looked like after it. This is the
+            // difference between a number a reader has to trust and one they can check (decision 6b).
+            put(
+                "trail",
+                buildJsonArray {
+                    order.events.forEachIndexed { index, event ->
+                        val after = snapshots.getOrNull(index)
+                        add(
+                            buildJsonObject {
+                                put("at", event.at.toString())
+                                put("direction", if (event.sent) "sent" else "received")
+                                put("msgType", event.msgType)
+                                put("label", event.label)
+                                event.execType?.let { put("execType", it) }
+                                after?.cumQty?.let { put("cumQty", it) }
+                                after?.leavesQty?.let { put("leavesQty", it) }
+                                after?.orderId?.let { put("orderId", it) }
+                                put("state", (after?.state ?: current.state).name.lowercase())
+                                put("messageUid", event.messageUid)
+                            },
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    private fun clearAcceptorOrders(ex: HttpExchange): JsonElement {
+        val request = readJson(ex)
+        val key = request["session"]?.jsonPrimitive?.contentOrNull ?: queryParams(ex)["session"]
+        val session = resolveSession(key) ?: return errorObject("no session '${key.orEmpty()}'")
+        if (session.orderBook() == null) {
+            return errorObject("'${session.title}' is not an acceptor, so it holds no orders to clear")
+        }
+        onEdt { session.clearOrderBook(by = "the control surface") }
+        return buildJsonObject {
+            put("status", "cleared")
+            put("session", session.title)
+        }
+    }
+
+    /**
      * Adds, replaces or toggles **one** rule, leaving the rest of the profile untouched.
      *
      * A rule list is ordered and first-match-wins, so its index is its identity — there is nothing
@@ -2655,6 +2815,16 @@ class ControlServer(
                 }
             },
             "fixtool_acceptor_test" to { a -> acceptorTest(mcpExchange(a)) },
+            // Reading the book is a GET; clearing it is the same tool with `clear:true`, for the same
+            // reason `fixtool_acceptor_rule` carries its own `delete` — a second tool is a second
+            // thing to find, and an explicit flag is not something a malformed read can become.
+            "fixtool_acceptor_orders" to { a ->
+                if (a["clear"]?.jsonPrimitive?.booleanOrNull == true) {
+                    clearAcceptorOrders(mcpExchange(a))
+                } else {
+                    acceptorOrders(mcpExchange(a))
+                }
+            },
         )
 
     /**

@@ -89,6 +89,7 @@ fun App(
             val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
             val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
             val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
+        val showOrderBookPanel by viewModel.showOrderBookPanel.collectAsState()
             val showScenariosRail by viewModel.showScenariosRail.collectAsState()
             // Documents live in the scenario dock now (see ScenarioDock), not in the session centre, so the
             // layout no longer tracks the active document or its tabs at this level.
@@ -129,6 +130,7 @@ fun App(
             var connectionPanelSplitRatio by remember { mutableStateOf(savedLayout.connectionRatio) }
             var searchResultsPanelHeight by remember { mutableStateOf(savedLayout.searchHeightDp.dp) }
             var latencyPanelSplitRatio by remember { mutableStateOf(savedLayout.latencyRatio) }
+        var orderBookSplitRatio by remember { mutableStateOf(savedLayout.orderBookRatio) }
 
             // Bring the terminal back the way it was left, and persist changes to it thereafter. The height
             // rides through the dock slot below; visible/minimized live on the (global) TerminalController.
@@ -203,6 +205,7 @@ fun App(
                         showDetailPanel = showDetailPanel,
                         showConnectionPanel = showConnectionPanel,
                         showLatencyPanel = showLatencyPanel,
+                        showOrderBookPanel = showOrderBookPanel,
                         connectionProfiles = viewModel.connectionProfiles,
                         isDictionaryValid = isDictionaryValid,
                         globalSessionViewMode = globalViewMode,
@@ -215,6 +218,7 @@ fun App(
                         onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                         onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
                         onToggleLatencyPanel = { viewModel.toggleLatencyPanel() },
+                        onToggleOrderBookPanel = { viewModel.toggleOrderBookPanel() },
                         onToggleGridView = { viewModel.toggleViewMode() },
                         onQuickConnect = { profileId, profile ->
                             viewModel.connectProfile(profileId, profile)
@@ -509,6 +513,20 @@ fun App(
                                         }
                                     }
 
+                                    // The venue's own memory, beside the counterparty's messages.
+                                    if (showOrderBookPanel) {
+                                        WidthResizeHandle(
+                                            onDeltaPx = { dx ->
+                                                orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(0.15f, 0.7f)
+                                            },
+                                            onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
+                                        )
+
+                                        Box(modifier = Modifier.width(with(density) { (maxWidthPx * orderBookSplitRatio).toDp() })) {
+                                            AppOrderBookPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
+                                        }
+                                    }
+
                                     // Latency panel (if shown)
                                     if (showLatencyPanel) {
                                         // Resizable divider for latency panel
@@ -585,7 +603,9 @@ fun App(
                                 }
 
                             // Wrap content in split pane if the rail, detail panel, message editor, connection panel, or latency panel is shown
-                            if (showScenariosRail || showDetailPanel || showMessageEditor || showConnectionPanel || showLatencyPanel) {
+                            if (showScenariosRail || showDetailPanel || showMessageEditor || showConnectionPanel ||
+                                showLatencyPanel || showOrderBookPanel
+                            ) {
                                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
                                     val maxWidthPx = with(density) { maxWidth.toPx() }
 
@@ -746,6 +766,20 @@ fun App(
                                                     editingReplyStep = viewModel.editorTarget as? EditorTarget.ReplyStep,
                                                     modifier = Modifier.fillMaxSize(),
                                                 )
+                                            }
+                                        }
+
+                                        // The venue's own memory, beside the counterparty's messages.
+                                        if (showOrderBookPanel) {
+                                            WidthResizeHandle(
+                                                onDeltaPx = { dx ->
+                                                    orderBookSplitRatio = (orderBookSplitRatio - dx / maxWidthPx).coerceIn(0.15f, 0.7f)
+                                                },
+                                                onDragEnd = { viewModel.updateLayout { it.copy(orderBookRatio = orderBookSplitRatio) } },
+                                            )
+
+                                            Box(modifier = Modifier.width(with(density) { (maxWidthPx * orderBookSplitRatio).toDp() })) {
+                                                AppOrderBookPanel(viewModel = viewModel, modifier = Modifier.fillMaxSize())
                                             }
                                         }
 
@@ -1181,6 +1215,44 @@ private fun AppMessageDetailPanel(
         // "Reply With…" off the panel entirely for the initiator half of the app.
         replyOffers = selectedMessage?.let { viewModel.replyOffersFor(it) } ?: emptyList(),
         onReplyWith = selectedMessage?.let { msg -> ({ shape: ReplyShape -> viewModel.replyWith(msg, shape); Unit }) },
+    )
+}
+
+/**
+ * The order-book panel, wherever the layout puts it.
+ *
+ * Extracted like [AppMessageDetailPanel] because TABS and SPLIT place it at two call sites, and two
+ * copies of a panel's wiring is two things to keep in step.
+ *
+ * Shown against the **active session**, which for a venue is the client pane a tester is reading —
+ * the book belongs to a counterparty, and "which counterparty" is exactly what the pane already says.
+ */
+@Composable
+private fun AppOrderBookPanel(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
+    val session by viewModel.activeSessionState
+    val book = session?.orderBook()
+    if (session == null || book == null) {
+        Box(
+            modifier = modifier.fillMaxSize().background(AppTheme.Colors.surface),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                // Not "no orders": an initiator has no book to be empty. A client's own view of the
+                // orders it sent is a different feature, deliberately not this one.
+                text = "Only an acceptor holds orders.\nSelect a venue session to see its book.",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 12.sp,
+            )
+        }
+        return
+    }
+    OrderBookPanel(
+        book = book,
+        title = session!!.title,
+        onClear = { session!!.clearOrderBook() },
+        onClose = { viewModel.toggleOrderBookPanel() },
+        onOpenMessage = { uid -> viewModel.selectMessageByUid(uid) },
+        modifier = modifier,
     )
 }
 

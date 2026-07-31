@@ -1973,6 +1973,10 @@ class FixMessageViewModel(
     private val _showLatencyPanel = MutableStateFlow(false)
     val showLatencyPanel: StateFlow<Boolean> = _showLatencyPanel.asStateFlow()
 
+    /** The venue's order book, beside the counterparty's messages — see [OrderBookPanel]. */
+    private val _showOrderBookPanel = MutableStateFlow(false)
+    val showOrderBookPanel: StateFlow<Boolean> = _showOrderBookPanel.asStateFlow()
+
     // Global search across all sessions
     private val _showGlobalSearchDialog = MutableStateFlow(false)
     val showGlobalSearchDialog: StateFlow<Boolean> = _showGlobalSearchDialog.asStateFlow()
@@ -2223,6 +2227,7 @@ class FixMessageViewModel(
         _showMessageEditor.value = l.showMessageEditor
         _showConnectionPanel.value = l.showConnectionPanel
         _showLatencyPanel.value = l.showLatencyPanel
+        _showOrderBookPanel.value = l.showOrderBookPanel
         _scenarioDockMinimized.value = l.scenarioDockMinimized
     }
 
@@ -2238,6 +2243,7 @@ class FixMessageViewModel(
         _showMessageEditor.drop(1).onEach { v -> updateLayout { it.copy(showMessageEditor = v) } }.launchIn(viewModelScope)
         _showConnectionPanel.drop(1).onEach { v -> updateLayout { it.copy(showConnectionPanel = v) } }.launchIn(viewModelScope)
         _showLatencyPanel.drop(1).onEach { v -> updateLayout { it.copy(showLatencyPanel = v) } }.launchIn(viewModelScope)
+        _showOrderBookPanel.drop(1).onEach { v -> updateLayout { it.copy(showOrderBookPanel = v) } }.launchIn(viewModelScope)
         _scenarioDockMinimized.drop(1).onEach { v -> updateLayout { it.copy(scenarioDockMinimized = v) } }.launchIn(viewModelScope)
     }
 
@@ -3079,6 +3085,25 @@ class FixMessageViewModel(
             showNotification("Invalid scenario JSON: ${e.message}", NotificationType.ERROR)
             null
         }
+
+    fun toggleOrderBookPanel() {
+        _showOrderBookPanel.value = !_showOrderBookPanel.value
+    }
+
+    /**
+     * Selects the message an order-book trail line came from.
+     *
+     * By uid rather than by content: two messages with identical bytes are equal as data (see
+     * `AppMessage.uid`), and the trail means *that* one.
+     */
+    fun selectMessageByUid(uid: Long) {
+        _sessions.forEach { session ->
+            session.messages.value.filterIsInstance<FixMessage>().firstOrNull { it.uid == uid }?.let {
+                selectMessage(it)
+                return
+            }
+        }
+    }
 
     fun toggleLatencyPanel() {
         _showLatencyPanel.value = !_showLatencyPanel.value

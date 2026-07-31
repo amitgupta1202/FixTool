@@ -1,6 +1,7 @@
 # Order state for acceptor mode — proposal
 
 **Issue:** [#35](https://github.com/amitgupta1202/FixTool/issues/35)
+**Status:** approved 2026-07-31 as sliced; amended by that review (decisions 2a, 3a, 3b). Building slice A.
 **Depends on:** #30 (rules engine, shipped), #34 (conditional triggers, shipped), #31 (presets, shipped),
 #32 (multi-client venue, shipped), #40 ("Reply With…", shipped)
 **Mockups:** https://claude.ai/code/artifact/47dbc8fa-ce28-4f94-b4fa-7d155f2a4875
@@ -85,6 +86,30 @@ effect. That is a claim worth a test rather than a comment.
 is recorded faithfully. That is the correct direction to be wrong in — the book shows the client's
 view, which is the view under test.
 
+### 2a. The fold believes the report, including when it takes something back.
+
+Where a sent report carries `CumQty` (14) and `LeavesQty` (151), **those are the values booked** — the
+fold does not recompute them from its own running total and does not prefer its arithmetic to the
+message. Only when a report omits them does the fold derive.
+
+The case that makes this load-bearing is a **bust or a correct**. `150=H` (trade cancel) and `150=G`
+(trade correct) exist to take back or restate a fill the venue has already reported, and the client's
+own position moves when they arrive:
+
+```
+09:14:23.006  150=F  fill 1500   14=1500  151=3500
+09:14:23.418  150=F  fill 1000   14=2500  151=2500
+09:14:24.900  150=H  bust  1000  14=1500  151=3500     ← the second fill never happened
+```
+
+A fold that only ever added would sit at `14=2500` while the client sits at `1500`, and every
+subsequent `${order.leavesQty}` would fill quantity that is not there. That is the book silently
+disagreeing with the client's view — precisely the direction decision 2 says not to be wrong in.
+
+This applies to **any** sent execution report, hand-sent ones included: a tester who busts a fill from
+the message editor is doing the same thing to the client's view as a rule that busts it, and the book
+cannot tell the difference because there is no difference.
+
 ### 3. One book per counterparty, keyed by ClOrdID.
 
 ClOrdID is unique per client, not per venue. Two clients may both send `ORD-1` and they are two
@@ -96,6 +121,50 @@ is built around. Within it: keyed by ClOrdID, with a secondary index by OrderID 
 
 The book lives with the **pane**, so a client that logs out and returns finds its orders where it
 left them — the same call `attachVenueClient` already makes for message history.
+
+### 3a. A replace chain is *recorded*, never *inherited*.
+
+**The book records the 37 the venue actually sent. Chain inheritance across a replace is a property
+of the preset (`37=${order.orderId}`), not of the fold.**
+
+FixTool is pointed at RFQ, FX, equities, crypto and futures venues, and they do not agree here. Plenty
+keep one OrderID for the life of a chain; several crypto exchanges and some futures venues issue a
+**new** OrderID on every replace. Both are venues someone needs to simulate. So a preset written
+`37=${uuid}` must produce a book that records the *new* OrderID, and one written `37=${order.orderId}`
+must produce a book that records the inherited one — and the fold must not be able to tell them apart,
+because the difference is the author's, not ours.
+
+Concretely, the transition function may not hard-code OrderID inheritance:
+
+```
+150=5  Replaced   11=ORD-7  41=ORD-6  37=EX-100006     → ORD-7 books OrderID EX-100006
+150=5  Replaced   11=ORD-7  41=ORD-6  37=EX-200042     → ORD-7 books OrderID EX-200042
+```
+
+What *is* structural is the **link**: `41` names the order this one supersedes, so the chain is
+recorded either way and a cancel naming the superseded ClOrdID can still be answered. The same rule
+governs quantities, per decision 2a — a replace carrying `14`/`151` books those, and one that omits
+them carries the previous values forward.
+
+This constrains slice A, which is why it was raised as blocking: a fold that inherits OrderID would
+have to be *un*built later, and every book recorded in the meantime would be wrong about a venue the
+tester was faithfully simulating.
+
+### 3b. The fold is keyed by data, not by `35=D`.
+
+The chain key, the message types that start a chain, and the ones that move it are **parameters of
+the fold**, not constants inside an `OrderBook` type. `orders` is then one configuration of it: keyed
+by ClOrdID, born on `35=D`, moved by `35=8`/`35=9`, chained through `41`.
+
+This costs nothing now and it is the difference between a sibling and a redesign. Quote state is the
+obvious next one — keyed by QuoteID, born on `35=S`, moved by `35=AJ`/`35=AG` — and *"an order
+referencing a quote we never sent"* is the RFQ desk's version of the unknown cancel, which is the
+whole reason this feature exists. A second fold over the same event log answers it; a hard-coded
+order book does not.
+
+**Not now.** Quotes are named in *What this is not* alongside the matching engine, and stay there
+until someone asks. The point of this decision is only that saying yes later costs a configuration
+rather than a rewrite.
 
 ### 4. A small state vocabulary, not the OrdStatus zoo.
 
@@ -240,7 +309,7 @@ same reason: a number the user can see beats a silence they cannot.
 
 | file | change |
 |------|--------|
-| `model/OrderBook.kt` *(new)* | `OrderState`, `OrderEvent`, `BookedOrder` as a **fold** over its events, and the transition as a pure function of (current, message, direction) |
+| `model/OrderBook.kt` *(new)* | `OrderState`, `OrderEvent`, `BookedOrder` as a **fold** over its events, and the transition as a pure function of (current, message, direction). Chain key, birth types and move types are **data** (decision 3b); OrderID is read off the message, never inherited (decision 3a) |
 | `service/OrderBookService.kt` *(new)* | one book per `SessionID`, fed from `fromApp`/`toApp`, thread-safe, bounded |
 | `service/QuickFixService.kt` | feed the book from both callbacks; expose it for the pane and the responder; record the decision on each auto-reply |
 | `model/AcceptorResponseRule.kt` | `whenOrder: OrderConstraint? = null`, folded into `trigger()`'s report and `validationError()` |
@@ -270,12 +339,28 @@ in `/acceptor/rules`, and in `/acceptor/test` — which gains a state argument, 
 stateful trigger has to name the state it assumed. Every auto-reply records the rule that chose it and
 what the book said at that moment (decision 6a), shown against the reply in the detail panel. Presets:
 *cancel rejected — unknown order* (conditioned `unknown`), *cancel accepted* (conditioned `working`),
-*duplicate ClOrdID rejected* (a `35=D` whose ClOrdID is already known). This is the slice that answers
-the issue's acceptance criteria about validation.
+*duplicate ClOrdID rejected* (a `35=D` whose ClOrdID is already known), and *status request — unknown
+order* (`35=H` conditioned `unknown` → the business reject that ships today, now conditioned instead
+of unconditional). This is the slice that answers the issue's acceptance criteria about validation.
 
 **C — templates can read.** `${order.…}`, and the presets and `Reply With…` shapes rewritten to use
 it: fills that accumulate, and `37=${order.orderId}` so an order keeps one OrderID across every reply
-it ever gets. Fixes the identity defect named at the top.
+it ever gets — where the author wants that (decision 3a). Fixes the identity defect named at the top.
+
+Also the preset that only becomes writable here, and needs no new mechanism at all — **status request
+answered from the book**:
+
+```
+when 35=H and the order is working →
+  35=8|150=I|37=${order.orderId}|11=${req.11}|39=${order.ordStatus}
+      |14=${order.cumQty}|151=${order.leavesQty}|55=${order.symbol}|54=${order.side}|60=${now}
+```
+
+`150=I` is ExecType *Order Status*, which is exactly what an unsolicited state dump is, and every
+field of it is a fact the book already holds. It pairs with B's unknown-order variant: between them a
+venue answers "where is my order?" the way a venue does, and neither rule needed a primitive that did
+not already exist. It is the clearest evidence that decision 1 was the right shape — the book is
+worth having because rules can *read* it, not because it acts.
 
 **D — act from the row.** *Fill*, *Partial fill*, *Cancel* on an order in the book, opening the same
 editor `Reply With…` opens. This is #40 with the book as the entry point instead of the message, and
@@ -290,7 +375,10 @@ The layers this codebase distinguishes, and what only each can say:
   `working` with the right CumQty; a replace supersedes and carries CumQty across; a fill for an
   unknown ClOrdID lands in the unattributed count; **every row's numbers are the fold of its own
   trail**, which is the assertion that stops the panel and the evidence drifting apart; eviction takes
-  a finished order before a working one.
+  a finished order before a working one. Two more that exist because of the review:
+  **the same replace, sent twice with `37=${order.orderId}` and with `37=${uuid}`, books the OrderID
+  the venue sent each time** (decision 3a — the test that fails if inheritance is ever hard-coded);
+  and **a `150=H` bust moves CumQty down**, from a hand-sent report as readily as a rule's (2a).
 - **Engine** — `explain` reports `whenOrder` like any other condition; a rule conditioned `unknown`
   does not fire for an order the book holds; `${order.…}` resolves in both spellings.
 - **Integration (real venue, real client, real port)** — the claims nothing below can make: a cancel
@@ -308,6 +396,19 @@ market data. Not positions or P&L. Not persistence. Not an initiator-side view o
 sent — that is a different feature for a different user, and folding it in here would make the book
 answer two questions with one table.
 
+**Not quote or RFQ negotiation state.** `35=R`/`35=S`/`35=AJ` keyed by QuoteID, and *"an order
+referencing a quote we never sent"* — the RFQ desk's unknown cancel. It is the most likely next
+sibling and decision 3b is what keeps it a configuration of the same fold rather than a second
+design, but it is **excluded from these four slices** and stays excluded until someone asks for it by
+name. Naming it here is the difference between a boundary and an oversight.
+
+**Not mass cancel (`35=q`) or mass status (`35=AF`).** These are excluded by a *decision*, not by
+inattention: one inbound message has to fan out over N book entries, and the acceptor is built on
+one-message-in → replies-out. A rule that answered a mass cancel would have to emit a report per
+working order, which is not a shape `plan()` can express, and bolting it on would make the sequence
+model mean two different things. If a venue needs to be simulated cancelling forty orders at once,
+that is its own design with its own issue.
+
 **Not an assertion target, yet.** "At this point in the run the venue holds ORD-1 filled" is a
 scenario expectation over venue state, and it is the natural next thing a QA user asks for once the
 book exists. It is deliberately out of these four slices — it needs the scenario engine's
@@ -315,10 +416,15 @@ expectation vocabulary, not the acceptor's — but it is the reason the book is 
 addressable log rather than a live table: a shape you can assert against later costs nothing to
 choose now.
 
-## Open questions
+## Open questions — settled
 
-Each is a decision I have taken a position on but would change on a word. The example is what it
-looks like either way, not an abstraction of it.
+**Design review 2026-07-31: approved as sliced, and all six recommendations below accepted as
+written.** They are kept here as the record of what was decided and why, not as anything still open.
+The review's own amendments are decisions 2a, 3a and 3b, the status-request presets in B and C, and
+the two exclusions above; #35's build starts from slice A.
+
+Each was a decision I had taken a position on but would have changed on a word. The example is what
+it looks like either way, not an abstraction of it.
 
 - **Does `${order.…}` on an order the book has never seen refuse, or substitute empty?**
 

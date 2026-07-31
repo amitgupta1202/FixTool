@@ -394,6 +394,15 @@ never evicted ahead of a done one), with the count of evictions shown beside the
 settable. This follows the discard counter the session ingestion path already carries, and for the
 same reason: a number the user can see beats a silence they cannot.
 
+**Shipped 2026-07-31** as `AppSettings.orderBookCap`, on the Sessions page directly beneath the
+message buffer — because those two are constantly mistaken for one number and side by side it is
+visible that they are not. **It applies to books already open**, which is the one thing the design
+did not say and should have: the moment a tester discovers the cap is too small is the middle of the
+soak run that proved it, and a setting you can only apply by reconnecting costs the very state it was
+raised to preserve. Lowering it evicts down to the new number at once rather than waiting for the
+next order — a book reporting `cap 100` while holding 5,000 would be lying about the one number the
+setting is — and those evictions are counted where every other eviction is counted.
+
 ## What changes where
 
 | file | change |

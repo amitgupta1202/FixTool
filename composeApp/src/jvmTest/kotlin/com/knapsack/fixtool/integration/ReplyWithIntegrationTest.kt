@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.OrderState
 import com.knapsack.fixtool.service.AcceptorPresets
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
@@ -82,11 +83,24 @@ class ReplyWithIntegrationTest {
 
         val offers = viewModel.replyOffersFor(received)
         assertEquals(
-            listOf("ack", "fill", "partial-fill", "fill-remainder", "order-reject"),
+            listOf("ack", "fill", "partial-fill", "fill-remainder", "partial-of-remainder", "fill-what-is-left", "order-reject"),
             offers.map { it.shape.id },
             "a limit order on a venue's pane is answerable, and this is the menu that says so",
         )
-        assertTrue(offers.all { it.available }, "this order carries everything the shapes read")
+        // **The menu answers for the venue as well as for the message.** The order is booked but
+        // unacknowledged, so the venue has not yet said its OrderID or what is left of it — and the
+        // shapes that read those are refused *by name* rather than offered and then found to build
+        // `37=`. The stateless ones read only the message and are unaffected.
+        assertTrue(
+            offers.filter { it.shape.id !in bookAware }.all { it.available },
+            "this order carries everything the stateless shapes read",
+        )
+        offers.filter { it.shape.id in bookAware }.forEach {
+            assertTrue(
+                it.refusal?.contains("orderId") == true,
+                "'${it.shape.name}' reads an id the venue has not issued yet; got: ${it.refusal}",
+            )
+        }
 
         sendReply(received, "ack")
 
@@ -110,7 +124,72 @@ class ReplyWithIntegrationTest {
             "a reject means the client could not read what the venue sent: " +
                 fixMessages(client).filter { field(it, 35) == "3" || field(it, 35) == "j" }.map { it.rawMessage },
         )
+
+        // **And now the same menu offers what it refused a moment ago.** The venue has answered, so
+        // the book holds an OrderID and a LeavesQty, and the shapes that read them become available —
+        // the offer tracking the state of the venue rather than a property of the message.
+        assertTrue(
+            awaitCondition(10_000) {
+                viewModel.replyOffersFor(received).filter { it.shape.id in bookAware }.all { it.available }
+            },
+            "after the acknowledgement the book can feed the fills; got: " +
+                viewModel.replyOffersFor(received).filter { it.shape.id in bookAware }.map { it.refusal },
+        )
     }
+
+    /**
+     * **The identity defect from the top of the proposal, on a real wire.**
+     *
+     * Acknowledging by hand and then filling by hand sent the client two different OrderIDs for one
+     * order, because `${req.uuid}` is one draw per triggering message and each hand-sent reply is its
+     * own. Read from the book, the fill carries the id the ack already gave. Nothing below this can
+     * make the claim: it needs two separate sends, a book fed by the first, and a client to receive
+     * both.
+     */
+    @Test
+    fun `acknowledging then filling by hand sends one OrderID, not two`() {
+        connectVenue()
+        val client = connectClient("ALPHA")
+        val pane = awaitPane("ALPHA")
+
+        client.sendFixMessage(order, viewModel.dictionary)
+        val received = awaitOrder(pane, "RW-1")
+
+        sendReply(received, "ack")
+        assertTrue(awaitCondition(10_000) { executionReports(client).size == 1 })
+        val ackId = field(executionReports(client).single(), 37)
+        assertNotNull(ackId, "the venue owes the order an OrderID")
+
+        // A separate send, a separate moment, a separate draw of everything not read from the book.
+        assertTrue(
+            awaitCondition(10_000) {
+                viewModel.replyOffersFor(received).first { it.shape.id == "fill-what-is-left" }.available
+            },
+            "the acknowledged order should now be readable",
+        )
+        sendReply(received, "fill-what-is-left")
+
+        assertTrue(
+            awaitCondition(10_000) { executionReports(client).size == 2 },
+            "the fill never reached the client",
+        )
+        val fill = executionReports(client).last()
+        assertEquals(ackId, field(fill, 37), "the fill has to be about the order the acknowledgement acknowledged")
+        assertEquals("1000", field(fill, 14), "and it fills what the book says was still open")
+        assertEquals("0", field(fill, 151))
+        assertEquals(
+            OrderState.DONE,
+            pane
+                .orderBook()!!
+                .orders
+                .single { it.key == "RW-1" }
+                .state,
+            "the venue's own view has to agree with what it just told the client",
+        )
+    }
+
+    /** The shapes that read the book — refused until the venue has said enough for them to read. */
+    private val bookAware = setOf("partial-of-remainder", "fill-what-is-left")
 
     /**
      * **The assertion that cannot be made anywhere else.** Two clients are logged on to one venue and

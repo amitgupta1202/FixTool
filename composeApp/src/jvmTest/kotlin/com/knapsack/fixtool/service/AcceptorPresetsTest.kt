@@ -2,9 +2,12 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.BookReading
+import com.knapsack.fixtool.model.BookedOrder
 import com.knapsack.fixtool.model.FieldCondition
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.OrderEvent
 import com.knapsack.fixtool.model.OrderState
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
@@ -63,6 +66,42 @@ class AcceptorPresetsTest {
             key = "ORD-1",
             state = rule.whenOrder?.takeIf { it != OrderConstraint.UNKNOWN }?.let { OrderState.valueOf(it.name) },
             leavesQty = "1000",
+        )
+
+    /**
+     * The venue's book as the sample messages would have left it: ORD-1 received, acknowledged, live.
+     *
+     * Built as a real [BookedOrder] and read through [OrderBook.fields] rather than hand-written as a
+     * map, so a preset reading a name the fold does not actually produce fails here rather than in
+     * front of a client. Every sample above names ORD-1, so one order answers for all of them.
+     */
+    private val bookedOrder: Map<String, String> =
+        OrderBook.fields(
+            BookedOrder(
+                key = "ORD-1",
+                events =
+                    listOf(
+                        OrderEvent(
+                            at = LocalDateTime.now(),
+                            sent = false,
+                            msgType = "D",
+                            fields =
+                                mapOf(
+                                    11 to "ORD-1",
+                                    55 to "ACME",
+                                    54 to "1",
+                                    38 to "1000",
+                                    44 to "185.25",
+                                ),
+                        ),
+                        OrderEvent(
+                            at = LocalDateTime.now(),
+                            sent = true,
+                            msgType = "8",
+                            fields = mapOf(11 to "ORD-1", 37 to "EX-1", 150 to "0", 39 to "0", 14 to "0", 151 to "1000"),
+                        ),
+                    ),
+            ),
         )
 
     private fun eachRule(action: (String, AcceptorResponseRule, String) -> Unit) =
@@ -147,7 +186,7 @@ class AcceptorPresetsTest {
     @Test
     fun `no preset puts an empty field on the wire`() {
         eachRule { id, rule, raw ->
-            AcceptorResponder.plan(rule, AcceptorResponder.buildMessage(raw), request(raw)).forEach { planned ->
+            AcceptorResponder.plan(rule, AcceptorResponder.buildMessage(raw), request(raw)) { bookedOrder }.forEach { planned ->
                 val empty = planned.render().split('|').filter { it.isNotBlank() }.filter { it.endsWith("=") }
                 assertTrue(
                     empty.isEmpty(),
@@ -160,7 +199,7 @@ class AcceptorPresetsTest {
     @Test
     fun `every preset replies with the message type its template advertises`() {
         eachRule { id, rule, raw ->
-            AcceptorResponder.plan(rule, AcceptorResponder.buildMessage(raw), request(raw)).forEach { planned ->
+            AcceptorResponder.plan(rule, AcceptorResponder.buildMessage(raw), request(raw)) { bookedOrder }.forEach { planned ->
                 val advertised = planned.render().split('|').first { it.startsWith("35=") }.removePrefix("35=")
                 assertEquals(
                     advertised,

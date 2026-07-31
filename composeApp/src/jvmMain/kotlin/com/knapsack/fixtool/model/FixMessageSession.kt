@@ -624,6 +624,16 @@ class FixMessageSession(
         venue?.orderReading(venueSessionId, message)
             ?: quickFixService?.takeIf { isAcceptor }?.orderReading(null, message)
 
+    /**
+     * What `${order.…}` reads for the order [message] names, or null if this venue holds none.
+     *
+     * The whole order rather than its state — what a reply *substitutes*, where [orderReading] is
+     * what a trigger *asks*. See `OrderBook.fields`.
+     */
+    fun orderFields(message: quickfix.Message): Map<String, String>? =
+        venue?.orderFields(venueSessionId, message)
+            ?: quickFixService?.takeIf { isAcceptor }?.orderFields(null, message)
+
     /** Wipes this counterparty's book, recording that it was wiped rather than never filled. */
     fun clearOrderBook(by: String = "manually") {
         venue?.clearOrderBook(venueSessionId, by) ?: quickFixService?.takeIf { isAcceptor }?.clearOrderBook(by = by)

@@ -436,6 +436,57 @@ object OrderBook {
         event.sent && (event.execType == "5" || event.field(TAG_ORD_STATUS) == "5")
 
     /**
+     * **The vocabulary `${order.…}` reads**, and what each name is worth for [order] as it stands.
+     *
+     * Names, not tag numbers, and that is a claim rather than a style: `${order.14}` would be a lie.
+     * Tag 14 is a field of a *message*, and half of what this returns is on no message at all — it is
+     * what the fold computed from the ones that were. A reader who sees `${order.cumQty}` knows to
+     * ask the book; one who saw `${order.14}` would reasonably go looking at the wire.
+     *
+     * A name the venue has never stated is **absent, not empty**. That is the whole of how the
+     * refusal works one level up: a caller can ask which names a template needs and which of them
+     * this order can answer, and say so, instead of substituting nothing and putting `37=` on the
+     * wire as a real field with no value.
+     */
+    fun fields(order: BookedOrder): Map<String, String> {
+        val current = order.current
+        return buildMap {
+            put("clOrdId", order.key)
+            order.supersedes?.let { put("origClOrdId", it) }
+            current.orderId?.let { put("orderId", it) }
+            current.ordStatus?.let { put("ordStatus", it) }
+            current.orderQty?.let { put("orderQty", it) }
+            current.cumQty?.let { put("cumQty", it) }
+            current.leavesQty?.let { put("leavesQty", it) }
+            current.avgPx?.let { put("avgPx", it) }
+            current.price?.let { put("price", it) }
+            current.symbol?.let { put("symbol", it) }
+            current.side?.let { put("side", it) }
+        }
+    }
+
+    /**
+     * Every name [fields] can produce, whether or not a given order has one.
+     *
+     * Kept so a template writing `${order.leaves}` can be told it is not a name at all, rather than
+     * told this order has not got one — those two send an author to different places.
+     */
+    val names: List<String> =
+        listOf(
+            "orderId",
+            "clOrdId",
+            "origClOrdId",
+            "symbol",
+            "side",
+            "orderQty",
+            "cumQty",
+            "leavesQty",
+            "avgPx",
+            "price",
+            "ordStatus",
+        )
+
+    /**
      * The entries [fields] names, in the order a lookup should try them.
      *
      * **41 before 11**, because when a message carries both, 41 is the order it is *about* and 11 is

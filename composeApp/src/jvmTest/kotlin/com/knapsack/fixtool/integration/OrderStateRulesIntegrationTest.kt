@@ -148,6 +148,143 @@ class OrderStateRulesIntegrationTest {
         )
     }
 
+    // ---------------------------------------------------------------- templates that read the book
+
+    /**
+     * **Fills that accumulate, and the claim decision 2 made as a comment.**
+     *
+     * "Step one's `toApp` runs inside its own `send()`, which returns before step two is built 250ms
+     * later, so step two's `${order.*}` sees step one's effect. That is a claim worth a test rather
+     * than a comment." This is the test. It cannot be made below the wire, because the effect being
+     * seen *is* the outgoing message reaching the book.
+     *
+     * 1000 shares: half of what is left, then half of what is left, then the rest — 500, 250, 250.
+     * A stateless partial repeated three times reports the same CumQty three times, and a client
+     * tracking it watches each fill undo the last.
+     */
+    @Test
+    fun `each fill of a sequence reads what the fill before it left`() {
+        connectVenue(AcceptorPresets.byId("ack-accumulating-fills")!!.rules)
+        val client = connectClient("ALPHA")
+        val pane = awaitPane("ALPHA")
+
+        client.sendFixMessage(order, viewModel.dictionary)
+
+        // Waited on the *client's* grid, not the venue's book. The book leads the grid — it is written
+        // on the callback thread as each message goes out, while a pane drains its queue on a poll —
+        // so an order can read DONE a tick before the last report the client is being asked about
+        // has a row.
+        assertTrue(
+            awaitCondition(20_000) { received(client, "8").count { field(it, 150) == "F" } == 3 },
+            "the whole sequence should have reached the client; the venue's own trail says " +
+                booked(pane, "ORD-1")?.events?.map { it.label },
+        )
+        val fills = received(client, "8").filter { field(it, 150) == "F" }
+
+        assertEquals(
+            listOf("500", "750", "1000"),
+            fills.map { field(it, 14) },
+            "CumQty has to move forward — the same number three times is the defect this replaces",
+        )
+        assertEquals(listOf("500", "250", "0"), fills.map { field(it, 151) }, "and LeavesQty has to come down")
+        assertEquals(listOf("500", "250", "250"), fills.map { field(it, 32) }, "each report says how much *it* traded")
+
+        fills.forEach { fill ->
+            assertEquals(
+                1000,
+                field(fill, 14)!!.toInt() + field(fill, 151)!!.toInt(),
+                "CumQty and LeavesQty must still make the order at every step, which is what a client checks",
+            )
+        }
+        assertEquals(
+            1,
+            fills.mapNotNull { field(it, 37) }.distinct().size,
+            "and all three are about one order, so they carry one OrderID",
+        )
+    }
+
+    /**
+     * "Where is my order?" answered from the book. Every field of the reply is a fact the venue
+     * computed rather than one the author typed, which is what makes it true a minute later.
+     */
+    @Test
+    fun `a status request is answered with where the order actually is`() {
+        var rules = AcceptorPresets.insert(emptyList(), AcceptorPresets.byId("order-ack")!!).rules
+        rules = AcceptorPresets.insert(rules, AcceptorPresets.byId("status-request-working")!!).rules
+        rules = AcceptorPresets.insert(rules, AcceptorPresets.byId("status-request-unknown")!!).rules
+        connectVenue(rules)
+        val client = connectClient("ALPHA")
+        val pane = awaitPane("ALPHA")
+
+        // Asked before the order exists: the venue has never heard of it.
+        client.sendFixMessage("35=H|11=ORD-1|55=VOD.L|54=1|", viewModel.dictionary)
+        assertTrue(
+            awaitCondition(15_000) { received(client, "j").isNotEmpty() },
+            "a status request for an order nobody sent is a business reject",
+        )
+        assertEquals("1", field(received(client, "j").single(), 380), "380=1, unknown id")
+
+        // And once the venue is holding it, the same request is answered from the book.
+        client.sendFixMessage(order, viewModel.dictionary)
+        assertTrue(awaitCondition(15_000) { booked(pane, "ORD-1")?.state == OrderState.WORKING })
+        client.sendFixMessage("35=H|11=ORD-1|55=VOD.L|54=1|", viewModel.dictionary)
+
+        assertTrue(
+            awaitCondition(15_000) { received(client, "8").any { field(it, 150) == "I" } },
+            "the venue holds this order and should say where it is; got " +
+                received(client, "8").map { "150=${field(it, 150)}" },
+        )
+        val status = received(client, "8").first { field(it, 150) == "I" }
+        val ack = received(client, "8").first { field(it, 150) == "0" }
+        assertEquals(field(ack, 37), field(status, 37), "the status is about the order the client already knows")
+        assertEquals("0", field(status, 14), "nothing has traded")
+        assertEquals("1000", field(status, 151), "and the whole order is still open")
+        assertEquals("VOD.L", field(status, 55))
+        assertEquals(
+            1,
+            received(client, "j").size,
+            "and the second request must not have reached the unknown-order rule",
+        )
+    }
+
+    /**
+     * **A venue must not disown an order it is holding.** Found by live verification: the
+     * status-request preset shipped conditioned `working` alone, so asking after a *filled* order fell
+     * past it to the unknown-order reject — the venue answering "never heard of it" about an order
+     * whose fills it had just sent. `done` is as answerable from the book as `working` is; `pending`
+     * is the one that genuinely is not, because the venue has issued no OrderID to quote.
+     */
+    @Test
+    fun `a status request for a filled order is answered from the book, not disowned`() {
+        var rules = AcceptorPresets.insert(emptyList(), AcceptorPresets.byId("ack-accumulating-fills")!!).rules
+        rules = AcceptorPresets.insert(rules, AcceptorPresets.byId("status-request-working")!!).rules
+        rules = AcceptorPresets.insert(rules, AcceptorPresets.byId("status-request-unknown")!!).rules
+        connectVenue(rules)
+        val client = connectClient("ALPHA")
+        val pane = awaitPane("ALPHA")
+
+        client.sendFixMessage(order, viewModel.dictionary)
+        assertTrue(
+            awaitCondition(20_000) { booked(pane, "ORD-1")?.state == OrderState.DONE },
+            "the order should have filled in full",
+        )
+
+        client.sendFixMessage("35=H|11=ORD-1|55=VOD.L|54=1|", viewModel.dictionary)
+
+        assertTrue(
+            awaitCondition(15_000) { received(client, "8").any { field(it, 150) == "I" } },
+            "the venue holds this order, filled, and must say so; got " +
+                received(client).map { "35=${field(it, 35)} 150=${field(it, 150)}" },
+        )
+        val status = received(client, "8").first { field(it, 150) == "I" }
+        assertEquals("1000", field(status, 14), "it traded in full, and the status has to say the same")
+        assertEquals("0", field(status, 151))
+        assertTrue(
+            received(client, "j").isEmpty(),
+            "a venue that answers 'unknown order' about an order it just filled is the failure this covers",
+        )
+    }
+
     // ---------------------------------------------------------------- the reason, recorded
 
     /**

@@ -486,6 +486,11 @@ object McpTools {
                     "whenOrder is the one condition no tag can express: what the venue was HOLDING for the order " +
                     "this message names, as unknown|pending|working|done — so a cancel for an order that was never " +
                     "placed and a cancel for a live one can be answered differently by the same rule list. " +
+                    "A template can READ the book too: \${order.<name>} where name is one of orderId, clOrdId, " +
+                    "origClOrdId, symbol, side, orderQty, cumQty, leavesQty, avgPx, price, ordStatus — names and " +
+                    "not tag numbers, because half of them are facts the venue computed rather than fields of any " +
+                    "message. Both spellings work, so \${order.leavesQty} is the value and " +
+                    "\${order.leavesQty / 2} is arithmetic, and each is resolved as its own step is sent. " +
                     "A rule replies with a sequence: each step's delayMillis is measured from the step before it, " +
                     "so 0/500/500 is ack, half a second later a partial fill, half a second after that the rest. " +
                     "The older single-message spelling (responseTemplate) still works and reads as one immediate " +
@@ -525,6 +530,12 @@ object McpTools {
                     "both the rule's identity and its priority; deleting one shifts everything after it up. " +
                     "A rule is {whenMsgType, conditions?, whenFields?, whenOrder?, enabled?, " +
                     "steps:[{template, delayMillis}]} — see fixtool_acceptor_rules for the full vocabulary. " +
+                    "A step's template can also READ the book: \${order.orderId}, \${order.cumQty}, " +
+                    "\${order.leavesQty} and the rest of the names, standing alone or inside arithmetic " +
+                    "(14=\${order.cumQty + order.leavesQty / 2}). Resolved per step AS IT IS SENT, so a " +
+                    "sequence's later fills see what its earlier ones left. A rule whose reply reads the book " +
+                    "must be able to guarantee one — set whenOrder to pending/working/done, or trigger on 35=D, " +
+                    "which brings the order with it; anything else is a validationError. " +
                     "`whenOrder` is one more condition, ANDed with the rest, asking what the VENUE IS HOLDING for " +
                     "the order this message names (41 if it names one, else 11): unknown|pending|working|done. It " +
                     "reads the state the venue held BEFORE this message, so a rule on 35=D conditioned `unknown` " +
@@ -566,12 +577,20 @@ object McpTools {
                     "to `unknown` — so \"what would this rule do if the order were already filled\" is answerable " +
                     "without arranging for an order to be already filled. The answer always reports " +
                     "`assumedOrderState` back, and each conditioned rule reports `whenOrder` with what it asked for, " +
-                    "what it read and the verdict.",
+                    "what it read and the verdict. A reply that READS the book (\${order.…}) needs an `order` to " +
+                    "render against; without one those steps come back `unrendered` with the reason, because a dry " +
+                    "run that invented quantities would be confidently wrong about what the wire would carry.",
                 props(
                     "profile" to string("profile id or name"),
                     "raw" to string("the incoming FIX message to test the rules against"),
                     "orderState" to
                         string("the state to assume the named order is in: unknown|pending|working|done (default unknown)"),
+                    "order" to
+                        objectSchema(
+                            "the order to render \${order.…} against, by the book's own names " +
+                                "({\"orderId\":\"EX-1\",\"cumQty\":\"400\",\"leavesQty\":\"600\"}); " +
+                                "without it a reply that reads the book is reported unrendered rather than faked",
+                        ),
                 ),
                 required = listOf("profile", "raw"),
             ),

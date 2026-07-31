@@ -3,6 +3,7 @@ package com.knapsack.fixtool.model
 import org.junit.Test
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -440,6 +441,93 @@ class OrderBookTest {
         val reading = OrderBook.reading(mapOf(TAG_MSG_TYPE to "D", TAG_CL_ORD_ID to "ORD-1"), spec) { held }
 
         assertEquals("2500", reading.leavesQty)
+    }
+
+    // ------------------------------------------------------------------ what a template reads
+
+    /**
+     * The vocabulary `${order.…}` reads, and the reason it is names rather than tag numbers: half of
+     * what is here is on no message at all. `cumQty` is what the fold computed from every report the
+     * venue sent, and `${order.14}` would send a reader looking at the wire for it.
+     */
+    @Test
+    fun `the names a template reads are the order as it stands, not the last message about it`() {
+        val partial =
+            sent(
+                "8",
+                TAG_CL_ORD_ID to "ORD-1",
+                TAG_ORDER_ID to "EX-1",
+                TAG_EXEC_TYPE to "F",
+                TAG_ORD_STATUS to "1",
+                TAG_CUM_QTY to "2500",
+                TAG_LEAVES_QTY to "2500",
+            )
+
+        val fields = OrderBook.fields(order(newOrder, ack(), partial))
+
+        assertEquals("ORD-1", fields["clOrdId"])
+        assertEquals("EX-1", fields["orderId"], "the id the client was given, not one derived here")
+        assertEquals("2500", fields["cumQty"])
+        assertEquals("2500", fields["leavesQty"])
+        assertEquals("5000", fields["orderQty"], "carried from the order, which the fill did not restate")
+        assertEquals("VOD.L", fields["symbol"])
+        assertEquals("185.25", fields["price"])
+        assertEquals("1", fields["ordStatus"])
+    }
+
+    /**
+     * **Absent, not empty.** A name the venue has never stated must be missing from the map, because
+     * that absence is what lets a caller refuse — a name present-and-blank would substitute nothing
+     * and put `37=` on the wire as a real field with no value.
+     */
+    @Test
+    fun `a name the venue has not stated is absent, so a reply reading it can be refused`() {
+        val fields = OrderBook.fields(order(newOrder))
+
+        assertEquals("ORD-1", fields["clOrdId"], "an order always knows what it is called")
+        assertFalse("orderId" in fields, "nothing has been sent back, so the venue has issued no id")
+        assertFalse("cumQty" in fields, "and it has claimed nothing traded — which is not the same as zero")
+        assertFalse("ordStatus" in fields)
+    }
+
+    @Test
+    fun `a replacement reads the order it superseded, which is the only place that link is kept`() {
+        val replaced =
+            sent("8", TAG_CL_ORD_ID to "ORD-7", TAG_ORIG_CL_ORD_ID to "ORD-1", TAG_EXEC_TYPE to "5", TAG_ORD_STATUS to "0")
+
+        val fields = OrderBook.fields(BookedOrder(key = "ORD-7", events = listOf(replaced), supersedes = "ORD-1"))
+
+        assertEquals("ORD-7", fields["clOrdId"])
+        assertEquals("ORD-1", fields["origClOrdId"])
+    }
+
+    /** Every name the resolver will accept has to be one the fold can actually produce. */
+    @Test
+    fun `the published vocabulary is exactly what a full order answers`() {
+        val replaced =
+            sent(
+                "8",
+                TAG_CL_ORD_ID to "ORD-7",
+                TAG_ORIG_CL_ORD_ID to "ORD-1",
+                TAG_EXEC_TYPE to "5",
+                TAG_ORD_STATUS to "0",
+                TAG_ORDER_ID to "EX-2",
+                TAG_ORDER_QTY to "1000",
+                TAG_CUM_QTY to "100",
+                TAG_LEAVES_QTY to "900",
+                TAG_AVG_PX to "10.5",
+                TAG_PRICE to "10.5",
+                TAG_SYMBOL to "VOD.L",
+                TAG_SIDE to "1",
+            )
+
+        val fields = OrderBook.fields(BookedOrder(key = "ORD-7", events = listOf(replaced), supersedes = "ORD-1"))
+
+        assertEquals(
+            OrderBook.names.sorted(),
+            fields.keys.sorted().toList(),
+            "a name nothing can produce is a name a template can never use",
+        )
     }
 
     /** Four words, three states and the absence of one — the whole vocabulary, pinned. */

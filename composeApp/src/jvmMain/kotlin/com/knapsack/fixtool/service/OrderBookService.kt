@@ -165,6 +165,21 @@ class OrderBookService(
         synchronized(book) { return OrderBook.reading(fields, spec) { key -> book.orders[key] } }
     }
 
+    /**
+     * The order [fields] names, or null if this book has never seen it — the entry `${order.…}` reads.
+     *
+     * Distinct from [reading], which answers *what state* for a trigger and is deliberately small
+     * enough to be stored in every recorded reason. This is the whole order, and it is looked up
+     * again at each send rather than captured, because within one reply the earlier steps move it.
+     */
+    fun booked(sessionKey: String, fields: Map<Int, String>): BookedOrder? {
+        val book = books[sessionKey] ?: return null
+        synchronized(book) {
+            OrderBook.namedKeys(fields, spec).forEach { key -> book.orders[key]?.let { return it } }
+            return null
+        }
+    }
+
     /** Wipes one counterparty's book, and records that it was wiped rather than never filled. */
     fun clear(sessionKey: String, by: String = "manually", at: LocalDateTime = LocalDateTime.now()) {
         val book = books.computeIfAbsent(sessionKey) { Book(cap) }

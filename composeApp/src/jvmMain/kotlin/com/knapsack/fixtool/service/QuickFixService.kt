@@ -2,8 +2,9 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.AcceptorResponseRule
-import com.knapsack.fixtool.model.BookSpec
-import com.knapsack.fixtool.model.TAG_MSG_TYPE
+import com.knapsack.fixtool.model.BookReading
+import com.knapsack.fixtool.model.PendingSendReason
+import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixConnectionState.*
@@ -178,6 +179,18 @@ class QuickFixService(
     @Volatile
     private var compiledRules: List<CompiledRule> = compileAcceptorRules(config.acceptorResponseRules)
 
+    /**
+     * The same ruleset **as authored**, kept only so a recorded reason can name a rule by the number
+     * on its card.
+     *
+     * [compiledRules] has the disabled and unusable ones dropped, so a position in it names a
+     * different rule to everyone who reads the profile — and "sent by rule 3" pointing at rule 5 is
+     * the kind of wrong that costs an afternoon. Swapped in the same statement, so the two lists
+     * cannot describe different rulesets.
+     */
+    @Volatile
+    private var authoredRules: List<AcceptorResponseRule> = config.acceptorResponseRules
+
     /** The latency in force, swapped alongside the rules — it is edited on the same panel and the same save. */
     @Volatile
     private var acceptorLatency: AcceptorLatencyConfig = config.acceptorLatency
@@ -197,10 +210,21 @@ class QuickFixService(
      * why does nothing happen", so it is what the caller gets rather than a bare success.
      */
     fun reloadAcceptorRules(rules: List<AcceptorResponseRule>, latency: AcceptorLatencyConfig): Int {
+        authoredRules = rules
         compiledRules = compileAcceptorRules(rules)
         acceptorLatency = latency
         return compiledRules.size
     }
+
+    /**
+     * Where [rule] sits in the profile's list, or null if it cannot be found there.
+     *
+     * By identity of value, which is what a data class gives for free and is right here: two rules
+     * that are equal in every field are indistinguishable to the engine too, so naming the first is
+     * naming the one that fired.
+     */
+    private fun ruleNumberOf(rule: AcceptorResponseRule): Int? =
+        authoredRules.indexOf(rule).takeIf { it >= 0 }
 
     /**
      * The source of each response's simulated latency. One per service, so a config's random-range and
@@ -234,6 +258,18 @@ class QuickFixService(
 
     /** Every counterparty this venue has booked anything for. */
     fun orderBookSessions(): List<String> = orderBooks.sessions()
+
+    /**
+     * What this venue holds, right now, for the order [message] names — the value a `whenOrder`
+     * constraint reads and a recorded reason quotes.
+     *
+     * "Right now" is the caller's responsibility and it matters: the live path takes this *before*
+     * recording the message, so the answer is what the venue held when it arrived (decision 4a). A
+     * caller reaching for it afterwards gets a different and equally true answer to a different
+     * question.
+     */
+    fun orderReading(sessionId: SessionID?, message: Message): BookReading =
+        orderBooks.reading((sessionId ?: boundSessionId)?.toString().orEmpty(), bookFields(message))
 
     fun clearOrderBook(sessionId: SessionID? = null, by: String = "manually") =
         orderBooks.clear((sessionId ?: boundSessionId)?.toString().orEmpty(), by)
@@ -592,6 +628,10 @@ class QuickFixService(
                     // in the editor — but that is what the counterparty receives, and a capture must record
                     // what was sent, not what was meant.)
                     wireRaw = wire,
+                    // Whoever decided to send this left the reason on this thread; QuickFIX calls
+                    // `toApp` inside `Session.sendToTarget`, so it is still here. Taken (not read),
+                    // so one reason explains one message and cannot be inherited by the next.
+                    sendReason = PendingSendReason.take(),
                 )
             deliver(sessionId, fixMessage)
 
@@ -632,23 +672,8 @@ class QuickFixService(
         }
     }
 
-    /** The message reduced to the tags the book reads — see [OrderBookService.record]. */
-    private fun bookFields(message: Message): Map<Int, String> {
-        val wanted = BookSpec.ORDERS.readTags + TAG_MSG_TYPE
-        return wanted.mapNotNull { tag ->
-            val value =
-                try {
-                    when {
-                        message.header.isSetField(tag) -> message.header.getString(tag)
-                        message.isSetField(tag) -> message.getString(tag)
-                        else -> null
-                    }
-                } catch (e: Exception) {
-                    null
-                }
-            value?.let { tag to it }
-        }.toMap()
-    }
+    /** The message reduced to the tags the book reads — see [OrderBookService.fieldsOf]. */
+    private fun bookFields(message: Message): Map<Int, String> = OrderBookService.fieldsOf(message)
 
     /**
      * Called for application messages received
@@ -707,12 +732,19 @@ class QuickFixService(
             // Route to the message handler
             deliver(sessionId, fixMessage)
 
-            // Before the reply is planned, so a rule that reads the book (slice B) sees the order it
-            // is answering. The book is fed from the wire either way — see book().
+            // **Read before recording.** A trigger asks what the venue held when this message
+            // arrived, not what it holds a line later — and the book is fed from the wire, so
+            // booking first would mean a brand-new order was already `pending` by the time a rule
+            // conditioned `unknown` was asked, and that rule could never fire for the message that
+            // created the order. Taking the reading here is the whole of decision 4a, and it costs a
+            // lookup on messages nobody conditions.
+            val heldBefore = orderReading(sessionId, parsedMessage)
+
+            // Then recorded, so the book and the trail are complete before anything reads them.
             book(sessionId, fixMessage, parsedMessage, sent = false)
 
             // Acceptor auto-response: if configured, reply to the incoming message per the rules.
-            maybeAutoRespond(parsedMessage, fixMessage, sessionId)
+            maybeAutoRespond(parsedMessage, fixMessage, sessionId, heldBefore)
         } catch (e: Exception) {
             logger.error("Error processing application message: ${e.message}", e)
         }
@@ -727,10 +759,20 @@ class QuickFixService(
      * call — so the plan's `${req.<tag>}` substitutions are fixed before anything is queued. The
      * rest of each step is built and sent by [autoResponseDispatch], at its own moment.
      */
-    private fun maybeAutoRespond(incoming: Message, request: FixMessage, sessionId: SessionID) {
+    private fun maybeAutoRespond(
+        incoming: Message,
+        request: FixMessage,
+        sessionId: SessionID,
+        /** What the venue held before this message — see [fromApp], decision 4a. */
+        heldBefore: BookReading,
+    ) {
         if (config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) return
-        val rule = AcceptorResponder.firstMatch(compiledRules, incoming) ?: return
+        val rule = AcceptorResponder.firstMatch(compiledRules, incoming, heldBefore) ?: return
         triggersMatched.incrementAndGet()
+        // Which rule this is in the *profile's* list, which is the number on its card and the index
+        // /acceptor/rules addresses it by. compiledRules has the disabled and unusable ones dropped,
+        // so its own position would name a different rule to everyone reading.
+        val ruleNumber = ruleNumberOf(rule)
         try {
             // Drawn once for this triggering message, then added to every step's offset so the whole
             // reply slides by the one number and its authored order cannot invert. Skipped entirely
@@ -743,8 +785,26 @@ class QuickFixService(
             if (latencyMillis > 0L) {
                 logger.info("Acceptor applying {}ms simulated latency to {} response", latencyMillis, rule.whenMsgType)
             }
-            AcceptorResponder.plan(rule, incoming, request, dictionary).forEach { planned ->
-                autoResponseDispatch.schedule(sessionId, planned.offsetMillis + latencyMillis, planned::build)
+            val planned = AcceptorResponder.plan(rule, incoming, request, dictionary)
+            planned.forEachIndexed { index, send ->
+                // **The decision was made here, once, and every step of the reply carries it.** Taken
+                // now rather than when each step goes out, because there was one decision — a sequence
+                // is a rule's single answer played over four seconds, and a reason re-read at the
+                // fourth second would describe a book that had already moved on. This is decision 6a:
+                // the reply carries its reason because it can no longer be re-derived from the rules
+                // and the message alone.
+                val reason =
+                    SendReason(
+                        source = SendReason.Source.RULE,
+                        at = request.timestamp,
+                        ruleIndex = ruleNumber,
+                        whenMsgType = rule.whenMsgType,
+                        step = index + 1,
+                        steps = planned.size,
+                        constraint = rule.whenOrder,
+                        reading = heldBefore,
+                    )
+                autoResponseDispatch.schedule(sessionId, send.offsetMillis + latencyMillis, reason, send::build)
             }
         } catch (e: Exception) {
             logger.error("Acceptor auto-response failed to plan: ${e.message}", e)

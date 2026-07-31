@@ -23,8 +23,10 @@ import com.knapsack.fixtool.model.MessageEditorState
 import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.model.Notification
 import com.knapsack.fixtool.model.NotificationType
+import com.knapsack.fixtool.model.PendingSendReason
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
@@ -3366,7 +3368,13 @@ class FixMessageViewModel(
             return null
         } else {
             logger.info("sendMessage: Sending to session: '${session.title}' (ID: ${session.id})")
-            val result = session.sendFixMessage(rawMessage, _dictionary.value)
+            // The reason rides the send thread down to the capture in `toApp` — QuickFIX calls it
+            // inside `sendToTarget`, on this thread — so a reply a person composed arrives on the
+            // message row saying who sent it and what the book held, exactly as a rule's does.
+            // Consumed here whether or not one was set: it explains one send and no other.
+            val reason = _pendingHandReason.value
+            _pendingHandReason.value = null
+            val result = PendingSendReason.during(reason) { session.sendFixMessage(rawMessage, _dictionary.value) }
             logger.info("sendMessage: Message sent to ${session.title}, result: $result")
             return result
         }
@@ -3977,6 +3985,20 @@ class FixMessageViewModel(
     private var stashedEditorSelection: Int = 0
     private var stashedEditorState: MessageEditorState = MessageEditorState.New
 
+    /**
+     * The reason the **next** message sent from the editor carries, written when a reply shape was
+     * picked and consumed by the send.
+     *
+     * A one-shot handoff rather than a field on the message, because between picking "Fill the
+     * remainder" and pressing Send the author may edit anything they like — and what is being recorded
+     * is not the bytes, it is *what they reached for and what the venue was holding when they reached*.
+     * That is the half decision 6a says cannot be recovered afterwards.
+     *
+     * Cleared by anything that means the author is no longer sending that reply: another shape picked
+     * (this is overwritten), the editor given back to a rule step, or the message actually sent.
+     */
+    private val _pendingHandReason = mutableStateOf<SendReason?>(null)
+
     /** Set by [applyReplyStep] for the connection panel to consume; it owns the staged rule list. */
     private val _pendingReplyStepApply = mutableStateOf<ReplyStepApply?>(null)
     val pendingReplyStepApply: ReplyStepApply?
@@ -3988,6 +4010,10 @@ class FixMessageViewModel(
 
     /** Loads one step of one rule into the editor and opens it. */
     fun openReplyStep(profileId: String, ruleIndex: Int, stepIndex: Int, template: String) {
+        // The editor is being taken for a rule, so whatever reply was staged in it is not being sent.
+        // A reason left behind here would attach itself to whatever this editor sends next, which is
+        // the one failure mode a recorded reason may not have: being confidently wrong.
+        _pendingHandReason.value = null
         // Re-opening a step while another is open must not stash the first step over the message.
         if (_editorTarget.value is EditorTarget.Wire) {
             stashedEditorFields = _editorFields.toList()
@@ -4098,6 +4124,17 @@ class FixMessageViewModel(
         }
         val resolved = AcceptorResponder.replyTo(shape, message.quickfixMessage, message, dictionary)
         val fields = rawToFields(resolved).ifEmpty { listOf(FixField()) }
+        // Written now, while the book still says what it said when the author picked this shape.
+        // Decision 6a covers hand-sent replies as much as rules: the client cannot tell which of them
+        // sent it and neither should the record, and a log where the improvised replies are the silent
+        // ones is hardest to read exactly when a person was improvising.
+        _pendingHandReason.value =
+            SendReason(
+                source = SendReason.Source.HAND,
+                at = java.time.LocalDateTime.now(),
+                shapeName = shape.name,
+                reading = sessionContaining(message)?.orderReading(message.quickfixMessage),
+            )
         // A reply is composed for the wire, so any reply step borrowing the editor is given back first —
         // otherwise Apply would write this message into somebody's rule.
         cancelReplyStep()

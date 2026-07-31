@@ -2,10 +2,13 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.FieldCondition
+import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
+import kotlinx.serialization.json.Json
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -201,5 +204,78 @@ class AcceptorTriggerTest {
 
         assertNull(off.validationError(), "switching a rule off is not a fault to report")
         assertEquals(1, off.sequence().size, "its reply is still there, waiting to be switched back on")
+    }
+
+    // ------------------------------------------------------- the constraint no tag can express
+
+    @Test
+    fun `a rule written before the book existed asks it nothing and is not faulted for it`() {
+        val old = rule()
+
+        assertNull(old.whenOrder, "the field defaults to asking nothing, which is what every profile on disk says")
+        assertNull(old.validationError())
+        assertTrue(old.isUnconditional(), "and it still answers every message of its type")
+    }
+
+    @Test
+    fun `a rule carrying only a book constraint is a conditioned rule`() {
+        val conditioned = rule().copy(whenOrder = OrderConstraint.WORKING)
+
+        assertTrue(conditioned.trigger().isEmpty(), "it places no condition on any tag")
+        assertFalse(
+            conditioned.isUnconditional(),
+            "and is still narrowed — read off trigger() alone it would be appended below the rule it must precede",
+        )
+    }
+
+    /**
+     * The structural refusal (settled open question 1). A reply that reads `${order.…}` cannot be sent
+     * for an order the book does not hold: every reference would substitute empty and the venue would
+     * put `37=` on the wire as a real field with no value. Refused on the rule, the same way the fill
+     * presets are conditioned on `40 = 2` rather than testing for a price at send time.
+     *
+     * The substitution itself is slice C. This is the lock, shipped before the door, so slice C cannot
+     * ship the hazard.
+     */
+    @Test
+    fun `a reply that reads the book must require an order to read`() {
+        val reads = rule().copy(steps = listOf(ResponseStep("35=8|37=\${order.orderId}|11=\${req.11}|")))
+
+        val problem = assertNotNull(reads.validationError(), "an unconditioned rule reading the book is a broken rule")
+        assertTrue(problem.contains("\${order."), "the problem names what it found: $problem")
+
+        assertNotNull(
+            reads.copy(whenOrder = OrderConstraint.UNKNOWN).validationError(),
+            "'unknown' is precisely the state in which there is nothing to read",
+        )
+        assertNull(reads.copy(whenOrder = OrderConstraint.PENDING).validationError())
+        assertNull(reads.copy(whenOrder = OrderConstraint.WORKING).validationError())
+        assertNull(reads.copy(whenOrder = OrderConstraint.DONE).validationError())
+    }
+
+    /**
+     * The word on disk is the word an author writes and reads. A rule saved as `WORKING` and shown as
+     * `working` would be two vocabularies for one field, and hand-editing a profile is a supported way
+     * to reach this feature.
+     */
+    @Test
+    fun `the constraint is spelled the same in a profile as it is on the card`() {
+        val json = Json { encodeDefaults = false }
+        val rule = rule().copy(whenOrder = OrderConstraint.WORKING)
+
+        val encoded = json.encodeToString(AcceptorResponseRule.serializer(), rule)
+
+        assertTrue(encoded.contains("\"whenOrder\":\"working\""), "encoded as: $encoded")
+        assertEquals(rule, json.decodeFromString(AcceptorResponseRule.serializer(), encoded))
+    }
+
+    @Test
+    fun `a profile written before this field existed still loads`() {
+        val old = """{"whenMsgType":"D","steps":[{"template":"35=8|39=0|"}]}"""
+
+        val parsed = Json.decodeFromString(AcceptorResponseRule.serializer(), old)
+
+        assertNull(parsed.whenOrder)
+        assertNull(parsed.validationError())
     }
 }

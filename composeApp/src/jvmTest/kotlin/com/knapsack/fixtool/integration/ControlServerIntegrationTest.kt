@@ -792,6 +792,18 @@ class ControlServerIntegrationTest {
             listed.all { it.jsonObject["rules"]!!.jsonArray.isNotEmpty() },
             "a preset that inserts nothing is not a preset",
         )
+        // A preset that reads the venue's memory has to say so here, since this listing is the whole of
+        // how one is discovered — and it is the only thing that distinguishes it from the stateless
+        // preset sitting beside it under a nearly identical name.
+        val conditioned =
+            listed.first { it.jsonObject["id"]!!.jsonPrimitive.content == "cancel-rejected-unknown" }
+        assertEquals(
+            "unknown",
+            conditioned.jsonObject["rules"]!!
+                .jsonArray[0]
+                .jsonObject["whenOrder"]!!
+                .jsonPrimitive.content,
+        )
 
         val venue = post("/acceptor/rules", """{"profile":"$id","preset":"starter-venue"}""")
         assertEquals("added", status(venue))
@@ -1004,6 +1016,160 @@ class ControlServerIntegrationTest {
             "but it would never run, and that is invisible from the rule",
         )
         assertTrue(obj(get("/acceptor/rules?profile=$id"))["inactive"] != null)
+    }
+
+    // ------------------------------------------------------------- a dry run of a stateful trigger
+
+    /** The first message of a dry run's rendered reply, as the wire would carry it. */
+    private fun replyOf(body: JsonObject): String =
+        body["response"]!!
+            .jsonArray[0]
+            .jsonObject["message"]!!
+            .jsonPrimitive
+            .content
+
+    /** The venue whose cancel rules ask what it is holding — the pair from decision 1, over HTTP. */
+    private fun statefulVenue(): String =
+        obj(
+            post(
+                "/profiles",
+                """{"name":"Stateful","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                   {"whenMsgType":"F","whenOrder":"unknown","steps":[{"template":"35=9|102=1|58=Unknown order|"}]},
+                   {"whenMsgType":"F","whenOrder":"working","steps":[{"template":"35=8|150=4|39=4|"}]}]}}""",
+            ),
+        )["id"]!!.jsonPrimitive.content
+
+    /**
+     * **A dry run of a stateful trigger has to name the state it assumed, and take one.**
+     *
+     * Without the argument the question "what would this rule do" has no single answer any more, and
+     * without the report the caller cannot tell which of the answers they were given. Both halves are
+     * asserted, because either alone is a tool that quietly picks for you.
+     */
+    @Test
+    fun `the dry run takes an order state and answers differently for each one`() {
+        val id = statefulVenue()
+        val cancel = "35=F|11=CXL-4|41=ORD-1|55=EUR/USD|54=1|"
+
+        val assumedUnknown = obj(post("/acceptor/test", """{"profile":"$id","raw":"$cancel","orderState":"unknown"}"""))
+        assertEquals(0, assumedUnknown["rules"]!!.jsonArray.indexOfFirst { it.jsonObject["selected"]!!.jsonPrimitive.boolean })
+        assertTrue(
+            replyOf(assumedUnknown).contains("35=9"),
+            "a cancel for an order nobody sent comes back as a cancel reject",
+        )
+
+        val assumedWorking = obj(post("/acceptor/test", """{"profile":"$id","raw":"$cancel","orderState":"working"}"""))
+        assertEquals(1, assumedWorking["rules"]!!.jsonArray.indexOfFirst { it.jsonObject["selected"]!!.jsonPrimitive.boolean })
+        assertTrue(
+            replyOf(assumedWorking).contains("150=4"),
+            "and one for a live order is canceled — same rule list, same message, different venue state",
+        )
+
+        // "what would this rule do if the order were already filled", answered without arranging for
+        // an order to be already filled — which is the whole reason the argument exists.
+        val assumedDone = obj(post("/acceptor/test", """{"profile":"$id","raw":"$cancel","orderState":"done"}"""))
+        assertFalse(assumedDone["matched"]!!.jsonPrimitive.boolean, "neither rule claims a finished order")
+    }
+
+    @Test
+    fun `the dry run names the state it assumed, including the one it assumed for you`() {
+        val id = statefulVenue()
+        val cancel = "35=F|11=CXL-4|41=ORD-1|"
+
+        val defaulted = obj(post("/acceptor/test", """{"profile":"$id","raw":"$cancel"}"""))["assumedOrderState"]!!.jsonObject
+        assertEquals("unknown", defaulted["state"]!!.jsonPrimitive.content)
+        assertFalse(defaulted["given"]!!.jsonPrimitive.boolean)
+        assertEquals("ORD-1", defaulted["order"]!!.jsonPrimitive.content, "41 is the order the cancel is about")
+        assertTrue(defaulted["note"]!!.jsonPrimitive.content.contains("orderState"), "and it says how to ask for another")
+
+        val asked =
+            obj(post("/acceptor/test", """{"profile":"$id","raw":"$cancel","orderState":"working"}"""))["assumedOrderState"]!!
+                .jsonObject
+        assertEquals("working", asked["state"]!!.jsonPrimitive.content)
+        assertTrue(asked["given"]!!.jsonPrimitive.boolean)
+        assertNull(asked["note"], "a caller who named the state does not need telling that one was assumed")
+    }
+
+    @Test
+    fun `each conditioned rule reports what it asked the book and what it read`() {
+        val id = statefulVenue()
+
+        val rules =
+            obj(post("/acceptor/test", """{"profile":"$id","raw":"35=F|11=CXL-4|41=ORD-1|","orderState":"working"}"""))["rules"]!!
+                .jsonArray
+
+        val rejected = rules[0].jsonObject["whenOrder"]!!.jsonObject
+        assertEquals("unknown", rejected["constraint"]!!.jsonPrimitive.content)
+        assertEquals("working", rejected["actual"]!!.jsonPrimitive.content, "what the book said, not what the rule wanted")
+        assertEquals("ORD-1", rejected["order"]!!.jsonPrimitive.content)
+        assertFalse(rejected["satisfied"]!!.jsonPrimitive.boolean)
+
+        val accepted = rules[1].jsonObject["whenOrder"]!!.jsonObject
+        assertTrue(accepted["satisfied"]!!.jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun `a state outside the vocabulary is refused by name rather than guessed at`() {
+        val id = statefulVenue()
+
+        val error = obj(post("/acceptor/test", """{"profile":"$id","raw":"35=F|41=ORD-1|","orderState":"filled"}"""))
+
+        val message = error["error"]!!.jsonPrimitive.content
+        assertTrue(message.contains("filled"), "the refusal names what was sent: $message")
+        assertTrue(message.contains("working"), "and what it could have been: $message")
+    }
+
+    @Test
+    fun `the rules endpoint reports the book constraint, and only when there is one`() {
+        val id = statefulVenue()
+
+        val rules = obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray
+
+        assertEquals("unknown", rules[0].jsonObject["whenOrder"]!!.jsonPrimitive.content)
+        assertEquals("working", rules[1].jsonObject["whenOrder"]!!.jsonPrimitive.content)
+
+        val stateless =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Plain","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                       {"whenMsgType":"F","steps":[{"template":"35=9|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+        val plain = obj(get("/acceptor/rules?profile=$stateless"))["rules"]!!.jsonArray
+        assertNull(
+            plain[0].jsonObject["whenOrder"],
+            "an absent key is how 'this rule does not read the book' is said; 'unknown' would be a rule that asks",
+        )
+    }
+
+    /** A rule written over the wire has to arrive as the rule the engine will run. */
+    @Test
+    fun `a rule posted with a book constraint keeps it, and is placed where it can fire`() {
+        val id =
+            obj(
+                post(
+                    "/profiles",
+                    """{"name":"Written","config":{"connectionType":"ACCEPTOR","acceptorResponseRules":[
+                       {"whenMsgType":"F","steps":[{"template":"35=8|150=4|"}]}]}}""",
+                ),
+            )["id"]!!.jsonPrimitive.content
+
+        val written =
+            obj(
+                post(
+                    "/acceptor/rules",
+                    """{"profile":"$id","rule":{"whenMsgType":"F","whenOrder":"unknown",
+                       "steps":[{"template":"35=9|102=1|"}]}}""",
+                ),
+            )
+        assertNull(written["validationError"], "a well-formed conditioned rule has nothing wrong with it")
+
+        val rules = obj(get("/acceptor/rules?profile=$id"))["rules"]!!.jsonArray
+        assertEquals(
+            "unknown",
+            rules[written["index"]!!.jsonPrimitive.int].jsonObject["whenOrder"]!!.jsonPrimitive.content,
+        )
     }
 
     // ------------------------------------------------------------- simulated latency

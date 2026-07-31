@@ -475,13 +475,17 @@ object McpTools {
             tool(
                 "fixtool_acceptor_rules",
                 "Inspect a profile's acceptor auto-response rules (rules are set via fixtool_save_profile's config, " +
-                    "as acceptorResponseRules:[{whenMsgType, whenFields?, conditions?, enabled?, steps:[{template, delayMillis}]}]). " +
+                    "as acceptorResponseRules:[{whenMsgType, whenFields?, conditions?, whenOrder?, enabled?, " +
+                    "steps:[{template, delayMillis}]}]). " +
                     "enabled defaults true; a rule switched off is skipped so the message falls to the next rule. " +
                     "A trigger is whenMsgType plus conditions, ANDed: conditions:[{tag, matcher}] where matcher is " +
                     "the same JSON the scenario assertions use ({\"type\":\"range\",\"min\":10000} for 38 > 10000, " +
                     "also exact/notEqual/presence/absent/oneOf/regex/numeric/temporal — but not reference, which needs a " +
                     "scenario scope a trigger does not have). whenFields is the older exact-only form and still " +
                     "works; the two are ANDed, never chosen between. " +
+                    "whenOrder is the one condition no tag can express: what the venue was HOLDING for the order " +
+                    "this message names, as unknown|pending|working|done — so a cancel for an order that was never " +
+                    "placed and a cancel for a live one can be answered differently by the same rule list. " +
                     "A rule replies with a sequence: each step's delayMillis is measured from the step before it, " +
                     "so 0/500/500 is ack, half a second later a partial fill, half a second after that the rest. " +
                     "The older single-message spelling (responseTemplate) still works and reads as one immediate " +
@@ -519,8 +523,13 @@ object McpTools {
                     "falls through to the next rule — the fastest way to ask 'what happens without this one'); " +
                     "`index` plus delete:true removes it. Rules are ordered and first-match-wins, so the index is " +
                     "both the rule's identity and its priority; deleting one shifts everything after it up. " +
-                    "A rule is {whenMsgType, conditions?, whenFields?, enabled?, steps:[{template, delayMillis}]} — " +
-                    "see fixtool_acceptor_rules for the full vocabulary. Test it with fixtool_acceptor_test before " +
+                    "A rule is {whenMsgType, conditions?, whenFields?, whenOrder?, enabled?, " +
+                    "steps:[{template, delayMillis}]} — see fixtool_acceptor_rules for the full vocabulary. " +
+                    "`whenOrder` is one more condition, ANDed with the rest, asking what the VENUE IS HOLDING for " +
+                    "the order this message names (41 if it names one, else 11): unknown|pending|working|done. It " +
+                    "reads the state the venue held BEFORE this message, so a rule on 35=D conditioned `unknown` " +
+                    "fires for a new order and one conditioned `working` fires only for a duplicate ClOrdID. " +
+                    "Test it with fixtool_acceptor_test before " +
                     "connecting anything. An edit applies to an already-connected acceptor on its next trigger — no " +
                     "reconnect — and the response says appliedToLiveSessions when it did. " +
                     "`preset` inserts a ready-made behaviour instead of a hand-written `rule` (ids from " +
@@ -551,10 +560,18 @@ object McpTools {
                     "and the offset it goes out at. Also reports `inactive` if the profile is not an ACCEPTOR, in " +
                     "which case none of the rules would ever run. Offsets exclude the simulated latency, which is " +
                     "drawn per trigger and reported separately. It reads the profile as saved, which is also what " +
-                    "a connected acceptor is running, so a dry run and a live session cannot disagree.",
+                    "a connected acceptor is running, so a dry run and a live session cannot disagree. " +
+                    "A rule can also condition on what the venue is HOLDING (`whenOrder`), and a dry run of one has " +
+                    "to assume a state: `orderState` is that assumption — unknown|pending|working|done, defaulting " +
+                    "to `unknown` — so \"what would this rule do if the order were already filled\" is answerable " +
+                    "without arranging for an order to be already filled. The answer always reports " +
+                    "`assumedOrderState` back, and each conditioned rule reports `whenOrder` with what it asked for, " +
+                    "what it read and the verdict.",
                 props(
                     "profile" to string("profile id or name"),
                     "raw" to string("the incoming FIX message to test the rules against"),
+                    "orderState" to
+                        string("the state to assume the named order is in: unknown|pending|working|done (default unknown)"),
                 ),
                 required = listOf("profile", "raw"),
             ),

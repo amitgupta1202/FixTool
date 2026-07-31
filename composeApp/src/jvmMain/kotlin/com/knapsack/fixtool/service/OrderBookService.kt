@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.BookSpec
 import com.knapsack.fixtool.model.BookedOrder
 import com.knapsack.fixtool.model.OrderBook
@@ -9,6 +10,7 @@ import com.knapsack.fixtool.model.TAG_MSG_TYPE
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import quickfix.Message
 import java.time.LocalDateTime
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -71,9 +73,36 @@ class OrderBookService(
 ) {
     companion object {
         const val DEFAULT_CAP = 5_000
+
+        /**
+         * [message] reduced to the tags [spec] reads — **the one place a `quickfix.Message` meets the
+         * book**, and the reason [OrderBook] never has to see one.
+         *
+         * Here rather than at each caller because there are now three (the wire capture, the trigger's
+         * reading, the dry run's), and a second reduction that read one tag differently would put two
+         * books in the same app.
+         */
+        @Suppress("TooGenericExceptionCaught", "SwallowedException")
+        fun fieldsOf(message: Message, spec: BookSpec = BookSpec.ORDERS): Map<Int, String> =
+            (spec.readTags + TAG_MSG_TYPE)
+                .mapNotNull { tag ->
+                    val value =
+                        try {
+                            when {
+                                message.header.isSetField(tag) -> message.header.getString(tag)
+                                message.isSetField(tag) -> message.getString(tag)
+                                else -> null
+                            }
+                        } catch (e: Exception) {
+                            null
+                        }
+                    value?.let { tag to it }
+                }.toMap()
     }
 
-    private class Book(cap: Int) {
+    private class Book(
+        cap: Int,
+    ) {
         val orders = LinkedHashMap<String, BookedOrder>()
         val unattributed = ArrayDeque<Unattributed>()
         val unattributedCount = AtomicLong()
@@ -121,6 +150,19 @@ class OrderBookService(
     fun order(sessionKey: String, key: String): BookedOrder? {
         val book = books[sessionKey] ?: return null
         synchronized(book) { return book.orders[key] }
+    }
+
+    /**
+     * What this book says about the order [fields] names — the value a `whenOrder` constraint reads
+     * and a recorded reason quotes.
+     *
+     * Taken as one atomic read under the book's own lock, so every rule in a list is judged against
+     * the same answer. A reading assembled from two lookups could straddle a message arriving on
+     * another thread, and the rule that fires would then be the one no state ever justified.
+     */
+    fun reading(sessionKey: String, fields: Map<Int, String>): BookReading {
+        val book = books[sessionKey] ?: return OrderBook.reading(fields, spec) { null }
+        synchronized(book) { return OrderBook.reading(fields, spec) { key -> book.orders[key] } }
     }
 
     /** Wipes one counterparty's book, and records that it was wiped rather than never filled. */

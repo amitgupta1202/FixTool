@@ -22,7 +22,13 @@ import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
+import com.knapsack.fixtool.model.BookReading
+import com.knapsack.fixtool.model.BookSpec
 import com.knapsack.fixtool.model.BookedOrder
+import com.knapsack.fixtool.model.OrderBook
+import com.knapsack.fixtool.model.OrderConstraint
+import com.knapsack.fixtool.model.OrderState
+import com.knapsack.fixtool.service.OrderBookService
 import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.service.AcceptorPresets
 import com.knapsack.fixtool.service.BookView
@@ -2316,6 +2322,10 @@ class ControlServer(
                     }
                 },
             )
+            // The one condition no tag can express, so it cannot live in `trigger` above. Named in the
+            // same words the rule was written in, and only when the rule asks — an absent key is a rule
+            // that does not read the book, which is different from one that asks for `unknown`.
+            rule.whenOrder?.let { put("whenOrder", it.word) }
             put("responseTemplate", rule.responseTemplate)
             // The reply as it will actually be played, with the offset each step goes out at — a reader
             // asking "what does this rule do" should not have to re-do the accumulation, nor work out
@@ -2428,6 +2438,55 @@ class ControlServer(
      * Nothing is sent and nothing is saved; the profile is read as it stands on disk, which is also
      * why a dry run and a *connected* session can disagree — rules compile when a session connects.
      */
+    /**
+     * **A dry run of a stateful trigger has to name the state it assumed, and take one.**
+     *
+     * Once a rule can read the book, "what would this acceptor do with this message" stops being a
+     * question about the profile and the message alone: it is a question about a venue in some state,
+     * and the answer changes with it. So [word] is that assumption, and `unknown` is the default —
+     * a real venue state (one that has never seen this order), not a stand-in for "not asked".
+     *
+     * Keyed by whatever the message names, so what comes back says which order was assumed *about*
+     * and not merely that something was. Null when [word] is not one of the four.
+     */
+    private fun assumedState(word: String?, incoming: quickfix.Message): BookReading? {
+        val constraint = word?.let { OrderConstraint.byWord(it) ?: return null } ?: OrderConstraint.UNKNOWN
+        return BookReading(
+            key = OrderBook.namedKeys(OrderBookService.fieldsOf(incoming), BookSpec.ORDERS).firstOrNull(),
+            state = if (constraint == OrderConstraint.UNKNOWN) null else OrderState.valueOf(constraint.name),
+        )
+    }
+
+    /**
+     * Rules on an initiator are inert and that is invisible from the rules themselves, which look
+     * configured and correct. Said on the dry run because this is the surface someone asks "why does
+     * my rule never fire" of.
+     */
+    private fun JsonObjectBuilder.putIfNotAcceptor(profile: FixConnectionProfile) {
+        if (profile.config.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR) return
+        put(
+            "inactive",
+            "this profile is an ${profile.config.connectionType.name}; the rules below are " +
+                "evaluated for you but would never run — auto-responses need connectionType ACCEPTOR",
+        )
+    }
+
+    /** The assumption, reported back whether or not it was given — see [assumedState]. */
+    private fun assumedStateJson(assumed: BookReading, given: Boolean): JsonObject =
+        buildJsonObject {
+            put("state", assumed.word)
+            assumed.key?.let { put("order", it) }
+            put("given", given)
+            if (!given) {
+                put(
+                    "note",
+                    "no 'orderState' was given, so the rules were judged against a venue that has never " +
+                        "seen this order; pass one of ${OrderConstraint.words.joinToString(", ")} to ask " +
+                        "what would happen in another state",
+                )
+            }
+        }
+
     private fun acceptorTest(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val profileKey = body["profile"]?.jsonPrimitive?.content ?: return errorObject("missing 'profile'")
@@ -2454,20 +2513,22 @@ class ControlServer(
                 rawMessage = raw,
                 quickfixMessage = incoming,
             )
-        val outcomes = AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming)
+        val assumedWord = body["orderState"]?.jsonPrimitive?.contentOrNull
+        val assumed =
+            assumedState(assumedWord, incoming)
+                ?: return errorObject(
+                    "'$assumedWord' is not an order state; known: ${OrderConstraint.words.joinToString(", ")}",
+                )
+
+        val outcomes = AcceptorResponder.explain(profile.config.acceptorResponseRules, incoming, assumed)
         val winner = outcomes.firstOrNull { it.selected }
         val incomingType = request.messageType ?: ""
 
         return buildJsonObject {
             put("profile", profile.name)
             put("connectionType", profile.config.connectionType.name)
-            if (profile.config.connectionType != FixConnectionConfig.ConnectionType.ACCEPTOR) {
-                put(
-                    "inactive",
-                    "this profile is an ${profile.config.connectionType.name}; the rules below are " +
-                        "evaluated for you but would never run — auto-responses need connectionType ACCEPTOR",
-                )
-            }
+            put("assumedOrderState", assumedStateJson(assumed, given = assumedWord != null))
+            putIfNotAcceptor(profile)
             put("msgType", incomingType)
             put("matched", winner != null)
             put("latency", latencyJson(profile.config.acceptorLatency))
@@ -2556,6 +2617,20 @@ class ControlServer(
                     }
                 },
             )
+            // The book constraint reports exactly as a tag condition does: what was asked, what was
+            // read, and the verdict. Same shape on purpose — a reader diagnosing "why did nothing
+            // fire" should not have to learn a second way of being told.
+            outcome.order?.let { order ->
+                put(
+                    "whenOrder",
+                    buildJsonObject {
+                        put("constraint", order.constraint.word)
+                        order.key?.let { put("order", it) }
+                        order.actual?.let { put("actual", it) }
+                        put("satisfied", order.satisfied)
+                    },
+                )
+            }
             outcome.rule.validationError()?.let { put("validationError", it) }
         }
 

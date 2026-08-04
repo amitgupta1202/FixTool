@@ -807,8 +807,8 @@ class ControlServerIntegrationTest {
 
         val venue = post("/acceptor/rules", """{"profile":"$id","preset":"starter-venue"}""")
         assertEquals("added", status(venue))
-        assertEquals(4, obj(venue)["rulesAdded"]!!.jsonPrimitive.int)
-        assertEquals(4, viewModel.connectionProfiles.first { it.id == id }.config.acceptorResponseRules.size)
+        assertEquals(7, obj(venue)["rulesAdded"]!!.jsonPrimitive.int)
+        assertEquals(7, viewModel.connectionProfiles.first { it.id == id }.config.acceptorResponseRules.size)
 
         // The starter venue ends with an unconditioned 35=D rule in it, so a conditioned D preset
         // appended after it could never fire. The response has to say where it went instead.

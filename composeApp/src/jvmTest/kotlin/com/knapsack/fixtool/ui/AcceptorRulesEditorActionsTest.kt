@@ -89,10 +89,15 @@ class AcceptorRulesEditorActionsTest {
         }
 
         composeTestRule.onNodeWithText("No rules — incoming messages get no reply").assertExists()
-        composeTestRule.onNodeWithText("Starter venue — 4 rules").performClick()
+        composeTestRule.onNodeWithText("Starter venue — 7 rules").performClick()
 
-        assertEquals(4, rules.size, "the one-click offer has to produce the venue it names")
+        assertEquals(7, rules.size, "the one-click offer has to produce the venue it names")
         assertTrue(rules.any { it.whenMsgType == "F" } && rules.any { it.whenMsgType == "G" })
+        assertEquals(
+            OrderConstraint.UNKNOWN,
+            rules.first { it.whenMsgType == "F" }.whenOrder,
+            "the venue a new user gets by one click has to answer an unplaced cancel correctly",
+        )
     }
 
     @Test

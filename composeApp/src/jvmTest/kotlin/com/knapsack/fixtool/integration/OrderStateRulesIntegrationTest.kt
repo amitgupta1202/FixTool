@@ -148,6 +148,53 @@ class OrderStateRulesIntegrationTest {
         )
     }
 
+    /**
+     * **The starter venue, on a wire, doing the thing the issue was filed about.**
+     *
+     * Not a hand-assembled rule list — the bundle a new user gets from an empty rules editor, which is
+     * the venue almost everyone actually runs and the only place most people will read a rule. For
+     * three slices it still answered a cancel for an order nobody placed with "canceled": the fix was
+     * in the menu, and the default was not it.
+     *
+     * Both ends asserted from one venue: the order that was never placed, and the one this bundle has
+     * already filled — because filling limit orders 250ms after acking them is what makes `done` the
+     * state a cancel most often finds here.
+     */
+    @Test
+    fun `the starter venue rejects a cancel for an order nobody placed, and one that already filled`() {
+        connectVenue(AcceptorPresets.insert(emptyList(), AcceptorPresets.byId(AcceptorPresets.STARTER_VENUE)!!).rules)
+        val client = connectClient("ALPHA")
+        val pane = awaitPane("ALPHA")
+
+        client.sendFixMessage(cancelOf("GHOST-1", "CXL-1"), viewModel.dictionary)
+
+        assertTrue(
+            awaitCondition(15_000) { received(client, "9").isNotEmpty() },
+            "the starter venue answered a cancel for an order it never had with " +
+                received(client, "8").map { "150=${field(it, 150)}" },
+        )
+        assertEquals("1", field(received(client, "9").single(), 102), "unknown order, by reason code")
+
+        // Now an order this venue fills of its own accord, cancelled after the fact.
+        client.sendFixMessage(order, viewModel.dictionary)
+        assertTrue(
+            awaitCondition(20_000) { booked(pane, "ORD-1")?.state == OrderState.DONE },
+            "the starter venue should have acked and filled it",
+        )
+        client.sendFixMessage(cancelOf("ORD-1", "CXL-2"), viewModel.dictionary)
+
+        assertTrue(
+            awaitCondition(15_000) { received(client, "9").size == 2 },
+            "a cancel for a filled order must be answered, not ignored",
+        )
+        val tooLate = received(client, "9").last()
+        assertEquals("0", field(tooLate, 102), "too late to cancel — not 'unknown order' about an order it just filled")
+        assertNull(
+            received(client, "8").firstOrNull { field(it, 150) == "4" },
+            "and it must not report the filled order canceled",
+        )
+    }
+
     // ---------------------------------------------------------------- templates that read the book
 
     /**

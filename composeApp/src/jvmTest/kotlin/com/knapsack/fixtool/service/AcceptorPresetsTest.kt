@@ -16,6 +16,7 @@ import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -378,8 +379,8 @@ class AcceptorPresetsTest {
     fun `the starter venue is internally reachable, every rule of it`() {
         val insertion = AcceptorPresets.insert(emptyList(), AcceptorPresets.byId(AcceptorPresets.STARTER_VENUE)!!)
 
-        assertEquals(4, insertion.rules.size)
-        assertEquals(4, insertion.added)
+        assertEquals(7, insertion.rules.size)
+        assertEquals(7, insertion.added)
         insertion.rules.indices.forEach { index ->
             assertNull(
                 AcceptorResponder.shadowingRule(insertion.rules, index),
@@ -428,6 +429,73 @@ class AcceptorPresetsTest {
         assertNull(
             AcceptorResponder.shadowingRule(listOf(blank, blank), 1),
             "a rule with no MsgType answers nothing, so it takes nothing from the rule after it",
+        )
+    }
+
+    // ------------------------------------------------------------------ the starter venue's cancels
+
+    /**
+     * **The test that should have existed since slice B and did not.**
+     *
+     * Three slices of order state shipped while the starter bundle — the venue almost everyone will
+     * actually run — still answered a cancel for an order nobody placed with "canceled". That is
+     * verbatim the defect issue #35 opens with, surviving inside the very feature built to fix it,
+     * because the conditioned rules sat in the menu and the bundle never picked them up.
+     *
+     * So the claim is made of the **bundle**, not of the rules it happens to contain: whatever the
+     * starter venue is, a cancel must get the right answer in every state a book can be in.
+     */
+    @Test
+    fun `the starter venue answers a cancel in every state, and never with silence`() {
+        val venue = AcceptorPresets.insert(emptyList(), AcceptorPresets.byId(AcceptorPresets.STARTER_VENUE)!!).rules
+        val message = AcceptorResponder.buildMessage(cancel)
+
+        fun replyTo(state: OrderState?): List<String> {
+            val outcome =
+                AcceptorResponder
+                    .explain(venue, message, BookReading("ORD-1", state, leavesQty = "1000"))
+                    .firstOrNull { it.selected }
+            assertNotNull(
+                outcome,
+                "a cancel against ${state ?: "an unknown order"} matched no rule at all — " +
+                    "a venue that answers with silence gives a client no error path to take",
+            )
+            return outcome.rule.sequence().map { it.template }
+        }
+
+        // Never placed: the answer the issue asks for, and the one the bundle used to get wrong.
+        val unknown = replyTo(null).single()
+        assertTrue(unknown.startsWith("35=9"), "got: $unknown")
+        assertTrue(unknown.contains("102=1"), "unknown order, by reason code: $unknown")
+
+        // Held but unanswered, and acknowledged: both are orders the venue has, so both cancel.
+        listOf(OrderState.PENDING, OrderState.WORKING).forEach { state ->
+            val steps = replyTo(state)
+            assertEquals(2, steps.size, "$state should get pending-cancel then canceled")
+            assertTrue(steps.last().contains("150=4"), "got: ${steps.last()}")
+        }
+
+        // Finished — and *not* "unknown order", which would send the client's error handling down the
+        // path for a lost order rather than a completed one.
+        val done = replyTo(OrderState.DONE).single()
+        assertTrue(done.startsWith("35=9"), "got: $done")
+        assertTrue(done.contains("102=0"), "too late to cancel, not unknown: $done")
+    }
+
+    /**
+     * The cards read in the order a person thinks in — unknown, pending, working, done. That falls out
+     * of [AcceptorPresets.insert] placing each conditioned rule above the first for its MsgType, so
+     * the bundle lists them backwards to get it. Pinned because it is not obvious from the source, and
+     * a silent drift into a scrambled list would make the one artifact people read to learn the
+     * feature read like noise.
+     */
+    @Test
+    fun `the starter venue's cancel rules read in state order`() {
+        val venue = AcceptorPresets.insert(emptyList(), AcceptorPresets.byId(AcceptorPresets.STARTER_VENUE)!!).rules
+
+        assertEquals(
+            listOf(OrderConstraint.UNKNOWN, OrderConstraint.PENDING, OrderConstraint.WORKING, OrderConstraint.DONE),
+            venue.filter { it.whenMsgType == "F" }.map { it.whenOrder },
         )
     }
 

@@ -257,6 +257,22 @@ object AcceptorPresets {
             "38=\${order.orderQty}",
         )
 
+    /**
+     * The cancel reject a **finished** order earns: `102=0`, *Too late to cancel*.
+     *
+     * The distinction the unconditional reject cannot draw. `102=1` says "I have never heard of this
+     * order", and saying that about an order the venue filled thirty seconds ago is a worse answer
+     * than accepting the cancel would have been — it sends the client's error handling down the path
+     * for a *lost* order rather than a *completed* one, which are different bugs to chase.
+     *
+     * Reads the book for both halves it can: the OrderID the client already has, in place of the
+     * `37=NONE` a venue uses when it genuinely cannot supply one, and the order's real OrdStatus
+     * rather than a hardcoded `39=8`.
+     */
+    private const val CANCEL_TOO_LATE =
+        "35=9|37=\${order.orderId}|11=\${req.11}|41=\${req.41}|39=\${order.ordStatus}|434=1|102=0" +
+            "|58=Too late to cancel|60=\${now}"
+
     /** A replacement that keeps the chain's OrderID, where [REPLACED] mints a new one. Decision 3a. */
     private val REPLACED_SAME_ID =
         bookedReport(
@@ -356,6 +372,30 @@ object AcceptorPresets {
             whenMsgType = "F",
             whenOrder = OrderConstraint.WORKING,
             steps = listOf(ResponseStep(PENDING_CANCEL), ResponseStep(CANCELED, delayMillis = 150)),
+        )
+
+    /**
+     * The same acceptance for an order the venue has but has not answered yet — **decision 4's race,
+     * given somewhere to land.**
+     *
+     * A cancel arriving 2ms after the order, before the ack has left the dispatch thread, reads
+     * `pending`. That is the case `pending` was added to the vocabulary for, and without a rule for it
+     * the cancel matches nothing and the venue says *nothing at all* — which is a worse answer than
+     * any wrong one, because a client waiting on silence has no error path to take.
+     */
+    private val cancelAcceptedPending =
+        AcceptorResponseRule(
+            whenMsgType = "F",
+            whenOrder = OrderConstraint.PENDING,
+            steps = listOf(ResponseStep(PENDING_CANCEL), ResponseStep(CANCELED, delayMillis = 150)),
+        )
+
+    /** A cancel for an order that has already finished — rejected as too late, not as unknown. */
+    private val cancelTooLate =
+        AcceptorResponseRule(
+            whenMsgType = "F",
+            whenOrder = OrderConstraint.DONE,
+            steps = listOf(ResponseStep(CANCEL_TOO_LATE)),
         )
 
     /**
@@ -486,9 +526,28 @@ object AcceptorPresets {
      * Every preset, in menu order.
      *
      * The bundle is first because it is the answer to the question an empty rule list poses. Its rules
-     * are the four that make a coherent venue and, in this order, do not shadow one another: the
+     * are the ones that make a coherent venue and, in this order, do not shadow one another: the
      * conditioned limit-order rule has to precede the unconditioned one, or first-match-wins would
      * never reach it.
+     *
+     * ### Why the starter venue answers a cancel four ways
+     *
+     * It used to answer with one unconditional rule, and that rule was **the defect issue #35 was
+     * filed about**: a cancel for an order nobody ever placed came back "canceled". Three slices of
+     * order state shipped with that still true out of the box, because the conditioned rules sat in
+     * the menu waiting to be found. A starter bundle is the only place most people will ever read a
+     * venue's rules, so it is the only honest teaching surface — and it was teaching the wrong thing.
+     *
+     * All four states, because leaving one out means a cancel that matches nothing and a venue that
+     * says **nothing at all**, which is worse than any wrong answer: a client waiting on silence has
+     * no error path to take. `done` in particular is not an edge case here — this bundle fills limit
+     * orders 250ms after acking them, so by the time a human types a cancel the order is finished,
+     * and `done` is the state a cancel most often finds.
+     *
+     * The order below is deliberately the reverse of how it reads on screen: [insert] places each
+     * conditioned rule above the first rule for its MsgType, so listing them backwards is what
+     * makes the card list read `unknown, pending, working, done`. A test pins that, so the
+     * arrangement cannot drift into nonsense unnoticed.
      */
     val all: List<AcceptorPreset> =
         listOf(
@@ -496,8 +555,17 @@ object AcceptorPresets {
                 id = STARTER_VENUE,
                 name = "Starter venue",
                 group = GROUP_BUNDLES,
-                summary = "4 rules · D → ack + fill, F, G",
-                rules = listOf(ackThenFill, orderAck, cancelAccepted, replaceAccepted),
+                summary = "7 rules · D → ack + fill · F answered from the book · G",
+                rules =
+                    listOf(
+                        ackThenFill,
+                        orderAck,
+                        cancelTooLate,
+                        cancelAcceptedWorking,
+                        cancelAcceptedPending,
+                        cancelRejectedUnknown,
+                        replaceAccepted,
+                    ),
             ),
             AcceptorPreset(
                 id = "order-ack",

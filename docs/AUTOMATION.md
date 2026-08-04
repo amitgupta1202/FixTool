@@ -497,7 +497,7 @@ curl -s -XPOST $B/acceptor/rules -d '{"profile":"My Acceptor","preset":"order-re
 
 | id | answers |
 |---|---|
-| `starter-venue` | the four below that make a venue: ack + fill for limits, ack for the rest, cancel, replace |
+| `starter-venue` | a coherent venue in one click: ack + fill for limits, ack for the rest, replace, and a cancel answered **four ways from the book** — unknown → `102=1`, pending/working → canceled, done → `102=0` too late |
 | `order-ack` | `35=D` → ExecutionReport, New |
 | `ack-then-fill` | `35=D` with `40=2` → ack, then a fill 250ms later |
 | `ack-partial-fill` | `35=D` with `40=2` → ack, half, then the rest |

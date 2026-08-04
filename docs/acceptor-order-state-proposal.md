@@ -70,6 +70,19 @@ auto-reject the issue asks for ships as a **preset**, like every other venue beh
 *Rejected:* a `rejectUnknownCancels` config flag. It is the same behaviour, invisible on the rule it
 contradicts.
 
+**Revisited 2026-08-04, and kept — with a defect it had left.** The build is the evidence: `whenOrder`
+was designed for the cancel case and also produced duplicate-ClOrdID rejection, the status request
+answered from the book, and replace-with-or-without-id-inheritance, none of which are in the issue and
+none of which a flag would have delivered. It is also what makes the recorded reason writable at all
+(decision 6a) — *"rule 3 matched, and the book said ORD-1 was unknown"* has no equivalent for a flag.
+
+What it had left was worse than the flag would have been, though, and only in one place: **the starter
+venue still shipped the unconditional cancel rule**, so the bundle a new user gets by one click
+answered a cancel for an order nobody placed with "canceled" — verbatim the sentence at the top of
+this document, surviving three slices inside the feature built to remove it. The conditioned rules
+were in the menu; the default was not them. Fixed by making the starter bundle answer a cancel in all
+four states, which is content rather than architecture and leaves decision 1 exactly as written.
+
 ### 2. The book learns from the wire, not from intentions.
 
 An order's state moves when a message is **sent or received**, read out of `fromApp` and `toApp` —

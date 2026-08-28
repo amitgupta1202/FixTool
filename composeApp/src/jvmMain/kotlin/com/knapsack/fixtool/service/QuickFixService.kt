@@ -359,11 +359,12 @@ class QuickFixService(
     }
 
     /**
-     * Capture current time in microseconds for latency tracking.
-     * Called at the very start of QuickFIX/J callbacks for accurate timing.
+     * Capture current time in microseconds, at the very start of a QuickFIX/J callback.
+     *
+     * One shared clock for every session in the process — see [CaptureClock], and why the arithmetic
+     * that used to live here was not a clock at all.
      */
-    private fun captureTimeMicros(): Long =
-        System.currentTimeMillis() * 1000 + (System.nanoTime() % 1_000_000) / 1000
+    private fun captureTimeMicros(): Long = CaptureClock.micros()
 
     override fun onCreate(sessionId: SessionID) {
         logger.info("QuickFIX Session created: {}", sessionId)

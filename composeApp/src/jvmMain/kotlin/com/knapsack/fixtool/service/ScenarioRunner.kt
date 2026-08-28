@@ -1270,20 +1270,25 @@ class ScenarioRunner(
      * different clocks for a difference that is supposed to mean something. That is the same rule the
      * watermark keeps, for the same reason.
      *
-     * "The send it answers" is the most recent outgoing message on that session before it, read off the
-     * log rather than from the runner's own bookkeeping: what the venue actually saw last is the thing a
-     * reply is a reply to. Null when there is nothing to measure from — a reply on a session this run
-     * never sent on, or a host that does not stamp capture times — because *not measured* and *fast* are
-     * different answers and a report must not conflate them.
+     * "The send it answers" is the most recent outgoing message **before it in the session's log** — what
+     * the venue actually saw last is the thing a reply is a reply to — found by position rather than by
+     * comparing stamps, because the log's order is the order the tool observed and a stamp is only ever
+     * asked for the difference. Null when there is nothing to measure from: a reply on a session this run
+     * never sent on, or a host that does not stamp capture times. *Not measured* and *fast* are different
+     * answers, and a report must not conflate them.
      */
     private fun latencyOf(bound: FixMessage, session: String?): Long? {
         if (bound.captureTimeMicros <= 0L) return null
-        val sentAt =
-            host.messages(session)
-                .filter { it.direction == FixMessage.Direction.OUTGOING && it.captureTimeMicros > 0L }
-                .filter { it.captureTimeMicros <= bound.captureTimeMicros }
-                .maxOfOrNull { it.captureTimeMicros } ?: return null
-        return (bound.captureTimeMicros - sentAt) / MICROS_PER_MILLI
+        val log = host.messages(session)
+        val at = log.indexOfFirst { it === bound }
+        if (at < 0) return null
+        val sent =
+            log.take(at)
+                .lastOrNull { it.direction == FixMessage.Direction.OUTGOING && it.captureTimeMicros > 0L }
+                ?: return null
+        // Clamped: two stamps taken microseconds apart can land in the same microsecond, and a negative
+        // latency is a number nobody can act on. Zero means under a millisecond, which is the truth.
+        return ((bound.captureTimeMicros - sent.captureTimeMicros) / MICROS_PER_MILLI).coerceAtLeast(0)
     }
 
     private fun label(session: String?): String = session ?: "(active session)"

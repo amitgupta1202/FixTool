@@ -4,7 +4,15 @@ import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.model.scenario.TagStatus
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -69,6 +77,58 @@ object ScenarioReport {
             put("occurrence", tag.occurrence)
             put("status", tag.status.name.lowercase())
         }
+
+    /**
+     * **The inverse of [toJson]** — a report read back from a run record.
+     *
+     * Phase 2's viewer renders an entry that ran an hour ago from exactly the bytes CI was handed, so the
+     * two cannot drift into describing the same run differently. Unknown values degrade the way the
+     * codec's do: a tag status this build does not recognise reads as OK rather than failing the whole
+     * record, because a record is evidence, and refusing to show evidence over one unfamiliar enum name
+     * is the worse failure.
+     */
+    fun fromJson(obj: JsonObject): ScenarioResult =
+        ScenarioResult(
+            scenario = obj["scenario"]?.jsonPrimitive?.content.orEmpty(),
+            passed = obj["passed"]?.jsonPrimitive?.booleanOrNull ?: false,
+            steps = obj["steps"]?.jsonArray.orEmpty().map { stepFromJson(it.jsonObject) },
+            variables = obj["variables"]?.jsonArray.orEmpty().map { variableFromJson(it.jsonObject) },
+            durationMs = obj["durationMs"]?.jsonPrimitive?.longOrNull,
+        )
+
+    private fun variableFromJson(obj: JsonObject): ScenarioVariable =
+        ScenarioVariable(
+            name = obj["name"]?.jsonPrimitive?.content.orEmpty(),
+            value = obj["value"]?.jsonPrimitive?.content.orEmpty(),
+            mintedAtStepId = obj["mintedAtStepId"]?.jsonPrimitive?.contentOrNull,
+        )
+
+    private fun stepFromJson(obj: JsonObject): StepResult =
+        StepResult(
+            stepIndex = obj["stepIndex"]?.jsonPrimitive?.intOrNull ?: -1,
+            kind = obj["kind"]?.jsonPrimitive?.content.orEmpty(),
+            phase = obj["phase"]?.jsonPrimitive?.content.orEmpty(),
+            passed = obj["passed"]?.jsonPrimitive?.booleanOrNull ?: false,
+            detail = obj["detail"]?.jsonPrimitive?.contentOrNull,
+            tags = obj["tags"]?.jsonArray.orEmpty().map { tagFromJson(it.jsonObject) },
+            stepId = obj["stepId"]?.jsonPrimitive?.contentOrNull,
+            latencyMs = obj["latencyMs"]?.jsonPrimitive?.longOrNull,
+        )
+
+    private fun tagFromJson(obj: JsonObject): TagResult =
+        TagResult(
+            tag = obj["tag"]?.jsonPrimitive?.intOrNull ?: 0,
+            matcher = obj["matcher"]?.jsonPrimitive?.content.orEmpty(),
+            expected = obj["expected"]?.jsonPrimitive?.content.orEmpty(),
+            actual = obj["actual"]?.jsonPrimitive?.contentOrNull,
+            passed = obj["passed"]?.jsonPrimitive?.booleanOrNull ?: false,
+            index = obj["index"]?.jsonPrimitive?.intOrNull,
+            occurrence = obj["occurrence"]?.jsonPrimitive?.intOrNull ?: 0,
+            status =
+                obj["status"]?.jsonPrimitive?.contentOrNull
+                    ?.let { name -> TagStatus.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
+                    ?: TagStatus.OK,
+        )
 
     /**
      * Renders a [ScenarioResult] as a single-suite JUnit XML document for CI consumption.

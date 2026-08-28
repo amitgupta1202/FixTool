@@ -43,6 +43,24 @@ enum class NumberSetting(
         write = { copy(orderBookCap = it.toInt()) },
     ),
 
+    RUN_RECORD_CAP(
+        label = "Messages per run record",
+        // The same top as the message buffer: a record of a soak run is bounded by the same question,
+        // and a cap that could not reach the buffer's size would silently truncate a record of a run
+        // whose whole traffic the session had held.
+        range = 100L..1_000_000L,
+        unit = "messages per entry",
+        read = { it.runRecordCap.toLong() },
+        write = { copy(runRecordCap = it.toInt()) },
+    ),
+    RUN_RECORDS_KEPT(
+        label = "Run sets kept",
+        range = 1L..1_000L,
+        unit = "most recent sets",
+        read = { it.runRecordsKept.toLong() },
+        write = { copy(runRecordsKept = it.toInt()) },
+    ),
+
     // Stored in microseconds, edited in milliseconds — the conversion belongs here, next to the range
     // it is expressed in, rather than being re-derived at every call site that touches the field.
     LATENCY_WARNING(

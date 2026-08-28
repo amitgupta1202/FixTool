@@ -12,6 +12,7 @@ that serves all three without a second reporting stack.
 |---|---|---|
 | **Repeat** | *Is this flow flaky?* Run `book-a-trade` twenty times and tell me it passed twenty times. | one scenario × N iterations, sequential |
 | **Suite** | *What broke overnight?* Run the twelve scenarios I care about and give me one verdict. | N scenarios × 1, sequential |
+| **Examples** | *Does it hold for every instrument?* Run this flow once per row of a table — Cucumber's Scenario Outline. | one scenario × N parameter rows, sequential |
 | **Fan-out** | *Does it hold with fifty clients?* Run the same flow on fifty sessions at once. | one scenario × N session maps, concurrent |
 
 All three are possible. Two of them (**Repeat**, **Suite**) are close to free — the runner is already
@@ -28,6 +29,7 @@ The three readings collapse to one primitive, and that is the whole proposal:
 
 - **Repeat** is one scenario × N iterations.
 - **Suite** is N scenarios × one iteration.
+- **Examples** is one scenario × N parameter rows.
 - **Fan-out** is one scenario × N session maps, with concurrency > 1.
 - A **matrix** (the suite, three times over) is the product, and needs no new concept.
 - **A single run is a set of one** — which is the property that makes this cheap.
@@ -45,6 +47,7 @@ data class RunEntry(
     val scenarioId: String,
     val scenarioName: String,
     val iteration: Int,             // 1-based; always 1 for a plain suite entry
+    val row: ExampleRow? = null,    // the parameter row this entry runs, when it has one
     val sessionMap: Map<String, String> = emptyMap(),
     val state: RunState,            // PENDING | RUNNING | PASSED | FAILED | SKIPPED
     val result: ScenarioResult? = null,
@@ -186,6 +189,101 @@ releases the evidence. Nothing is written to disk in Phase 1 — an on-disk run 
 (`~/.fixtool/runs/`, so a set survives a restart and CI can read a failed entry's bytes) is the
 obvious follow-on, and it is a strictly additive one once the entry owns its evidence.
 
+## Examples — the same run set, from a table
+
+A scenario is **already a Scenario Outline**. Every step is parameterized, every `${…}` resolves against
+one variable scope the runner threads through the whole run, and that scope already covers both
+directions: a Send puts `${symbol}` on the wire, an Expect's `reference` matcher asserts `${symbol}` came
+back, and an Expect's `bindAs` writes the venue's own choice *into* the scope for later steps to use.
+
+What is missing is the table, and one line of runner.
+
+### The line
+
+```kotlin
+// ScenarioRunner.runIdentified, today
+val scope = mutableMapOf<String, String>()
+
+// with examples
+val scope = params.mapValues { host.resolve(it.value, mutableMapOf(), null) }.toMutableMap()
+```
+
+That is the entire engine change. Everything downstream already reads that map: `host.resolve` for a
+Send's raw, `resolveMatch` (`ScenarioRunner.kt:1130`) for a bind predicate's values, and
+`referenceResolver` for a `reference` matcher's expression. A row's cells are resolved once as they are
+seeded, so a cell may itself say `${uuid}` or `${LocalDate.now()}` and give each row its own fresh id.
+
+### The table
+
+```kotlin
+/** Additive on the Scenario, default-omitting on disk — the same bargain as `traffic` and `createdAt`. */
+data class Examples(
+    val columns: List<String>,        // variable names, seeded into the scope before setup runs
+    val rows: List<ExampleRow>,
+)
+
+data class ExampleRow(
+    /** "EUR/USD partial fill" — what the report says instead of "row 3". */
+    val name: String,
+    val values: Map<String, String>,
+    /** Parked, not deleted — the same bargain as `ScenarioStep.muted`. */
+    val muted: Boolean = false,
+)
+```
+
+`ScenarioResult` is untouched. Which row an entry ran is the **entry's** business, exactly as which
+iteration it was is: `RunEntry.row`. So the report, the frozen grid, the reconcile route and the JUnit
+renderer all keep working, and a CI testcase names itself the way a parameterized test always has:
+`book-a-trade [EUR/USD partial fill]`.
+
+### Inbound and outbound, without a new concept
+
+The distinction is real and the tool already computes it. `ScenarioAnnotations.sites()`
+(`ScenarioAnnotations.kt`) returns, per variable, the steps that **mint** it (a Send chose the value and
+put it on the wire), the steps that **capture** it (an Expect's `bindAs` read it off a reply), and the
+steps that **reference** it. So an examples column needs no inbound/outbound flag of its own — the
+editor derives it and shows it in the column header:
+
+- **↑ out** — read by a Send. The row is *driving* the flow.
+- **↓ in** — read by an expectation. The row is *asserting* the reply.
+- **↑↓** — both, which is the ordinary case for an id echoed back.
+
+A column the scenario never reads, and a `${name}` that no column supplies and no step mints, are both
+lints those same annotations already make findable. Neither is an error — they are what a half-finished
+outline looks like — but neither should be discovered by watching a run fail.
+
+### Getting from a capture to an outline
+
+Nobody hand-writes the first table. A captured scenario has literals baked into its sends and
+expectations, so the door is **"Extract to example column…"** on any value in the editor: the literal
+becomes `${symbol}`, a column appears named through `mintName` (the dictionary's field name, so it reads
+`symbol` and `clOrdID` rather than `col1`), and the value it replaced becomes row 1's cell. Capture a
+flow once, extract three values, add rows.
+
+### The one thing that must not be allowed
+
+**Reconcile must never write a row's literal into a shared expectation.** Row 3 fails, the author clicks
+*Accept actual*, and the actual carries `55=GBP/USD` — writing that literal repairs row 3 and breaks the
+other seven, silently, because the expectation belongs to all of them.
+
+The fix is available where the problem is: the run already reports its final scope
+(`ScenarioResult.variables`), and the diff window already shows it as the variables strip. So an accept
+on an examples entry compares the incoming value against that row's own cells and, on a hit, writes
+`${symbol}` — offering the literal as the deliberate alternative rather than the default. It is the same
+judgement the reference-matcher mint already makes; it just has to be made here too.
+
+### Together, or separate?
+
+**One run set, two pieces of work.** Examples are a third *source of entries* — a repeat produces N
+identical ones, a suite produces N different ones, a table produces N seeded ones — and past that point
+every surface is shared: the scheduler, the set report, the per-entry evidence, the frozen grid, the
+reconcile route, the JUnit wrapper. Building a separate "data-driven runner" would mean a second run
+report that disagrees with the first about what a failure looks like.
+
+The **authoring** is genuinely separate work — the table on the model, the editor grid, the extract door,
+the lints — and none of it blocks the suite. So: shared model, its own phase, and **ahead of fan-out**,
+because a QA team gets more from eight instruments through one flow than from fifty sessions through one.
+
 ## Decisions
 
 ### Decision 1 — The set holds the run slot; entries do not re-claim it
@@ -278,6 +376,7 @@ set:
 ```jsonc
 POST /scenarios/run
 { "ids": ["smoke-nos", "book-a-trade"], "repeat": 3, "stopOnFailure": false }
+{ "id": "book-a-trade", "rows": ["EUR/USD partial fill"] }    // one row, for a debug run
 
 { "passed": false,
   "summary": { "total": 6, "passed": 5, "failed": 1, "durationMs": 21840 },
@@ -298,6 +397,7 @@ scenario per process (`HeadlessRun.kt:30`). This closes it:
 fixtool run --all --junit reports/            # every saved scenario, one file per scenario
 fixtool run --tag nightly --stop-on-failure
 fixtool run book-a-trade --repeat 20 --pause 500ms
+fixtool run book-a-trade --row "EUR/USD partial fill"   # one row of the table
 echo $?    # 0 all passed · 1 something failed · 2 could not run
 ```
 
@@ -312,13 +412,16 @@ already renders; an iteration is `name="book-a-trade #3"`. `--junit <dir>` write
 | **1 — Repeat + Suite, sequential** | `RunSet`/`RunEntry`/`RunPolicy`, set-owned run slot, rail Run ▾ + set report, `/scenarios/run` set mode, CLI `--all` / `--repeat` / `--tag`, `<testsuites>` | ViewModel, rail, control, headless. No disk format, no scenario file change. |
 | **1a — the watermark fix** | STRICT's stray scan excludes what predates the run (`ScenarioRunner.kt:527`) | Runner. Ship with or before Phase 1 — it is a bug today. |
 | **2 — The run set document** | Per-entry `evidence` + `assertions` (stop wiping the global map), `ScenarioDoc.RunSet` with the frozen grid, reconcile from any entry, the per-entry cap | ViewModel, rail, documents. |
-| **3 — Fan-out** | Slot becomes a per-session-set claim under a disjointness check; `concurrency`; lanes from a multi-session profile | ViewModel, runner host, rail dialog. |
+| **3 — Examples** | `Scenario.examples`, the seeded scope (`params`), the editor's table + "Extract to example column…", the column lints, row-aware reconcile | Model, codec, runner (one line), editor, reconcile. |
+| **4 — Fan-out** | Slot becomes a per-session-set claim under a disjointness check; `concurrency`; lanes from a multi-session profile | ViewModel, runner host, rail dialog. |
 
 Phase 1 makes a set run. **Phase 2 makes it inspectable**, and a suite is not much use without it —
 if the only thing a twelve-scenario run leaves behind is twelve verdicts and one session's worth of
 messages, the eleven failures nobody can look at will send the author back to running scenarios one at
-a time. Phases 1 and 2 ship together or the feature is half a feature. Phase 3 is a load-testing
-feature that happens to share the model, and should be judged on its own merits when it is wanted.
+a time. Phases 1 and 2 ship together or the feature is half a feature. Phase 3 is where the model starts paying
+for itself — an outline costs one line of runner precisely because Phases 1 and 2 built everything around
+it. Phase 4 is a load-testing feature that happens to share the model, and should be judged on its own
+merits when it is wanted.
 
 A follow-on worth naming now, because Phase 2's shape decides whether it is easy: an **on-disk run
 archive** under `~/.fixtool/runs/`. Once an entry owns its evidence, writing it is serialization of

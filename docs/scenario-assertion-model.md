@@ -177,6 +177,15 @@ Rules that keep strict honest rather than noisy:
   worse than not judging. A red run stays exactly as red as its first failure made it.
 - **Teardown is out of scope**, on both sides: the check runs before teardown (whose own sends
   provoke traffic that is nobody's surplus), and teardown-only sessions are not judged.
+- **What predates the run is not judged.** The check scans a session's whole log, and nothing
+  empties that log between runs, so the run's own watermark — the messages present before its first
+  step — is excluded. Without it the *second* run of a strict scenario fails on the first run's
+  traffic, every time, and a twenty-times repeat is nineteen reds about nothing. The exclusion holds
+  under both binding scopes for two halves of one reason: under `this_run` an older message was never
+  bindable, so calling it unbound would blame the run for its own rule; under `any` it *was*
+  bindable, so if it mattered an Expect took it. The count of what was set aside is on the verdict
+  row — the messages are still in the grid, and a verdict that ignored them silently would leave a
+  reader hunting rows it never counted.
 - **`clearMessages` is the escape hatch** — cleared history is gone, so a scenario can clear
   after a deliberately noisy setup and hold only the interesting phase to strict account.
 - **Muting an Expect under strict traffic fails the run** on the message that Expect would have

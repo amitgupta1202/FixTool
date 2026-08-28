@@ -86,6 +86,10 @@ enum class TrafficMode {
      * Logon — is exempt, exactly as the envelope is exempt from a STRICT expectation; an unbound Logout
      * or session Reject is *not* exempt, because an unasked-for goodbye is precisely the kind of extra
      * this mode exists to report.
+     *
+     * So is **everything that was already in the log when the run began**: a session log is not emptied
+     * between runs, and a run that inherited yesterday's replies is not the run that provoked them. The
+     * claim is about this run's traffic, and the verdict says how many messages it set aside.
      */
     STRICT,
 }

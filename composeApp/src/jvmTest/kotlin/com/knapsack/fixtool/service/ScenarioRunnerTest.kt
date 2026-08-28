@@ -668,8 +668,10 @@ class ScenarioRunnerTest {
     @Test
     fun `strict traffic fails a green run on an incoming message no expect bound`() {
         val host = FakeHost()
-        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
-        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2")) // the surplus: nobody expects the second ER
+        // Both arrive during the run: this is the traffic the scenario provoked, which is the only traffic
+        // the verdict judges. Seeded history is somebody else's run — see the watermark tests below.
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "2")) // the surplus: nobody expects the second ER
         val reported = mutableListOf<Pair<FixMessage, StepResult>>()
         val result =
             runRecordingVerdicts(
@@ -691,7 +693,7 @@ class ScenarioRunnerTest {
     @Test
     fun `strict traffic passes, and says so, when every incoming message was bound`() {
         val host = FakeHost()
-        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "0"))
         val result =
             run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT))
         assertTrue(result.passed, "${result.steps}")
@@ -702,15 +704,19 @@ class ScenarioRunnerTest {
     @Test
     fun `strict traffic ignores session administration but not an unasked-for logout`() {
         val host = FakeHost()
-        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
-        host.inbox += incoming("0", mapOf(35 to "0")) // heartbeat: the stream's envelope, never a surplus
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.arriving += incoming("0", mapOf(35 to "0")) // heartbeat: the stream's envelope, never a surplus
         val green =
             run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT))
         assertTrue(green.passed, "a heartbeat must never fail a strict run: ${green.steps}")
 
-        host.inbox += incoming("5", mapOf(35 to "5")) // a goodbye nobody asked for IS the surplus
+        // A second host rather than a second run on the first: what the first run left in the log now
+        // predates the second and is excluded, which would make this assert something else.
+        val noisy = FakeHost()
+        noisy.arriving += incoming("8", mapOf(35 to "8", 39 to "0"))
+        noisy.arriving += incoming("5", mapOf(35 to "5")) // a goodbye nobody asked for IS the surplus
         val red =
-            run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT))
+            run(noisy, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT))
         assertFalse(red.passed, "an unbound Logout is exactly what strict traffic exists to report")
     }
 
@@ -743,8 +749,8 @@ class ScenarioRunnerTest {
     @Test
     fun `muting an expect under strict traffic fails the run on the message it would have bound`() {
         val host = FakeHost()
-        host.inbox += incoming("8", mapOf(35 to "8", 39 to "0"))
-        host.inbox += incoming("8", mapOf(35 to "8", 39 to "2"))
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "0"))
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "2"))
         val scenario =
             scenario(
                 expect("8", FieldExpectation(39, Matcher.Exact("0"))),
@@ -755,6 +761,59 @@ class ScenarioRunnerTest {
         // unasked-for arrived"): a scenario without that expect SHOULD fail strict on the extra reply.
         assertFalse(result.passed, "the parked expect's message is unbound, and strict says so: ${result.steps}")
         assertFalse(result.steps.single { it.kind == "traffic" }.passed)
+    }
+
+    // ------------------------------------ the watermark: a strict verdict judges this run's traffic only
+
+    /**
+     * The bug in the shape it bites: a strict scenario run twice. The verdict scans each session's whole
+     * log, and nothing empties a log between runs — so the second run found the first run's reply sitting
+     * unbound and called it the venue's surplus. Every second run was red, and a twenty-times repeat would
+     * have been nineteen reds, none of them about the venue. Under [BindScope.THIS_RUN] it was red *by
+     * construction*: an older message is not bindable there, so it could not be anything but a stray.
+     */
+    @Test
+    fun `a strict scenario run twice is not failed by its own first run`() {
+        val host = FakeHost()
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "repeat",
+                steps = listOf(expectWith(timeoutMs = 500, FieldExpectation(39, Matcher.Exact("2")))),
+                binding = BindScope.THIS_RUN,
+                traffic = TrafficMode.STRICT,
+            )
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val first = run(host, scenario)
+        assertTrue(first.passed, "the first run is the easy one: ${first.steps}")
+
+        // Iteration 2, against a log that still holds iteration 1's reply — which is the ordinary state of
+        // a session, not a contrived one: only a ClearMessages in setup would have emptied it.
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val second = run(host, scenario)
+        assertTrue(second.passed, "iteration 2 must be judged on its own traffic: ${second.steps.map { it.detail }}")
+        // And it says what it set aside: those messages are still in the grid, untinted, and a verdict that
+        // quietly ignored them would leave the reader wondering which rows it had counted.
+        val verdict = second.steps.single { it.kind == "traffic" }
+        assertTrue(
+            verdict.detail!!.contains("1 message(s) already in the log when the run began were not judged"),
+            "the exclusion must be reported, never silent: ${verdict.detail}",
+        )
+    }
+
+    /**
+     * The same rule under the default binding, where the older message *was* bindable and simply was not
+     * wanted: a cancel-reject left over from an earlier run is not this run's surplus either.
+     */
+    @Test
+    fun `strict traffic does not judge a message that was in the log before the run began`() {
+        val host = FakeHost()
+        host.inbox += incoming("9", mapOf(35 to "9")) // an earlier run's cancel-reject, still in the log
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "0"))
+        val result =
+            run(host, scenario(expect("8", FieldExpectation(39, Matcher.Exact("0")))).copy(traffic = TrafficMode.STRICT))
+        assertTrue(result.passed, "history the run inherited is not traffic the run provoked: ${result.steps}")
+        assertTrue(result.steps.single { it.kind == "traffic" }.passed)
     }
 
     @Test
@@ -1278,6 +1337,14 @@ class ScenarioRunnerTest {
         val sent = mutableListOf<String>()
         val sentTo = mutableListOf<String?>()
         val inbox = mutableListOf<FixMessage>()
+
+        /**
+         * Messages delivered on the runner's next poll, one per sleep — the fake's way of saying "this
+         * arrived *during* the run". Seeding [inbox] models history the run inherited instead, and the two
+         * are no longer interchangeable: the strict-traffic verdict excludes what predates the run, so a
+         * surplus seeded into [inbox] is not a surplus at all.
+         */
+        val arriving = ArrayDeque<FixMessage>()
         var clock = 0L
         var stateOf: (String?) -> String? = { "LOGGED_ON" }
         var clearOk = true
@@ -1346,6 +1413,7 @@ class ScenarioRunnerTest {
 
         override fun sleep(ms: Long) {
             clock += ms
+            arriving.removeFirstOrNull()?.let { inbox += it }
             onSleep()
         }
     }

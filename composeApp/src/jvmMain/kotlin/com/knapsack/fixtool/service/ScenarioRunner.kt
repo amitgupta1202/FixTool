@@ -200,7 +200,7 @@ class ScenarioRunner(
         // real failure is worse than not judging. Skipped entirely under OPEN — no result row, because
         // the check did not run, not because it passed.
         if (scenario.traffic == TrafficMode.STRICT && results.all { it.passed }) {
-            results += trafficCheck(scenario, consumed)
+            results += trafficCheck(scenario, consumed, pre)
         }
         for ((i, step) in scenario.teardown.withIndex()) {
             if (step.muted) continue
@@ -523,21 +523,46 @@ class ScenarioRunner(
      * same underlying tab. The verdict is a run-level claim, so like preflight it wears index -1 and no
      * stepId — the rail names it by kind, and no reconcile route is offered for it (there is no
      * expectation to repair; the fix is an Expect for the surplus, or [TrafficMode.OPEN]).
+     *
+     * **What predates the run is not this run's surplus** ([PreRun.predates]). The check scans each
+     * session's whole log, and a log is not emptied between runs — so without the watermark the *second*
+     * run of a strict scenario fails on the first run's traffic, every time, for a reason that has nothing
+     * to do with the venue. The exclusion holds under both binding scopes, for two halves of one reason:
+     * under [BindScope.THIS_RUN] an older message was never bindable, so reporting it unbound would blame
+     * the run for a rule the run itself applied; under [BindScope.ANY] it *was* bindable, so if it mattered
+     * to the flow an Expect took it and it is in [consumed] already. What is left over either way is
+     * somebody else's traffic.
+     *
+     * Excluded messages are **counted into the detail, not dropped in silence**: they are still in the grid,
+     * untinted, and a verdict that said "1 unexpected message" over four unbound-looking rows would send the
+     * reader hunting the other three.
      */
-    private fun trafficCheck(scenario: Scenario, consumed: Set<FixMessage>): StepResult {
+    private fun trafficCheck(scenario: Scenario, consumed: Set<FixMessage>, pre: PreRun): StepResult {
         val settled = now() + settleMs
         while (now() < settled) host.sleep(pollMs)
         val sessions = runSessions(scenario)
         val strays = mutableListOf<FixMessage>()
+        var predating = 0
         val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
         for (session in sessions) {
             host.messages(session)
                 .filter { it.direction == FixMessage.Direction.INCOMING }
                 .filterNot { it in consumed || it.messageType in SESSION_ADMIN_TYPES }
-                .forEach { if (seen.add(it)) strays += it }
+                .forEach {
+                    if (!seen.add(it)) return@forEach
+                    if (pre.predates(it)) predating++ else strays += it
+                }
         }
+        val predatingNote =
+            if (predating == 0) "" else " $predating message(s) already in the log when the run began were not judged."
         if (strays.isEmpty()) {
-            return StepResult(-1, "traffic", "steps", passed = true, detail = "no unexpected incoming messages (settled ${settleMs}ms)")
+            return StepResult(
+                -1,
+                "traffic",
+                "steps",
+                passed = true,
+                detail = "no unexpected incoming messages (settled ${settleMs}ms).$predatingNote",
+            )
         }
         val listed = strays.take(MAX_LISTED_STRAYS).joinToString(", ") { it.messageType } +
             (if (strays.size > MAX_LISTED_STRAYS) " +${strays.size - MAX_LISTED_STRAYS} more" else "")
@@ -548,8 +573,8 @@ class ScenarioRunner(
             passed = false,
             detail =
                 "traffic is strict, and ${strays.size} incoming message(s) were never bound by any expect: " +
-                    "$listed. Every unbound message is marked in the grid. Add an expect for what the venue " +
-                    "now sends, or set the scenario's traffic back to open.",
+                    "$listed.$predatingNote Every message this verdict names is marked in the grid. Add an expect for " +
+                    "what the venue now sends, or set the scenario's traffic back to open.",
         )
         // Through the SAME channel as an Expect verdict, for the same reason as the no-wire-bytes red:
         // this is what tints the surplus in the grid. Without it the report says "3 unexpected messages"

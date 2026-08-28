@@ -40,7 +40,11 @@ class RunSetIntegrationTest {
 
     @Before
     fun setup() {
-        testDir = File.createTempFile("fixtool-run-set", "").apply { delete(); mkdirs() }
+        testDir =
+            File.createTempFile("fixtool-run-set", "").apply {
+                delete()
+                mkdirs()
+            }
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
         connectVenueAndClient()
     }
@@ -73,7 +77,11 @@ class RunSetIntegrationTest {
 
         // The live session shows the LAST entry only — its setup cleared what came before, which is exactly
         // why a report cannot be a reference into the session.
-        val live = viewModel.sessions.single { it.title == "CLI" }.messages.value.filterIsInstance<FixMessage>()
+        val live =
+            viewModel.sessions
+                .single { it.title == "CLI" }
+                .messages.value
+                .filterIsInstance<FixMessage>()
         assertTrue(live.none { it.rawMessage.contains("A-$runId") }, "entry 1's traffic is gone from the grid")
 
         // And it is still on disk, with the verdict that judged it.
@@ -142,15 +150,26 @@ class RunSetIntegrationTest {
         assertEquals(RunState.PASSED, done.entries[1].state)
 
         // Entry 2 cleared the session on its way in, so nothing entry 1 saw is in the grid any more.
-        val live = viewModel.sessions.single { it.title == "CLI" }.messages.value.filterIsInstance<FixMessage>()
+        val live =
+            viewModel.sessions
+                .single { it.title == "CLI" }
+                .messages.value
+                .filterIsInstance<FixMessage>()
         assertTrue(live.none { it.rawMessage.contains("W-$runId") })
 
         viewModel.focusRunEntry(done.id, 1)
-        val step = assertNotNull(viewModel.scenarioResult.value?.steps?.firstOrNull { !it.passed && it.kind == "expect" })
+        val step =
+            assertNotNull(
+                viewModel.scenarioResult.value
+                    ?.steps
+                    ?.firstOrNull { !it.passed && it.kind == "expect" },
+            )
         when (val route = viewModel.reconcileRoute(step)) {
             is FixMessageViewModel.ReconcileRoute.Open -> {
                 assertTrue(
-                    route.request.actualRaw.orEmpty().contains("W-$runId"),
+                    route.request.actualRaw
+                        .orEmpty()
+                        .contains("W-$runId"),
                     "the diff opens on the bytes the record kept: ${route.request.actualRaw}",
                 )
                 assertEquals(failing.id, route.request.scenario.id)
@@ -187,7 +206,12 @@ class RunSetIntegrationTest {
         assertTrue(viewModel.scenarioService.save(edited))
 
         viewModel.focusRunEntry(done.id, 1)
-        val step = assertNotNull(viewModel.scenarioResult.value?.steps?.firstOrNull { !it.passed && it.kind == "expect" })
+        val step =
+            assertNotNull(
+                viewModel.scenarioResult.value
+                    ?.steps
+                    ?.firstOrNull { !it.passed && it.kind == "expect" },
+            )
         val route = viewModel.reconcileRoute(step)
 
         assertTrue(route is FixMessageViewModel.ReconcileRoute.Refused, "an edited step is not the step that failed")

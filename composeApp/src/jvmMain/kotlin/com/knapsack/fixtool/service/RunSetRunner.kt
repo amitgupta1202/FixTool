@@ -14,7 +14,10 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 /** What one entry produced: the verdict, and the evidence to write beside it. */
-data class EntryOutcome(val result: ScenarioResult, val evidence: RunRecorder.Evidence)
+data class EntryOutcome(
+    val result: ScenarioResult,
+    val evidence: RunRecorder.Evidence,
+)
 
 /**
  * What a set needs from the world. The ViewModel and a headless process implement it differently and
@@ -55,7 +58,9 @@ interface RunSetHost {
  * while they were reading it, so entries run through the host's slot-free path and **focusing** an entry
  * is what publishes it.
  */
-class RunSetRunner(private val host: RunSetHost) {
+class RunSetRunner(
+    private val host: RunSetHost,
+) {
     fun run(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet {
         var current = set.copy(startedAt = host.now(), status = RunSetStatus.RUNNING)
         host.writeSet(current)

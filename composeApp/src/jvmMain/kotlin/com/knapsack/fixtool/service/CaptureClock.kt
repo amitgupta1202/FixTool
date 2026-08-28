@@ -28,7 +28,9 @@ object CaptureClock {
     private val originNanos = System.nanoTime()
 
     /** The last stamp issued — the guard that keeps the sequence monotonic across threads and re-anchors. */
-    private val last = java.util.concurrent.atomic.AtomicLong(0)
+    private val last =
+        java.util.concurrent.atomic
+            .AtomicLong(0)
 
     /** Microseconds since the epoch: this process's own counter, corrected back onto civil time if it slept. */
     fun micros(): Long {

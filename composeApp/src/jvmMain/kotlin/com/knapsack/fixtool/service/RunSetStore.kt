@@ -48,7 +48,11 @@ class RunSetStore(
     private val onError: ((String) -> Unit)? = null,
 ) {
     private val logger = NotifyingLogger(RunSetStore::class.java, onError)
-    private val prettyJson = Json { prettyPrint = true; ignoreUnknownKeys = true }
+    private val prettyJson =
+        Json {
+            prettyPrint = true
+            ignoreUnknownKeys = true
+        }
 
     private val dir: File =
         if (customDir.isNotBlank()) File(customDir) else File(System.getProperty("user.home"), ".fixtool/sets")
@@ -140,11 +144,17 @@ data class SavedRunSet(
     }
 
     /** The set as it will run, and the entry names nothing on disk answered to. */
-    data class Planned(val set: RunSet, val missing: List<String>)
+    data class Planned(
+        val set: RunSet,
+        val missing: List<String>,
+    )
 }
 
 /** One line of a saved set: a scenario by id or name, optionally repeated. */
-data class SavedRunEntry(val scenario: String, val repeat: Int = 1)
+data class SavedRunEntry(
+    val scenario: String,
+    val repeat: Int = 1,
+)
 
 object SavedRunSetCodec {
     fun toJson(set: SavedRunSet): JsonObject =

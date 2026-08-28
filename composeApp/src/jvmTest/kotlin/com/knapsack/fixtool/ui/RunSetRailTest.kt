@@ -47,7 +47,11 @@ class RunSetRailTest {
 
     @Before
     fun setup() {
-        testDir = File.createTempFile("fixtool-run-set-rail", "").apply { delete(); mkdirs() }
+        testDir =
+            File.createTempFile("fixtool-run-set-rail", "").apply {
+                delete()
+                mkdirs()
+            }
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
     }
 
@@ -97,7 +101,12 @@ class RunSetRailTest {
             "by name, because a name is what survives a scenario being re-saved",
         )
         // And it plans back into runnable entries, which is the only reason to write it.
-        assertEquals(2, saved.plan(scenarios, now = 0L).set.entries.size)
+        assertEquals(
+            2,
+            saved
+                .plan(scenarios, now = 0L)
+                .set.entries.size,
+        )
     }
 
     /**
@@ -133,7 +142,9 @@ class RunSetRailTest {
         // the question a failed entry raises is answered by the bytes.
         val doc =
             assertNotNull(
-                viewModel.openDocuments.value.filterIsInstance<ScenarioDoc.RunSetView>().singleOrNull(),
+                viewModel.openDocuments.value
+                    .filterIsInstance<ScenarioDoc.RunSetView>()
+                    .singleOrNull(),
                 "the set should be open as a document",
             )
         assertEquals(set.id, doc.setId)
@@ -177,8 +188,22 @@ class RunSetRailTest {
                 finishedAt = System.currentTimeMillis(),
                 entries =
                     listOf(
-                        RunEntry(scenario.id, scenario.name, iteration = 1, state = RunState.PASSED, durationMs = 12, record = "01-book-a-trade.json"),
-                        RunEntry(scenario.id, scenario.name, iteration = 2, state = RunState.FAILED, durationMs = 15, record = "02-book-a-trade.json"),
+                        RunEntry(
+                            scenario.id,
+                            scenario.name,
+                            iteration = 1,
+                            state = RunState.PASSED,
+                            durationMs = 12,
+                            record = "01-book-a-trade.json",
+                        ),
+                        RunEntry(
+                            scenario.id,
+                            scenario.name,
+                            iteration = 2,
+                            state = RunState.FAILED,
+                            durationMs = 15,
+                            record = "02-book-a-trade.json",
+                        ),
                     ),
             )
         viewModel.runRecordStore.begin(set)

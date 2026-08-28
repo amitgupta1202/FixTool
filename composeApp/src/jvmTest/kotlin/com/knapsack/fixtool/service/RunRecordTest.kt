@@ -41,7 +41,11 @@ class RunRecordTest {
 
     @Before
     fun setUp() {
-        dir = File.createTempFile("fixtool-runs", "").apply { delete(); mkdirs() }
+        dir =
+            File.createTempFile("fixtool-runs", "").apply {
+                delete()
+                mkdirs()
+            }
     }
 
     @After
@@ -144,7 +148,13 @@ class RunRecordTest {
 
         assertEquals(4, built.messages.size)
         assertEquals(7, built.dropped, "and the count is reported, never silent")
-        assertTrue(built.messages.last().raw.contains("35=8"), "the bound reply survives the cap")
+        assertTrue(
+            built.messages
+                .last()
+                .raw
+                .contains("35=8"),
+            "the bound reply survives the cap",
+        )
         assertEquals(
             listOf(8L, 9L, 10L, 11L),
             built.messages.map { it.atMicros },
@@ -190,7 +200,14 @@ class RunRecordTest {
         assertEquals("book-a-trade", record.scenarioName)
         assertEquals(2, record.messages.size)
         assertTrue(record.result.passed)
-        assertEquals("2", record.result.steps.single { it.kind == "expect" }.tags.single().actual)
+        assertEquals(
+            "2",
+            record.result.steps
+                .single { it.kind == "expect" }
+                .tags
+                .single()
+                .actual,
+        )
         assertEquals(mapOf("step-1" to 1), record.bound)
         assertEquals(3, record.dropped)
         assertTrue(record.messages[0].raw.contains("35=D"), "the bytes are the evidence")
@@ -226,8 +243,14 @@ class RunRecordTest {
         assertEquals(record.scenario?.name, back.scenario?.name)
         assertEquals(record.scenario?.steps?.size, back.scenario?.steps?.size)
         assertEquals(
-            (record.scenario?.steps?.last() as ScenarioStep.Expect).expectation.fields.single().tag,
-            (back.scenario?.steps?.last() as ScenarioStep.Expect).expectation.fields.single().tag,
+            (record.scenario?.steps?.last() as ScenarioStep.Expect)
+                .expectation.fields
+                .single()
+                .tag,
+            (back.scenario?.steps?.last() as ScenarioStep.Expect)
+                .expectation.fields
+                .single()
+                .tag,
         )
     }
 

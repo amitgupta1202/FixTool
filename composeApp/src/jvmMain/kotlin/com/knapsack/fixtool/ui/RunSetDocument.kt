@@ -180,7 +180,14 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
             fontSize = 10.sp,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp).testTag("run-entry-header"),
         )
-        Column(modifier = Modifier.fillMaxWidth().weight(0.45f).verticalScroll(rememberScrollState()).padding(horizontal = 8.dp)) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(0.45f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp),
+        ) {
             val verdict = if (record.result.passed) "PASSED" else "FAILED"
             Text(
                 "$verdict — ${record.result.steps.count { it.passed }}/${record.result.steps.size} steps" +

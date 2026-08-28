@@ -98,7 +98,10 @@ data class RecordedMessage(
  * work behind each is a `putIfAbsent` per message already in a list the session handed over.
  */
 class RunRecorder {
-    private data class Seen(val session: String?, val message: FixMessage)
+    private data class Seen(
+        val session: String?,
+        val message: FixMessage,
+    )
 
     private val seen = LinkedHashMap<Long, Seen>()
 
@@ -149,7 +152,8 @@ class RunRecorder {
             } else {
                 val spare = (cap - judgedUids.count { uid -> ordered.any { it.message.uid == uid } }).coerceAtLeast(0)
                 val fill =
-                    ordered.filterNot { it.message.uid in judgedUids }
+                    ordered
+                        .filterNot { it.message.uid in judgedUids }
                         .takeLast(spare)
                         .mapTo(mutableSetOf()) { it.message.uid }
                 ordered.filter { it.message.uid in judgedUids || it.message.uid in fill }
@@ -176,7 +180,11 @@ class RunRecorder {
     }
 
     /** What one entry's record carries: the messages kept, what judged them, and what the cap took. */
-    data class Evidence(val messages: List<RecordedMessage>, val bound: Map<String, Int>, val dropped: Int)
+    data class Evidence(
+        val messages: List<RecordedMessage>,
+        val bound: Map<String, Int>,
+        val dropped: Int,
+    )
 }
 
 /** The record as JSON and back. The `result` block is [ScenarioReport.toJson] verbatim. */
@@ -241,8 +249,20 @@ object RunRecordCodec {
                         values = row["values"]?.jsonObject.orEmpty().mapValues { (_, v) -> v.jsonPrimitive.content },
                     )
                 },
-            scenarioId = obj["scenario"]?.jsonObject?.get("id")?.jsonPrimitive?.content.orEmpty(),
-            scenarioName = obj["scenario"]?.jsonObject?.get("name")?.jsonPrimitive?.content.orEmpty(),
+            scenarioId =
+                obj["scenario"]
+                    ?.jsonObject
+                    ?.get("id")
+                    ?.jsonPrimitive
+                    ?.content
+                    .orEmpty(),
+            scenarioName =
+                obj["scenario"]
+                    ?.jsonObject
+                    ?.get("name")
+                    ?.jsonPrimitive
+                    ?.content
+                    .orEmpty(),
             scenario =
                 obj["scenario"]?.jsonObject?.get("definition")?.jsonObject?.let {
                     runCatching { ScenarioCodec.fromJson(it) }.getOrNull()

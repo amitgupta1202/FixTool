@@ -24,7 +24,11 @@ class RunSetStoreTest {
 
     @Before
     fun setUp() {
-        dir = File.createTempFile("fixtool-sets", "").apply { delete(); mkdirs() }
+        dir =
+            File.createTempFile("fixtool-sets", "").apply {
+                delete()
+                mkdirs()
+            }
     }
 
     @After

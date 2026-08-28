@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -139,6 +140,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
             RunStatusLine(
                 running = running,
+                onStop = { viewModel.requestScenarioStop() },
                 result = result,
                 dictionary = viewModel.dictionary,
                 // Keyed on the STORE as well as the result: the route consults the file on disk, so a save or
@@ -940,6 +942,7 @@ private fun StepRailRow(
 @Composable
 private fun RunStatusLine(
     running: Boolean,
+    onStop: () -> Unit,
     result: ScenarioResult?,
     dictionary: FixDictionary?,
     route: FixMessageViewModel.ReconcileRoute?,
@@ -948,7 +951,24 @@ private fun RunStatusLine(
     modifier: Modifier = Modifier,
 ) {
     when {
-        running -> Text("Running…", color = AppTheme.Colors.info, fontSize = 11.sp, modifier = modifier)
+        // A run that cannot be stopped is a UI that has taken the tool away from its author: an expect
+        // holds the run slot for its whole timeout, and until now the only way out was to wait it out.
+        running ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
+                Text("Running…", color = AppTheme.Colors.info, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                TooltipIconButton(
+                    tooltip = "Stop this run — it stops where it is, and reports as stopped rather than passed",
+                    onClick = onStop,
+                    modifier = Modifier.size(16.dp).testTag("stop-run"),
+                ) {
+                    Icon(
+                        Icons.Default.Stop,
+                        contentDescription = "Stop run",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+            }
         result != null ->
             Column(modifier = modifier) {
                 // The `steps` phase only — the same count the scenario's own row shows. This used to count

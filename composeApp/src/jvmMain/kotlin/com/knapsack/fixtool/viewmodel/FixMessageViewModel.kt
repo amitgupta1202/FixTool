@@ -2687,11 +2687,30 @@ class FixMessageViewModel(
      * Claims the single run slot (shared by the UI and the control surface, whose runners would
      * otherwise race each other's consumed-message cursors). Pair with [endScenarioRun].
      */
-    fun beginScenarioRun(): Boolean = _scenarioRunning.compareAndSet(expect = false, update = true)
+    fun beginScenarioRun(): Boolean =
+        _scenarioRunning.compareAndSet(expect = false, update = true).also { claimed ->
+            // Cleared by whoever claims the slot, not by whoever releases it: a stop that arrives as the
+            // previous run is exiting must not carry over and abort the next one before its first step.
+            if (claimed) stopRequested.set(false)
+        }
 
     fun endScenarioRun() {
         _scenarioRunning.value = false
     }
+
+    /**
+     * **Ask the run in progress to stop.** Polled by the runner at every step boundary and inside every
+     * poll loop, so it lands within a poll rather than at the end of a thirty-second timeout.
+     *
+     * A request, not an interrupt. The runner's waits are sleep loops on a thread that owns the run slot
+     * and is halfway through a report; killing it would leave both behind. The run stops where it is,
+     * says so, and does not pass — it stopped checking, which is not the same as having checked.
+     */
+    fun requestScenarioStop() {
+        stopRequested.set(true)
+    }
+
+    private val stopRequested = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /**
      * Publish the last run's verdict. The rail's run report — and the route from a failed step to the
@@ -2894,6 +2913,7 @@ class FixMessageViewModel(
                         matched[message] = stepResult
                         _assertionResults.value = matched.toMap()
                     },
+                    cancelled = { stopRequested.get() },
                 ).run(scenario, sessionMap)
             // Published while the run slot is still held: a verdict that lands after the slot is free can
             // land on top of the *next* run's freshly-cleared state, and the report would then name one

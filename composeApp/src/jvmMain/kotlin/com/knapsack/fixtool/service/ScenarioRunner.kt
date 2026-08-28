@@ -113,6 +113,16 @@ class ScenarioRunner(
     private val settleMs: Long = 1_000,
     /** How long preflight waits for a session it auto-connected to come up before giving up. */
     private val connectTimeoutMs: Long = 10_000,
+    /**
+     * **Has somebody asked this run to stop?** Polled, not thrown: the runner's waits are `sleep` loops
+     * on the caller's own thread, and an interrupt would leave the report half-written and the run slot
+     * held. Asked at every step boundary and inside every poll loop, so a stop lands within a poll rather
+     * than at the end of a thirty-second timeout.
+     *
+     * A stopped run is **not passed**. It stopped checking, which is not the same as having checked and
+     * found nothing wrong, and a green here would be the one verdict nobody could act on.
+     */
+    private val cancelled: () -> Boolean = { false },
 ) {
     /**
      * [withIds] first, so every [StepResult] can name the step that produced it. It is deterministic, so
@@ -164,15 +174,33 @@ class ScenarioRunner(
         // as if the step were not there, which is the promise the editor's mute toggle makes. The index
         // still counts the muted step, so a result's stepIndex keeps naming the same list position the
         // editor and the rail show.
+        /**
+         * The one exit a stopped run takes: keep everything the report had, say where it was, and do
+         * **not** pass. Teardown does not run and no post-mortem is written — a run the author stopped
+         * has nothing to explain, and sending its cleanup messages is not stopping.
+         */
+        fun stopped(phase: String): ScenarioResult {
+            if (results.lastOrNull()?.kind != "stopped") results += stoppedRow(-1, phase, "moving to the next step")
+            return ScenarioResult(
+                scenario.name,
+                passed = false,
+                steps = results,
+                variables = scope.map { (name, value) -> ScenarioVariable(name, value, mintedBy[name]) },
+                durationMs = now() - startedAt,
+            )
+        }
+
         var abort = false
         var failure: Failure? = null
         // `consumed` grows by exactly one when an Expect binds, so its size across a step is the one honest
         // answer to "did this step find anything" — no second bookkeeping to drift out of step with it.
         for ((i, step) in scenario.setup.withIndex()) {
             if (step.muted) continue
+            if (cancelled()) return stopped("setup")
             val held = consumed.size
             val r = ran(step, runStep(step, i, "setup", scope, consumed, pre))
             results += r
+            if (cancelled()) return stopped("setup")
             if (!r.passed) {
                 abort = true
                 failure = Failure(step, i, "setup", r, consumed.size == held)
@@ -182,9 +210,11 @@ class ScenarioRunner(
         if (!abort) {
             for ((i, step) in scenario.steps.withIndex()) {
                 if (step.muted) continue
+                if (cancelled()) return stopped("steps")
                 val held = consumed.size
                 val r = ran(step, runStep(step, i, "steps", scope, consumed, pre))
                 results += r
+                if (cancelled()) return stopped("steps")
                 if (!r.passed) {
                     failure = Failure(step, i, "steps", r, consumed.size == held)
                     break
@@ -214,6 +244,7 @@ class ScenarioRunner(
         // the check did not run, not because it passed.
         if (scenario.traffic == TrafficMode.STRICT && results.all { it.passed }) {
             results += trafficCheck(scenario, consumed, pre)
+            if (cancelled()) return stopped("steps")
         }
         for ((i, step) in scenario.teardown.withIndex()) {
             if (step.muted) continue
@@ -291,10 +322,11 @@ class ScenarioRunner(
         val deadline = now() + connectTimeoutMs
         for (p in pending) {
             var state = host.connectionState(p.session)
-            while (!sessionReady(state, p.needsLogon) && now() < deadline) {
+            while (!sessionReady(state, p.needsLogon) && now() < deadline && !cancelled()) {
                 host.sleep(pollMs)
                 state = host.connectionState(p.session)
             }
+            if (cancelled()) return stoppedRow(-1, "setup", "waiting for session '${p.label}' to come up")
             if (!sessionReady(state, p.needsLogon)) {
                 return preflightFailure(
                     "auto-connect started profile '${p.profileName}' for session '${p.label}', but it did not " +
@@ -345,6 +377,23 @@ class ScenarioRunner(
 
     private fun preflightFailure(detail: String): StepResult =
         StepResult(-1, "preflight", "setup", passed = false, detail = detail)
+
+    /**
+     * **Where the run was when it was stopped**, as a failing row.
+     *
+     * Failing, because a stopped run stopped checking — which is not the same as having checked and
+     * found nothing wrong. And it says what it was in the middle of, because "stopped" on its own leaves
+     * the author guessing whether the venue was slow, the session was down, or they clicked too early.
+     */
+    private fun stoppedRow(index: Int, phase: String, doing: String, stepId: String = ""): StepResult =
+        StepResult(
+            index,
+            "stopped",
+            phase,
+            passed = false,
+            detail = "stopped by request while $doing",
+            stepId = stepId.ifBlank { null },
+        )
 
     /** Every verdict names its step. The index says where it sat; the id says which step it was. */
     private fun runStep(
@@ -435,6 +484,7 @@ class ScenarioRunner(
             if (now() >= deadline) {
                 return StepResult(index, "wait", phase, false, detail = "timeout ${describeWaitTarget(step)}")
             }
+            if (cancelled()) return stoppedRow(index, phase, describeWaitTarget(step), step.stepId)
             host.sleep(pollMs)
         }
     }
@@ -485,6 +535,9 @@ class ScenarioRunner(
             }
             if (target != null || takenByEarlierStep) break
             if (now() >= deadline) break
+            if (cancelled()) {
+                return stoppedRow(index, phase, "waiting for a ${msgType ?: "matching"} message on '${label(step.session)}'", step.stepId)
+            }
             host.sleep(pollMs)
         }
         if (target == null) {
@@ -583,7 +636,10 @@ class ScenarioRunner(
      */
     private fun trafficCheck(scenario: Scenario, consumed: Set<FixMessage>, pre: PreRun): StepResult {
         val settled = now() + settleMs
-        while (now() < settled) host.sleep(pollMs)
+        while (now() < settled && !cancelled()) host.sleep(pollMs)
+        // A settle window that was cut short has not settled, so the claim it exists to make cannot be
+        // made: "nothing else arrived" is about a length of time this run no longer spent listening.
+        if (cancelled()) return stoppedRow(-1, "steps", "listening for unexpected traffic")
         val sessions = runSessions(scenario)
         val strays = mutableListOf<FixMessage>()
         var predating = 0

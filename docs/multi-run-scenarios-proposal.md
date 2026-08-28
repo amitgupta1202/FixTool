@@ -373,8 +373,17 @@ For each session the scenario names, the dialog asks where lanes come from:
 - **Spread** over the sessions that are **available**: lane *k* takes the *k*-th of them.
 - **Pinned** to one session: every lane uses the same one.
 
-**Available means available.** A lane's source is not "a profile group" — it is *any connected session
-not already claimed by another lane in this set*. A profile group is only the convenient default,
+**Available means available — and this is not a new rule.** It is the one the app already applies to
+the only feature it has that drives many sessions at once. **Bulk Send**
+(`FixMessageViewModel.sendMessageToAllConnectedSessions`) takes
+`_sessions.filter { it.connectionState.value == LOGGED_ON }` — every logged-on session, whatever profile
+it came from — warns rather than fails when there are none, and re-resolves the message's `${…}` per
+target. Fan-out spreading over "whatever is up" is that rule applied to a scenario instead of a message,
+which is the strongest argument for it: the tool already answers "which sessions does *many sessions*
+mean" exactly this way, and two different answers to that question in one app would be a defect.
+
+A lane's source is therefore not "a profile group" — it is *any connected session not already claimed
+by another lane in this set*. A profile group is only the convenient default,
 because `getProfileSessions` hands one back in creation order and a `{nn}` group is the usual way fifty
 sessions come to exist; but twelve sessions across three profiles are twelve perfectly good lanes, and
 refusing them because they do not share a parent would be a rule with nothing behind it. The dialog
@@ -391,6 +400,20 @@ Two consequences, both of which are just "use what is there":
   connects the base profile, which creates every slot — waits for `connectTimeoutMs`, and then spreads
   over whatever came up. No new connection code, and no session opened that the author did not
   configure.
+
+### A lane already knows what to call itself
+
+Bulk Send seeds four names into the template scope for each target it sends to
+(`sessionTemplateVariables`): `sessionIndex` (1-based, per target), `sessionQualifier`, `sessionTitle`
+and `sessionSenderCompID` — so `262=MD-${sessionIndex}` gives each session a distinct MDReqID with no
+authoring ceremony. **A fan-out lane should seed exactly those four names**, into exactly the scope
+[Examples](#examples--the-same-run-set-from-a-table) seeds a row into.
+
+That is the point at which the three readings stop being three features. A lane is a run whose scope
+carries its session's identity; a row is a run whose scope carries the table's values; an iteration is a
+run whose scope carries neither. One seeding mechanism, one `params` argument, and a scenario that says
+`11=ORD-${sessionIndex}-${clOrdSuffix}` is drawing on both at once without knowing they came from
+different places.
 
 Pinning is the natural thing to want for a second leg — fifty client lanes against one shared
 back-office session — and it is exactly what **breaks the licence for concurrency**. Fifty lanes

@@ -1,0 +1,1670 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multi-Run Scenarios</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  :root {
+    --ground: #eef0f3;
+    --card: #ffffff;
+    --ink: #191c21;
+    --muted: #5b6570;
+    --faint: #8a939e;
+    --rule: #d7dce3;
+    --accent: #2f6fb0;
+    --accent-soft: #e3ecf6;
+    --good: #3f7d33;
+    --bad: #b8342f;
+
+    /* The app's own chrome — fixed in both themes, because these panels are the dark tool. */
+    --app-bg: #1e1e1e;
+    --app-surface: #2b2b2b;
+    --app-variant: #252525;
+    --app-header: #202020;
+    --app-text: #e0e0e0;
+    --app-text2: #b0b0b0;
+    --app-dim: #6a6a6a;
+    --app-good: #98c379;
+    --app-warn: #ce9178;
+    --app-bad: #e06c75;
+    --app-info: #61afef;
+    --app-rule: #3a3a3a;
+
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --col: 40rem;
+    --wide: 62rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14171a;
+      --card: #1b1f23;
+      --ink: #e3e7eb;
+      --muted: #98a2ad;
+      --faint: #737d88;
+      --rule: #2a3138;
+      --accent: #61afef;
+      --accent-soft: #1d2a36;
+      --good: #98c379;
+      --bad: #e06c75;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #14171a;
+    --card: #1b1f23;
+    --ink: #e3e7eb;
+    --muted: #98a2ad;
+    --faint: #737d88;
+    --rule: #2a3138;
+    --accent: #61afef;
+    --accent-soft: #1d2a36;
+    --good: #98c379;
+    --bad: #e06c75;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1.1rem, 4vw, 2rem) 5rem;
+  }
+
+  .col { max-width: var(--col); }
+
+  /* ---------- masthead ---------- */
+
+  header.mast {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 2rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1.1rem;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.028em;
+    font-size: clamp(2.2rem, 6vw, 3.4rem);
+    line-height: 1.02;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: 1.12rem;
+    color: var(--muted);
+    max-width: 34rem;
+    margin: 0 0 1.6rem;
+  }
+
+  .standfirst strong { color: var(--ink); font-weight: 500; }
+
+  .mast-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 1.4rem;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--faint);
+  }
+
+  .mast-meta b { color: var(--muted); font-weight: 500; }
+
+  /* ---------- prose ---------- */
+
+  h2 {
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: -0.018em;
+    font-size: 1.62rem;
+    line-height: 1.15;
+    margin: 3.4rem 0 0.5rem;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: -0.008em;
+    margin: 2rem 0 0.35rem;
+  }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.55rem;
+  }
+
+  p { margin: 0 0 1.05rem; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--accent-soft);
+    color: var(--ink);
+    padding: 0.08em 0.34em;
+    border-radius: 3px;
+  }
+
+  .lede { font-size: 1.05rem; }
+
+  /* ---------- the four readings ---------- */
+
+  .readings {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 1.6rem 0 0.9rem;
+  }
+
+  .reading {
+    background: var(--card);
+    padding: 1.15rem 1.2rem 1.3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .reading h4 {
+    font-family: var(--sans);
+    font-size: 1.08rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .reading .ask {
+    font-style: italic;
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin: 0;
+  }
+
+  .reading .shape {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--ink);
+    background: var(--ground);
+    border: 1px solid var(--rule);
+    padding: 0.4rem 0.5rem;
+    border-radius: 3px;
+  }
+
+  .chip {
+    align-self: flex-start;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.16rem 0.45rem;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+  }
+
+  .chip.now { color: var(--good); }
+  .chip.soon { color: var(--app-warn); }
+  .chip.later { color: var(--accent); }
+
+  /* ---------- code ---------- */
+
+  pre {
+    font-family: var(--mono);
+    font-size: 0.795rem;
+    line-height: 1.62;
+    background: var(--app-bg);
+    color: var(--app-text);
+    border: 1px solid var(--app-rule);
+    border-radius: 4px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    margin: 1.1rem 0 1.3rem;
+  }
+
+  pre .c { color: var(--app-dim); }
+  pre .k { color: var(--app-info); }
+  pre .s { color: var(--app-good); }
+  pre .n { color: var(--app-warn); }
+
+  /* ---------- mockups ---------- */
+
+  figure {
+    margin: 1.8rem 0 2.2rem;
+    max-width: var(--wide);
+  }
+
+  .screen {
+    background: var(--app-bg);
+    border: 1px solid var(--app-rule);
+    border-radius: 5px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--app-text);
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,.28), 0 12px 30px -18px rgba(0,0,0,.55);
+  }
+
+  .screen-bar {
+    background: var(--app-header);
+    border-bottom: 1px solid var(--app-rule);
+    padding: 5px 9px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--app-text2);
+    font-size: 11px;
+  }
+
+  .screen-bar .dot { width: 7px; height: 7px; border-radius: 50%; background: #3a3a3a; }
+  .screen-bar .grow { flex: 1; }
+
+  .rail { display: grid; grid-template-columns: minmax(0, 1fr); }
+
+  @media (min-width: 52rem) {
+    .rail.split { grid-template-columns: 20rem minmax(0, 1fr); }
+    .rail.split .grid-pane { border-left: 1px solid var(--app-rule); }
+  }
+
+  .rail-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 9px;
+    border-bottom: 1px solid var(--app-rule);
+    color: var(--app-text2);
+    font-size: 11px;
+  }
+
+  .rail-head .run-btn {
+    color: var(--app-good);
+    border: 1px solid #3c4a35;
+    border-radius: 3px;
+    padding: 1px 7px;
+    background: #232a20;
+  }
+
+  .rail-head .filter {
+    flex: 1;
+    color: var(--app-dim);
+    border-bottom: 1px solid var(--app-rule);
+    padding-bottom: 1px;
+  }
+
+  .setline {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 9px 4px;
+    border-bottom: 1px solid var(--app-rule);
+    background: var(--app-variant);
+  }
+
+  .setline .label { color: var(--app-text); font-weight: 500; }
+  .setline .grow { flex: 1; }
+  .setline .count { color: var(--app-info); }
+
+  .bar {
+    height: 3px;
+    background: #303030;
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 0 9px 6px;
+    display: flex;
+  }
+  .bar i { display: block; height: 100%; }
+  .bar .ok { background: var(--app-good); }
+  .bar .no { background: var(--app-bad); }
+  .bar .go { background: var(--app-info); }
+
+  .entries { padding: 2px 0 4px; }
+
+  .entry {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 9px;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-left: 2px solid transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .entry:hover { background: var(--app-variant); }
+  .entry[aria-selected="true"] { background: #2f2a2b; border-left-color: var(--app-bad); }
+  .entry[aria-selected="true"].pass { background: #262c24; border-left-color: var(--app-good); }
+  .entry:focus-visible { outline: 1px solid var(--app-info); outline-offset: -1px; }
+
+  .entry .glyph { width: 10px; text-align: center; }
+  .entry .name { flex: 1; color: var(--app-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entry .frac, .entry .ms { font-variant-numeric: tabular-nums; font-size: 11px; }
+  .entry .ms { color: var(--app-dim); width: 44px; text-align: right; }
+  .entry.pass .glyph { color: var(--app-good); }
+  .entry.fail .glyph, .entry.fail .frac { color: var(--app-bad); }
+  .entry.run .glyph, .entry.run .frac { color: var(--app-info); }
+  .entry.wait .glyph, .entry.wait .frac { color: var(--app-dim); }
+  .entry.wait .name { color: var(--app-dim); }
+
+  .report {
+    border-top: 1px solid var(--app-rule);
+    padding: 7px 9px 9px;
+    background: var(--app-variant);
+  }
+
+  .report .verdict { font-weight: 600; letter-spacing: 0.04em; }
+  .report .verdict.pass { color: var(--app-good); }
+  .report .verdict.fail { color: var(--app-bad); }
+  .report .line { color: var(--app-text2); font-size: 11px; margin-top: 3px; }
+  .report .route { color: var(--app-bad); font-size: 11px; margin-top: 4px; text-decoration: underline dotted; }
+  .report .muted { color: var(--app-dim); }
+
+  .tagrow { display: flex; gap: 10px; font-size: 11px; margin-top: 3px; }
+  .tagrow .t { color: var(--app-warn); width: 62px; }
+  .tagrow .exp { color: var(--app-dim); }
+  .tagrow .act { color: var(--app-bad); }
+
+  /* iteration strip */
+  .strip { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px 9px 2px; }
+
+  .tick {
+    width: 15px; height: 15px;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    background: #2f3a2b;
+    cursor: pointer;
+    padding: 0;
+    position: relative;
+  }
+  .tick::after {
+    content: "";
+    position: absolute; inset: 3px;
+    background: var(--app-good);
+    border-radius: 1px;
+  }
+  .tick.no::after { background: var(--app-bad); }
+  .tick.no { background: #3a2a2b; }
+  .tick[aria-selected="true"] { border-color: var(--app-text); }
+  .tick:focus-visible { outline: 1px solid var(--app-info); outline-offset: 1px; }
+
+  .strip-meta {
+    padding: 3px 9px 7px;
+    color: var(--app-dim);
+    font-size: 11px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+  }
+  .strip-meta b { color: var(--app-text2); font-weight: 500; }
+
+  /* menu + dialog mockups */
+  .duo {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    align-items: start;
+  }
+
+  .menu { padding: 4px 0; }
+  .menu .item { padding: 3px 12px; display: flex; gap: 10px; }
+  .menu .item .grow { flex: 1; }
+  .menu .item .n { color: var(--app-dim); font-variant-numeric: tabular-nums; }
+  .menu .item:hover { background: var(--app-variant); }
+  .menu .sep { height: 1px; background: var(--app-rule); margin: 4px 0; }
+
+  .dlg { padding: 9px 11px 11px; }
+  .dlg .field { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .dlg .field label { color: var(--app-text2); width: 108px; }
+  .dlg .box { border: 1px solid var(--app-rule); background: var(--app-surface); padding: 1px 7px; min-width: 56px; }
+  .dlg .check { color: var(--app-good); }
+  .dlg .note { color: var(--app-dim); font-size: 11px; margin-top: 7px; border-top: 1px solid var(--app-rule); padding-top: 6px; }
+  .dlg .actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 9px; }
+  .dlg .actions .go { color: var(--app-good); border: 1px solid #3c4a35; background: #232a20; padding: 1px 9px; border-radius: 3px; }
+  .dlg .actions .cancel { color: var(--app-text2); border: 1px solid var(--app-rule); padding: 1px 9px; border-radius: 3px; }
+
+  .tabs {
+    display: flex;
+    gap: 1px;
+    background: var(--app-rule);
+    border-bottom: 1px solid var(--app-rule);
+    font-size: 11px;
+    overflow-x: auto;
+  }
+  .tabs .tab {
+    background: var(--app-header);
+    color: var(--app-dim);
+    padding: 4px 11px;
+    white-space: nowrap;
+  }
+  .tabs .tab.on { background: var(--app-bg); color: var(--app-text); box-shadow: inset 0 -1px 0 var(--app-info); }
+
+  .frozen-note { color: var(--app-warn); }
+
+  .xtable { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .xtable th, .xtable td {
+    text-align: left;
+    padding: 3px 9px;
+    border-bottom: 1px solid #232323;
+    white-space: nowrap;
+  }
+  .xtable th { background: var(--app-header); color: var(--app-text2); font-weight: 500; }
+  .xtable th .io { font-size: 10px; margin-left: 5px; }
+  .xtable th .out { color: var(--app-warn); }
+  .xtable th .inb { color: var(--app-info); }
+  .xtable td { color: var(--app-text); font-variant-numeric: tabular-nums; }
+  .xtable td.rowname { color: var(--app-text2); }
+  .xtable tr.muted td { color: var(--app-dim); text-decoration: line-through; }
+  .xtable tr.add td { color: var(--app-dim); }
+
+  .steps-strip { padding: 5px 9px; color: var(--app-text2); display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 11px; }
+  .steps-strip .v { color: var(--app-warn); }
+  .steps-strip .sep { color: var(--app-dim); }
+
+  .lanes .tick { width: 11px; height: 11px; border-radius: 1px; }
+  .lanes .tick::after { inset: 2px; }
+  .refuse {
+    padding: 7px 9px;
+    border-top: 1px solid var(--app-rule);
+    color: var(--app-bad);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .refuse b { color: var(--app-text); font-weight: 500; }
+
+  .srcrow { display: flex; align-items: center; gap: 8px; padding: 3px 9px; }
+  .srcrow .who { color: var(--app-text); width: 62px; }
+  .srcrow .pick { border: 1px solid var(--app-rule); background: var(--app-surface); padding: 1px 7px; flex: 1; }
+  .srcrow .n { color: var(--app-dim); font-variant-numeric: tabular-nums; }
+  .srcrow.bad .pick { border-color: #6d3a3c; color: var(--app-bad); }
+
+  .lint { padding: 5px 9px; border-top: 1px solid var(--app-rule); color: var(--app-warn); font-size: 11px; }
+
+  .grid-pane { padding: 0; }
+  .msg {
+    display: flex;
+    gap: 8px;
+    padding: 2px 9px;
+    border-bottom: 1px solid #232323;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .msg .dir { width: 10px; color: var(--app-dim); }
+  .msg .body { overflow: hidden; text-overflow: ellipsis; color: var(--app-text2); }
+  .msg.ok { background: rgba(152,195,121,.10); }
+  .msg.no { background: rgba(224,108,117,.14); }
+  .msg.ok .dir { color: var(--app-good); }
+  .msg.no .dir { color: var(--app-bad); }
+  .pane-head {
+    padding: 5px 9px;
+    color: var(--app-dim);
+    font-size: 11px;
+    border-bottom: 1px solid var(--app-rule);
+    background: var(--app-header);
+  }
+
+  figcaption {
+    font-family: var(--sans);
+    font-size: 0.83rem;
+    color: var(--muted);
+    margin-top: 0.7rem;
+    max-width: 42rem;
+  }
+
+  figcaption b { color: var(--ink); font-weight: 600; }
+
+  .try {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: inline-block;
+    margin-right: 0.5rem;
+  }
+
+  /* ---------- findings ---------- */
+
+  .findings { border-top: 1px solid var(--rule); margin-top: 1.4rem; }
+
+  .finding {
+    border-bottom: 1px solid var(--rule);
+    padding: 1rem 0;
+    display: grid;
+    gap: 0.15rem 1.4rem;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 46rem) {
+    .finding { grid-template-columns: 13rem minmax(0, 1fr); }
+  }
+
+  .finding .where {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--faint);
+    line-height: 1.5;
+  }
+
+  .finding .what { margin: 0; }
+  .finding .what b { font-family: var(--sans); font-weight: 600; }
+
+  .verdict-line {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 0.4rem;
+  }
+  .verdict-line.free { color: var(--good); }
+  .verdict-line.work { color: var(--accent); }
+  .verdict-line.bug { color: var(--bad); }
+
+  /* ---------- phasing ---------- */
+
+  .phases { width: 100%; border-collapse: collapse; margin: 1.3rem 0 1rem; font-size: 0.9rem; }
+  .phases th, .phases td { text-align: left; padding: 0.6rem 0.8rem 0.6rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .phases th {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 500;
+  }
+  .phases td:first-child { font-family: var(--sans); font-weight: 600; white-space: nowrap; padding-right: 1.2rem; }
+  .phases td:last-child { color: var(--muted); }
+  .tablewrap { overflow-x: auto; }
+
+  footer {
+    margin-top: 3.5rem;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.2rem;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--faint);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .entry, .tick { transition: background 120ms ease, border-color 120ms ease; }
+  }
+</style>
+<style>
+  .chip.zero { color: var(--bad); }
+  .verdict-line.moved { color: var(--app-warn); }
+  .rev { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--app-warn); margin-left: 0.5rem; vertical-align: middle; }
+  .diff { width: 100%; border-collapse: collapse; margin: 1.3rem 0 1rem; font-size: 0.88rem; }
+  .diff th, .diff td { text-align: left; padding: 0.55rem 0.8rem 0.55rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .diff th { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
+  .diff td:first-child { color: var(--muted); }
+  .diff td:last-child { font-family: var(--sans); font-weight: 600; }
+  .report .lat { color: var(--app-dim); font-size: 11px; margin-top: 3px; }
+  .report .lat b { color: var(--app-text2); font-weight: 500; }
+  .menu .item.sub { padding-left: 26px; }
+  .menu .item.head { color: var(--app-text2); }
+  .menu .item.off { color: var(--app-dim); }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header class="mast">
+    <p class="eyebrow">FixTool · scenario engine · proposal · revised</p>
+    <h1>Multi-run scenarios</h1>
+    <p class="standfirst">Yes, it is possible — and three of the four are nearly free in the runner. <strong>"Multi-run" is four needs wearing one phrase</strong>, and they collapse into a single primitive: a run set that leaves a record.</p>
+    <div class="mast-meta">
+      <span><b>doc</b> docs/multi-run-scenarios-proposal.md</span>
+      <span><b>status</b> proposal · revised 2026-08-28 against main @ 21ee1c1</span>
+      <span><b>issue</b> #41</span>
+    </div>
+  </header>
+
+  <div class="col">
+    <p class="lede">The runner is already pure, deterministic and re-entrant: it allocates a fresh variable scope, a fresh consumed-set and a fresh watermark on every call. Running it twenty times in a row is a <code>for</code> loop. What is <em>not</em> a for loop is everything that consumes one verdict — the rail's report, the grid tint, the route into the reconcile viewer, the HTTP call that waits for it — and everything that has to be <em>left behind</em> when twenty verdicts land overnight. That is where the design work is.</p>
+  </div>
+
+  <h2>What this revision changed<span class="rev">review, 2026-08-28</span></h2>
+  <div class="col"><p>The first draft was reviewed against <code>main</code> after #35 (acceptor order state) had landed on top of it. The model survived. Five things the draft called free or already-there did not, and each moved something:</p></div>
+  <div class="tablewrap">
+    <table class="diff">
+      <thead><tr><th>The draft said</th><th>main says</th><th>What moved</th></tr></thead>
+      <tbody>
+        <tr><td>the set "already records" per-lane timings</td><td>no timing exists — no duration, no per-step elapsed, no JUnit <code>time=</code></td><td>per-step latency, recorded by the runner (Phase 0)</td></tr>
+        <tr><td><code>/scenarios/run</code> grows set parameters</td><td>synchronous on one of four HTTP threads, no timeout; the MCP shim aborts at 15 s</td><td>a set is a job: start, poll, fetch</td></tr>
+        <tr><td>evidence is references held by the tab; disk is a follow-on</td><td>the runner keeps no snapshots; the buffer is 1,000; the overnight suite must survive a restart</td><td>the run record on disk is the artifact</td></tr>
+        <tr><td>"the tool cannot reset a venue it does not own"</td><td>half the users run both ends, and nothing resets the venue's order book</td><td>a <code>ClearOrderBook</code> step</td></tr>
+        <tr><td><code>--tag</code> wakes the unused <code>userTags</code></td><td><code>userTags</code> is the per-profile filter</td><td>saved run sets</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Four questions, one phrase</h2>
+  <div class="col"><p>Before designing anything, separate what people actually mean when they ask for this. Each reading wants something different from the tool.</p></div>
+
+  <div class="readings">
+    <div class="reading">
+      <h4>Repeat</h4>
+      <p class="ask">Is this flow flaky?</p>
+      <p class="shape">1 scenario × N iterations<br>sequential</p>
+      <span class="chip now">Phase 1</span>
+    </div>
+    <div class="reading">
+      <h4>Suite</h4>
+      <p class="ask">What broke overnight?</p>
+      <p class="shape">N scenarios × 1<br>sequential</p>
+      <span class="chip now">Phase 1</span>
+    </div>
+    <div class="reading">
+      <h4>Examples</h4>
+      <p class="ask">Does it hold for every instrument?</p>
+      <p class="shape">1 scenario × N parameter rows<br>sequential</p>
+      <span class="chip soon">Phase 3</span>
+    </div>
+    <div class="reading">
+      <h4>Fan-out</h4>
+      <p class="ask">Does it hold with fifty clients?</p>
+      <p class="shape">1 scenario × N lanes<br>concurrent</p>
+      <span class="chip later">Phase 4</span>
+    </div>
+  </div>
+
+  <div class="col">
+    <p>They are the same object. A <b>run set</b> is an ordered list of run requests — <code>(scenario, iteration, row, lane)</code> — executed by a scheduler, producing a list of the <code>ScenarioResult</code> that already exists, each written to disk as a <b>run record</b> the moment it lands. Repeat is one scenario N times; a suite is N scenarios once; an outline is one scenario over N rows of a table; fan-out is one scenario over N lanes with concurrency above 1. A matrix is the product, and needs no new concept.</p>
+    <p><b>A single run is a set of one.</b> That is the property that makes the whole feature cheap: today's behaviour is the degenerate case of the new one, so no second reporting stack is built and the reconcile viewer keeps working untouched.</p>
+  </div>
+
+<pre><span class="c">// The whole model. ScenarioResult grows two additive timing fields; the per-tag engine does not change.</span>
+<span class="k">data class</span> RunSet(
+    <span class="k">val</span> id: String,               <span class="c">// also the record directory: ~/.fixtool/runs/&lt;id&gt;/</span>
+    <span class="k">val</span> label: String,            <span class="c">// "nightly — 12 scenarios" / "book-a-trade ×20"</span>
+    <span class="k">val</span> source: RunSource,        <span class="c">// Saved | Favourites | Filtered | Selected | Repeat | Examples | FanOut</span>
+    <span class="k">val</span> entries: List&lt;RunEntry&gt;,  <span class="c">// planned UP FRONT: the queue is visible before it runs</span>
+    <span class="k">val</span> policy: RunPolicy,
+)
+
+<span class="k">data class</span> RunEntry(
+    <span class="k">val</span> scenarioId: String,
+    <span class="k">val</span> iteration: Int,                          <span class="c">// 1-based; always 1 for a suite entry</span>
+    <span class="k">val</span> row: ExampleRow? = <span class="n">null</span>,                 <span class="c">// the examples row, when it has one</span>
+    <span class="k">val</span> lane: Lane? = <span class="n">null</span>,                      <span class="c">// the fan-out lane: slot, title, CompID</span>
+    <span class="k">val</span> state: RunState,                        <span class="c">// PENDING | RUNNING | PASSED | FAILED | SKIPPED | STOPPED</span>
+    <span class="k">val</span> result: ScenarioResult? = <span class="n">null</span>,        <span class="c">// exactly today's shape (+ durationMs)</span>
+    <span class="k">val</span> record: Path? = <span class="n">null</span>,                   <span class="c">// the entry's file, once written</span>
+)
+
+<span class="k">data class</span> RunPolicy(
+    <span class="k">val</span> stopOnFirstFailure: Boolean = <span class="n">false</span>,
+    <span class="k">val</span> pauseBetweenMs: Long = <span class="n">0</span>,
+    <span class="k">val</span> concurrency: Int = <span class="n">1</span>,          <span class="c">// &gt; 1 only under the disjointness rule</span>
+    <span class="k">val</span> isolateIterations: Boolean = <span class="n">true</span>,  <span class="c">// binding = this_run for the run's duration</span>
+)</pre>
+
+  <h2>Phase 0 — what is a bug or a missing primitive today</h2>
+  <div class="col"><p>Every later phase leans on these, and each is independently worth shipping. None changes a file format.</p></div>
+
+  <div class="findings" style="margin-bottom:1.6rem">
+    <div class="finding">
+      <p class="where">ScenarioRunner.kt:527<br>trafficCheck</p>
+      <div>
+        <p class="what"><b>STRICT traffic is not watermark-aware.</b> Its stray scan reads each session's whole log minus what <em>this</em> run consumed, so a second run over an uncleared session reports the first run's messages as unexpected. Under <code>this_run</code> it is worse: pre-run messages are unbindable, so every one is a guaranteed stray. <code>PreRun.predates</code> exists and is used only for narration. No test seeds the log before a run.</p>
+        <p class="verdict-line bug">a bug today · fix, and test it</p>
+      </div>
+    </div>
+    <div class="finding">
+      <p class="where">ScenarioReport.kt:73<br>toJson / toJUnitXml</p>
+      <div>
+        <p class="what"><b>Nothing is timed.</b> No duration, no per-step elapsed, no <code>time=</code>. <code>StepResult.latencyMs</code> — the bound reply's capture time minus the preceding Send's — and <code>ScenarioResult.durationMs</code>, both additive. The venue's number and the flow's number, kept apart.</p>
+        <p class="verdict-line work">new · every later number depends on it</p>
+      </div>
+    </div>
+    <div class="finding">
+      <p class="where">ScenarioReport.kt:68<br>ScenarioRunner.kt:214</p>
+      <div>
+        <p class="what"><b>JUnit and the verdict disagree.</b> The XML counts teardown failures; the verdict exempts teardown — exit 0 with <code>failures="1"</code>. Run-level rows render as <code>step -1 traffic (steps)</code>. A <code>&lt;testsuites&gt;</code> wrapper would multiply both by N.</p>
+        <p class="verdict-line bug">a bug today</p>
+      </div>
+    </div>
+    <div class="finding">
+      <p class="where">ScenarioRunner.kt:154<br>abort</p>
+      <div>
+        <p class="what"><b>The runner cannot be stopped.</b> <code>abort</code> is stop-on-failure inside one run; nothing external interrupts an Expect polling toward its deadline. A cancel token, checked in the three poll loops; a cancelled run reports a <code>stopped</code> row.</p>
+        <p class="verdict-line work">new · the ⏹ button needs it</p>
+      </div>
+    </div>
+    <div class="finding">
+      <p class="where">FixMessageSession.kt:400<br>QuickFixService.kt:251</p>
+      <div>
+        <p class="what"><b>Nothing resets the venue's order book at a run boundary.</b> <code>ClearMessages</code> clears the deque only; the book is per client session and is cleared by a button or <code>/acceptor/orders</code>, never by a step. A repeat that reuses a ClOrdID routes iteration 2 as <em>Moved</em>, not <em>Born</em>, and <code>whenOrder</code> presets flip — the duplicate rule rejects on iteration 2 what it acked on iteration 1. <code>ScenarioStep.ClearOrderBook</code>, valid on venue panes, refused by name elsewhere; capture authors it beside <code>ClearMessages</code>.</p>
+        <p class="verdict-line work">new step kind · post-dates the first draft</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>The rail, running a suite</h2>
+  <div class="col">
+    <p>The rail keeps its shape. The header gains a <code>Run ▾</code> control; the per-row hover Run button is unchanged, because a single run is a set of one. <code>RunStatusLine</code> — which sits <em>above</em> the list today, under the rail's bounded-height rule — becomes the set report while a set runs or is focused: a set line with live progress, a compact click-to-focus list of entries, and today's report for the focused entry.</p>
+    <p>Selecting a row publishes that entry's result, which is how one report surface serves twelve verdicts. A set publishes <em>nothing</em> global until an entry is focused — a set of twenty must not re-aim the author's open reconcile window twenty times. Where the <em>messages</em> behind a verdict live is a separate question, and the one that decides the design.</p>
+  </div>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span>FixTool — QUOTE1 · TRADE1</span><span class="grow"></span><span>scenarios</span></div>
+      <div class="rail split">
+        <div>
+          <div class="rail-head">
+            <span class="run-btn">Run ▾</span>
+            <span class="filter">⌕ filter…</span>
+            <span>⋮</span>
+          </div>
+          <div class="setline">
+            <span class="label">nightly</span>
+            <span class="grow"></span>
+            <span class="count">7/12</span>
+            <span style="color:var(--app-bad)">✗ 2</span>
+            <span style="color:var(--app-dim)">4m12s</span>
+            <span title="Stop after the current entry">⏹</span>
+          </div>
+          <div class="bar" aria-hidden="true">
+            <i class="ok" style="width:41%"></i><i class="no" style="width:17%"></i><i class="go" style="width:9%"></i>
+          </div>
+          <div class="entries" role="listbox" aria-label="Run set entries" id="suite">
+            <button class="entry pass" role="option" aria-selected="false" data-verdict="pass" data-name="smoke-nos" data-detail="4/4 steps · bound 4 messages on QUOTE1" data-lat="35=D→8 92ms">
+              <span class="glyph">✓</span><span class="name">smoke-nos</span><span class="ms">1.2s</span>
+            </button>
+            <button class="entry pass" role="option" aria-selected="false" data-verdict="pass" data-name="book-a-trade" data-detail="9/9 steps · QUOTE1 → TRADE1" data-lat="35=D→8 140ms · 35=J→P 610ms">
+              <span class="glyph">✓</span><span class="name">book-a-trade</span><span class="ms">4.8s</span>
+            </button>
+            <button class="entry fail" role="option" aria-selected="true" data-verdict="fail" data-name="cancel-replace" data-step="step 3 expect (messageType=8)" data-tag="150" data-exp="5" data-act="8">
+              <span class="glyph">✗</span><span class="name">cancel-replace</span><span class="frac">2/4</span><span class="ms">3.1s</span>
+            </button>
+            <button class="entry fail" role="option" aria-selected="false" data-verdict="fail" data-name="partial-fill-x3" data-step="step 5 expect (messageType=8)" data-tag="14" data-exp="500" data-act="250">
+              <span class="glyph">✗</span><span class="name">partial-fill-x3</span><span class="frac">4/6</span><span class="ms">7.4s</span>
+            </button>
+            <button class="entry run" role="option" aria-selected="false" data-verdict="run" data-name="quote-stream">
+              <span class="glyph">⟳</span><span class="name">quote-stream</span><span class="frac">running…</span>
+            </button>
+            <button class="entry wait" role="option" aria-selected="false" data-verdict="wait" data-name="allocation">
+              <span class="glyph">·</span><span class="name">allocation</span><span class="frac">pending</span>
+            </button>
+            <button class="entry wait" role="option" aria-selected="false" data-verdict="wait" data-name="booking-confirm">
+              <span class="glyph">·</span><span class="name">booking-confirm</span><span class="frac">pending</span>
+            </button>
+          </div>
+          <div class="report" id="report" aria-live="polite"></div>
+        </div>
+        <div class="grid-pane">
+          <div class="pane-head">QUOTE1 · messages — live · tinted for the last entry that ran</div>
+          <div class="msg"><span class="dir">→</span><span class="body">35=D 11=ORD-8f21 55=EUR/USD 54=1 38=1000000 40=2 44=1.0842</span></div>
+          <div class="msg ok"><span class="dir">←</span><span class="body">35=8 150=0 39=0 11=ORD-8f21 37=VEN-771 151=1000000</span></div>
+          <div class="msg"><span class="dir">→</span><span class="body">35=G 11=ORD-8f22 41=ORD-8f21 38=1000000 44=1.0839</span></div>
+          <div class="msg no"><span class="dir">←</span><span class="body">35=8 150=8 39=8 11=ORD-8f22 58=Replace not supported</span></div>
+          <div class="msg"><span class="dir">→</span><span class="body">35=F 11=ORD-8f23 41=ORD-8f21 54=1 38=1000000</span></div>
+          <div class="msg"><span class="dir">←</span><span class="body">35=0 (heartbeat)</span></div>
+        </div>
+      </div>
+    </div>
+    <figcaption><span class="try">Try it</span><b>Click an entry.</b> The rail's report follows the focused entry. The grid beside it does <em>not</em> — that is the live session, still receiving, and it keeps its own tint. Entry 3 ran eight minutes and four <code>ClearMessages</code> ago; where its messages went is the next section.</figcaption>
+  </figure>
+
+  <h2>The run record — where the evidence lives<span class="rev">revised</span></h2>
+  <div class="col">
+    <p><b>This is the question a suite actually asks.</b> Entry 2's setup calls <code>ClearMessages</code>, so the moment the second scenario starts the first one's messages are gone — and even without a clear, a session is a ring buffer of 1,000. By the time a twelve-scenario suite lands, the grid holds the last entry's traffic and nothing else. Eleven reports would point at messages that are not there.</p>
+    <p>The first draft answered this with <em>references</em>: hold each entry's message objects in memory, in the tab. Review found three things wrong with that, and they point the same way. The overnight suite is answered in the morning, from an app that may have been closed since — references die with the process. Headless runs are the other primary case, and they have no tab. And the references were never as cheap as they looked: the runner keeps no snapshot between polls, and the class the map would key on does not actually promise identity.</p>
+    <p>So the evidence goes to disk as it is produced, and <b>the tab is a viewer over the record</b>. Three facts from the code make that a serialization of things already in hand:</p>
+  </div>
+
+  <div class="findings" style="margin-bottom:1.6rem">
+    <div class="finding">
+      <p class="where">ScenarioReport.kt:18<br>toJson</p>
+      <div><p class="what"><b>The report is already JSON.</b> The record's <code>result</code> block is <code>ScenarioReport.toJson(result)</code>, verbatim.</p></div>
+    </div>
+    <div class="finding">
+      <p class="where">ControlServer.kt:1140<br>capture-paste</p>
+      <div><p class="what"><b>Wire already round-trips.</b> <code>wireRaw</code> is on every captured message, and capture-paste already turns pasted wire back into messages the grid can show. The record's grid is that path, over the record's bytes.</p></div>
+    </div>
+    <div class="finding">
+      <p class="where">FixMessageViewModel.kt:2739<br>rebindSlot</p>
+      <div><p class="what"><b>Reconcile needs <code>stepId</code> and <code>wireRaw</code>, nothing else.</b> The record's <code>bound</code> index plus the message's <code>raw</code> is the same pair.</p></div>
+    </div>
+  </div>
+
+<pre><span class="c">~/.fixtool/runs/2026-08-28T09-36-02-nightly/</span>
+<span class="c">  set.json · 01-smoke-nos.json · 02-book-a-trade.json · 03-cancel-replace.json · …</span>
+
+<span class="c">// 03-cancel-replace.json — written the moment the entry lands, by GUI and headless runs alike</span>
+{ <span class="s">"set"</span>: <span class="s">"2026-08-28T09-36-02-nightly"</span>, <span class="s">"entry"</span>: <span class="n">3</span>, <span class="s">"iteration"</span>: <span class="n">1</span>,
+  <span class="s">"scenario"</span>: { <span class="s">"id"</span>: <span class="s">"…"</span>, <span class="s">"name"</span>: <span class="s">"cancel-replace"</span> }, <span class="s">"row"</span>: <span class="n">null</span>, <span class="s">"lane"</span>: <span class="n">null</span>,
+  <span class="s">"startedAt"</span>: <span class="s">"2026-08-28T09:41:15.201Z"</span>, <span class="s">"durationMs"</span>: <span class="n">3104</span>,
+  <span class="s">"result"</span>: { … },                                   <span class="c">// exactly ScenarioReport.toJson</span>
+  <span class="s">"messages"</span>: [ { <span class="s">"i"</span>: <span class="n">0</span>, <span class="s">"session"</span>: <span class="s">"QUOTE1"</span>, <span class="s">"dir"</span>: <span class="s">"out"</span>, <span class="s">"at"</span>: <span class="n">1724838075201331</span>, <span class="s">"raw"</span>: <span class="s">"8=FIX.4.4…"</span> }, … ],
+  <span class="s">"bound"</span>: { <span class="s">"step-3f1a"</span>: <span class="n">3</span> },                       <span class="c">// stepId → the message that step judged</span>
+  <span class="s">"dropped"</span>: <span class="n">0</span> }                                      <span class="c">// what the cap removed — reported, never silent</span></pre>
+
+  <div class="col">
+    <p>Messages are accumulated <em>while the entry runs</em>, by a subscriber on each session's message flow — not by the runner's polls, which keep nothing between them. The flow conflates, which is fine: the buffer evicts one message per arrival, so the recorder loses nothing as long as it looks at least once per thousand arrivals, against an ingest ceiling of about a thousand a second.</p>
+    <p><b>Retention is a directory, not a tab.</b> The runs directory keeps the most recent twenty sets and any the author pins; closing a tab releases nothing on disk, and <b>Recent runs ▸</b> reopens a set the app has since restarted out of. Headless writes the same directory, so a build box leaves the same records a click would.</p>
+  </div>
+
+  <h2>The run set is a document</h2>
+  <div class="col">
+    <p><code>ScenarioDoc</code> is the sealed list of what a centre-pane tab can be — an editor or a capture review today. A run set is a third: a viewer over one record directory. Entries down the left, and for the focused entry its steps, its verdict, its variables, and <b>its own message grid re-parsed from the record</b> — tinted exactly as the live grid would have tinted it.</p>
+    <p>Two surfaces, two jobs, neither lying:</p>
+  </div>
+
+  <div class="tablewrap">
+    <table class="phases">
+      <thead><tr><th>Surface</th><th>Shows</th><th>Tint</th></tr></thead>
+      <tbody>
+        <tr><td>Session grid</td><td>now — live traffic, still arriving</td><td>the last entry that ran on that session, for the messages still in it</td></tr>
+        <tr><td>Run set tab</td><td>any entry, from its record</td><td>that entry's own <code>bound</code> map</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span>FixTool — documents</span><span class="grow"></span></div>
+      <div class="tabs">
+        <span class="tab">⚙ cancel-replace</span>
+        <span class="tab">⧉ capture</span>
+        <span class="tab on">▦ nightly · 09:36</span>
+      </div>
+      <div class="rail split">
+        <div>
+          <div class="setline">
+            <span class="label">12 entries</span>
+            <span class="grow"></span>
+            <span style="color:var(--app-good)">10 ✓</span>
+            <span style="color:var(--app-bad)">2 ✗</span>
+            <span style="color:var(--app-dim)">5m03s</span>
+          </div>
+          <div class="entries" role="listbox" aria-label="Run set entries, from the record" id="setdoc">
+            <button class="entry pass" role="option" aria-selected="false" data-k="smoke">
+              <span class="glyph">✓</span><span class="name">smoke-nos</span><span class="ms">1.2s</span>
+            </button>
+            <button class="entry pass" role="option" aria-selected="false" data-k="book">
+              <span class="glyph">✓</span><span class="name">book-a-trade</span><span class="ms">4.8s</span>
+            </button>
+            <button class="entry fail" role="option" aria-selected="true" data-k="cancel">
+              <span class="glyph">✗</span><span class="name">cancel-replace</span><span class="frac">2/4</span><span class="ms">3.1s</span>
+            </button>
+            <button class="entry fail" role="option" aria-selected="false" data-k="partial">
+              <span class="glyph">✗</span><span class="name">partial-fill-x3</span><span class="frac">4/6</span><span class="ms">7.4s</span>
+            </button>
+            <button class="entry pass" role="option" aria-selected="false" data-k="quote">
+              <span class="glyph">✓</span><span class="name">quote-stream</span><span class="ms">31.0s</span>
+            </button>
+          </div>
+          <div class="report" id="docreport" aria-live="polite"></div>
+        </div>
+        <div class="grid-pane">
+          <div class="pane-head" id="frozenhead"></div>
+          <div id="frozengrid"></div>
+        </div>
+      </div>
+    </div>
+    <figcaption><span class="try">Try it</span><b>Click any entry — including the ones that ran first, and including after a restart.</b> Each carries its own bytes, so entry 1 is as inspectable at the end of the suite as it was the second it finished. Rows expand, the detail panel opens, tag search works: these are real messages parsed from real wire. <b>quote-stream</b> shows the cap doing its job; <b>partial-fill-x3</b> shows the reconcile gate the record cannot waive.</figcaption>
+  </figure>
+
+  <div class="col">
+    <h3>Reconcile, from an entry that ran an hour ago</h3>
+    <p>It works the way it works today, with today's gates stated rather than assumed. The route needs the message with its bytes, the run attributed to a scenario, the scenario still on disk with that step in it, and <b>the step unchanged since the run</b>. A record supplies the first two; the last two are checked against the saved file when the entry is focused, and an entry whose scenario has been edited since says so rather than reconciling bytes against an expectation that no longer exists. <b>Save &amp; re-run</b> from there re-runs <em>that scenario alone</em>, as a new set of one — the old set is a record, and records do not mutate.</p>
+    <h3>What the cap drops</h3>
+    <p>The cap is per entry, in messages, a setting beside the message buffer size. It drops the right ones: <b>every message the report references is kept</b> (bound messages, strays a STRICT verdict named), and the cap falls on the unbound remainder, oldest first. An entry that lost anything says so on its grid header and in <code>dropped</code>.</p>
+  </div>
+
+  <h2>The rail, repeating one scenario</h2>
+  <div class="col">
+    <p>Twenty rows carrying the same name is not a report. A repeat set collapses to one row per scenario with an iteration strip beneath it, and the numbers that matter to a flake hunt — median, slowest, which iterations failed — sit on the row itself.</p>
+    <p>Two timing lines, because they answer different questions. The <em>flow</em> line says whether the scenario is drifting: passing twenty times while going from 1.9 s to 8.4 s is something no pass/fail will tell you. The <em>step</em> line — Send to bound reply, measured by the runner — says whether that drift is the venue's or the flow's own.</p>
+  </div>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span>FixTool — QUOTE1 · TRADE1</span><span class="grow"></span><span>scenarios</span></div>
+      <div class="rail">
+        <div class="rail-head">
+          <span class="run-btn">Run ▾</span>
+          <span class="filter">⌕ filter…</span>
+          <span>⋮</span>
+        </div>
+        <div class="setline">
+          <span class="label">book-a-trade ×20</span>
+          <span class="grow"></span>
+          <span style="color:var(--app-good)">17 ✓</span>
+          <span style="color:var(--app-bad)">3 ✗</span>
+          <span style="color:var(--app-dim)">isolated</span>
+        </div>
+        <div class="strip" role="listbox" aria-label="Iterations" id="strip"></div>
+        <div class="strip-meta">
+          <span><b>flow</b> median 1.9s · slowest #15 8.4s</span>
+          <span><b>35=D→8</b> p50 180ms · p95 1.7s</span>
+          <span><b>failures</b> #6, #15, #19</span>
+          <span><b>binding</b> this_run</span>
+        </div>
+        <div class="report" id="iterreport" aria-live="polite"></div>
+      </div>
+    </div>
+    <figcaption><span class="try">Try it</span><b>Click an iteration.</b> Failures cluster where a flake lives — here #15 is both the slowest and a failure, and its step latency says the venue queued rather than the flow stalling. Every iteration has its record, so a failure from iteration 6 reconciles as readily as the last one.</figcaption>
+  </figure>
+
+  <h2>Starting one</h2>
+  <div class="col">
+    <p>No new taxonomy on the scenario. A set is built from what the rail already has — ★ favourites, the current filter text, an explicit multi-select — and any of those can be <b>saved as a set</b>: a file in <code>~/.fixtool/sets/</code>, like a scenario, a profile and the view state. A saved set is what the Run ▾ menu lists by name and what CI selects, because CI selects by a name in a checkout, not by a local star file. The repeat dialog carries the one decision an author must see — iteration isolation — and says what isolation does <em>not</em> reset.</p>
+  </div>
+
+  <figure>
+    <div class="duo">
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><span class="dot"></span><span>Run ▾</span></div>
+          <div class="menu">
+            <div class="item head"><span class="grow">Run set ▸</span></div>
+            <div class="item sub"><span class="grow">nightly</span><span class="n">12</span></div>
+            <div class="item sub"><span class="grow">smoke</span><span class="n">4</span></div>
+            <div class="item"><span class="grow">Run ★ favourites</span><span class="n">12</span></div>
+            <div class="item"><span class="grow">Run filtered</span><span class="n">4</span></div>
+            <div class="item"><span class="grow">Run selected…</span></div>
+            <div class="item"><span class="grow">Save as set…</span></div>
+            <div class="sep"></div>
+            <div class="item"><span class="grow">Repeat this scenario ×N…</span></div>
+            <div class="item"><span class="grow">Run examples table</span><span class="n">8</span></div>
+            <div class="item"><span class="grow">Fan out over sessions…</span><span class="n" style="color:var(--app-dim)">phase 4</span></div>
+            <div class="sep"></div>
+            <div class="item"><span class="grow">Recent runs ▸</span><span class="n">20</span></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><span class="dot"></span><span>Repeat — book-a-trade</span></div>
+          <div class="dlg">
+            <div class="field"><label>Iterations</label><span class="box">20</span></div>
+            <div class="field"><label>Pause between</label><span class="box">500 ms</span></div>
+            <div class="field"><label>On failure</label><span class="box">keep going ▾</span></div>
+            <div class="field"><span class="check">☑</span><span>Isolate each iteration</span></div>
+            <p class="note">Isolation runs every iteration with <span style="color:var(--app-text2)">binding = this_run</span>, so an expect cannot bind the previous iteration's reply and report a pass the venue never gave. It does <span style="color:var(--app-text2)">not</span> clear messages or the venue's order book — this scenario's setup does both (<span style="color:var(--app-text2)">ClearMessages</span>, <span style="color:var(--app-text2)">ClearOrderBook</span>). Estimated wall-clock ≈ 1m40s. Records go to <span style="color:var(--app-text2)">runs/</span>.</p>
+            <div class="actions"><span class="cancel">Cancel</span><span class="go">Run ×20</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>The dialog states the cost (wall-clock), the one semantic change it is making, and the two resets it is <em>not</em> making — in the sentence where the author decides. A scenario whose setup lacks either reset gets that sentence in amber.</figcaption>
+  </figure>
+
+  <h2>Examples — a table, not a second engine</h2>
+  <div class="col">
+    <p>A scenario is <b>already a Scenario Outline</b>. Every step is parameterized, and the single variable scope the runner threads through a run already covers both directions you'd want columns for: a Send puts <code>${symbol}</code> on the wire, an expectation's <code>reference</code> matcher asserts it came back, and <code>bindAs</code> writes the venue's <em>own</em> choice into the scope for later steps.</p>
+    <p>What's missing is the table, one runner parameter — and <span class="rev" style="margin-left:0">revised</span> two places that must learn about it:</p>
+  </div>
+
+<pre><span class="c">// ScenarioRunner.runIdentified, today (:120, :128)</span>
+<span class="k">private fun</span> runIdentified(scenario: Scenario): ScenarioResult
+    <span class="k">val</span> scope = mutableMapOf&lt;String, String&gt;()
+
+<span class="c">// with a seed — a row's cells, or a lane's four names</span>
+<span class="k">private fun</span> runIdentified(scenario: Scenario, seed: Map&lt;String, String&gt; = emptyMap()): ScenarioResult
+    <span class="k">val</span> scope = seed.mapValues { host.resolve(it.value, mutableMapOf(), <span class="n">null</span>) }.toMutableMap()</pre>
+
+  <div class="col">
+    <p><code>host.resolve</code> (sends), <code>resolveMatch</code> (bind predicates) and <code>referenceResolver</code> (reference matchers) all read that map already. A cell can itself be an expression, so <code>${uuid}</code> in a column gives every row its own fresh id. The two things that do <em>not</em> know about a seed: <code>ScenarioResult.variables</code> credits every name to the step that minted it, so a seeded name would be credited to whichever step ran first — <code>ScenarioVariable</code> gains <code>source = ROW | LANE | STEP</code>; and <code>ScenarioAnnotations.unminted()</code> is a regex pass over the steps, so it would flag every column as never minted — it takes the column names as a second input.</p>
+  </div>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span>⚙ book-a-trade — editor</span><span class="grow"></span><span>8 rows</span></div>
+      <div class="steps-strip">
+        <span>1 send D</span><span class="sep">·</span>
+        <span>35=D 55=<span class="v">${symbol}</span> 38=<span class="v">${qty}</span> 11=<span class="v">${clOrdID = uuid}</span></span>
+        <span class="sep">|</span>
+        <span>2 expect 8</span><span class="sep">·</span>
+        <span>39=<span class="v">${expectStatus}</span> 55=<span class="v">${symbol}</span> 14=<span class="v">${expectCumQty}</span></span>
+      </div>
+      <div class="pane-head">Examples — seeded into the scope before setup runs</div>
+      <table class="xtable">
+        <thead>
+          <tr>
+            <th>row</th>
+            <th>symbol <span class="io out">↑ out</span></th>
+            <th>qty <span class="io out">↑ out</span></th>
+            <th>expectStatus <span class="io inb">↓ in</span></th>
+            <th>expectCumQty <span class="io inb">↓ in</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="rowname">EUR/USD full fill</td><td>EUR/USD</td><td>1000000</td><td>2</td><td>1000000</td></tr>
+          <tr><td class="rowname">EUR/USD partial</td><td>EUR/USD</td><td>5000000</td><td>1</td><td>2500000</td></tr>
+          <tr><td class="rowname">GBP/USD full fill</td><td>GBP/USD</td><td>250000</td><td>2</td><td>250000</td></tr>
+          <tr><td class="rowname">USD/JPY odd lot</td><td>USD/JPY</td><td>17</td><td>2</td><td>17</td></tr>
+          <tr class="muted"><td class="rowname">XAU/USD — venue down</td><td>XAU/USD</td><td>100</td><td>2</td><td>100</td></tr>
+          <tr class="add"><td colspan="5">+ add row · + add column · extract a step's value into a column…</td></tr>
+        </tbody>
+      </table>
+      <div class="lint">ⓘ <code style="background:none;color:var(--app-warn)">clOrdID</code> is minted by step 1 and supplied by no column — fine. A column named <code style="background:none;color:var(--app-warn)">clOrdID</code> would be overwritten by that mint, because <code style="background:none;color:var(--app-warn)">${name = …}</code> is an assignment everywhere else too; the header would say so.</div>
+    </div>
+    <figcaption><b>↑ out / ↓ in is derived, not declared.</b> <code>ScenarioAnnotations.sites()</code> already knows which steps mint a variable, which capture it from a reply, and which read it — so the header says which side each column drives without a flag on the model. A muted row parks a case without deleting it, the same bargain a muted step makes.</figcaption>
+  </figure>
+
+  <div class="col">
+    <h3>From a capture to an outline</h3>
+    <p>Nobody hand-writes the first table. A captured scenario has literals baked into it, so the door is <b>"Extract to example column…"</b> on any value in the editor: the literal becomes <code>${symbol}</code>, a column appears named through the same <code>mintName</code> capture uses (so it reads <code>symbol</code>, not <code>col1</code>), and the value it replaced becomes row 1's cell. Capture once, extract three values, add rows.</p>
+  </div>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span>FixTool — documents</span><span class="grow"></span></div>
+      <div class="tabs">
+        <span class="tab">⚙ book-a-trade</span>
+        <span class="tab on">▦ book-a-trade · 8 rows · 10:07</span>
+      </div>
+      <div class="rail split">
+        <div>
+          <div class="setline">
+            <span class="label">8 rows</span>
+            <span class="grow"></span>
+            <span style="color:var(--app-good)">6 ✓</span>
+            <span style="color:var(--app-bad)">2 ✗</span>
+            <span style="color:var(--app-dim)">1 parked</span>
+          </div>
+          <div class="entries" role="listbox" aria-label="Example rows" id="rowsdoc">
+            <button class="entry pass" role="option" aria-selected="false" data-k="r1"><span class="glyph">✓</span><span class="name">EUR/USD full fill</span><span class="ms">2.1s</span></button>
+            <button class="entry fail" role="option" aria-selected="true" data-k="r2"><span class="glyph">✗</span><span class="name">EUR/USD partial</span><span class="frac">4/6</span><span class="ms">8.0s</span></button>
+            <button class="entry pass" role="option" aria-selected="false" data-k="r3"><span class="glyph">✓</span><span class="name">GBP/USD full fill</span><span class="ms">1.9s</span></button>
+            <button class="entry fail" role="option" aria-selected="false" data-k="r4"><span class="glyph">✗</span><span class="name">USD/JPY odd lot</span><span class="frac">5/6</span><span class="ms">2.3s</span></button>
+            <button class="entry wait" role="option" aria-selected="false" data-k="r5"><span class="glyph">·</span><span class="name">XAU/USD — venue down</span><span class="frac">parked</span></button>
+          </div>
+          <div class="report" id="rowreport" aria-live="polite"></div>
+        </div>
+        <div class="grid-pane">
+          <div class="pane-head" id="rowhead"></div>
+          <div id="rowgrid"></div>
+          <div class="lint" id="rownote"></div>
+        </div>
+      </div>
+    </div>
+    <figcaption><span class="try">Try it</span><b>Click a row.</b> Each row is an entry like any other — its own verdict, its own record, its own reconcile route. The row's inputs sit at the top of its report, because "which values produced this failure" is the first question an outline failure raises. <b>USD/JPY odd lot</b> shows why the repair is keyed by the referenced column, not by value.</figcaption>
+  </figure>
+
+  <div class="col">
+    <h3>The one thing that must not be allowed</h3>
+    <p>Row 2 fails, the author clicks <b>Accept actual</b>, and the actual carries <code>55=EUR/USD</code>. Writing that literal repairs row 2 and <em>silently breaks the other seven</em> — the expectation belongs to all of them.</p>
+    <p>The fix is where the problem is: the run reports its final scope, the diff window shows it as the variables strip, and the gutter already offers <code>$ TRACK</code> where an actual equals a variable's value. On a row entry that offer becomes the <em>default</em> — <span class="rev" style="margin-left:0">revised</span> but keyed by the right thing. This table has a row where <code>qty</code> and <code>expectCumQty</code> are both <code>17</code>; an actual <code>14=17</code> equals two cells, and matching by value alone would offer the wrong column. So the repair is chosen by <b>the column the failing expectation referenced</b> (<code>${expectCumQty}</code> on tag 14), with value equality as the fallback for an expectation that referenced nothing. The literal stays available as the deliberate alternative.</p>
+    <h3>Together, or separate?</h3>
+    <p><b>One run set, two pieces of work.</b> Examples are a third <em>source of entries</em> — a repeat produces N identical ones, a suite N different ones, a table N seeded ones — and past that point every surface is shared. Building a separate data-driven runner would give you a second run report that disagrees with the first about what a failure looks like.</p>
+    <p>The <em>authoring</em> is genuinely separate work — the table, the editor grid, the extract door, the lints — and none of it blocks the suite. So: shared model, its own phase, and <b>ahead of fan-out</b>, because a QA team gets more from eight instruments through one flow than from fifty sessions through one.</p>
+  </div>
+
+  <h2>Fan-out: preflight already does this</h2>
+  <div class="col">
+    <p>The substrate is already built and shipped. A profile's <code>sessionCount</code> (initiators only) opens that many sessions on one Connect, and <code>SessionIdentityResolver</code> gives each slot its own identity from a <code>{n}</code>/<code>{nn}</code> numbering pattern or a comma-separated list across SenderCompID, TargetCompID, Username and Password. Where two slots would resolve to the same sender/target pair it derives a distinct <code>SessionQualifier</code>, which is what keeps QuickFIX session ids and message store files from colliding — the genuinely hard part of running fifty clients, already done.</p>
+    <p>The sessions come out titled <code>LoadGen [1]</code> … <code>LoadGen [50]</code>, each carrying its <code>profileSlot</code>. Scenario steps target sessions <em>by title</em>, and <code>withSessions</code> remaps by title. So one lane is literally:</p>
+  </div>
+
+<pre>scenario.withSessions(mapOf(<span class="s">"QUOTE1"</span> to <span class="s">"LoadGen [7]"</span>))</pre>
+
+  <div class="col">
+    <p><b>The connection half is done too</b>, and it works on exactly the principle a fan-out wants. Every run's preflight resolves each session as:</p>
+    <ol>
+      <li><b>There and ready</b> → use it, touch nothing.</li>
+      <li><b>Down, or not there at all</b> → one recovery attempt. <code>connectSession</code> reconnects it through its own profile, or — for a session that doesn't exist — the host strips the <code>[n]</code> slot suffix and connects the profile carrying its name, <em>which creates every slot</em>.</li>
+      <li>All attempts start before any wait, so slow logons overlap under one deadline; each success becomes a passing <code>connect</code> row in the report, each failure a named, actionable refusal.</li>
+    </ol>
+    <p>And <code>connectProfile</code> is per-slot reuse-or-create in its own right: it revives the group's sessions that are down and fills only the <em>free</em> slots. Connect a 50-session profile that already has 30 up and you get the missing 20 — a top-up, not a duplicate set.</p>
+    <p>So <b>fan-out gets no connection logic of its own.</b> The one rule that survives from the first draft: never invent a session <em>outside a saved profile</em>. A session is a visible object — identity, connection state, message log, a pane in the grid. A lane conjured outside a profile would be one you can't see, inspect, tint or disconnect.</p>
+    <h3>The one new question</h3>
+    <p>Everything beyond preflight is a capability check on a single field: <b>can this profile open more than one session?</b></p>
+  </div>
+
+<pre><span class="k">val</span> lanes = <span class="k">when</span> {
+    profile == <span class="n">null</span>                        -&gt; Unavailable(<span class="s">"no saved profile behind '$session'"</span>)
+    profile.config.connectionType != INITIATOR -&gt; Unavailable.acceptor(profile)   <span class="c">// binds one port</span>
+    profile.config.sessionCount &lt;= <span class="n">1</span>          -&gt; Unavailable.singleSession(profile)
+    <span class="k">else</span>                                       -&gt; Available(profile, profile.config.sessionCount)
+}</pre>
+
+  <figure>
+    <div class="duo">
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><span class="dot"></span><span>Profile — LoadGen</span><span class="grow"></span><span>exists today</span></div>
+          <div class="dlg">
+            <div class="field"><label>Host : Port</label><span class="box">fix.venue.test : 9878</span></div>
+            <div class="field"><label>Sessions</label><span class="box">50</span></div>
+            <div class="field"><label>SenderCompID</label><span class="box">LOADGEN{nn}</span></div>
+            <div class="field"><label>TargetCompID</label><span class="box">VENUE</span></div>
+            <p class="note">Opens <span style="color:var(--app-text2)">LoadGen [1] … LoadGen [50]</span> as LOADGEN01…LOADGEN50, each with its own qualifier and store. <span style="color:var(--app-good)">Fan-out available.</span></p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="screen">
+          <div class="screen-bar"><span class="dot"></span><span>Run ▾ — smoke-nos</span><span class="grow"></span><span>Sessions = 1</span></div>
+          <div class="menu">
+            <div class="item"><span class="grow">Run ★ favourites</span><span class="n">12</span></div>
+            <div class="item"><span class="grow">Repeat this scenario ×N…</span></div>
+            <div class="item"><span class="grow">Run examples table</span><span class="n">8</span></div>
+            <div class="item off"><span class="grow">Fan out over sessions…</span><span class="n">✕</span></div>
+          </div>
+          <div class="refuse">
+            <b>Fan-out needs a profile that opens more than one session, and QuoteVenue opens 1.</b>
+            Set <span style="color:var(--app-text)">Sessions</span> on the profile to the number of lanes you want — with a <span style="color:var(--app-text)">{nn}</span> pattern in SenderCompID, so each lane logs on as its own identity — then reconnect.
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption><b>Disabled with its reason showing, not hidden.</b> Silently withholding a decision the tool has already made leaves you unable to tell <em>"this can't be done, and here's why"</em> from <em>"this feature doesn't exist"</em>. An acceptor profile gets a different sentence — it binds one listen port, so it is one session by construction and no Sessions field would help.</figcaption>
+  </figure>
+
+  <div class="col">
+    <h3>The second leg, and where disjointness still bites</h3>
+    <p>A one-leg scenario needs nothing more: lanes spread over the group, and that's the dialog. A <em>second</em> session is where a choice appears, because it may have no multi-session profile behind it — fifty client lanes against one shared back-office session.</p>
+    <p>That pinning is exactly what breaks the licence for running lanes at once: fifty lanes sharing <code>TRADE1</code> share its message log and its consumed cursor, so lane 12 can bind the reply to lane 30's order, and the report becomes indistinguishable from a venue bug. Refused, with the remedy named — give <code>TRADE1</code> its own multi-session profile, fan out only the <code>QUOTE1</code> leg, or set concurrency to 1.</p>
+    <h3>Three things fall out of following today's rule</h3>
+    <ul>
+      <li><b>Lanes must be logged on</b>, like Bulk Send's targets — which already takes every <code>LOGGED_ON</code> session, whatever profile it came from. Two different answers in one app to "which sessions does <em>many sessions</em> mean" would be a defect.</li>
+      <li><b>A shortfall runs, it doesn't refuse.</b> Preflight tops the group up and waits; if the venue lets only 38 of 50 on, the set runs 38 lanes and says so. A load test that won't start because it's twelve short of a round number is one nobody runs.</li>
+      <li><b><code>null</code> means <em>this lane's session</em>, and disjointness is checked after that is resolved.</b> <span class="rev" style="margin-left:0">revised</span> <code>ScenarioStep</code>'s doc says "null = the active session"; <code>resolveSession</code> returns <code>list.firstOrNull()</code>; and <code>runSessions()</code> returns <code>null</code> as its own element beside the named ones. So two lanes whose <em>named</em> sessions are disjoint can both clear and read session 0 through a null-session step — and every scenario captured on an unnamed session has one. <code>withSessions</code> cannot rescue it; it short-circuits on null. So the fix is not a remap: each lane's host carries a <b>default session</b> that null resolves to, and the licence is computed over the sessions the steps will actually touch.</li>
+    </ul>
+    <h3>A lane already knows what to call itself</h3>
+    <p>Bulk Send seeds four names per target — <code>sessionIndex</code>, <code>sessionQualifier</code>, <code>sessionTitle</code>, <code>sessionSenderCompID</code> — so <code>262=MD-${sessionIndex}</code> distinguishes sessions with no ceremony. A lane seeds those same four, into the same scope an examples row seeds — with one correction: Bulk Send's <code>sessionIndex</code> is the target's position in the logged-on list, which changes when a session drops. A lane's <code>sessionIndex</code> is its <b><code>profileSlot</code></b>, so lane 7 is <code>LOADGEN07</code> on every run and in every record. A <b>lane</b> carries its session's identity, a <b>row</b> carries the table's values, an <b>iteration</b> carries neither. One seeding mechanism, one <code>seed</code> argument.</p>
+  </div>
+
+  <div class="col">
+    <h3>The far end is addressable — it is not free<span class="rev">revised</span></h3>
+    <p>If the other side is FixTool in acceptor mode, it already opens a pane per connecting client, titled <code>&lt;profile&gt; ← &lt;client CompID&gt;</code>, with its own order book. Fifty <code>LOADGEN{nn}</code> initiators against a FixTool venue produce fifty named panes and fifty books on the other side — so both ends of a lane are addressable by name. What is <em>not</em> free is the venue's throughput: all fifty sessions of one acceptor share QuickFIX/J's single event-handling thread, and every reply goes through <code>AcceptorDispatch</code>'s one scheduled thread. Under fifty concurrent lanes an authored delay becomes a floor, and the p95 a lane measures against FixTool's own venue is FixTool's. The dialog says so.</p>
+    <h3>Fifty lanes changes the report, and the evidence policy</h3>
+    <p>Nobody clicks through fifty rows, and keeping every lane's record whole is a different order of magnitude from a twelve-scenario suite's. So a fan-out set flips both: the report is a distribution <em>over step latency</em>, and after the set completes the records are trimmed — <b>failed lanes kept whole, the first passing lane as a reference specimen, the rest reduced to their result and timings</b>.</p>
+  </div>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="dot"></span><span>▦ book-a-trade · 50 lanes · 11:12</span><span class="grow"></span></div>
+      <div class="setline">
+        <span class="label">LoadGen ×50 lanes</span>
+        <span class="grow"></span>
+        <span style="color:var(--app-good)">48 ✓</span>
+        <span style="color:var(--app-bad)">2 ✗</span>
+        <span style="color:var(--app-dim)">concurrency 50</span>
+      </div>
+      <div class="strip lanes" role="listbox" aria-label="Lanes" id="lanes"></div>
+      <div class="strip-meta">
+        <span><b>35=D→8</b> p50 214ms · p95 1.9s · max 8.4s</span>
+        <span><b>lane</b> median 1.1s · slowest 45 · 8.4s</span>
+        <span><b>failures</b> lane 14, lane 45</span>
+      </div>
+      <div class="lint">evidence: 2 failed lanes kept whole · lane 1 kept as reference · 47 trimmed to counts &nbsp;·&nbsp; measured at the client · far end is QuoteVenue (FixTool acceptor, one reply thread)</div>
+      <div class="report" id="lanereport" aria-live="polite"></div>
+    </div>
+    <figcaption><span class="try">Try it</span><b>Click a lane.</b> "Did all fifty pass" is the weaker question — <em>what did the ninety-fifth percentile cost</em> is what a venue is actually being asked, and it has to be measured between the bytes that left and the bytes that answered, not from the lane's wall-clock.</figcaption>
+  </figure>
+
+  <h2>What the code already decides</h2>
+  <div class="col"><p>The four facts the first draft was built on, re-verified — with the two that needed correcting.</p></div>
+
+  <div class="findings">
+    <div class="finding">
+      <p class="where">ScenarioRunner.kt:120<br>runIdentified</p>
+      <div>
+        <p class="what"><b>Repeat is already safe where it counts.</b> Every run allocates a fresh variable scope, consumed-set and watermark, so iteration 2 mints its own <code>ClOrdID</code> and inherits nothing from iteration 1.</p>
+        <p class="verdict-line free">holds · one seed parameter for examples and lanes</p>
+      </div>
+    </div>
+    <div class="finding">
+      <p class="where">FixMessageViewModel.kt:2689<br>beginScenarioRun</p>
+      <div>
+        <p class="what"><b>One run slot, a global CAS boolean</b>, shared by the Run button and <code>/scenarios/run</code> through their one common caller, because two runners would race each other's consumed cursors. A sequential set claims it once for the whole batch — which also stops an agent run slipping in between iterations 7 and 8.</p>
+        <p class="verdict-line work">holds · narrow it to a session set for fan-out</p>
+      </div>
+    </div>
+    <div class="finding">
+      <p class="where">FixMessageViewModel.kt:275<br>_assertionResults</p>
+      <div>
+        <p class="what"><b>The tint map is not what it looks like.</b> It is Compose state, not a flow, and it is keyed by a data class whose equality collapses to identity only because <code>quickfix.Message</code> never overrode <code>equals</code>. It works as an identity map today; a <code>copy()</code> or a re-parse breaks it. Per-entry maps key by <code>uid</code>, which is the identity the class actually promises.</p>
+        <p class="verdict-line moved">corrected · the first draft called it "already fan-out shaped"</p>
+      </div>
+    </div>
+    <div class="finding">
+      <p class="where">ControlServer.kt:1426<br>runScenario</p>
+      <div>
+        <p class="what"><b>The route runs the scenario on the calling HTTP thread.</b> One of four, no timeout, errors as HTTP 200. The MCP shim gives up at 15 s. A set has to be a job.</p>
+        <p class="verdict-line moved">corrected · the first draft grew the synchronous call</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>Automation and CI<span class="rev">revised</span></h2>
+  <div class="col">
+    <p><code>POST /scenarios/run</code> given an <code>id</code> alone returns exactly what it returns today — synchronous, unchanged. Given <code>set</code>, <code>ids</code>, <code>repeat</code>, <code>rows</code> or <code>concurrency</code>, it <b>starts a job</b> and returns at once. Every record is the report shape an agent already knows how to read and reconcile from, plus the bytes.</p>
+  </div>
+
+<pre><span class="c">POST /scenarios/run</span>
+{ <span class="s">"set"</span>: <span class="s">"nightly"</span> }                                       <span class="c">// a saved set</span>
+{ <span class="s">"ids"</span>: [<span class="s">"smoke-nos"</span>, <span class="s">"book-a-trade"</span>], <span class="s">"repeat"</span>: <span class="n">3</span> }      <span class="c">// an ad-hoc one</span>
+
+<span class="n">202</span> { <span class="s">"runSet"</span>: <span class="s">"2026-08-28T09-36-02-nightly"</span>, <span class="s">"status"</span>: <span class="s">"running"</span>, <span class="s">"entries"</span>: <span class="n">12</span> }
+<span class="n">409</span> { <span class="s">"status"</span>: <span class="s">"error"</span>, <span class="s">"error"</span>: <span class="s">"a scenario run is already in progress"</span> }
+
+<span class="c">GET  /scenarios/runs/2026-08-28T09-36-02-nightly            // state now; ?wait=10000 long-polls</span>
+{ <span class="s">"status"</span>: <span class="s">"running"</span>,
+  <span class="s">"summary"</span>: { <span class="s">"total"</span>: <span class="n">12</span>, <span class="s">"done"</span>: <span class="n">7</span>, <span class="s">"passed"</span>: <span class="n">5</span>, <span class="s">"failed"</span>: <span class="n">2</span>, <span class="s">"elapsedMs"</span>: <span class="n">252000</span> },
+  <span class="s">"entries"</span>: [ { <span class="s">"n"</span>: <span class="n">3</span>, <span class="s">"scenario"</span>: <span class="s">"cancel-replace"</span>, <span class="s">"state"</span>: <span class="s">"FAILED"</span>,
+                 <span class="s">"durationMs"</span>: <span class="n">3104</span>, <span class="s">"record"</span>: <span class="s">"03-cancel-replace.json"</span> }, … ] }
+
+<span class="c">GET  /scenarios/runs/&lt;id&gt;/entries/3                         // the record: today's report + messages</span>
+<span class="c">POST /scenarios/runs/&lt;id&gt;/stop</span>
+<span class="c">GET  /scenarios/runs                                        // recent sets, newest first</span></pre>
+
+  <div class="col">
+    <p><code>fixtool_run_scenario</code> keeps its parameters (and finally declares <code>sessions</code>, which the route has accepted all along); <code>fixtool_run_set</code>, <code>fixtool_run_status</code> (with <code>wait</code>, kept under the shim's ceiling) and <code>fixtool_run_entry</code> are the new tools. The CLI closes a gap its own source names — <code>HeadlessRun</code> calls the batch sweep "the strongest driver" and then supports one scenario per process — and writes the same records a click would:</p>
+  </div>
+
+<pre>fixtool run --set nightly --junit reports/    <span class="c"># a saved set, one file per entry, records under --home</span>
+fixtool run --all --stop-on-failure           <span class="c"># every saved scenario</span>
+fixtool run book-a-trade --repeat <span class="n">20</span> --pause <span class="n">500ms</span>
+fixtool run book-a-trade --row <span class="s">"EUR/USD partial fill"</span>
+<span class="k">echo</span> $?    <span class="c"># 0 all passed · 1 something failed · 2 could not run</span></pre>
+
+  <h2>Phasing</h2>
+  <div class="tablewrap">
+    <table class="phases">
+      <thead>
+        <tr><th>Phase</th><th>Content</th><th>Touches</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>0 — Bugs&nbsp;+&nbsp;primitives</td>
+          <td>The watermark fix and a seeded-log test; per-step <code>latencyMs</code> and <code>durationMs</code> (+ JUnit <code>time=</code>); the JUnit teardown/verdict disagreement; the cancel token; <code>ScenarioStep.ClearOrderBook</code> and capture authoring it</td>
+          <td>Runner, report, capture. Additive only.</td>
+        </tr>
+        <tr>
+          <td>1 — Repeat&nbsp;+&nbsp;Suite</td>
+          <td>RunSet / RunEntry / RunPolicy / RunSource, the set-owned run slot, <b>the run record written per entry</b>, saved sets, rail Run ▾ + set report + Recent runs, the job API and its MCP tools, CLI <code>--set</code> / <code>--all</code> / <code>--repeat</code>, <code>&lt;testsuites&gt;</code></td>
+          <td>ViewModel, rail, control, headless, two settings.</td>
+        </tr>
+        <tr>
+          <td>2 — The run set document</td>
+          <td><code>ScenarioDoc.RunSet</code> as a viewer over a record directory; the record's grid via the capture-paste parser; focus-publishes; reconcile from an entry with the gates stated; one lookup key</td>
+          <td>ViewModel, documents, reconcile.</td>
+        </tr>
+        <tr>
+          <td>3 — Examples</td>
+          <td><code>Scenario.examples</code>, the <code>seed</code> parameter, <code>ScenarioVariable.source</code>, annotations over columns, the editor's table and "Extract to example column…", column-keyed row-aware reconcile</td>
+          <td>Model, codec, runner, annotations, editor, reconcile.</td>
+        </tr>
+        <tr>
+          <td>4 — Fan-out</td>
+          <td>Run slot becomes a per-session-set claim under a post-resolution disjointness check; per-lane default session; lanes by <code>profileSlot</code>; the spread/pinned lane dialog; the step-latency distribution; post-completion trimming; the acceptor-ceiling notice; then headless <code>--fan-out</code></td>
+          <td>ViewModel, runner host, headless host, rail dialog. No change to profiles or the identity resolver.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>Phase 0 is small and every item in it is a defect or a missing measurement today. Phase 1 makes a set <em>run</em> and leaves a record; Phase 2 makes the record readable in the app — and a suite is not much use without it, so the two ship together or the feature is half a feature. Phase 3 is where the model starts paying for itself. Phase 4 is a load-testing feature that happens to share the model, and should be judged on its own merits when it is wanted — including whether the venue side is meant to be measured or merely present.</p>
+  </div>
+
+  <footer>
+    Mockups are HTML recreations of the Compose rail, drawn in the app's own palette · full spec in docs/multi-run-scenarios-proposal.md · revised 2026-08-28
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    // ---- suite mockup: the focused entry drives the report; the live grid keeps its own tint ----
+    var suite = document.getElementById("suite");
+    var report = document.getElementById("report");
+    function renderReport(el) {
+      var d = el.dataset;
+      var html = "";
+      if (d.verdict === "pass") {
+        html += '<div class="verdict pass">Last run — ' + d.name + ": PASSED</div>";
+        html += '<div class="line">' + d.detail + "</div>";
+        if (d.lat) html += '<div class="lat"><b>' + d.lat.replace(/ · /g, "</b> · <b>") + "</b></div>";
+      } else if (d.verdict === "fail") {
+        html += '<div class="verdict fail">Last run — ' + d.name + ": FAILED</div>";
+        html += '<div class="line">First failure: ' + d.step + "</div>";
+        html += '<div class="tagrow"><span class="t">tag ' + d.tag +
+          '</span><span class="exp">expected ' + d.exp +
+          '</span><span class="act">actual ' + d.act + "</span></div>";
+        html += '<div class="route">Reconcile ' + d.step.split(" ").slice(0, 2).join(" ") + " →</div>";
+      } else if (d.verdict === "run") {
+        html += '<div class="verdict" style="color:var(--app-info)">' + d.name + " — running…</div>";
+        html += '<div class="line muted">The report fills in when this entry lands; its record is written the same moment.</div>';
+      } else {
+        html += '<div class="verdict muted">' + d.name + " — queued</div>";
+        html += '<div class="line muted">Planned up front, so the queue is visible before it runs. ⏹ skips what is left.</div>';
+      }
+      report.innerHTML = html;
+    }
+
+    suite.addEventListener("click", function (e) {
+      var el = e.target.closest(".entry");
+      if (!el) return;
+      suite.querySelectorAll(".entry").forEach(function (o) { o.setAttribute("aria-selected", "false"); });
+      el.setAttribute("aria-selected", "true");
+      renderReport(el);
+    });
+
+    renderReport(suite.querySelector('[aria-selected="true"]'));
+
+    // ---- repeat mockup: twenty iterations, three of them red; every one has a record ----
+    var strip = document.getElementById("strip");
+    var iterReport = document.getElementById("iterreport");
+    var failed = [6, 15, 19];
+    var times = [1.8, 2.0, 1.9, 1.7, 2.2, 3.4, 1.9, 1.8, 2.1, 1.9,
+                 2.0, 1.8, 2.4, 2.0, 8.4, 1.9, 1.8, 2.1, 6.7, 1.9];
+    var stepMs = [170, 190, 180, 160, 210, 1400, 180, 170, 200, 180,
+                  190, 170, 230, 190, 6900, 180, 170, 200, 5200, 180];
+
+    for (var i = 1; i <= 20; i++) {
+      var b = document.createElement("button");
+      b.className = "tick" + (failed.indexOf(i) > -1 ? " no" : "");
+      b.setAttribute("role", "option");
+      b.setAttribute("aria-selected", i === 15 ? "true" : "false");
+      b.setAttribute("aria-label", "Iteration " + i);
+      b.dataset.n = i;
+      b.dataset.t = times[i - 1];
+      b.dataset.s = stepMs[i - 1];
+      strip.appendChild(b);
+    }
+
+    function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+
+    function renderIter(el) {
+      var n = el.dataset.n, t = el.dataset.t, s = Number(el.dataset.s), bad = el.classList.contains("no");
+      var html = '<div class="verdict ' + (bad ? "fail" : "pass") + '">Iteration #' + n +
+        " — " + (bad ? "FAILED" : "PASSED") + ' <span class="muted">· ' + t + "s</span></div>";
+      html += bad
+        ? '<div class="line">First failure: step 4 expect (messageType=8) — timed out after 8000ms</div>' +
+          '<div class="tagrow"><span class="t">tag 150</span><span class="exp">expected 2</span><span class="act">no message bound</span></div>' +
+          '<div class="lat"><b>35=D→8</b> ' + (s >= 1000 ? (s / 1000).toFixed(1) + "s" : s + "ms") + ' <span class="muted">· step 3, the ack, arrived late; step 4 never did</span></div>' +
+          '<div class="route">Reconcile step 4 →</div>' +
+          '<div class="line muted">record: runs/…book-a-trade-x20/' + pad2(Number(n)) + "-book-a-trade.json</div>"
+        : '<div class="line">9/9 steps · QUOTE1 → TRADE1 · nothing unbound</div>' +
+          '<div class="lat"><b>35=D→8</b> ' + s + 'ms · <b>35=J→P</b> ' + (s * 3 + 40) + "ms</div>";
+      iterReport.innerHTML = html;
+    }
+
+    strip.addEventListener("click", function (e) {
+      var el = e.target.closest(".tick");
+      if (!el) return;
+      strip.querySelectorAll(".tick").forEach(function (o) { o.setAttribute("aria-selected", "false"); });
+      el.setAttribute("aria-selected", "true");
+      renderIter(el);
+    });
+
+    renderIter(strip.querySelector('[aria-selected="true"]'));
+
+    // ---- run set document: every entry is read from its record ----
+    var archive = {
+      smoke: {
+        name: "smoke-nos", n: 1, file: "01-smoke-nos.json", at: "09:36:02", pass: true,
+        line: "4/4 steps · QUOTE1 · nothing unbound",
+        msgs: [
+          ["out", "35=D 11=SMK-01 55=EUR/USD 54=1 38=100000 40=1", ""],
+          ["in", "35=8 150=0 39=0 11=SMK-01 37=VEN-410 151=100000", "ok"],
+          ["in", "35=8 150=F 39=2 11=SMK-01 32=100000 31=1.0841", "ok"]
+        ]
+      },
+      book: {
+        name: "book-a-trade", n: 2, file: "02-book-a-trade.json", at: "09:36:11", pass: true,
+        line: "9/9 steps · QUOTE1 → TRADE1 · nothing unbound",
+        msgs: [
+          ["out", "35=D 11=BKT-77 55=EUR/USD 54=1 38=5000000 40=2 44=1.0840", ""],
+          ["in", "35=8 150=0 39=0 11=BKT-77 37=VEN-512", "ok"],
+          ["in", "35=8 150=F 39=2 11=BKT-77 32=5000000 31=1.0840", "ok"],
+          ["out", "35=J 70=ALC-77 71=0 53=5000000", ""],
+          ["in", "35=P 70=ALC-77 87=3 88=0", "ok"]
+        ]
+      },
+      cancel: {
+        name: "cancel-replace", n: 3, file: "03-cancel-replace.json", at: "09:41:18", pass: false,
+        line: "First failure: step 3 expect (messageType=8)",
+        tag: ["150", "5", "8"],
+        route: "Reconcile step 3 →",
+        msgs: [
+          ["out", "35=D 11=ORD-8f21 55=EUR/USD 54=1 38=1000000 40=2 44=1.0842", ""],
+          ["in", "35=8 150=0 39=0 11=ORD-8f21 37=VEN-771 151=1000000", "ok"],
+          ["out", "35=G 11=ORD-8f22 41=ORD-8f21 38=1000000 44=1.0839", ""],
+          ["in", "35=8 150=8 39=8 11=ORD-8f22 58=Replace not supported", "no"],
+          ["out", "35=F 11=ORD-8f23 41=ORD-8f21 54=1 38=1000000", ""]
+        ]
+      },
+      partial: {
+        name: "partial-fill-x3", n: 4, file: "04-partial-fill-x3.json", at: "09:41:26", pass: false,
+        line: "First failure: step 5 expect (messageType=8)",
+        tag: ["14", "500000", "250000"],
+        gate: "partial-fill-x3 has changed since this entry ran — re-run to reconcile.",
+        msgs: [
+          ["out", "35=D 11=PF-3312 55=GBP/USD 54=2 38=500000 40=1", ""],
+          ["in", "35=8 150=1 39=1 11=PF-3312 14=150000 151=350000", "ok"],
+          ["in", "35=8 150=1 39=1 11=PF-3312 14=250000 151=250000", "no"],
+          ["in", "35=0 (heartbeat)", ""]
+        ]
+      },
+      quote: {
+        name: "quote-stream", n: 5, file: "05-quote-stream.json", at: "09:42:01", pass: true,
+        line: "6/6 steps · QUOTE1 · traffic open",
+        cap: "5,000 of 12,412 messages kept — unbound dropped, oldest first",
+        msgs: [
+          ["out", "35=V 262=QR-9 263=1 264=1 146=1 55=EUR/USD", ""],
+          ["in", "35=W 262=QR-9 55=EUR/USD 132=1.0841 133=1.0843", "ok"],
+          ["in", "35=W 262=QR-9 55=EUR/USD 132=1.0841 133=1.0842", ""],
+          ["in", "35=W 262=QR-9 55=EUR/USD 132=1.0840 133=1.0842", ""],
+          ["in", "35=W 262=QR-9 55=EUR/USD 132=1.0840 133=1.0843", ""]
+        ]
+      }
+    };
+
+    var setdoc = document.getElementById("setdoc");
+    var docreport = document.getElementById("docreport");
+    var fhead = document.getElementById("frozenhead");
+    var fgrid = document.getElementById("frozengrid");
+
+    function renderArchived(el) {
+      var e = archive[el.dataset.k];
+      var head = e.name + " · entry " + e.n + " of 12 · " + e.msgs.length +
+        " messages · " + e.file + " · " + e.at;
+      fhead.innerHTML = e.cap
+        ? head + ' <span class="frozen-note">· ' + e.cap + "</span>"
+        : head;
+
+      fgrid.innerHTML = e.msgs.map(function (m) {
+        return '<div class="msg ' + m[2] + '"><span class="dir">' +
+          (m[0] === "out" ? "→" : "←") + '</span><span class="body">' + m[1] + "</span></div>";
+      }).join("");
+
+      var html = '<div class="verdict ' + (e.pass ? "pass" : "fail") + '">' + e.name +
+        " — " + (e.pass ? "PASSED" : "FAILED") + "</div>";
+      html += '<div class="line">' + e.line + "</div>";
+      if (e.tag) {
+        html += '<div class="tagrow"><span class="t">tag ' + e.tag[0] +
+          '</span><span class="exp">expected ' + e.tag[1] +
+          '</span><span class="act">actual ' + e.tag[2] + "</span></div>";
+      }
+      if (e.route) html += '<div class="route">' + e.route + "</div>";
+      if (e.gate) html += '<div class="line" style="color:var(--app-warn)">' + e.gate + "</div>";
+      docreport.innerHTML = html;
+    }
+
+    setdoc.addEventListener("click", function (ev) {
+      var el = ev.target.closest(".entry");
+      if (!el) return;
+      setdoc.querySelectorAll(".entry").forEach(function (o) { o.setAttribute("aria-selected", "false"); });
+      el.setAttribute("aria-selected", "true");
+      renderArchived(el);
+    });
+
+    renderArchived(setdoc.querySelector('[aria-selected="true"]'));
+
+    // ---- outline run: one entry per row of the examples table ----
+    var rows = {
+      r1: { name: "EUR/USD full fill", pass: true, file: "01-book-a-trade.json", at: "10:07:04",
+            inputs: "symbol=EUR/USD · qty=1000000 · expectStatus=2 · expectCumQty=1000000",
+            line: "6/6 steps · QUOTE1 → TRADE1",
+            msgs: [["out","35=D 11=BKT-a1 55=EUR/USD 38=1000000 40=1",""],
+                   ["in","35=8 150=0 39=0 11=BKT-a1 55=EUR/USD","ok"],
+                   ["in","35=8 150=F 39=2 11=BKT-a1 14=1000000 151=0","ok"]] },
+      r2: { name: "EUR/USD partial", pass: false, file: "02-book-a-trade.json", at: "10:07:12",
+            inputs: "symbol=EUR/USD · qty=5000000 · expectStatus=1 · expectCumQty=2500000",
+            line: "First failure: step 4 expect (messageType=8)",
+            tag: ["14", "2500000 (${expectCumQty})", "1750000"],
+            route: "Reconcile step 4 →",
+            note: "Accept actual would write 1750000 — a value only this row expects. The expectation referenced ${expectCumQty}, so the repair offers that column first.",
+            msgs: [["out","35=D 11=BKT-b7 55=EUR/USD 38=5000000 40=2 44=1.0840",""],
+                   ["in","35=8 150=0 39=0 11=BKT-b7 55=EUR/USD","ok"],
+                   ["in","35=8 150=1 39=1 11=BKT-b7 14=1750000 151=3250000","no"]] },
+      r3: { name: "GBP/USD full fill", pass: true, file: "03-book-a-trade.json", at: "10:07:21",
+            inputs: "symbol=GBP/USD · qty=250000 · expectStatus=2 · expectCumQty=250000",
+            line: "6/6 steps · QUOTE1 → TRADE1",
+            msgs: [["out","35=D 11=BKT-c2 55=GBP/USD 38=250000 40=1",""],
+                   ["in","35=8 150=0 39=0 11=BKT-c2 55=GBP/USD","ok"],
+                   ["in","35=8 150=F 39=2 11=BKT-c2 14=250000 151=0","ok"]] },
+      r4: { name: "USD/JPY odd lot", pass: false, file: "04-book-a-trade.json", at: "10:07:24",
+            inputs: "symbol=USD/JPY · qty=17 · expectStatus=2 · expectCumQty=17",
+            line: "First failure: step 4 expect (messageType=8)",
+            tag: ["14", "17 (${expectCumQty})", "10"],
+            route: "Reconcile step 4 →",
+            note: "Two columns hold 17 in this row — qty and expectCumQty. The repair is keyed by the column tag 14 referenced (${expectCumQty}), not by which cell happens to equal the value.",
+            msgs: [["out","35=D 11=BKT-d9 55=USD/JPY 38=17 40=1",""],
+                   ["in","35=8 150=0 39=0 11=BKT-d9 55=USD/JPY","ok"],
+                   ["in","35=8 150=1 39=1 11=BKT-d9 14=10 151=7","no"]] },
+      r5: { name: "XAU/USD — venue down", pass: null, file: null, at: "—",
+            inputs: "symbol=XAU/USD · qty=100 · expectStatus=2 · expectCumQty=100",
+            line: "Parked. The row is kept, not deleted — nothing ran, and the set is judged over the rows that did.",
+            msgs: [] }
+    };
+
+    var rowsdoc = document.getElementById("rowsdoc");
+    var rowreport = document.getElementById("rowreport");
+    var rowhead = document.getElementById("rowhead");
+    var rowgrid = document.getElementById("rowgrid");
+    var rownote = document.getElementById("rownote");
+
+    function renderRow(el) {
+      var e = rows[el.dataset.k];
+      rowhead.textContent = e.msgs.length
+        ? e.name + " · " + e.msgs.length + " messages · " + e.file + " · " + e.at
+        : e.name + " · parked — no run, no record";
+      rowgrid.innerHTML = e.msgs.map(function (m) {
+        return '<div class="msg ' + m[2] + '"><span class="dir">' +
+          (m[0] === "out" ? "→" : "←") + '</span><span class="body">' + m[1] + "</span></div>";
+      }).join("");
+      rownote.innerHTML = e.note ? "⚠ " + e.note : "";
+      rownote.style.display = e.note ? "block" : "none";
+
+      var verdict = e.pass === null ? "PARKED" : (e.pass ? "PASSED" : "FAILED");
+      var cls = e.pass === null ? "muted" : (e.pass ? "pass" : "fail");
+      var html = '<div class="verdict ' + cls + '">' + e.name + " — " + verdict + "</div>";
+      html += '<div class="line muted">' + e.inputs + "</div>";
+      html += '<div class="line">' + e.line + "</div>";
+      if (e.tag) {
+        html += '<div class="tagrow"><span class="t">tag ' + e.tag[0] +
+          '</span><span class="exp">expected ' + e.tag[1] +
+          '</span><span class="act">actual ' + e.tag[2] + "</span></div>";
+      }
+      if (e.route) html += '<div class="route">' + e.route + "</div>";
+      rowreport.innerHTML = html;
+    }
+
+    rowsdoc.addEventListener("click", function (ev) {
+      var el = ev.target.closest(".entry");
+      if (!el) return;
+      rowsdoc.querySelectorAll(".entry").forEach(function (o) { o.setAttribute("aria-selected", "false"); });
+      el.setAttribute("aria-selected", "true");
+      renderRow(el);
+    });
+
+    renderRow(rowsdoc.querySelector('[aria-selected="true"]'));
+
+    // ---- fan-out: fifty lanes, two of them red; lanes are numbered by profile slot ----
+    var lanes = document.getElementById("lanes");
+    var lanereport = document.getElementById("lanereport");
+    var laneFailed = [14, 45];
+    var laneMs = [], laneStep = [];
+    for (var L = 1; L <= 50; L++) {
+      // a long tail, which is the whole point of looking at percentiles
+      laneMs.push(L === 45 ? 8400 : L === 14 ? 6100 : L > 43 ? 1900 + L * 12 : 900 + (L % 7) * 40);
+      laneStep.push(L === 45 ? 8400 : L === 14 ? 6100 : L > 43 ? 1700 + L * 4 : 180 + (L % 7) * 24);
+      var t = document.createElement("button");
+      t.className = "tick" + (laneFailed.indexOf(L) > -1 ? " no" : "");
+      t.setAttribute("role", "option");
+      t.setAttribute("aria-selected", L === 45 ? "true" : "false");
+      t.setAttribute("aria-label", "Lane " + L);
+      t.dataset.n = L;
+      lanes.appendChild(t);
+    }
+
+    function renderLane(el) {
+      var n = Number(el.dataset.n), bad = el.classList.contains("no");
+      var ms = laneMs[n - 1], st = laneStep[n - 1];
+      var slot = "slot " + n + " · LoadGen [" + n + "] · LOADGEN" + pad2(n);
+      var html = '<div class="verdict ' + (bad ? "fail" : "pass") + '">Lane ' + n + " — " +
+        (bad ? "FAILED" : "PASSED") + ' <span class="muted">· ' + (ms / 1000).toFixed(2) + "s</span></div>";
+      html += '<div class="line muted">' + slot + "</div>";
+      html += '<div class="lat"><b>35=D→8</b> ' + (st >= 1000 ? (st / 1000).toFixed(1) + "s" : st + "ms") + "</div>";
+      if (bad) {
+        html += '<div class="line">First failure: step 4 expect (messageType=8) — timed out after 8000ms</div>';
+        html += '<div class="route">Reconcile step 4 →</div>';
+        html += '<div class="line muted">record kept whole · ' + pad2(n) + "-book-a-trade.json</div>";
+      } else if (n === 1) {
+        html += '<div class="line">6/6 steps · record kept whole (reference specimen)</div>';
+      } else {
+        html += '<div class="line">6/6 steps · <span class="muted">trimmed after the set completed — result and timings kept, messages dropped</span></div>';
+      }
+      lanereport.innerHTML = html;
+    }
+
+    lanes.addEventListener("click", function (ev) {
+      var el = ev.target.closest(".tick");
+      if (!el) return;
+      lanes.querySelectorAll(".tick").forEach(function (o) { o.setAttribute("aria-selected", "false"); });
+      el.setAttribute("aria-selected", "true");
+      renderLane(el);
+    });
+
+    renderLane(lanes.querySelector('[aria-selected="true"]'));
+  })();
+</script>
+</body>
+</html>

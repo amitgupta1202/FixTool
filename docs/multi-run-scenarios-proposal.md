@@ -95,25 +95,96 @@ Four facts from the current implementation, because they decide the phasing:
    The fix belongs to the runner, not to the batch: exclude what the run's own watermark says predates
    it (`PreRun.predates`, `ScenarioRunner.kt:1051`), which is the semantics the check always meant.
 
-## The focused entry — why there is no second reporting stack
+## Where the evidence lives — and why it is not the grid
 
-A run set has N verdicts; the grid, the run report and the diff window each speak about one. So:
+**This is the question a suite actually asks**, and the first sketch of this design got it wrong. It
+said: focusing an entry republishes its result and *retints the live grid*. That works for a set of
+one and for nothing else. Entry 2's setup calls `ClearMessages` (capture authors one per session,
+`ScenarioCapture.kt:392`), so the moment the second scenario starts, the first one's messages are gone
+from the grid — and even without a clear, `FixMessageSession` is a ring buffer that evicts at
+`bufferSize` (`FixMessageSession.kt:313`). By the time a twelve-scenario suite lands, the grid holds
+the last entry's traffic and nothing else. Eleven reports would point at messages that are not there.
 
-> **The existing single-run surfaces become "the focused entry of the current set".**
+So the evidence does not stay in the grid. **It travels with the entry.**
 
-Selecting a row in the set report republishes that entry's `ScenarioResult` through
-`publishScenarioResult`, sets `lastRunScenario` to that entry's scenario, and retints the grid. A
-single run is a set of one, auto-focused — so today's behaviour is the degenerate case of the new
-one, and `RunStatusLine`, the reconcile route and *Save & re-run* keep working with no change to what
-they read.
+### It is already retained; nothing knows it yet
 
-One honesty obligation comes with it. A repeat clears the sessions between iterations (capture
-authors a `ClearMessages` per session into `setup`, `ScenarioCapture.kt:392`), so focusing iteration 3
-of 20 may offer a report whose *messages* no longer exist. The report itself is intact — expected and
-actual are values in `TagResult`, not pointers into the grid — but the tint and the reconcile route
-cannot be honoured. The rail already refuses a route by explaining why rather than hiding the button;
-this is the same sentence with a new reason: *"the messages this run judged were cleared by iteration
-4 — re-run this scenario alone to reconcile it."*
+Three facts from the code make this cheap rather than a storage project:
+
+1. **`clearMessages()` does not destroy messages.** It empties the session's deque and publishes an
+   empty snapshot (`FixMessageSession.kt:399`). A `FixMessage` referenced from anywhere else survives
+   the clear intact — `wireRaw`, `quickfixMessage`, timestamp and all.
+2. **The published snapshot is already immutable.** `_messages.value = retained.toList()`. Holding a
+   run's messages is holding *references*, not copying bytes.
+3. **The reconcile route never reads the grid.** `rebindSlot` (`FixMessageViewModel.kt:2726`) finds the
+   failing step's message by scanning `_assertionResults` for its `stepId` and takes `wireRaw` off the
+   key. The one reason reconcile dies after the next run is that `runScenarioBlocking` wipes that map
+   on the way in (`setAssertionResults(emptyMap())`).
+
+The whole fix is therefore: **stop wiping the map, and start keeping one per entry.**
+
+```kotlin
+data class RunEntry(
+    …,
+    /** Every message this run saw, accumulated as it ran. References, not copies. */
+    val evidence: List<FixMessage> = emptyList(),
+    /** What today is ONE global map, wiped by the next run. Per entry, it is the entry's tint. */
+    val assertions: Map<FixMessage, StepResult> = emptyMap(),
+    val truncated: Int = 0,   // messages dropped by the cap, reported and never silent
+)
+```
+
+Accumulated **during** the run, not swept at the end: a sweep after the last step loses whatever the
+ring buffer evicted mid-run, and on a streaming session that is most of it. The runner already takes
+a snapshot of each session on every poll cycle, so the accumulation is an identity-set union over a
+list it is holding anyway.
+
+### The run set is a document, and the grid stays live
+
+The rail's rule is that everything clickable opens a **document tab, never a window**
+(`ScenariosRail.kt`), and `ScenarioDoc` is the sealed list of what a tab can be. A run set is one:
+
+> **`ScenarioDoc.RunSet`** — entries down the left, and for the focused entry: its steps, its verdict,
+> its variables, and **its own frozen message grid**, tinted exactly as the live grid would have
+> tinted it.
+
+That settles the ambiguity the first sketch created. Two surfaces, two jobs, neither lying:
+
+| | shows | tint |
+|---|---|---|
+| **Session grid** | now — live traffic, still arriving | the last entry that ran on that session, for the messages still in it |
+| **Run set tab** | any entry, from its own evidence | that entry's own assertion map |
+
+The frozen grid is the same composable the live grid uses, over a list rather than a `StateFlow`, with
+a header that says what it is: `cancel-replace · entry 3 of 12 · 14 messages · frozen 09:41:18`. It is
+not a screenshot — rows expand, the detail panel opens, tag search works, because the messages are the
+real objects.
+
+### Reconcile, from an entry that ran an hour ago
+
+It works, and it works the way it works today. `rebindSlot` needs a `stepId` and a `FixMessage` with
+`wireRaw`; the entry's own assertion map has both. So "Reconcile step 3 →" on entry 3 of 12 opens the
+diff on the bytes entry 3 actually judged, long after entries 4–12 have cleared the sessions twice
+over. **Save & re-run** from there re-runs *that scenario alone*, as a new set of one: the old set is a
+record, and records do not mutate.
+
+The one thing that genuinely cannot be honoured is a live re-bind: the diff's "received — this run"
+slot for an archived entry is that entry's run, not whatever ran most recently. Which is correct, and
+the diff already labels its provenance.
+
+### What it costs
+
+Evidence is references into memory that the session was holding anyway — until the session clears,
+after which the entry is the only owner. A twelve-scenario suite of ordinary order flow is a few
+hundred objects. A twenty-times repeat over a quote stream is not, so there is a per-entry cap
+(default 1,000 messages), and it drops the right ones: **every message the report references is kept**
+— bound messages, strays named by a STRICT verdict — and the cap falls on the unbound remainder,
+newest first. An entry that lost anything says so on its grid header: `1,000 of 3,412 messages kept`.
+
+Retention is the tab. A set opens a document; the set is held as long as its tab is; closing it
+releases the evidence. Nothing is written to disk in Phase 1 — an on-disk run archive
+(`~/.fixtool/runs/`, so a set survives a restart and CI can read a failed entry's bytes) is the
+obvious follow-on, and it is a strictly additive one once the entry owns its evidence.
 
 ## Decisions
 
@@ -123,7 +194,7 @@ this is the same sentence with a new reason: *"the messages this run judged were
 Consequence, and it is the right one: `/scenarios/run` answers *"a scenario run is already in
 progress"* for the whole duration of a batch instead of interleaving with it.
 
-### Decision 2 — A repeat isolates its iterations by default (`binding = this_run`)
+### Decision 2 — A set isolates its entries by default (`binding = this_run`)
 
 Under the default `BindScope.ANY`, an `expect` may bind a message that arrived before the run started
 (`Scenario.kt` / `BindScope`) — so iteration 2 can bind iteration 1's `ExecutionReport` and report
@@ -131,7 +202,9 @@ that the venue answered when it has not. On a single run that is a caveat the re
 (`staleBindCheck`, `ScenarioRunner.kt:1068`). On a twenty-times repeat it is a false green *by
 construction*, and a feature whose purpose is catching flakiness must not manufacture passes.
 
-So a repeat runs its entries under `BindScope.THIS_RUN` — a **run-time override, never a file
+This is not only a repeat's problem. Entry 2 of a suite inherits entry 1's traffic exactly as
+iteration 2 inherits iteration 1's, and a scenario that does not clear in setup can bind it. So a
+**set** runs its entries under `BindScope.THIS_RUN` — a **run-time override, never a file
 rewrite** — with a checkbox in the run dialog ("Isolate each iteration") and a line on the set header
 saying it is on. The alternative (warn and proceed) was rejected: the warning would appear on exactly
 the runs nobody reads, the green ones.
@@ -238,11 +311,19 @@ already renders; an iteration is `name="book-a-trade #3"`. `--junit <dir>` write
 |---|---|---|
 | **1 — Repeat + Suite, sequential** | `RunSet`/`RunEntry`/`RunPolicy`, set-owned run slot, rail Run ▾ + set report, `/scenarios/run` set mode, CLI `--all` / `--repeat` / `--tag`, `<testsuites>` | ViewModel, rail, control, headless. No disk format, no scenario file change. |
 | **1a — the watermark fix** | STRICT's stray scan excludes what predates the run (`ScenarioRunner.kt:527`) | Runner. Ship with or before Phase 1 — it is a bug today. |
-| **2 — Focus & reconcile from a set** | Click-to-focus republishes an entry; the "cleared by a later iteration" refusal sentence | ViewModel, rail. |
+| **2 — The run set document** | Per-entry `evidence` + `assertions` (stop wiping the global map), `ScenarioDoc.RunSet` with the frozen grid, reconcile from any entry, the per-entry cap | ViewModel, rail, documents. |
 | **3 — Fan-out** | Slot becomes a per-session-set claim under a disjointness check; `concurrency`; lanes from a multi-session profile | ViewModel, runner host, rail dialog. |
 
-Phase 1 is the one that answers the question as asked. Phase 3 is a load-testing feature that happens
-to share the model, and it should be judged on its own merits when it is wanted.
+Phase 1 makes a set run. **Phase 2 makes it inspectable**, and a suite is not much use without it —
+if the only thing a twelve-scenario run leaves behind is twelve verdicts and one session's worth of
+messages, the eleven failures nobody can look at will send the author back to running scenarios one at
+a time. Phases 1 and 2 ship together or the feature is half a feature. Phase 3 is a load-testing
+feature that happens to share the model, and should be judged on its own merits when it is wanted.
+
+A follow-on worth naming now, because Phase 2's shape decides whether it is easy: an **on-disk run
+archive** under `~/.fixtool/runs/`. Once an entry owns its evidence, writing it is serialization of
+something already in hand — and it is what turns "what broke overnight" into a question answerable in
+the morning, from a suite the app has since restarted out of.
 
 ## Risks
 
@@ -255,4 +336,9 @@ to share the model, and it should be judged on its own merits when it is wanted.
   claim.
 - **A set report that buries the list.** The rail has been here before (`scenario-rail-phase3.md`);
   the set report inherits the same rule — bounded height, internal scroll, never more than about a
-  third of the rail.
+  third of the rail. The set's *detail* is the document tab, which is exactly why the rail does not
+  have to grow to hold it.
+- **Two grids that could be confused for each other.** A frozen grid that looked identical to the live
+  one would be worse than no frozen grid at all — an author reading an hour-old failure as current
+  traffic. Hence the header that names the entry and the freeze time, and hence the live grid keeping
+  its own tint rather than being borrowed by whatever the author last clicked.

@@ -1,8 +1,14 @@
-# Multi-run scenarios — one run set, three presets
+# Multi-run scenarios — one run set, four ways in
 
-**Status: proposal.** Nothing here is implemented. It answers three questions that arrived as one
+**Status: proposal.** Nothing here is implemented. It answers four questions that arrived as one
 ("can we multi-run a scenario?"), argues they are the same feature, and specifies the smallest model
-that serves all three without a second reporting stack.
+that serves all four without a second reporting stack.
+
+**Mockups:** [`docs/mockups/multi-run-scenarios.html`](mockups/multi-run-scenarios.html) — interactive
+(click entries, iterations, lanes and rows to see the report and frozen grid respond); download and open
+locally in a browser, since GitHub does not execute a `.html` file's script from its file view. Built
+against FixTool's own dark palette, so the mockups read as the app's own screens rather than a separate
+design pass.
 
 ## The question, disambiguated
 
@@ -15,10 +21,13 @@ that serves all three without a second reporting stack.
 | **Examples** | *Does it hold for every instrument?* Run this flow once per row of a table — Cucumber's Scenario Outline. | one scenario × N parameter rows, sequential |
 | **Fan-out** | *Does it hold with fifty clients?* Run the same flow on fifty sessions at once. | one scenario × N session maps, concurrent |
 
-All three are possible. Two of them (**Repeat**, **Suite**) are close to free — the runner is already
-pure, deterministic, and re-entrant across runs, and the only thing standing between it and a
-`for` loop is what the *UI and the report* do with more than one verdict. The third (**Fan-out**) is
-a genuine concurrency change and is phased last.
+All four are possible. Three of them (**Repeat**, **Suite**, **Examples**) are close to free — the
+runner is already pure, deterministic, and re-entrant across runs, and the only thing standing between
+it and a `for` loop is what the *UI and the report* do with more than one verdict; Examples costs one
+extra line once the run set exists (see below). **Fan-out** is the one genuine concurrency change, and
+is phased last — though its sessions turn out to need no new connection logic either, only an
+assignment step over infrastructure the app already has (see
+[Fan-out and where its sessions come from](#fan-out-and-where-its-sessions-come-from)).
 
 ## The model: a run set
 

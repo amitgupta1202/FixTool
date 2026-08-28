@@ -12,17 +12,14 @@ import com.knapsack.fixtool.util.NotifyingLogger
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import java.io.File
@@ -51,7 +48,11 @@ class RunRecordStore(
     private val onError: ((String) -> Unit)? = null,
 ) {
     private val logger = NotifyingLogger(RunRecordStore::class.java, onError)
-    private val prettyJson = Json { prettyPrint = true; ignoreUnknownKeys = true }
+    private val prettyJson =
+        Json {
+            prettyPrint = true
+            ignoreUnknownKeys = true
+        }
 
     private val dir: File =
         if (customDir.isNotBlank()) File(customDir) else File(System.getProperty("user.home"), ".fixtool/runs")
@@ -76,7 +77,10 @@ class RunRecordStore(
     @Suppress("TooGenericExceptionCaught")
     fun writeSet(set: RunSet): Boolean =
         try {
-            AtomicFiles.writeAtomically(File(directoryFor(set.id), SET_FILE), prettyJson.encodeToString(JsonObject.serializer(), RunSetCodec.toJson(set)))
+            AtomicFiles.writeAtomically(
+                File(directoryFor(set.id), SET_FILE),
+                prettyJson.encodeToString(JsonObject.serializer(), RunSetCodec.toJson(set)),
+            )
             true
         } catch (e: Exception) {
             logger.error("Could not write set.json for '${set.id}': ${e.message}", e)
@@ -237,7 +241,9 @@ object RunSetCodec {
                             },
                         sessionMap = e["sessions"]?.jsonObject.orEmpty().mapValues { (_, v) -> v.jsonPrimitive.content },
                         state =
-                            e["state"]?.jsonPrimitive?.contentOrNull
+                            e["state"]
+                                ?.jsonPrimitive
+                                ?.contentOrNull
                                 ?.let { name -> RunState.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
                                 ?: RunState.PENDING,
                         durationMs = e["durationMs"]?.jsonPrimitive?.longOrNull,
@@ -256,7 +262,9 @@ object RunSetCodec {
             startedAt = obj["startedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
             finishedAt = obj["finishedAt"]?.jsonPrimitive?.longOrNull,
             status =
-                obj["status"]?.jsonPrimitive?.contentOrNull
+                obj["status"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
                     ?.let { name -> RunSetStatus.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
                     ?: RunSetStatus.RUNNING,
         )
@@ -264,9 +272,15 @@ object RunSetCodec {
     private fun sourceToJson(source: RunSource): JsonObject =
         buildJsonObject {
             when (source) {
-                is RunSource.Saved -> { put("type", "saved"); put("name", source.setName) }
+                is RunSource.Saved -> {
+                    put("type", "saved")
+                    put("name", source.setName)
+                }
                 is RunSource.Favourites -> put("type", "favourites")
-                is RunSource.Filtered -> { put("type", "filtered"); put("text", source.text) }
+                is RunSource.Filtered -> {
+                    put("type", "filtered")
+                    put("text", source.text)
+                }
                 is RunSource.Selected -> {
                     put("type", "selected")
                     put("ids", buildJsonArray { source.ids.forEach { add(it) } })
@@ -296,6 +310,13 @@ object RunSetCodec {
             "examples" -> RunSource.Examples(obj["scenarioId"]?.jsonPrimitive?.content.orEmpty())
             // Selected is the fallback: an unknown source still lists the scenarios it ran, which is the
             // part a reader of an old record needs. The provenance of the click is not worth a refusal.
-            else -> RunSource.Selected(obj?.get("ids")?.jsonArray.orEmpty().map { it.jsonPrimitive.content })
+            else ->
+                RunSource.Selected(
+                    obj
+                        ?.get("ids")
+                        ?.jsonArray
+                        .orEmpty()
+                        .map { it.jsonPrimitive.content },
+                )
         }
 }

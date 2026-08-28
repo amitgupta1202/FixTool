@@ -46,6 +46,7 @@ data class RunSet(
                 else -> ""
             }
     }
+
     val done: Int get() = entries.count { it.state.finished }
     val passed: Int get() = entries.count { it.state == RunState.PASSED }
     val failed: Int get() = entries.count { it.state == RunState.FAILED }
@@ -58,18 +59,29 @@ data class RunSet(
 /** Where a set's entries came from. A [Saved] set is the only one that persists; the rest describe a click. */
 sealed interface RunSource {
     /** A named set on disk — what CI selects, because CI selects by a name in a checkout. */
-    data class Saved(val setName: String) : RunSource
+    data class Saved(
+        val setName: String,
+    ) : RunSource
 
     object Favourites : RunSource
 
-    data class Filtered(val text: String) : RunSource
+    data class Filtered(
+        val text: String,
+    ) : RunSource
 
-    data class Selected(val ids: List<String>) : RunSource
+    data class Selected(
+        val ids: List<String>,
+    ) : RunSource
 
-    data class Repeat(val scenarioId: String, val times: Int) : RunSource
+    data class Repeat(
+        val scenarioId: String,
+        val times: Int,
+    ) : RunSource
 
     /** One entry per row of the scenario's own table — the outline, run. */
-    data class Examples(val scenarioId: String) : RunSource
+    data class Examples(
+        val scenarioId: String,
+    ) : RunSource
 }
 
 /** One request in a set: which scenario, which iteration of it, and what became of it. */

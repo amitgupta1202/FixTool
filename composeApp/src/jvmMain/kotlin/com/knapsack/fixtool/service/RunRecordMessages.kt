@@ -41,13 +41,17 @@ object RunRecordMessages {
         val position = mutableMapOf<Int, Int>()
         var next = 0
         parsed.forEachIndexed { i, message -> if (message != null) position[i] = next++ }
-        val stepsById = record.result.steps.filter { it.stepId != null }.associateBy { it.stepId }
+        val stepsById =
+            record.result.steps
+                .filter { it.stepId != null }
+                .associateBy { it.stepId }
         val tint =
-            record.bound.entries.mapNotNull { (stepId, index) ->
-                val step = stepsById[stepId] ?: return@mapNotNull null
-                val at = position[index] ?: return@mapNotNull null
-                messages[at] to step
-            }.toMap()
+            record.bound.entries
+                .mapNotNull { (stepId, index) ->
+                    val step = stepsById[stepId] ?: return@mapNotNull null
+                    val at = position[index] ?: return@mapNotNull null
+                    messages[at] to step
+                }.toMap()
         return Parsed(messages, tint, messages.size)
     }
 

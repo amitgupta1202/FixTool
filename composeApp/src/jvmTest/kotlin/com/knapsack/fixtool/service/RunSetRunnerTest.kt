@@ -15,7 +15,6 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import org.junit.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -109,7 +108,13 @@ class RunSetRunnerTest {
         val done = RunSetRunner(host).run(set)
 
         assertEquals(RunState.SKIPPED, done.entries.single().state)
-        assertTrue(done.entries.single().note!!.contains("no longer on disk"), done.entries.single().note!!)
+        assertTrue(
+            done.entries
+                .single()
+                .note!!
+                .contains("no longer on disk"),
+            done.entries.single().note!!,
+        )
         assertEquals(RunSetStatus.PASSED, done.status, "a set that could not run an entry has still not failed one")
     }
 
@@ -197,7 +202,13 @@ class RunSetRunnerTest {
         )
         assertEquals(RunSetStatus.PASSED, done.status)
         // And the record carries the row, so "row 3 failed" is a sentence somebody can act on a week later.
-        assertEquals("EUR/USD partial", host.written.first().row?.name)
+        assertEquals(
+            "EUR/USD partial",
+            host.written
+                .first()
+                .row
+                ?.name,
+        )
     }
 
     /** An outline whose rows are all parked is a request that cannot be honoured, not a set of zero. */
@@ -249,7 +260,9 @@ class RunSetRunnerTest {
     }
 
     /** An in-memory world: scenarios by id, runs recorded, records and sleeps counted. */
-    private class FakeSetHost(private val green: Boolean) : RunSetHost {
+    private class FakeSetHost(
+        private val green: Boolean,
+    ) : RunSetHost {
         val scenarios = mutableMapOf<String, Scenario>()
         val ran = mutableListOf<Scenario>()
         val written = mutableListOf<RunRecord>()

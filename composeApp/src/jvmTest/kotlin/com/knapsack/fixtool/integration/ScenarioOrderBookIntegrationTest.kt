@@ -92,7 +92,11 @@ class ScenarioOrderBookIntegrationTest {
         assertTrue(second.passed, "the book was emptied, so this order is new again: ${second.steps}")
         assertEquals(
             "0",
-            second.steps.single { it.kind == "expect" }.tags.single { it.tag == 39 }.actual,
+            second.steps
+                .single { it.kind == "expect" }
+                .tags
+                .single { it.tag == 39 }
+                .actual,
             "39=0 is New: the ack a fresh venue gives a fresh order",
         )
         // And the step said so in the report, rather than passing silently.

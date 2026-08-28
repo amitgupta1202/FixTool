@@ -34,6 +34,41 @@ class RunSetStatsTest {
         assertEquals(1_100L, wall.p50)
     }
 
+    /**
+     * **The send steps are not the venue's number.** Every real flow sends before it expects, and a Send's
+     * latency is the time to hand the message to the session — about a millisecond, every time. Counted
+     * as samples they drag the p50 down to that millisecond and the report says the venue answered in 1ms
+     * when it took 106. The helper above builds only Expects, which is exactly why this went unseen.
+     */
+    @Test
+    fun `a send's local hand-over is not counted as a round trip`() {
+        val set =
+            laneSet(latencies = listOf(106L, 106L, 105L), durations = listOf(608L, 678L, 550L)).let { s ->
+                s.copy(
+                    entries =
+                        s.entries.map { entry ->
+                            val result = entry.result!!
+                            entry.copy(
+                                result =
+                                    result.copy(
+                                        steps =
+                                            listOf(
+                                                StepResult(0, "clear", "setup", passed = true),
+                                                StepResult(0, "send", "steps", passed = true, latencyMs = 1L),
+                                            ) + result.steps,
+                                    ),
+                            )
+                        },
+                )
+            }
+
+        val steps = assertNotNull(RunSetStats.stepLatency(set))
+
+        assertEquals(3, steps.samples, "three replies were measured, not six steps")
+        assertEquals(106L, steps.p50, "the p50 is the venue's, not the hand-over's")
+        assertEquals(106L, steps.max)
+    }
+
     /** No round trip means no number — an invented zero would be worse than the silence. */
     @Test
     fun `a set that measured nothing reports nothing`() {

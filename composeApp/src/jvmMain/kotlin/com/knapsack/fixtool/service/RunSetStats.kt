@@ -26,7 +26,14 @@ object RunSetStats {
     )
 
     /**
-     * The venue's number, across every entry of the set: the latency of each step that measured one.
+     * The venue's number, across every entry of the set: the latency of each step that measured a
+     * **round trip**.
+     *
+     * Not every step that carries a `latencyMs` measured one. A Send's latency is the time to hand the
+     * message to the session — local work, and by construction about a millisecond — so counting it here
+     * halves the p50 of the commonest flow there is (one send, one expect) and reports the venue as
+     * twice as fast as it is. Only an Expect, and a Wait that a message satisfied, span the bytes that
+     * left and the bytes that answered.
      *
      * Null when no step did — a set of sends with no expectations has no round trip to report, and an
      * invented zero would be worse than the silence.
@@ -37,6 +44,7 @@ object RunSetStats {
                 entry.result
                     ?.steps
                     .orEmpty()
+                    .filter { it.kind in ROUND_TRIP_KINDS }
                     .mapNotNull { it.latencyMs }
             },
         )
@@ -83,4 +91,10 @@ object RunSetStats {
 
     private const val P50 = 0.50
     private const val P95 = 0.95
+
+    /**
+     * The step kinds whose `latencyMs` is a round trip. A Wait satisfied by a connection state rather
+     * than a message reports no latency at all, so it drops out on its own.
+     */
+    private val ROUND_TRIP_KINDS = setOf("expect", "wait")
 }

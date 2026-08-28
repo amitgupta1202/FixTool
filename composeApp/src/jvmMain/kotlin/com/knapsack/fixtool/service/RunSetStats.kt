@@ -32,7 +32,14 @@ object RunSetStats {
      * invented zero would be worse than the silence.
      */
     fun stepLatency(set: RunSet): Distribution? =
-        distribution(set.entries.flatMap { entry -> entry.result?.steps.orEmpty().mapNotNull { it.latencyMs } })
+        distribution(
+            set.entries.flatMap { entry ->
+                entry.result
+                    ?.steps
+                    .orEmpty()
+                    .mapNotNull { it.latencyMs }
+            },
+        )
 
     /** The flow's number: how long each entry took, start to verdict. */
     fun wallClock(set: RunSet): Distribution? = distribution(set.entries.mapNotNull { it.durationMs })

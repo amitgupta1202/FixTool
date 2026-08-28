@@ -9,7 +9,6 @@ import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.RunSetStatus
-import com.knapsack.fixtool.model.scenario.RunState
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.VariableSource
@@ -43,7 +42,11 @@ class FanOutIntegrationTest {
 
     @Before
     fun setup() {
-        testDir = File.createTempFile("fixtool-fanout", "").apply { delete(); mkdirs() }
+        testDir =
+            File.createTempFile("fixtool-fanout", "").apply {
+                delete()
+                mkdirs()
+            }
         viewModel = FixMessageViewModel(testSettingsDir = testDir.absolutePath)
         venuePort = TestPorts.free()
         connectVenue()
@@ -90,7 +93,12 @@ class FanOutIntegrationTest {
             val index = record.result.variables.single { it.name == "sessionIndex" }
             assertEquals(slot.toString(), index.value)
             assertEquals(VariableSource.LANE, index.source)
-            assertEquals("LOAD0$slot$runId", record.result.variables.single { it.name == "sessionSenderCompID" }.value)
+            assertEquals(
+                "LOAD0$slot$runId",
+                record.result.variables
+                    .single { it.name == "sessionSenderCompID" }
+                    .value,
+            )
         }
 
         // **Fifty lanes of order flow is fifty copies of the same three messages**, so the set keeps one

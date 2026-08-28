@@ -22,9 +22,13 @@ import java.time.format.DateTimeFormatter
  * did not run.
  */
 sealed interface FanOutPlan {
-    data class Ready(val set: RunSet) : FanOutPlan
+    data class Ready(
+        val set: RunSet,
+    ) : FanOutPlan
 
-    data class Refused(val why: String) : FanOutPlan
+    data class Refused(
+        val why: String,
+    ) : FanOutPlan
 }
 
 /** What one entry produced: the verdict, and the evidence to write beside it. */
@@ -95,8 +99,12 @@ class RunSetRunner(
         val lock = Any()
         var current = start
         val lanes = minOf(start.policy.concurrency, start.entries.size)
-        val pool = java.util.concurrent.Executors.newFixedThreadPool(lanes)
-        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        val pool =
+            java.util.concurrent.Executors
+                .newFixedThreadPool(lanes)
+        val stop =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false)
         try {
             val running =
                 start.entries.indices.map { index ->

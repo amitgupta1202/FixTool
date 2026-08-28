@@ -83,6 +83,7 @@ sealed interface RunSource {
     data class Examples(
         val scenarioId: String,
     ) : RunSource
+
     /** One entry per session of a multi-session profile — the flow, run by many clients at once. */
     data class FanOut(
         val scenarioId: String,

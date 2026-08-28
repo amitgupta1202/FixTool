@@ -56,13 +56,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.rememberDialogState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.ScenarioSort
+import com.knapsack.fixtool.model.scenario.RunSet
+import com.knapsack.fixtool.model.scenario.RunSetStatus
+import com.knapsack.fixtool.model.scenario.RunState
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.awt.Desktop
 
@@ -86,6 +92,10 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     var confirmingDeleteId by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("") }
+    val activeSet by viewModel.activeRunSet.collectAsState()
+    // The Repeat dialog outlives the menu that opened it, like the remap dialog above.
+    var repeating by remember { mutableStateOf(false) }
+    var savingSet by remember { mutableStateOf(false) }
     // The scenario a "Save as scenario…" is being authored for — the dialog outlives the hover that opened it.
     var remapFor by remember { mutableStateOf<Scenario?>(null) }
     remapFor?.let { RemapScenarioDialog(scenario = it, viewModel = viewModel, onDismiss = { remapFor = null }) }
@@ -111,6 +121,33 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 }
             }
         }
+    if (repeating) {
+        RepeatScenarioDialog(
+            scenarios = scenarios,
+            onDismiss = { repeating = false },
+            onRun = { scenario, times, pauseMs ->
+                repeating = false
+                viewModel.startRepeat(scenario, times, pauseMs)
+            },
+        )
+    }
+    if (savingSet) {
+        SaveRunSetDialog(
+            // Starred wins, then whatever the list is showing — "save as set" has to mean something with
+            // nothing starred and no filter typed, and what it means then is the list in front of you.
+            scenarios =
+                viewState.favouriteIds
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { ids -> visible.filter { it.id in ids } }
+                    ?: visible,
+            onDismiss = { savingSet = false },
+            onSave = { name, chosen ->
+                savingSet = false
+                viewModel.saveRunSet(name, chosen)
+            },
+        )
+    }
+
     // File dates, read once per store change — the meta line must not touch the disk per frame.
     val modified = remember(scenarios) { scenarios.associate { it.id to viewModel.scenarioService.modifiedAt(it.id) } }
 
@@ -122,6 +159,23 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 running = running,
                 filter = filter,
                 onFilter = { filter = it },
+                runMenu =
+                    RunMenu(
+                        savedSets = remember(scenarios, activeSet) { viewModel.runSetStore.list() },
+                        favourites = viewState.favouriteIds.size,
+                        filtered = if (filter.isBlank()) 0 else visible.size,
+                        recent = remember(activeSet) { viewModel.runRecordStore.listSets().take(RECENT_RUNS) },
+                        onRunSaved = { name -> viewModel.startSavedRunSet(name) },
+                        onRunFavourites = {
+                            viewModel.startRunSet(
+                                viewModel.planSuite(scenarios.filter { it.id in viewState.favouriteIds }, "★ favourites"),
+                            )
+                        },
+                        onRunFiltered = { viewModel.startRunSet(viewModel.planSuite(visible, "filtered: $filter")) },
+                        onSaveAsSet = { savingSet = true },
+                        onRepeat = { repeating = true },
+                        onOpenRecent = { id -> viewModel.focusRunSet(id) },
+                    ),
                 sort = viewState.sortMode,
                 onSort = { viewModel.setScenarioSort(it) },
                 anyExpanded = expanded.isNotEmpty(),
@@ -138,8 +192,18 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             )
             // Header block closed off from the list: the controls above, the run status and tree below.
             HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+            activeSet?.let { set ->
+                RunSetLine(
+                    set = set,
+                    running = running,
+                    onStop = { viewModel.requestScenarioStop() },
+                    onFocus = { entry -> viewModel.focusRunEntry(set.id, entry) },
+                    onDismiss = { viewModel.clearActiveRunSet() },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
             RunStatusLine(
-                running = running,
+                running = running && activeSet == null,
                 onStop = { viewModel.requestScenarioStop() },
                 result = result,
                 dictionary = viewModel.dictionary,
@@ -543,6 +607,7 @@ private fun RailHeader(
     running: Boolean,
     filter: String,
     onFilter: (String) -> Unit,
+    runMenu: RunMenu,
     sort: ScenarioSort,
     onSort: (ScenarioSort) -> Unit,
     anyExpanded: Boolean,
@@ -582,6 +647,19 @@ private fun RailHeader(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
+            // Run ▾ first, and the per-row Run button is unchanged — it is a set of one.
+            Box {
+                var runOpen by remember { mutableStateOf(false) }
+                SlimButton(
+                    "Run ▾",
+                    onClick = { runOpen = true },
+                    color = if (running) AppTheme.Colors.textDisabled else AppTheme.Colors.success,
+                    modifier = Modifier.testTag("rail-run-menu"),
+                )
+                DropdownMenu(expanded = runOpen, onDismissRequest = { runOpen = false }) {
+                    RunMenuContents(menu = runMenu, running = running, onChose = { runOpen = false })
+                }
+            }
             SlimField(
                 value = filter,
                 onValueChange = onFilter,
@@ -644,6 +722,257 @@ private fun RailHeader(
                         onDiffMessages()
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * **What the Run menu can do, and how many of each there are.** Passed as one value rather than eight
+ * parameters, because every item is the same shape of thing — a way to make a set — and the header should
+ * not have to know which of them the rail's state happens to support today.
+ */
+private data class RunMenu(
+    val savedSets: List<SavedRunSet>,
+    val favourites: Int,
+    val filtered: Int,
+    val recent: List<RunSet>,
+    val onRunSaved: (String) -> Unit,
+    val onRunFavourites: () -> Unit,
+    val onRunFiltered: () -> Unit,
+    val onSaveAsSet: () -> Unit,
+    val onRepeat: () -> Unit,
+    val onOpenRecent: (String) -> Unit,
+)
+
+/**
+ * The four ways to build a set and the one way to look at an old one.
+ *
+ * Every item that cannot be used stays **visible and disabled with its count showing**, because an author
+ * cannot tell "there is nothing starred" from "this feature does not exist" if the item is withheld.
+ */
+@Composable
+private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit) {
+    if (menu.savedSets.isEmpty()) {
+        RailMenuItem("Run set ▸  (none saved)", enabled = false, tag = "rail-run-set-none") {}
+    } else {
+        menu.savedSets.forEach { set ->
+            val runs = set.entries.sumOf { it.repeat.coerceAtLeast(1) }
+            RailMenuItem(
+                "Run set ▸  ${set.name}  ($runs)",
+                enabled = !running,
+                tag = "rail-run-set-${set.name}",
+            ) {
+                onChose()
+                menu.onRunSaved(set.name)
+            }
+        }
+    }
+    RailMenuItem("Run ★ favourites  (${menu.favourites})", enabled = !running && menu.favourites > 0, tag = "rail-run-favourites") {
+        onChose()
+        menu.onRunFavourites()
+    }
+    RailMenuItem("Run filtered  (${menu.filtered})", enabled = !running && menu.filtered > 0, tag = "rail-run-filtered") {
+        onChose()
+        menu.onRunFiltered()
+    }
+    RailMenuItem("Repeat a scenario ×N…", enabled = !running, tag = "rail-run-repeat") {
+        onChose()
+        menu.onRepeat()
+    }
+    RailMenuItem("Save as set…", tag = "rail-save-set") {
+        onChose()
+        menu.onSaveAsSet()
+    }
+    if (menu.recent.isNotEmpty()) {
+        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+        menu.recent.forEach { set ->
+            val mark = if (set.status == RunSetStatus.PASSED) "✓" else "✗"
+            RailMenuItem("Recent ▸  $mark ${set.label}  (${set.passed}/${set.total})", tag = "rail-recent-${set.id}") {
+                onChose()
+                menu.onOpenRecent(set.id)
+            }
+        }
+    }
+}
+
+/**
+ * **The set report, where the single run's report sits** — progress while it runs, the whole picture when
+ * it is done, and one row per entry that is click-to-focus.
+ *
+ * Bounded height with its own scroll, like everything else that has ever been allowed into this rail: the
+ * set's *detail* is a document tab, which is exactly why this does not have to grow to hold it.
+ */
+@Composable
+private fun RunSetLine(
+    set: RunSet,
+    running: Boolean,
+    onStop: () -> Unit,
+    onFocus: (Int) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colour =
+        when (set.status) {
+            RunSetStatus.PASSED -> AppTheme.Colors.success
+            RunSetStatus.RUNNING -> AppTheme.Colors.info
+            RunSetStatus.STOPPED -> AppTheme.Colors.textSecondary
+            RunSetStatus.FAILED -> AppTheme.Colors.error
+        }
+    Column(modifier = modifier.testTag("run-set-report")) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            val elapsed = ((set.finishedAt ?: System.currentTimeMillis()) - set.startedAt).coerceAtLeast(0) / 1000
+            Text(
+                "${set.label} — ${set.done}/${set.total}" +
+                    (if (set.failed > 0) " · ${set.failed} failed" else "") +
+                    " · ${elapsed}s",
+                color = colour,
+                fontSize = 11.sp,
+                modifier = Modifier.weight(1f),
+            )
+            if (running) {
+                TooltipIconButton(
+                    tooltip = "Stop this set — the entry running stops where it is, and the rest are skipped",
+                    onClick = onStop,
+                    modifier = Modifier.size(16.dp).testTag("stop-run-set"),
+                ) {
+                    Icon(
+                        Icons.Default.Stop,
+                        contentDescription = "Stop set",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(11.dp),
+                    )
+                }
+            } else {
+                TooltipIconButton(
+                    tooltip = "Put this set report down (the records stay on disk)",
+                    onClick = onDismiss,
+                    modifier = Modifier.size(16.dp).testTag("dismiss-run-set"),
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Dismiss set report",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(11.dp),
+                    )
+                }
+            }
+        }
+        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp).verticalScroll(rememberScrollState())) {
+            set.entries.forEachIndexed { i, entry ->
+                val mark =
+                    when (entry.state) {
+                        RunState.PASSED -> "✓"
+                        RunState.FAILED -> "✗"
+                        RunState.RUNNING -> "⟳"
+                        RunState.STOPPED -> "⏹"
+                        RunState.SKIPPED -> "–"
+                        RunState.PENDING -> "·"
+                    }
+                val tint =
+                    when (entry.state) {
+                        RunState.PASSED -> AppTheme.Colors.success
+                        RunState.FAILED -> AppTheme.Colors.error
+                        RunState.RUNNING -> AppTheme.Colors.info
+                        else -> AppTheme.Colors.textDisabled
+                    }
+                val name = entry.scenarioName + if (entry.iteration > 1) " #${entry.iteration}" else ""
+                val timing = entry.durationMs?.let { " ${it}ms" }.orEmpty()
+                Text(
+                    "  $mark $name$timing" + (entry.note?.let { " — $it" } ?: ""),
+                    color = tint,
+                    fontSize = 10.sp,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = entry.record != null) { onFocus(i + 1) }
+                            .testTag("run-set-entry-${i + 1}"),
+                )
+            }
+        }
+    }
+}
+
+/** Pick a scenario and a count. The flake hunt's whole dialog. */
+@Composable
+private fun RepeatScenarioDialog(scenarios: List<Scenario>, onDismiss: () -> Unit, onRun: (Scenario, Int, Long) -> Unit) {
+    var chosen by remember { mutableStateOf(scenarios.firstOrNull()) }
+    var times by remember { mutableStateOf("20") }
+    var pause by remember { mutableStateOf("0") }
+    Dialog(onCloseRequest = onDismiss, title = "Repeat a scenario", state = rememberDialogState(width = 420.dp, height = 300.dp)) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize().background(AppTheme.Colors.background).padding(12.dp),
+        ) {
+            Text("Run one scenario N times and report every iteration.", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
+            Box {
+                var open by remember { mutableStateOf(false) }
+                SlimButton(chosen?.name ?: "pick a scenario", onClick = { open = true }, modifier = Modifier.testTag("repeat-pick"))
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    scenarios.forEach { sc ->
+                        RailMenuItem(sc.name, tag = "repeat-pick-${sc.id}") {
+                            chosen = sc
+                            open = false
+                        }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("times", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
+                SlimField(times, { times = it }, modifier = Modifier.width(60.dp).testTag("repeat-times"))
+                Text("pause ms", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
+                SlimField(pause, { pause = it }, modifier = Modifier.width(70.dp).testTag("repeat-pause"))
+            }
+            // Isolation is on and stated rather than offered: a repeat that could bind the previous
+            // iteration's reply is a false green, which is the one thing a flake hunt must not produce.
+            Text(
+                "Each iteration binds only its own traffic. It does not clear a session's messages or a " +
+                    "venue's order book — those are the scenario's own setup steps.",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 10.sp,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SlimButton("Cancel", onClick = onDismiss)
+                SlimButton(
+                    "Run",
+                    color = AppTheme.Colors.success,
+                    onClick = {
+                        val sc = chosen ?: return@SlimButton
+                        onRun(sc, times.toIntOrNull()?.coerceAtLeast(1) ?: 1, pause.toLongOrNull()?.coerceAtLeast(0) ?: 0)
+                    },
+                    modifier = Modifier.testTag("repeat-run"),
+                )
+            }
+        }
+    }
+}
+
+/** Name what is on screen, and it becomes the thing CI can run by name. */
+@Composable
+private fun SaveRunSetDialog(scenarios: List<Scenario>, onDismiss: () -> Unit, onSave: (String, List<Scenario>) -> Unit) {
+    var name by remember { mutableStateOf("nightly") }
+    Dialog(onCloseRequest = onDismiss, title = "Save as run set", state = rememberDialogState(width = 420.dp, height = 260.dp)) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize().background(AppTheme.Colors.background).padding(12.dp),
+        ) {
+            Text(
+                "Saves ${scenarios.size} scenario${if (scenarios.size == 1) "" else "s"} as a named set — a file " +
+                    "beside your scenarios, so CI can run it by name.",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 11.sp,
+            )
+            SlimField(name, { name = it }, modifier = Modifier.fillMaxWidth().testTag("save-set-name"))
+            Text(scenarios.joinToString(", ") { it.name }, color = AppTheme.Colors.textDisabled, fontSize = 10.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SlimButton("Cancel", onClick = onDismiss)
+                SlimButton(
+                    "Save",
+                    color = AppTheme.Colors.success,
+                    enabled = name.isNotBlank() && scenarios.isNotEmpty(),
+                    onClick = { onSave(name.trim(), scenarios) },
+                    modifier = Modifier.testTag("save-set-confirm"),
+                )
             }
         }
     }
@@ -1099,3 +1428,6 @@ private fun RunStatusLine(
         else -> Unit
     }
 }
+
+/** How many past sets the Run menu offers — enough to find last night's, short of a scrolling list. */
+private const val RECENT_RUNS = 5

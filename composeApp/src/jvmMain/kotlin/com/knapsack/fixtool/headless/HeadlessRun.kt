@@ -2,10 +2,26 @@ package com.knapsack.fixtool.headless
 
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.scenario.RunEntry
+import com.knapsack.fixtool.model.scenario.RunPolicy
+import com.knapsack.fixtool.model.scenario.RunSet
+import com.knapsack.fixtool.model.scenario.RunSetStatus
+import com.knapsack.fixtool.model.scenario.RunSource
+import com.knapsack.fixtool.model.scenario.RunState
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
+import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
+import com.knapsack.fixtool.service.EntryOutcome
+import com.knapsack.fixtool.service.RunRecord
+import com.knapsack.fixtool.service.RunRecordStore
+import com.knapsack.fixtool.service.RunRecorder
+import com.knapsack.fixtool.service.RunSetHost
+import com.knapsack.fixtool.service.RunSetRunner
+import com.knapsack.fixtool.service.RunSetStore
+import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.ScenarioRunner
@@ -13,6 +29,7 @@ import com.knapsack.fixtool.service.ScenarioService
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Runs a saved scenario with no window, and **exits with a status code**.
@@ -52,6 +69,7 @@ object HeadlessRun {
                 err.appendLine(USAGE)
                 return EXIT_USAGE
             }
+        if (options.isSet) return executeSet(options, out, err)
         if (options.target.isBlank()) {
             err.appendLine("fixtool run: name a scenario (an id, a saved name, or a path to a .json file)")
             err.appendLine(USAGE)
@@ -80,6 +98,148 @@ object HeadlessRun {
         options.jsonFile?.let { write(it, ScenarioReport.toJson(result).toString(), err) }
         return if (result.passed) EXIT_PASSED else EXIT_FAILED
     }
+
+    /**
+     * **The batch sweep this file's own header called the strongest driver**, finally supported.
+     *
+     * One process, many scenarios, one exit code — and the records on disk that a build can attach. The
+     * scheduler is the same one the app uses, over a headless host: the same isolation, the same
+     * stop-on-failure, the same `set.json`, so a suite behaves identically whether it was started by a
+     * click or by a build step.
+     */
+    @Suppress("ReturnCount", "LongMethod")
+    private fun executeSet(options: Options, out: Appendable, err: Appendable): Int {
+        val home = options.home
+        val settings = AppSettingsService(customSettingsDir = home).loadSettings()
+        val scenarioService = ScenarioService(customDir = home?.let { "$it/scenarios" } ?: "")
+        val saved = scenarioService.list()
+        val now = System.currentTimeMillis()
+
+        val set =
+            when {
+                options.set != null -> {
+                    val file =
+                        RunSetStore(customDir = home?.let { "$it/sets" } ?: "").load(options.set)
+                            ?: run {
+                                err.appendLine("fixtool: no saved run set '${options.set}'")
+                                return EXIT_USAGE
+                            }
+                    val planned = file.copy(policy = options.policy(file.policy)).plan(saved, now)
+                    planned.missing.forEach { err.appendLine("fixtool: set '${options.set}' names '$it', which is not a saved scenario") }
+                    planned.set
+                }
+                options.all -> {
+                    if (saved.isEmpty()) {
+                        err.appendLine("fixtool: ${scenarioService.directory} holds no scenarios to run")
+                        return EXIT_USAGE
+                    }
+                    val entries = saved.flatMap { sc -> (1..options.repeat).map { RunEntry(sc.id, sc.name, iteration = it) } }
+                    RunSet(
+                        id = RunSets.id(now, "all"),
+                        label = "all scenarios (${saved.size})",
+                        source = RunSource.Selected(saved.map { it.id }),
+                        entries = entries,
+                        policy = options.policy(RunPolicy()),
+                    )
+                }
+                else -> {
+                    val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
+                    RunSets.repeat(scenario, options.repeat, now, options.policy(RunPolicy()))
+                }
+            }
+        if (set.entries.isEmpty()) {
+            err.appendLine("fixtool: that run set has no entries to run")
+            return EXIT_USAGE
+        }
+
+        val byId = (saved + listOfNotNull(loadTargetIfFile(options, home))).associateBy { it.id }
+        val profiles = ConnectionProfileService(customPath = home?.let { "$it/connection_profiles.json" } ?: "").loadProfiles()
+        val host = HeadlessScenarioHost(profiles, dictionaryFor(settings, err), settings) { err.appendLine("fixtool: $it") }
+        val store = RunRecordStore(customDir = home?.let { "$it/runs" } ?: "")
+        err.appendLine("fixtool: running ${set.entries.size} entries — ${set.label}")
+
+        val done =
+            try {
+                store.begin(set)
+                RunSetRunner(HeadlessSetHost(byId, host, store, settings)).run(set) { progress ->
+                    val last = progress.entries.lastOrNull { it.state.finished }
+                    if (last != null && progress.done > 0) {
+                        err.appendLine("fixtool: ${progress.done}/${progress.total} ${last.scenarioName} ${last.state.name.lowercase()}")
+                    }
+                }
+            } finally {
+                host.disconnectAll()
+            }
+        store.prune(settings.runRecordsKept)
+
+        out.append(setSummary(done, store))
+        writeSetReports(options, done, store, err)
+        err.appendLine("fixtool: records in ${store.directoryFor(done.id)}")
+        return if (done.status == RunSetStatus.PASSED) EXIT_PASSED else EXIT_FAILED
+    }
+
+    /** A `--repeat` target that is a file rather than a saved scenario still has to be findable by id. */
+    private fun loadTargetIfFile(options: Options, home: String?): Scenario? =
+        if (options.set == null && !options.all && options.target.isNotBlank()) {
+            loadScenario(options.target, home, StringBuilder())
+        } else {
+            null
+        }
+
+    /**
+     * `--junit <file.xml>` writes the whole set as one `<testsuites>`; `--junit <dir>` writes one file
+     * per entry. Both, because the two consumers are different: a CI step that ingests one report, and a
+     * build that publishes an artifact per test.
+     */
+    private fun writeSetReports(options: Options, set: RunSet, store: RunRecordStore, err: Appendable) {
+        val junit = options.junitFile ?: return
+        val named =
+            set.entries.mapIndexedNotNull { i, entry ->
+                val record = store.readEntry(set.id, i + 1) ?: return@mapIndexedNotNull null
+                val repeated = entry.iteration > 1 || set.entries.count { it.scenarioId == entry.scenarioId } > 1
+                val name = if (repeated) "${entry.scenarioName} #${entry.iteration}" else entry.scenarioName
+                name to record.result
+            }
+        if (junit.endsWith(".xml")) {
+            write(junit, ScenarioReport.toJUnitXml(named), err)
+        } else {
+            named.forEachIndexed { i, (name, result) ->
+                write("$junit/%02d-%s.xml".format(i + 1, name.replace(Regex("[^A-Za-z0-9_-]"), "-")), ScenarioReport.toJUnitXml(result), err)
+            }
+        }
+        options.jsonFile?.let { path ->
+            write(path, ScenarioReport.toJson(named.last().second).toString(), err)
+        }
+    }
+
+    /** The set as a build log wants it: one line per entry, then the verdict, then where the evidence is. */
+    private fun setSummary(set: RunSet, store: RunRecordStore): String =
+        buildString {
+            set.entries.forEachIndexed { i, entry ->
+                val mark =
+                    when (entry.state) {
+                        RunState.PASSED -> "  ok  "
+                        RunState.FAILED -> "FAIL  "
+                        RunState.STOPPED -> "STOP  "
+                        else -> "skip  "
+                    }
+                val where = entry.durationMs?.let { " ${it}ms" }.orEmpty()
+                appendLine("$mark${i + 1}/${set.total} ${entry.scenarioName}${if (entry.iteration > 1) " #${entry.iteration}" else ""}$where")
+                entry.note?.let { appendLine("        $it") }
+                // The first failure, named, because a build log has no report to click into.
+                entry.result?.steps?.firstOrNull { !it.passed && it.phase != "teardown" }?.let { step ->
+                    appendLine("        ${step.phase}[${step.stepIndex}] ${step.kind}: ${step.detail.orEmpty().take(200)}")
+                }
+            }
+            appendLine(
+                when (set.status) {
+                    RunSetStatus.PASSED -> "PASSED  ${set.label} (${set.passed}/${set.total})"
+                    RunSetStatus.STOPPED -> "STOPPED ${set.label} (${set.done}/${set.total} ran)"
+                    else -> "FAILED  ${set.label} (${set.failed} of ${set.total} failed)"
+                },
+            )
+            store.directoryFor(set.id).let { appendLine("        records: $it") }
+        }
 
     /** A scenario by saved id or name, or a path to a JSON file — a CI checkout has files, not a store. */
     private fun loadScenario(target: String, home: String?, err: Appendable): Scenario? {
@@ -161,6 +321,71 @@ object HeadlessRun {
         }
     }
 
+    /**
+     * The set's world without a window: scenarios from the checkout, one long-lived session host, and the
+     * same runs directory the app writes.
+     *
+     * The sessions stay up **across** entries. Bringing them down between scenarios would make a suite
+     * mostly logon traffic and would change what it is testing — the venue sees one client for the whole
+     * run, which is what a suite is meant to look like from the far side.
+     */
+    private class HeadlessSetHost(
+        private val scenarios: Map<String, Scenario>,
+        private val host: HeadlessScenarioHost,
+        private val store: RunRecordStore,
+        private val settings: AppSettings,
+    ) : RunSetHost {
+        override fun scenario(id: String): Scenario? = scenarios[id]
+
+        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>): EntryOutcome {
+            val recorder = RunRecorder()
+            val judged = linkedMapOf<FixMessage, StepResult>()
+            // Sampled while the entry runs rather than snapshotted after it: a session evicts inside a
+            // single run, and the record is the only place that traffic will exist afterwards. A plain
+            // daemon thread, because there is no scope here to launch into and nothing else needs one.
+            val running = AtomicBoolean(true)
+            val sampler =
+                Thread {
+                    while (running.get()) {
+                        host.opened.forEach { session ->
+                            recorder.observe(session.title, session.messages.value.filterIsInstance<FixMessage>())
+                        }
+                        Thread.sleep(SAMPLE_MS)
+                    }
+                }
+            sampler.isDaemon = true
+            sampler.start()
+            try {
+                val result =
+                    ScenarioRunner(host, onExpectMatched = { message, step -> judged[message] = step })
+                        .run(scenario, sessionMap)
+                host.opened.forEach { session ->
+                    recorder.observe(session.title, session.messages.value.filterIsInstance<FixMessage>())
+                }
+                return EntryOutcome(result, recorder.build(judged, settings.runRecordCap))
+            } finally {
+                running.set(false)
+            }
+        }
+
+        override fun write(record: RunRecord): String? = store.write(record)
+
+        override fun writeSet(set: RunSet) {
+            store.writeSet(set)
+        }
+
+        override fun sleep(ms: Long) = Thread.sleep(ms)
+
+        override fun now(): Long = System.currentTimeMillis()
+
+        /** Nothing to stop a headless set with yet — the process is the job, and killing it is the stop. */
+        override fun cancelled(): Boolean = false
+
+        private companion object {
+            const val SAMPLE_MS = 50L
+        }
+    }
+
     /** Parsed argv. Unknown flags are refused rather than ignored — a mistyped `--junit` must not run silently. */
     data class Options(
         val target: String,
@@ -175,14 +400,36 @@ object HeadlessRun {
          * versioned beside the code they are testing.
          */
         val home: String? = null,
+        /** A saved run set by name — what a build box selects, because it selects by a name in a checkout. */
+        val set: String? = null,
+        /** Every saved scenario, in name order. */
+        val all: Boolean = false,
+        val repeat: Int = 1,
+        val pauseMs: Long = 0,
+        val stopOnFailure: Boolean = false,
     ) {
+        /** True when the arguments describe a batch rather than one run. */
+        val isSet: Boolean get() = set != null || all || repeat > 1
+
+        /** The file's policy, with whatever the command line said about it applied over the top. */
+        fun policy(base: RunPolicy): RunPolicy =
+            base.copy(
+                stopOnFirstFailure = stopOnFailure || base.stopOnFirstFailure,
+                pauseBetweenMs = if (pauseMs > 0) pauseMs else base.pauseBetweenMs,
+            )
+
         companion object {
-            @Suppress("ReturnCount")
+            @Suppress("ReturnCount", "CyclomaticComplexMethod")
             fun parse(args: List<String>): Options? {
                 var target = ""
                 var junit: String? = null
                 var json: String? = null
                 var home: String? = null
+                var set: String? = null
+                var all = false
+                var repeat = 1
+                var pauseMs = 0L
+                var stopOnFailure = false
                 val sessions = mutableMapOf<String, String>()
                 var i = 0
                 while (i < args.size) {
@@ -191,6 +438,11 @@ object HeadlessRun {
                         arg == "--junit" -> junit = args.getOrNull(++i) ?: return null
                         arg == "--json" -> json = args.getOrNull(++i) ?: return null
                         arg == "--home" -> home = args.getOrNull(++i) ?: return null
+                        arg == "--set" -> set = args.getOrNull(++i) ?: return null
+                        arg == "--all" -> all = true
+                        arg == "--stop-on-failure" -> stopOnFailure = true
+                        arg == "--repeat" -> repeat = args.getOrNull(++i)?.toIntOrNull()?.takeIf { it > 0 } ?: return null
+                        arg == "--pause" -> pauseMs = parseDuration(args.getOrNull(++i)) ?: return null
                         arg == "--session" -> {
                             val pair = args.getOrNull(++i) ?: return null
                             val (from, to) = pair.split("=", limit = 2).takeIf { it.size == 2 } ?: return null
@@ -202,7 +454,17 @@ object HeadlessRun {
                     }
                     i++
                 }
-                return Options(target, junit, json, sessions, home)
+                return Options(target, junit, json, sessions, home, set, all, repeat, pauseMs, stopOnFailure)
+            }
+
+            /** `500ms`, `2s`, or a bare number of milliseconds — the three ways somebody writes a pause. */
+            private fun parseDuration(raw: String?): Long? {
+                val text = raw?.trim()?.lowercase() ?: return null
+                return when {
+                    text.endsWith("ms") -> text.dropLast(2).toLongOrNull()
+                    text.endsWith("s") -> text.dropLast(1).toDoubleOrNull()?.let { (it * 1000).toLong() }
+                    else -> text.toLongOrNull()
+                }?.takeIf { it >= 0 }
             }
         }
     }
@@ -210,8 +472,17 @@ object HeadlessRun {
     private val USAGE =
         """
         fixtool run <scenario> [options]
+        fixtool run --set <name> [options]
+        fixtool run --all [options]
 
           <scenario>          a saved scenario's id or name, or a path to a scenario .json file
+
+          --set <name>        run a saved run set (~/.fixtool/sets/<name>.json)
+          --all               run every saved scenario, in name order
+          --repeat <n>        run each scenario n times (a flake hunt)
+          --pause <500ms|2s>  wait between entries
+          --stop-on-failure   end the batch at the first failing entry (CI); the default runs them all,
+                              because "3 of 20 failed" is what a flake hunt needs
 
           --junit <file>      write the JUnit XML report to <file>
           --json  <file>      write the full JSON report to <file>
@@ -220,7 +491,9 @@ object HeadlessRun {
           --home <dir>        read profiles, settings and saved scenarios from <dir> instead of
                               ~/.fixtool — for running against config checked in beside the code
 
-        Exits 0 when the scenario passes, 1 when it runs and fails, 2 when it cannot be run.
+        Exits 0 when everything passes, 1 when something runs and fails, 2 when it cannot be run.
         Sessions the scenario names are connected from the saved profiles of the same name.
+        A batch writes a record per entry under <home>/runs/<set>/ — the report and the bytes — and
+        `--junit <dir>` writes one XML per entry while `--junit <file>.xml` writes one <testsuites>.
         """.trimIndent()
 }

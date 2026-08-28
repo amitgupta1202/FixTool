@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
+import com.knapsack.fixtool.model.scenario.VariableSource
 import com.knapsack.fixtool.model.scenario.TemporalKind
 import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -1008,6 +1009,46 @@ class ReconcileSessionTest {
 
         s.undo()
         assertEquals(expectation, s.draft, "one undo, and the pinned literal is back byte-for-byte")
+    }
+
+    /**
+     * **An examples column wins a tie.** Value-equality can name two variables at once — a table whose
+     * `qty` is 17 and whose `expectCumQty` is also 17 makes an actual `14=17` equal to both — and on an
+     * outline the two are not equally right. The column is the name that varies per row, so an assertion
+     * pinned to it follows the table; one pinned to a step's mint repairs this row and this row only, and
+     * the expectation belongs to all eight of them.
+     */
+    @Test
+    fun `where two variables share the value, the examples column is the one offered`() {
+        val expectation = Expectation(fields = listOf(FieldExpectation(14, Matcher.Exact("0"))), messageType = "8")
+        val message = wireView(35 to "8", 14 to "17")
+        val variables =
+            listOf(
+                // Ordered so a first-match-wins lookup would take the step's mint — the trap this closes.
+                ScenarioVariable("qty", "17", mintedAtStepId = "step-1", source = VariableSource.STEP),
+                ScenarioVariable("expectCumQty", "17", source = VariableSource.ROW),
+            )
+        val s = ReconcileSession(expectation, ref(message).copy(variables = variables), dictionary)
+
+        val track = s.model.lines.single { it.row.tag == 14 }.offers.single { it.kind == OfferKind.TRACK }
+
+        assertTrue("\${expectCumQty}" in track.tooltip, "the column, not the same-valued mint: ${track.tooltip}")
+        assertTrue("examples column" in track.tooltip, "and it says why it is the column: ${track.tooltip}")
+        assertIs<EditResult.Applied>(s.apply(track.op))
+        assertEquals(Matcher.Reference("\${expectCumQty}"), s.model.lines.single { it.row.tag == 14 }.row.matcher)
+    }
+
+    /** With nothing from a row in scope, the order is the one it always was. */
+    @Test
+    fun `a run with no table tracks the variable it always tracked`() {
+        val expectation = Expectation(fields = listOf(FieldExpectation(11, Matcher.Exact("STALE"))), messageType = "8")
+        val message = wireView(35 to "8", 11 to "A1")
+        val s = ReconcileSession(expectation, ref(message).copy(variables = scoped("id0" to "A1")), dictionary)
+
+        val track = s.model.lines.single { it.row.tag == 11 }.offers.single { it.kind == OfferKind.TRACK }
+
+        assertTrue("\${id0}" in track.tooltip, track.tooltip)
+        assertTrue("examples column" !in track.tooltip, "no table ran, so nothing claims one: ${track.tooltip}")
     }
 
     /**

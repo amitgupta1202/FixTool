@@ -28,7 +28,9 @@ import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
+import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
@@ -60,6 +62,9 @@ import com.knapsack.fixtool.service.RunRecorder
 import com.knapsack.fixtool.service.RunSetHost
 import com.knapsack.fixtool.service.RunSetRunner
 import com.knapsack.fixtool.service.RunSetStore
+import com.knapsack.fixtool.service.RunSets
+import com.knapsack.fixtool.service.SavedRunEntry
+import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -3054,6 +3059,75 @@ class FixMessageViewModel(
         // After the set, not before: the run just finished is the one that must survive the pruning.
         runRecordStore.prune(_appSettings.value.runRecordsKept)
         return done
+    }
+
+    /**
+     * **The rail's four ways to make a set**, in one place so the rail does not have to know how one is
+     * built — only which of them the author asked for.
+     */
+    fun planSuite(scenarios: List<Scenario>, label: String): RunSet =
+        RunSets.suite(scenarios, RunSource.Selected(scenarios.map { it.id }), label, System.currentTimeMillis())
+
+    fun startRepeat(scenario: Scenario, times: Int, pauseMs: Long): RunSet? =
+        startRunSet(
+            RunSets.repeat(scenario, times, System.currentTimeMillis(), RunPolicy(pauseBetweenMs = pauseMs)),
+        )
+
+    /** Runs a saved set by name; null when the file is gone or names nothing that is still on disk. */
+    fun startSavedRunSet(name: String): RunSet? {
+        val saved = runSetStore.load(name) ?: return null
+        val planned = saved.plan(scenarioService.list(), System.currentTimeMillis())
+        planned.missing.forEach {
+            showNotification("Run set '$name' names '$it', which is not a saved scenario", NotificationType.WARNING)
+        }
+        if (planned.set.entries.isEmpty()) {
+            showNotification("Run set '$name' has nothing left to run", NotificationType.ERROR)
+            return null
+        }
+        return startRunSet(planned.set)
+    }
+
+    /** Saves what is on screen as a named set — the thing CI then runs by name. */
+    fun saveRunSet(name: String, scenarios: List<Scenario>): Boolean {
+        val saved = runSetStore.save(SavedRunSet(name, scenarios.map { SavedRunEntry(it.name) }))
+        showNotification(
+            if (saved) "Saved run set '$name' (${scenarios.size} scenarios)" else "Could not save run set '$name'",
+            if (saved) NotificationType.INFO else NotificationType.ERROR,
+        )
+        return saved
+    }
+
+    /** Puts the set report down. The records stay on disk; this is a view, not a delete. */
+    fun clearActiveRunSet() {
+        _activeRunSet.value = null
+    }
+
+    /**
+     * **Show a set that has already run**, read from its records — what "Recent runs ▸" opens.
+     *
+     * A set the app has since been restarted out of is exactly the case this feature exists for, and the
+     * records are on disk precisely so the answer does not depend on the process that produced it.
+     */
+    fun focusRunSet(setId: String): RunSet? = runRecordStore.readSet(setId)?.also { _activeRunSet.value = it }
+
+    /**
+     * **Focus one entry of a set: this is what publishes it.**
+     *
+     * A set runs its entries without publishing anything — twenty entries would re-aim the author's open
+     * reconcile window twenty times while they were reading it. Focusing is the deliberate act that says
+     * "this is the run I am looking at now", and it republishes the entry's verdict from the record, so
+     * the rail's report, its first-failure line and its reconcile route all describe that entry.
+     *
+     * Read from disk rather than from the set in memory: an entry focused an hour later must say the same
+     * thing as one focused a second later, and only the record can promise that.
+     */
+    fun focusRunEntry(setId: String, entry: Int): ScenarioResult? {
+        val record = runRecordStore.readEntry(setId, entry) ?: return null
+        scenarioService.load(record.scenarioId)?.let { noteScenarioRun(it, emptyMap()) }
+        // The tint belongs to the live grid and describes what is in it; a record's own tinting is the
+        // run set document's job (Phase 2), over its own re-parsed grid.
+        publishScenarioResult(record.result)
+        return record.result
     }
 
     /**

@@ -24,7 +24,22 @@ import javax.swing.SwingUtilities
  * `expect` step is ~300 round-trips, and each one used to drag a full O(N) `filterIsInstance` copy
  * of the session's message list onto the EDT, freezing the UI for the length of the scenario.
  */
-class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : ScenarioHost {
+class ViewModelScenarioHost(
+    private val viewModel: FixMessageViewModel,
+    /**
+     * **What a step that names no session runs on.**
+     *
+     * `ScenarioStep`'s own KDoc says null means "the active session", and the code has never implemented
+     * that: it takes the first session in the list. Harmless for one run — and the hole under fan-out,
+     * because every lane's null-session step would then resolve to the *same* session, so fifty lanes
+     * whose named sessions are disjoint would all clear and read session 0 through a `ClearMessages(null)`
+     * that capture writes into every scenario it authors. A lane's host carries its own lane's session
+     * here, and the disjointness the concurrency licence rests on is a fact rather than a hope.
+     *
+     * Null outside a fan-out, where the old behaviour is the behaviour.
+     */
+    private val defaultSession: String? = null,
+) : ScenarioHost {
     override fun resolve(raw: String, scope: MutableMap<String, String>, session: String?): String {
         val sess = resolveSession(session)
         val msgs = if (sess == null) emptyList() else sess.fixMessages()
@@ -173,7 +188,7 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
     private fun resolveSession(key: String?): FixMessageSession? {
         val list = viewModel.sessions
         return when {
-            key == null -> list.firstOrNull()
+            key == null -> defaultSession?.let { title -> list.firstOrNull { it.title == title } } ?: list.firstOrNull()
             key.toIntOrNull() != null -> list.getOrNull(key.toInt())
             else -> list.firstOrNull { it.id == key || it.title == key }
         }

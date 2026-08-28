@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
@@ -151,6 +152,39 @@ class RunRecordStore(
         }
     }
 
+    /**
+     * **After a fan-out, keep what a reader will actually open.**
+     *
+     * Fifty lanes of order flow is fifty copies of the same three messages, and keeping every one whole is
+     * the wrong default at that scale. So: **failed lanes keep their records entire**, because they are
+     * what the run is for; **the first passing lane is kept as a reference specimen**, because "what does a
+     * good one look like" is the next question; and the rest keep their report, their timing and their
+     * counts while their messages are emptied — with `dropped` set, so the record says so rather than
+     * looking like a lane that saw nothing.
+     *
+     * After the set completes, never during: a lane's verdict is not known until it has one, and a record
+     * trimmed on a guess would be the evidence for the failure nobody kept.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    fun trimToSpecimens(set: RunSet): Int {
+        var trimmed = 0
+        try {
+            var referenceKept = false
+            set.entries.forEachIndexed { i, entry ->
+                val keepWhole = entry.state != RunState.PASSED || !referenceKept
+                if (entry.state == RunState.PASSED && !referenceKept) referenceKept = true
+                if (keepWhole) return@forEachIndexed
+                val record = readEntry(set.id, i + 1) ?: return@forEachIndexed
+                if (record.messages.isEmpty()) return@forEachIndexed
+                write(record.copy(messages = emptyList(), bound = emptyMap(), dropped = record.dropped + record.messages.size))
+                trimmed++
+            }
+        } catch (e: Exception) {
+            logger.error("Could not trim the records of '${set.id}': ${e.message}", e)
+        }
+        return trimmed
+    }
+
     private fun slugify(name: String): String {
         val slug =
             buildString { for (c in name.lowercase()) append(if (c in 'a'..'z' || c in '0'..'9') c else '-') }
@@ -184,6 +218,7 @@ object RunSetCodec {
                     put("stopOnFirstFailure", set.policy.stopOnFirstFailure)
                     put("pauseBetweenMs", set.policy.pauseBetweenMs)
                     put("isolateIterations", set.policy.isolateIterations)
+                    put("concurrency", set.policy.concurrency)
                 },
             )
             put(
@@ -198,6 +233,17 @@ object RunSetCodec {
                                 put("iteration", e.iteration)
                                 // The row's name and its cells: a record has to say what the run was given,
                                 // or "row 3 failed" is a sentence nobody can act on a week later.
+                                e.lane?.let { lane ->
+                                    put(
+                                        "lane",
+                                        buildJsonObject {
+                                            put("slot", lane.slot)
+                                            put("session", lane.sessionTitle)
+                                            put("senderCompID", lane.senderCompID)
+                                            put("qualifier", lane.qualifier)
+                                        },
+                                    )
+                                }
                                 e.row?.let { row ->
                                     put(
                                         "row",
@@ -232,6 +278,15 @@ object RunSetCodec {
                         scenarioId = e["scenarioId"]?.jsonPrimitive?.content.orEmpty(),
                         scenarioName = e["scenario"]?.jsonPrimitive?.content.orEmpty(),
                         iteration = e["iteration"]?.jsonPrimitive?.intOrNull ?: 1,
+                        lane =
+                            e["lane"]?.jsonObject?.let { lane ->
+                                Lane(
+                                    slot = lane["slot"]?.jsonPrimitive?.intOrNull ?: 0,
+                                    sessionTitle = lane["session"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                    senderCompID = lane["senderCompID"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                    qualifier = lane["qualifier"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                )
+                            },
                         row =
                             e["row"]?.jsonObject?.let { row ->
                                 ExampleRow(
@@ -257,6 +312,7 @@ object RunSetCodec {
                         stopOnFirstFailure = p["stopOnFirstFailure"]?.jsonPrimitive?.booleanOrNull ?: false,
                         pauseBetweenMs = p["pauseBetweenMs"]?.jsonPrimitive?.longOrNull ?: 0,
                         isolateIterations = p["isolateIterations"]?.jsonPrimitive?.booleanOrNull ?: true,
+                        concurrency = p["concurrency"]?.jsonPrimitive?.intOrNull ?: 1,
                     )
                 } ?: RunPolicy(),
             startedAt = obj["startedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
@@ -294,6 +350,11 @@ object RunSetCodec {
                     put("type", "examples")
                     put("scenarioId", source.scenarioId)
                 }
+                is RunSource.FanOut -> {
+                    put("type", "fanOut")
+                    put("scenarioId", source.scenarioId)
+                    put("profileId", source.profileId)
+                }
             }
         }
 
@@ -308,6 +369,11 @@ object RunSetCodec {
                     obj["times"]?.jsonPrimitive?.intOrNull ?: 1,
                 )
             "examples" -> RunSource.Examples(obj["scenarioId"]?.jsonPrimitive?.content.orEmpty())
+            "fanout" ->
+                RunSource.FanOut(
+                    obj["scenarioId"]?.jsonPrimitive?.content.orEmpty(),
+                    obj["profileId"]?.jsonPrimitive?.content.orEmpty(),
+                )
             // Selected is the fallback: an unknown source still lists the scenarios it ran, which is the
             // part a reader of an old record needs. The provenance of the click is not worth a refusal.
             else ->

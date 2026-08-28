@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
@@ -212,6 +213,52 @@ class RunRecordTest {
         assertEquals(3, record.dropped)
         assertTrue(record.messages[0].raw.contains("35=D"), "the bytes are the evidence")
     }
+
+    /**
+     * **After a fan-out, keep what a reader will actually open.** Fifty lanes of order flow is fifty copies
+     * of the same three messages: the failures are what the run is for, one passing lane answers "what does
+     * a good one look like", and the rest keep their verdict and their counts while their messages go —
+     * with `dropped` set, so a trimmed record says so rather than looking like a lane that saw nothing.
+     */
+    @Test
+    fun `trimming keeps every failure, one passing specimen, and the counts of the rest`() {
+        val store = RunRecordStore(customDir = dir.absolutePath)
+        val set =
+            sampleSet().copy(
+                id = "fan",
+                source = RunSource.FanOut("sc-1", "prof-1"),
+                entries =
+                    listOf(
+                        laneEntry(1, RunState.PASSED),
+                        laneEntry(2, RunState.FAILED),
+                        laneEntry(3, RunState.PASSED),
+                        laneEntry(4, RunState.PASSED),
+                    ),
+            )
+        store.begin(set)
+        (1..4).forEach { n -> store.write(sampleRecord("fan").copy(entry = n, scenarioName = "book-a-trade")) }
+        store.writeSet(set)
+
+        val trimmed = store.trimToSpecimens(set)
+
+        assertEquals(2, trimmed, "lanes 3 and 4 — lane 1 is the specimen and lane 2 is a failure")
+        assertEquals(2, assertNotNull(store.readEntry("fan", 1)).messages.size, "the reference lane is whole")
+        assertEquals(2, assertNotNull(store.readEntry("fan", 2)).messages.size, "and so is the failure")
+        val cut = assertNotNull(store.readEntry("fan", 4))
+        assertTrue(cut.messages.isEmpty())
+        assertEquals(5, cut.dropped, "3 the cap had already taken, plus the 2 this took")
+        assertTrue(cut.result.passed, "the verdict and the timing stay — only the bytes go")
+        assertEquals(3_104L, cut.durationMs)
+    }
+
+    private fun laneEntry(slot: Int, state: RunState) =
+        RunEntry(
+            scenarioId = "sc-1",
+            scenarioName = "book-a-trade",
+            lane = Lane(slot, "L [$slot]", "L$slot", "q$slot"),
+            state = state,
+            record = "%02d-book-a-trade.json".format(slot),
+        )
 
     /** Twenty sets of twelve entries is real disk, so the directory is the retention, not the tab. */
     @Test

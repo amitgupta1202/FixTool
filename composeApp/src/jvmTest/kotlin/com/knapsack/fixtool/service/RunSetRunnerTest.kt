@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.ExampleRow
 import com.knapsack.fixtool.model.scenario.Examples
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
@@ -15,6 +16,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -241,6 +243,125 @@ class RunSetRunnerTest {
         assertEquals("book-a-trade [EUR/USD partial]", assertNotNull(outlined).nameOf(0))
     }
 
+    // ------------------------------------------------------------------------ fan-out
+
+    /**
+     * **Lanes run at once, each on its own session, each knowing which client it is.** The four names a
+     * lane seeds are the four Bulk Send already seeds, so `11=ORD-${sessionIndex}` gives every lane its own
+     * ClOrdID with no authoring ceremony.
+     */
+    @Test
+    fun `a fan-out runs one entry per lane, concurrently, each seeded with its own identity`() {
+        val host = FakeSetHost(green = true)
+        val scenario = scenario("book-a-trade").copy(steps = listOf(ScenarioStep.Send("35=D|", session = "QUOTE1")))
+        host.scenarios[scenario.id] = scenario
+        val lanes = (1..3).map { Lane(slot = it, sessionTitle = "LoadGen [$it]", senderCompID = "LOADGEN0$it", qualifier = "q$it") }
+        // Held inside runOne so every lane is in flight at once — the claim is concurrency, not a fast loop.
+        val gate = java.util.concurrent.CountDownLatch(3)
+        host.hold = {
+            gate.countDown()
+            gate.await(5, java.util.concurrent.TimeUnit.SECONDS)
+        }
+        val plan = RunSets.fanOut(scenario, "prof-1", lanes, over = "QUOTE1", now = 0L, policy = RunPolicy(concurrency = 3))
+
+        val done = RunSetRunner(host).run(assertIs<FanOutPlan.Ready>(plan).set)
+
+        assertEquals(RunSetStatus.PASSED, done.status, "${done.entries.map { it.state to it.note }}")
+        assertEquals(3, host.peakInFlight, "all three lanes were inside the runner at once")
+        assertEquals(listOf(1, 2, 3), host.lanesSeen.filterNotNull().sorted())
+        assertEquals(
+            List(3) { setOf("sessionIndex", "sessionQualifier", "sessionTitle", "sessionSenderCompID") },
+            host.seeds.map { it.keys },
+            "every lane seeds the four names, and only those",
+        )
+        assertEquals(
+            listOf("1", "2", "3"),
+            host.seeds.mapNotNull { it["sessionIndex"] }.sorted(),
+            "by slot, not by position",
+        )
+        // The named leg is remapped per lane; a step that names none runs on the lane's own session.
+        assertEquals(
+            listOf("LoadGen [1]", "LoadGen [2]", "LoadGen [3]"),
+            done.entries.map { it.sessionMap["QUOTE1"] },
+        )
+        assertEquals("book-a-trade [lane 2]", done.nameOf(1))
+    }
+
+    /**
+     * **The pinned leg.** Fifty lanes sharing one back-office session share its message log and its
+     * consumed cursor, so lane 12 could bind the reply to lane 30's order — and the report would be
+     * indistinguishable from a venue bug. Refused, by name, with the three things that would fix it.
+     */
+    @Test
+    fun `a second leg that cannot be spread refuses the fan-out rather than sharing a log`() {
+        val scenario =
+            scenario("rfq").copy(
+                steps =
+                    listOf(
+                        ScenarioStep.Send("35=R|", session = "QUOTE1"),
+                        ScenarioStep.Send("35=D|", session = "TRADE1"),
+                    ),
+            )
+        val lanes = (1..2).map { Lane(it, "LoadGen [$it]", "LOADGEN0$it", "q$it") }
+
+        val refused = RunSets.fanOut(scenario, "prof-1", lanes, over = "QUOTE1", now = 0L, policy = RunPolicy(concurrency = 2))
+
+        val why = assertIs<FanOutPlan.Refused>(refused).why
+        assertTrue("TRADE1" in why, why)
+        assertTrue("concurrency to 1" in why, "and it names the fixes: $why")
+
+        // At concurrency 1 there is no shared cursor to race, so the same set plans fine.
+        assertIs<FanOutPlan.Ready>(RunSets.fanOut(scenario, "prof-1", lanes, "QUOTE1", 0L, RunPolicy(concurrency = 1)))
+    }
+
+    /** Two sessions and no choice made is a question, not a guess. */
+    @Test
+    fun `a two-legged scenario with no leg named is refused with the names`() {
+        val scenario =
+            scenario("rfq").copy(
+                steps =
+                    listOf(
+                        ScenarioStep.Send("35=R|", session = "QUOTE1"),
+                        ScenarioStep.Send("35=D|", session = "TRADE1"),
+                    ),
+            )
+
+        val why = assertIs<FanOutPlan.Refused>(RunSets.fanOut(scenario, "p", listOf(Lane(1, "L [1]", "L1", "q")), null, 0L)).why
+
+        assertTrue("QUOTE1" in why && "TRADE1" in why, why)
+    }
+
+    @Test
+    fun `no logged-on lane is refused rather than run as a set of nothing`() {
+        val why = assertIs<FanOutPlan.Refused>(RunSets.fanOut(scenario("x"), "p", emptyList(), null, 0L)).why
+        assertTrue("nothing to fan out over" in why, why)
+    }
+
+    /**
+     * Stop-on-failure under concurrency stops *starting* lanes; the ones already in flight finish, because
+     * killing a client mid-order tells you less than letting it land.
+     */
+    @Test
+    fun `a failing lane stops the ones that have not started, and the rest are marked`() {
+        val host = FakeSetHost(green = true).apply { failEntries += 1 }
+        val scenario = scenario("book-a-trade").copy(steps = listOf(ScenarioStep.Send("35=D|", session = "Q")))
+        host.scenarios[scenario.id] = scenario
+        val lanes = (1..4).map { Lane(it, "L [$it]", "L$it", "q$it") }
+        val plan =
+            assertIs<FanOutPlan.Ready>(
+                RunSets.fanOut(scenario, "p", lanes, "Q", 0L, RunPolicy(concurrency = 1, stopOnFirstFailure = true)),
+            )
+
+        val done = RunSetRunner(host).run(plan.set.copy(policy = plan.set.policy.copy(concurrency = 2)))
+
+        assertEquals(RunSetStatus.FAILED, done.status)
+        assertTrue(done.entries.any { it.state == RunState.SKIPPED }, "${done.entries.map { it.state }}")
+        assertTrue(
+            done.entries.filter { it.state == RunState.SKIPPED }.all { it.note == "an earlier entry failed" },
+            "and they say why they did not run",
+        )
+    }
+
     // ----------------------------------------------------------------- helpers
 
     private fun scenario(name: String) =
@@ -277,15 +398,34 @@ class RunSetRunnerTest {
         /** Stop the set after this many entries have run. */
         var stopAfter: Int? = null
 
+        /** Held inside `runOne`, so a test can see how many entries overlap. */
+        var hold: (() -> Unit)? = null
+
         override fun scenario(id: String): Scenario? = scenarios[id] ?: scenarios.values.firstOrNull { it.id == id }
 
         /** Every seed the scheduler handed an entry, in order — an outline's whole contract with the runner. */
         val seeds = mutableListOf<Map<String, String>>()
 
-        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>, seed: Map<String, String>): EntryOutcome? {
-            ran += scenario
-            seeds += seed
-            val n = ran.size
+        /** The lane slot of each entry as it ran — null for anything that is not a lane. */
+        val lanesSeen = mutableListOf<Int?>()
+
+        /** How many entries were inside `runOne` at once, at the high-water mark. */
+        var peakInFlight = 0
+        private var inFlight = 0
+
+        override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome? {
+            synchronized(this) {
+                ran += scenario
+                seeds += entry.seed
+                lanesSeen += entry.lane?.slot
+            }
+            val n = synchronized(this) {
+                inFlight++
+                peakInFlight = maxOf(peakInFlight, inFlight)
+                ran.size
+            }
+            hold?.invoke()
+            synchronized(this) { inFlight-- }
             val steps =
                 when {
                     n in stoppedEntries -> listOf(StepResult(-1, "stopped", "steps", passed = false))

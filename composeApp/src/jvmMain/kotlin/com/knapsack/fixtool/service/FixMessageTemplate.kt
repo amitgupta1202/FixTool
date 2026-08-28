@@ -244,16 +244,32 @@ object FixMessageTemplate {
         return context
     }
 
+    /**
+     * **One expression at a time, process-wide.**
+     *
+     * The Kotlin JSR-223 engine is one shared object and is not thread-safe: two threads inside `eval`
+     * interleave in its compiler and both come out with whichever call last set the engine up. Fan-out
+     * found it — three lanes resolving `${out.D.11}` against three different sessions all returned the
+     * second lane's ClOrdID, and every lane's report was a confident, wrong green-or-red about a message
+     * it had never seen.
+     *
+     * The alternatives were worse. An engine per thread pays ~140ms to construct and ~1.4s on its first
+     * eval, times however many lanes; a compiled-script cache is the trap this file's `warmUp` KDoc
+     * already refuses, for the same reason in a different costume. So: correctness, and the cost of it is
+     * written down — a fan-out's throughput is bounded by this lock, and a lane scenario whose values are
+     * plain variables never reaches it, because only a real Kotlin expression gets this far.
+     */
     private fun evalExpressionWithContext(
         expression: String,
         variables: Map<String, String>,
         incomingData: Map<String, MessageAccessor>,
         outgoingData: Map<String, MessageAccessor>,
-    ): Any? {
-        val context = createScriptContext(variables, incomingData, outgoingData)
-        val script = "$SCRIPT_PREAMBLE\n$expression"
-        return scriptEngine.eval(script, context)
-    }
+    ): Any? =
+        synchronized(scriptEngine) {
+            val context = createScriptContext(variables, incomingData, outgoingData)
+            val script = "$SCRIPT_PREAMBLE\n$expression"
+            scriptEngine.eval(script, context)
+        }
 
     // Regex to extract message types from expressions like incoming["D"] or outgoing["R"]
     private val MSG_TYPE_REGEX = """(incoming|outgoing)\["([A-Za-z0-9]+)"\]""".toRegex()

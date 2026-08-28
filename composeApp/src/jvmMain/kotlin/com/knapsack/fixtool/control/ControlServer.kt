@@ -1400,7 +1400,7 @@ class ControlServer(
     private fun runScenario(ex: HttpExchange): Coded {
         val body = readJson(ex)
         val wantsSet =
-            body["set"] != null || body["ids"] != null || body["rows"] != null ||
+            body["set"] != null || body["ids"] != null || body["rows"] != null || body["fanOut"] != null ||
                 (body["repeat"]?.jsonPrimitive?.intOrNull ?: 1) > 1
         if (wantsSet) return startRunSet(body)
         val answer = runOneScenario(body)
@@ -1461,8 +1461,14 @@ class ControlServer(
                 else -> {
                     val id =
                         body["id"]?.jsonPrimitive?.contentOrNull
-                            ?: return Coded(HTTP_OK, errorObject("a run set needs 'set', 'ids', or 'id' with 'repeat' or 'rows'"))
+                            ?: return Coded(
+                                HTTP_OK,
+                                errorObject("a run set needs 'set', 'ids', or 'id' with 'repeat', 'rows' or 'fanOut'"),
+                            )
                     val scenario = viewModel.scenarioService.load(id) ?: return Coded(HTTP_NOT_FOUND, errorObject("scenario not found: $id"))
+                    body["fanOut"]?.jsonObject?.let { fan ->
+                        return startFanOut(scenario, fan)
+                    }
                     val rows = body["rows"]
                     if (rows == null) {
                         RunSets.repeat(scenario, repeat, now, policy)
@@ -1502,6 +1508,44 @@ class ControlServer(
                 if (missing.isNotEmpty()) {
                     put("unresolved", buildJsonArray { missing.forEach { add(it) } })
                 }
+            },
+        )
+    }
+
+    /**
+     * **Fan a flow out over a profile's sessions**, from outside the app.
+     *
+     * The refusals are the app's own, and each one names something the caller can change: a profile that
+     * opens one session, an acceptor asked to be a lane source, a second leg no profile can spread. The
+     * far-end notice rides along when the lanes point at FixTool's own venue, because the p95 that comes
+     * back is then the tool's, not a venue's.
+     */
+    private fun startFanOut(scenario: Scenario, fan: JsonObject): Coded {
+        val asked = fan["profile"]?.jsonPrimitive?.contentOrNull
+            ?: return Coded(HTTP_OK, errorObject("fanOut needs a 'profile' — the multi-session profile that opens the lanes"))
+        val profile =
+            onEdt { viewModel.connectionProfiles.firstOrNull { it.id == asked || it.name == asked } }
+                ?: return Coded(HTTP_NOT_FOUND, errorObject("no saved profile '$asked'"))
+        val started =
+            onEdt { viewModel.startFanOut(scenario, profile.id, fan["session"]?.jsonPrimitive?.contentOrNull) }
+                ?: return Coded(
+                    HTTP_CONFLICT,
+                    errorObject(
+                        (onEdt { viewModel.fanOutLanes(profile.id) } as? FixMessageViewModel.FanOutLanes.Unavailable)?.why
+                            ?: "the fan-out could not be started — a run may already be in progress, or the " +
+                            "scenario has a leg that cannot be spread across lanes",
+                    ),
+                )
+        return Coded(
+            HTTP_ACCEPTED,
+            buildJsonObject {
+                put("runSet", started.id)
+                put("status", "running")
+                put("entries", started.entries.size)
+                put("label", started.label)
+                put("concurrency", started.policy.concurrency)
+                put("lanes", buildJsonArray { started.entries.forEach { e -> e.lane?.let { add(it.senderCompID) } } })
+                onEdt { viewModel.fanOutFarEndNotice(profile.id) }?.let { put("notice", it) }
             },
         )
     }

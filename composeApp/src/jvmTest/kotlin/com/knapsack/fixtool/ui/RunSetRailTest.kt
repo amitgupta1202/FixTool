@@ -15,6 +15,7 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.service.RecordedMessage
 import com.knapsack.fixtool.service.RunRecord
 import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.SavedRunEntry
@@ -127,12 +128,48 @@ class RunSetRailTest {
         val published = assertNotNull(viewModel.scenarioResult.value, "focusing an entry publishes its verdict")
         assertTrue(!published.passed, "entry 2 is the failed one, and its report is the one now on screen")
         assertEquals("book-a-trade", published.scenario)
+
+        // And the click opened the set as a document, on that entry — the rail's report is a summary, and
+        // the question a failed entry raises is answered by the bytes.
+        val doc =
+            assertNotNull(
+                viewModel.openDocuments.value.filterIsInstance<ScenarioDoc.RunSetView>().singleOrNull(),
+                "the set should be open as a document",
+            )
+        assertEquals(set.id, doc.setId)
+        assertEquals(2, doc.entry)
+    }
+
+    /**
+     * The document reads the record back: the entries down one side, and for the focused one its verdict
+     * and **its own message grid**, from bytes that are nowhere else by the time anybody looks.
+     */
+    @Test
+    fun `the run set document shows an entry's verdict and the messages from its record`() {
+        val scenario = scenario("book-a-trade")
+        viewModel.scenarioService.save(scenario)
+        viewModel.refreshScenarios()
+        val set = writeFinishedSet(scenario, withMessages = true)
+
+        composeTestRule.setContent {
+            RunSetDocument(viewModel, ScenarioDoc.RunSetView(set.id, entry = 1), modifier = Modifier.fillMaxSize())
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("run-set-document").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("run-entry-1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("run-entry-2").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("run-entry-verdict").assertIsDisplayed()
+        // The header names the entry and its file, because a record's grid that looked like the live one
+        // would be worse than none.
+        composeTestRule.onNodeWithTag("run-entry-header").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("run-entry-grid").assertIsDisplayed()
     }
 
     // ----------------------------------------------------------------- fixtures
 
     /** A set as it looks the morning after: on disk, one entry green, one red, the app restarted since. */
-    private fun writeFinishedSet(scenario: Scenario): com.knapsack.fixtool.model.scenario.RunSet {
+    private fun writeFinishedSet(scenario: Scenario, withMessages: Boolean = false): com.knapsack.fixtool.model.scenario.RunSet {
         val set =
             RunSets.repeat(scenario, times = 2, now = System.currentTimeMillis()).copy(
                 status = RunSetStatus.FAILED,
@@ -163,7 +200,16 @@ class RunSetRailTest {
                             steps = listOf(StepResult(0, "expect", "steps", passed = passed, detail = "messageType=8")),
                             durationMs = 12,
                         ),
-                    messages = emptyList(),
+                    scenario = scenario,
+                    messages =
+                        if (!withMessages) {
+                            emptyList()
+                        } else {
+                            listOf(
+                                RecordedMessage(0, "CLI", incoming = false, atMicros = 10, raw = "8=FIX.4.4|35=D|11=ORD-1|55=EUR/USD|10=001|"),
+                                RecordedMessage(1, "CLI", incoming = true, atMicros = 210, raw = "8=FIX.4.4|35=8|11=ORD-1|39=2|10=002|"),
+                            )
+                        },
                     bound = emptyMap(),
                 ),
             )

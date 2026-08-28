@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.StepResult
 import kotlinx.serialization.json.JsonObject
@@ -39,6 +40,16 @@ data class RunRecord(
     val iteration: Int,
     val scenarioId: String,
     val scenarioName: String,
+    /**
+     * **The scenario as it was when this entry ran** — what was asserted, beside what came back.
+     *
+     * Without it a record is half the evidence. The reconcile route has to know whether the step that
+     * failed is still the step that failed, and comparing today's file against today's file answers yes
+     * every time: an author who edits the assertion and then clicks Reconcile would be shown the old bytes
+     * against the new expectation, and "Accept actual" would write a repair for a run that never happened.
+     * Null only for a record written before this existed.
+     */
+    val scenario: Scenario? = null,
     val startedAt: Long,
     val durationMs: Long?,
     val result: ScenarioResult,
@@ -158,6 +169,9 @@ object RunRecordCodec {
                 buildJsonObject {
                     put("id", record.scenarioId)
                     put("name", record.scenarioName)
+                    // The definition, in the same shape a scenario file has — so a reader of the record can
+                    // see what was asserted, and the reconcile gate can tell an edit from a re-run.
+                    record.scenario?.let { put("definition", ScenarioCodec.toJson(it)) }
                 },
             )
             put("startedAt", record.startedAt)
@@ -191,6 +205,10 @@ object RunRecordCodec {
             iteration = obj["iteration"]?.jsonPrimitive?.int ?: 1,
             scenarioId = obj["scenario"]?.jsonObject?.get("id")?.jsonPrimitive?.content.orEmpty(),
             scenarioName = obj["scenario"]?.jsonObject?.get("name")?.jsonPrimitive?.content.orEmpty(),
+            scenario =
+                obj["scenario"]?.jsonObject?.get("definition")?.jsonObject?.let {
+                    runCatching { ScenarioCodec.fromJson(it) }.getOrNull()
+                },
             startedAt = obj["startedAt"]?.jsonPrimitive?.long ?: 0L,
             durationMs = obj["durationMs"]?.jsonPrimitive?.long,
             result = ScenarioReport.fromJson(obj["result"]!!.jsonObject),

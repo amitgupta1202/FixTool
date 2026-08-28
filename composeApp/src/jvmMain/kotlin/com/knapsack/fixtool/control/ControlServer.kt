@@ -1433,8 +1433,10 @@ class ControlServer(
             when {
                 setName != null -> {
                     val saved = viewModel.runSetStore.load(setName) ?: return Coded(HTTP_NOT_FOUND, errorObject("no saved run set named '$setName'"))
-                    val plan = saved.copy(policy = if (body["stopOnFailure"] == null && body["pauseMs"] == null) saved.policy else policy)
-                        .plan(viewModel.scenarioService.list(), now)
+                    // The file's own policy unless the call overrode part of it: a saved set carries how it
+                    // is meant to be run, and a caller that says nothing about that means the file.
+                    val asked = if (body["stopOnFailure"] == null && body["pauseMs"] == null) saved.policy else policy
+                    val plan = saved.copy(policy = asked).plan(viewModel.scenarioService.list(), now)
                     missing += plan.missing
                     plan.set
                 }
@@ -1455,8 +1457,9 @@ class ControlServer(
                     )
                 }
                 else -> {
-                    val id = body["id"]?.jsonPrimitive?.contentOrNull
-                        ?: return Coded(HTTP_OK, errorObject("a run set needs 'set', 'ids', or 'id' with 'repeat'"))
+                    val id =
+                        body["id"]?.jsonPrimitive?.contentOrNull
+                            ?: return Coded(HTTP_OK, errorObject("a run set needs 'set', 'ids', or 'id' with 'repeat'"))
                     val scenario = viewModel.scenarioService.load(id) ?: return Coded(HTTP_NOT_FOUND, errorObject("scenario not found: $id"))
                     RunSets.repeat(scenario, repeat, now, policy)
                 }
@@ -1491,7 +1494,10 @@ class ControlServer(
      */
     @Suppress("ReturnCount")
     private fun runSets(ex: HttpExchange): Coded {
-        val parts = ex.requestURI.path.trim('/').split('/')
+        val parts =
+            ex.requestURI.path
+                .trim('/')
+                .split('/')
         // /scenarios/runs -> ["scenarios","runs"]; /scenarios/runs/<id>[/entries/<n>|/stop]
         val setId = parts.getOrNull(2)
         if (setId == null) {
@@ -1511,7 +1517,13 @@ class ControlServer(
                 return Coded(HTTP_CONFLICT, errorObject("run set '$setId' is not running"))
             }
             viewModel.requestScenarioStop()
-            return Coded(HTTP_ACCEPTED, buildJsonObject { put("status", "stopping"); put("runSet", setId) })
+            return Coded(
+                HTTP_ACCEPTED,
+                buildJsonObject {
+                    put("status", "stopping")
+                    put("runSet", setId)
+                },
+            )
         }
         if (tail == "entries") {
             val n = parts.getOrNull(4)?.toIntOrNull() ?: return Coded(HTTP_NOT_FOUND, errorObject("which entry?"))

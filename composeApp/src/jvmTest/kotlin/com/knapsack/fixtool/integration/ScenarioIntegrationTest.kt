@@ -25,6 +25,7 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -300,6 +301,68 @@ class ScenarioIntegrationTest {
         val second = FixMessageHelper.wireFields(awaitOrder("M2-$runId"))!!
         assertEquals("${'$'}{note}", second.single { it.first == 58 }.second)
     }
+
+    /**
+     * **The repeat, over a real wire.** The same saved scenario run twice against the same session, with
+     * nothing clearing the log in between — which is what a run set does twenty times over, and what a
+     * tester does by clicking Run again.
+     *
+     * The strict verdict scans the session's whole log, and a log is not emptied between runs, so before
+     * the run's own watermark reached that check the second run was red on the first run's ExecutionReport
+     * every time. Under `this_run` it was red by construction: the older reply is not bindable, so it could
+     * not be anything but a stray. Both runs are green, and the second says how many messages it set aside.
+     */
+    @Test
+    fun `the same strict scenario run twice in a row is green both times`() {
+        val scenario =
+            """{
+              "name": "strict-repeat-$runId",
+              "traffic": "strict",
+              "binding": "this_run",
+              "steps": [
+                {"type":"send","session":"CLI","raw":"35=D|11=RPT-${'$'}{uuid}|55=EUR/USD|54=1|38=100|40=1|"},
+                {"type":"expect","session":"CLI","direction":"in","timeoutMs":8000,"expectation":{
+                  "messageType":"8","mode":"open","fields":[
+                    {"tag":35,"matcher":{"type":"exact","value":"8"}},
+                    {"tag":11,"matcher":{"type":"reference","expression":"${'$'}{out.D.11}"}}
+                  ]}}
+              ]
+            }"""
+        // Saved and run by id, because that is the path a repeat takes — not a fresh inline scenario each
+        // time, which would prove nothing about a log the previous iteration left behind.
+        val id = obj(post("/scenarios", scenario))["id"]!!.jsonPrimitive.content
+
+        val first = obj(post("/scenarios/run", """{"id":"$id"}"""))
+        assertTrue(first["passed"]!!.jsonPrimitive.boolean, "the first run is the easy one: $first")
+        assertTrue(trafficRow(first)["passed"]!!.jsonPrimitive.boolean)
+
+        val second = obj(post("/scenarios/run", """{"id":"$id"}"""))
+        assertTrue(second["passed"]!!.jsonPrimitive.boolean, "iteration 2 is judged on its own traffic: $second")
+        val verdict = trafficRow(second)
+        assertTrue(verdict["passed"]!!.jsonPrimitive.boolean, "the first run's reply is not the second run's surplus: $verdict")
+        assertTrue(
+            verdict["detail"]!!.jsonPrimitive.content.contains("already in the log when the run began were not judged"),
+            "and it says what it set aside: ${verdict["detail"]}",
+        )
+
+        // The two runs are genuinely two: each minted its own ClOrdID and bound its own reply.
+        assertNotEquals(boundClOrdId(first), boundClOrdId(second), "each run must judge its own ExecutionReport")
+    }
+
+    /** The strict stream verdict from a run report — the run-level row, which wears no stepId. */
+    private fun trafficRow(report: kotlinx.serialization.json.JsonObject) =
+        report["steps"]!!.jsonArray.map { it.jsonObject }.single { it["kind"]!!.jsonPrimitive.content == "traffic" }
+
+    /** What tag 11 held on the ExecutionReport the run's expect actually bound. */
+    private fun boundClOrdId(report: kotlinx.serialization.json.JsonObject): String =
+        report["steps"]!!
+            .jsonArray
+            .map { it.jsonObject }
+            .single { it["kind"]!!.jsonPrimitive.content == "expect" }["tags"]!!
+            .jsonArray
+            .map { it.jsonObject }
+            .single { it["tag"]!!.jsonPrimitive.int == 11 }["actual"]!!
+            .jsonPrimitive.content
 
     // ----------------------------------------------------------------- helpers
 

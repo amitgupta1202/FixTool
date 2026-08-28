@@ -370,9 +370,27 @@ wait for the lanes it will use rather than for a single session.
 
 For each session the scenario names, the dialog asks where lanes come from:
 
-- **Spread** over a profile group: lane *k* takes the *k*-th session of `getProfileSessions`. The lane
-  count is the group's size, capped by the dialog.
+- **Spread** over the sessions that are **available**: lane *k* takes the *k*-th of them.
 - **Pinned** to one session: every lane uses the same one.
+
+**Available means available.** A lane's source is not "a profile group" — it is *any connected session
+not already claimed by another lane in this set*. A profile group is only the convenient default,
+because `getProfileSessions` hands one back in creation order and a `{nn}` group is the usual way fifty
+sessions come to exist; but twelve sessions across three profiles are twelve perfectly good lanes, and
+refusing them because they do not share a parent would be a rule with nothing behind it. The dialog
+therefore offers the groups it can see *and* "any available session", and both produce the same thing:
+an ordered list of session titles to spread over.
+
+Two consequences, both of which are just "use what is there":
+
+- **A shortfall is reported, not refused.** Ask for 50 lanes with 38 sessions up and the set runs 38,
+  and says so on its header: *"38 lanes — 12 of LoadGen's sessions are not logged on."* A load test that
+  declines to start because it is twelve short of a round number is a load test nobody runs.
+- **Nothing up is the existing preflight's problem, not a new one.** With no session available, the run
+  takes the one recovery attempt it already takes — `connectSession` strips the `[n]` suffix and
+  connects the base profile, which creates every slot — waits for `connectTimeoutMs`, and then spreads
+  over whatever came up. No new connection code, and no session opened that the author did not
+  configure.
 
 Pinning is the natural thing to want for a second leg — fifty client lanes against one shared
 back-office session — and it is exactly what **breaks the licence for concurrency**. Fifty lanes

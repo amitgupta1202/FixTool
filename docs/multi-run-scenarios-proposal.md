@@ -401,6 +401,35 @@ Two consequences, both of which are just "use what is there":
   over whatever came up. No new connection code, and no session opened that the author did not
   configure.
 
+### How "which sessions" is answered today — and the symmetry to keep
+
+Four places in the app already choose sessions, and they do not all choose the same way:
+
+| Today | Chooses | Filter |
+|---|---|---|
+| **Bulk Send** — `sendMessageToAllConnectedSessions` | every session | `LOGGED_ON` only |
+| **Capture** — `captureScenarioFromSessions` | every session, or the titles named | **none** — a disconnected session is captured too |
+| **Connect** — `connectProfile` | the profile's slots | by profile |
+| **A scenario step** — `ViewModelScenarioHost.resolveSession` | one, by title (or index) | none; **null takes the first session in the list** |
+
+Two of those are worth fixing while fan-out is being designed, because a fan-out inherits both:
+
+1. **Capture and Bulk Send disagree about what "every session" means.** The difference is defensible —
+   capture is reading history, which a disconnected session still has — but it should be *stated* rather
+   than discovered. Fan-out follows Bulk Send: a lane must be logged on, because a lane that is not is
+   not a lane.
+2. **`null` means "the first session", not "the active one".** `ScenarioStep.session`'s own KDoc says
+   *"null = the active session"*, and `resolveSession` returns `list.firstOrNull()`. Today that is a
+   footnote. Under fan-out it is a trap: a scenario captured on one session, with no session named,
+   would pin all fifty lanes to session index 0 — and `withSessions` deliberately leaves null alone, so
+   the remap could not save it.
+
+   **So under a fan-out, `null` means *this lane's session*.** That is both the safe reading and the
+   useful one: the ordinary case — one flow, captured without naming anything, spread over fifty lanes —
+   then works with no editing at all. Outside a fan-out, null keeps meaning what it means today (and the
+   KDoc should be corrected to say "the first session", or `resolveSession` changed to honour the
+   selection; they cannot both stay as they are).
+
 ### A lane already knows what to call itself
 
 Bulk Send seeds four names into the template scope for each target it sends to

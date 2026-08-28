@@ -59,6 +59,7 @@ import com.knapsack.fixtool.service.RunRecordStore
 import com.knapsack.fixtool.service.RunRecorder
 import com.knapsack.fixtool.service.RunSetHost
 import com.knapsack.fixtool.service.RunSetRunner
+import com.knapsack.fixtool.service.RunSetStore
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -2105,6 +2106,20 @@ class FixMessageViewModel(
         )
     }
 
+    /**
+     * Named run sets — `~/.fixtool/sets/<name>.json`, the thing CI selects by name in a checkout.
+     *
+     * A file, like a scenario or a profile, and deliberately not a tag on the scenario: `userTags` is
+     * already the per-profile filter, so a `nightly` tag would hide the scenario from every
+     * profile-filtered listing.
+     */
+    val runSetStore by lazy {
+        RunSetStore(
+            customDir = resolveStoragePath("", "sets"),
+            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+        )
+    }
+
     // The rail's view-chrome store — a small local JSON beside app_settings.json, never in the scenarios dir.
     private val scenarioViewStateService by lazy {
         ScenarioViewStateService(
@@ -2998,14 +3013,57 @@ class FixMessageViewModel(
      * [onProgress] is called after every state change, so a caller can render the queue while it drains;
      * `set.json` is rewritten at the same moments, so a reader in another process sees the same progress.
      */
-    fun runSetBlocking(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet? =
-        claimRunSlot {
-            runRecordStore.begin(set)
-            val done = RunSetRunner(ViewModelRunSetHost()).run(set, onProgress)
-            // After the set, not before: the run just finished is the one that must survive the pruning.
-            runRecordStore.prune(_appSettings.value.runRecordsKept)
-            done
+    fun runSetBlocking(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet? = claimRunSlot { runSetHeld(set, onProgress) }
+
+    /**
+     * **Starts a set on a background thread and answers immediately** — the control surface's job model.
+     *
+     * The slot is claimed *before* returning, so "already in progress" is a real answer rather than a
+     * guess: `POST /scenarios/run` can say 409 and mean it. A twelve-scenario suite is minutes and the
+     * route that ran it inline held one of four HTTP threads for all of them, with the MCP shim giving up
+     * at fifteen seconds.
+     */
+    fun startRunSet(set: RunSet): RunSet? {
+        if (!beginScenarioRun()) return null
+        // Written here, on the caller's thread, and not left to the scheduler: a 202 that hands back an id
+        // has promised that the id can be fetched, and a caller polling on the next line must not race the
+        // background thread to the first `set.json`.
+        val starting = set.copy(startedAt = System.currentTimeMillis())
+        runRecordStore.begin(starting)
+        _activeRunSet.value = starting
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                runSetHeld(starting) { }
+            } catch (e: Exception) {
+                logger.error("Run set failed: ${e.message}", e, notifyUser = false)
+            } finally {
+                endScenarioRun()
+            }
         }
+        return starting
+    }
+
+    /** The set itself, with the slot already held by whoever called. */
+    private fun runSetHeld(set: RunSet, onProgress: (RunSet) -> Unit): RunSet {
+        runRecordStore.begin(set)
+        val done =
+            RunSetRunner(ViewModelRunSetHost()).run(set) { progress ->
+                _activeRunSet.value = progress
+                onProgress(progress)
+            }
+        // After the set, not before: the run just finished is the one that must survive the pruning.
+        runRecordStore.prune(_appSettings.value.runRecordsKept)
+        return done
+    }
+
+    /**
+     * The set that is running, or the last one that ran — what the rail reports and what a stop aims at.
+     *
+     * Kept after it finishes rather than cleared: "what broke overnight" is asked of a set that is over,
+     * and a surface that forgot the answer the moment it arrived would be no surface at all.
+     */
+    private val _activeRunSet = MutableStateFlow<RunSet?>(null)
+    val activeRunSet: StateFlow<RunSet?> = _activeRunSet.asStateFlow()
 
     /** The live host for a set: the app's own scenarios, its own run path, its own runs directory. */
     private inner class ViewModelRunSetHost : RunSetHost {

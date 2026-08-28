@@ -406,6 +406,51 @@ object McpTools {
                 ),
             ),
             tool(
+                "fixtool_run_set",
+                "Run MANY scenarios as one job and return at once — the answer to \"run the suite and tell me what " +
+                    "broke\". Three ways in: set=<name> for a saved run set (~/.fixtool/sets/<name>.json), " +
+                    "ids=[...] for an explicit list, or id=<scenario> with repeat=N for a flake hunt. Returns " +
+                    "{runSet, status, entries} immediately — a twelve-scenario suite is minutes, so poll it with " +
+                    "fixtool_run_status and read a failed entry with fixtool_run_entry. Each entry runs isolated " +
+                    "(binding=this_run, so iteration 2 cannot bind iteration 1's reply) and writes its report AND " +
+                    "its messages to ~/.fixtool/runs/<runSet>/ as it lands, so the evidence outlives the grid. " +
+                    "stopOnFailure=true ends the set at the first red (CI); the default runs everything, because " +
+                    "\"3 of 20 failed\" is what a flake hunt needs.",
+                props(
+                    "set" to string("name of a saved run set"),
+                    "ids" to arraySchema(string(), "scenario ids to run, in order"),
+                    "id" to string("one scenario id, with repeat=N"),
+                    "repeat" to integer("run each scenario N times"),
+                    "stopOnFailure" to boolean("stop at the first failing entry (default false)"),
+                    "pauseMs" to integer("pause between entries, milliseconds"),
+                ),
+            ),
+            tool(
+                "fixtool_run_status",
+                "Where a run set has got to: {status: running|passed|failed|stopped, summary:{total,done,passed," +
+                    "failed,elapsedMs}, entries:[{n,scenario,iteration,state,durationMs,record,note}]}. Pass " +
+                    "wait=<ms> (up to 10000) to hold the call until the set finishes — under this transport's own " +
+                    "ceiling, so waiting never costs you the answer. With no runSet it lists the recent sets, " +
+                    "newest first. The state is read from disk, so it survives a restart of the app.",
+                props(
+                    "runSet" to string("the id returned by fixtool_run_set; omit to list recent sets"),
+                    "wait" to integer("milliseconds to wait for the set to finish (max 10000)"),
+                    "stop" to boolean("ask the running set to stop where it is"),
+                ),
+            ),
+            tool(
+                "fixtool_run_entry",
+                "One entry's RECORD: the same per-step, per-tag report fixtool_run_scenario returns, plus every " +
+                    "message the entry saw, in arrival order, with the wire bytes — and `bound`, which says which " +
+                    "message each step judged. This is what a failed entry is diagnosed from: by the time you read " +
+                    "it the grid holds a later entry's traffic, or nothing at all.",
+                props(
+                    "runSet" to string("the run set id"),
+                    "entry" to integer("1-based entry number, from fixtool_run_status"),
+                ),
+                required = listOf("runSet", "entry"),
+            ),
+            tool(
                 "fixtool_reconcile",
                 "Open the reconcile diff on a step that failed the last run — the one surface in the app that " +
                     "can author or repair an assertion. With no argument it takes the run's first failing step, " +

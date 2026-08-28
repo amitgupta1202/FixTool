@@ -30,6 +30,47 @@ data class Scenario(
      * Additive and default-omitting on disk, the same bargain as [traffic] and [binding].
      */
     val createdAt: Long? = null,
+    /**
+     * **The table this scenario is an outline of** — Cucumber's Scenario Outline, and it needed almost
+     * nothing new.
+     *
+     * A scenario is *already* parameterized: every step resolves `${…}` against one variable scope the run
+     * threads through it, and that scope already covers both directions — a Send puts `${symbol}` on the
+     * wire, an Expect's `reference` matcher asserts `${symbol}` came back, and a `bindAs` writes the
+     * venue's own choice into it. What was missing was the table and one runner parameter: the columns are
+     * seeded into the scope before setup runs, and each row is one entry of a run set.
+     *
+     * Additive and default-omitting on disk, the same bargain as [traffic] and [createdAt].
+     */
+    val examples: Examples? = null,
+)
+
+/**
+ * The rows a scenario is run once for each of, and the names their cells are seeded under.
+ *
+ * [columns] are variable names, seeded into the run's scope before its first step. A cell is resolved as
+ * it is seeded, so a cell may itself say `${uuid}` or `${LocalDate.now()}` and give every row its own
+ * fresh id — which is what makes an outline safe to run twice.
+ */
+data class Examples(
+    val columns: List<String> = emptyList(),
+    val rows: List<ExampleRow> = emptyList(),
+) {
+    /** The rows that will actually run — a parked row is kept, like a parked step, and skipped. */
+    val live: List<ExampleRow> get() = rows.filterNot { it.muted }
+}
+
+/**
+ * One row of the table: what to call it, and what to put in the scope.
+ *
+ * [name] is what the report says instead of "row 3" — "EUR/USD partial fill" — and what a CI testcase
+ * names itself, the way a parameterized test always has: `book-a-trade [EUR/USD partial fill]`.
+ */
+data class ExampleRow(
+    val name: String,
+    val values: Map<String, String> = emptyMap(),
+    /** Parked, not deleted — the same bargain as [ScenarioStep.muted]. */
+    val muted: Boolean = false,
 )
 
 /**
@@ -446,9 +487,30 @@ data class StepResult(
 data class ScenarioVariable(
     val name: String,
     val value: String,
-    /** The step whose evaluation wrote this name — blank ids reported as null. */
+    /** The step whose evaluation wrote this name — blank ids reported as null. Null for a seeded name. */
     val mintedAtStepId: String? = null,
+    /**
+     * **Who put this value in the scope**, which a step id alone cannot say.
+     *
+     * Provenance is recorded as the step that first wrote a name — and a name the *run* was seeded with was
+     * written by nobody, so it would be credited to whichever step happened to run first. A reader deciding
+     * whether a value came from the venue, from the flow, or from the table they are looking at needs the
+     * difference.
+     */
+    val source: VariableSource = VariableSource.STEP,
 )
+
+/** Where a name in a run's scope came from. */
+enum class VariableSource {
+    /** A step minted or captured it — the ordinary case, and every scenario before outlines existed. */
+    STEP,
+
+    /** A row of the scenario's [Examples] table seeded it. */
+    ROW,
+
+    /** A fan-out lane seeded it — its session's own identity. Produced by Phase 4, not before. */
+    LANE,
+}
 
 /** The result of a whole scenario run — drives both CI (exit code) and the in-app red/green overlay. */
 data class ScenarioResult(

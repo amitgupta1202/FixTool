@@ -1,6 +1,8 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.BindScope
+import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchOp
@@ -53,6 +55,11 @@ object ScenarioCodec {
             // read and re-saved, so it stays byte-identical (and old FixTools keep loading new files — the
             // key is unknown to them, and an unknown key is ignored, never refused). Version stays 1.
             scenario.createdAt?.let { put("createdAt", it) }
+            // The outline's table. Same bargain again: a scenario with no rows grows no key, so every file
+            // written before outlines existed re-saves byte-identical.
+            scenario.examples?.takeIf { it.rows.isNotEmpty() || it.columns.isNotEmpty() }?.let {
+                put("examples", examplesToJson(it))
+            }
             put("setup", buildJsonArray { scenario.setup.forEach { add(stepToJson(it)) } })
             put("steps", buildJsonArray { scenario.steps.forEach { add(stepToJson(it)) } })
             put("teardown", buildJsonArray { scenario.teardown.forEach { add(stepToJson(it)) } })
@@ -93,7 +100,54 @@ object ScenarioCodec {
             binding = bindingFrom(obj["binding"]?.jsonPrimitive?.contentOrNull),
             // Absent = unknown (a file older than the field): read as null, and the rail sorts it by mtime.
             createdAt = obj["createdAt"]?.jsonPrimitive?.longOrNull,
+            examples = obj["examples"]?.jsonObject?.let { examplesFromJson(it) },
         ).withIds()
+    }
+
+    // ----------------------------------------------------------------- the outline's table
+
+    private fun examplesToJson(examples: Examples): JsonObject =
+        buildJsonObject {
+            put("columns", buildJsonArray { examples.columns.forEach { add(it) } })
+            put(
+                "rows",
+                buildJsonArray {
+                    examples.rows.forEach { row ->
+                        add(
+                            buildJsonObject {
+                                put("name", row.name)
+                                put("values", buildJsonObject { row.values.forEach { (k, v) -> put(k, v) } })
+                                if (row.muted) put("muted", true)
+                            },
+                        )
+                    }
+                },
+            )
+        }
+
+    /**
+     * A row keeps only the cells for columns the table declares.
+     *
+     * A cell under a name no column lists would be seeded into the run's scope and named by nothing — a
+     * variable an author could not see in the editor and could not remove from the table. The columns are
+     * the contract; a stray cell is dropped on load rather than run.
+     */
+    private fun examplesFromJson(obj: JsonObject): Examples {
+        val columns = obj["columns"]?.jsonArray?.map { it.jsonPrimitive.content }.orEmpty()
+        return Examples(
+            columns = columns,
+            rows =
+                obj["rows"]?.jsonArray?.map { it.jsonObject }?.map { row ->
+                    ExampleRow(
+                        name = row["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        values =
+                            row["values"]?.jsonObject.orEmpty()
+                                .filterKeys { it in columns }
+                                .mapValues { (_, v) -> v.jsonPrimitive.content },
+                        muted = row["muted"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    )
+                }.orEmpty(),
+        )
     }
 
     // ----------------------------------------------------------------- steps

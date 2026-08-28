@@ -35,6 +35,11 @@ object ScenarioAnnotations {
         val capturedAt: List<Int>,
         val referencedAt: List<Int>,
         val allWritesMuted: Boolean,
+        /**
+         * The scenario's Examples table supplies this name. No step writes it and none needs to — which is
+         * what stops it being reported as never-minted, and what lets the editor say where it comes from.
+         */
+        val seeded: Boolean = false,
     ) {
         /** Every step that puts a value in this variable, either way, in step order. */
         val writtenAt: List<Int> get() = (mintedAt + capturedAt).sorted()
@@ -48,10 +53,12 @@ object ScenarioAnnotations {
      * parked steps does not get written on a run, so a live reference to it is the leaves-a-literal
      * problem, not a working correlation.
      */
-    fun sites(steps: List<ScenarioStep>): Map<String, VarSites> {
+    fun sites(steps: List<ScenarioStep>, columns: List<String> = emptyList()): Map<String, VarSites> {
         val writes = steps.flatMapIndexed { i, s -> mintedIn(s).map { it to i } }
         val refs = steps.flatMapIndexed { i, s -> referencedIn(s).map { it to i } }
-        return (writes + refs).map { it.first }.distinct().associateWith { name ->
+        // Columns are named even when no step reads one: "a column the scenario never reads" is a lint the
+        // editor can only draw if the name reaches it.
+        return (writes + refs).map { it.first }.plus(columns).distinct().associateWith { name ->
             val writtenAt = writes.filter { it.first == name }.map { it.second }.distinct()
             VarSites(
                 // A Send mint chose the value; an Expect's `bindAs` read it off the venue's reply.
@@ -59,6 +66,7 @@ object ScenarioAnnotations {
                 capturedAt = writtenAt.filter { steps[it] is ScenarioStep.Expect },
                 referencedAt = refs.filter { it.first == name }.map { it.second }.distinct(),
                 allWritesMuted = writtenAt.isNotEmpty() && writtenAt.all { steps[it].muted },
+                seeded = name in columns,
             )
         }
     }
@@ -89,9 +97,23 @@ object ScenarioAnnotations {
      * the authoring-time warning for that. Engine expressions never appear here: `${LocalDateTime.now()}`
      * is not a bare name, and a bare name that IS minted somewhere is a working reference, not a warning.
      */
-    fun unminted(steps: List<ScenarioStep>): List<String> {
-        val minted = steps.flatMap { mintedIn(it) }.toSet()
+    fun unminted(steps: List<ScenarioStep>, columns: List<String> = emptyList()): List<String> {
+        // A column IS a mint — the row writes it before the first step runs. Without this, every outline
+        // would report every one of its own columns as a typo, which is a lint that has cried wolf.
+        val minted = steps.flatMap { mintedIn(it) }.toSet() + columns
         return steps.flatMap { referencedIn(it) }.filter { it !in minted }.distinct()
+    }
+
+    /**
+     * Columns the scenario never reads — the other half of the outline's lint.
+     *
+     * Not an error: it is what a half-finished table looks like, and an author adding columns before the
+     * steps that use them is doing it in the order that makes sense. But neither should it be discovered by
+     * watching a run pass while proving nothing about the column.
+     */
+    fun unreadColumns(steps: List<ScenarioStep>, columns: List<String>): List<String> {
+        val read = steps.flatMap { referencedIn(it) }.toSet()
+        return columns.filter { it !in read }
     }
 
     private fun mintedIn(step: ScenarioStep): List<String> =

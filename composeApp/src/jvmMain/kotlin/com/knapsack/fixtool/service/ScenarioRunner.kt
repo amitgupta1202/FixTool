@@ -12,6 +12,7 @@ import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TrafficMode
+import com.knapsack.fixtool.model.scenario.VariableSource
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.model.scenario.withSessions
 
@@ -134,10 +135,29 @@ class ScenarioRunner(
      * re-aimed, nothing is persisted, and the report still attributes to the scenario as saved. The
      * durable form of the same idea is a materialized copy — see the ViewModel's save-remapped-copy.
      */
-    fun run(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult =
-        runIdentified(scenario.withIds().withSessions(sessionMap))
+    fun run(
+        scenario: Scenario,
+        sessionMap: Map<String, String> = emptyMap(),
+        seed: Map<String, String> = emptyMap(),
+        seedSource: VariableSource = VariableSource.ROW,
+    ): ScenarioResult = runIdentified(scenario.withIds().withSessions(sessionMap), seed, seedSource)
 
-    private fun runIdentified(scenario: Scenario): ScenarioResult {
+    /**
+     * [seed] is the scope this run **starts** with — an Examples row's cells, or (Phase 4) a fan-out lane's
+     * own identity. One mechanism, because a lane is a run whose scope carries its session's identity, a
+     * row is a run whose scope carries the table's values, and an iteration is a run whose scope carries
+     * neither; a scenario saying `11=ORD-${sessionIndex}-${clOrdSuffix}` draws on both without knowing they
+     * came from different places.
+     *
+     * Cells are resolved **as they are seeded**, against a throwaway scope: a cell may say `${uuid}` and
+     * give each row its own fresh id, and a mint inside a cell cannot quietly write a second name into the
+     * run the author never declared as a column.
+     */
+    private fun runIdentified(
+        scenario: Scenario,
+        seed: Map<String, String> = emptyMap(),
+        seedSource: VariableSource = VariableSource.ROW,
+    ): ScenarioResult {
         // Preflight, by name, before any step runs: a missing/unconnected session otherwise surfaces
         // minutes later as a misleading Expect timeout. It gets one recovery attempt first — the host
         // connects what the scenario needs, and each success is a passing "connect" row in the report,
@@ -148,7 +168,7 @@ class ScenarioRunner(
             return ScenarioResult(scenario.name, false, results + it, durationMs = now() - startedAt)
         }
 
-        val scope = mutableMapOf<String, String>()
+        val scope = seed.mapValuesTo(mutableMapOf()) { (_, cell) -> host.resolve(cell, mutableMapOf(), null) }
         val consumed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
         // Lifetime discard counts before a single step runs, so the check below reports what *this run* lost
         // rather than what the session has lost since it connected.
@@ -185,7 +205,7 @@ class ScenarioRunner(
                 scenario.name,
                 passed = false,
                 steps = results,
-                variables = scope.map { (name, value) -> ScenarioVariable(name, value, mintedBy[name]) },
+                variables = scope.map { (name, value) -> variableOf(name, value, mintedBy, seed, seedSource) },
                 durationMs = now() - startedAt,
             )
         }
@@ -257,7 +277,7 @@ class ScenarioRunner(
         // has already rejected the zero-step scenario before we get here.
         val passed = results.none { it.phase != "teardown" && !it.passed }
         // The final scope, in mint order (the scope map is insertion-ordered) — see [ScenarioVariable].
-        val variables = scope.map { (name, value) -> ScenarioVariable(name, value, mintedBy[name]) }
+        val variables = scope.map { (name, value) -> variableOf(name, value, mintedBy, seed, seedSource) }
         return ScenarioResult(scenario.name, passed, results, variables, durationMs = now() - startedAt)
     }
 
@@ -1290,6 +1310,23 @@ class ScenarioRunner(
         // latency is a number nobody can act on. Zero means under a millisecond, which is the truth.
         return ((bound.captureTimeMicros - sent.captureTimeMicros) / MICROS_PER_MILLI).coerceAtLeast(0)
     }
+
+    /** A name the run was seeded with belongs to the seed, whatever ran first. */
+    private fun variableOf(
+        name: String,
+        value: String,
+        mintedBy: Map<String, String?>,
+        seed: Map<String, String>,
+        seedSource: VariableSource,
+    ): ScenarioVariable =
+        if (name in seed) {
+            // No step wrote it — the run was handed it. Claiming the name in `mintedBy` up front does not
+            // work: a null value there reads as absent to `putIfAbsent`, so the first step to run would
+            // take the credit anyway.
+            ScenarioVariable(name = name, value = value, mintedAtStepId = null, source = seedSource)
+        } else {
+            ScenarioVariable(name = name, value = value, mintedAtStepId = mintedBy[name], source = VariableSource.STEP)
+        }
 
     private fun label(session: String?): String = session ?: "(active session)"
 

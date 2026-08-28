@@ -13,6 +13,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagValue
 import com.knapsack.fixtool.model.scenario.TrafficMode
+import com.knapsack.fixtool.model.scenario.VariableSource
 import com.knapsack.fixtool.model.scenario.withIds
 import org.junit.Test
 import quickfix.Message
@@ -762,6 +763,62 @@ class ScenarioRunnerTest {
         // unasked-for arrived"): a scenario without that expect SHOULD fail strict on the extra reply.
         assertFalse(result.passed, "the parked expect's message is unbound, and strict says so: ${result.steps}")
         assertFalse(result.steps.single { it.kind == "traffic" }.passed)
+    }
+
+    // --------------------------------------------------------------------------- the seeded scope
+
+    /**
+     * **A scenario is already a Scenario Outline.** Every step resolves `${…}` against one scope the run
+     * threads through it, so a table needed the table and one runner parameter — not a second runner.
+     */
+    @Test
+    fun `a seeded name is on the wire, and is credited to the seed rather than to the first step`() {
+        val host = FakeHost()
+        val result =
+            ScenarioRunner(host, pollMs = 10, now = { host.clock })
+                .run(
+                    scenario(ScenarioStep.Send("35=D|11=ORD|55=${'$'}{symbol}|38=${'$'}{qty}|", session = "s")),
+                    seed = mapOf("symbol" to "EUR/USD", "qty" to "100"),
+                )
+
+        assertTrue(result.passed, "${result.steps}")
+        assertEquals(listOf("35=D|11=ORD|55=EUR/USD|38=100|"), host.sent, "the row's cells reach the wire")
+        val symbol = result.variables.single { it.name == "symbol" }
+        assertEquals(VariableSource.ROW, symbol.source)
+        assertNull(symbol.mintedAtStepId, "no step wrote it — the run was handed it")
+    }
+
+    /**
+     * A cell is resolved as it is seeded, so a row may say `${uuid}` and give each of its runs a fresh id —
+     * which is what makes an outline safe to run twice.
+     */
+    @Test
+    fun `a cell is resolved once, as it is seeded`() {
+        val host = FakeHost()
+        val scenario = scenario(ScenarioStep.Send("35=D|11=${'$'}{clOrdId}|", session = "s"))
+        val runner = { ScenarioRunner(host, pollMs = 10, now = { host.clock }).run(scenario, seed = mapOf("clOrdId" to "ORD-${'$'}{uuid}")) }
+
+        val first = runner().variables.single { it.name == "clOrdId" }.value
+        val second = runner().variables.single { it.name == "clOrdId" }.value
+
+        assertTrue(first.startsWith("ORD-") && !first.contains("${'$'}"), "the cell was evaluated, not sent literally: $first")
+        assertTrue(first != second, "and evaluated per run, so two runs do not collide: $first")
+        assertEquals(listOf("35=D|11=$first|", "35=D|11=$second|"), host.sent)
+    }
+
+    /** A step still owns what a step mints — the seed changes provenance for seeded names only. */
+    @Test
+    fun `a name a step mints is still the step's`() {
+        val host = FakeHost()
+        val result =
+            ScenarioRunner(host, pollMs = 10, now = { host.clock })
+                .run(
+                    scenario(ScenarioStep.Send("35=D|11=${'$'}{id = uuid}|55=${'$'}{symbol}|", session = "s")),
+                    seed = mapOf("symbol" to "EUR/USD"),
+                )
+
+        assertEquals(VariableSource.STEP, result.variables.single { it.name == "id" }.source)
+        assertEquals(VariableSource.ROW, result.variables.single { it.name == "symbol" }.source)
     }
 
     // ------------------------------------------------------------------- stopping a run in progress

@@ -229,6 +229,63 @@ class HeadlessRunIntegrationTest {
     }
 
     /**
+     * **`--rows` in CI**, where the outline pays for itself: one scenario, one process, one testcase per
+     * row, each named the way a parameterized test always has been.
+     */
+    @Test
+    fun `--rows runs the table and names each suite for its row`() {
+        File(home, "scenarios/outline.json").writeText(
+            """{"id":"outline","name":"outline",
+                "examples":{"columns":["symbol"],"rows":[
+                  {"name":"EUR USD","values":{"symbol":"EUR/USD"}},
+                  {"name":"GBP USD","values":{"symbol":"GBP/USD"}}]},
+                "steps":[{"type":"wait","session":"HL$runId","state":"LOGGED_ON","timeoutMs":15000},
+                         {"type":"send","session":"HL$runId","raw":"35=D|11=ROW-$runId|55=${'$'}{symbol}|54=1|38=100|40=1|"}]}""",
+        )
+        val junit = File(home, "reports/outline.xml")
+
+        val (code, out, err) = run("run", "outline", "--rows", "--home", home.absolutePath, "--junit", junit.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, "out:\n$out\nerr:\n$err")
+        // Each row's cells reached the venue — the whole point of the table.
+        assertTrue(
+            server.applicationMessages.any { it.contains("55=EUR/USD") } &&
+                server.applicationMessages.any { it.contains("55=GBP/USD") },
+            "both rows drove the flow: ${server.applicationMessages}",
+        )
+        val xml = junit.readText()
+        assertTrue(xml.contains("""name="outline [EUR USD]""""), "a row names its own suite: $xml")
+        assertTrue(xml.contains("""name="outline [GBP USD]""""), xml)
+        assertTrue(out.contains("outline [EUR USD]"), "and the build log says the same: $out")
+    }
+
+    /** One row of eight, for the row that failed. */
+    @Test
+    fun `--row runs only the row it names`() {
+        File(home, "scenarios/one-row.json").writeText(
+            """{"id":"one-row","name":"one-row",
+                "examples":{"columns":["symbol"],"rows":[
+                  {"name":"alpha","values":{"symbol":"EUR/USD"}},
+                  {"name":"beta","values":{"symbol":"GBP/USD"}}]},
+                "steps":[{"type":"wait","session":"HL$runId","state":"LOGGED_ON","timeoutMs":15000},
+                         {"type":"send","session":"HL$runId","raw":"35=D|11=ONE-$runId|55=${'$'}{symbol}|54=1|38=100|40=1|"}]}""",
+        )
+
+        val (code, out, _) = run("run", "one-row", "--row", "beta", "--home", home.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, out)
+        assertTrue(out.contains("one-row [beta]"), out)
+        assertTrue(
+            server.applicationMessages.any { it.contains("ONE-$runId") && it.contains("55=GBP/USD") },
+            "beta's cells went out: ${server.applicationMessages}",
+        )
+        assertTrue(
+            server.applicationMessages.none { it.contains("ONE-$runId") && it.contains("55=EUR/USD") },
+            "and alpha's did not",
+        )
+    }
+
+    /**
      * A CI gate wants the opposite of a flake hunt: stop at the first red. The entries that never ran say
      * why, so a log reader is not left wondering whether they passed.
      */

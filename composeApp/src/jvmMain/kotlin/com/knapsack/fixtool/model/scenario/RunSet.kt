@@ -31,6 +31,21 @@ data class RunSet(
     val status: RunSetStatus = RunSetStatus.RUNNING,
 ) {
     val total: Int get() = entries.size
+
+    /**
+     * What one entry is called, wherever a name is needed: `book-a-trade`, `book-a-trade #3`, or
+     * `book-a-trade [EUR/USD partial fill]` — the way a parameterized test has always named itself.
+     */
+    fun nameOf(index: Int): String {
+        val entry = entries.getOrNull(index) ?: return ""
+        val repeated = entries.count { it.scenarioId == entry.scenarioId && it.row == null } > 1
+        return entry.scenarioName +
+            when {
+                entry.row != null -> " [${entry.row.name}]"
+                repeated || entry.iteration > 1 -> " #${entry.iteration}"
+                else -> ""
+            }
+    }
     val done: Int get() = entries.count { it.state.finished }
     val passed: Int get() = entries.count { it.state == RunState.PASSED }
     val failed: Int get() = entries.count { it.state == RunState.FAILED }
@@ -52,6 +67,9 @@ sealed interface RunSource {
     data class Selected(val ids: List<String>) : RunSource
 
     data class Repeat(val scenarioId: String, val times: Int) : RunSource
+
+    /** One entry per row of the scenario's own table — the outline, run. */
+    data class Examples(val scenarioId: String) : RunSource
 }
 
 /** One request in a set: which scenario, which iteration of it, and what became of it. */
@@ -60,6 +78,14 @@ data class RunEntry(
     val scenarioName: String,
     /** 1-based; always 1 for a plain suite entry. */
     val iteration: Int = 1,
+    /**
+     * The table row this entry runs, when it has one — its cells are the scope the run starts with.
+     *
+     * Which row an entry ran is the *entry's* business, exactly as which iteration it was is. That is why
+     * the report, the record, the reconcile route and the JUnit renderer all keep working: nothing below
+     * this line had to learn what an outline is.
+     */
+    val row: ExampleRow? = null,
     val sessionMap: Map<String, String> = emptyMap(),
     val state: RunState = RunState.PENDING,
     val result: ScenarioResult? = null,

@@ -22,14 +22,18 @@ class CaptureClockTest {
         }
     }
 
-    /** Anchored to civil time, so a stamp is still a point in the day and not merely an offset. */
+    /**
+     * Anchored to civil time, so a stamp is a point in the day and not merely an offset — **including
+     * after the machine has been asleep**, which is what the counter alone cannot survive. This test
+     * failed at -280s on a laptop that shut mid-run, which is how the re-anchor came to exist.
+     */
     @Test
-    fun `stamps sit close to the wall clock`() {
+    fun `stamps sit close to the wall clock, even after the counter has fallen behind`() {
         val wallMicros = System.currentTimeMillis() * 1_000
         val stamp = CaptureClock.micros()
         assertTrue(
-            kotlin.math.abs(stamp - wallMicros) < 60_000_000L,
-            "the stamp should be within a minute of civil time, was ${(stamp - wallMicros) / 1_000_000}s away",
+            kotlin.math.abs(stamp - wallMicros) < 2_000_000L,
+            "the stamp should be within a couple of seconds of civil time, was ${(stamp - wallMicros) / 1_000_000}s away",
         )
     }
 

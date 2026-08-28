@@ -1,6 +1,8 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.BindScope
+import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
@@ -159,6 +161,75 @@ class RunSetRunnerTest {
         assertEquals(RunSetStatus.STOPPED, done.status)
     }
 
+    // ------------------------------------------------------------------------ the outline
+
+    /**
+     * **A row is a third source of entries, and nothing past that point is new.** A repeat produces N
+     * identical entries, a suite N different ones, a table N seeded ones — after which the scheduler, the
+     * record, the report and the JUnit wrapper are the ones that already existed.
+     */
+    @Test
+    fun `an examples table runs one entry per live row, each seeded with its own cells`() {
+        val host = FakeSetHost(green = true)
+        val scenario =
+            scenario("book-a-trade").copy(
+                examples =
+                    Examples(
+                        columns = listOf("symbol", "qty"),
+                        rows =
+                            listOf(
+                                ExampleRow("EUR/USD partial", mapOf("symbol" to "EUR/USD", "qty" to "100")),
+                                ExampleRow("GBP/USD full", mapOf("symbol" to "GBP/USD", "qty" to "250")),
+                                ExampleRow("parked one", mapOf("symbol" to "USD/JPY"), muted = true),
+                            ),
+                    ),
+            )
+        host.scenarios[scenario.id] = scenario
+
+        val done = RunSetRunner(host).run(assertNotNull(RunSets.examples(scenario, now = 0L)))
+
+        assertEquals(2, done.total, "a parked row is kept and skipped, like a parked step")
+        assertEquals(listOf("EUR/USD partial", "GBP/USD full"), done.entries.map { it.row?.name })
+        assertEquals(
+            listOf(mapOf("symbol" to "EUR/USD", "qty" to "100"), mapOf("symbol" to "GBP/USD", "qty" to "250")),
+            host.seeds,
+            "each entry starts with its own row's cells and nothing else",
+        )
+        assertEquals(RunSetStatus.PASSED, done.status)
+        // And the record carries the row, so "row 3 failed" is a sentence somebody can act on a week later.
+        assertEquals("EUR/USD partial", host.written.first().row?.name)
+    }
+
+    /** An outline whose rows are all parked is a request that cannot be honoured, not a set of zero. */
+    @Test
+    fun `a table with no live rows plans nothing rather than a set that passes vacuously`() {
+        val scenario =
+            scenario("book-a-trade").copy(
+                examples = Examples(listOf("symbol"), listOf(ExampleRow("parked", mapOf("symbol" to "X"), muted = true))),
+            )
+
+        assertNull(RunSets.examples(scenario, now = 0L))
+        assertNull(RunSets.examples(scenario("no-table"), now = 0L))
+    }
+
+    /** One place decides what an entry is called, so the XML, the log and the rail cannot disagree. */
+    @Test
+    fun `an entry names itself for its row, its iteration, or neither`() {
+        val plain = RunSets.suite(listOf(scenario("smoke")), RunSource.Selected(listOf("id-smoke")), "suite", now = 0L)
+        assertEquals("smoke", plain.nameOf(0))
+
+        val repeated = RunSets.repeat(scenario("book-a-trade"), times = 2, now = 0L)
+        assertEquals("book-a-trade #1", repeated.nameOf(0))
+        assertEquals("book-a-trade #2", repeated.nameOf(1))
+
+        val outlined =
+            RunSets.examples(
+                scenario("book-a-trade").copy(examples = Examples(listOf("symbol"), listOf(ExampleRow("EUR/USD partial")))),
+                now = 0L,
+            )
+        assertEquals("book-a-trade [EUR/USD partial]", assertNotNull(outlined).nameOf(0))
+    }
+
     // ----------------------------------------------------------------- helpers
 
     private fun scenario(name: String) =
@@ -195,8 +266,12 @@ class RunSetRunnerTest {
 
         override fun scenario(id: String): Scenario? = scenarios[id] ?: scenarios.values.firstOrNull { it.id == id }
 
-        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>): EntryOutcome? {
+        /** Every seed the scheduler handed an entry, in order — an outline's whole contract with the runner. */
+        val seeds = mutableListOf<Map<String, String>>()
+
+        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>, seed: Map<String, String>): EntryOutcome? {
             ran += scenario
+            seeds += seed
             val n = ran.size
             val steps =
                 when {

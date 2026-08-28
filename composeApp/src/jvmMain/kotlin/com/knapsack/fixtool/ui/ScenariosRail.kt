@@ -96,6 +96,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     // The Repeat dialog outlives the menu that opened it, like the remap dialog above.
     var repeating by remember { mutableStateOf(false) }
     var savingSet by remember { mutableStateOf(false) }
+    var outlining by remember { mutableStateOf(false) }
     // The scenario a "Save as scenario…" is being authored for — the dialog outlives the hover that opened it.
     var remapFor by remember { mutableStateOf<Scenario?>(null) }
     remapFor?.let { RemapScenarioDialog(scenario = it, viewModel = viewModel, onDismiss = { remapFor = null }) }
@@ -128,6 +129,16 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             onRun = { scenario, times, pauseMs ->
                 repeating = false
                 viewModel.startRepeat(scenario, times, pauseMs)
+            },
+        )
+    }
+    if (outlining) {
+        RunExamplesDialog(
+            scenarios = scenarios.filter { it.examples?.live?.isNotEmpty() == true },
+            onDismiss = { outlining = false },
+            onRun = { scenario ->
+                outlining = false
+                viewModel.startExamples(scenario)
             },
         )
     }
@@ -172,8 +183,10 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                             )
                         },
                         onRunFiltered = { viewModel.startRunSet(viewModel.planSuite(visible, "filtered: $filter")) },
+                        outlines = scenarios.count { it.examples?.live?.isNotEmpty() == true },
                         onSaveAsSet = { savingSet = true },
                         onRepeat = { repeating = true },
+                        onRunExamples = { outlining = true },
                         onOpenRecent = { id -> viewModel.focusRunSet(id) },
                     ),
                 sort = viewState.sortMode,
@@ -737,11 +750,14 @@ private data class RunMenu(
     val favourites: Int,
     val filtered: Int,
     val recent: List<RunSet>,
+    /** How many saved scenarios carry a table — the count on the outline item. */
+    val outlines: Int,
     val onRunSaved: (String) -> Unit,
     val onRunFavourites: () -> Unit,
     val onRunFiltered: () -> Unit,
     val onSaveAsSet: () -> Unit,
     val onRepeat: () -> Unit,
+    val onRunExamples: () -> Unit,
     val onOpenRecent: (String) -> Unit,
 )
 
@@ -779,6 +795,16 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     RailMenuItem("Repeat a scenario ×N…", enabled = !running, tag = "rail-run-repeat") {
         onChose()
         menu.onRepeat()
+    }
+    // Disabled with its count showing, like the rest: "no scenario here has a table" and "this feature
+    // does not exist" are different sentences, and only one of them is true.
+    RailMenuItem(
+        "Run examples table…  (${menu.outlines})",
+        enabled = !running && menu.outlines > 0,
+        tag = "rail-run-examples",
+    ) {
+        onChose()
+        menu.onRunExamples()
     }
     RailMenuItem("Save as set…", tag = "rail-save-set") {
         onChose()
@@ -876,7 +902,7 @@ private fun RunSetLine(
                         RunState.RUNNING -> AppTheme.Colors.info
                         else -> AppTheme.Colors.textDisabled
                     }
-                val name = entry.scenarioName + if (entry.iteration > 1) " #${entry.iteration}" else ""
+                val name = set.nameOf(i)
                 val timing = entry.durationMs?.let { " ${it}ms" }.orEmpty()
                 Text(
                     "  $mark $name$timing" + (entry.note?.let { " — $it" } ?: ""),
@@ -941,6 +967,53 @@ private fun RepeatScenarioDialog(scenarios: List<Scenario>, onDismiss: () -> Uni
                         onRun(sc, times.toIntOrNull()?.coerceAtLeast(1) ?: 1, pause.toLongOrNull()?.coerceAtLeast(0) ?: 0)
                     },
                     modifier = Modifier.testTag("repeat-run"),
+                )
+            }
+        }
+    }
+}
+
+/** Pick the outline to run. Its rows are shown, because "8 rows" is not the same claim as naming them. */
+@Composable
+private fun RunExamplesDialog(scenarios: List<Scenario>, onDismiss: () -> Unit, onRun: (Scenario) -> Unit) {
+    var chosen by remember { mutableStateOf(scenarios.firstOrNull()) }
+    Dialog(onCloseRequest = onDismiss, title = "Run examples table", state = rememberDialogState(width = 460.dp, height = 300.dp)) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize().background(AppTheme.Colors.background).padding(12.dp),
+        ) {
+            Text(
+                "Runs the scenario once per live row of its table, each row seeded into the run's own scope.",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 11.sp,
+            )
+            Box {
+                var open by remember { mutableStateOf(false) }
+                SlimButton(chosen?.name ?: "pick a scenario", onClick = { open = true }, modifier = Modifier.testTag("examples-pick"))
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    scenarios.forEach { sc ->
+                        RailMenuItem("${sc.name}  (${sc.examples?.live?.size ?: 0} rows)", tag = "examples-pick-${sc.id}") {
+                            chosen = sc
+                            open = false
+                        }
+                    }
+                }
+            }
+            chosen?.examples?.let { table ->
+                Text(
+                    table.columns.joinToString("  ") + "\n" +
+                        table.live.joinToString("\n") { row -> row.name + ":  " + table.columns.joinToString("  ") { row.values[it].orEmpty() } },
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 10.sp,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SlimButton("Cancel", onClick = onDismiss)
+                SlimButton(
+                    "Run",
+                    color = AppTheme.Colors.success,
+                    onClick = { chosen?.let(onRun) },
+                    modifier = Modifier.testTag("examples-run"),
                 )
             }
         }

@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.scenario.ExampleRow
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
@@ -191,6 +192,17 @@ object RunSetCodec {
                                 put("scenarioId", e.scenarioId)
                                 put("scenario", e.scenarioName)
                                 put("iteration", e.iteration)
+                                // The row's name and its cells: a record has to say what the run was given,
+                                // or "row 3 failed" is a sentence nobody can act on a week later.
+                                e.row?.let { row ->
+                                    put(
+                                        "row",
+                                        buildJsonObject {
+                                            put("name", row.name)
+                                            put("values", buildJsonObject { row.values.forEach { (k, v) -> put(k, v) } })
+                                        },
+                                    )
+                                }
                                 put("state", e.state.name)
                                 e.durationMs?.let { put("durationMs", it) }
                                 e.record?.let { put("record", it) }
@@ -216,6 +228,13 @@ object RunSetCodec {
                         scenarioId = e["scenarioId"]?.jsonPrimitive?.content.orEmpty(),
                         scenarioName = e["scenario"]?.jsonPrimitive?.content.orEmpty(),
                         iteration = e["iteration"]?.jsonPrimitive?.intOrNull ?: 1,
+                        row =
+                            e["row"]?.jsonObject?.let { row ->
+                                ExampleRow(
+                                    name = row["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                                    values = row["values"]?.jsonObject.orEmpty().mapValues { (_, v) -> v.jsonPrimitive.content },
+                                )
+                            },
                         sessionMap = e["sessions"]?.jsonObject.orEmpty().mapValues { (_, v) -> v.jsonPrimitive.content },
                         state =
                             e["state"]?.jsonPrimitive?.contentOrNull
@@ -257,6 +276,10 @@ object RunSetCodec {
                     put("scenarioId", source.scenarioId)
                     put("times", source.times)
                 }
+                is RunSource.Examples -> {
+                    put("type", "examples")
+                    put("scenarioId", source.scenarioId)
+                }
             }
         }
 
@@ -270,6 +293,7 @@ object RunSetCodec {
                     obj["scenarioId"]?.jsonPrimitive?.content.orEmpty(),
                     obj["times"]?.jsonPrimitive?.intOrNull ?: 1,
                 )
+            "examples" -> RunSource.Examples(obj["scenarioId"]?.jsonPrimitive?.content.orEmpty())
             // Selected is the fallback: an unknown source still lists the scenarios it ran, which is the
             // part a reader of an old record needs. The provenance of the click is not worth a refusal.
             else -> RunSource.Selected(obj?.get("ids")?.jsonArray.orEmpty().map { it.jsonPrimitive.content })

@@ -137,7 +137,7 @@ private fun EntryList(set: RunSet, focused: Int, onFocus: (Int) -> Unit, modifie
             ) {
                 Text("$mark ", color = tint, fontSize = 11.sp)
                 Text(
-                    entry.scenarioName + if (entry.iteration > 1) " #${entry.iteration}" else "",
+                    set.nameOf(i),
                     color = if (n == focused) AppTheme.Colors.text else AppTheme.Colors.textSecondary,
                     fontSize = 11.sp,
                     maxLines = 1,
@@ -173,7 +173,7 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
     val appSettings = viewModel.appSettings
     Column(modifier = modifier) {
         Text(
-            "${record.scenarioName} · entry ${record.entry} of ${set.total} · ${parsed.messages.size} messages · " +
+            "${set.nameOf(entry - 1)} · entry ${record.entry} of ${set.total} · ${parsed.messages.size} messages · " +
                 (set.entries.getOrNull(entry - 1)?.record ?: "") +
                 (if (record.dropped > 0) " · ${record.dropped} dropped by the cap" else ""),
             color = AppTheme.Colors.textDisabled,
@@ -190,6 +190,14 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
                 modifier = Modifier.testTag("run-entry-verdict"),
             )
             record.result.steps.forEach { step -> StepLine(step) }
+            record.row?.let { row ->
+                Text(
+                    "row ${row.name}:   " + row.values.entries.joinToString("   ") { "${it.key}=${it.value}" },
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(top = 4.dp).testTag("run-entry-row"),
+                )
+            }
             if (record.result.variables.isNotEmpty()) {
                 Text(
                     record.result.variables.joinToString("   ") { "${it.name}=${it.value}" },

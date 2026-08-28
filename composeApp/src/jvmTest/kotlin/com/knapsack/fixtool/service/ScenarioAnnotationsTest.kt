@@ -86,6 +86,50 @@ class ScenarioAnnotationsTest {
         assertEquals(listOf("idO", "idX", "idY"), ScenarioAnnotations.unminted(steps))
     }
 
+    /**
+     * **A column IS a mint** — the row writes it before the first step runs. Without this every outline
+     * would report every one of its own columns as a typo, which is a lint that has cried wolf.
+     */
+    @Test
+    fun `a name the table supplies is not an unminted reference`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|55=\${symbol}|38=\${qty}|41=\${typo}|", "A"),
+        )
+
+        assertEquals(listOf("symbol", "qty", "typo"), ScenarioAnnotations.unminted(steps), "with no table, all three")
+        assertEquals(
+            listOf("typo"),
+            ScenarioAnnotations.unminted(steps, columns = listOf("symbol", "qty")),
+            "with the table, only the one nothing supplies",
+        )
+    }
+
+    /**
+     * The other half of the outline's lint: a column no step reads. Not an error — it is what a
+     * half-finished table looks like — but not something to discover by watching a run pass while proving
+     * nothing about the column.
+     */
+    @Test
+    fun `a column the scenario never reads is named`() {
+        val steps = listOf(ScenarioStep.Send("35=D|55=\${symbol}|", "A"))
+
+        assertEquals(listOf("unused"), ScenarioAnnotations.unreadColumns(steps, listOf("symbol", "unused")))
+        assertEquals(emptyList(), ScenarioAnnotations.unreadColumns(steps, listOf("symbol")))
+    }
+
+    /** A seeded name still gets its sites, so the editor can say where the value comes from. */
+    @Test
+    fun `a column appears in sites, marked as seeded, even when no step writes it`() {
+        val steps = listOf(ScenarioStep.Send("35=D|55=\${symbol}|", "A"))
+
+        val sites = ScenarioAnnotations.sites(steps, columns = listOf("symbol", "unused"))
+
+        assertEquals(true, sites["symbol"]?.seeded)
+        assertEquals(listOf(0), sites["symbol"]?.referencedAt)
+        assertEquals(emptyList(), sites["symbol"]?.writtenAt, "the row wrote it, and a row is not a step")
+        assertEquals(true, sites["unused"]?.seeded, "a column nothing reads is still a column")
+    }
+
     @Test
     fun `a scenario whose references all resolve has no unminted names`() {
         val steps = listOf(

@@ -30,7 +30,7 @@ interface RunSetHost {
      * Null means the run could not start at all; a scenario that ran and failed comes back as a result
      * that did not pass, which is a different thing and reads differently in the report.
      */
-    fun runOne(scenario: Scenario, sessionMap: Map<String, String>): EntryOutcome?
+    fun runOne(scenario: Scenario, sessionMap: Map<String, String>, seed: Map<String, String>): EntryOutcome?
 
     /** Writes one entry's record; returns the file name to record on the entry. */
     fun write(record: RunRecord): String?
@@ -83,7 +83,9 @@ class RunSetRunner(private val host: RunSetHost) {
 
             val startedAt = host.now()
             val asRun = isolate(scenario, current.policy)
-            val outcome = host.runOne(asRun, entry.sessionMap)
+            // The row's cells are the scope this entry starts with. An entry with no row seeds nothing,
+            // which is every suite and every repeat — one path, and the outline is not a second runner.
+            val outcome = host.runOne(asRun, entry.sessionMap, entry.row?.values.orEmpty())
             val elapsed = host.now() - startedAt
 
             current =
@@ -97,6 +99,7 @@ class RunSetRunner(private val host: RunSetHost) {
                             setId = current.id,
                             entry = index + 1,
                             iteration = entry.iteration,
+                            row = entry.row,
                             scenarioId = scenario.id,
                             scenarioName = scenario.name,
                             // As it ran, isolation and all — the record is evidence, and what was asserted
@@ -203,6 +206,31 @@ object RunSets {
             label = label,
             source = RunSource.Repeat(scenario.id, times),
             entries = (1..times).map { RunEntry(scenario.id, scenario.name, iteration = it) },
+            policy = policy,
+        )
+    }
+
+    /**
+     * One scenario, once per live row of its own table — the outline, run.
+     *
+     * Null when the scenario has no rows to run: an outline whose rows are all parked is not a set of zero
+     * entries that passes, it is a request that cannot be honoured, and the caller says so.
+     */
+    fun examples(
+        scenario: Scenario,
+        now: Long,
+        policy: RunPolicy = RunPolicy(),
+        /** Row names to run, or null for every live row — a debug run of one row of eight. */
+        only: List<String>? = null,
+    ): RunSet? {
+        val live = scenario.examples?.live.orEmpty()
+        val rows = if (only == null) live else live.filter { it.name in only }
+        if (rows.isEmpty()) return null
+        return RunSet(
+            id = id(now, scenario.name),
+            label = "${scenario.name} — ${rows.size} rows",
+            source = RunSource.Examples(scenario.id),
+            entries = rows.map { RunEntry(scenario.id, scenario.name, row = it) },
             policy = policy,
         )
     }

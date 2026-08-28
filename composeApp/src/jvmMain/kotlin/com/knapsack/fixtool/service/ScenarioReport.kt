@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagStatus
+import com.knapsack.fixtool.model.scenario.VariableSource
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -45,6 +46,8 @@ object ScenarioReport {
             put("name", variable.name)
             put("value", variable.value)
             variable.mintedAtStepId?.let { put("mintedAtStepId", it) }
+            // Additive: a run that seeded nothing reports every name as a step's, which is what it is.
+            variable.source.takeIf { it != VariableSource.STEP }?.let { put("source", it.name.lowercase()) }
         }
 
     fun stepToJson(step: StepResult): JsonObject =
@@ -101,6 +104,10 @@ object ScenarioReport {
             name = obj["name"]?.jsonPrimitive?.content.orEmpty(),
             value = obj["value"]?.jsonPrimitive?.content.orEmpty(),
             mintedAtStepId = obj["mintedAtStepId"]?.jsonPrimitive?.contentOrNull,
+            source =
+                obj["source"]?.jsonPrimitive?.contentOrNull
+                    ?.let { name -> VariableSource.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
+                    ?: VariableSource.STEP,
         )
 
     private fun stepFromJson(obj: JsonObject): StepResult =

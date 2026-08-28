@@ -20,6 +20,7 @@ import com.knapsack.fixtool.service.FanOutPlan
 import com.knapsack.fixtool.service.RunRecord
 import com.knapsack.fixtool.service.RunRecordStore
 import com.knapsack.fixtool.service.RunRecorder
+import com.knapsack.fixtool.service.RunSetCodec
 import com.knapsack.fixtool.service.RunSetHost
 import com.knapsack.fixtool.service.RunSetRunner
 import com.knapsack.fixtool.service.RunSetStore
@@ -29,6 +30,8 @@ import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -251,9 +254,14 @@ object HeadlessRun {
      * `--junit <file.xml>` writes the whole set as one `<testsuites>`; `--junit <dir>` writes one file
      * per entry. Both, because the two consumers are different: a CI step that ingests one report, and a
      * build that publishes an artifact per test.
+     *
+     * **`--json` is not conditional on `--junit`**, and describes the whole set. It used to be both: the
+     * function returned early when no `--junit` was given, so `fixtool run x --repeat 20 --json r.json`
+     * wrote nothing at all and still exited 0 — a CI step asking for its report got silence and a green
+     * tick. And when it did run it wrote `named.last()`, one entry's report presented as the run's, so a
+     * fifty-lane fan-out was reported as lane fifty.
      */
     private fun writeSetReports(options: Options, set: RunSet, store: RunRecordStore, err: Appendable) {
-        val junit = options.junitFile ?: return
         val named =
             set.entries.indices.mapNotNull { i ->
                 val record = store.readEntry(set.id, i + 1) ?: return@mapNotNull null
@@ -261,16 +269,36 @@ object HeadlessRun {
                 // outline — so the XML, the log and the rail cannot come to disagree about it.
                 set.nameOf(i) to record.result
             }
-        if (junit.endsWith(".xml")) {
-            write(junit, ScenarioReport.toJUnitXml(named), err)
-        } else {
-            named.forEachIndexed { i, (name, result) ->
-                write("$junit/%02d-%s.xml".format(i + 1, name.replace(Regex("[^A-Za-z0-9_-]"), "-")), ScenarioReport.toJUnitXml(result), err)
+        options.junitFile?.let { junit ->
+            if (junit.endsWith(".xml")) {
+                write(junit, ScenarioReport.toJUnitXml(named), err)
+            } else {
+                named.forEachIndexed { i, (name, result) ->
+                    write(
+                        "$junit/%02d-%s.xml".format(i + 1, name.replace(Regex("[^A-Za-z0-9_-]"), "-")),
+                        ScenarioReport.toJUnitXml(result),
+                        err,
+                    )
+                }
             }
         }
-        options.jsonFile?.let { path ->
-            write(path, ScenarioReport.toJson(named.last().second).toString(), err)
-        }
+        options.jsonFile?.let { path -> write(path, setJson(set, store).toString(), err) }
+    }
+
+    /**
+     * The set as one JSON document: what `set.json` records, with each entry's full report folded in.
+     *
+     * Self-contained on purpose — somebody who asked for one file should not have to go and find the
+     * record directory to learn which step failed.
+     */
+    private fun setJson(set: RunSet, store: RunRecordStore): JsonObject {
+        val base = RunSetCodec.toJson(set)
+        val entries =
+            (base["entries"] as? JsonArray).orEmpty().mapIndexed { i, entry ->
+                val result = store.readEntry(set.id, i + 1)?.result ?: return@mapIndexed entry
+                JsonObject(entry.jsonObject + ("report" to ScenarioReport.toJson(result)))
+            }
+        return JsonObject(base + ("entries" to JsonArray(entries)))
     }
 
     /** The set as a build log wants it: one line per entry, then the verdict, then where the evidence is. */

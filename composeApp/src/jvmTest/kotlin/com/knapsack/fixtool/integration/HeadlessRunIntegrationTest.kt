@@ -1,6 +1,10 @@
 package com.knapsack.fixtool.integration
 
 import com.knapsack.fixtool.headless.HeadlessRun
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -379,6 +383,32 @@ class HeadlessRunIntegrationTest {
                 server.applicationMessages.any { it.contains("11=FAN-$slot-$runId") },
                 "lane $slot sent nothing of its own: ${server.applicationMessages}",
             )
+        }
+    }
+
+    /**
+     * **`--json` on a batch wrote nothing unless `--junit` came with it**, and when it did write, it wrote
+     * the last entry's report as though it were the run's. A CI step that asked for its report got silence
+     * and exit 0; one that asked for both got iteration 20 of 20 labelled as the whole thing.
+     */
+    @Test
+    fun `--json describes the whole set, and does not need --junit to be written at all`() {
+        writeScenario("jsonset", sendStep("JSONSET-$runId"))
+        val json = File(home, "reports/set.json")
+
+        val (code, _, err) = run("run", "jsonset", "--repeat", "3", "--json", json.absolutePath, "--home", home.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, err)
+        assertTrue(json.exists(), "--json alone must write the file: $err")
+        val doc = Json.parseToJsonElement(json.readText()).jsonObject
+        assertEquals("passed", doc["status"]!!.jsonPrimitive.content)
+        val entries = doc["entries"]!!.jsonArray
+        assertEquals(3, entries.size, "the set, not one entry of it")
+        // Each entry carries its own report, so the file answers "which step failed" on its own.
+        entries.forEach { entry ->
+            val report = entry.jsonObject["report"]!!.jsonObject
+            assertEquals("jsonset", report["scenario"]!!.jsonPrimitive.content)
+            assertTrue(report["steps"]!!.jsonArray.isNotEmpty(), "a report with no steps is not a report")
         }
     }
 

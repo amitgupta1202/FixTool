@@ -132,6 +132,48 @@ class ScenarioReportTest {
     }
 
     /**
+     * The two numbers a run has to report, and they are not the same number. The flow's wall clock says
+     * whether the run is drifting; the step's latency is the gap between the bytes that left and the
+     * bytes that answered, which is what a venue's p95 is built from.
+     */
+    @Test
+    fun `timing reaches both the json and the junit`() {
+        val result =
+            ScenarioResult(
+                scenario = "rfq",
+                passed = true,
+                steps =
+                    listOf(
+                        StepResult(0, "send", "steps", passed = true, latencyMs = 3),
+                        StepResult(1, "expect", "steps", passed = true, latencyMs = 214),
+                    ),
+                durationMs = 1_907,
+            )
+
+        val json = ScenarioReport.toJson(result)
+        assertEquals("1907", json["durationMs"]!!.jsonPrimitive.content)
+        assertEquals("214", json["steps"]!!.jsonArray[1].jsonObject["latencyMs"]!!.jsonPrimitive.content)
+
+        val xml = ScenarioReport.toJUnitXml(result)
+        assertTrue(xml.contains("time=\"1.907\""), "the suite's own duration: $xml")
+        assertTrue(xml.contains("time=\"0.214\""), "and the step's, in JUnit's seconds: $xml")
+    }
+
+    /**
+     * Additive, the same bargain the rest of the format keeps. And omitted rather than zeroed:
+     * `time="0.000"` on every step of an older run is an invented measurement, which is worse than none.
+     */
+    @Test
+    fun `a result from before timing existed grows neither key nor attribute`() {
+        val result = ScenarioResult("rfq", passed = true, steps = listOf(StepResult(0, "send", "steps", passed = true)))
+
+        val json = ScenarioReport.toJson(result)
+        assertNull(json["durationMs"])
+        assertNull(json["steps"]!!.jsonArray.single().jsonObject["latencyMs"])
+        assertFalse(ScenarioReport.toJUnitXml(result).contains("time="), "no measurement is not zero")
+    }
+
+    /**
      * The two halves of one run must agree about whether it passed. Teardown is best-effort cleanup and
      * the verdict exempts it — but the XML counted it, so `fixtool run` exited 0 while the report it
      * wrote said `failures="1"` and the build went red on a run the tool called green.

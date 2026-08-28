@@ -413,6 +413,22 @@ data class StepResult(
      * preflight failure, which is a verdict on the scenario rather than on any step of it.
      */
     val stepId: String? = null,
+    /**
+     * **What this step cost, in milliseconds — and for an expectation, that is the venue's number.**
+     *
+     * For an Expect (or a Wait satisfied by a message) it is the gap between the bytes that left and the
+     * bytes that answered, taken from the two messages' own capture timestamps so both ends come off one
+     * clock. For a Send it is the time to hand the message to the session — local work, not a round trip.
+     *
+     * Null means *not measured*, which is a different thing from fast: a reply with no send before it on
+     * its session, a Wait satisfied by a connection state, a step that never bound anything. Zero means
+     * under a millisecond.
+     *
+     * Scenario wall-clock is the wrong number to ask a venue for — it carries preflight, the strict
+     * settle window, the pause between iterations and every Expect timeout. This is the number a p95 is
+     * built from. Additive: a report from before it existed simply has none.
+     */
+    val latencyMs: Long? = null,
 )
 
 /**
@@ -441,4 +457,14 @@ data class ScenarioResult(
     val steps: List<StepResult>,
     /** The run's final variable scope, in mint order. Empty when the run minted nothing (or never began). */
     val variables: List<ScenarioVariable> = emptyList(),
+    /**
+     * **The flow's number**: wall-clock milliseconds from the moment the run began to the moment it had
+     * its verdict, preflight and settle window included.
+     *
+     * It is what a repeat's "median 1.9s, slowest #15 8.4s" is made of — a flow that passes twenty times
+     * while drifting from two seconds to eight has said something no pass/fail can. It is *not* what a
+     * venue's latency is measured with; that is [StepResult.latencyMs]. Additive, and null on a result
+     * assembled by something that did not time itself.
+     */
+    val durationMs: Long? = null,
 )

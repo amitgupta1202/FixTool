@@ -132,8 +132,11 @@ class ScenarioRunner(
         // minutes later as a misleading Expect timeout. It gets one recovery attempt first — the host
         // connects what the scenario needs, and each success is a passing "connect" row in the report,
         // so an automated run tells the same story a hand-connected one would.
+        val startedAt = now()
         val results = mutableListOf<StepResult>()
-        preflight(scenario, results)?.let { return ScenarioResult(scenario.name, false, results + it) }
+        preflight(scenario, results)?.let {
+            return ScenarioResult(scenario.name, false, results + it, durationMs = now() - startedAt)
+        }
 
         val scope = mutableMapOf<String, String>()
         val consumed = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<FixMessage, Boolean>())
@@ -224,7 +227,7 @@ class ScenarioRunner(
         val passed = results.none { it.phase != "teardown" && !it.passed }
         // The final scope, in mint order (the scope map is insertion-ordered) — see [ScenarioVariable].
         val variables = scope.map { (name, value) -> ScenarioVariable(name, value, mintedBy[name]) }
-        return ScenarioResult(scenario.name, passed, results, variables)
+        return ScenarioResult(scenario.name, passed, results, variables, durationMs = now() - startedAt)
     }
 
     /** Non-null = the reason this scenario cannot run at all. Successful auto-connects append to [results]. */
@@ -369,11 +372,14 @@ class ScenarioRunner(
                 // sends — a later `${id}` would then reference a value the venue never saw. Strip first
                 // and an excluded field is inert: it mints nothing, references nothing, sends nothing.
                 val resolved = host.resolve(SendFields.wire(step.raw), scope, step.session)
+                // Both ends off the runner's own clock. This is local work — the cost of handing the
+                // message to the session — not a round trip, and it is measured as such.
+                val handedOver = now()
                 val ok = host.send(resolved, step.session)
                 val detail =
                     if (ok) resolved
                     else "send failed on '${label(step.session)}' (state=${host.connectionState(step.session) ?: "session not found"}): $resolved"
-                StepResult(index, "send", phase, ok, detail = detail)
+                StepResult(index, "send", phase, ok, detail = detail, latencyMs = now() - handedOver)
             }
             is ScenarioStep.Wait -> runWait(step, index, phase, scope, pre)
             is ScenarioStep.Expect -> runExpect(step, index, phase, scope, consumed, pre)
@@ -424,7 +430,7 @@ class ScenarioRunner(
                 if (pre.predates(hit)) {
                     pre.note("step ${index + 1} (wait for ${hit.messageType} on '${label(step.session)}')")
                 }
-                return StepResult(index, "wait", phase, true, detail = "matched")
+                return StepResult(index, "wait", phase, true, detail = "matched", latencyMs = latencyOf(hit, step.session))
             }
             if (now() >= deadline) {
                 return StepResult(index, "wait", phase, false, detail = "timeout ${describeWaitTarget(step)}")
@@ -545,6 +551,7 @@ class ScenarioRunner(
             // The grid's tint and the reconcile deep-link both come off this map, so the entry has to know
             // which step it belongs to — not merely which slot that step occupied during this run.
             stepId = step.stepId.ifBlank { null },
+            latencyMs = latencyOf(target, step.session),
         )
         onExpectMatched(target, result)
         return result
@@ -1199,6 +1206,30 @@ class ScenarioRunner(
         )
     }
 
+    /**
+     * **The venue's number**: the gap between the bytes that left and the bytes that answered.
+     *
+     * Both ends come from the messages' own [FixMessage.captureTimeMicros], stamped at the QuickFIX
+     * callback — never from the runner's clock, which is injectable millis and would be comparing two
+     * different clocks for a difference that is supposed to mean something. That is the same rule the
+     * watermark keeps, for the same reason.
+     *
+     * "The send it answers" is the most recent outgoing message on that session before it, read off the
+     * log rather than from the runner's own bookkeeping: what the venue actually saw last is the thing a
+     * reply is a reply to. Null when there is nothing to measure from — a reply on a session this run
+     * never sent on, or a host that does not stamp capture times — because *not measured* and *fast* are
+     * different answers and a report must not conflate them.
+     */
+    private fun latencyOf(bound: FixMessage, session: String?): Long? {
+        if (bound.captureTimeMicros <= 0L) return null
+        val sentAt =
+            host.messages(session)
+                .filter { it.direction == FixMessage.Direction.OUTGOING && it.captureTimeMicros > 0L }
+                .filter { it.captureTimeMicros <= bound.captureTimeMicros }
+                .maxOfOrNull { it.captureTimeMicros } ?: return null
+        return (bound.captureTimeMicros - sentAt) / MICROS_PER_MILLI
+    }
+
     private fun label(session: String?): String = session ?: "(active session)"
 
     @Suppress("ReturnCount")
@@ -1276,6 +1307,9 @@ class ScenarioRunner(
 
         /** Strays named in the detail line before "+N more" — the grid marks every one regardless. */
         const val MAX_LISTED_STRAYS = 6
+
+        /** Capture timestamps are microseconds; a report speaks milliseconds. */
+        const val MICROS_PER_MILLI = 1_000L
 
         /** Diagnosis rows a failed run may add. A post-mortem that buries the verdict has failed at its job. */
         const val MAX_DIAGNOSED = 6

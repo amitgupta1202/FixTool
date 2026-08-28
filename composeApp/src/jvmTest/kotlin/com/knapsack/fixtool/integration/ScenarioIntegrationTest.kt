@@ -14,6 +14,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -300,6 +301,32 @@ class ScenarioIntegrationTest {
         // And the second's 58 is the unresolved reference, proving nothing ever bound `note`.
         val second = FixMessageHelper.wireFields(awaitOrder("M2-$runId"))!!
         assertEquals("${'$'}{note}", second.single { it.first == 58 }.second)
+    }
+
+    /**
+     * **Timing, measured on a real socket** — where the numbers come from two messages' capture stamps
+     * rather than a fake's clock, and where they have to survive the whole path out to the report a CI
+     * job reads. The venue here answers in microseconds, so the assertion is about the *shape* of the
+     * measurement (present, sane, seconds in the XML) rather than a value no machine can promise.
+     */
+    @Test
+    fun `a run reports its own duration and its expect's latency`() {
+        val ran = obj(post("/scenarios/run", """{"scenario": ${scenarioJson("timed", "0")}}"""))
+        assertTrue(ran["passed"]!!.jsonPrimitive.boolean, "$ran")
+
+        val duration = ran["durationMs"]!!.jsonPrimitive.long
+        assertTrue(duration > 0, "a run that sent and waited took time: $duration")
+
+        val expect = ran["steps"]!!.jsonArray.map { it.jsonObject }.single { it["kind"]!!.jsonPrimitive.content == "expect" }
+        val latency = expect["latencyMs"]!!.jsonPrimitive.long
+        assertTrue(latency >= 0, "the venue answered, so the gap was measured: $latency")
+        assertTrue(latency <= duration, "the reply cannot have taken longer than the run that waited for it")
+
+        // And the same numbers reach CI, in JUnit's seconds — the other rendering of the same run.
+        val asJUnit =
+            obj(post("/scenarios/run", """{"format":"junit","scenario": ${scenarioJson("timed-junit", "0")}}"""))
+        val junit = asJUnit["junit"]!!.jsonPrimitive.content
+        assertTrue(junit.contains("<testsuite") && junit.contains(" time=\""), "the report a build step reads: $junit")
     }
 
     /**

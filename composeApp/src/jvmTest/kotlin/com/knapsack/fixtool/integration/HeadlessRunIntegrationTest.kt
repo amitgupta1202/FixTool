@@ -114,6 +114,34 @@ class HeadlessRunIntegrationTest {
         assertTrue(out.contains("FAIL  "), "the failing step should be named in the summary: $out")
     }
 
+    /**
+     * **The exit code and the report file must say the same thing.** They are the two things a build
+     * step reads, and teardown is where they disagreed: the verdict exempts best-effort cleanup, the
+     * JUnit renderer counted it, so this run exited 0 while the file it had just written said
+     * `failures="1"` — and a build gated on the report went red on a run the tool called green.
+     */
+    @Test
+    fun `a failing teardown leaves the exit code and the report agreeing`() {
+        // The venue records and never replies, so a teardown expect times out — a cleanup problem, not
+        // a verdict. Written by hand because [writeScenario] has no teardown.
+        File(home, "scenarios/cleanup-fails.json").writeText(
+            """{"id":"cleanup-fails","name":"cleanup-fails",
+                "steps":[{"type":"wait","session":"HL$runId","state":"LOGGED_ON","timeoutMs":15000}],
+                "teardown":[{"type":"expect","session":"HL$runId","direction":"in","timeoutMs":800,
+                  "expectation":{"messageType":"8","mode":"open","fields":[
+                    {"tag":35,"matcher":{"type":"exact","value":"8"}}]}}]}""",
+        )
+        val junit = File(home, "reports/cleanup-fails.xml")
+
+        val (code, out, _) = run("run", "cleanup-fails", "--home", home.absolutePath, "--junit", junit.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, "teardown does not decide the verdict: $out")
+        val xml = junit.readText()
+        assertTrue(xml.contains("failures=\"0\""), "and the report it writes must not say otherwise: $xml")
+        assertTrue(xml.contains("<system-out>"), "the cleanup problem is still reported, just not as a gate: $xml")
+        assertTrue(xml.contains("teardown"), xml)
+    }
+
     /** A scenario naming a profile that does not exist stops rather than reporting a pass. */
     @Test
     fun `a scenario naming an unknown session cannot pass`() {

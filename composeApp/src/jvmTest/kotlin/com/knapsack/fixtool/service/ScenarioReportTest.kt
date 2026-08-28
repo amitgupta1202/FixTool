@@ -131,6 +131,56 @@ class ScenarioReportTest {
         assertTrue(xml.contains("tag 58"), xml)
     }
 
+    /**
+     * The two halves of one run must agree about whether it passed. Teardown is best-effort cleanup and
+     * the verdict exempts it — but the XML counted it, so `fixtool run` exited 0 while the report it
+     * wrote said `failures="1"` and the build went red on a run the tool called green.
+     */
+    @Test
+    fun `a failed teardown is reported without failing the suite`() {
+        val result =
+            ScenarioResult(
+                scenario = "rfq",
+                passed = true, // the verdict: teardown does not decide it
+                steps =
+                    listOf(
+                        StepResult(0, "send", "steps", passed = true),
+                        StepResult(0, "clear", "teardown", passed = false, detail = "session 'CLI' not found"),
+                    ),
+            )
+
+        val xml = ScenarioReport.toJUnitXml(result)
+
+        assertTrue(xml.contains("failures=\"0\""), "the suite's verdict is the run's verdict: $xml")
+        assertFalse(xml.contains("<failure"), "a cleanup problem must not trip a build gate: $xml")
+        // Reported, not swallowed: silence was the other way to make the two agree, and the wrong one.
+        assertTrue(xml.contains("<system-out>"), "the cleanup problem is still visible: $xml")
+        assertTrue(xml.contains("session 'CLI' not found"), xml)
+        assertTrue(xml.contains("tests=\"2\""), "and the row is still a testcase: $xml")
+    }
+
+    /** A run-level row is nobody's step, and `step -1 traffic (steps)` said otherwise. */
+    @Test
+    fun `a run-level row names itself by kind, not by a step index it does not have`() {
+        val result =
+            ScenarioResult(
+                scenario = "rfq",
+                passed = false,
+                steps =
+                    listOf(
+                        StepResult(-1, "traffic", "steps", passed = false, detail = "2 incoming message(s) were never bound"),
+                        StepResult(2, "expect", "steps", passed = true),
+                    ),
+            )
+
+        val xml = ScenarioReport.toJUnitXml(result)
+
+        assertFalse(xml.contains("step -1"), "no step produced it, so it cannot be named for one: $xml")
+        assertTrue(xml.contains("name=\"traffic (steps)\""), xml)
+        assertTrue(xml.contains("name=\"step 2 expect (steps)\""), "a real step still says where it sat: $xml")
+        assertTrue(xml.contains("failures=\"1\""), "and a run-level red is still a red: $xml")
+    }
+
     @Test
     fun `a step that failed with no tag diff still explains itself`() {
         val result =

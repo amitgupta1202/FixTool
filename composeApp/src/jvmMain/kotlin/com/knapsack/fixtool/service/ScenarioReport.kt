@@ -63,25 +63,52 @@ object ScenarioReport {
             put("status", tag.status.name.lowercase())
         }
 
-    /** Renders a [ScenarioResult] as a single-suite JUnit XML document for CI consumption. */
+    /**
+     * Renders a [ScenarioResult] as a single-suite JUnit XML document for CI consumption.
+     *
+     * **The suite's verdict is the run's verdict.** Teardown is best-effort cleanup and is exempt from
+     * the verdict (`ScenarioRunner`: a teardown Expect that times out, or a clear whose tab was closed
+     * mid-run, must not flip an otherwise-green run). This counted every failed step, so the same run
+     * could exit 0 and hand CI a report saying `failures="1"` — two halves of one run disagreeing about
+     * whether it passed, and the build believing the half that was not the verdict.
+     *
+     * A failed teardown is still **reported**, under `<system-out>` on its own testcase: a reader sees
+     * exactly what went wrong with the cleanup, and a build gate does not trip on it. Silence would have
+     * been the other way to make the two agree, and the wrong one.
+     *
+     * Run-level rows — preflight, connect, the strict-traffic verdict, the binding and ingest caveats —
+     * carry index -1 because no step produced them (there is nothing to blame, and nothing to edit).
+     * They rendered as `step -1 traffic (steps)`; they name themselves by kind instead.
+     */
     fun toJUnitXml(result: ScenarioResult): String {
-        val failures = result.steps.count { !it.passed }
+        val failures = result.steps.count { !it.passed && !it.exemptFromVerdict }
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<testsuite name=\"").append(esc(result.scenario)).append("\" tests=\"")
             .append(result.steps.size).append("\" failures=\"").append(failures).append("\">\n")
         for (step in result.steps) {
-            val caseName = "step ${step.stepIndex} ${step.kind} (${step.phase})"
-            sb.append("  <testcase name=\"").append(esc(caseName)).append("\" classname=\"")
+            sb.append("  <testcase name=\"").append(esc(caseName(step))).append("\" classname=\"")
                 .append(esc(result.scenario)).append("\">")
             if (!step.passed) {
-                sb.append("\n    <failure message=\"").append(esc(failureMessage(step))).append("\"/>\n  ")
+                val message = esc(failureMessage(step))
+                if (step.exemptFromVerdict) {
+                    sb.append("\n    <system-out>").append(message).append("</system-out>\n  ")
+                } else {
+                    sb.append("\n    <failure message=\"").append(message).append("\"/>\n  ")
+                }
             }
             sb.append("</testcase>\n")
         }
         sb.append("</testsuite>\n")
         return sb.toString()
     }
+
+    /** Exactly the runner's own rule, so the XML and the verdict cannot come to disagree. */
+    private val StepResult.exemptFromVerdict: Boolean get() = phase == "teardown"
+
+    /** `step 3 expect (steps)` for a step; `traffic (steps)` for a row no step produced. */
+    private fun caseName(step: StepResult): String =
+        if (step.stepIndex < 0) "${step.kind} (${step.phase})" else "step ${step.stepIndex} ${step.kind} (${step.phase})"
 
     /**
      * What failed, and why. The per-tag diff is the whole point of the engine, and it used to be

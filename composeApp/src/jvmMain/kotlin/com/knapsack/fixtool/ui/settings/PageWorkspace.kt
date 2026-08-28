@@ -138,12 +138,15 @@ fun storagePage(): SettingsPage =
     SettingsPage(
         id = "storage",
         title = "Storage",
-        subtitle = "Where your work is written on this machine. All three apply on restart.",
+        subtitle = "Where your work is written on this machine. The paths apply on restart.",
         contains =
             listOf(
                 "connection profiles file", "saved messages file", "scenarios directory", "git", "paths",
+                "run records", "runs directory", "evidence", "retention", "history",
             ),
-        owns = { listOf(it.connectionProfilesPath, it.savedMessagesPath, it.scenariosPath) },
+        owns = {
+            listOf(it.connectionProfilesPath, it.savedMessagesPath, it.scenariosPath, it.runRecordCap, it.runRecordsKept)
+        },
         content = { StorageContent(it) },
     )
 
@@ -193,5 +196,20 @@ private fun StorageContent(context: SettingsContext) {
             fontSize = 11.sp,
             color = AppTheme.Colors.textDisabled,
         )
+    }
+
+    // Records are output, not source: they are written under ~/.fixtool/runs (or a headless run's own
+    // --home) and are not given a path of their own. What is worth configuring is how much of a run is
+    // kept and for how many runs — the two numbers that decide whether a soak leaves a gigabyte behind.
+    SettingsBlock(
+        title = "Run records",
+        description =
+            "Every entry of a run set writes its report and its messages to ~/.fixtool/runs as it lands, so " +
+                "a suite that ran overnight can still be read in the morning. The cap never drops a message " +
+                "the report points at — it falls on the unbound remainder, and a record that lost anything " +
+                "says so.",
+    ) {
+        NumberField(draft = draft, setting = NumberSetting.RUN_RECORD_CAP)
+        NumberField(draft = draft, setting = NumberSetting.RUN_RECORDS_KEPT)
     }
 }

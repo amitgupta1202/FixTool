@@ -2,6 +2,7 @@ package com.knapsack.fixtool.viewmodel
 
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.service.ConnectAttempt
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageView
@@ -154,6 +155,21 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
      *
      * Mutations are a different matter and still go through [onEdt].
      */
+    /**
+     * **The sessions one run will touch, resolved once** — what a run record's collector subscribes to.
+     *
+     * Every phase, teardown included: the runner's own verdicts leave teardown's traffic out on purpose,
+     * but evidence is evidence, and a record that omitted the cleanup would be missing exactly the
+     * messages a reader is looking for when the cleanup is what went wrong. A step whose session cannot
+     * be resolved contributes nothing rather than failing — preflight is where that is reported.
+     */
+    fun sessionsOf(scenario: Scenario): List<Pair<String?, FixMessageSession>> =
+        (scenario.setup + scenario.steps + scenario.teardown)
+            .filterNot { it.muted }
+            .map { it.session }
+            .distinct()
+            .mapNotNull { title -> resolveSession(title)?.let { title to it } }
+
     private fun resolveSession(key: String?): FixMessageSession? {
         val list = viewModel.sessions
         return when {

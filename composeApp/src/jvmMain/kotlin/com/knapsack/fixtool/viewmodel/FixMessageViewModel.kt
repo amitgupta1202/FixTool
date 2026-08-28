@@ -28,6 +28,7 @@ import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
@@ -52,6 +53,12 @@ import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.SavedMessagesService
+import com.knapsack.fixtool.service.EntryOutcome
+import com.knapsack.fixtool.service.RunRecord
+import com.knapsack.fixtool.service.RunRecordStore
+import com.knapsack.fixtool.service.RunRecorder
+import com.knapsack.fixtool.service.RunSetHost
+import com.knapsack.fixtool.service.RunSetRunner
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -2084,6 +2091,20 @@ class FixMessageViewModel(
         )
     }
 
+    /**
+     * Where a run set writes its evidence — one directory per set under `~/.fixtool/runs`.
+     *
+     * Records are output, not source, so they get no configurable path of their own: what is worth
+     * setting is how much of a run is kept ([AppSettings.runRecordCap]) and for how many runs
+     * ([AppSettings.runRecordsKept]).
+     */
+    val runRecordStore by lazy {
+        RunRecordStore(
+            customDir = resolveStoragePath("", "runs"),
+            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+        )
+    }
+
     // The rail's view-chrome store — a small local JSON beside app_settings.json, never in the scenarios dir.
     private val scenarioViewStateService by lazy {
         ScenarioViewStateService(
@@ -2896,36 +2917,114 @@ class FixMessageViewModel(
      * A throw is re-raised (the control surface answers HTTP 500, the UI logs) but is *notified* first,
      * because the alternative is a wiped report with no explanation next to a grid full of red rows.
      */
-    @Suppress("TooGenericExceptionCaught")
-    fun runScenarioBlocking(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult? {
+    /**
+     * **Holds the single run slot for the whole of [block]** — which is what makes a set possible.
+     *
+     * The slot exists because two runners would race each other's consumed-message cursors. A *set*
+     * therefore claims it once and holds it for the whole batch rather than re-claiming per entry, and
+     * the consequence is the right one: a bare run answers "already in progress" for the duration of a
+     * batch instead of interleaving with it. Null when the slot was already taken.
+     */
+    fun <T> claimRunSlot(block: () -> T): T? {
         if (!beginScenarioRun()) return null
+        return try {
+            block()
+        } finally {
+            endScenarioRun()
+        }
+    }
+
+    fun runScenarioBlocking(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult? =
+        claimRunSlot { runOne(scenario, sessionMap, publish = true).result }
+
+    /**
+     * **One run, with the slot already held** — and the evidence it produced, collected as it ran.
+     *
+     * [publish] is what separates a single run from a set entry. A single run publishes its verdict, which
+     * re-aims the rail's report and every open diff window; a set of twenty doing that would re-aim the
+     * author's reconcile window twenty times while they were reading it, so entries publish nothing and
+     * *focusing* an entry is what publishes it. The grid's tint is the deliberate exception — it follows
+     * the last entry that ran on that session, because that is what the grid is showing.
+     *
+     * The record is collected **by subscription, while the entry runs**, not from a snapshot afterwards:
+     * the runner keeps nothing between polls, and a busy session evicts inside a single run. One final
+     * direct sample closes the race between the last message and the collector being cancelled.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun runOne(scenario: Scenario, sessionMap: Map<String, String>, publish: Boolean): EntryOutcome {
         // A new run makes the cross-step revert stale — its "before" describes a run that is over.
         sameFixSnapshot = null
         noteScenarioRun(scenario, sessionMap)
-        publishScenarioResult(null)
+        if (publish) publishScenarioResult(null)
         setAssertionResults(emptyMap())
         val matched = linkedMapOf<FixMessage, StepResult>()
+        val recorder = RunRecorder()
+        val host = ViewModelScenarioHost(this)
+        val watching = host.sessionsOf(scenario.withSessions(sessionMap))
+        val collectors =
+            watching.map { (title, session) ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    session.messages.collect { recorder.observe(title, it.filterIsInstance<FixMessage>()) }
+                }
+            }
         try {
             val result =
                 ScenarioRunner(
-                    ViewModelScenarioHost(this),
+                    host,
                     onExpectMatched = { message, stepResult ->
                         matched[message] = stepResult
                         _assertionResults.value = matched.toMap()
                     },
                     cancelled = { stopRequested.get() },
                 ).run(scenario, sessionMap)
+            watching.forEach { (title, session) -> recorder.observe(title, session.messages.value.filterIsInstance<FixMessage>()) }
             // Published while the run slot is still held: a verdict that lands after the slot is free can
             // land on top of the *next* run's freshly-cleared state, and the report would then name one
             // run while the assertion results underneath it belong to another.
-            publishScenarioResult(result)
-            return result
+            if (publish) publishScenarioResult(result)
+            return EntryOutcome(result, recorder.build(matched, _appSettings.value.runRecordCap))
         } catch (e: Exception) {
             showNotification("Scenario run failed: ${e.message}", NotificationType.ERROR)
             throw e
         } finally {
-            endScenarioRun()
+            collectors.forEach { it.cancel() }
         }
+    }
+
+    /**
+     * **Runs a whole set under one claim of the run slot**, writing each entry's record as it lands.
+     *
+     * Null when the slot was already taken — the same answer a single run gives, for the same reason.
+     * [onProgress] is called after every state change, so a caller can render the queue while it drains;
+     * `set.json` is rewritten at the same moments, so a reader in another process sees the same progress.
+     */
+    fun runSetBlocking(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet? =
+        claimRunSlot {
+            runRecordStore.begin(set)
+            val done = RunSetRunner(ViewModelRunSetHost()).run(set, onProgress)
+            // After the set, not before: the run just finished is the one that must survive the pruning.
+            runRecordStore.prune(_appSettings.value.runRecordsKept)
+            done
+        }
+
+    /** The live host for a set: the app's own scenarios, its own run path, its own runs directory. */
+    private inner class ViewModelRunSetHost : RunSetHost {
+        override fun scenario(id: String): Scenario? = scenarioService.load(id)
+
+        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>): EntryOutcome? =
+            runOne(scenario, sessionMap, publish = false)
+
+        override fun write(record: RunRecord): String? = runRecordStore.write(record)
+
+        override fun writeSet(set: RunSet) {
+            runRecordStore.writeSet(set)
+        }
+
+        override fun sleep(ms: Long) = Thread.sleep(ms)
+
+        override fun now(): Long = System.currentTimeMillis()
+
+        override fun cancelled(): Boolean = stopRequested.get()
     }
 
     @Suppress("TooGenericExceptionCaught")

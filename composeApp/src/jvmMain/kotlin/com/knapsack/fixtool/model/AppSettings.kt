@@ -33,6 +33,14 @@ data class AppSettings(
      * throughput limit. See `docs/acceptor-order-state-proposal.md`, decision 8a.
      */
     val orderBookCap: Int = 5000,
+    /**
+     * How many messages one entry's run record keeps. The cap never drops what the report points at —
+     * bound replies and named strays are kept whatever it says — so it falls on the unbound remainder,
+     * and an entry that lost anything says so on its own record.
+     */
+    val runRecordCap: Int = 5000,
+    /** How many run sets the runs directory keeps before the oldest are deleted. */
+    val runRecordsKept: Int = 20,
     // Grid View Settings
     val gridViewColumns: List<Int> = listOf(11, 131, 693), // List of FIX tags to display as columns (ClOrdID, QuoteReqID, QuoteRequestRejectReason)
     // Protocol Tags Settings

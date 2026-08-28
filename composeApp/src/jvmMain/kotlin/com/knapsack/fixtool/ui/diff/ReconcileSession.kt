@@ -11,6 +11,7 @@ import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.TagStatus
+import com.knapsack.fixtool.model.scenario.VariableSource
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.FieldSearch
 import com.knapsack.fixtool.service.FixMessageTemplate
@@ -1063,13 +1064,26 @@ class ReconcileSession(
     private fun trackOffer(index: Int, row: ScenarioReconcile.Row): Offer? {
         val actual = row.actual ?: return null
         if (row.matcher == null || row.matcher is Matcher.Reference) return null
-        val variable = reference.variables.firstOrNull { it.value == actual } ?: return null
+        val matches = reference.variables.filter { it.value == actual }
+        // **An examples column wins a tie.** Value-equality can name two variables at once — a table with a
+        // `qty` of 17 and an `expectCumQty` of 17 makes an actual `14=17` equal to both — and on an outline
+        // the two are not equally right: the column is the name that varies per row, so an assertion
+        // pinned to it follows the table, while one pinned to a step's mint is repaired for this row and
+        // this row only. Where nothing came from a row, this is the order it always was.
+        val variable = matches.firstOrNull { it.source == VariableSource.ROW } ?: matches.firstOrNull() ?: return null
+        val fromRow = variable.source == VariableSource.ROW
         return Offer(
             OfferKind.TRACK,
             "$",
-            "Track \${${variable.name}} — this value is the run's \${${variable.name}}. Assert the echo, " +
-                "not the literal: the next run mints a fresh value, and a pinned literal is red the moment " +
-                "it does.",
+            if (fromRow) {
+                "Track \${${variable.name}} — this is the examples column this row supplied ($actual). Assert " +
+                    "the column, not the literal: the literal repairs this row and breaks every other row of " +
+                    "the table, silently, because the expectation belongs to all of them."
+            } else {
+                "Track \${${variable.name}} — this value is the run's \${${variable.name}}. Assert the echo, " +
+                    "not the literal: the next run mints a fresh value, and a pinned literal is red the moment " +
+                    "it does."
+            },
             EditOp.track(index, row.tag, variable.name),
         )
     }

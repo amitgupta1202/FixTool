@@ -320,14 +320,15 @@ No new taxonomy. A set is built from **★ Favourites** (`ScenarioViewState.favo
 `Scenario.userTags` field exists and is unused by any surface; a `--tag` selector on the CLI is the
 one place worth waking it, because CI selects by name, not by a local star file.
 
-### Decision 5 — Fan-out borrows sessions; it never creates them
+### Decision 5 — Fan-out reuses preflight, and refuses when the profile cannot supply lanes
 
-Concurrency > 1 is permitted only when every lane's `runSessions()` is disjoint from every other's,
-and the lanes come from the multi-session support the app already has. See
+Sessions are reused when up and created from their saved profile when not — the rule preflight already
+applies. Concurrency > 1 is permitted only when every lane's `runSessions()` is disjoint from every
+other's. See
 [Fan-out and the sessions it borrows](#fan-out-and-the-sessions-it-borrows) below, which is the whole
 argument.
 
-## Fan-out and the sessions it borrows
+## Fan-out and where its sessions come from
 
 **It is the same feature, and the substrate is already built.** `FixConnectionConfig.sessionCount`
 (1–100, initiators only) already opens N sessions from one profile on a single Connect:
@@ -343,92 +344,96 @@ argument.
 - **Steps target sessions by title**, and `Scenario.withSessions` remaps by title. So one lane is
   literally `withSessions(mapOf("QUOTE1" to "LoadGen [7]"))`.
 
-Fan-out is therefore an **assignment** problem, not a connection problem.
+So the identity half of fan-out is done, and the connection half is done too — see below. What is left
+is **assignment**: which lane gets which session.
 
-### The decision: the run does not create sessions
+### The decision: fan-out reuses preflight, and adds exactly one question
 
-The fan-out dialog picks lanes from sessions that are already connected. It does not open them, and it
-does not close them. Three reasons, in order of weight:
+An earlier draft of this document said *"the run never creates sessions"*. **That was wrong about what
+the tool already does**, and the existing behaviour is the better principle. `preflight`
+(`ScenarioRunner.kt:222`) already resolves a session this way, per run:
 
-1. **A session is a visible object, and everything depends on that.** It owns an identity, a connection
-   state, a message log and a pane in the grid. The evidence design above keeps a run's messages by
-   holding references into that log. A session the run conjured behind the app's back is one the author
-   cannot see, inspect, tint, or disconnect — and its evidence would belong to nothing.
-2. **Connecting is a precondition, not part of the test.** Fifty simultaneous logons is itself an event
-   a venue may not survive, and the author should choose when it happens. Fold it into the Run button
-   and a failure stops distinguishing *"my flow is broken"* from *"I could not get on"*.
-3. **There would be two ways to describe a FIX identity.** `SessionIdentityResolver` already covers
-   numbering, lists, per-slot qualifiers and store separation. A lane-pool concept parallel to profiles
-   would have to re-solve all of it, and then disagree with it.
+1. If it is there and ready — **use it**, touch nothing.
+2. If it is down, or does not exist at all — **one recovery attempt**: `connectSession` reconnects it
+   through its own profile, or, for a session that does not exist, strips the `[n]` slot suffix and
+   connects the *profile carrying its name* — which creates every slot.
+3. Every attempt is started before any wait, so slow logons overlap under one `connectTimeoutMs`
+   deadline; each success becomes a passing `connect` row in the report, so an auto-connected run tells
+   the same story a hand-connected one would; each failure is a named, actionable refusal.
 
-**Preflight already understands the group.** `ViewModelScenarioHost.connectSession` strips the `[n]`
-slot suffix and connects the *base* profile, which creates every slot — so a scenario naming
-`LoadGen [7]` already brings the whole group up. Fan-out needs no new connect logic; it needs only to
-wait for the lanes it will use rather than for a single session.
+And `connectProfile` is already **per-slot** reuse-or-create: `reconnectExistingSessions` revives the
+group's sessions that are down, and `createMissingSessions` computes the free slots and fills only those.
+Connect a 50-session profile that already has 30 sessions up and you get the missing 20 — a top-up, not
+a duplicate set.
 
-### Spread and pinned — and where disjointness bites
+That is precisely the rule fan-out wants, so **fan-out does not get its own connection logic**. It calls
+the same preflight, on the lane group's base name, once. What survives from the earlier draft's three
+reasons is only the part that was actually about fan-out: the run must never invent sessions *outside a
+saved profile*, because a session is a visible object — identity, connection state, message log, a pane
+in the grid — and the evidence design holds references into that log. A lane conjured outside a profile
+would be one the author cannot see, inspect, tint or disconnect.
 
-For each session the scenario names, the dialog asks where lanes come from:
+### The one new question: can this profile make more than one session?
 
-- **Spread** over the sessions that are **available**: lane *k* takes the *k*-th of them.
-- **Pinned** to one session: every lane uses the same one.
+Everything fan-out needs beyond preflight is a **capability check**, and it is one field:
 
-**Available means available — and this is not a new rule.** It is the one the app already applies to
-the only feature it has that drives many sessions at once. **Bulk Send**
-(`FixMessageViewModel.sendMessageToAllConnectedSessions`) takes
-`_sessions.filter { it.connectionState.value == LOGGED_ON }` — every logged-on session, whatever profile
-it came from — warns rather than fails when there are none, and re-resolves the message's `${…}` per
-target. Fan-out spreading over "whatever is up" is that rule applied to a scenario instead of a message,
-which is the strongest argument for it: the tool already answers "which sessions does *many sessions*
-mean" exactly this way, and two different answers to that question in one app would be a defect.
+```kotlin
+val profile = viewModel.profileForSession(session) ?: profileNamed(session.stripSlotSuffix())
+val lanes = when {
+    profile == null -> Unavailable("no saved profile behind '$session'")
+    profile.config.connectionType != INITIATOR -> Unavailable.acceptor(profile)
+    profile.config.sessionCount <= 1 -> Unavailable.singleSession(profile)
+    else -> Available(profile, profile.config.sessionCount)
+}
+```
 
-A lane's source is therefore not "a profile group" — it is *any connected session not already claimed
-by another lane in this set*. A profile group is only the convenient default,
-because `getProfileSessions` hands one back in creation order and a `{nn}` group is the usual way fifty
-sessions come to exist; but twelve sessions across three profiles are twelve perfectly good lanes, and
-refusing them because they do not share a parent would be a rule with nothing behind it. The dialog
-therefore offers the groups it can see *and* "any available session", and both produce the same thing:
-an ordered list of session titles to spread over.
+- **`sessionCount > 1`** — the group is the lane pool. Preflight brings up whatever is missing, and the
+  lanes are the group's `LOGGED_ON` sessions.
+- **`sessionCount == 1`** — fan-out is **unavailable**, and the refusal names the fix in the field's own
+  words:
 
-Two consequences, both of which are just "use what is there":
+  > Fan-out needs a profile that opens more than one session, and **LoadGen** opens 1. Set **Sessions**
+  > on the profile to the number of lanes you want — with a `{nn}` pattern in SenderCompID, so each lane
+  > logs on as its own identity — then reconnect. 50 sessions are already connected under other
+  > profiles: pick one of those instead.
 
-- **A shortfall is reported, not refused.** Ask for 50 lanes with 38 sessions up and the set runs 38,
-  and says so on its header: *"38 lanes — 12 of LoadGen's sessions are not logged on."* A load test that
-  declines to start because it is twelve short of a round number is a load test nobody runs.
-- **Nothing up is the existing preflight's problem, not a new one.** With no session available, the run
-  takes the one recovery attempt it already takes — `connectSession` strips the `[n]` suffix and
-  connects the base profile, which creates every slot — waits for `connectTimeoutMs`, and then spreads
-  over whatever came up. No new connection code, and no session opened that the author did not
-  configure.
+- **An acceptor profile** — always one session by construction (`connectProfile` forces `targetCount = 1`
+  for anything that is not an initiator, because an acceptor binds one listen port). So an acceptor leg
+  can never be a lane *source*, and the refusal says that rather than pointing at a Sessions field that
+  would not help.
+
+The **Fan out over sessions…** item in the Run ▾ menu is therefore **disabled with its reason showing**,
+not hidden. That is the rail's existing habit, and its existing argument: *"silently withholding what
+the tool has already decided is the same mistake in a smaller costume — the author cannot tell 'this
+cannot be done, and here is why' from 'this feature does not exist'."*
 
 ### How "which sessions" is answered today — and the symmetry to keep
 
-Four places in the app already choose sessions, and they do not all choose the same way:
+Four places already choose sessions, and they do not all choose the same way:
 
 | Today | Chooses | Filter |
 |---|---|---|
 | **Bulk Send** — `sendMessageToAllConnectedSessions` | every session | `LOGGED_ON` only |
 | **Capture** — `captureScenarioFromSessions` | every session, or the titles named | **none** — a disconnected session is captured too |
-| **Connect** — `connectProfile` | the profile's slots | by profile |
-| **A scenario step** — `ViewModelScenarioHost.resolveSession` | one, by title (or index) | none; **null takes the first session in the list** |
+| **Preflight** — `connectSession` → `connectProfile` | one, and the group behind it | reuse if ready, create the missing slots if not |
+| **A scenario step** — `resolveSession` | one, by title or index | none; **null takes the first session in the list** |
 
-Two of those are worth fixing while fan-out is being designed, because a fan-out inherits both:
+Three things follow for fan-out:
 
-1. **Capture and Bulk Send disagree about what "every session" means.** The difference is defensible —
-   capture is reading history, which a disconnected session still has — but it should be *stated* rather
-   than discovered. Fan-out follows Bulk Send: a lane must be logged on, because a lane that is not is
-   not a lane.
-2. **`null` means "the first session", not "the active one".** `ScenarioStep.session`'s own KDoc says
-   *"null = the active session"*, and `resolveSession` returns `list.firstOrNull()`. Today that is a
-   footnote. Under fan-out it is a trap: a scenario captured on one session, with no session named,
-   would pin all fifty lanes to session index 0 — and `withSessions` deliberately leaves null alone, so
-   the remap could not save it.
-
-   **So under a fan-out, `null` means *this lane's session*.** That is both the safe reading and the
-   useful one: the ordinary case — one flow, captured without naming anything, spread over fifty lanes —
-   then works with no editing at all. Outside a fan-out, null keeps meaning what it means today (and the
-   KDoc should be corrected to say "the first session", or `resolveSession` changed to honour the
-   selection; they cannot both stay as they are).
+1. **Lanes are `LOGGED_ON`, like Bulk Send's targets.** Capture's looser rule is defensible for capture —
+   it reads history, which a disconnected session still has — but a lane that is not logged on is not a
+   lane. Two different answers in one app to *"which sessions does many-sessions mean"* would be a defect.
+2. **A shortfall is reported, not refused.** Preflight tops the group up and waits; if the venue lets only
+   38 of 50 on, the set runs 38 and says so on its header — *"38 lanes: 12 of LoadGen's sessions did not
+   reach LOGGED_ON."* A load test that declines to start because it is twelve short of a round number is
+   one nobody runs.
+3. **`null` must mean *this lane's session*.** `ScenarioStep.session`'s KDoc says *"null = the active
+   session"*; `resolveSession` returns `list.firstOrNull()`. Today that is a footnote. Under fan-out it is
+   a trap: a scenario captured on one session, naming none, would pin all fifty lanes to session index 0
+   — and `withSessions` deliberately leaves null alone, so the remap could not rescue it. Reading null as
+   the lane's own session is both the safe choice and the useful one: one captured flow spreads over fifty
+   lanes with no editing at all. (Outside a fan-out, the KDoc and the code still have to be reconciled
+   with each other — they cannot both stay as they are.)
 
 ### A lane already knows what to call itself
 
@@ -438,25 +443,27 @@ and `sessionSenderCompID` — so `262=MD-${sessionIndex}` gives each session a d
 authoring ceremony. **A fan-out lane should seed exactly those four names**, into exactly the scope
 [Examples](#examples--the-same-run-set-from-a-table) seeds a row into.
 
-That is the point at which the three readings stop being three features. A lane is a run whose scope
-carries its session's identity; a row is a run whose scope carries the table's values; an iteration is a
-run whose scope carries neither. One seeding mechanism, one `params` argument, and a scenario that says
-`11=ORD-${sessionIndex}-${clOrdSuffix}` is drawing on both at once without knowing they came from
-different places.
+That is where the readings stop being separate features. A lane is a run whose scope carries its
+session's identity; a row is a run whose scope carries the table's values; an iteration is a run whose
+scope carries neither. One seeding mechanism, one `params` argument, and a scenario saying
+`11=ORD-${sessionIndex}-${clOrdSuffix}` draws on both without knowing they came from different places.
 
-Pinning is the natural thing to want for a second leg — fifty client lanes against one shared
-back-office session — and it is exactly what **breaks the licence for concurrency**. Fifty lanes
-sharing `TRADE1` share its message log and its consumed cursor: lane 12's `expect` can bind the reply
-to lane 30's order, and the resulting report is indistinguishable from a venue bug.
+### The second leg, and where disjointness still bites
 
-So a pinned session in a concurrent fan-out is **refused, with the remedy named** rather than silently
-tolerated:
+A one-leg scenario needs nothing else: lanes spread over the group, and that is the dialog.
+
+A scenario with a **second** session is where a choice appears, because the second leg may not have a
+multi-session profile behind it — fifty client lanes against one shared back-office session. That
+pinning is what breaks the licence for running lanes concurrently: fifty lanes sharing `TRADE1` share its
+message log and its consumed cursor, so lane 12 can bind the reply to lane 30's order and the report
+becomes indistinguishable from a venue bug. So a pinned session under `concurrency > 1` is refused, with
+the same shape of remedy:
 
 > `TRADE1` is pinned to one session, and 50 lanes would share its message log — lane 12 could bind
 > lane 30's reply. Give `TRADE1` a multi-session profile of its own, fan out only the `QUOTE1` leg, or
 > set concurrency to 1.
 
-One relaxation is legitimate and deliberately not in the first cut: a pinned session the scenario only
+One relaxation is legitimate and deliberately out of the first cut: a pinned session the scenario only
 *sends* on shares no consumed cursor, because only `Expect` consumes. It still shares the stray scan
 under `TrafficMode.STRICT`, so it needs its own thinking rather than a quiet exception.
 

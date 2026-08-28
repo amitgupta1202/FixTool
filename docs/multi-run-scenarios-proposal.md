@@ -320,13 +320,106 @@ No new taxonomy. A set is built from **★ Favourites** (`ScenarioViewState.favo
 `Scenario.userTags` field exists and is unused by any surface; a `--tag` selector on the CLI is the
 one place worth waking it, because CI selects by name, not by a local star file.
 
-### Decision 5 — Fan-out is licensed by disjointness, and refused without it
+### Decision 5 — Fan-out borrows sessions; it never creates them
 
-Concurrency > 1 is permitted only when every lane's `runSessions()` is disjoint from every other's.
-Two lanes on the same session share a message log and a consumed cursor, and the resulting report
-would be indistinguishable from a venue bug. The natural source of disjoint lanes already exists:
-a multi-session profile expands to `QUOTE1…QUOTE50`, and `Scenario.withSessions` is documented as the
-throwaway per-run remap that `RemapScenarioDialog` already authors. A fan-out is N of those maps.
+Concurrency > 1 is permitted only when every lane's `runSessions()` is disjoint from every other's,
+and the lanes come from the multi-session support the app already has. See
+[Fan-out and the sessions it borrows](#fan-out-and-the-sessions-it-borrows) below, which is the whole
+argument.
+
+## Fan-out and the sessions it borrows
+
+**It is the same feature, and the substrate is already built.** `FixConnectionConfig.sessionCount`
+(1–100, initiators only) already opens N sessions from one profile on a single Connect:
+
+- **Identity per slot** is `SessionIdentityResolver` — a `{n}` / `{nn}` numbering pattern or a
+  comma-separated list across SenderCompID, TargetCompID, Username and Password, so slot 7 of
+  `LOADGEN{nn}` logs on as `LOADGEN07`. Where two slots would resolve to the same sender/target pair
+  it derives a distinct `SessionQualifier` per slot, which is what keeps QuickFIX session ids and
+  message store files from colliding. That is the genuinely hard part of running fifty clients, and
+  it is done.
+- **Titles** are `"<profile> [<slot>]"` — `LoadGen [1]` … `LoadGen [50]` — and
+  `getProfileSessions(profileId)` hands the group back in creation order.
+- **Steps target sessions by title**, and `Scenario.withSessions` remaps by title. So one lane is
+  literally `withSessions(mapOf("QUOTE1" to "LoadGen [7]"))`.
+
+Fan-out is therefore an **assignment** problem, not a connection problem.
+
+### The decision: the run does not create sessions
+
+The fan-out dialog picks lanes from sessions that are already connected. It does not open them, and it
+does not close them. Three reasons, in order of weight:
+
+1. **A session is a visible object, and everything depends on that.** It owns an identity, a connection
+   state, a message log and a pane in the grid. The evidence design above keeps a run's messages by
+   holding references into that log. A session the run conjured behind the app's back is one the author
+   cannot see, inspect, tint, or disconnect — and its evidence would belong to nothing.
+2. **Connecting is a precondition, not part of the test.** Fifty simultaneous logons is itself an event
+   a venue may not survive, and the author should choose when it happens. Fold it into the Run button
+   and a failure stops distinguishing *"my flow is broken"* from *"I could not get on"*.
+3. **There would be two ways to describe a FIX identity.** `SessionIdentityResolver` already covers
+   numbering, lists, per-slot qualifiers and store separation. A lane-pool concept parallel to profiles
+   would have to re-solve all of it, and then disagree with it.
+
+**Preflight already understands the group.** `ViewModelScenarioHost.connectSession` strips the `[n]`
+slot suffix and connects the *base* profile, which creates every slot — so a scenario naming
+`LoadGen [7]` already brings the whole group up. Fan-out needs no new connect logic; it needs only to
+wait for the lanes it will use rather than for a single session.
+
+### Spread and pinned — and where disjointness bites
+
+For each session the scenario names, the dialog asks where lanes come from:
+
+- **Spread** over a profile group: lane *k* takes the *k*-th session of `getProfileSessions`. The lane
+  count is the group's size, capped by the dialog.
+- **Pinned** to one session: every lane uses the same one.
+
+Pinning is the natural thing to want for a second leg — fifty client lanes against one shared
+back-office session — and it is exactly what **breaks the licence for concurrency**. Fifty lanes
+sharing `TRADE1` share its message log and its consumed cursor: lane 12's `expect` can bind the reply
+to lane 30's order, and the resulting report is indistinguishable from a venue bug.
+
+So a pinned session in a concurrent fan-out is **refused, with the remedy named** rather than silently
+tolerated:
+
+> `TRADE1` is pinned to one session, and 50 lanes would share its message log — lane 12 could bind
+> lane 30's reply. Give `TRADE1` a multi-session profile of its own, fan out only the `QUOTE1` leg, or
+> set concurrency to 1.
+
+One relaxation is legitimate and deliberately not in the first cut: a pinned session the scenario only
+*sends* on shares no consumed cursor, because only `Expect` consumes. It still shares the stray scan
+under `TrafficMode.STRICT`, so it needs its own thinking rather than a quiet exception.
+
+### The acceptor side comes free
+
+If the far end is FixTool in acceptor mode, `attachVenueClient` already opens a pane per connecting
+client, titled `"<profile> ← <client CompID>"`. Fifty `LOADGEN{nn}` initiators against a FixTool venue
+therefore produce fifty named panes on the other side, and both ends of a lane are addressable by name
+— by a scenario step, by a capture, by the fan-out dialog. Nothing to build.
+
+### Evidence at fifty lanes
+
+The suite's default — keep every entry's messages — is wrong at this scale, and saying so is part of
+the design rather than an afterthought. A fan-out set flips it:
+
+- **failed lanes** keep their evidence whole, because they are what the run is for;
+- **the first passing lane** is kept entire as a reference specimen;
+- **the rest** keep counts and timings only, and the report says so.
+
+### The report is a distribution, not fifty rows
+
+Nobody clicks through fifty lanes. The set report for a fan-out is the repeat strip's shape — one tick
+per lane, click to focus — over a summary that answers the question a load test actually asks:
+
+```
+LoadGen ×50 lanes          48 ✓   2 ✗
+▪▪▪▪▪▪▪▪▪▪▪▪▪▫▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▪▫▪▪▪▪▪
+p50 214ms · p95 1.9s · max 8.4s · failures: lane 14, lane 45
+evidence: 2 failed lanes kept whole · lane 1 kept as reference · 47 counted
+```
+
+"Did all fifty pass" is the weaker question. *What did the ninety-fifth percentile cost* is the one a
+venue is being asked, and the per-lane timings the set already records answer it for free.
 
 ## Surfaces
 
@@ -413,7 +506,7 @@ already renders; an iteration is `name="book-a-trade #3"`. `--junit <dir>` write
 | **1a — the watermark fix** | STRICT's stray scan excludes what predates the run (`ScenarioRunner.kt:527`) | Runner. Ship with or before Phase 1 — it is a bug today. |
 | **2 — The run set document** | Per-entry `evidence` + `assertions` (stop wiping the global map), `ScenarioDoc.RunSet` with the frozen grid, reconcile from any entry, the per-entry cap | ViewModel, rail, documents. |
 | **3 — Examples** | `Scenario.examples`, the seeded scope (`params`), the editor's table + "Extract to example column…", the column lints, row-aware reconcile | Model, codec, runner (one line), editor, reconcile. |
-| **4 — Fan-out** | Slot becomes a per-session-set claim under a disjointness check; `concurrency`; lanes from a multi-session profile | ViewModel, runner host, rail dialog. |
+| **4 — Fan-out** | Run slot becomes a per-session-set claim under a disjointness check; `concurrency`; the spread/pinned lane dialog over `getProfileSessions`; percentile summary; the failed-lanes-only evidence policy | ViewModel, runner host, rail dialog. No change to profiles or `SessionIdentityResolver`. |
 
 Phase 1 makes a set run. **Phase 2 makes it inspectable**, and a suite is not much use without it —
 if the only thing a twelve-scenario run leaves behind is twelve verdicts and one session's worth of

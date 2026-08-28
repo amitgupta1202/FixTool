@@ -90,6 +90,18 @@ class HeadlessScenarioHost(
         return true
     }
 
+    // A headless run hosts a venue exactly as the app does when the profile is an acceptor, so the same
+    // book answers here. It is the run-boundary reset a CI suite needs most: nothing else in the process
+    // remembers between scenarios.
+    override fun ownsOrderBook(session: String?): Boolean = resolve(session)?.orderBook() != null
+
+    override fun clearOrderBook(session: String?): Boolean {
+        val sess = resolve(session) ?: return false
+        if (sess.orderBook() == null) return false
+        sess.clearOrderBook(by = "a scenario step")
+        return true
+    }
+
     /**
      * Brings up the session a step names, from the saved profile of the same name.
      *

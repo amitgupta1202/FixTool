@@ -84,7 +84,15 @@ import com.knapsack.fixtool.service.mintName
 private const val ACTIVE_SESSION = "(active session)"
 
 /** The step kinds the editor can hold. */
-enum class StepKind { SEND, WAIT, EXPECT, CLEAR, RESET }
+/** The step kinds the editor can author. [label] is the button's word: the enum name is the test tag. */
+enum class StepKind(val label: String) {
+    SEND("send"),
+    WAIT("wait"),
+    EXPECT("expect"),
+    CLEAR("clear"),
+    CLEAR_BOOK("clear book"),
+    RESET("reset"),
+}
 
 /**
  * A step under edit. Unlike the old builder draft, this round-trips **everything** the model holds —
@@ -136,6 +144,7 @@ fun ScenarioStep.toEditStep(): EditStep =
                 muted = muted,
             )
         is ScenarioStep.ClearMessages -> EditStep(StepKind.CLEAR, session, stepId = stepId, origin = origin, muted = muted)
+        is ScenarioStep.ClearOrderBook -> EditStep(StepKind.CLEAR_BOOK, session, stepId = stepId, origin = origin, muted = muted)
         is ScenarioStep.ResetSeqNum ->
             EditStep(StepKind.RESET, session, sender = sender, target = target, stepId = stepId, origin = origin, muted = muted)
     }
@@ -146,6 +155,7 @@ fun EditStep.toStep(): ScenarioStep =
         StepKind.WAIT -> ScenarioStep.Wait(session, state.ifBlank { null }, match, timeoutMs, stepId, origin, muted)
         StepKind.EXPECT -> ScenarioStep.Expect(session, direction, match, timeoutMs, expectation, stepId, origin, muted)
         StepKind.CLEAR -> ScenarioStep.ClearMessages(session, stepId, origin, muted)
+        StepKind.CLEAR_BOOK -> ScenarioStep.ClearOrderBook(session, stepId, origin, muted)
         StepKind.RESET -> ScenarioStep.ResetSeqNum(session, sender, target, stepId, origin, muted)
     }
 
@@ -554,7 +564,7 @@ private fun AddStepBar(onAdd: (StepKind) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
         Text("Insert:", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
         StepKind.values().forEach { kind ->
-            SlimButton(kind.name.lowercase(), onClick = { onAdd(kind) }, modifier = Modifier.testTag("add-${kind.name.lowercase()}"))
+            SlimButton(kind.label, onClick = { onAdd(kind) }, modifier = Modifier.testTag("add-${kind.name.lowercase()}"))
         }
     }
 }
@@ -808,6 +818,13 @@ private fun StepDetail(
             }
         StepKind.CLEAR ->
             Text("Clears the session's message log (deterministic starting point).", color = AppTheme.Colors.textSecondary, fontSize = 10.sp)
+        StepKind.CLEAR_BOOK ->
+            Text(
+                "Empties the order book this venue keeps for the session — what its rules read, as opposed " +
+                    "to what the grid shows. Only on a session FixTool hosts as a venue.",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 10.sp,
+            )
         StepKind.RESET ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 SlimLabeled("Sender seq") {

@@ -250,7 +250,9 @@ a deterministic runner replays identically — no LLM in the hot path. It is an 
 over one persistent variable scope, plus optional `setup`/`teardown` step lists (teardown always
 runs). Step `{type, …}` is one of: `send {raw, session?}`, `expect {session?, direction?, match?,
 timeoutMs?, expectation}`, `wait {session?, state?, match?, timeoutMs?}`, `clearMessages {session?}`,
-`resetSeqNum {session?, sender?, target?}`. An `expect` consumes the message it matches, so a
+`clearOrderBook {session?}` (the venue-side order book, valid only on a session FixTool hosts as an
+acceptor — a run boundary that `clearMessages` does not reach), `resetSeqNum {session?, sender?,
+target?}`. An `expect` consumes the message it matches, so a
 partial-fill sequence is just successive `expect`s; `match {messageType?, direction?, fields:[{tag,
 value}]}` selects by AND. Each step can target a different `session` (initiator + acceptor in one
 scenario). Scenarios are stored one-file-per-scenario under `~/.fixtool/scenarios/`.

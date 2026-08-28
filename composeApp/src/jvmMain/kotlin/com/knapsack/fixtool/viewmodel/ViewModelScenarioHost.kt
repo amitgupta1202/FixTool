@@ -92,6 +92,17 @@ class ViewModelScenarioHost(private val viewModel: FixMessageViewModel) : Scenar
         return true
     }
 
+    // The book itself is engine state behind a StateFlow, not Compose state, so reading whether one exists
+    // needs no EDT hop — only the wipe does, for the same reason clearMessages does.
+    override fun ownsOrderBook(session: String?): Boolean = resolveSession(session)?.orderBook() != null
+
+    override fun clearOrderBook(session: String?): Boolean {
+        val sess = resolveSession(session) ?: return false
+        if (sess.orderBook() == null) return false
+        onEdt { sess.clearOrderBook(by = "a scenario step") }
+        return true
+    }
+
     override fun connectSession(session: String?): ConnectAttempt =
         onEdt {
             val sess = resolveSession(session)

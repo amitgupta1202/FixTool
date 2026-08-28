@@ -587,6 +587,12 @@
         distribution — <code>p50 / p95 / max</code> over the gap between the bytes that left and the bytes
         that answered — rather than fifty rows nobody will click through.</p>
 
+    <p><strong>From a build box, with no window:</strong>
+        <code>fixtool run book-a-trade --fan-out LoadGen</code> opens every session the profile declares,
+        waits for logon, and runs one lane per session that came up. Add <code>--over &lt;session&gt;</code>
+        when the scenario drives more than one leg, and <code>--json</code> or <code>--junit</code> to keep
+        the report. The exit code is the verdict, as it is for every other <code>fixtool run</code>.</p>
+
     <div class="warning">
         <strong>Limitations — read these before trusting the numbers</strong>
         <ul>
@@ -617,9 +623,6 @@
                 whole and one passing lane is kept as a reference; the rest keep their verdict, timings and
                 counts while their messages are dropped, with the count recorded. Fifty copies of the same
                 three messages is not evidence worth the disk.</li>
-            <li><strong>The headless CLI does not fan out yet.</strong> <code>fixtool run --set</code> and
-                <code>--all</code> run entries one at a time; fan-out is available in the app and over the
-                control surface.</li>
         </ul>
     </div>
 

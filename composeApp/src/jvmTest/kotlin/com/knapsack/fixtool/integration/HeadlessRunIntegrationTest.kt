@@ -54,6 +54,35 @@ class HeadlessRunIntegrationTest {
         )
     }
 
+    /**
+     * A second profile beside the first, opening [count] sessions off one `{n}` pattern — the shape a
+     * fan-out needs and the one thing the headless host used to flatten to a single session.
+     */
+    private fun writeFanOutProfile(count: Int) {
+        File(home, "connection_profiles.json").writeText(
+            """
+            {"profiles":[{
+              "id":"p-$runId","name":"HL$runId",
+              "config":{
+                "senderCompID":"HLCLI$runId","targetCompID":"HLSRV$runId",
+                "host":"localhost","port":"${server.port}","socketConnectHost":"localhost",
+                "beginString":"FIX.4.4","autoReconnect":false,"resetOnLogon":true,
+                "fileStorePath":"${File(home, "store").absolutePath}",
+                "fileLogPath":"${File(home, "log").absolutePath}"
+              }},{
+              "id":"pf-$runId","name":"FAN$runId",
+              "config":{
+                "senderCompID":"HLF{n}$runId","targetCompID":"HLSRV$runId",
+                "host":"localhost","port":"${server.port}","socketConnectHost":"localhost",
+                "beginString":"FIX.4.4","autoReconnect":false,"resetOnLogon":true,
+                "sessionCount":$count,
+                "fileStorePath":"${File(home, "store").absolutePath}",
+                "fileLogPath":"${File(home, "log").absolutePath}"
+              }}]}
+            """.trimIndent(),
+        )
+    }
+
     private fun writeScenario(name: String, steps: String): File =
         File(home, "scenarios/$name.json").apply {
             writeText("""{"id":"$name","name":"$name","steps":[$steps]}""")
@@ -316,6 +345,54 @@ class HeadlessRunIntegrationTest {
     private fun sendStep(clOrdId: String) =
         """{"type":"wait","session":"HL$runId","state":"LOGGED_ON","timeoutMs":15000},
            {"type":"send","session":"HL$runId","raw":"35=D|11=$clOrdId|55=EUR/USD|54=1|38=100|40=1|"}"""
+
+    /**
+     * **The gap `--fan-out` closes, over real sockets.** The headless host used to create one session per
+     * profile *name*, which meant a three-session profile logged on once and a "fan-out" was one client
+     * wearing three labels — the run would have passed while measuring nothing.
+     *
+     * Three lanes, three logons under three CompIDs, three orders each stamped with its own
+     * `${'$'}{sessionIndex}`. That last part is what proves the lanes are separate scopes and not one
+     * scope run three times.
+     */
+    @Test
+    fun `fan-out opens one session per profile slot, and each lane sends as itself`() {
+        writeFanOutProfile(count = 3)
+        writeScenario(
+            "fan",
+            """{"type":"send","session":"CLI","raw":"35=D|11=FAN-${'$'}{sessionIndex}-$runId|55=EUR/USD|54=1|38=100|40=1|"}""",
+        )
+
+        val (code, out, err) = run("run", "fan", "--fan-out", "FAN$runId", "--home", home.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, "out=$out err=$err")
+        // One logon per slot, each as its own identity — the {n} pattern actually resolved.
+        val fanned =
+            server.logons
+                .map { it.first }
+                .filter { it.startsWith("HLF") }
+                .toSet()
+        assertEquals(setOf("HLF1$runId", "HLF2$runId", "HLF3$runId"), fanned, "one logon per slot: ${server.logons}")
+        // And each lane sent under its own seeded index, so the three scopes never collapsed into one.
+        (1..3).forEach { slot ->
+            assertTrue(
+                server.applicationMessages.any { it.contains("11=FAN-$slot-$runId") },
+                "lane $slot sent nothing of its own: ${server.applicationMessages}",
+            )
+        }
+    }
+
+    /** An acceptor is the far end of lanes, never their source — and it says so rather than trying. */
+    @Test
+    fun `fanning out over a profile that opens one session is refused with the reason`() {
+        writeFanOutProfile(count = 3)
+        writeScenario("fan1", """{"type":"send","session":"CLI","raw":"35=D|11=X-$runId|55=EUR/USD|54=1|38=1|40=1|"}""")
+
+        val (code, _, err) = run("run", "fan1", "--fan-out", "no-such-profile", "--home", home.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_USAGE, code)
+        assertTrue(err.contains("no saved connection profile named 'no-such-profile'"), err)
+    }
 
     /** `--home` is the whole CI story: the config under test is the one in the checkout. */
     @Test

@@ -1,16 +1,20 @@
 package com.knapsack.fixtool.headless
 
 import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.service.ConnectAttempt
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.ScenarioHost
 import com.knapsack.fixtool.service.SendResult
+import com.knapsack.fixtool.service.SessionIdentityResolver
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -29,6 +33,12 @@ import java.util.concurrent.ConcurrentHashMap
  * **Sessions are created on demand, by name.** A scenario names its sessions; [connectSession] finds
  * the saved profile of that name and brings one up. Nothing is connected speculatively — a scenario
  * that touches one of five profiles dials one venue.
+ *
+ * **A multi-session profile's slots are named `"Name [n]"`**, exactly as the app names them, and a step
+ * may name one directly. Resolving `"Name [3]"` back to profile `"Name"` and dialling *that slot's*
+ * identity is what lets a fan-out run headless: without it the host created a single session called
+ * `"Name [3]"` from no profile at all, or one session per profile name that ignored `sessionCount`
+ * entirely — three lanes that were one client wearing three labels.
  */
 class HeadlessScenarioHost(
     private val profiles: List<FixConnectionProfile>,
@@ -135,13 +145,84 @@ class HeadlessScenarioHost(
                 ConnectAttempt.Failed("${matches.size} saved profiles answer to '$key' — rename one, or pass --session")
             else -> {
                 val profile = matches.single()
-                val sess = FixMessageSession(title = profile.name, onError = { onLog("error: $it") })
-                sessions[profile.name] = sess
-                onLog("connecting '${profile.name}'")
-                sess.connect(profile.config, appSettings, dictionary)
+                val slots = laneCount(profile)
+                // A step naming "Name [3]" wants slot 3 of the group, not a fresh session of its own.
+                val slot =
+                    SLOT_SUFFIX.find(key)
+                        ?.groupValues
+                        ?.get(1)
+                        ?.toIntOrNull()
+                if (slot != null && slot in 1..slots) {
+                    openSlot(profile, slot, slots)
+                } else {
+                    openSlot(profile, slot = if (slots > 1) 1 else 0, slots = slots)
+                }
                 ConnectAttempt.Started(profile.name)
             }
         }
+    }
+
+    /**
+     * **Brings up every lane of a multi-session profile** — what `--fan-out` needs and what dialling by
+     * name could never give it, since one name maps to one session however many the profile opens.
+     *
+     * Returns the lanes that reached LOGGED_ON, numbered by **profile slot** so lane 7 is the same client
+     * on every run. A shortfall is reported to the caller by returning fewer lanes than the profile
+     * declares, never by refusing: if a venue admits 38 of 50, 38 lanes is a load test and zero is not.
+     */
+    fun openLanes(profile: FixConnectionProfile, timeoutMs: Long = LANE_LOGON_TIMEOUT_MS): List<Lane> {
+        val slots = laneCount(profile)
+        val opened = (1..slots).map { slot -> slot to openSlot(profile, slot, slots) }
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline &&
+            opened.any { (_, sess) -> sess.connectionState.value != FixConnectionState.LOGGED_ON }
+        ) {
+            sleep(LANE_POLL_MS)
+        }
+        return opened
+            .filter { (_, sess) -> sess.connectionState.value == FixConnectionState.LOGGED_ON }
+            .map { (slot, sess) ->
+                Lane(
+                    slot = slot,
+                    sessionTitle = sess.title,
+                    senderCompID = sess.currentConfig?.senderCompID.orEmpty(),
+                    qualifier = sess.sessionQualifier,
+                )
+            }
+    }
+
+    /** Acceptors bind one listen port, so they are one session however the field reads. */
+    private fun laneCount(profile: FixConnectionProfile): Int =
+        if (profile.config.connectionType == FixConnectionConfig.ConnectionType.INITIATOR) {
+            profile.config.sessionCount.coerceAtLeast(1)
+        } else {
+            1
+        }
+
+    /**
+     * One slot of a profile's group, created if absent and dialled. [slot] is 0 for a single-session
+     * profile — the same convention [FixMessageSession.profileSlot] uses, and the same titling the app's
+     * `createMissingSessions` applies, so a record made headless names its lanes as the window would.
+     */
+    private fun openSlot(profile: FixConnectionProfile, slot: Int, slots: Int): FixMessageSession {
+        val title = if (slots > 1) "${profile.name} [$slot]" else profile.name
+        sessions[title]?.let {
+            onLog("reconnecting session '$title'")
+            it.reconnect()
+            return it
+        }
+        val config = if (slots > 1) SessionIdentityResolver.resolve(profile.config, slot, slots) else profile.config
+        val sess =
+            FixMessageSession(
+                title = title,
+                sessionQualifier = config.sessionQualifier,
+                profileSlot = if (slots > 1) slot else 0,
+                onError = { onLog("error: $it") },
+            )
+        sessions[title] = sess
+        onLog("connecting '$title'" + if (slots > 1) " as ${config.senderCompID}" else "")
+        sess.connect(config, appSettings, dictionary)
+        return sess
     }
 
     /** Closes every session this run opened. Best-effort: teardown must not fail a passing run. */
@@ -172,5 +253,12 @@ class HeadlessScenarioHost(
     private fun byType(msgs: List<FixMessage>, incoming: Boolean): Map<String, FixMessage> {
         val want = if (incoming) FixMessage.Direction.INCOMING else FixMessage.Direction.OUTGOING
         return msgs.filter { it.direction == want }.associateBy { it.messageType }
+    }
+
+    companion object {
+        /** The `[n]` a multi-session slot's title ends with — the app's naming, read back. */
+        private val SLOT_SUFFIX = Regex("""\s\[(\d+)]$""")
+        private const val LANE_LOGON_TIMEOUT_MS = 10_000L
+        private const val LANE_POLL_MS = 100L
     }
 }

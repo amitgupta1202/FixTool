@@ -79,6 +79,9 @@ fixtool run --all [options]
   --repeat <n>        run each scenario n times (a flake hunt)
   --rows              run the scenario once per live row of its Examples table
   --row <name>        run only that row of the table (repeatable)
+  --fan-out <profile> run the scenario once per logged-on session of a multi-session initiator profile,
+                      all at once — a load run against the venue under test
+  --over <session>    which of the scenario's sessions the lanes replace (only when it drives >1)
   --pause <500ms|2s>  wait between entries
   --stop-on-failure   end the batch at the first failing entry
   --junit <file|dir>  write the JUnit XML report — one <testsuites> to a .xml file, or one file per
@@ -116,8 +119,8 @@ it, the app that ran it may be closed, and the twelfth entry's traffic is all a 
 still hold. Two settings bound it: how many messages one record keeps, and how many sets the
 directory keeps.
 
-**Fan-out** (`fanOut`) runs the flow once per session of a multi-session initiator profile, **all at
-once**. Each lane seeds four names into its own scope — `${sessionIndex}` (the profile slot),
+**Fan-out** (`fanOut`, or `fixtool run <scenario> --fan-out <profile>` headless) runs the flow once per
+session of a multi-session initiator profile, **all at once**. Each lane seeds four names into its own scope — `${sessionIndex}` (the profile slot),
 `${sessionSenderCompID}`, `${sessionTitle}`, `${sessionQualifier}` — so `11=ORD-${sessionIndex}-${uuid}`
 gives every lane its own ClOrdID. The report is a `p50/p95/max` distribution over reply latency rather
 than N rows. **Point it at the server under test**: against FixTool's own acceptor the numbers are the

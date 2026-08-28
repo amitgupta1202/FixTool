@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.headless
 
 import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.RunEntry
@@ -15,6 +16,7 @@ import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.EntryOutcome
+import com.knapsack.fixtool.service.FanOutPlan
 import com.knapsack.fixtool.service.RunRecord
 import com.knapsack.fixtool.service.RunRecordStore
 import com.knapsack.fixtool.service.RunRecorder
@@ -115,6 +117,12 @@ object HeadlessRun {
         val saved = scenarioService.list()
         val now = System.currentTimeMillis()
 
+        // The host comes up before the set is planned, because a fan-out set cannot be planned without
+        // it: its entries are one per lane that actually logged on, which is a fact about live sessions
+        // rather than about the scenario file. Nothing is dialled by merely constructing it.
+        val profiles = ConnectionProfileService(customPath = home?.let { "$it/connection_profiles.json" } ?: "").loadProfiles()
+        val host = HeadlessScenarioHost(profiles, dictionaryFor(settings, err), settings) { err.appendLine("fixtool: $it") }
+
         val set =
             when {
                 options.set != null -> {
@@ -142,6 +150,46 @@ object HeadlessRun {
                         policy = options.policy(RunPolicy()),
                     )
                 }
+                options.fanOut != null -> {
+                    val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
+                    val matches = profiles.filter { it.id == options.fanOut || it.name == options.fanOut }.distinctBy { it.id }
+                    val profile =
+                        when (matches.size) {
+                            0 -> {
+                                err.appendLine("fixtool: no saved connection profile named '${options.fanOut}'")
+                                return EXIT_USAGE
+                            }
+                            1 -> matches.single()
+                            // Refused rather than guessed, as connectSession does: fanning fifty lanes at
+                            // the wrong venue is worse than stopping.
+                            else -> {
+                                err.appendLine("fixtool: ${matches.size} saved profiles answer to '${options.fanOut}' — rename one")
+                                return EXIT_USAGE
+                            }
+                        }
+                    if (profile.config.connectionType != FixConnectionConfig.ConnectionType.INITIATOR) {
+                        err.appendLine(
+                            "fixtool: '${profile.name}' is an acceptor, and an acceptor has one session by " +
+                                "construction — fan out from the client profile instead",
+                        )
+                        return EXIT_USAGE
+                    }
+                    err.appendLine("fixtool: opening ${profile.config.sessionCount.coerceAtLeast(1)} lanes of '${profile.name}'")
+                    val lanes = host.openLanes(profile)
+                    val shortfall = profile.config.sessionCount.coerceAtLeast(1) - lanes.size
+                    // Reported, not refused: 38 lanes of 50 is still a load test.
+                    if (shortfall > 0) {
+                        err.appendLine("fixtool: $shortfall of '${profile.name}'s sessions did not reach LOGGED_ON")
+                    }
+                    val policy = options.policy(RunPolicy(concurrency = lanes.size.coerceAtLeast(1)))
+                    when (val plan = RunSets.fanOut(scenario, profile.id, lanes, options.over, now, policy)) {
+                        is FanOutPlan.Refused -> {
+                            err.appendLine("fixtool: ${plan.why}")
+                            return EXIT_USAGE
+                        }
+                        is FanOutPlan.Ready -> plan.set
+                    }
+                }
                 options.rows != null -> {
                     val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
                     val only = options.rows.takeIf { it.isNotEmpty() }
@@ -168,8 +216,6 @@ object HeadlessRun {
         }
 
         val byId = (saved + listOfNotNull(loadTargetIfFile(options, home))).associateBy { it.id }
-        val profiles = ConnectionProfileService(customPath = home?.let { "$it/connection_profiles.json" } ?: "").loadProfiles()
-        val host = HeadlessScenarioHost(profiles, dictionaryFor(settings, err), settings) { err.appendLine("fixtool: $it") }
         val store = RunRecordStore(customDir = home?.let { "$it/runs" } ?: "")
         err.appendLine("fixtool: running ${set.entries.size} entries — ${set.label}")
 
@@ -429,9 +475,19 @@ object HeadlessRun {
          * asks and `--row X` must not read as "and nothing else about the table matters".
          */
         val rows: List<String>? = null,
+        /**
+         * The multi-session initiator profile to spread the flow across — one entry per logged-on lane,
+         * all at once. Null = not a fan-out run.
+         */
+        val fanOut: String? = null,
+        /**
+         * Which of the scenario's sessions the lanes replace, for a flow that drives more than one. Null
+         * means the scenario names exactly one and that is the one, which is the common case.
+         */
+        val over: String? = null,
     ) {
         /** True when the arguments describe a batch rather than one run. */
-        val isSet: Boolean get() = set != null || all || repeat > 1 || rows != null
+        val isSet: Boolean get() = set != null || all || repeat > 1 || rows != null || fanOut != null
 
         /** The file's policy, with whatever the command line said about it applied over the top. */
         fun policy(base: RunPolicy): RunPolicy =
@@ -453,6 +509,8 @@ object HeadlessRun {
                 var pauseMs = 0L
                 var stopOnFailure = false
                 var rows: MutableList<String>? = null
+                var fanOut: String? = null
+                var over: String? = null
                 val sessions = mutableMapOf<String, String>()
                 var i = 0
                 while (i < args.size) {
@@ -469,6 +527,8 @@ object HeadlessRun {
                             val name = args.getOrNull(++i) ?: return null
                             rows = (rows ?: mutableListOf()).also { it += name }
                         }
+                        arg == "--fan-out" -> fanOut = args.getOrNull(++i) ?: return null
+                        arg == "--over" -> over = args.getOrNull(++i) ?: return null
                         arg == "--repeat" -> repeat = args.getOrNull(++i)?.toIntOrNull()?.takeIf { it > 0 } ?: return null
                         arg == "--pause" -> pauseMs = parseDuration(args.getOrNull(++i)) ?: return null
                         arg == "--session" -> {
@@ -482,7 +542,7 @@ object HeadlessRun {
                     }
                     i++
                 }
-                return Options(target, junit, json, sessions, home, set, all, repeat, pauseMs, stopOnFailure, rows)
+                return Options(target, junit, json, sessions, home, set, all, repeat, pauseMs, stopOnFailure, rows, fanOut, over)
             }
 
             /** `500ms`, `2s`, or a bare number of milliseconds — the three ways somebody writes a pause. */
@@ -510,6 +570,10 @@ object HeadlessRun {
           --repeat <n>        run each scenario n times (a flake hunt)
           --rows              run the scenario once per live row of its Examples table
           --row <name>        run only that row of the table (repeatable)
+          --fan-out <profile> run the scenario once per logged-on session of a multi-session initiator
+                              profile, all at once — a load run against the venue under test
+          --over <session>    which of the scenario's sessions the lanes replace (only needed when it
+                              drives more than one)
           --pause <500ms|2s>  wait between entries
           --stop-on-failure   end the batch at the first failing entry (CI); the default runs them all,
                               because "3 of 20 failed" is what a flake hunt needs

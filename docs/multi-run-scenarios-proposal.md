@@ -12,7 +12,7 @@ design pass.
 
 ## The question, disambiguated
 
-"Multi-run" is three different needs wearing one phrase, and they want different things from the tool:
+"Multi-run" is four different needs wearing one phrase, and they want different things from the tool:
 
 | Reading | The question it answers | Shape |
 |---|---|---|
@@ -31,7 +31,7 @@ assignment step over infrastructure the app already has (see
 
 ## The model: a run set
 
-The three readings collapse to one primitive, and that is the whole proposal:
+The four readings collapse to one primitive, and that is the whole proposal:
 
 > A **run set** is an ordered list of run requests — `(scenario, sessionMap, iteration)` — executed by
 > a scheduler, producing a list of `ScenarioResult`s.
@@ -334,8 +334,8 @@ one place worth waking it, because CI selects by name, not by a local star file.
 Sessions are reused when up and created from their saved profile when not — the rule preflight already
 applies. Concurrency > 1 is permitted only when every lane's `runSessions()` is disjoint from every
 other's. See
-[Fan-out and the sessions it borrows](#fan-out-and-the-sessions-it-borrows) below, which is the whole
-argument.
+[Fan-out and where its sessions come from](#fan-out-and-where-its-sessions-come-from) below, which is
+the whole argument.
 
 ## Fan-out and where its sessions come from
 

@@ -62,6 +62,8 @@ class RunRecordTest {
         val one = message("D", at = 10, incoming = false)
         val two = message("8", at = 20, incoming = true)
 
+        // An empty session at the start, then the entry's own two messages, seen three times over.
+        recorder.observe("CLI", emptyList())
         recorder.observe("CLI", listOf(one))
         recorder.observe("CLI", listOf(one, two))
         recorder.observe("CLI", listOf(one, two))
@@ -70,10 +72,53 @@ class RunRecordTest {
         assertEquals(listOf(0, 1), recorder.build(emptyMap(), cap = 0).messages.map { it.index })
     }
 
+    /**
+     * **A record is one entry's traffic, not the session's history.**
+     *
+     * The first snapshot of a session is what was already there. A suite that does not clear a session —
+     * a venue pane, typically, since a capture clears the client leg and the book but not the venue's log
+     * — would otherwise give entry 12 a record holding all eleven earlier entries, under a header that
+     * says "entry 12". Found by reading a real record, not by a test.
+     */
+    @Test
+    fun `history the entry inherited is not part of its record`() {
+        val recorder = RunRecorder()
+        val history = message("8", at = 1, incoming = true)
+        val ours = message("8", at = 20, incoming = true)
+
+        recorder.observe("CLI", listOf(history))
+        recorder.observe("CLI", listOf(history, ours))
+
+        val built = recorder.build(emptyMap(), cap = 0)
+
+        assertEquals(listOf(20L), built.messages.map { it.atMicros }, "only what arrived during the entry")
+        assertEquals(0, built.dropped, "history is not a message the cap dropped — it was never the entry's")
+    }
+
+    /**
+     * Except where a verdict pointed at it: under the permissive binding scope an expect may bind a
+     * message older than the run, and a record whose `bound` index addressed a message it had discarded
+     * would be evidence with the evidence taken out.
+     */
+    @Test
+    fun `a stale message the run actually bound is kept anyway`() {
+        val recorder = RunRecorder()
+        val stale = message("8", at = 1, incoming = true)
+        recorder.observe("CLI", listOf(stale))
+        recorder.observe("CLI", listOf(stale, message("W", at = 5, incoming = true)))
+
+        val built = recorder.build(mapOf(stale to StepResult(0, "expect", "steps", passed = true, stepId = "step-1")), cap = 0)
+
+        assertEquals(2, built.messages.size)
+        assertEquals(mapOf("step-1" to 0), built.bound, "and the step still points at the message it judged")
+    }
+
     /** One clock for the process, so two sessions' messages go into one arrival order. */
     @Test
     fun `messages from two sessions are recorded in arrival order`() {
         val recorder = RunRecorder()
+        recorder.observe("TRADE", emptyList())
+        recorder.observe("QUOTE", emptyList())
         recorder.observe("TRADE", listOf(message("D", at = 30, incoming = false)))
         recorder.observe("QUOTE", listOf(message("R", at = 10, incoming = false), message("S", at = 20, incoming = true)))
 
@@ -91,6 +136,7 @@ class RunRecordTest {
         val recorder = RunRecorder()
         val noise = (1..10).map { message("W", at = it.toLong(), incoming = true) }
         val bound = message("8", at = 11, incoming = true)
+        recorder.observe("CLI", emptyList())
         recorder.observe("CLI", noise + bound)
 
         val judged = mapOf(bound to StepResult(0, "expect", "steps", passed = true, stepId = "step-1"))
@@ -112,6 +158,7 @@ class RunRecordTest {
     fun `a stray named by the traffic verdict is kept but binds no step`() {
         val recorder = RunRecorder()
         val stray = message("8", at = 5, incoming = true)
+        recorder.observe("CLI", emptyList())
         recorder.observe("CLI", listOf(stray))
 
         val built = recorder.build(mapOf(stray to StepResult(-1, "traffic", "steps", passed = false)), cap = 1)

@@ -99,8 +99,21 @@ class RunRecorder {
 
     private val seen = LinkedHashMap<Long, Seen>()
 
+    /**
+     * **What was already in the logs when this entry began** — the entry's own watermark.
+     *
+     * The first snapshot of a session is its history, not this entry's traffic. A suite that does not
+     * clear a session (a venue pane, typically — a capture clears the client leg and the book, not the
+     * venue's message log) would otherwise give entry 12 a record containing all eleven earlier entries,
+     * under a header that says "entry 12". The runner's own verdict already excludes what predates the
+     * run; the record now agrees with it.
+     */
+    private val predating = mutableSetOf<Long>()
+    private val started = mutableSetOf<String?>()
+
     @Synchronized
     fun observe(session: String?, messages: List<FixMessage>) {
+        if (started.add(session)) messages.forEach { predating += it.uid }
         messages.forEach { seen.putIfAbsent(it.uid, Seen(session, it)) }
     }
 
@@ -119,8 +132,14 @@ class RunRecorder {
     fun build(judged: Map<FixMessage, StepResult>, cap: Int): Evidence {
         // Arrival order across sessions: the capture stamp is the only common clock, and an unstamped
         // message (0) keeps its insertion position, which for one session is already chronological.
-        val ordered = seen.values.sortedBy { it.message.captureTimeMicros }
         val judgedUids = judged.keys.mapTo(mutableSetOf()) { it.uid }
+        // History is dropped — except where a verdict pointed at it. Under the permissive binding scope an
+        // expect may bind a message older than the run, and a record whose `bound` index pointed at a
+        // message it had discarded would be evidence with the evidence taken out.
+        val ordered =
+            seen.values
+                .filterNot { it.message.uid in predating && it.message.uid !in judgedUids }
+                .sortedBy { it.message.captureTimeMicros }
         val kept =
             if (cap <= 0 || ordered.size <= cap) {
                 ordered

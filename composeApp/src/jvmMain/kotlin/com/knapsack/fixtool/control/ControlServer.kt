@@ -20,6 +20,11 @@ import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.MatchMode
+import com.knapsack.fixtool.model.scenario.RunEntry
+import com.knapsack.fixtool.model.scenario.RunPolicy
+import com.knapsack.fixtool.model.scenario.RunSet
+import com.knapsack.fixtool.model.scenario.RunSetStatus
+import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.BookReading
@@ -42,6 +47,8 @@ import com.knapsack.fixtool.service.FixMessageValidator
 import com.knapsack.fixtool.service.FixMessageView
 import com.knapsack.fixtool.service.MatcherCodec
 import com.knapsack.fixtool.service.RuleOutcome
+import com.knapsack.fixtool.service.RunRecordCodec
+import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReconcile
@@ -153,7 +160,8 @@ class ControlServer(
         httpServer.createContext("/expectation/capture") { ex -> handle(ex) { captureExpectation(ex) } }
         httpServer.createContext("/scenarios/reconcile") { ex -> handle(ex) { reconcile(ex) } }
         httpServer.createContext("/scenarios/diff") { ex -> handle(ex) { diffMessages(ex) } }
-        httpServer.createContext("/scenarios/run") { ex -> handle(ex) { runScenario(ex) } }
+        httpServer.createContext("/scenarios/run") { ex -> handleCoded(ex) { runScenario(ex) } }
+        httpServer.createContext("/scenarios/runs") { ex -> handleCoded(ex) { runSets(ex) } }
         httpServer.createContext("/scenarios/capture") { ex -> handle(ex) { captureScenario(ex) } }
         httpServer.createContext("/scenarios/capture-paste") { ex -> handle(ex) { capturePaste(ex) } }
         httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
@@ -1383,8 +1391,234 @@ class ControlServer(
         return DiffSide(wire, label, ReferenceMessage.Provenance.PICKED)
     }
 
-    private fun runScenario(ex: HttpExchange): JsonElement {
+    /**
+     * **One route, two shapes.** Given `id` or `scenario` alone it is exactly what it has always been:
+     * synchronous, byte-compatible, the same object back. Given `set`, `ids` or `repeat` it starts a
+     * **job** and answers at once — because a twelve-scenario suite is minutes, this route runs on one of
+     * four HTTP threads with no timeout, and the MCP shim gives up at fifteen seconds.
+     */
+    private fun runScenario(ex: HttpExchange): Coded {
         val body = readJson(ex)
+        val wantsSet = body["set"] != null || body["ids"] != null || (body["repeat"]?.jsonPrimitive?.intOrNull ?: 1) > 1
+        if (wantsSet) return startRunSet(body)
+        val answer = runOneScenario(body)
+        // The one status code this route's old shape gains: a set holds the slot for its whole batch, so
+        // "already in progress" stops being a rare race and becomes a caller's ordinary answer for
+        // minutes at a time. The body is unchanged; a caller that only reads bodies sees no difference.
+        val busy = (answer as? JsonObject)?.get("error")?.jsonPrimitive?.contentOrNull == RUN_IN_PROGRESS
+        return Coded(if (busy) HTTP_CONFLICT else HTTP_OK, answer)
+    }
+
+    /**
+     * **Starts a run set as a job**: 202 and an id, or 409 if a run already holds the slot.
+     *
+     * Three ways in, and they are the three the rail offers: a saved set by name, an explicit list of
+     * scenario ids, and one scenario repeated. A saved set whose file names a scenario nothing answers to
+     * still runs the rest and says which name it could not resolve — the alternative is a nightly suite
+     * that stops existing the day somebody renames a file.
+     */
+    private fun startRunSet(body: JsonObject): Coded {
+        val policy =
+            RunPolicy(
+                stopOnFirstFailure = body["stopOnFailure"]?.jsonPrimitive?.booleanOrNull ?: false,
+                pauseBetweenMs = body["pauseMs"]?.jsonPrimitive?.longOrNull ?: 0,
+                isolateIterations = body["isolate"]?.jsonPrimitive?.booleanOrNull ?: true,
+            )
+        val repeat = (body["repeat"]?.jsonPrimitive?.intOrNull ?: 1).coerceAtLeast(1)
+        val now = System.currentTimeMillis()
+        val missing = mutableListOf<String>()
+
+        val setName = body["set"]?.jsonPrimitive?.contentOrNull
+        val planned: RunSet =
+            when {
+                setName != null -> {
+                    val saved = viewModel.runSetStore.load(setName) ?: return Coded(HTTP_NOT_FOUND, errorObject("no saved run set named '$setName'"))
+                    val plan = saved.copy(policy = if (body["stopOnFailure"] == null && body["pauseMs"] == null) saved.policy else policy)
+                        .plan(viewModel.scenarioService.list(), now)
+                    missing += plan.missing
+                    plan.set
+                }
+                body["ids"] != null -> {
+                    val ids = body["ids"]!!.jsonArray.map { it.jsonPrimitive.content }
+                    val scenarios =
+                        ids.mapNotNull { id ->
+                            viewModel.scenarioService.load(id).also { if (it == null) missing += id }
+                        }
+                    if (scenarios.isEmpty()) return Coded(HTTP_NOT_FOUND, errorObject("none of those scenarios could be loaded: $ids"))
+                    val entries = scenarios.flatMap { sc -> (1..repeat).map { RunEntry(sc.id, sc.name, iteration = it) } }
+                    RunSet(
+                        id = RunSets.id(now, "selected"),
+                        label = if (repeat > 1) "${scenarios.size} scenarios ×$repeat" else "${scenarios.size} scenarios",
+                        source = RunSource.Selected(scenarios.map { it.id }),
+                        entries = entries,
+                        policy = policy,
+                    )
+                }
+                else -> {
+                    val id = body["id"]?.jsonPrimitive?.contentOrNull
+                        ?: return Coded(HTTP_OK, errorObject("a run set needs 'set', 'ids', or 'id' with 'repeat'"))
+                    val scenario = viewModel.scenarioService.load(id) ?: return Coded(HTTP_NOT_FOUND, errorObject("scenario not found: $id"))
+                    RunSets.repeat(scenario, repeat, now, policy)
+                }
+            }
+
+        if (planned.entries.isEmpty()) {
+            return Coded(HTTP_OK, errorObject("that run set has no entries to run (unresolved: ${missing.joinToString()})"))
+        }
+        val started =
+            viewModel.startRunSet(planned)
+                ?: return Coded(HTTP_CONFLICT, errorObject(RUN_IN_PROGRESS))
+        return Coded(
+            HTTP_ACCEPTED,
+            buildJsonObject {
+                put("runSet", started.id)
+                put("status", "running")
+                put("entries", started.entries.size)
+                put("label", started.label)
+                if (missing.isNotEmpty()) {
+                    put("unresolved", buildJsonArray { missing.forEach { add(it) } })
+                }
+            },
+        )
+    }
+
+    /**
+     * `/scenarios/runs` — the job's other three doors: list, poll, fetch one entry's record, stop.
+     *
+     * The state comes off **disk**, not out of memory, and that is the design rather than an economy:
+     * `set.json` is rewritten as each entry lands, so the answer survives a restart, and a headless run on
+     * a build box leaves exactly the same thing to read.
+     */
+    @Suppress("ReturnCount")
+    private fun runSets(ex: HttpExchange): Coded {
+        val parts = ex.requestURI.path.trim('/').split('/')
+        // /scenarios/runs -> ["scenarios","runs"]; /scenarios/runs/<id>[/entries/<n>|/stop]
+        val setId = parts.getOrNull(2)
+        if (setId == null) {
+            val sets = viewModel.runRecordStore.listSets()
+            return Coded(
+                HTTP_OK,
+                buildJsonObject {
+                    put("count", sets.size)
+                    put("sets", buildJsonArray { sets.forEach { add(runSetSummary(it)) } })
+                },
+            )
+        }
+        val tail = parts.getOrNull(3)
+        if (tail == "stop") {
+            val active = viewModel.activeRunSet.value
+            if (active == null || active.id != setId || !viewModel.scenarioRunning.value) {
+                return Coded(HTTP_CONFLICT, errorObject("run set '$setId' is not running"))
+            }
+            viewModel.requestScenarioStop()
+            return Coded(HTTP_ACCEPTED, buildJsonObject { put("status", "stopping"); put("runSet", setId) })
+        }
+        if (tail == "entries") {
+            val n = parts.getOrNull(4)?.toIntOrNull() ?: return Coded(HTTP_NOT_FOUND, errorObject("which entry?"))
+            val record =
+                viewModel.runRecordStore.readEntry(setId, n)
+                    ?: return Coded(HTTP_NOT_FOUND, errorObject("no record for entry $n of '$setId'"))
+            return Coded(HTTP_OK, RunRecordCodec.toJson(record))
+        }
+        // The poll. `?wait=` holds the request until the set finishes or the wait runs out — kept under the
+        // MCP shim's own ceiling, so an agent can wait without the transport giving up underneath it.
+        val waitMs = queryParams(ex)["wait"]?.toLongOrNull()?.coerceIn(0, MAX_SET_WAIT_MS) ?: 0
+        val deadline = System.currentTimeMillis() + waitMs
+        var set = viewModel.runRecordStore.readSet(setId) ?: return Coded(HTTP_NOT_FOUND, errorObject("no run set '$setId'"))
+        while (set.status == RunSetStatus.RUNNING && System.currentTimeMillis() < deadline) {
+            Thread.sleep(WAIT_POLL_MS)
+            set = viewModel.runRecordStore.readSet(setId) ?: set
+        }
+        return Coded(HTTP_OK, runSetDetail(set))
+    }
+
+    /**
+     * `fixtool_run_status` — the poll, the listing and the stop behind one tool, because an agent asking
+     * "how is it going" and "stop it" is asking about the same thing and should not have to find two
+     * names for it.
+     */
+    private fun runStatusTool(args: JsonObject): JsonElement {
+        val setId = args["runSet"]?.jsonPrimitive?.contentOrNull
+        if (setId == null) {
+            val sets = viewModel.runRecordStore.listSets()
+            return buildJsonObject {
+                put("count", sets.size)
+                put("sets", buildJsonArray { sets.forEach { add(runSetSummary(it)) } })
+            }
+        }
+        if (args["stop"]?.jsonPrimitive?.booleanOrNull == true) {
+            val active = viewModel.activeRunSet.value
+            if (active == null || active.id != setId || !viewModel.scenarioRunning.value) {
+                return errorObject("run set '$setId' is not running")
+            }
+            viewModel.requestScenarioStop()
+        }
+        val waitMs = args["wait"]?.jsonPrimitive?.longOrNull?.coerceIn(0, MAX_SET_WAIT_MS) ?: 0
+        val deadline = System.currentTimeMillis() + waitMs
+        var set = viewModel.runRecordStore.readSet(setId) ?: return errorObject("no run set '$setId'")
+        while (set.status == RunSetStatus.RUNNING && System.currentTimeMillis() < deadline) {
+            Thread.sleep(WAIT_POLL_MS)
+            set = viewModel.runRecordStore.readSet(setId) ?: set
+        }
+        return runSetDetail(set)
+    }
+
+    private fun runEntryTool(args: JsonObject): JsonElement {
+        val setId = args["runSet"]?.jsonPrimitive?.contentOrNull ?: return errorObject("runSet is required")
+        val n = args["entry"]?.jsonPrimitive?.intOrNull ?: return errorObject("entry is required (1-based)")
+        val record = viewModel.runRecordStore.readEntry(setId, n) ?: return errorObject("no record for entry $n of '$setId'")
+        return RunRecordCodec.toJson(record)
+    }
+
+    private fun runSetSummary(set: RunSet): JsonObject =
+        buildJsonObject {
+            put("id", set.id)
+            put("label", set.label)
+            put("status", set.status.name.lowercase())
+            put("total", set.total)
+            put("done", set.done)
+            put("passed", set.passed)
+            put("failed", set.failed)
+            put("startedAt", set.startedAt)
+            set.finishedAt?.let { put("finishedAt", it) }
+        }
+
+    private fun runSetDetail(set: RunSet): JsonObject =
+        buildJsonObject {
+            put("status", set.status.name.lowercase())
+            put("runSet", set.id)
+            put("label", set.label)
+            put(
+                "summary",
+                buildJsonObject {
+                    put("total", set.total)
+                    put("done", set.done)
+                    put("passed", set.passed)
+                    put("failed", set.failed)
+                    put("elapsedMs", (set.finishedAt ?: System.currentTimeMillis()) - set.startedAt)
+                },
+            )
+            put(
+                "entries",
+                buildJsonArray {
+                    set.entries.forEachIndexed { i, e ->
+                        add(
+                            buildJsonObject {
+                                put("n", i + 1)
+                                put("scenario", e.scenarioName)
+                                put("iteration", e.iteration)
+                                put("state", e.state.name.lowercase())
+                                e.durationMs?.let { put("durationMs", it) }
+                                e.record?.let { put("record", it) }
+                                e.note?.let { put("note", it) }
+                            },
+                        )
+                    }
+                },
+            )
+        }
+
+    private fun runOneScenario(body: JsonObject): JsonElement {
         val id = body["id"]?.jsonPrimitive?.content
         val scenario: Scenario =
             if (id != null) {
@@ -1427,7 +1661,7 @@ class ControlServer(
         // consume each other's messages.
         val result =
             viewModel.runScenarioBlocking(scenario, sessionMap)
-                ?: return errorObject("a scenario run is already in progress")
+                ?: return errorObject(RUN_IN_PROGRESS)
         return if (body["format"]?.jsonPrimitive?.content?.lowercase() == "junit") {
             buildJsonObject {
                 put("passed", result.passed)
@@ -2926,7 +3160,11 @@ class ControlServer(
             "fixtool_capture_paste" to { a -> capturePaste(mcpExchange(a)) },
             "fixtool_list_scenarios" to { a -> listScenarios(mcpExchange(a)) },
             "fixtool_get_scenario" to { a -> getScenario(mcpExchange(a)) },
-            "fixtool_run_scenario" to { a -> runScenario(mcpExchange(a)) },
+            // MCP has no status codes, so a job's answer is its body — 202/409 are an HTTP nicety.
+            "fixtool_run_scenario" to { a -> runScenario(mcpExchange(a)).body },
+            "fixtool_run_set" to { a -> startRunSet(a).body },
+            "fixtool_run_status" to { a -> runStatusTool(a) },
+            "fixtool_run_entry" to { a -> runEntryTool(a) },
             "fixtool_reconcile" to { a -> reconcile(mcpExchange(a)) },
             "fixtool_diff" to { a -> diffMessages(mcpExchange(a)) },
             "fixtool_delete_scenario" to { a -> deleteScenario(mcpExchange(a)) },
@@ -3103,6 +3341,32 @@ class ControlServer(
 
     // ---------------------------------------------------------------- plumbing
 
+    /**
+     * A response that chooses its own status code.
+     *
+     * Everything else here answers 200 and puts `status: "error"` in the body, which agents have learned
+     * to read. The job API cannot: "the set started" and "somebody else is already running" are the two
+     * answers a caller has to branch on before it has a body to parse, and 202/409 are the words HTTP
+     * already has for them.
+     */
+    private data class Coded(val code: Int, val body: JsonElement)
+
+    private fun handleCoded(ex: HttpExchange, block: () -> Coded) {
+        try {
+            if (!authorized(ex)) {
+                respondJson(ex, HTTP_UNAUTHORIZED, errorObject("unauthorized"))
+                return
+            }
+            val coded = block()
+            respondJson(ex, coded.code, coded.body)
+        } catch (e: Exception) {
+            logger.error("Control request failed: ${ex.requestURI}", e)
+            respondJson(ex, HTTP_SERVER_ERROR, errorObject(e.message ?: e.toString()))
+        } finally {
+            ex.close()
+        }
+    }
+
     private fun handle(ex: HttpExchange, block: () -> JsonElement) {
         try {
             if (!authorized(ex)) {
@@ -3253,6 +3517,18 @@ class ControlServer(
         private const val DEFAULT_WAIT_MS = 10_000L
         private const val MAX_WAIT_MS = 120_000L
         private const val WAIT_POLL_MS = 100L
+
+        /** One sentence, two doors — and the 409 is decided by comparing against it. */
+        private const val RUN_IN_PROGRESS = "a scenario run is already in progress"
+
+        private const val HTTP_ACCEPTED = 202
+        private const val HTTP_CONFLICT = 409
+
+        /**
+         * The ceiling on a run-set poll's `?wait=`. Ten seconds, because the MCP shim aborts a call at
+         * fifteen and an agent that waits past its own transport's patience learns nothing.
+         */
+        private const val MAX_SET_WAIT_MS = 10_000L
         private const val MCP_PROTOCOL_VERSION = "2025-06-18"
         private const val MCP_METHOD_NOT_FOUND = -32601
         private const val MCP_INTERNAL_ERROR = -32603

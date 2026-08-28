@@ -437,7 +437,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(44, tools.size)
+        assertEquals(47, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_reconcile" },
             "the diff is reachable without a hand on the mouse, or an agent can never open the surface that repairs",
@@ -445,6 +445,13 @@ class ControlServerIntegrationTest {
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_acceptor_orders" },
             "the venue's own memory is readable from outside, or slice A of #35 is a panel and nothing else",
+        )
+        assertTrue(
+            tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_run_set" } &&
+                tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_run_status" } &&
+                tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_run_entry" },
+            "a suite is startable, pollable and readable from outside, or 'run the suite and tell me what broke' " +
+                "is a question only a person at the keyboard can ask",
         )
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_capture_paste" },

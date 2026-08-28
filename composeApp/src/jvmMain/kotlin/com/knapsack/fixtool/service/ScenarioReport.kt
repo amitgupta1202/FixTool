@@ -147,29 +147,60 @@ object ScenarioReport {
      * carry index -1 because no step produced them (there is nothing to blame, and nothing to edit).
      * They rendered as `step -1 traffic (steps)`; they name themselves by kind instead.
      */
-    fun toJUnitXml(result: ScenarioResult): String {
+    fun toJUnitXml(result: ScenarioResult): String =
+        StringBuilder()
+            .append(XML_DECLARATION)
+            .append(suiteXml(result.scenario, result, indent = ""))
+            .toString()
+
+    /**
+     * **A whole run set as one document** — `<testsuites>` around the suites this already renders.
+     *
+     * Each entry names its own suite, because "which one is this" is the question a CI report has to
+     * answer about a set: an iteration is `book-a-trade #3`, and a row (Phase 3) will be
+     * `book-a-trade [EUR/USD partial fill]`, the way a parameterized test has always named itself. The
+     * caller supplies the names rather than this deriving them, because only the caller knows whether
+     * two identical scenario names are two iterations or two scenarios.
+     */
+    fun toJUnitXml(suites: List<Pair<String, ScenarioResult>>): String {
+        val tests = suites.sumOf { (_, r) -> r.steps.size }
+        val failures = suites.sumOf { (_, r) -> r.steps.count { !it.passed && !it.exemptFromVerdict } }
+        // Summed, not measured: the wrapper has no clock of its own, and a set's wall clock is the sum of
+        // its entries plus whatever the scheduler paused for — which is not a number about the venue.
+        val time = suites.mapNotNull { (_, r) -> r.durationMs }.takeIf { it.isNotEmpty() }?.sum()
+        val sb = StringBuilder()
+        sb.append(XML_DECLARATION)
+        sb.append("<testsuites tests=\"").append(tests).append("\" failures=\"").append(failures).append("\"")
+            .append(timeAttr(time)).append(">\n")
+        suites.forEach { (name, result) -> sb.append(suiteXml(name, result, indent = "  ")) }
+        sb.append("</testsuites>\n")
+        return sb.toString()
+    }
+
+    private fun suiteXml(name: String, result: ScenarioResult, indent: String): String {
         val failures = result.steps.count { !it.passed && !it.exemptFromVerdict }
         val sb = StringBuilder()
-        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        sb.append("<testsuite name=\"").append(esc(result.scenario)).append("\" tests=\"")
+        sb.append(indent).append("<testsuite name=\"").append(esc(name)).append("\" tests=\"")
             .append(result.steps.size).append("\" failures=\"").append(failures).append("\"")
             .append(timeAttr(result.durationMs)).append(">\n")
         for (step in result.steps) {
-            sb.append("  <testcase name=\"").append(esc(caseName(step))).append("\" classname=\"")
-                .append(esc(result.scenario)).append("\"").append(timeAttr(step.latencyMs)).append(">")
+            sb.append(indent).append("  <testcase name=\"").append(esc(caseName(step))).append("\" classname=\"")
+                .append(esc(name)).append("\"").append(timeAttr(step.latencyMs)).append(">")
             if (!step.passed) {
                 val message = esc(failureMessage(step))
                 if (step.exemptFromVerdict) {
-                    sb.append("\n    <system-out>").append(message).append("</system-out>\n  ")
+                    sb.append("\n").append(indent).append("    <system-out>").append(message).append("</system-out>\n").append(indent).append("  ")
                 } else {
-                    sb.append("\n    <failure message=\"").append(message).append("\"/>\n  ")
+                    sb.append("\n").append(indent).append("    <failure message=\"").append(message).append("\"/>\n").append(indent).append("  ")
                 }
             }
             sb.append("</testcase>\n")
         }
-        sb.append("</testsuite>\n")
+        sb.append(indent).append("</testsuite>\n")
         return sb.toString()
     }
+
+    private const val XML_DECLARATION = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
 
     /** Exactly the runner's own rule, so the XML and the verdict cannot come to disagree. */
     private val StepResult.exemptFromVerdict: Boolean get() = phase == "teardown"

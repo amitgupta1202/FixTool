@@ -7,6 +7,8 @@ import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.SavedRunEntry
+import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
@@ -340,6 +342,104 @@ class ScenarioIntegrationTest {
         // And the slot is free again: a stopped run releases what it held, or nothing could run after it.
         assertTrue(awaitCondition(5_000) { !viewModel.scenarioRunning.value }, "the run slot must be released")
         assertTrue(obj(post("/scenarios/run", """{"scenario": ${scenarioJson("after-stop", "0")}}"""))["passed"]!!.jsonPrimitive.boolean)
+    }
+
+    /**
+     * **A set is a job.** The route that runs one scenario inline cannot carry twelve: it runs on one of
+     * four HTTP threads with no timeout, and the MCP shim gives up at fifteen seconds. So a set is
+     * started, polled, and read — while the bare `id` call stays exactly what it was.
+     */
+    @Test
+    fun `a run set starts, polls, and its entries can be read back`() {
+        val id = obj(post("/scenarios", scenarioJson("suite-member", "0")))["id"]!!.jsonPrimitive.content
+
+        val started = post("/scenarios/run", """{"id":"$id","repeat":2}""")
+        assertEquals(202, started.statusCode(), "a set answers 202 and an id, not a report: ${started.body()}")
+        val runSet = obj(started)["runSet"]!!.jsonPrimitive.content
+        assertEquals(2, obj(started)["entries"]!!.jsonPrimitive.int)
+
+        val status = obj(get("/scenarios/runs/$runSet?wait=10000"))
+        assertEquals("passed", status["status"]!!.jsonPrimitive.content, "$status")
+        val summary = status["summary"]!!.jsonObject
+        assertEquals(2, summary["total"]!!.jsonPrimitive.int)
+        assertEquals(2, summary["passed"]!!.jsonPrimitive.int)
+        assertEquals(listOf(1, 2), status["entries"]!!.jsonArray.map { it.jsonObject["iteration"]!!.jsonPrimitive.int })
+
+        // The record: the same report, plus the bytes — which is what a failed entry is diagnosed from
+        // once the grid holds a later entry's traffic.
+        val record = obj(get("/scenarios/runs/$runSet/entries/1"))
+        assertTrue(record["result"]!!.jsonObject["passed"]!!.jsonPrimitive.boolean)
+        assertTrue(record["messages"]!!.jsonArray.isNotEmpty(), "the evidence is in the record: $record")
+        assertTrue(record["bound"]!!.jsonObject.isNotEmpty(), "and it says which message each step judged")
+
+        assertTrue(
+            obj(get("/scenarios/runs"))["sets"]!!.jsonArray.any { it.jsonObject["id"]!!.jsonPrimitive.content == runSet },
+            "the set is listed among the recent runs",
+        )
+
+        // Unchanged: given an id alone, the route is still synchronous and still returns the report.
+        val single = post("/scenarios/run", """{"id":"$id"}""")
+        assertEquals(200, single.statusCode())
+        assertTrue(obj(single)["passed"]!!.jsonPrimitive.boolean)
+    }
+
+    /**
+     * **The CI path: a set selected by name.** A build box has a checkout, not a local star file, so the
+     * thing it names is a saved set — and a set whose file mentions a scenario nothing answers to runs the
+     * rest and says which name it could not resolve.
+     */
+    @Test
+    fun `a saved set is run by name, and an unresolved entry is reported rather than fatal`() {
+        obj(post("/scenarios", scenarioJson("nightly-member", "0")))
+        viewModel.runSetStore.save(
+            SavedRunSet(
+                name = "nightly-$runId",
+                entries = listOf(SavedRunEntry("nightly-member"), SavedRunEntry("scenario-that-was-deleted")),
+            ),
+        )
+
+        val started = post("/scenarios/run", """{"set":"nightly-$runId"}""")
+
+        assertEquals(202, started.statusCode(), started.body())
+        val body = obj(started)
+        assertEquals(1, body["entries"]!!.jsonPrimitive.int)
+        assertEquals(
+            listOf("scenario-that-was-deleted"),
+            body["unresolved"]!!.jsonArray.map { it.jsonPrimitive.content },
+            "the one it could not find is named, and the other one still ran",
+        )
+        val status = obj(get("/scenarios/runs/${body["runSet"]!!.jsonPrimitive.content}?wait=10000"))
+        assertEquals("passed", status["status"]!!.jsonPrimitive.content, "$status")
+    }
+
+    /**
+     * The slot is the set's for the whole batch, and the caller is told so in the word HTTP already has.
+     * Then the set is stopped, which is the other half of a job model: a twelve-scenario suite nobody can
+     * call off is a tool holding its user hostage.
+     */
+    @Test
+    fun `a run in progress refuses another with 409, and the set can be stopped`() {
+        val id = obj(post("/scenarios", scenarioJson("long-set", "0")))["id"]!!.jsonPrimitive.content
+
+        // A pause between entries gives the test a window to act inside — the venue answers in microseconds.
+        val started = post("/scenarios/run", """{"id":"$id","repeat":3,"pauseMs":4000}""")
+        assertEquals(202, started.statusCode())
+        val runSet = obj(started)["runSet"]!!.jsonPrimitive.content
+        assertTrue(awaitCondition(10_000) { viewModel.scenarioRunning.value }, "the set should hold the run slot")
+
+        val refused = post("/scenarios/run", """{"id":"$id"}""")
+        assertEquals(409, refused.statusCode(), "a bare run during a set is refused, not interleaved: ${refused.body()}")
+
+        val stop = post("/scenarios/runs/$runSet/stop", "")
+        assertEquals(202, stop.statusCode(), stop.body())
+
+        val finished = obj(get("/scenarios/runs/$runSet?wait=10000"))
+        assertEquals("stopped", finished["status"]!!.jsonPrimitive.content, "$finished")
+        assertTrue(
+            finished["entries"]!!.jsonArray.any { it.jsonObject["state"]!!.jsonPrimitive.content == "skipped" },
+            "the entries that never ran say so: $finished",
+        )
+        assertTrue(awaitCondition(10_000) { !viewModel.scenarioRunning.value }, "and the slot comes back")
     }
 
     /**

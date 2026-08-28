@@ -763,6 +763,59 @@ class ScenarioRunnerTest {
         assertFalse(result.steps.single { it.kind == "traffic" }.passed)
     }
 
+    // ----------------------------------------------------------- the other run boundary: the order book
+
+    /**
+     * The reset nothing could reach. `ClearMessages` empties what a session *displays*; a venue's book is
+     * what its rules *read*, and a repeat that leaves it full answers iteration 2 out of iteration 1's
+     * memory — a duplicate ClOrdID rejected where it was acked, a cancel refused as too late.
+     */
+    @Test
+    fun `a clear-order-book step empties the venue's book`() {
+        val host = FakeHost()
+        host.venues += "s"
+        val result =
+            run(host, scenario(ScenarioStep.ClearOrderBook("s"), ScenarioStep.Send("35=D|11=ORD|", session = "s")))
+        assertTrue(result.passed, "${result.steps}")
+        assertEquals(listOf("clearBook", "send"), result.steps.map { it.kind })
+        assertEquals(listOf<String?>("s"), host.bookCleared)
+    }
+
+    /**
+     * A setup step that quietly does nothing is worse than one that will not run: the run goes green on
+     * state it never reset. An initiator's orders live at the far end, so the refusal is the honest answer
+     * — and it comes from preflight, before a single message goes out, because by the time the step ran the
+     * orders it meant to forget would already have been sent.
+     */
+    @Test
+    fun `a clear-order-book aimed at a session with no book is refused before anything is sent`() {
+        val host = FakeHost()
+        val result =
+            run(host, scenario(ScenarioStep.ClearOrderBook("s"), ScenarioStep.Send("35=D|11=ORD|", session = "s")))
+        assertFalse(result.passed, "a book the tool does not own cannot be reset: ${result.steps}")
+        val refusal = result.steps.single()
+        assertEquals("preflight", refusal.kind)
+        assertTrue(refusal.detail!!.contains("no order book"), "the refusal must name the cause: ${refusal.detail}")
+        assertTrue(refusal.detail!!.contains("venue"), "and where a book does exist: ${refusal.detail}")
+        assertTrue(host.sent.isEmpty(), "nothing may go out on a run preflight refused")
+    }
+
+    /** The mute contract composed with the refusal: a parked step's session needn't own anything. */
+    @Test
+    fun `a muted clear-order-book does not refuse the run`() {
+        val host = FakeHost()
+        val result =
+            run(
+                host,
+                scenario(
+                    ScenarioStep.ClearOrderBook("s").copy(muted = true),
+                    ScenarioStep.Send("35=D|11=ORD|", session = "s"),
+                ),
+            )
+        assertTrue(result.passed, "parking the step parks its preflight too: ${result.steps}")
+        assertTrue(host.bookCleared.isEmpty(), "and nothing was cleared")
+    }
+
     // ------------------------------------ the watermark: a strict verdict judges this run's traffic only
 
     /**
@@ -1408,6 +1461,18 @@ class ScenarioRunnerTest {
         }
 
         override fun resetSeqNum(session: String?, sender: Int?, target: Int?): Boolean = true
+
+        /** Sessions this fake hosts as a venue, and the wipes a run actually asked it for. */
+        val venues = mutableSetOf<String?>()
+        val bookCleared = mutableListOf<String?>()
+
+        override fun ownsOrderBook(session: String?): Boolean = session in venues
+
+        override fun clearOrderBook(session: String?): Boolean {
+            if (session !in venues) return false
+            bookCleared += session
+            return true
+        }
 
         override fun connectSession(session: String?): ConnectAttempt = connect(session)
 

@@ -138,6 +138,9 @@ object ScenarioCodec {
                 is ScenarioStep.ClearMessages -> {
                     put("type", "clearMessages"); step.session?.let { put("session", it) }
                 }
+                is ScenarioStep.ClearOrderBook -> {
+                    put("type", "clearOrderBook"); step.session?.let { put("session", it) }
+                }
                 is ScenarioStep.ResetSeqNum -> {
                     put("type", "resetSeqNum")
                     step.session?.let { put("session", it) }
@@ -179,6 +182,7 @@ object ScenarioCodec {
                 muted = muted,
             )
             "clearmessages" -> ScenarioStep.ClearMessages(session, stepId, origin, muted)
+            "clearorderbook" -> ScenarioStep.ClearOrderBook(session, stepId, origin, muted)
             "resetseqnum" -> ScenarioStep.ResetSeqNum(
                 session = session,
                 sender = obj["sender"]?.jsonPrimitive?.intOrNull,

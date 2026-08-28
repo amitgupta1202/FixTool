@@ -1078,6 +1078,9 @@ class ControlServer(
                 selection = scan.candidates,
                 dictionary = onEdt { viewModel.dictionary },
                 sides = onEdt { viewModel.mintingSides() },
+                // The live-sessions capture, so it knows which panes are venues. The paste capture below
+                // has no sessions behind it and passes none — a pasted log cannot say who hosted what.
+                venueSessions = onEdt { viewModel.venueSessionTitles() },
             )
         val ok = viewModel.scenarioService.save(scenario)
         val risk = ScenarioCapture.captureRisk(scan.candidates, onEdt { viewModel.dictionary })

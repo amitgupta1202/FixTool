@@ -182,6 +182,29 @@ sealed interface ScenarioStep {
         override val muted: Boolean = false,
     ) : ScenarioStep
 
+    /**
+     * **Empty the order book FixTool keeps as the venue on this session** (typical setup step).
+     *
+     * The other half of a run boundary, and the half nothing could reach before. [ClearMessages] empties
+     * what a session *displays*; this empties what the acceptor side *remembers* — the per-counterparty
+     * book that decides whether the next `35=D` is a new order or one it has already seen. A scenario run
+     * twice with the same ClOrdID routes the second one as a move rather than a birth, and every rule
+     * conditioned on order state answers the second run from the first run's memory: a duplicate rejected
+     * where it was acked, a cancel refused as too late. Both are false reds about a venue that is behaving
+     * exactly as told.
+     *
+     * Only a session FixTool hosts as a venue has a book to empty — an initiator pane's orders live at the
+     * far end, where the tool has no reach. Aimed anywhere else it is a named refusal in preflight rather
+     * than a silent no-op, because a setup step that quietly does nothing is worse than one that will not
+     * run: the run goes green on state it never reset.
+     */
+    data class ClearOrderBook(
+        override val session: String? = null,
+        override val stepId: String = "",
+        override val origin: StepOrigin = StepOrigin.LIVE,
+        override val muted: Boolean = false,
+    ) : ScenarioStep
+
     /** Reset a session's FIX sequence numbers (typical setup step). */
     data class ResetSeqNum(
         override val session: String? = null,
@@ -232,6 +255,7 @@ fun ScenarioStep.withStepId(id: String): ScenarioStep =
         is ScenarioStep.Wait -> copy(stepId = id)
         is ScenarioStep.Expect -> copy(stepId = id)
         is ScenarioStep.ClearMessages -> copy(stepId = id)
+        is ScenarioStep.ClearOrderBook -> copy(stepId = id)
         is ScenarioStep.ResetSeqNum -> copy(stepId = id)
     }
 
@@ -242,6 +266,7 @@ fun ScenarioStep.withSession(session: String?): ScenarioStep =
         is ScenarioStep.Wait -> copy(session = session)
         is ScenarioStep.Expect -> copy(session = session)
         is ScenarioStep.ClearMessages -> copy(session = session)
+        is ScenarioStep.ClearOrderBook -> copy(session = session)
         is ScenarioStep.ResetSeqNum -> copy(session = session)
     }
 
@@ -271,6 +296,7 @@ fun ScenarioStep.withMuted(muted: Boolean): ScenarioStep =
         is ScenarioStep.Wait -> copy(muted = muted)
         is ScenarioStep.Expect -> copy(muted = muted)
         is ScenarioStep.ClearMessages -> copy(muted = muted)
+        is ScenarioStep.ClearOrderBook -> copy(muted = muted)
         is ScenarioStep.ResetSeqNum -> copy(muted = muted)
     }
 
@@ -281,6 +307,7 @@ fun ScenarioStep.withOrigin(origin: StepOrigin): ScenarioStep =
         is ScenarioStep.Wait -> copy(origin = origin)
         is ScenarioStep.Expect -> copy(origin = origin)
         is ScenarioStep.ClearMessages -> copy(origin = origin)
+        is ScenarioStep.ClearOrderBook -> copy(origin = origin)
         is ScenarioStep.ResetSeqNum -> copy(origin = origin)
     }
 

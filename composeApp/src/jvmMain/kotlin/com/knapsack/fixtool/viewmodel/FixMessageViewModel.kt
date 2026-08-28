@@ -1530,6 +1530,7 @@ class FixMessageViewModel(
                 selection = scan.candidates,
                 dictionary = dictionary,
                 sides = mintingSides(),
+                venueSessions = venueSessionTitles(),
             )
         openUnsavedScenarioEditor(scenario)
     }
@@ -2940,6 +2941,7 @@ class FixMessageViewModel(
                 sessions = captured,
                 dictionary = dictionary,
                 sides = mintingSides(),
+                venueSessions = venueSessionTitles(),
             )
         return if (scenarioService.save(scenario)) scenario.id else null
     }
@@ -3037,6 +3039,15 @@ class FixMessageViewModel(
     fun ambientMintingSide(): MintingSide =
         mintingSides().values.distinct().singleOrNull() ?: MintingSide.CLIENT
 
+    /**
+     * **The sessions a scenario can reset the order book of** — the panes FixTool hosts as a venue.
+     *
+     * Asked by capture, so a captured both-sides flow authors the reset the acceptor side needs; the
+     * runner asks its host the same question in preflight, and the two must agree or a capture would
+     * write a step its own preflight refuses.
+     */
+    fun venueSessionTitles(): Set<String> = _sessions.filter { it.orderBook() != null }.map { it.title }.toSet()
+
     /** Persist a curated capture selection as a scenario (the review screen's Save); id or null. */
     fun saveCapturedSelection(name: String, selection: List<ScenarioCapture.Candidate>): String? {
         if (selection.isEmpty()) {
@@ -3057,6 +3068,7 @@ class FixMessageViewModel(
                 selection = selection,
                 dictionary = dictionary,
                 sides = mintingSides(),
+                venueSessions = venueSessionTitles(),
             )
         return if (scenarioService.save(scenario)) scenario.id else null
     }

@@ -227,6 +227,7 @@ language than §1 — plain replacement, no variables, offsets or message refere
 | `expect` | `session?`, `direction?`, `match?`, `timeoutMs?`, `expectation: {messageType?, mode?, fields: [...]}` |
 | `wait` | `session?`, `state?` (e.g. `LOGGED_ON`), `match?`, `timeoutMs?` |
 | `clearMessages` | `session?` |
+| `clearOrderBook` | `session?` — empties the order book FixTool keeps **as the venue** on that session (what its rules read, as opposed to what the grid shows). Only valid on a session FixTool hosts as an acceptor; anywhere else the run is refused in preflight, by name. |
 | `resetSeqNum` | `session?`, `sender?`, `target?` |
 
 ### Excluding a field from a `send` without deleting it

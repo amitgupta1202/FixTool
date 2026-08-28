@@ -473,6 +473,19 @@ class ScenarioCodecTest {
         assertFalse(ScenarioCodec.fromJson(ScenarioCodec.toJson(scenario)).steps.single().muted)
     }
 
+    /** The sixth step kind, through the file and back — additive, and it carries only a session. */
+    @Test
+    fun `clear-order-book round-trips through json`() {
+        val scenario =
+            Scenario(id = "sc-b", name = "n", setup = listOf(ScenarioStep.ClearOrderBook("ACC")), steps = listOf(ScenarioStep.Send("35=D|", session = "s")))
+        val json = ScenarioCodec.toJson(scenario)
+        assertEquals("clearOrderBook", json["setup"]!!.jsonArray.single().jsonObject["type"]!!.jsonPrimitive.content)
+        // Ids are minted on the way through, so compare what the file actually carries: kind and session.
+        val back = ScenarioCodec.fromJson(json).setup.single()
+        assertTrue(back is ScenarioStep.ClearOrderBook, "the sixth kind must survive the round trip: $back")
+        assertEquals("ACC", back.session)
+    }
+
     // ----- traffic -----------------------------------------------------------------------------------
 
     @Test

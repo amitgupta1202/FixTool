@@ -367,6 +367,57 @@ class ScenarioCaptureTest {
     private fun execTypeConstraint(e: ScenarioStep.Expect): String? =
         e.match?.fields?.firstOrNull { it.tag == 150 && it.op == MatchOp.EQ }?.value
 
+    /**
+     * **A captured both-sides flow resets both memories.** The session FixTool hosts as a venue has an
+     * order book behind it, and a repeat that leaves it full answers iteration 2 out of iteration 1's
+     * state. Capture is where that has to be fixed: the author who discovers it by watching a green
+     * scenario turn red on its second run has already stopped trusting the tool.
+     */
+    @Test
+    fun `capture authors an order-book reset for a venue session, and only for one`() {
+        val client = ScenarioCapture.CapturedSession(
+            "CLI",
+            listOf(
+                msg(
+                    "8=FIX.4.4|35=D|34=2|49=CLI|52=20260630-10:00:02|56=ACC|11=ORD-1|55=EUR/USD|54=1|" +
+                        "38=100|40=2|60=20260630-10:00:02.000|10=003|",
+                    FixMessage.Direction.OUTGOING,
+                    2,
+                ),
+            ),
+        )
+        val venue = ScenarioCapture.CapturedSession(
+            "ACC",
+            listOf(
+                msg(
+                    "8=FIX.4.4|35=D|34=2|49=CLI|52=20260630-10:00:02|56=ACC|11=ORD-1|55=EUR/USD|54=1|" +
+                        "38=100|40=2|60=20260630-10:00:02.000|10=003|",
+                    FixMessage.Direction.INCOMING,
+                    2,
+                ),
+            ),
+        )
+        val scenario =
+            ScenarioCapture.capture(
+                "sc-book",
+                "both sides",
+                profile = null,
+                sessions = listOf(client, venue),
+                dictionary = dictionary,
+                venueSessions = setOf("ACC"),
+            )
+
+        assertEquals(
+            listOf<Pair<String, String?>>(
+                "ClearMessages" to "CLI",
+                "ClearMessages" to "ACC",
+                "ClearOrderBook" to "ACC",
+            ),
+            scenario.setup.map { it::class.simpleName!! to it.session },
+            "the venue's book is reset beside its log; the initiator has no book to reset",
+        )
+    }
+
     private fun sessionOf(step: ScenarioStep): String? =
         when (step) {
             is ScenarioStep.Send -> step.session

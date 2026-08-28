@@ -61,6 +61,16 @@ interface ScenarioHost {
     fun resetSeqNum(session: String?, sender: Int?, target: Int?): Boolean
 
     /**
+     * Whether FixTool keeps a venue-side order book for [session] — false for an initiator pane, a session
+     * that does not exist, and any host with no venue side at all. Asked in preflight, so a scenario that
+     * would reset a book nobody owns is refused before it sends anything.
+     */
+    fun ownsOrderBook(session: String?): Boolean = false
+
+    /** Empty that book; false when there was none to empty. See [ScenarioStep.ClearOrderBook]. */
+    fun clearOrderBook(session: String?): Boolean = false
+
+    /**
      * Try to bring [session] up — reconnect it if it exists, else connect the saved profile that
      * carries its name. [ConnectAttempt.Started] means the attempt is under way, not that logon
      * succeeded: the runner owns the bounded wait for LOGGED_ON. The default can connect nothing,
@@ -300,6 +310,21 @@ class ScenarioRunner(
                     "(was ${p.wasState ?: "not found"}, now $state)",
             )
         }
+        // Last, because it is the only check that needs the sessions to be *up*: a venue client pane does
+        // not exist until its client logs on, so asking before the connects above would refuse a scenario
+        // that was about to be fine. A ClearOrderBook the host cannot honour is refused here rather than
+        // failing mid-run, for the reason every setup step is preflighted — by the time the step ran, the
+        // orders it meant to forget would already have been sent.
+        all.filterIsInstance<ScenarioStep.ClearOrderBook>()
+            .firstOrNull { !host.ownsOrderBook(it.session) }
+            ?.let { step ->
+                return preflightFailure(
+                    "clear-order-book targets session '${label(step.session)}', which has no order book — " +
+                        "FixTool keeps one only for a session it hosts as a venue (an acceptor pane, or a " +
+                        "venue's per-client pane). An initiator's orders live at the far end, where the tool " +
+                        "cannot reset them. Point the step at the venue leg, or remove it.",
+                )
+            }
         return null
     }
 
@@ -355,6 +380,18 @@ class ScenarioRunner(
             is ScenarioStep.ClearMessages -> {
                 val ok = host.clearMessages(step.session)
                 StepResult(index, "clear", phase, ok, detail = if (ok) "cleared" else "session '${label(step.session)}' not found")
+            }
+            is ScenarioStep.ClearOrderBook -> {
+                // Preflight has already refused a session with no book, so a false here is the session
+                // having gone away mid-run — reported as the step's own failure, like a clear's.
+                val ok = host.clearOrderBook(step.session)
+                StepResult(
+                    index,
+                    "clearBook",
+                    phase,
+                    ok,
+                    detail = if (ok) "order book cleared" else "no order book on session '${label(step.session)}'",
+                )
             }
             is ScenarioStep.ResetSeqNum -> {
                 val ok = host.resetSeqNum(step.session, step.sender, step.target)

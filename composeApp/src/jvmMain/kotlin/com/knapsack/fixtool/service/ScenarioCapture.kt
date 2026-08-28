@@ -346,14 +346,23 @@ object ScenarioCapture {
         sessions: List<CapturedSession>,
         dictionary: FixDictionaryAdapter?,
         sides: Map<String, MintingSide> = emptyMap(),
-    ): Scenario = captureFrom(id, name, profile, candidates(sessions), dictionary, sides)
+        venueSessions: Set<String> = emptySet(),
+    ): Scenario = captureFrom(id, name, profile, candidates(sessions), dictionary, sides, venueSessions)
 
     // There is no `unassertable` any more, and nothing to warn the author about. It existed to name the
     // groups whose entries shared an identity, which the old model could not assert and therefore
     // skipped — a hole in the coverage that the capture-review screen had to apologise for. Position is
     // the identity now, so those groups are asserted like any other, entry by entry.
 
-    /** Builds the scenario from an already-curated [selection] (capture-review's Save). */
+    /**
+     * Builds the scenario from an already-curated [selection] (capture-review's Save).
+     *
+     * [venueSessions] names the captured sessions FixTool hosts as a venue — the ones with an order book
+     * of their own. Empty from a paste, which has no live sessions behind it; a caller that *has* them
+     * passes them, and each such session's setup gets its book reset beside its message log. It is the
+     * capture's job because a captured both-sides flow is exactly the one that breaks on its second run,
+     * and the author who has to discover that has already stopped trusting the tool.
+     */
     fun captureFrom(
         id: String,
         name: String,
@@ -361,6 +370,7 @@ object ScenarioCapture {
         selection: List<Candidate>,
         dictionary: FixDictionaryAdapter?,
         sides: Map<String, MintingSide> = emptyMap(),
+        venueSessions: Set<String> = emptySet(),
     ): Scenario {
         // capturedValue -> "${varName}" reference, scenario-wide (so a response on any session can echo it).
         val refByValue = mutableMapOf<String, String>()
@@ -389,7 +399,16 @@ object ScenarioCapture {
         }
         disambiguateSameType(steps, expectCandidates, dictionary, sides)
 
-        val setup = selection.map { it.session.orNoneNamed() }.distinct().map { ScenarioStep.ClearMessages(it) }
+        // Both halves of a run boundary, in the order they are needed: the log the author reads, then the
+        // book the venue's rules read. Only for a session that owns a book — a ClearOrderBook aimed at an
+        // initiator pane is refused by preflight, so authoring one would hand back a scenario that cannot run.
+        val setup =
+            selection.map { it.session.orNoneNamed() }.distinct().flatMap { session ->
+                listOfNotNull(
+                    ScenarioStep.ClearMessages(session),
+                    ScenarioStep.ClearOrderBook(session).takeIf { session != null && session in venueSessions },
+                )
+            }
         return Scenario(id = id, name = name, profile = profile, setup = setup, steps = steps)
     }
 

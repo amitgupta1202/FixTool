@@ -61,10 +61,12 @@ class ScenarioEditStepTest {
         val wait = ScenarioStep.Wait("A", "LOGGED_ON", MatchPredicate("8"), 3_000)
         val clear = ScenarioStep.ClearMessages("B")
         val reset = ScenarioStep.ResetSeqNum("C", sender = 5, target = 7)
+        val clearBook = ScenarioStep.ClearOrderBook("D")
 
         assertEquals(wait, wait.toEditStep().toStep())
         assertEquals(clear, clear.toEditStep().toStep())
         assertEquals(reset, reset.toEditStep().toStep())
+        assertEquals(clearBook, clearBook.toEditStep().toStep())
     }
 
     /**
@@ -85,6 +87,7 @@ class ScenarioEditStepTest {
             ),
             ScenarioStep.ClearMessages("A", origin = StepOrigin.PASTED, muted = true),
             ScenarioStep.ResetSeqNum("A", sender = 1, target = 2, origin = StepOrigin.PASTED, muted = true),
+            ScenarioStep.ClearOrderBook("A", origin = StepOrigin.PASTED, muted = true),
         )
         steps.forEach { step -> assertEquals(step, step.toEditStep().toStep()) }
     }

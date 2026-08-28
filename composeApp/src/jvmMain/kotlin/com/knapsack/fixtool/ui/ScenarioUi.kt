@@ -72,6 +72,7 @@ fun ScenarioStep.sessionOrNull(): String? =
         is ScenarioStep.Wait -> session
         is ScenarioStep.Expect -> session
         is ScenarioStep.ClearMessages -> session
+        is ScenarioStep.ClearOrderBook -> session
         is ScenarioStep.ResetSeqNum -> session
     }
 
@@ -100,6 +101,7 @@ fun stepLabel(step: ScenarioStep, dictionary: FixDictionary?): String =
         }
         is ScenarioStep.Wait -> "Wait ${step.state ?: "message"} (${step.timeoutMs}ms)"
         is ScenarioStep.ClearMessages -> "Clear messages"
+        is ScenarioStep.ClearOrderBook -> "Clear order book"
         is ScenarioStep.ResetSeqNum -> "Reset seqnums"
     }
 

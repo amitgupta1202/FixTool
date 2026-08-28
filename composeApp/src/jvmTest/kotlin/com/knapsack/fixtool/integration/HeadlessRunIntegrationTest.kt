@@ -6,6 +6,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -154,6 +155,110 @@ class HeadlessRunIntegrationTest {
 
         assertTrue(code != HeadlessRun.EXIT_PASSED, "an unconnectable session must never report a pass: $out")
     }
+
+    // ------------------------------------------------------------------ the batch sweep
+
+    /**
+     * **What this file's own header called the strongest driver**: one process, many scenarios, one exit
+     * code — and the evidence on disk that a build can attach. `--all` takes the store in name order;
+     * `--junit <dir>` writes one report per entry, because a build publishes an artifact per test.
+     */
+    @Test
+    fun `--all runs every saved scenario, exits zero, and leaves a record for each`() {
+        writeScenario("aaa-first", sendStep("BATCH1-$runId"))
+        writeScenario("bbb-second", sendStep("BATCH2-$runId"))
+        val reports = File(home, "reports")
+
+        val (code, out, err) = run("run", "--all", "--home", home.absolutePath, "--junit", reports.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, "out:\n$out\nerr:\n$err")
+        assertTrue(out.contains("PASSED"), out)
+        assertTrue(out.contains("1/2") && out.contains("2/2"), "every entry is named in the log: $out")
+        assertTrue(
+            server.applicationMessages.any { it.contains("BATCH1-$runId") } &&
+                server.applicationMessages.any { it.contains("BATCH2-$runId") },
+            "both scenarios reached the venue: ${server.applicationMessages}",
+        )
+
+        // One JUnit file per entry, and a record directory holding the whole set.
+        val xml =
+            reports
+                .listFiles()
+                ?.map { it.name }
+                .orEmpty()
+                .sorted()
+        assertEquals(listOf("01-aaa-first.xml", "02-bbb-second.xml"), xml, "one report per entry: $xml")
+        val runs = File(home, "runs").listFiles()?.singleOrNull()
+        assertNotNull(runs, "the set's records should be under <home>/runs")
+        val entries =
+            runs
+                .listFiles()
+                ?.map { it.name }
+                .orEmpty()
+                .sorted()
+        assertEquals(listOf("01-aaa-first.json", "02-bbb-second.json", "set.json"), entries, "$entries")
+        assertTrue(
+            File(runs, "01-aaa-first.json").readText().contains("BATCH1-$runId"),
+            "the record carries the bytes, which is the whole reason it is written",
+        )
+    }
+
+    /** A named set in the checkout — what a build box selects, since it has no local star file. */
+    @Test
+    fun `--set runs a saved set by name, in the order the file gives`() {
+        writeScenario("one", sendStep("SET1-$runId"))
+        writeScenario("two", sendStep("SET2-$runId"))
+        File(home, "sets").mkdirs()
+        File(home, "sets/nightly.json").writeText(
+            """{"name":"nightly","entries":[{"scenario":"two"},{"scenario":"one","repeat":2}]}""",
+        )
+        val junit = File(home, "reports/nightly.xml")
+
+        val (code, out, err) = run("run", "--set", "nightly", "--home", home.absolutePath, "--junit", junit.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_PASSED, code, "out:\n$out\nerr:\n$err")
+        assertTrue(out.contains("PASSED  nightly"), out)
+        // The file's order, and its repeat expanded into numbered iterations.
+        assertTrue(out.indexOf("two") < out.indexOf("one"), "the set's order is the file's: $out")
+        assertTrue(out.contains("one #2"), "a repeat is iterations, and they are named: $out")
+
+        // --junit <file>.xml is the whole set as one document.
+        val xml = junit.readText()
+        assertTrue(xml.contains("<testsuites"), xml.take(200))
+        assertEquals(3, Regex("<testsuite ").findAll(xml).count(), "one suite per entry: $xml")
+    }
+
+    /**
+     * A CI gate wants the opposite of a flake hunt: stop at the first red. The entries that never ran say
+     * why, so a log reader is not left wondering whether they passed.
+     */
+    @Test
+    fun `--stop-on-failure ends the batch at the first failure and exits one`() {
+        // The venue records and never replies, so this expect times out.
+        writeScenario(
+            "aaa-fails",
+            """{"type":"wait","session":"HL$runId","state":"LOGGED_ON","timeoutMs":15000},
+               {"type":"expect","session":"HL$runId","direction":"in","timeoutMs":1000,
+                "expectation":{"messageType":"8","mode":"open","fields":[
+                  {"tag":35,"matcher":{"type":"exact","value":"8"}}]}}""",
+        )
+        writeScenario("bbb-never-runs", sendStep("SKIPPED-$runId"))
+
+        val (code, out, _) = run("run", "--all", "--stop-on-failure", "--home", home.absolutePath)
+
+        assertEquals(HeadlessRun.EXIT_FAILED, code, out)
+        assertTrue(out.contains("FAIL  1/2 aaa-fails"), out)
+        assertTrue(out.contains("skip  2/2 bbb-never-runs"), out)
+        assertTrue(out.contains("an earlier entry failed"), "and it says why it did not run: $out")
+        assertTrue(
+            server.applicationMessages.none { it.contains("SKIPPED-$runId") },
+            "the skipped entry must not have sent anything",
+        )
+    }
+
+    private fun sendStep(clOrdId: String) =
+        """{"type":"wait","session":"HL$runId","state":"LOGGED_ON","timeoutMs":15000},
+           {"type":"send","session":"HL$runId","raw":"35=D|11=$clOrdId|55=EUR/USD|54=1|38=100|40=1|"}"""
 
     /** `--home` is the whole CI story: the config under test is the one in the checkout. */
     @Test

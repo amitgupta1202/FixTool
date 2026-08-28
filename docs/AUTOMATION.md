@@ -70,9 +70,17 @@ wrongly"* from *"the scenario file was missing"* goes green on a broken venue.
 
 ```
 fixtool run <scenario> [options]
+fixtool run --set <name> [options]
+fixtool run --all [options]
 
   <scenario>          a saved scenario's id or name, or a path to a scenario .json file
-  --junit <file>      write the JUnit XML report to <file>
+  --set <name>        run a saved run set (<home>/sets/<name>.json)
+  --all               run every saved scenario, in name order
+  --repeat <n>        run each scenario n times (a flake hunt)
+  --pause <500ms|2s>  wait between entries
+  --stop-on-failure   end the batch at the first failing entry
+  --junit <file|dir>  write the JUnit XML report — one <testsuites> to a .xml file, or one file per
+                      entry into a directory
   --json  <file>      write the full JSON report to <file>
   --session <a>=<b>   run the steps naming session <a> against session <b> instead (this run only)
   --home <dir>        read profiles, settings and saved scenarios from <dir> instead of ~/.fixtool
@@ -89,11 +97,27 @@ to grow one. Point it at a directory holding `connection_profiles.json`, `app_se
 The report goes to stdout and progress to stderr, so `fixtool run … > report.txt` keeps them apart.
 
 ```bash
-# batch sweep — one process per scenario, one JUnit file each
-for f in ci/scenarios/*.json; do
-  fixtool run "$f" --home ci/fixtool --junit "reports/$(basename "$f" .json).xml"
-done
+# the whole store, one process, one exit code, a JUnit file per entry
+fixtool run --all --home ci/fixtool --junit reports/ --stop-on-failure
+
+# a named set from the checkout, as one <testsuites> document
+fixtool run --set nightly --home ci/fixtool --junit reports/nightly.xml
+
+# is this flow flaky?
+fixtool run book-a-trade --repeat 20 --pause 500ms
 ```
+
+**A batch leaves a record per entry** under `<home>/runs/<set-id>/`: `set.json` (what ran and how it
+went) and one `NN-<scenario>.json` per entry carrying the report **and the messages, with their wire
+bytes**. That is what makes an overnight suite answerable in the morning — by the time anybody reads
+it, the app that ran it may be closed, and the twelfth entry's traffic is all a live session would
+still hold. Two settings bound it: how many messages one record keeps, and how many sets the
+directory keeps.
+
+**Each entry runs isolated** (`binding=this_run`), so iteration 2 cannot bind iteration 1's reply and
+report that the venue answered when it has not. Isolation is not a reset of everything: the
+scenario's own `clearMessages` and `clearOrderBook` setup steps are what clear a session's log and a
+venue's order book.
 
 During development the same entrypoint is `./gradlew :composeApp:run --args="run smoke-nos"`; from an
 installed build it is the packaged binary (`FixTool.app/Contents/MacOS/FixTool run smoke-nos` on
@@ -153,7 +177,12 @@ acceptor auto-responses → `{dropped}`). Used for session-recovery / gap-fill Q
 | `POST /dictionary/roles` | `{"roles": {"20001": "CLIENT_MINTED_ID", "117": ["CLIENT_MINTED_ID","VENUE_MINTED_ID"]}}` | declare who mints a venue tag — the one thing a FIX dictionary cannot record. Replaces the declaration wholesale, writes `<dictionary>.roles.json` beside the loaded dictionary, and reloads so the **next capture** uses it. Roles: `CLIENT_MINTED_ID` (minted fresh per run, echo→`reference`+bind), `VENUE_MINTED_ID` (`presence`), `LIFETIME`. Refused with `known[]` if a role name is unrecognised, or if no dictionary **file** is loaded (a bundled one has no venue tags) |
 | `POST /scenarios/capture` | `{"name", "profile"?, "sessions"?}` | record the live message flow into a scenario (auto-parameterized, echoed ids wired to `reference` matchers). Returns `warning` when the loaded dictionary cannot name a captured tag — an unclassifiable tag is replayed as a literal, so a timestamp among them replays **stale**; `omitted[]` names messages left out entirely. `echoProposals[]` lists correlation ids this **flow** reveals that nobody has declared — `{kind: MINT\|CAPTURE, role, tags[], suggestedName, value, evidence}`. Reported, never applied: accept one by POSTing it to `/dictionary/roles` and capturing again |
 | `POST /scenarios/capture-paste` | `{"name", "wire", "session"?, "senderCompId"?, "targetCompId"?, "profile"?}` | capture from **pasted wire** — one FIX message per line, read like the paste sheet: a `\|`-inside-a-value line is **refused** (never guessed), and a message whose direction `SenderCompID(49)` cannot settle **blocks the save**. Every step is badged `pasted`. Returns `{status, id, steps, pasted, warning?, echoProposals?, refused[]}` or `{status:"refused", undirected[]}` — `warning` names the tags the loaded dictionary cannot classify (see `/scenarios/capture`) |
-| `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`?, `sessions`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`). `sessions` is a throwaway `{from: to}` session remap for this run only — nothing persisted; sessions the run needs are auto-connected from saved profiles. To keep an environment durably, save a remapped copy of the scenario (the rail's ▾ beside Run) |
+| `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`?, `sessions`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`). `sessions` is a throwaway `{from: to}` session remap for this run only — nothing persisted; sessions the run needs are auto-connected from saved profiles. To keep an environment durably, save a remapped copy of the scenario (the rail's ▾ beside Run). **409** while a run or a set holds the slot |
+| `POST /scenarios/run` (a **set**) | `{"set":"nightly"}`, `{"ids":[…],"repeat"?}` or `{"id","repeat":20}`, plus `stopOnFailure`?, `pauseMs`? | **starts a job** and answers `202 {runSet, status, entries, unresolved?}` — a twelve-scenario suite is minutes and this route runs on one of four HTTP threads. Each entry runs isolated and writes its record as it lands |
+| `GET /scenarios/runs` | — | the recent sets, newest first: `{count, sets:[{id,label,status,total,done,passed,failed,startedAt}]}` |
+| `GET /scenarios/runs/<id>` | `?wait=<ms>` (≤10000) | where a set has got to: `{status: running\|passed\|failed\|stopped, summary:{total,done,passed,failed,elapsedMs}, entries:[{n,scenario,iteration,state,durationMs,record,note}]}`. Read **from disk**, so it survives a restart; `wait` long-polls until the set finishes |
+| `GET /scenarios/runs/<id>/entries/<n>` | — | that entry's whole **record**: the report, every message it saw with its wire bytes, and `bound` (which message each step judged) |
+| `POST /scenarios/runs/<id>/stop` | — | ask the running set to stop where it is → `202`, or `409` if that set is not the one running |
 | `POST /scenarios/reconcile` | `{}` or `{"step": N}`            | **open the diff on a step the last run failed** — the one surface that can repair an assertion, in its own **window** (Phase 6). `{}` takes the first failing step, as the rail's *Reconcile →* does; it goes through the same route check, so a step edited since it ran is refused **with the reason**. Pair with `GET /screenshot?window=reconcile`. |
 | `POST /scenarios/diff` | `{"a": {…}, "b": {…}}` — each side a **pick** `{"session", "match":{"messageType"?,"tag"?,"value"?,"direction"?}}` or a **paste** `{"paste":"<bytes>"}` | **open the plain diff viewer** on two messages — a read-only structural diff (`=`/`≠`/`+A`/`+B`), no assertions, scenario-less (Phase 7). Each side is read through the same reader the paste sheet uses — a `\|`-inside-a-value line is **refused** (never guessed), and a side with no wire bytes is refused **with the reason**. The window's title carries `diff:`, so pair with `GET /screenshot?window=diff:`. Returns `{status:"open", subject}` or an error |
 | `POST /detail`       | `{"query"?, "mode"?, "show"?}`         | drives the detail panel's tag search: sets the query and/or match-context `mode` (`bare`\|`identity`\|`full`) so a nested tag keeps its repeating-group context |

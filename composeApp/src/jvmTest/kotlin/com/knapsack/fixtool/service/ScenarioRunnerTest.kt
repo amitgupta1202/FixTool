@@ -19,6 +19,7 @@ import quickfix.Message
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -763,6 +764,50 @@ class ScenarioRunnerTest {
         assertFalse(result.steps.single { it.kind == "traffic" }.passed)
     }
 
+    // --------------------------------------------------------------------------- what a step cost
+
+    /**
+     * **The number a venue is actually being asked for.** Scenario wall-clock carries preflight, the
+     * settle window and every timeout; the gap between the bytes that left and the bytes that answered
+     * carries none of them. Both ends come off the messages' own capture stamps, so the two halves of the
+     * subtraction are on one clock — the runner's injectable millis would be comparing two.
+     */
+    @Test
+    fun `an expect's latency is the gap between the send and the reply it answers`() {
+        val host = FakeHost()
+        host.inbox += outgoing(at = 1_000_000) // the order left at t=1.000s
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "2"), at = 1_214_000) // answered 214ms later
+        val result = run(host, scenario(expectWith(timeoutMs = 500, FieldExpectation(39, Matcher.Exact("2")))))
+
+        assertTrue(result.passed, "${result.steps}")
+        assertEquals(214L, result.steps.single { it.kind == "expect" }.latencyMs)
+    }
+
+    /** *Not measured* and *fast* are different answers, and a distribution built from them differs too. */
+    @Test
+    fun `a reply with nothing sent before it reports no latency rather than zero`() {
+        val host = FakeHost()
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "2"), at = 1_214_000)
+        val result = run(host, scenario(expectWith(timeoutMs = 500, FieldExpectation(39, Matcher.Exact("2")))))
+
+        assertNull(
+            result.steps.single { it.kind == "expect" }.latencyMs,
+            "there is no send on this session to measure from",
+        )
+    }
+
+    /** The flow's number, as opposed to the venue's: what a repeat's median and slowest are made of. */
+    @Test
+    fun `a run reports how long it took`() {
+        val host = FakeHost()
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "2"), at = 1_000)
+        val result = run(host, scenario(expectWith(timeoutMs = 500, FieldExpectation(39, Matcher.Exact("2")))))
+
+        // The fake's clock only moves when the runner sleeps, so this is exact rather than approximate.
+        assertEquals(host.clock, result.durationMs, "the run's wall clock is its own, start to verdict")
+        assertTrue(result.durationMs!! > 0, "an expect that had to poll cannot have taken no time")
+    }
+
     // ----------------------------------------------------------- the other run boundary: the order book
 
     /**
@@ -1362,7 +1407,12 @@ class ScenarioRunnerTest {
             expectation = Expectation(fields = fields.toList(), messageType = "8"),
         )
 
-    private fun incoming(type: String, tags: Map<Int, String>, bindTags: Map<Int, String> = emptyMap()): FixMessage =
+    private fun incoming(
+        type: String,
+        tags: Map<Int, String>,
+        bindTags: Map<Int, String> = emptyMap(),
+        at: Long = 0L,
+    ): FixMessage =
         FixMessage(
             timestamp = LocalDateTime.now(),
             direction = FixMessage.Direction.INCOMING,
@@ -1370,7 +1420,19 @@ class ScenarioRunnerTest {
             messageType = type,
             // Bind-predicate matching reads the QuickFIX message (FixMessage.valueOfTag).
             quickfixMessage = Message().apply { bindTags.forEach { (t, v) -> setString(t, v) } },
+            captureTimeMicros = at,
         ).also { viewTags[it] = tags }
+
+    /** The order that provoked a reply, as the session log holds it — stamped, because latency is a gap. */
+    private fun outgoing(type: String = "D", at: Long): FixMessage =
+        FixMessage(
+            timestamp = LocalDateTime.now(),
+            direction = FixMessage.Direction.OUTGOING,
+            rawMessage = "35=$type|",
+            messageType = type,
+            quickfixMessage = Message(),
+            captureTimeMicros = at,
+        ).also { viewTags[it] = mapOf(35 to type) }
 
     /** Like [incoming] but the wire view keeps order and may repeat a tag (a grouped field) — a Map cannot. */
     private fun incomingWire(type: String, wire: List<Pair<Int, String>>): FixMessage =

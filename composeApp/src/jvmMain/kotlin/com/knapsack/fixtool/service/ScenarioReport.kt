@@ -20,6 +20,10 @@ object ScenarioReport {
             put("scenario", result.scenario)
             put("passed", result.passed)
             put("steps", buildJsonArray { result.steps.forEach { add(stepToJson(it)) } })
+            // Additive, and only when the run timed itself: a report assembled by something that did not
+            // keeps its exact old shape. See [ScenarioResult.durationMs] for why this is not the number a
+            // venue's latency is measured with.
+            result.durationMs?.let { put("durationMs", it) }
             // Additive, and only when the run minted anything: a report from before the scope was
             // reported — or a scenario with no `${...}` at all — keeps its exact old shape.
             if (result.variables.isNotEmpty()) {
@@ -45,6 +49,9 @@ object ScenarioReport {
             put("phase", step.phase)
             put("passed", step.passed)
             step.detail?.let { put("detail", it) }
+            // The venue's number, when there was one to take: absent means not measured, which is not the
+            // same as fast. See [StepResult.latencyMs].
+            step.latencyMs?.let { put("latencyMs", it) }
             put("tags", buildJsonArray { step.tags.forEach { add(tagToJson(it)) } })
         }
 
@@ -85,10 +92,11 @@ object ScenarioReport {
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<testsuite name=\"").append(esc(result.scenario)).append("\" tests=\"")
-            .append(result.steps.size).append("\" failures=\"").append(failures).append("\">\n")
+            .append(result.steps.size).append("\" failures=\"").append(failures).append("\"")
+            .append(timeAttr(result.durationMs)).append(">\n")
         for (step in result.steps) {
             sb.append("  <testcase name=\"").append(esc(caseName(step))).append("\" classname=\"")
-                .append(esc(result.scenario)).append("\">")
+                .append(esc(result.scenario)).append("\"").append(timeAttr(step.latencyMs)).append(">")
             if (!step.passed) {
                 val message = esc(failureMessage(step))
                 if (step.exemptFromVerdict) {
@@ -105,6 +113,16 @@ object ScenarioReport {
 
     /** Exactly the runner's own rule, so the XML and the verdict cannot come to disagree. */
     private val StepResult.exemptFromVerdict: Boolean get() = phase == "teardown"
+
+    /**
+     * JUnit's ` time="1.234"` in seconds, or nothing at all when the duration is unknown.
+     *
+     * Omitted rather than zeroed: `time="0.000"` is a claim that the step took no time, and a CI report
+     * that says so of every step from an older run has quietly invented a measurement. [Locale.ROOT]
+     * because a machine whose locale writes `1,234` would emit an attribute no XML consumer can parse.
+     */
+    private fun timeAttr(ms: Long?): String =
+        ms?.let { String.format(java.util.Locale.ROOT, " time=\"%.3f\"", it / 1000.0) } ?: ""
 
     /** `step 3 expect (steps)` for a step; `traffic (steps)` for a row no step produced. */
     private fun caseName(step: StepResult): String =

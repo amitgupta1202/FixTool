@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.BindScope
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
@@ -12,6 +13,19 @@ import com.knapsack.fixtool.model.scenario.ScenarioResult
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+
+/**
+ * A fan-out, planned — or the sentence saying why it cannot be.
+ *
+ * Every refusal here is a thing the author can act on, which is why none of them is a silent no-op: a
+ * fan-out that quietly ran one lane, or ran fifty that trampled each other, would be worse than one that
+ * did not run.
+ */
+sealed interface FanOutPlan {
+    data class Ready(val set: RunSet) : FanOutPlan
+
+    data class Refused(val why: String) : FanOutPlan
+}
 
 /** What one entry produced: the verdict, and the evidence to write beside it. */
 data class EntryOutcome(
@@ -33,7 +47,7 @@ interface RunSetHost {
      * Null means the run could not start at all; a scenario that ran and failed comes back as a result
      * that did not pass, which is a different thing and reads differently in the report.
      */
-    fun runOne(scenario: Scenario, sessionMap: Map<String, String>, seed: Map<String, String>): EntryOutcome?
+    fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome?
 
     /** Writes one entry's record; returns the file name to record on the entry. */
     fun write(record: RunRecord): String?
@@ -62,71 +76,62 @@ class RunSetRunner(
     private val host: RunSetHost,
 ) {
     fun run(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet {
-        var current = set.copy(startedAt = host.now(), status = RunSetStatus.RUNNING)
+        val current = set.copy(startedAt = host.now(), status = RunSetStatus.RUNNING)
         host.writeSet(current)
         onProgress(current)
+        return if (current.policy.concurrency > 1) inParallel(current, onProgress) else inOrder(current, onProgress)
+    }
 
+    /**
+     * **Lanes, at once.** The licence is the run slot's own reasoning: consumed-message cursors are
+     * per-run over per-session logs, so two runs whose sessions are disjoint cannot interfere. Disjointness
+     * is settled when the set is planned — after every step's session is resolved, including the ones that
+     * name none — so all this has to do is honour the number.
+     *
+     * A failure under `stopOnFirstFailure` stops *starting* lanes; the ones already in flight finish,
+     * because killing a client mid-order tells you less than letting it land.
+     */
+    private fun inParallel(start: RunSet, onProgress: (RunSet) -> Unit): RunSet {
+        val lock = Any()
+        var current = start
+        val lanes = minOf(start.policy.concurrency, start.entries.size)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(lanes)
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        try {
+            val running =
+                start.entries.indices.map { index ->
+                    pool.submit {
+                        if (stop.get() || host.cancelled()) return@submit
+                        synchronized(lock) {
+                            current = current.withEntry(index) { it.copy(state = RunState.RUNNING) }
+                            onProgress(current)
+                        }
+                        val finished = executeEntry(start, index)
+                        synchronized(lock) {
+                            current = current.withEntry(index) { finished }
+                            host.writeSet(current)
+                            onProgress(current)
+                        }
+                        if (finished.state != RunState.PASSED && start.policy.stopOnFirstFailure) stop.set(true)
+                    }
+                }
+            running.forEach { it.get() }
+        } finally {
+            pool.shutdown()
+        }
+        // Whatever never started is still PENDING, and `finish` says why — stopped, or an earlier failure.
+        return finish(current, stopped = host.cancelled(), from = 0, onProgress = onProgress)
+    }
+
+    private fun inOrder(set: RunSet, onProgress: (RunSet) -> Unit): RunSet {
+        var current = set
         for (index in current.entries.indices) {
             if (host.cancelled()) return finish(current, stopped = true, from = index, onProgress = onProgress)
 
             current = current.withEntry(index) { it.copy(state = RunState.RUNNING) }
             onProgress(current)
 
-            val entry = current.entries[index]
-            val scenario = host.scenario(entry.scenarioId)
-            if (scenario == null) {
-                // A set is planned up front, and a scenario can be deleted between the planning and the
-                // running. Skipped by name rather than failing the set: nothing about the venue is known.
-                current =
-                    current.withEntry(index) {
-                        it.copy(state = RunState.SKIPPED, note = "scenario '${entry.scenarioName}' is no longer on disk")
-                    }
-                host.writeSet(current)
-                onProgress(current)
-                continue
-            }
-
-            val startedAt = host.now()
-            val asRun = isolate(scenario, current.policy)
-            // The row's cells are the scope this entry starts with. An entry with no row seeds nothing,
-            // which is every suite and every repeat — one path, and the outline is not a second runner.
-            val outcome = host.runOne(asRun, entry.sessionMap, entry.row?.values.orEmpty())
-            val elapsed = host.now() - startedAt
-
-            current =
-                if (outcome == null) {
-                    current.withEntry(index) {
-                        it.copy(state = RunState.SKIPPED, durationMs = elapsed, note = "the run slot was not free")
-                    }
-                } else {
-                    val record =
-                        RunRecord(
-                            setId = current.id,
-                            entry = index + 1,
-                            iteration = entry.iteration,
-                            row = entry.row,
-                            scenarioId = scenario.id,
-                            scenarioName = scenario.name,
-                            // As it ran, isolation and all — the record is evidence, and what was asserted
-                            // is half of it.
-                            scenario = asRun,
-                            startedAt = startedAt,
-                            durationMs = outcome.result.durationMs ?: elapsed,
-                            result = outcome.result,
-                            messages = outcome.evidence.messages,
-                            bound = outcome.evidence.bound,
-                            dropped = outcome.evidence.dropped,
-                        )
-                    val file = host.write(record)
-                    current.withEntry(index) {
-                        it.copy(
-                            state = stateOf(outcome.result),
-                            result = outcome.result,
-                            durationMs = outcome.result.durationMs ?: elapsed,
-                            record = file,
-                        )
-                    }
-                }
+            current = current.withEntry(index) { executeEntry(current, index) }
             host.writeSet(current)
             onProgress(current)
 
@@ -140,6 +145,60 @@ class RunSetRunner(
             }
         }
         return finish(current, stopped = false, from = current.entries.size, onProgress = onProgress)
+    }
+
+    /**
+     * **One entry, start to finish** — the work both paths share, so a lane and a suite entry cannot come
+     * to differ in what they record or what they call themselves.
+     *
+     * Reads the set only for its id and its policy, and neither moves while it runs, so this is safe to
+     * call from several threads at once against the same snapshot.
+     */
+    private fun executeEntry(set: RunSet, index: Int): RunEntry {
+        val entry = set.entries[index]
+        // A set is planned up front, and a scenario can be deleted between the planning and the running.
+        // Skipped by name rather than failing the set: nothing about the venue is known.
+        val scenario =
+            host.scenario(entry.scenarioId)
+                ?: return entry.copy(
+                    state = RunState.SKIPPED,
+                    note = "scenario '${entry.scenarioName}' is no longer on disk",
+                )
+        val startedAt = host.now()
+        val asRun = isolate(scenario, set.policy)
+        // The entry carries everything the run needs that the scenario does not: its row's cells, its
+        // lane's identity, the session remap, and the session a step that names none runs on. One path,
+        // and neither the outline nor the fan-out is a second runner.
+        val outcome = host.runOne(asRun, entry)
+        val elapsed = host.now() - startedAt
+        if (outcome == null) {
+            return entry.copy(state = RunState.SKIPPED, durationMs = elapsed, note = "the run slot was not free")
+        }
+        val record =
+            RunRecord(
+                setId = set.id,
+                entry = index + 1,
+                iteration = entry.iteration,
+                row = entry.row,
+                lane = entry.lane,
+                scenarioId = scenario.id,
+                scenarioName = scenario.name,
+                // As it ran, isolation and all — the record is evidence, and what was asserted is half of it.
+                scenario = asRun,
+                startedAt = startedAt,
+                durationMs = outcome.result.durationMs ?: elapsed,
+                result = outcome.result,
+                messages = outcome.evidence.messages,
+                bound = outcome.evidence.bound,
+                dropped = outcome.evidence.dropped,
+            )
+        val file = host.write(record)
+        return entry.copy(
+            state = stateOf(outcome.result),
+            result = outcome.result,
+            durationMs = outcome.result.durationMs ?: elapsed,
+            record = file,
+        )
     }
 
     /**
@@ -237,6 +296,66 @@ object RunSets {
             source = RunSource.Examples(scenario.id),
             entries = rows.map { RunEntry(scenario.id, scenario.name, row = it) },
             policy = policy,
+        )
+    }
+
+    /**
+     * **One scenario, one entry per lane, concurrent** — the flow, run by many clients at once.
+     *
+     * [over] is the scenario session being spread across the lanes; null means the scenario names none and
+     * every lane runs on its own session. Refusals are named rather than silent, because each one is a
+     * thing the author can fix.
+     */
+    fun fanOut(
+        scenario: Scenario,
+        profileId: String,
+        lanes: List<Lane>,
+        over: String?,
+        now: Long,
+        policy: RunPolicy = RunPolicy(),
+    ): FanOutPlan {
+        if (lanes.isEmpty()) return FanOutPlan.Refused("no lanes are logged on, so there is nothing to fan out over")
+        val named = (scenario.setup + scenario.steps + scenario.teardown).filterNot { it.muted }.mapNotNull { it.session }.distinct()
+        val spread = over ?: named.singleOrNull()
+        if (named.size > 1 && spread == null) {
+            return FanOutPlan.Refused(
+                "'${scenario.name}' drives ${named.size} sessions (${named.joinToString()}) — name the one to " +
+                    "fan out over, and the rest stay as they are.",
+            )
+        }
+        if (spread != null && spread !in named) {
+            return FanOutPlan.Refused("'${scenario.name}' has no step on session '$spread'")
+        }
+        // **The pinned leg.** Fifty lanes sharing one back-office session share its message log and its
+        // consumed cursor, so lane 12 could bind the reply to lane 30's order and the report would be
+        // indistinguishable from a venue bug. That is the disjointness the concurrency licence rests on,
+        // checked here — after the sessions a step will *actually* touch are known, the ones that name none
+        // included, since those resolve to each lane's own session.
+        val pinned = named.filterNot { it == spread }
+        if (pinned.isNotEmpty() && policy.concurrency > 1) {
+            return FanOutPlan.Refused(
+                "${pinned.joinToString()} ${if (pinned.size == 1) "is" else "are"} pinned to one session, and " +
+                    "${lanes.size} lanes would share its message log — lane 1 could bind lane ${lanes.size}'s " +
+                    "reply. Give it a multi-session profile of its own, fan out only the other leg, or set " +
+                    "concurrency to 1.",
+            )
+        }
+        return FanOutPlan.Ready(
+            RunSet(
+                id = id(now, "${scenario.name}-fanout"),
+                label = "${scenario.name} ×${lanes.size} lanes",
+                source = RunSource.FanOut(scenario.id, profileId),
+                entries =
+                    lanes.map { lane ->
+                        RunEntry(
+                            scenarioId = scenario.id,
+                            scenarioName = scenario.name,
+                            lane = lane,
+                            sessionMap = spread?.let { mapOf(it to lane.sessionTitle) }.orEmpty(),
+                        )
+                    },
+                policy = policy,
+            ),
         )
     }
 

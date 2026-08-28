@@ -62,12 +62,14 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
+import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.model.scenario.RunState
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.service.RunSetStats
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import java.awt.Desktop
@@ -97,6 +99,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var repeating by remember { mutableStateOf(false) }
     var savingSet by remember { mutableStateOf(false) }
     var outlining by remember { mutableStateOf(false) }
+    var fanningOut by remember { mutableStateOf(false) }
     // The scenario a "Save as scenario…" is being authored for — the dialog outlives the hover that opened it.
     var remapFor by remember { mutableStateOf<Scenario?>(null) }
     remapFor?.let { RemapScenarioDialog(scenario = it, viewModel = viewModel, onDismiss = { remapFor = null }) }
@@ -139,6 +142,17 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             onRun = { scenario ->
                 outlining = false
                 viewModel.startExamples(scenario)
+            },
+        )
+    }
+    if (fanningOut) {
+        FanOutDialog(
+            viewModel = viewModel,
+            scenarios = scenarios,
+            onDismiss = { fanningOut = false },
+            onRun = { scenario, profileId, leg ->
+                fanningOut = false
+                viewModel.startFanOut(scenario, profileId, leg)
             },
         )
     }
@@ -186,7 +200,14 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         outlines = scenarios.count { it.examples?.live?.isNotEmpty() == true },
                         onSaveAsSet = { savingSet = true },
                         onRepeat = { repeating = true },
+                        laneProfiles =
+                            remember(activeSet) {
+                                viewModel.connectionProfiles.count {
+                                    viewModel.fanOutLanes(it.id) is FixMessageViewModel.FanOutLanes.Available
+                                }
+                            },
                         onRunExamples = { outlining = true },
+                        onFanOut = { fanningOut = true },
                         onOpenRecent = { id -> viewModel.focusRunSet(id) },
                     ),
                 sort = viewState.sortMode,
@@ -752,12 +773,15 @@ private data class RunMenu(
     val recent: List<RunSet>,
     /** How many saved scenarios carry a table — the count on the outline item. */
     val outlines: Int,
+    /** How many saved profiles could supply lanes — a multi-session initiator with sessions logged on. */
+    val laneProfiles: Int,
     val onRunSaved: (String) -> Unit,
     val onRunFavourites: () -> Unit,
     val onRunFiltered: () -> Unit,
     val onSaveAsSet: () -> Unit,
     val onRepeat: () -> Unit,
     val onRunExamples: () -> Unit,
+    val onFanOut: () -> Unit,
     val onOpenRecent: (String) -> Unit,
 )
 
@@ -798,6 +822,14 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     }
     // Disabled with its count showing, like the rest: "no scenario here has a table" and "this feature
     // does not exist" are different sentences, and only one of them is true.
+    RailMenuItem(
+        "Fan out over sessions…  (${menu.laneProfiles})",
+        enabled = !running && menu.laneProfiles > 0,
+        tag = "rail-run-fanout",
+    ) {
+        onChose()
+        menu.onFanOut()
+    }
     RailMenuItem(
         "Run examples table…  (${menu.outlines})",
         enabled = !running && menu.outlines > 0,
@@ -856,6 +888,27 @@ private fun RunSetLine(
                 fontSize = 11.sp,
                 modifier = Modifier.weight(1f),
             )
+        }
+        // **Fifty lanes are a distribution, not fifty rows.** The step latency is the venue's number; the
+        // wall clock is the flow's, and they are never offered as the same thing.
+        if (set.source is RunSource.FanOut) {
+            RunSetStats.stepLatency(set)?.let { steps ->
+                Text(
+                    "reply latency  ${RunSetStats.describe(steps)}  (${steps.samples} steps)" +
+                        RunSetStats.failedLanes(set).takeIf { it.isNotEmpty() }
+                            ?.let { "   failures: " + it.joinToString(", ") { slot -> "lane $slot" } }.orEmpty(),
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 10.sp,
+                    modifier = Modifier.testTag("run-set-latency"),
+                )
+            }
+            RunSetStats.wallClock(set)?.let { wall ->
+                Text(
+                    "lane wall-clock  ${RunSetStats.describe(wall)}",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 10.sp,
+                )
+            }
             if (running) {
                 TooltipIconButton(
                     tooltip = "Stop this set — the entry running stops where it is, and the rest are skipped",
@@ -967,6 +1020,116 @@ private fun RepeatScenarioDialog(scenarios: List<Scenario>, onDismiss: () -> Uni
                         onRun(sc, times.toIntOrNull()?.coerceAtLeast(1) ?: 1, pause.toLongOrNull()?.coerceAtLeast(0) ?: 0)
                     },
                     modifier = Modifier.testTag("repeat-run"),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * **Fan a flow out over a profile's sessions.** Pick the scenario, the profile that opens the lanes, and —
+ * when the scenario drives more than one session — which leg is the one being spread.
+ *
+ * Every profile is listed, including the ones that cannot supply lanes: an author cannot tell "this cannot
+ * be done, and here is why" from "this feature does not exist" if the entry is withheld, so the reason is
+ * on screen and the Run button is what refuses.
+ */
+@Composable
+private fun FanOutDialog(
+    viewModel: FixMessageViewModel,
+    scenarios: List<Scenario>,
+    onDismiss: () -> Unit,
+    onRun: (Scenario, String, String?) -> Unit,
+) {
+    var scenario by remember { mutableStateOf(scenarios.firstOrNull()) }
+    var profileId by remember { mutableStateOf<String?>(null) }
+    var leg by remember { mutableStateOf<String?>(null) }
+    val legs = remember(scenario) { scenario?.sessionsInvolved().orEmpty() }
+    val lanes = profileId?.let { viewModel.fanOutLanes(it) }
+    Dialog(onCloseRequest = onDismiss, title = "Fan out over sessions", state = rememberDialogState(width = 520.dp, height = 380.dp)) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize().background(AppTheme.Colors.background).padding(12.dp),
+        ) {
+            Text(
+                "Runs the flow once per session of a multi-session profile, all at once. Each lane knows " +
+                    "which client it is: \${sessionIndex}, \${sessionSenderCompID} and two more are in its scope.",
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 11.sp,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box {
+                    var open by remember { mutableStateOf(false) }
+                    SlimButton(scenario?.name ?: "pick a scenario", onClick = { open = true }, modifier = Modifier.testTag("fanout-scenario"))
+                    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                        scenarios.forEach { sc ->
+                            RailMenuItem(sc.name, tag = "fanout-scenario-${sc.id}") {
+                                scenario = sc
+                                leg = null
+                                open = false
+                            }
+                        }
+                    }
+                }
+                Box {
+                    var open by remember { mutableStateOf(false) }
+                    val profile = viewModel.connectionProfiles.firstOrNull { it.id == profileId }
+                    SlimButton(profile?.name ?: "pick a profile", onClick = { open = true }, modifier = Modifier.testTag("fanout-profile"))
+                    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                        viewModel.connectionProfiles.forEach { p ->
+                            val available = viewModel.fanOutLanes(p.id)
+                            val count = (available as? FixMessageViewModel.FanOutLanes.Available)?.lanes?.size
+                            RailMenuItem(
+                                p.name + (count?.let { "  ($it lanes)" } ?: "  (no lanes)"),
+                                tag = "fanout-profile-${p.id}",
+                            ) {
+                                profileId = p.id
+                                open = false
+                            }
+                        }
+                    }
+                }
+                if (legs.size > 1) {
+                    Box {
+                        var open by remember { mutableStateOf(false) }
+                        SlimButton(leg ?: "which leg?", onClick = { open = true }, modifier = Modifier.testTag("fanout-leg"))
+                        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                            legs.forEach { session ->
+                                RailMenuItem(session, tag = "fanout-leg-$session") {
+                                    leg = session
+                                    open = false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            when (lanes) {
+                is FixMessageViewModel.FanOutLanes.Unavailable ->
+                    Text(lanes.why, color = AppTheme.Colors.warning, fontSize = 10.sp, modifier = Modifier.testTag("fanout-unavailable"))
+                is FixMessageViewModel.FanOutLanes.Available -> {
+                    Text(
+                        "${lanes.lanes.size} lanes: " + lanes.lanes.joinToString(", ") { "lane ${it.slot} (${it.senderCompID})" },
+                        color = AppTheme.Colors.textDisabled,
+                        fontSize = 10.sp,
+                    )
+                    lanes.shortfall?.let { Text(it, color = AppTheme.Colors.warning, fontSize = 10.sp) }
+                }
+                null -> Unit
+            }
+            profileId?.let { id ->
+                viewModel.fanOutFarEndNotice(id)?.let {
+                    Text(it, color = AppTheme.Colors.warning, fontSize = 10.sp, modifier = Modifier.testTag("fanout-far-end"))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SlimButton("Cancel", onClick = onDismiss)
+                SlimButton(
+                    "Run",
+                    color = AppTheme.Colors.success,
+                    enabled = scenario != null && lanes is FixMessageViewModel.FanOutLanes.Available && (legs.size <= 1 || leg != null),
+                    onClick = { onRun(scenario ?: return@SlimButton, profileId ?: return@SlimButton, leg) },
+                    modifier = Modifier.testTag("fanout-run"),
                 )
             }
         }

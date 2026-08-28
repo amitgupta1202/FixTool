@@ -116,6 +116,14 @@ it, the app that ran it may be closed, and the twelfth entry's traffic is all a 
 still hold. Two settings bound it: how many messages one record keeps, and how many sets the
 directory keeps.
 
+**Fan-out** (`fanOut`) runs the flow once per session of a multi-session initiator profile, **all at
+once**. Each lane seeds four names into its own scope — `${sessionIndex}` (the profile slot),
+`${sessionSenderCompID}`, `${sessionTitle}`, `${sessionQualifier}` — so `11=ORD-${sessionIndex}-${uuid}`
+gives every lane its own ClOrdID. The report is a `p50/p95/max` distribution over reply latency rather
+than N rows. **Point it at the server under test**: against FixTool's own acceptor the numbers are the
+tool's ceiling, since one thread answers every session — the response carries a `notice` saying so. See
+the Help window's *Fanning a scenario out over those sessions* for the full list of limits.
+
 **Each entry runs isolated** (`binding=this_run`), so iteration 2 cannot bind iteration 1's reply and
 report that the venue answered when it has not. Isolation is not a reset of everything: the
 scenario's own `clearMessages` and `clearOrderBook` setup steps are what clear a session's log and a
@@ -180,7 +188,7 @@ acceptor auto-responses → `{dropped}`). Used for session-recovery / gap-fill Q
 | `POST /scenarios/capture` | `{"name", "profile"?, "sessions"?}` | record the live message flow into a scenario (auto-parameterized, echoed ids wired to `reference` matchers). Returns `warning` when the loaded dictionary cannot name a captured tag — an unclassifiable tag is replayed as a literal, so a timestamp among them replays **stale**; `omitted[]` names messages left out entirely. `echoProposals[]` lists correlation ids this **flow** reveals that nobody has declared — `{kind: MINT\|CAPTURE, role, tags[], suggestedName, value, evidence}`. Reported, never applied: accept one by POSTing it to `/dictionary/roles` and capturing again |
 | `POST /scenarios/capture-paste` | `{"name", "wire", "session"?, "senderCompId"?, "targetCompId"?, "profile"?}` | capture from **pasted wire** — one FIX message per line, read like the paste sheet: a `\|`-inside-a-value line is **refused** (never guessed), and a message whose direction `SenderCompID(49)` cannot settle **blocks the save**. Every step is badged `pasted`. Returns `{status, id, steps, pasted, warning?, echoProposals?, refused[]}` or `{status:"refused", undirected[]}` — `warning` names the tags the loaded dictionary cannot classify (see `/scenarios/capture`) |
 | `POST /scenarios/run` | `{"id"}` or `{"scenario":{…}}`, `format`?, `sessions`? | run a scenario deterministically → per-step/per-tag report (or JUnit XML with `format:"junit"`). `sessions` is a throwaway `{from: to}` session remap for this run only — nothing persisted; sessions the run needs are auto-connected from saved profiles. To keep an environment durably, save a remapped copy of the scenario (the rail's ▾ beside Run). **409** while a run or a set holds the slot |
-| `POST /scenarios/run` (a **set**) | `{"set":"nightly"}`, `{"ids":[…],"repeat"?}` or `{"id","repeat":20}`, and `{"id","rows":true}` / `{"id","rows":["row name"]}` for the Examples table or named rows, plus `stopOnFailure`?, `pauseMs`? | **starts a job** and answers `202 {runSet, status, entries, unresolved?}` — a twelve-scenario suite is minutes and this route runs on one of four HTTP threads. Each entry runs isolated and writes its record as it lands |
+| `POST /scenarios/run` (a **set**) | `{"set":"nightly"}`, `{"ids":[…],"repeat"?}` or `{"id","repeat":20}`, and `{"id","rows":true}` / `{"id","rows":["row name"]}` for the Examples table or named rows, or `{"id","fanOut":{"profile","session"?}}` to run it once per session of a multi-session profile, concurrently, plus `stopOnFailure`?, `pauseMs`? | **starts a job** and answers `202 {runSet, status, entries, unresolved?}` — a twelve-scenario suite is minutes and this route runs on one of four HTTP threads. Each entry runs isolated and writes its record as it lands |
 | `GET /scenarios/runs` | — | the recent sets, newest first: `{count, sets:[{id,label,status,total,done,passed,failed,startedAt}]}` |
 | `GET /scenarios/runs/<id>` | `?wait=<ms>` (≤10000) | where a set has got to: `{status: running\|passed\|failed\|stopped, summary:{total,done,passed,failed,elapsedMs}, entries:[{n,scenario,iteration,state,durationMs,record,note}]}`. Read **from disk**, so it survives a restart; `wait` long-polls until the set finishes |
 | `GET /scenarios/runs/<id>/entries/<n>` | — | that entry's whole **record**: the report, every message it saw with its wire bytes, and `bound` (which message each step judged) |

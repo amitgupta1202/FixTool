@@ -139,12 +139,12 @@ class ScenarioRunner(
         scenario: Scenario,
         sessionMap: Map<String, String> = emptyMap(),
         seed: Map<String, String> = emptyMap(),
-        seedSource: VariableSource = VariableSource.ROW,
+        seedSource: (String) -> VariableSource = { VariableSource.ROW },
     ): ScenarioResult = runIdentified(scenario.withIds().withSessions(sessionMap), seed, seedSource)
 
     /**
-     * [seed] is the scope this run **starts** with — an Examples row's cells, or (Phase 4) a fan-out lane's
-     * own identity. One mechanism, because a lane is a run whose scope carries its session's identity, a
+     * [seed] is the scope this run **starts** with — an Examples row's cells, a fan-out lane's own
+     * identity, or both. One mechanism, because a lane is a run whose scope carries its session's identity, a
      * row is a run whose scope carries the table's values, and an iteration is a run whose scope carries
      * neither; a scenario saying `11=ORD-${sessionIndex}-${clOrdSuffix}` draws on both without knowing they
      * came from different places.
@@ -156,7 +156,7 @@ class ScenarioRunner(
     private fun runIdentified(
         scenario: Scenario,
         seed: Map<String, String> = emptyMap(),
-        seedSource: VariableSource = VariableSource.ROW,
+        seedSource: (String) -> VariableSource = { VariableSource.ROW },
     ): ScenarioResult {
         // Preflight, by name, before any step runs: a missing/unconnected session otherwise surfaces
         // minutes later as a misleading Expect timeout. It gets one recovery attempt first — the host
@@ -1317,13 +1317,13 @@ class ScenarioRunner(
         value: String,
         mintedBy: Map<String, String?>,
         seed: Map<String, String>,
-        seedSource: VariableSource,
+        seedSource: (String) -> VariableSource,
     ): ScenarioVariable =
         if (name in seed) {
             // No step wrote it — the run was handed it. Claiming the name in `mintedBy` up front does not
             // work: a null value there reads as absent to `putIfAbsent`, so the first step to run would
             // take the credit anyway.
-            ScenarioVariable(name = name, value = value, mintedAtStepId = null, source = seedSource)
+            ScenarioVariable(name = name, value = value, mintedAtStepId = null, source = seedSource(name))
         } else {
             ScenarioVariable(name = name, value = value, mintedAtStepId = mintedBy[name], source = VariableSource.STEP)
         }

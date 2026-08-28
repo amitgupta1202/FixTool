@@ -41,6 +41,7 @@ data class RunSet(
         val repeated = entries.count { it.scenarioId == entry.scenarioId && it.row == null } > 1
         return entry.scenarioName +
             when {
+                entry.lane != null -> " [lane ${entry.lane.slot}]"
                 entry.row != null -> " [${entry.row.name}]"
                 repeated || entry.iteration > 1 -> " #${entry.iteration}"
                 else -> ""
@@ -82,6 +83,43 @@ sealed interface RunSource {
     data class Examples(
         val scenarioId: String,
     ) : RunSource
+    /** One entry per session of a multi-session profile — the flow, run by many clients at once. */
+    data class FanOut(
+        val scenarioId: String,
+        val profileId: String,
+    ) : RunSource
+}
+
+/**
+ * **A lane is a session slot, named by the number the profile gave it — not by its position in a list.**
+ *
+ * `getProfileSessions` answers in append order, and a slot that dropped and was refilled goes to the end;
+ * numbering lanes by that order would make lane 7 a different client on the next run, and the whole point
+ * of a lane is that it is *the same client* every time — `LOADGEN07`, run after run and record after
+ * record.
+ */
+data class Lane(
+    val slot: Int,
+    val sessionTitle: String,
+    val senderCompID: String,
+    val qualifier: String,
+) {
+    /**
+     * The four names a lane puts in the run's scope — **exactly the four Bulk Send already seeds**, so a
+     * scenario written for one works in the other without ceremony: `11=ORD-${sessionIndex}` gives every
+     * lane its own ClOrdID, and `262=MD-${sessionIndex}` its own MDReqID.
+     *
+     * `sessionIndex` is the **profile slot**, where Bulk Send uses the target's position in the logged-on
+     * list. Bulk Send is a one-shot over whoever is up; a lane is an identity that has to mean the same
+     * thing on every run and in every record.
+     */
+    fun seed(): Map<String, String> =
+        mapOf(
+            "sessionIndex" to slot.toString(),
+            "sessionQualifier" to qualifier,
+            "sessionTitle" to sessionTitle,
+            "sessionSenderCompID" to senderCompID,
+        )
 }
 
 /** One request in a set: which scenario, which iteration of it, and what became of it. */
@@ -98,6 +136,8 @@ data class RunEntry(
      * this line had to learn what an outline is.
      */
     val row: ExampleRow? = null,
+    /** The fan-out lane this entry runs on, when it has one — its session, and its identity in the scope. */
+    val lane: Lane? = null,
     val sessionMap: Map<String, String> = emptyMap(),
     val state: RunState = RunState.PENDING,
     val result: ScenarioResult? = null,
@@ -106,7 +146,25 @@ data class RunEntry(
     val record: String? = null,
     /** Why an entry was skipped, when it was: the scenario was deleted, or an earlier one failed. */
     val note: String? = null,
-)
+) {
+    /**
+     * **The scope this entry starts with** — its row's cells, its lane's identity, or neither.
+     *
+     * One mechanism, and that is where the four readings of "multi-run" stop being separate features: a
+     * lane is a run whose scope carries its session's identity, a row is a run whose scope carries the
+     * table's values, an iteration is a run whose scope carries neither, and a scenario saying
+     * `11=ORD-${sessionIndex}-${clOrdSuffix}` draws on both without knowing they came from different
+     * places.
+     */
+    val seed: Map<String, String> get() = row?.values.orEmpty() + lane?.seed().orEmpty()
+
+    /** Who supplied a seeded name — a reader deciding what a value means needs the difference. */
+    fun sourceOf(name: String): VariableSource =
+        if (lane != null && name in lane.seed()) VariableSource.LANE else VariableSource.ROW
+
+    /** The session a step that names none runs on: this lane's, so fifty lanes do not share session 0. */
+    val defaultSession: String? get() = lane?.sessionTitle
+}
 
 enum class RunState {
     PENDING,
@@ -147,6 +205,15 @@ data class RunPolicy(
      * `ClearOrderBook` — and a capture writes both.
      */
     val isolateIterations: Boolean = true,
+    /**
+     * **How many entries may run at once.** One, unless the entries are lanes.
+     *
+     * The run slot exists because two runners would race each other's consumed-message cursors — cursors
+     * are per-run over per-session logs, so two runs whose sessions are **disjoint** cannot interfere, and
+     * that is the whole licence for this being greater than one. Disjointness is decided when the set is
+     * planned, after every step's session is resolved; the scheduler only honours the number.
+     */
+    val concurrency: Int = 1,
 )
 
 enum class RunSetStatus { RUNNING, PASSED, FAILED, STOPPED }

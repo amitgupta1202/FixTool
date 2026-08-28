@@ -566,6 +566,63 @@
         <code>~/.fixtool/saved_messages.json</code> to the other machines.
     </div>
 
+    <h3 id="fan-out">Fanning a scenario out over those sessions</h3>
+    <p>Once a profile opens several sessions, a saved scenario can be run <strong>once per session, all at
+        once</strong> — fifty clients driving the same flow at the server under test. In the Scenarios rail,
+        <strong>Run &#9662; &rarr; Fan out over sessions&hellip;</strong>; pick the scenario, the profile that
+        opens the lanes, and — if the scenario drives more than one session — which leg is the one being
+        spread.</p>
+
+    <p>Each lane knows which client it is. Four names are in its scope before the first step runs, the same
+        four Bulk Send seeds:</p>
+    <table>
+        <tr><th>Name</th><th>Value</th></tr>
+        <tr><td><code>${sessionIndex}</code></td><td>the profile slot — lane 7 is slot 7 on every run</td></tr>
+        <tr><td><code>${sessionSenderCompID}</code></td><td>that lane's resolved SenderCompID, e.g. <code>LOADGEN07</code></td></tr>
+        <tr><td><code>${sessionTitle}</code></td><td>the session's tab name, e.g. <code>LoadGen [7]</code></td></tr>
+        <tr><td><code>${sessionQualifier}</code></td><td>the session qualifier, where one was derived</td></tr>
+    </table>
+    <p>So <code>11=ORD-${sessionIndex}-${uuid}</code> gives every lane its own ClOrdID with no extra
+        authoring. Each lane writes its own record under <code>~/.fixtool/runs/</code>, and the report is a
+        distribution — <code>p50 / p95 / max</code> over the gap between the bytes that left and the bytes
+        that answered — rather than fifty rows nobody will click through.</p>
+
+    <div class="warning">
+        <strong>Limitations — read these before trusting the numbers</strong>
+        <ul>
+            <li><strong>Point the lanes at the server under test.</strong> If the far end is FixTool's own
+                acceptor, you are measuring FixTool: every session of an acceptor shares one QuickFIX/J
+                event thread, and every reply goes out through one scheduled thread, so an authored reply
+                delay becomes a floor and the p95 you read back is the tool's own ceiling. The fan-out
+                dialog says so when it detects this. FixTool is a load <em>generator</em>; making its venue
+                side a load <em>target</em> is a different job.</li>
+            <li><strong>Latency is measured at the client</strong>, from the moment FixTool handed the bytes
+                to the session to the moment it read the reply. It therefore includes FixTool's own send and
+                ingest path, not only the network and the venue.</li>
+            <li><strong>Template expressions are evaluated one at a time, process-wide.</strong> The Kotlin
+                expression engine is not thread-safe, so anything needing it — <code>${uuid}</code>,
+                <code>${out.D.11}</code>, date arithmetic — is serialised across lanes. A plain
+                <code>${name}</code> reference to a value already in scope does not touch it. A scenario
+                heavy in expressions will cap its own throughput before the venue does.</li>
+            <li><strong>A session ingests at a bounded rate</strong> and counts what it had to discard. A
+                run that lost messages says so in its report rather than reporting a silent gap — but at
+                very high message rates that limit, not the venue's, may be what you are seeing.</li>
+            <li><strong>A leg that cannot be spread is refused, not shared.</strong> If the scenario drives a
+                second session that has no multi-session profile behind it, every lane would share its
+                message log and could bind another lane's reply — so the fan-out is refused with the three
+                things that would fix it. Run that leg at concurrency 1, or give it a profile of its own.</li>
+            <li><strong>Lanes must be logged on.</strong> If the venue admits 38 of 50, the run uses 38 and
+                says so; it does not wait or retry.</li>
+            <li><strong>Records are trimmed when the run finishes.</strong> Failed lanes keep their messages
+                whole and one passing lane is kept as a reference; the rest keep their verdict, timings and
+                counts while their messages are dropped, with the count recorded. Fifty copies of the same
+                three messages is not evidence worth the disk.</li>
+            <li><strong>The headless CLI does not fan out yet.</strong> <code>fixtool run --set</code> and
+                <code>--all</code> run entries one at a time; fan-out is available in the app and over the
+                control surface.</li>
+        </ul>
+    </div>
+
     <h3>Demo Server</h3>
     <p>For testing and learning, use the built-in Demo FX Server (see <a href="#demo-server">Section 2</a>). It provides:</p>
     <ul>

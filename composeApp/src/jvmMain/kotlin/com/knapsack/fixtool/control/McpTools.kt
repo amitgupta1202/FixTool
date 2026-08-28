@@ -423,6 +423,16 @@ object McpTools {
                     "repeat" to integer("run each scenario N times"),
                     "stopOnFailure" to boolean("stop at the first failing entry (default false)"),
                     "pauseMs" to integer("pause between entries, milliseconds"),
+                    "rows" to objectSchema("true for the scenario's whole Examples table, or [\"row name\"] for named rows"),
+                    "fanOut" to objectSchema(
+                        "{profile, session?} — run the flow ONCE PER SESSION of a multi-session initiator " +
+                            "profile, all at once, for load. Each lane knows which client it is: " +
+                            "\${sessionIndex}, \${sessionSenderCompID}, \${sessionTitle}, \${sessionQualifier}. " +
+                            "`session` names which leg to spread when the scenario drives more than one. " +
+                            "Refused by name when the profile opens one session, when it is an acceptor, or " +
+                            "when a second leg would be shared by every lane. Point it at the server under " +
+                            "test: against FixTool's own acceptor the latencies are the tool's own ceiling",
+                    ),
                 ),
             ),
             tool(

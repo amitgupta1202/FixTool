@@ -29,6 +29,8 @@ import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.RunPolicy
+import com.knapsack.fixtool.model.scenario.Lane
+import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -39,6 +41,7 @@ import com.knapsack.fixtool.model.scenario.ScenarioVariable
 import com.knapsack.fixtool.model.scenario.StepOrigin
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.model.scenario.VariableSource
 import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.model.scenario.withSessions
 import com.knapsack.fixtool.service.AcceptorResponder
@@ -63,6 +66,7 @@ import com.knapsack.fixtool.service.RunRecorder
 import com.knapsack.fixtool.service.RunSetHost
 import com.knapsack.fixtool.service.RunSetRunner
 import com.knapsack.fixtool.service.RunSetStore
+import com.knapsack.fixtool.service.FanOutPlan
 import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
@@ -2982,16 +2986,26 @@ class FixMessageViewModel(
         scenario: Scenario,
         sessionMap: Map<String, String>,
         publish: Boolean,
-        seed: Map<String, String> = emptyMap(),
+        entry: RunEntry? = null,
     ): EntryOutcome {
-        // A new run makes the cross-step revert stale — its "before" describes a run that is over.
-        sameFixSnapshot = null
-        noteScenarioRun(scenario, sessionMap)
-        if (publish) publishScenarioResult(null)
-        setAssertionResults(emptyMap())
+        // **Fifty lanes have no single run to tint the grid for**, and the tint map is Compose state: fifty
+        // threads writing it would be a race over a surface that could not mean anything anyway. A lane
+        // records its evidence and publishes nothing; every other run behaves exactly as it did.
+        val tinting = entry?.lane == null
+        if (tinting) {
+            // A new run makes the cross-step revert stale — its "before" describes a run that is over.
+            sameFixSnapshot = null
+            noteScenarioRun(scenario, sessionMap)
+            if (publish) publishScenarioResult(null)
+            setAssertionResults(emptyMap())
+        }
         val matched = linkedMapOf<FixMessage, StepResult>()
         val recorder = RunRecorder()
-        val host = ViewModelScenarioHost(this)
+        // **The lane's own session is what a step that names none runs on.** Without it every lane's
+        // null-session step resolves to the first session in the list, so fifty "disjoint" lanes would all
+        // clear and read session 0 — and a captured scenario has such a step, since capture writes
+        // ClearMessages on the session it captured from.
+        val host = ViewModelScenarioHost(this, defaultSession = entry?.defaultSession)
         val watching = host.sessionsOf(scenario.withSessions(sessionMap))
         val collectors =
             watching.map { (title, session) ->
@@ -3005,15 +3019,20 @@ class FixMessageViewModel(
                     host,
                     onExpectMatched = { message, stepResult ->
                         matched[message] = stepResult
-                        _assertionResults.value = matched.toMap()
+                        if (tinting) _assertionResults.value = matched.toMap()
                     },
                     cancelled = { stopRequested.get() },
-                ).run(scenario, sessionMap, seed)
+                ).run(
+                    scenario,
+                    sessionMap,
+                    entry?.seed.orEmpty(),
+                    { name -> entry?.sourceOf(name) ?: VariableSource.ROW },
+                )
             watching.forEach { (title, session) -> recorder.observe(title, session.messages.value.filterIsInstance<FixMessage>()) }
             // Published while the run slot is still held: a verdict that lands after the slot is free can
             // land on top of the *next* run's freshly-cleared state, and the report would then name one
             // run while the assertion results underneath it belong to another.
-            if (publish) publishScenarioResult(result)
+            if (publish && tinting) publishScenarioResult(result)
             return EntryOutcome(result, recorder.build(matched, _appSettings.value.runRecordCap))
         } catch (e: Exception) {
             showNotification("Scenario run failed: ${e.message}", NotificationType.ERROR)
@@ -3068,6 +3087,19 @@ class FixMessageViewModel(
                 _activeRunSet.value = progress
                 onProgress(progress)
             }
+        // Fifty lanes of order flow is fifty copies of the same three messages. After the set, never
+        // during — a lane's verdict is not known until it has one, and a record trimmed on a guess is the
+        // evidence for the failure nobody kept.
+        if (done.source is RunSource.FanOut) {
+            val trimmed = runRecordStore.trimToSpecimens(done)
+            if (trimmed > 0) {
+                showNotification(
+                    "$trimmed lane record(s) trimmed to counts — failed lanes and one passing lane keep " +
+                        "their messages",
+                    NotificationType.INFO,
+                )
+            }
+        }
         // After the set, not before: the run just finished is the one that must survive the pruning.
         runRecordStore.prune(_appSettings.value.runRecordsKept)
         return done
@@ -3092,6 +3124,120 @@ class FixMessageViewModel(
             return null
         }
         return startRunSet(set)
+    }
+
+    /**
+     * **Can this profile supply lanes?** One field decides it, and the answer is shown rather than hidden.
+     *
+     * An author cannot tell "this cannot be done, and here is why" from "this feature does not exist" if
+     * the item is withheld — so the menu keeps the entry and wears the reason.
+     */
+    fun fanOutLanes(profileId: String): FanOutLanes {
+        val profile =
+            _connectionProfiles.find { it.id == profileId }
+                ?: return FanOutLanes.Unavailable("no saved profile with that id")
+        if (profile.config.connectionType != FixConnectionConfig.ConnectionType.INITIATOR) {
+            return FanOutLanes.Unavailable(
+                "'${profile.name}' is an acceptor, and an acceptor has one session by construction — it is " +
+                    "the far end of lanes, never their source. Fan out from the client profile instead.",
+            )
+        }
+        if (profile.config.sessionCount <= 1) {
+            return FanOutLanes.Unavailable(
+                "Fan-out needs a profile that opens more than one session, and '${profile.name}' opens " +
+                    "${profile.config.sessionCount}. Set Sessions on the profile to the number of lanes you " +
+                    "want — with a {nn} pattern in SenderCompID, so each lane logs on as its own identity — " +
+                    "then reconnect.",
+            )
+        }
+        // **Ordered by the slot the profile gave them, not by the order the list happens to be in.**
+        // `getProfileSessions` answers in append order and a refilled slot goes last, so numbering by
+        // position would make lane 7 a different client after a reconnect.
+        val up =
+            getProfileSessions(profileId)
+                .filter { it.connectionState.value == FixConnectionState.LOGGED_ON }
+                .sortedBy { it.profileSlot }
+        val lanes =
+            up.map { session ->
+                Lane(
+                    slot = session.profileSlot,
+                    sessionTitle = session.title,
+                    senderCompID = session.currentConfig?.senderCompID.orEmpty(),
+                    qualifier = session.sessionQualifier,
+                )
+            }
+        if (lanes.isEmpty()) {
+            return FanOutLanes.Unavailable("no session of '${profile.name}' is logged on — connect it, then fan out")
+        }
+        // A shortfall is REPORTED, not refused: if the venue let 38 of 50 on, the set runs 38 and says so.
+        val short =
+            (profile.config.sessionCount - lanes.size)
+                .takeIf { it > 0 }
+                ?.let { "$it of ${profile.name}'s ${profile.config.sessionCount} sessions did not reach LOGGED_ON" }
+        return FanOutLanes.Available(profile, lanes, short)
+    }
+
+    /**
+     * **Fan a scenario out over a profile's sessions.** Null when it cannot run, with the reason shown —
+     * every refusal here names something the author can change.
+     */
+    fun startFanOut(scenario: Scenario, profileId: String, over: String? = null): RunSet? {
+        val lanes =
+            when (val available = fanOutLanes(profileId)) {
+                is FanOutLanes.Unavailable -> {
+                    showNotification(available.why, NotificationType.ERROR)
+                    return null
+                }
+                is FanOutLanes.Available -> {
+                    available.shortfall?.let { showNotification(it, NotificationType.WARNING) }
+                    available.lanes
+                }
+            }
+        val policy = RunPolicy(concurrency = lanes.size, isolateIterations = true)
+        return when (val plan = RunSets.fanOut(scenario, profileId, lanes, over, System.currentTimeMillis(), policy)) {
+            is FanOutPlan.Refused -> {
+                showNotification(plan.why, NotificationType.ERROR)
+                null
+            }
+            is FanOutPlan.Ready -> startRunSet(plan.set)
+        }
+    }
+
+    /**
+     * **When the far end is FixTool itself, say so before the numbers are believed.**
+     *
+     * Fifty `LOADGEN{nn}` initiators against a FixTool venue produce fifty named panes on the other side —
+     * and all fifty share QuickFIX/J's single event thread, with every reply going out through
+     * `AcceptorDispatch`'s one scheduled thread. Under that load an authored `delayMillis` becomes a floor
+     * rather than a value, and the p95 a lane measures is FixTool's, not a venue's. The tool is a load
+     * *generator* here; making its venue side a load *target* is separate work.
+     *
+     * Null when the far end is somebody else's server, which is what fan-out is for.
+     */
+    fun fanOutFarEndNotice(profileId: String): String? {
+        val client = _connectionProfiles.find { it.id == profileId } ?: return null
+        val host = client.config.socketConnectHost.ifBlank { client.config.host }
+        if (host.lowercase() !in LOOPBACK_HOSTS) return null
+        val venue =
+            _connectionProfiles.firstOrNull {
+                it.config.connectionType == FixConnectionConfig.ConnectionType.ACCEPTOR &&
+                    it.config.socketAcceptPort.ifBlank { it.config.port } == client.config.port
+            } ?: return null
+        return "The far end is '${venue.name}' — FixTool's own acceptor. It answers every session on one " +
+            "thread, so the latencies below are the tool's own ceiling, not a venue's. Point the lanes at " +
+            "the server under test to measure one."
+    }
+
+    /** Whether a profile can supply lanes, and which ones — or the sentence saying why it cannot. */
+    sealed interface FanOutLanes {
+        data class Available(
+            val profile: FixConnectionProfile,
+            val lanes: List<Lane>,
+            /** Sessions the profile is configured for that are not logged on. Reported, never fatal. */
+            val shortfall: String?,
+        ) : FanOutLanes
+
+        data class Unavailable(val why: String) : FanOutLanes
     }
 
     fun startRepeat(scenario: Scenario, times: Int, pauseMs: Long): RunSet? =
@@ -3121,6 +3267,10 @@ class FixMessageViewModel(
             if (saved) NotificationType.INFO else NotificationType.ERROR,
         )
         return saved
+    }
+
+    private companion object Loopback {
+        val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1", "0.0.0.0")
     }
 
     /** Puts the set report down. The records stay on disk; this is a view, not a delete. */
@@ -3191,8 +3341,8 @@ class FixMessageViewModel(
     private inner class ViewModelRunSetHost : RunSetHost {
         override fun scenario(id: String): Scenario? = scenarioService.load(id)
 
-        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>, seed: Map<String, String>): EntryOutcome? =
-            runOne(scenario, sessionMap, publish = false, seed = seed)
+        override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome? =
+            runOne(scenario, entry.sessionMap, publish = false, entry = entry)
 
         override fun write(record: RunRecord): String? = runRecordStore.write(record)
 

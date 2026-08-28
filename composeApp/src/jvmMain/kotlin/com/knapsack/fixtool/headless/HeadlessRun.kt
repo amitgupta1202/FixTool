@@ -352,7 +352,7 @@ object HeadlessRun {
     ) : RunSetHost {
         override fun scenario(id: String): Scenario? = scenarios[id]
 
-        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>, seed: Map<String, String>): EntryOutcome {
+        override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome {
             val recorder = RunRecorder()
             val judged = linkedMapOf<FixMessage, StepResult>()
             // Sampled while the entry runs rather than snapshotted after it: a session evicts inside a
@@ -373,7 +373,7 @@ object HeadlessRun {
             try {
                 val result =
                     ScenarioRunner(host, onExpectMatched = { message, step -> judged[message] = step })
-                        .run(scenario, sessionMap, seed)
+                        .run(scenario, entry.sessionMap, entry.seed, entry::sourceOf)
                 host.opened.forEach { session ->
                     recorder.observe(session.title, session.messages.value.filterIsInstance<FixMessage>())
                 }

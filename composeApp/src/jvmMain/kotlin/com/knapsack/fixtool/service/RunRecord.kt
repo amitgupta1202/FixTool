@@ -2,6 +2,7 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.StepResult
@@ -41,6 +42,8 @@ data class RunRecord(
     val iteration: Int,
     /** The table row this entry ran, when it had one — so a record says what the run was given. */
     val row: ExampleRow? = null,
+    /** The lane this entry ran on, when it had one — which client of fifty this record is. */
+    val lane: Lane? = null,
     val scenarioId: String,
     val scenarioName: String,
     /**
@@ -194,6 +197,17 @@ object RunRecordCodec {
             put("set", record.setId)
             put("entry", record.entry)
             put("iteration", record.iteration)
+            record.lane?.let { lane ->
+                put(
+                    "lane",
+                    buildJsonObject {
+                        put("slot", lane.slot)
+                        put("session", lane.sessionTitle)
+                        put("senderCompID", lane.senderCompID)
+                        put("qualifier", lane.qualifier)
+                    },
+                )
+            }
             record.row?.let { row ->
                 put(
                     "row",
@@ -242,6 +256,15 @@ object RunRecordCodec {
             setId = obj["set"]?.jsonPrimitive?.content.orEmpty(),
             entry = obj["entry"]?.jsonPrimitive?.int ?: 0,
             iteration = obj["iteration"]?.jsonPrimitive?.int ?: 1,
+            lane =
+                obj["lane"]?.jsonObject?.let { lane ->
+                    Lane(
+                        slot = lane["slot"]?.jsonPrimitive?.int ?: 0,
+                        sessionTitle = lane["session"]?.jsonPrimitive?.content.orEmpty(),
+                        senderCompID = lane["senderCompID"]?.jsonPrimitive?.content.orEmpty(),
+                        qualifier = lane["qualifier"]?.jsonPrimitive?.content.orEmpty(),
+                    )
+                },
             row =
                 obj["row"]?.jsonObject?.let { row ->
                     ExampleRow(

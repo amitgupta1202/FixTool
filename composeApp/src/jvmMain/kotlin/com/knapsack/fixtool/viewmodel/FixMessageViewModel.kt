@@ -57,6 +57,7 @@ import com.knapsack.fixtool.service.RawMessageView
 import com.knapsack.fixtool.service.SavedMessagesService
 import com.knapsack.fixtool.service.EntryOutcome
 import com.knapsack.fixtool.service.RunRecord
+import com.knapsack.fixtool.service.RunRecordMessages
 import com.knapsack.fixtool.service.RunRecordStore
 import com.knapsack.fixtool.service.RunRecorder
 import com.knapsack.fixtool.service.RunSetHost
@@ -1755,10 +1756,16 @@ class FixMessageViewModel(
                     "${step.kind} in ${step.phase}. Open the message in the session window for expected-vs-actual.",
             )
         }
+        // **By stepId, with the old key as the fallback.** `rebindSlot` has always addressed a step by its
+        // id while this addressed it by phase+index, and two lookups for one thing eventually disagree —
+        // most obviously about an entry read back from a record, where "which slot did it sit in" is a
+        // question about a run that is over. The positional lookup stays for a result that carries no id.
         val message =
-            assertionResults.entries
-                .firstOrNull { (_, result) -> result.phase == step.phase && result.stepIndex == step.stepIndex }
-                ?.key
+            step.stepId
+                ?.let { id -> assertionResults.entries.firstOrNull { (_, result) -> result.stepId == id }?.key }
+                ?: assertionResults.entries
+                    .firstOrNull { (_, result) -> result.phase == step.phase && result.stepIndex == step.stepIndex }
+                    ?.key
                 ?: return ReconcileRoute.Refused(
                     "No message matched this step, so there is nothing to diff its expectation against. " +
                         "Fix the bind predicate, or the venue, and run it again.",
@@ -3123,11 +3130,33 @@ class FixMessageViewModel(
      */
     fun focusRunEntry(setId: String, entry: Int): ScenarioResult? {
         val record = runRecordStore.readEntry(setId, entry) ?: return null
-        scenarioService.load(record.scenarioId)?.let { noteScenarioRun(it, emptyMap()) }
-        // The tint belongs to the live grid and describes what is in it; a record's own tinting is the
-        // run set document's job (Phase 2), over its own re-parsed grid.
+        // The scenario **as it ran**, from the record — not as it is on disk now. The gate that keeps a
+        // repair honest asks whether the step that failed is still that step, and comparing today's file
+        // against today's file answers yes every time.
+        (record.scenario ?: scenarioService.load(record.scenarioId))?.let { noteScenarioRun(it, emptyMap()) }
+        // **The record's own messages become the run's messages.** This is what lets a reconcile start from
+        // an entry that ran an hour ago: the route needs the message a step judged and its wire bytes, and
+        // the record has kept both. The keys are the re-parsed objects, so the live grid — which holds
+        // different objects, from a later entry or from nothing at all — is left untinted rather than
+        // borrowing a verdict about traffic it is not showing.
+        val parsed = RunRecordMessages.of(record, dictionary)
+        setAssertionResults(parsed.judged)
         publishScenarioResult(record.result)
         return record.result
+    }
+
+    /**
+     * **Open the set as a document** — the entries down one side and one entry's own grid on the other.
+     *
+     * Focusing an entry from the rail opens the tab on it, because the rail's report is a summary and the
+     * question a failed entry raises ("what did the venue actually send?") can only be answered by the
+     * bytes. A tab already open on this set is re-aimed rather than duplicated.
+     */
+    fun openRunSetEntry(setId: String, entry: Int) {
+        focusRunEntry(setId, entry)
+        val id = ScenarioDoc.runSetId(setId)
+        val open = _openDocuments.value.firstOrNull { it.id == id } as? ScenarioDoc.RunSetView
+        openDocument(open?.copy(entry = entry) ?: ScenarioDoc.RunSetView(setId, entry))
     }
 
     /**

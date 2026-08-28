@@ -1,13 +1,21 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.scenario.BindScope
+import com.knapsack.fixtool.model.scenario.Expectation
+import com.knapsack.fixtool.model.scenario.FieldExpectation
+import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.model.scenario.RunState
+import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
+import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.TagResult
 import kotlinx.serialization.json.Json
@@ -167,6 +175,56 @@ class RunRecordTest {
         assertEquals(record.result.passed, back.result.passed)
         assertEquals(record.result.steps.map { it.kind }, back.result.steps.map { it.kind })
         assertEquals(record.result.steps.map { it.latencyMs }, back.result.steps.map { it.latencyMs })
+        // What was asserted, beside what came back — the half of the evidence a report alone does not carry.
+        assertEquals(record.scenario?.name, back.scenario?.name)
+        assertEquals(record.scenario?.steps?.size, back.scenario?.steps?.size)
+        assertEquals(
+            (record.scenario?.steps?.last() as ScenarioStep.Expect).expectation.fields.single().tag,
+            (back.scenario?.steps?.last() as ScenarioStep.Expect).expectation.fields.single().tag,
+        )
+    }
+
+    // ----------------------------------------------------------------- the record, read back as messages
+
+    /**
+     * **A record's bytes, back as messages.** The grid takes a list and a tint map and knows nothing about
+     * where either came from, which is the only reason an entry that ran an hour ago can be read on the
+     * same surface as the traffic arriving now.
+     */
+    @Test
+    fun `a record parses back into messages the grid can show, tinted by its own bound map`() {
+        val record = sampleRecord("nightly")
+
+        val parsed = RunRecordMessages.of(record, FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4))
+
+        assertEquals(2, parsed.messages.size)
+        assertEquals("D", parsed.messages[0].messageType)
+        assertEquals(FixMessage.Direction.INCOMING, parsed.messages[1].direction)
+        assertTrue(parsed.messages[0].wireRaw!!.contains("11=ORD"), "the bytes are the ones the record kept")
+        // The tint is the record's own: stepId -> index, resolved to the object the grid will be handed.
+        assertEquals(1, parsed.judged.size)
+        val (message, step) = parsed.judged.entries.single()
+        assertEquals(parsed.messages[1], message, "the expect judged the reply, not the order")
+        assertEquals("step-1", step.stepId)
+    }
+
+    /**
+     * A message whose wire order was never known keeps its display form and gets **no** `wireRaw` — the
+     * same answer a live message with no bytes gives, so the surfaces that need a byte order refuse it by
+     * name instead of asserting against an order nobody observed.
+     */
+    @Test
+    fun `a message with no known wire order is shown without pretending to have bytes`() {
+        val record =
+            sampleRecord("nightly").copy(
+                messages = listOf(RecordedMessage(0, "CLI", incoming = true, atMicros = 1, raw = "8=FIX.4.4|35=8|39=2|", wireOrderKnown = false)),
+                bound = emptyMap(),
+            )
+
+        val parsed = RunRecordMessages.of(record, FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4))
+
+        assertEquals(1, parsed.messages.size)
+        assertNull(parsed.messages.single().wireRaw, "no order was observed, so none is handed on")
     }
 
     // ----------------------------------------------------------------- fixtures
@@ -189,6 +247,24 @@ class RunRecordTest {
             iteration = 1,
             scenarioId = "sc-1",
             scenarioName = "book-a-trade",
+            scenario =
+                Scenario(
+                    id = "sc-1",
+                    name = "book-a-trade",
+                    binding = BindScope.THIS_RUN,
+                    steps =
+                        listOf(
+                            ScenarioStep.Send("35=D|11=ORD|", session = "CLI"),
+                            ScenarioStep.Expect(
+                                session = "CLI",
+                                expectation =
+                                    Expectation(
+                                        messageType = "8",
+                                        fields = listOf(FieldExpectation(39, Matcher.Exact("2"))),
+                                    ),
+                            ),
+                        ),
+                ),
             startedAt = 1_724_838_075_201,
             durationMs = 3_104,
             result =

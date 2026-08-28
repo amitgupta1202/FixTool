@@ -119,6 +119,84 @@ class RunSetIntegrationTest {
         assertEquals(true, refusedDuring, "a scenario run inside a set must be told the slot is taken")
     }
 
+    /**
+     * **Reconcile, from an entry that ran an hour ago.** This is what the record is for: by the time a
+     * suite's failure is read, the grid holds a later entry's traffic, and the route to the one surface
+     * that can repair an assertion needs the message the step judged *and* its wire bytes. Focusing an
+     * entry re-aims both at the record.
+     */
+    @Test
+    fun `a failed entry can be reconciled from its record after a later entry has cleared the grid`() {
+        val failing = save(scenario("wrong-expectation", "W-$runId", expectClOrdId = "NOT-THE-ONE"))
+        val after = save(scenario("clears-everything", "C-$runId"))
+        val set =
+            RunSets.suite(
+                listOf(failing, after),
+                RunSource.Selected(listOf(failing.id, after.id)),
+                label = "suite",
+                now = System.currentTimeMillis(),
+            )
+
+        val done = assertNotNull(viewModel.runSetBlocking(set))
+        assertEquals(RunState.FAILED, done.entries[0].state, "entry 1 asserts the wrong ClOrdID: ${done.entries[0]}")
+        assertEquals(RunState.PASSED, done.entries[1].state)
+
+        // Entry 2 cleared the session on its way in, so nothing entry 1 saw is in the grid any more.
+        val live = viewModel.sessions.single { it.title == "CLI" }.messages.value.filterIsInstance<FixMessage>()
+        assertTrue(live.none { it.rawMessage.contains("W-$runId") })
+
+        viewModel.focusRunEntry(done.id, 1)
+        val step = assertNotNull(viewModel.scenarioResult.value?.steps?.firstOrNull { !it.passed && it.kind == "expect" })
+        when (val route = viewModel.reconcileRoute(step)) {
+            is FixMessageViewModel.ReconcileRoute.Open -> {
+                assertTrue(
+                    route.request.actualRaw.orEmpty().contains("W-$runId"),
+                    "the diff opens on the bytes the record kept: ${route.request.actualRaw}",
+                )
+                assertEquals(failing.id, route.request.scenario.id)
+            }
+            is FixMessageViewModel.ReconcileRoute.Refused -> error("the record has the message and the bytes: ${route.why}")
+        }
+    }
+
+    /**
+     * The gate that keeps a repair honest: an assertion edited since the run is no longer the assertion
+     * that failed, and reconciling the old bytes against it would be a lie in the author's favour.
+     */
+    @Test
+    fun `an entry whose step has been edited since the run refuses to reconcile, and says why`() {
+        val failing = save(scenario("edited-since", "E-$runId", expectClOrdId = "NOT-THE-ONE"))
+        val done =
+            assertNotNull(
+                viewModel.runSetBlocking(RunSets.repeat(failing, times = 1, now = System.currentTimeMillis())),
+            )
+        assertEquals(RunState.FAILED, done.entries.single().state)
+
+        // The author edits the very step that failed, then goes back to the report.
+        val edited =
+            failing.copy(
+                steps =
+                    failing.steps.map { step ->
+                        if (step is ScenarioStep.Expect) {
+                            step.copy(expectation = step.expectation.copy(fields = emptyList()))
+                        } else {
+                            step
+                        }
+                    },
+            )
+        assertTrue(viewModel.scenarioService.save(edited))
+
+        viewModel.focusRunEntry(done.id, 1)
+        val step = assertNotNull(viewModel.scenarioResult.value?.steps?.firstOrNull { !it.passed && it.kind == "expect" })
+        val route = viewModel.reconcileRoute(step)
+
+        assertTrue(route is FixMessageViewModel.ReconcileRoute.Refused, "an edited step is not the step that failed")
+        assertTrue(
+            (route as FixMessageViewModel.ReconcileRoute.Refused).why.contains("changed since this run"),
+            "and the refusal says so rather than opening on the wrong assertion: ${route.why}",
+        )
+    }
+
     // ----------------------------------------------------------------- fixtures
 
     private fun save(scenario: Scenario): Scenario {
@@ -127,7 +205,7 @@ class RunSetIntegrationTest {
     }
 
     /** Clear, send an order, assert the venue's ack. The clear is what makes entry 2 erase entry 1. */
-    private fun scenario(name: String, clOrdId: String) =
+    private fun scenario(name: String, clOrdId: String, expectClOrdId: String = clOrdId) =
         Scenario(
             id = "sc-$name-$runId",
             name = name,
@@ -142,7 +220,7 @@ class RunSetIntegrationTest {
                         expectation =
                             Expectation(
                                 messageType = "8",
-                                fields = listOf(FieldExpectation(11, Matcher.Exact(clOrdId))),
+                                fields = listOf(FieldExpectation(11, Matcher.Exact(expectClOrdId))),
                             ),
                     ),
                 ),

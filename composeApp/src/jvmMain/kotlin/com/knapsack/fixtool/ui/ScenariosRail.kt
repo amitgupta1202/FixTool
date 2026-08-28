@@ -197,7 +197,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                     set = set,
                     running = running,
                     onStop = { viewModel.requestScenarioStop() },
-                    onFocus = { entry -> viewModel.focusRunEntry(set.id, entry) },
+                    onFocus = { entry -> viewModel.openRunSetEntry(set.id, entry) },
                     onDismiss = { viewModel.clearActiveRunSet() },
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )

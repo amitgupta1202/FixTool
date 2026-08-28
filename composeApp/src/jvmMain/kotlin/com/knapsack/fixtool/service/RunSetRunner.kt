@@ -82,7 +82,8 @@ class RunSetRunner(private val host: RunSetHost) {
             }
 
             val startedAt = host.now()
-            val outcome = host.runOne(isolate(scenario, current.policy), entry.sessionMap)
+            val asRun = isolate(scenario, current.policy)
+            val outcome = host.runOne(asRun, entry.sessionMap)
             val elapsed = host.now() - startedAt
 
             current =
@@ -98,6 +99,9 @@ class RunSetRunner(private val host: RunSetHost) {
                             iteration = entry.iteration,
                             scenarioId = scenario.id,
                             scenarioName = scenario.name,
+                            // As it ran, isolation and all — the record is evidence, and what was asserted
+                            // is half of it.
+                            scenario = asRun,
                             startedAt = startedAt,
                             durationMs = outcome.result.durationMs ?: elapsed,
                             result = outcome.result,

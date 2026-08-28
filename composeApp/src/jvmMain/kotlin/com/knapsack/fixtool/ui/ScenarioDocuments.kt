@@ -146,9 +146,33 @@ sealed interface ScenarioDoc {
         )
     }
 
+    /**
+     * **A run set, as a thing to read**: entries down one side, and for the focused one its verdict, its
+     * variables and **its own message grid, re-parsed from the record**.
+     *
+     * A document because it is a thing to read, not because of a rule — the rail's old "everything opens a
+     * tab, never a window" line is stale, reconcile has been a window since Phase 6. What makes this one
+     * earn a tab is that a suite's evidence is a *set* of things to compare, and comparing is what a centre
+     * pane is for.
+     *
+     * It holds only the two identifiers. The records are on disk and are read as they are drawn, so the tab
+     * costs nothing to leave open and says the same thing after a restart as before one.
+     */
+    data class RunSetView(
+        val setId: String,
+        /** 1-based, and the only cursor this document has. */
+        val entry: Int = 1,
+    ) : ScenarioDoc {
+        override val id: String get() = runSetId(setId)
+        override val glyph: String get() = "▤"
+        override val scenarioId: String? get() = null
+    }
+
     companion object {
         /** There is one session scan at a time, so there is one capture review at a time. */
         const val CAPTURE_ID = "capture"
+
+        fun runSetId(setId: String): String = "runset:$setId"
 
         fun editorId(scenarioId: String): String = "editor:$scenarioId"
     }
@@ -408,6 +432,8 @@ fun documentTabsOf(documents: List<ScenarioDoc>, workspace: Map<String, Scenario
     documents.map { doc ->
         when (doc) {
             is ScenarioDoc.Capture -> DocumentTab(doc.id, doc.title, doc.glyph, doc.dirty)
+            // Never dirty: a record is what happened, and nothing in this tab can edit it.
+            is ScenarioDoc.RunSetView -> DocumentTab(doc.id, "run: ${doc.setId.substringAfter('-', doc.setId).takeLast(RUN_TAB_TITLE)}", doc.glyph, dirty = false)
             is ScenarioDoc.Editor -> {
                 val scenario = workspace[doc.scenarioId]
                 DocumentTab(
@@ -440,3 +466,6 @@ data class CaptureReviewState(
             )
     }
 }
+
+/** How much of a run set's id the tab shows — enough to tell last night's from this morning's. */
+private const val RUN_TAB_TITLE = 24

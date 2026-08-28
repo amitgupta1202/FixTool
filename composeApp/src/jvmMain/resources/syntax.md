@@ -218,8 +218,8 @@ language than §1 — plain replacement, no variables, offsets or message refere
 
 ## 5. Scenario shape
 
-`{name, profile?, userTags?, setup?: [step], steps: [step], teardown?: [step]}` — `setup` runs first,
-`teardown` always runs, even on failure. A step is `{type, ...}`:
+`{name, profile?, userTags?, setup?: [step], steps: [step], teardown?: [step], examples?}` — `setup`
+runs first, `teardown` always runs, even on failure. A step is `{type, ...}`:
 
 | `type` | Fields |
 | --- | --- |
@@ -229,6 +229,36 @@ language than §1 — plain replacement, no variables, offsets or message refere
 | `clearMessages` | `session?` |
 | `clearOrderBook` | `session?` — empties the order book FixTool keeps **as the venue** on that session (what its rules read, as opposed to what the grid shows). Only valid on a session FixTool hosts as an acceptor; anywhere else the run is refused in preflight, by name. |
 | `resetSeqNum` | `session?`, `sender?`, `target?` |
+
+### The examples table — a scenario run once per row
+
+A scenario is already a Scenario Outline: every step resolves `${…}` against one scope. `examples` adds
+the table, and each row becomes one entry of a run set.
+
+```jsonc
+"examples": {
+  "columns": ["symbol", "qty"],
+  "rows": [
+    {"name": "EUR/USD small", "values": {"symbol": "EUR/USD", "qty": "100"}},
+    {"name": "GBP/USD large", "values": {"symbol": "GBP/USD", "qty": "9000"}},
+    {"name": "parked",        "values": {"symbol": "USD/JPY", "qty": "1"}, "muted": true}
+  ]
+}
+```
+
+- **Columns are variable names**, seeded into the scope *before setup runs* — so a step reads `${symbol}`
+  exactly as it reads a name a Send minted, and an expectation asserts `${symbol}` came back.
+- **A cell is resolved as it is seeded**, so a cell may itself say `${uuid}` or `${LocalDate.now()}` and
+  give each row its own fresh id.
+- **A muted row is parked, not deleted** — the same bargain as a muted step.
+- **A cell for a column the table does not declare is dropped on load**: the columns are the contract.
+- **Precedence is assignment.** A Send that mints a name the table also supplies (`11=${clOrdID = uuid}`
+  over a `clOrdID` column) overwrites the cell, because that is what `${name = expr}` means everywhere.
+- The run reports a seeded name with `"source": "row"` and no `mintedAtStepId` — no step wrote it.
+
+Run it with `fixtool run <scenario> --rows` (or `--row "EUR/USD small"` for one), or over the control
+surface with `{"id": "…", "rows": true}` / `{"id": "…", "rows": ["EUR/USD small"]}`. Each entry is named
+`<scenario> [<row>]` in the report, the log and the JUnit XML.
 
 ### Excluding a field from a `send` without deleting it
 

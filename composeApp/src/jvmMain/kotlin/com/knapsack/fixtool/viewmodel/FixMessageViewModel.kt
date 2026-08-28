@@ -2978,7 +2978,12 @@ class FixMessageViewModel(
      * direct sample closes the race between the last message and the collector being cancelled.
      */
     @Suppress("TooGenericExceptionCaught")
-    private fun runOne(scenario: Scenario, sessionMap: Map<String, String>, publish: Boolean): EntryOutcome {
+    private fun runOne(
+        scenario: Scenario,
+        sessionMap: Map<String, String>,
+        publish: Boolean,
+        seed: Map<String, String> = emptyMap(),
+    ): EntryOutcome {
         // A new run makes the cross-step revert stale — its "before" describes a run that is over.
         sameFixSnapshot = null
         noteScenarioRun(scenario, sessionMap)
@@ -3003,7 +3008,7 @@ class FixMessageViewModel(
                         _assertionResults.value = matched.toMap()
                     },
                     cancelled = { stopRequested.get() },
-                ).run(scenario, sessionMap)
+                ).run(scenario, sessionMap, seed)
             watching.forEach { (title, session) -> recorder.observe(title, session.messages.value.filterIsInstance<FixMessage>()) }
             // Published while the run slot is still held: a verdict that lands after the slot is free can
             // land on top of the *next* run's freshly-cleared state, and the report would then name one
@@ -3074,6 +3079,20 @@ class FixMessageViewModel(
      */
     fun planSuite(scenarios: List<Scenario>, label: String): RunSet =
         RunSets.suite(scenarios, RunSource.Selected(scenarios.map { it.id }), label, System.currentTimeMillis())
+
+    /**
+     * One entry per live row of the scenario's own table. Null — with the reason said out loud — when
+     * there are no rows to run: an outline whose rows are all parked is a request that cannot be honoured,
+     * not a set of zero entries that passes.
+     */
+    fun startExamples(scenario: Scenario): RunSet? {
+        val set = RunSets.examples(scenario, System.currentTimeMillis())
+        if (set == null) {
+            showNotification("'${scenario.name}' has no live example rows to run", NotificationType.ERROR)
+            return null
+        }
+        return startRunSet(set)
+    }
 
     fun startRepeat(scenario: Scenario, times: Int, pauseMs: Long): RunSet? =
         startRunSet(
@@ -3172,8 +3191,8 @@ class FixMessageViewModel(
     private inner class ViewModelRunSetHost : RunSetHost {
         override fun scenario(id: String): Scenario? = scenarioService.load(id)
 
-        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>): EntryOutcome? =
-            runOne(scenario, sessionMap, publish = false)
+        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>, seed: Map<String, String>): EntryOutcome? =
+            runOne(scenario, sessionMap, publish = false, seed = seed)
 
         override fun write(record: RunRecord): String? = runRecordStore.write(record)
 

@@ -1399,7 +1399,9 @@ class ControlServer(
      */
     private fun runScenario(ex: HttpExchange): Coded {
         val body = readJson(ex)
-        val wantsSet = body["set"] != null || body["ids"] != null || (body["repeat"]?.jsonPrimitive?.intOrNull ?: 1) > 1
+        val wantsSet =
+            body["set"] != null || body["ids"] != null || body["rows"] != null ||
+                (body["repeat"]?.jsonPrimitive?.intOrNull ?: 1) > 1
         if (wantsSet) return startRunSet(body)
         val answer = runOneScenario(body)
         // The one status code this route's old shape gains: a set holds the slot for its whole batch, so
@@ -1459,9 +1461,28 @@ class ControlServer(
                 else -> {
                     val id =
                         body["id"]?.jsonPrimitive?.contentOrNull
-                            ?: return Coded(HTTP_OK, errorObject("a run set needs 'set', 'ids', or 'id' with 'repeat'"))
+                            ?: return Coded(HTTP_OK, errorObject("a run set needs 'set', 'ids', or 'id' with 'repeat' or 'rows'"))
                     val scenario = viewModel.scenarioService.load(id) ?: return Coded(HTTP_NOT_FOUND, errorObject("scenario not found: $id"))
-                    RunSets.repeat(scenario, repeat, now, policy)
+                    val rows = body["rows"]
+                    if (rows == null) {
+                        RunSets.repeat(scenario, repeat, now, policy)
+                    } else {
+                        // `rows: true` is the whole table; a list is the named rows — one row of eight is
+                        // how an author debugs the row that failed without re-running the other seven.
+                        val only =
+                            (rows as? kotlinx.serialization.json.JsonArray)?.map { it.jsonPrimitive.content }
+                                ?.also { asked -> missing += asked.filterNot { name -> scenario.examples?.live.orEmpty().any { it.name == name } } }
+                        RunSets.examples(scenario, now, policy, only)
+                            ?: return Coded(
+                                HTTP_OK,
+                                errorObject(
+                                    "'${scenario.name}' has no rows to run — it has " +
+                                        "${scenario.examples?.rows?.size ?: 0} row(s), " +
+                                        "${scenario.examples?.live?.size ?: 0} of them live" +
+                                        if (missing.isEmpty()) "" else ", and none named ${missing.joinToString()}",
+                                ),
+                            )
+                    }
                 }
             }
 

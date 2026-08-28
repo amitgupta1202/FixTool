@@ -384,6 +384,96 @@ class ScenarioIntegrationTest {
     }
 
     /**
+     * **The outline, over a real wire.** A scenario is already parameterized — every step resolves `${…}`
+     * against one scope — so a table needed the table and one runner parameter. Each row is one entry of a
+     * run set, and everything past that point is the machinery that already existed.
+     */
+    @Test
+    fun `an examples table runs one entry per row, each seeded with its own cells`() {
+        val outline =
+            """{
+              "name": "outline-$runId",
+              "examples": {
+                "columns": ["symbol", "qty"],
+                "rows": [
+                  {"name": "EUR/USD small", "values": {"symbol": "EUR/USD", "qty": "100"}},
+                  {"name": "GBP/USD large", "values": {"symbol": "GBP/USD", "qty": "9000"}},
+                  {"name": "parked", "values": {"symbol": "USD/JPY", "qty": "1"}, "muted": true}
+                ]
+              },
+              "setup": [ {"type":"clearMessages","session":"CLI"} ],
+              "steps": [
+                {"type":"send","session":"CLI","raw":"35=D|11=ROW-${'$'}{uuid}|55=${'$'}{symbol}|54=1|38=${'$'}{qty}|40=1|"},
+                {"type":"expect","session":"CLI","direction":"in","timeoutMs":8000,"expectation":{
+                  "messageType":"8","mode":"open","fields":[
+                    {"tag":35,"matcher":{"type":"exact","value":"8"}},
+                    {"tag":55,"matcher":{"type":"reference","expression":"${'$'}{symbol}"}}]}}
+              ]}"""
+        val id = obj(post("/scenarios", outline))["id"]!!.jsonPrimitive.content
+
+        val started = post("/scenarios/run", """{"id":"$id","rows":true}""")
+        assertEquals(202, started.statusCode(), started.body())
+        val runSet = obj(started)["runSet"]!!.jsonPrimitive.content
+        assertEquals(2, obj(started)["entries"]!!.jsonPrimitive.int, "the parked row is kept and skipped")
+
+        val status = obj(get("/scenarios/runs/$runSet?wait=10000"))
+        assertEquals("passed", status["status"]!!.jsonPrimitive.content, "$status")
+
+        // Each entry ran its own row: the cells reached the wire, and the reply was asserted against them.
+        val first = obj(get("/scenarios/runs/$runSet/entries/1"))
+        assertEquals("EUR/USD small", first["row"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertTrue(
+            first["messages"]!!.jsonArray.any { m ->
+                val raw = m.jsonObject["raw"]!!.jsonPrimitive.content
+                raw.contains("55=EUR/USD") && raw.contains("38=100")
+            },
+            "the row's cells are on the bytes it sent: ${first["messages"]}",
+        )
+        // And provenance says the row supplied them, not whichever step happened to run first.
+        val symbol =
+            first["result"]!!.jsonObject["variables"]!!.jsonArray
+                .map { it.jsonObject }
+                .single { it["name"]!!.jsonPrimitive.content == "symbol" }
+        assertEquals("EUR/USD", symbol["value"]!!.jsonPrimitive.content)
+        assertEquals("row", symbol["source"]!!.jsonPrimitive.content)
+        assertTrue(symbol["mintedAtStepId"] == null, "no step wrote it — the run was handed it: $symbol")
+
+        val second = obj(get("/scenarios/runs/$runSet/entries/2"))
+        assertEquals("GBP/USD large", second["row"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertTrue(second["messages"]!!.jsonArray.any { it.jsonObject["raw"]!!.jsonPrimitive.content.contains("38=9000") })
+    }
+
+    /** One row of eight is how an author debugs the row that failed without re-running the other seven. */
+    @Test
+    fun `a single row can be run by name, and a name nothing answers to is reported`() {
+        val outline =
+            """{
+              "name": "one-row-$runId",
+              "examples": {"columns": ["symbol"], "rows": [
+                {"name": "alpha", "values": {"symbol": "EUR/USD"}},
+                {"name": "beta", "values": {"symbol": "GBP/USD"}}]},
+              "setup": [ {"type":"clearMessages","session":"CLI"} ],
+              "steps": [
+                {"type":"send","session":"CLI","raw":"35=D|11=ONE-${'$'}{uuid}|55=${'$'}{symbol}|54=1|38=1|40=1|"}
+              ]}"""
+        val id = obj(post("/scenarios", outline))["id"]!!.jsonPrimitive.content
+
+        val started = post("/scenarios/run", """{"id":"$id","rows":["beta","no-such-row"]}""")
+
+        assertEquals(202, started.statusCode(), started.body())
+        assertEquals(1, obj(started)["entries"]!!.jsonPrimitive.int)
+        assertEquals(
+            listOf("no-such-row"),
+            obj(started)["unresolved"]!!.jsonArray.map { it.jsonPrimitive.content },
+            "the row it could not find is named, and the other one still ran",
+        )
+        val runSet = obj(started)["runSet"]!!.jsonPrimitive.content
+        val status = obj(get("/scenarios/runs/$runSet?wait=10000"))
+        assertEquals("passed", status["status"]!!.jsonPrimitive.content, "$status")
+        assertEquals("beta", obj(get("/scenarios/runs/$runSet/entries/1"))["row"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+    }
+
+    /**
      * **The CI path: a set selected by name.** A build box has a checkout, not a local star file, so the
      * thing it names is a saved set — and a set whose file mentions a scenario nothing answers to runs the
      * rest and says which name it could not resolve.

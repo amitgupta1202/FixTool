@@ -1,6 +1,8 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.BindScope
+import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.MatchMode
@@ -25,6 +27,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -484,6 +487,56 @@ class ScenarioCodecTest {
         val back = ScenarioCodec.fromJson(json).setup.single()
         assertTrue(back is ScenarioStep.ClearOrderBook, "the sixth kind must survive the round trip: $back")
         assertEquals("ACC", back.session)
+    }
+
+    // ----- the outline's table ------------------------------------------------------------------------
+
+    @Test
+    fun `an examples table round-trips, and a parked row stays parked`() {
+        val scenario =
+            Scenario(
+                id = "sc-x",
+                name = "n",
+                steps = listOf(ScenarioStep.Send("35=D|55=\${symbol}|", session = "s")),
+                examples =
+                    Examples(
+                        columns = listOf("symbol", "qty"),
+                        rows =
+                            listOf(
+                                ExampleRow("EUR/USD partial", mapOf("symbol" to "EUR/USD", "qty" to "100")),
+                                ExampleRow("parked", mapOf("symbol" to "USD/JPY"), muted = true),
+                            ),
+                    ),
+            )
+
+        val back = assertNotNull(ScenarioCodec.fromJson(ScenarioCodec.toJson(scenario)).examples)
+
+        assertEquals(listOf("symbol", "qty"), back.columns)
+        assertEquals(listOf("EUR/USD partial", "parked"), back.rows.map { it.name })
+        assertEquals(mapOf("symbol" to "EUR/USD", "qty" to "100"), back.rows[0].values)
+        assertTrue(back.rows[1].muted)
+        assertEquals(listOf("EUR/USD partial"), back.live.map { it.name })
+    }
+
+    /** The columns are the contract: a cell under a name no column declares is nobody's variable. */
+    @Test
+    fun `a cell for a column the table does not declare is dropped on load`() {
+        val json =
+            Json.parseToJsonElement(
+                """{"id":"sc-x","name":"n","examples":{"columns":["symbol"],
+                   "rows":[{"name":"r","values":{"symbol":"EUR/USD","stray":"nobody-declared-me"}}]}}""",
+            ).jsonObject
+
+        val row = ScenarioCodec.fromJson(json).examples!!.rows.single()
+
+        assertEquals(mapOf("symbol" to "EUR/USD"), row.values)
+    }
+
+    /** Additive, the same bargain the rest of the format keeps. */
+    @Test
+    fun `a scenario with no table grows no key`() {
+        val scenario = Scenario(id = "sc-x", name = "n", steps = listOf(ScenarioStep.Send("35=D|", session = "s")))
+        assertNull(ScenarioCodec.toJson(scenario)["examples"], "the wire format is frozen except additively")
     }
 
     // ----- traffic -----------------------------------------------------------------------------------

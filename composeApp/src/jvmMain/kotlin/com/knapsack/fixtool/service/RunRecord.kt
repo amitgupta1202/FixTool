@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.model.scenario.ExampleRow
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.StepResult
@@ -38,6 +39,8 @@ data class RunRecord(
     /** 1-based position in the set, and the file's own prefix. */
     val entry: Int,
     val iteration: Int,
+    /** The table row this entry ran, when it had one — so a record says what the run was given. */
+    val row: ExampleRow? = null,
     val scenarioId: String,
     val scenarioName: String,
     /**
@@ -183,6 +186,15 @@ object RunRecordCodec {
             put("set", record.setId)
             put("entry", record.entry)
             put("iteration", record.iteration)
+            record.row?.let { row ->
+                put(
+                    "row",
+                    buildJsonObject {
+                        put("name", row.name)
+                        put("values", buildJsonObject { row.values.forEach { (k, v) -> put(k, v) } })
+                    },
+                )
+            }
             put(
                 "scenario",
                 buildJsonObject {
@@ -222,6 +234,13 @@ object RunRecordCodec {
             setId = obj["set"]?.jsonPrimitive?.content.orEmpty(),
             entry = obj["entry"]?.jsonPrimitive?.int ?: 0,
             iteration = obj["iteration"]?.jsonPrimitive?.int ?: 1,
+            row =
+                obj["row"]?.jsonObject?.let { row ->
+                    ExampleRow(
+                        name = row["name"]?.jsonPrimitive?.content.orEmpty(),
+                        values = row["values"]?.jsonObject.orEmpty().mapValues { (_, v) -> v.jsonPrimitive.content },
+                    )
+                },
             scenarioId = obj["scenario"]?.jsonObject?.get("id")?.jsonPrimitive?.content.orEmpty(),
             scenarioName = obj["scenario"]?.jsonObject?.get("name")?.jsonPrimitive?.content.orEmpty(),
             scenario =

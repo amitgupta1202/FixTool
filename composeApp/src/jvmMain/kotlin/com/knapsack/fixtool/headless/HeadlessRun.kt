@@ -142,6 +142,21 @@ object HeadlessRun {
                         policy = options.policy(RunPolicy()),
                     )
                 }
+                options.rows != null -> {
+                    val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
+                    val only = options.rows.takeIf { it.isNotEmpty() }
+                    only?.filterNot { name -> scenario.examples?.live.orEmpty().any { it.name == name } }
+                        ?.forEach { err.appendLine("fixtool: '${scenario.name}' has no live row named '$it'") }
+                    RunSets.examples(scenario, now, options.policy(RunPolicy()), only)
+                        ?: run {
+                            err.appendLine(
+                                "fixtool: '${scenario.name}' has no rows to run — " +
+                                    "${scenario.examples?.rows?.size ?: 0} row(s), " +
+                                    "${scenario.examples?.live?.size ?: 0} live",
+                            )
+                            return EXIT_USAGE
+                        }
+                }
                 else -> {
                     val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
                     RunSets.repeat(scenario, options.repeat, now, options.policy(RunPolicy()))
@@ -194,11 +209,11 @@ object HeadlessRun {
     private fun writeSetReports(options: Options, set: RunSet, store: RunRecordStore, err: Appendable) {
         val junit = options.junitFile ?: return
         val named =
-            set.entries.mapIndexedNotNull { i, entry ->
-                val record = store.readEntry(set.id, i + 1) ?: return@mapIndexedNotNull null
-                val repeated = entry.iteration > 1 || set.entries.count { it.scenarioId == entry.scenarioId } > 1
-                val name = if (repeated) "${entry.scenarioName} #${entry.iteration}" else entry.scenarioName
-                name to record.result
+            set.entries.indices.mapNotNull { i ->
+                val record = store.readEntry(set.id, i + 1) ?: return@mapNotNull null
+                // One place decides what an entry is called — `#3` for an iteration, `[row name]` for an
+                // outline — so the XML, the log and the rail cannot come to disagree about it.
+                set.nameOf(i) to record.result
             }
         if (junit.endsWith(".xml")) {
             write(junit, ScenarioReport.toJUnitXml(named), err)
@@ -224,7 +239,7 @@ object HeadlessRun {
                         else -> "skip  "
                     }
                 val where = entry.durationMs?.let { " ${it}ms" }.orEmpty()
-                appendLine("$mark${i + 1}/${set.total} ${entry.scenarioName}${if (entry.iteration > 1) " #${entry.iteration}" else ""}$where")
+                appendLine("$mark${i + 1}/${set.total} ${set.nameOf(i)}$where")
                 entry.note?.let { appendLine("        $it") }
                 // The first failure, named, because a build log has no report to click into.
                 entry.result?.steps?.firstOrNull { !it.passed && it.phase != "teardown" }?.let { step ->
@@ -337,7 +352,7 @@ object HeadlessRun {
     ) : RunSetHost {
         override fun scenario(id: String): Scenario? = scenarios[id]
 
-        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>): EntryOutcome {
+        override fun runOne(scenario: Scenario, sessionMap: Map<String, String>, seed: Map<String, String>): EntryOutcome {
             val recorder = RunRecorder()
             val judged = linkedMapOf<FixMessage, StepResult>()
             // Sampled while the entry runs rather than snapshotted after it: a session evicts inside a
@@ -358,7 +373,7 @@ object HeadlessRun {
             try {
                 val result =
                     ScenarioRunner(host, onExpectMatched = { message, step -> judged[message] = step })
-                        .run(scenario, sessionMap)
+                        .run(scenario, sessionMap, seed)
                 host.opened.forEach { session ->
                     recorder.observe(session.title, session.messages.value.filterIsInstance<FixMessage>())
                 }
@@ -407,9 +422,16 @@ object HeadlessRun {
         val repeat: Int = 1,
         val pauseMs: Long = 0,
         val stopOnFailure: Boolean = false,
+        /**
+         * The Examples rows to run: empty = every live row, a list = only those, null = not an outline run.
+         *
+         * Three states rather than two, because "run the table" and "run this one row of it" are different
+         * asks and `--row X` must not read as "and nothing else about the table matters".
+         */
+        val rows: List<String>? = null,
     ) {
         /** True when the arguments describe a batch rather than one run. */
-        val isSet: Boolean get() = set != null || all || repeat > 1
+        val isSet: Boolean get() = set != null || all || repeat > 1 || rows != null
 
         /** The file's policy, with whatever the command line said about it applied over the top. */
         fun policy(base: RunPolicy): RunPolicy =
@@ -430,6 +452,7 @@ object HeadlessRun {
                 var repeat = 1
                 var pauseMs = 0L
                 var stopOnFailure = false
+                var rows: MutableList<String>? = null
                 val sessions = mutableMapOf<String, String>()
                 var i = 0
                 while (i < args.size) {
@@ -441,6 +464,11 @@ object HeadlessRun {
                         arg == "--set" -> set = args.getOrNull(++i) ?: return null
                         arg == "--all" -> all = true
                         arg == "--stop-on-failure" -> stopOnFailure = true
+                        arg == "--rows" -> rows = rows ?: mutableListOf()
+                        arg == "--row" -> {
+                            val name = args.getOrNull(++i) ?: return null
+                            rows = (rows ?: mutableListOf()).also { it += name }
+                        }
                         arg == "--repeat" -> repeat = args.getOrNull(++i)?.toIntOrNull()?.takeIf { it > 0 } ?: return null
                         arg == "--pause" -> pauseMs = parseDuration(args.getOrNull(++i)) ?: return null
                         arg == "--session" -> {
@@ -454,7 +482,7 @@ object HeadlessRun {
                     }
                     i++
                 }
-                return Options(target, junit, json, sessions, home, set, all, repeat, pauseMs, stopOnFailure)
+                return Options(target, junit, json, sessions, home, set, all, repeat, pauseMs, stopOnFailure, rows)
             }
 
             /** `500ms`, `2s`, or a bare number of milliseconds — the three ways somebody writes a pause. */
@@ -480,6 +508,8 @@ object HeadlessRun {
           --set <name>        run a saved run set (~/.fixtool/sets/<name>.json)
           --all               run every saved scenario, in name order
           --repeat <n>        run each scenario n times (a flake hunt)
+          --rows              run the scenario once per live row of its Examples table
+          --row <name>        run only that row of the table (repeatable)
           --pause <500ms|2s>  wait between entries
           --stop-on-failure   end the batch at the first failing entry (CI); the default runs them all,
                               because "3 of 20 failed" is what a flake hunt needs

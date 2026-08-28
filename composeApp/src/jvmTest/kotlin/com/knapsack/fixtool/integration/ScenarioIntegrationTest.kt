@@ -24,6 +24,8 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
@@ -301,6 +303,43 @@ class ScenarioIntegrationTest {
         // And the second's 58 is the unresolved reference, proving nothing ever bound `note`.
         val second = FixMessageHelper.wireFields(awaitOrder("M2-$runId"))!!
         assertEquals("${'$'}{note}", second.single { it.first == 58 }.second)
+    }
+
+    /**
+     * **A run in progress can be abandoned.** An expect holds the single run slot for its whole timeout,
+     * so a scenario waiting on a reply that is not coming took the tool away from its author for thirty
+     * seconds — and from every other run, since the slot is one. The stop is polled, not thrown: the
+     * runner's waits are sleep loops on the thread that owns the slot and is halfway through a report.
+     */
+    @Test
+    fun `a run in progress can be stopped, and reports as stopped rather than passed`() {
+        val body =
+            """{"scenario": {
+              "name": "never-answers-$runId",
+              "steps": [
+                {"type":"expect","session":"CLI","direction":"in","timeoutMs":30000,"expectation":{
+                  "messageType":"9","mode":"open","fields":[{"tag":35,"matcher":{"type":"exact","value":"9"}}]}}
+              ]}}"""
+        // The route is synchronous, so the run has to be in flight on another thread to be stopped at all.
+        val inFlight = CompletableFuture.supplyAsync { post("/scenarios/run", body) }
+        assertTrue(awaitCondition(10_000) { viewModel.scenarioRunning.value }, "the run should have claimed the slot")
+
+        val askedAt = System.currentTimeMillis()
+        viewModel.requestScenarioStop()
+        val ran = obj(inFlight.get(20, TimeUnit.SECONDS))
+
+        assertTrue(
+            System.currentTimeMillis() - askedAt < 10_000,
+            "the stop must land within a poll, not at the end of the 30s timeout",
+        )
+        assertFalse(ran["passed"]!!.jsonPrimitive.boolean, "a run that stopped checking has not checked: $ran")
+        val stopped =
+            ran["steps"]!!.jsonArray.map { it.jsonObject }.single { it["kind"]!!.jsonPrimitive.content == "stopped" }
+        assertTrue(stopped["detail"]!!.jsonPrimitive.content.contains("stopped by request"), "$stopped")
+
+        // And the slot is free again: a stopped run releases what it held, or nothing could run after it.
+        assertTrue(awaitCondition(5_000) { !viewModel.scenarioRunning.value }, "the run slot must be released")
+        assertTrue(obj(post("/scenarios/run", """{"scenario": ${scenarioJson("after-stop", "0")}}"""))["passed"]!!.jsonPrimitive.boolean)
     }
 
     /**

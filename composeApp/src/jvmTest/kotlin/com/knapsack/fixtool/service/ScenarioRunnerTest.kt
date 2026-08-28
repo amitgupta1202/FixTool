@@ -764,6 +764,65 @@ class ScenarioRunnerTest {
         assertFalse(result.steps.single { it.kind == "traffic" }.passed)
     }
 
+    // ------------------------------------------------------------------- stopping a run in progress
+
+    /**
+     * An expect holds the run slot for its whole timeout, so a scenario waiting on a reply that is not
+     * coming used to be un-abandonable: thirty seconds of a tool that will not answer. The stop lands
+     * inside the poll loop, and the run says where it was rather than reporting a timeout it never
+     * reached.
+     */
+    @Test
+    fun `a run stopped mid-expect says where it was, and does not pass`() {
+        val host = FakeHost()
+        var stop = false
+        host.onSleep = { stop = true }
+        val scenario =
+            Scenario(
+                id = "x",
+                name = "long",
+                steps = listOf(expectWith(timeoutMs = 30_000, FieldExpectation(39, Matcher.Exact("2")))),
+                // Cleanup that must NOT run: sending a goodbye is not stopping.
+                teardown = listOf(ScenarioStep.Send("35=5|", session = "s")),
+            )
+
+        val result = runCancellable(host, scenario) { stop }
+
+        assertFalse(result.passed, "a run that stopped checking has not checked: ${result.steps}")
+        val stopped = result.steps.single { it.kind == "stopped" }
+        assertTrue(stopped.detail!!.contains("stopped by request"), "${stopped.detail}")
+        assertTrue(stopped.detail!!.contains("waiting for a 8 message"), "and what it was mid-way through: ${stopped.detail}")
+        assertTrue(host.sent.isEmpty(), "teardown must not run on a stop")
+        assertTrue(host.clock < 30_000, "the stop lands within a poll, not at the end of the timeout: ${host.clock}")
+    }
+
+    /** Between steps, too — otherwise a stop during a long send sequence runs the whole sequence out. */
+    @Test
+    fun `a run stopped between steps does not start the next one`() {
+        val host = FakeHost()
+        val scenario =
+            scenario(
+                ScenarioStep.Send("35=D|11=ONE|", session = "s"),
+                ScenarioStep.Send("35=D|11=TWO|", session = "s"),
+            )
+
+        val result = runCancellable(host, scenario) { host.sent.isNotEmpty() }
+
+        assertEquals(listOf("35=D|11=ONE|"), host.sent, "the second step must not run")
+        assertFalse(result.passed)
+        assertEquals("stopped", result.steps.last().kind)
+    }
+
+    /** The ordinary case: nobody asked, so nothing about the report changes. */
+    @Test
+    fun `a run nobody stopped reports no stopped row`() {
+        val host = FakeHost()
+        host.arriving += incoming("8", mapOf(35 to "8", 39 to "2"))
+        val result = runCancellable(host, scenario(expectWith(timeoutMs = 500, FieldExpectation(39, Matcher.Exact("2"))))) { false }
+        assertTrue(result.passed)
+        assertTrue(result.steps.none { it.kind == "stopped" })
+    }
+
     // --------------------------------------------------------------------------- what a step cost
 
     /**
@@ -1388,6 +1447,10 @@ class ScenarioRunnerTest {
         now = { host.clock },
         onExpectMatched = { m, r -> seen += m to r },
     ).run(scenario)
+
+    /** [run], but with somebody able to ask the run to stop. */
+    private fun runCancellable(host: FakeHost, scenario: Scenario, cancelled: () -> Boolean) =
+        ScenarioRunner(host, pollMs = 10, now = { host.clock }, cancelled = cancelled).run(scenario)
 
     private fun scenario(vararg steps: ScenarioStep) = Scenario(id = "x", name = "t", steps = steps.toList())
 

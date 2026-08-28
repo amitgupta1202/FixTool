@@ -64,6 +64,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.scenario.ExampleRow
+import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.MatchOp
@@ -245,20 +247,54 @@ fun ScenarioEditor(
     var selectedIdx by remember {
         mutableStateOf(selectedStep ?: focusStep ?: if (initial.steps.isEmpty()) -1 else 0)
     }
+    // The outline's table. Held here with the steps, and emitted through the same `built` — a column is a
+    // variable name and a cell is the value a run will have, so this is scenario state, not view chrome.
+    var columns by remember { mutableStateOf(initial.examples?.columns.orEmpty()) }
+    var rows by remember { mutableStateOf(initial.examples?.rows.orEmpty()) }
+    // Shut on a scenario with no table, open on one that has: the strip is a single line either way, and
+    // an author who has a table is looking at it.
+    var tableOpen by remember { mutableStateOf(initial.examples?.rows?.isNotEmpty() == true) }
 
     val builtSteps = steps.map { it.toStep() }
-    val built = initial.copy(name = name, steps = builtSteps, traffic = traffic, binding = binding)
+    val table = Examples(columns, rows).takeIf { it.columns.isNotEmpty() || it.rows.isNotEmpty() }
+    val built = initial.copy(name = name, steps = builtSteps, traffic = traffic, binding = binding, examples = table)
     // By value, not by every recomposition: an untouched editor emits its seed once and then stays quiet.
     LaunchedEffect(built) { onChange(built) }
 
     val stepVars = ScenarioAnnotations.annotate(builtSteps)
-    val varSites = ScenarioAnnotations.sites(builtSteps)
+    val varSites = ScenarioAnnotations.sites(builtSteps, columns)
+    // Muted mints stay RESERVED even while they do not run: a fresh mint that took a parked step's name
+    // would collide with it the moment the step is unmuted. Hoisted above the extract door, which has to
+    // avoid every one of them when it names a column.
+    val allMintedNames = stepVars.flatMap { it.minted }.distinct()
     val varColors = varColorMap(stepVars.flatMap { it.minted })
     val sessionColors = sessionColorMap(steps.mapNotNull { it.session } + sessionOptions)
 
     fun select(index: Int) {
         selectedIdx = index
         onSelectStep(index)
+    }
+
+    /**
+     * **A literal becomes a column.** Capture bakes literals into a scenario's sends, so the first table is
+     * made from one of them rather than typed: the value gets the dictionary's name for its field, the
+     * column appears, and *every existing row* is given the literal as its cell.
+     *
+     * Every row, not just the first: those rows already sent this literal, because the step's value was
+     * one. Filling only row 1 would leave the others seeding an empty string — the same send, silently
+     * carrying nothing where it used to carry a value.
+     */
+    fun extractToColumn(tag: Int, literal: String): String {
+        val name = mintName(tag, dictionary?.getFieldName(tag), (allMintedNames + columns).toSet())
+        columns = columns + name
+        rows =
+            if (rows.isEmpty()) {
+                listOf(ExampleRow(name = "row 1", values = mapOf(name to literal)))
+            } else {
+                rows.map { row -> row.copy(values = row.values + (name to literal)) }
+            }
+        tableOpen = true
+        return name
     }
 
     fun insertStep(kind: StepKind) {
@@ -311,14 +347,23 @@ fun ScenarioEditor(
         // to it is exactly the leaves-a-literal problem this strip warns about.
         val activeSteps = builtSteps.filterNot { it.muted }
         val mintedNames = builtSteps.zip(stepVars).filterNot { (s, _) -> s.muted }.flatMap { (_, v) -> v.minted }.distinct()
-        // Muted mints stay RESERVED even while they do not run: a fresh mint that took a parked step's
-        // name would collide with it the moment the step is unmuted.
-        val allMintedNames = stepVars.flatMap { it.minted }.distinct()
-        val unminted = ScenarioAnnotations.unminted(activeSteps)
+        // A column IS a mint — the row writes it before the first step runs — so an outline does not report
+        // its own columns as typos.
+        val unminted = ScenarioAnnotations.unminted(activeSteps, columns)
         val runValues = runVariables.associate { it.name to it.value }
         VariablesStrip(
             chips =
-                mintedNames.map { name ->
+                columns.map { column ->
+                    VariableChipData(
+                        name = column,
+                        value = runValues[column],
+                        tooltip =
+                            "\${$column} comes from the examples table — one value per row, seeded into the " +
+                                "run's scope before the first step" +
+                                (runValues[column]?.let { ". Last run: $it" } ?: ""),
+                    )
+                } +
+                mintedNames.filterNot { it in columns }.map { name ->
                     VariableChipData(
                         name = name,
                         value = runValues[name],
@@ -431,6 +476,7 @@ fun ScenarioEditor(
                             onChange = { steps[selectedIdx] = it },
                             onOpenDiff = onOpenDiff?.let { open -> { tag -> open(steps[selectedIdx].stepId, tag) } },
                             takenNames = allMintedNames.toSet(),
+                            onExtractColumn = ::extractToColumn,
                         )
                     }
                 } else {
@@ -438,6 +484,36 @@ fun ScenarioEditor(
                 }
             }
         }
+        // Across the foot, under both panes: a table is wide, and the step list is a column of sentences
+        // that would lose its room to one nested inside it.
+        ScenarioExamplesTable(
+            columns = columns,
+            rows = rows,
+            columnRole = { column -> columnRole(column, varSites[column]?.referencedAt.orEmpty(), builtSteps) },
+            unread = ScenarioAnnotations.unreadColumns(builtSteps, columns),
+            expanded = tableOpen,
+            onExpand = { tableOpen = it },
+            onColumns = { columns = it },
+            onRows = { rows = it },
+        )
+    }
+}
+
+/**
+ * **↑ out / ↓ in / ↑↓** — which side of the wire reads a column, derived rather than declared.
+ *
+ * The distinction is real and the tool already computes it: a Send that reads `${symbol}` is the row
+ * *driving* the flow, and an expectation that reads it is the row *asserting* the reply. So a column needs
+ * no inbound/outbound flag of its own — it needs the badge that says which it turned out to be.
+ */
+private fun columnRole(column: String, referencedAt: List<Int>, steps: List<ScenarioStep>): String {
+    val out = referencedAt.any { steps.getOrNull(it) is ScenarioStep.Send }
+    val inbound = referencedAt.any { steps.getOrNull(it) is ScenarioStep.Expect }
+    return when {
+        out && inbound -> "↑↓"
+        out -> "↑"
+        inbound -> "↓"
+        else -> "·"
     }
 }
 
@@ -761,6 +837,8 @@ private fun StepDetail(
     onOpenDiff: ((Int?) -> Unit)? = null,
     /** Names the scenario already mints anywhere — a fresh mint must not silently re-assign one. */
     takenNames: Set<String> = emptySet(),
+    /** Turns a literal into an examples column; answers the name the column got. See [ScenarioEditor]. */
+    onExtractColumn: ((Int, String) -> String)? = null,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -796,7 +874,7 @@ private fun StepDetail(
         }
     }
     when (step.kind) {
-        StepKind.SEND -> SendDetail(step, dictionary, onChange, takenNames)
+        StepKind.SEND -> SendDetail(step, dictionary, onChange, takenNames, onExtractColumn)
         StepKind.EXPECT -> ExpectDetail(step, dictionary, sessionOptions, sessionColor, onChange, onOpenDiff)
         StepKind.WAIT ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -879,6 +957,7 @@ private fun SendDetail(
     dictionary: FixDictionary?,
     onChange: (EditStep) -> Unit,
     takenNames: Set<String> = emptySet(),
+    onExtractColumn: ((Int, String) -> String)? = null,
 ) {
     // A captured order can be sixty rows of tag·name·value, and the author is looking for one of them. The
     // same box, the same rule and the same gold as the message editor's field grid — see [SlimSearchBar].
@@ -933,7 +1012,7 @@ private fun SendDetail(
     BoxWithConstraints {
         val valueWidth = sendValueWidth(maxWidth)
         Column {
-            SendFieldRows(step, dictionary, allFields, valueWidth, takenNames, query, onChange, ::moveField)
+            SendFieldRows(step, dictionary, allFields, valueWidth, takenNames, query, onChange, ::moveField, onExtractColumn)
         }
     }
 }
@@ -1010,6 +1089,7 @@ private fun SendFieldRows(
     query: String,
     onChange: (EditStep) -> Unit,
     moveField: (Int, Int) -> Unit,
+    onExtractColumn: ((Int, String) -> String)? = null,
 ) {
     step.fields.forEachIndexed { i, field ->
         val tag = field.tag
@@ -1061,6 +1141,26 @@ private fun SendFieldRows(
                             onClick = { update(tag, mintFieldValue(value, name)) },
                             color = AppTheme.Colors.info,
                             modifier = Modifier.testTag("send-mint-$i"),
+                        )
+                    }
+                }
+            }
+            // **Extract to an examples column.** Nobody hand-writes the first table: a captured scenario has
+            // literals baked into its sends, and this is the door from one of them to a column. The literal
+            // becomes ${name}, the column takes the dictionary's name for the field, and every existing row
+            // gets the literal as its cell — so extracting changes what the scenario *says*, never what any
+            // row of it *does*.
+            Box(modifier = Modifier.width(MINT_SLOT_WIDTH), contentAlignment = Alignment.Center) {
+                if (onExtractColumn != null && value.isNotBlank() && !field.excluded && !ALREADY_MINTS.containsMatchIn(value)) {
+                    AppTooltip(
+                        "Extract to an examples column — this value becomes a column of the scenario's table, " +
+                            "and the scenario runs once per row. Every row you already have keeps this value.",
+                    ) {
+                        SlimButton(
+                            "▦",
+                            onClick = { update(tag, "\${" + onExtractColumn(tag, value) + "}") },
+                            color = AppTheme.Colors.primary,
+                            modifier = Modifier.testTag("send-extract-$i"),
                         )
                     }
                 }

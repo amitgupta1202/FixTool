@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.service
 
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -101,8 +102,25 @@ object ScenarioAnnotations {
         // A column IS a mint — the row writes it before the first step runs. Without this, every outline
         // would report every one of its own columns as a typo, which is a lint that has cried wolf.
         val minted = steps.flatMap { mintedIn(it) }.toSet() + columns
-        return steps.flatMap { referencedIn(it) }.filter { it !in minted }.distinct()
+        return steps.flatMap { referencedIn(it) }.filter { it !in minted && !suppliedWithoutAStep(it) }.distinct()
     }
+
+    /**
+     * **Names that resolve without any step writing them**, and so are references rather than typos.
+     *
+     * Two kinds, and the lint used to flag both. A **generator** — `${uuid}`, `${now}`, `${utcnow}` — is
+     * expanded before a variable is ever looked up; only the bare spellings reach here, since `${uuid:20}`
+     * and `${now+1h}` carry a character `\w` cannot match and never matched the reference pattern in the
+     * first place. A **lane seed** — the four names in [Lane.SEED_NAMES] — is put in the scope by the
+     * fan-out entry or by Bulk Send before the first step runs.
+     *
+     * The lane case was the one that mattered: `11=ORD-${sessionIndex}` is the canonical way to write a
+     * fan-out scenario, so every correctly authored one wore four warnings advising the author to mint
+     * the name in a Send — which would have overwritten the lane's identity with a literal and given
+     * fifty lanes the same ClOrdID. The lint told the truth's opposite.
+     */
+    private fun suppliedWithoutAStep(name: String): Boolean =
+        name in Lane.SEED_NAMES || name.lowercase() in ShorthandTemplateExpander.SHORTHAND_KEYWORDS
 
     /**
      * Columns the scenario never reads — the other half of the outline's lint.

@@ -116,11 +116,28 @@ data class Lane(
      */
     fun seed(): Map<String, String> =
         mapOf(
-            "sessionIndex" to slot.toString(),
-            "sessionQualifier" to qualifier,
-            "sessionTitle" to sessionTitle,
-            "sessionSenderCompID" to senderCompID,
+            SESSION_INDEX to slot.toString(),
+            SESSION_QUALIFIER to qualifier,
+            SESSION_TITLE to sessionTitle,
+            SESSION_SENDER_COMP_ID to senderCompID,
         )
+
+    companion object {
+        const val SESSION_INDEX = "sessionIndex"
+        const val SESSION_QUALIFIER = "sessionQualifier"
+        const val SESSION_TITLE = "sessionTitle"
+        const val SESSION_SENDER_COMP_ID = "sessionSenderCompID"
+
+        /**
+         * **The four names a run is handed rather than mints**, owned in one place.
+         *
+         * They were typed out in two files — here and Bulk Send's `sessionTemplateVariables` — and read
+         * by a third that knew nothing about either: the authoring lint flagged all four as never-minted
+         * typos, on every correctly written fan-out scenario, and advised minting them in a Send, which
+         * would have overwritten the lane's own identity.
+         */
+        val SEED_NAMES = setOf(SESSION_INDEX, SESSION_QUALIFIER, SESSION_TITLE, SESSION_SENDER_COMP_ID)
+    }
 }
 
 /** One request in a set: which scenario, which iteration of it, and what became of it. */

@@ -69,8 +69,12 @@ object ShorthandTemplateExpander {
     // keyword wins the alternation.
     private val SHORTHAND_VAR_ASSIGNMENT_PATTERN = """^\s*(uuid|utcnow|now)\s*=.*$""".toRegex(RegexOption.IGNORE_CASE)
 
-    // Reserved shorthand keywords that cannot be used as variable names
-    private val SHORTHAND_KEYWORDS = setOf("uuid", "now", "utcnow")
+    /**
+     * Reserved shorthand keywords that cannot be used as variable names — and, read from outside, the
+     * generators a scenario may reference without any step minting them. Matched case-insensitively
+     * wherever it is used, because the patterns above are `IGNORE_CASE`.
+     */
+    val SHORTHAND_KEYWORDS = setOf("uuid", "now", "utcnow")
 
     // Keywords and patterns that should NOT be treated as shorthand
     // (to avoid false matches with Kotlin expressions)

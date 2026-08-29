@@ -3772,10 +3772,10 @@ class FixMessageViewModel(
      */
     fun sessionTemplateVariables(session: FixMessageSession, index: Int): Map<String, String> =
         mapOf(
-            "sessionIndex" to index.toString(),
-            "sessionQualifier" to session.sessionQualifier,
-            "sessionTitle" to session.title,
-            "sessionSenderCompID" to (session.currentConfig?.senderCompID ?: ""),
+            Lane.SESSION_INDEX to index.toString(),
+            Lane.SESSION_QUALIFIER to session.sessionQualifier,
+            Lane.SESSION_TITLE to session.title,
+            Lane.SESSION_SENDER_COMP_ID to (session.currentConfig?.senderCompID ?: ""),
         )
 
     /**

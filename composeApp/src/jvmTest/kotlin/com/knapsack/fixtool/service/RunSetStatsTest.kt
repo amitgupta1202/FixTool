@@ -111,6 +111,25 @@ class RunSetStatsTest {
         assertNull(json["failedLanes"], "no lane failed, so the key is absent rather than empty")
     }
 
+    /**
+     * **A reopened set has no results to compute from.** `set.json` keeps entries but not their reports,
+     * so the round trip is the only way the rail can show a distribution for a set from Recent runs —
+     * which is to say, for every set whose run has finished and been closed.
+     */
+    @Test
+    fun `the distribution survives the round trip a reopened set depends on`() {
+        val set =
+            laneSet(latencies = listOf(106L, 106L, 105L), durations = listOf(608L, 678L, 550L)).let { s ->
+                s.copy(entries = s.entries.mapIndexed { i, e -> if (i == 1) e.copy(state = RunState.FAILED) else e })
+            }
+        val live = assertNotNull(RunSetStats.of(set))
+
+        val back = assertNotNull(RunSetStats.fromJson(RunSetStats.toJson(live)))
+
+        assertEquals(live, back)
+        assertEquals(listOf(2), back.failedLanes, "the lane that failed is named on the way back too")
+    }
+
     /** Nothing measured means no block at all — an invented zero would be worse than the silence. */
     @Test
     fun `a set that measured nothing serializes to nothing`() {

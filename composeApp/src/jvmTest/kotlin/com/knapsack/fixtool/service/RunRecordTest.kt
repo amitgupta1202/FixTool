@@ -344,6 +344,61 @@ class RunRecordTest {
         assertNull(parsed.messages.single().wireRaw, "no order was observed, so none is handed on")
     }
 
+    /**
+     * **A pipe inside a value, on the branch that substitutes pipes.** A record that fell back to the
+     * display form has no SOH, so `toWireFixMessage` turns every `|` into a delimiter — and a Text field
+     * carrying one would be read as a short message plus a segment that is silently dropped. Counted as
+     * unreadable rather than shown as a message that says something the venue never said.
+     */
+    @Test
+    fun `a display-form message whose reading is disproved is not shown as a shorter one`() {
+        val record =
+            sampleRecord("nightly").copy(
+                messages =
+                    listOf(
+                        RecordedMessage(
+                            index = 0,
+                            session = "CLI",
+                            incoming = true,
+                            atMicros = 1,
+                            raw = "8=FIX.4.4|35=8|39=8|58=Rejected|insufficient margin|",
+                            wireOrderKnown = false,
+                        ),
+                    ),
+                bound = emptyMap(),
+            )
+
+        val parsed = RunRecordMessages.of(record, FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4))
+
+        assertEquals(0, parsed.messages.size, "the reading was disproved, so nothing is asserted about it")
+    }
+
+    /** The same bytes in wire order are unambiguous by construction, and still read. */
+    @Test
+    fun `the same message with real SOH bytes is read, pipe and all`() {
+        val soh = "\u0001"
+        val record =
+            sampleRecord("nightly").copy(
+                messages =
+                    listOf(
+                        RecordedMessage(
+                            index = 0,
+                            session = "CLI",
+                            incoming = true,
+                            atMicros = 1,
+                            raw = "8=FIX.4.4$soh" + "35=8$soh" + "39=8$soh" + "58=Rejected|insufficient margin$soh",
+                            wireOrderKnown = true,
+                        ),
+                    ),
+                bound = emptyMap(),
+            )
+
+        val parsed = RunRecordMessages.of(record, FixDictionaryAdapter.forVersion(FixVersion.FIX_4_4))
+
+        assertEquals(1, parsed.messages.size)
+        assertEquals("Rejected|insufficient margin", parsed.messages.single().valueOfTag(58))
+    }
+
     // ----------------------------------------------------------------- fixtures
 
     /**

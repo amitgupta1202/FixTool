@@ -3,6 +3,7 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.service.compare.WirePaste
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.FixMessageHelper.toRawFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toWireFixMessage
@@ -64,6 +65,14 @@ object RunRecordMessages {
 
     private fun parse(recorded: RecordedMessage, dictionary: FixDictionaryAdapter?): FixMessage? =
         runCatching {
+            // **The pipe, on the fallback branch.** When the record could not vouch for the wire order it
+            // stored the DISPLAY form, and `toWireFixMessage` turns every `|` in that into a delimiter —
+            // including one inside a value. `58=Rejected|insufficient margin` would parse as `58=Rejected`
+            // plus a segment that is not `tag=value` and is dropped without a word, which is the silent
+            // shredding `WirePaste` exists to refuse. Ask it, and let an unreadable message be counted as
+            // unreadable rather than shown as a shorter one. Bytes that already carry SOH are unambiguous
+            // by construction and never take this path.
+            if (!recorded.wireOrderKnown && !WirePaste.read(recorded.raw).usable) return@runCatching null
             val wire = recorded.raw.toWireFixMessage()
             val quickfix =
                 if (dictionary != null) wire.toQuickFixMessageManual(dictionary) else quickfix.Message(wire, false)

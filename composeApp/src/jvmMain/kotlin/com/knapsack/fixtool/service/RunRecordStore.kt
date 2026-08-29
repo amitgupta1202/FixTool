@@ -351,15 +351,25 @@ object RunSetCodec {
                     put("scenarioId", source.scenarioId)
                 }
                 is RunSource.FanOut -> {
-                    put("type", "fanOut")
+                    put("type", "fanout")
                     put("scenarioId", source.scenarioId)
                     put("profileId", source.profileId)
                 }
             }
         }
 
+    /**
+     * **Read the tag case-insensitively.** The writer emitted `"fanOut"` while this read `"fanout"`, so
+     * every fan-out set ever written fell through to the `Selected` fallback below and came back with its
+     * identity gone: the rail gates its whole latency report on `source is RunSource.FanOut`, so a set
+     * reopened from Recent runs showed no distribution — the one place that number existed, lost on the
+     * round trip while every `latencyMs` sat intact in the sibling record files.
+     *
+     * The writer now agrees with its lowercase siblings, and this stays tolerant so the records already
+     * on disk are recovered rather than abandoned.
+     */
     private fun sourceFromJson(obj: JsonObject?): RunSource =
-        when (obj?.get("type")?.jsonPrimitive?.contentOrNull) {
+        when (obj?.get("type")?.jsonPrimitive?.contentOrNull?.lowercase()) {
             "saved" -> RunSource.Saved(obj["name"]?.jsonPrimitive?.content.orEmpty())
             "favourites" -> RunSource.Favourites
             "filtered" -> RunSource.Filtered(obj["text"]?.jsonPrimitive?.content.orEmpty())

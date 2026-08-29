@@ -346,6 +346,46 @@ class RunRecordTest {
 
     // ----------------------------------------------------------------- fixtures
 
+    /**
+     * **Every source survives the round trip.** `FanOut` did not: the writer put `"fanOut"` and the reader
+     * matched `"fanout"`, so a fan-out set came back as `Selected(emptyList())` and the rail — which gates
+     * its whole p50/p95/max report on `source is RunSource.FanOut` — showed nothing for a set reopened
+     * from Recent runs. One variant was wrong and nothing failed, so this covers the whole sealed set
+     * rather than the one that broke.
+     */
+    @Test
+    fun `every run source survives a write and a read`() {
+        val store = RunRecordStore(customDir = dir.absolutePath)
+        val sources =
+            listOf(
+                RunSource.Saved("nightly"),
+                RunSource.Favourites,
+                RunSource.Filtered("eur"),
+                RunSource.Selected(listOf("sc-1", "sc-2")),
+                RunSource.Repeat("sc-1", 20),
+                RunSource.Examples("sc-1"),
+                RunSource.FanOut("sc-1", "prof-1"),
+            )
+
+        sources.forEachIndexed { i, source ->
+            val set = sampleSet().copy(id = "set-$i", source = source)
+            assertTrue(store.begin(set))
+            assertEquals(source, assertNotNull(store.readSet(set.id)).source, "$source did not survive")
+        }
+    }
+
+    /** A record written before the tag was spelled consistently is recovered, not abandoned. */
+    @Test
+    fun `a set written with the old camelCase fanOut tag still reads as a fan-out`() {
+        val store = RunRecordStore(customDir = dir.absolutePath)
+        val set = sampleSet().copy(source = RunSource.FanOut("sc-1", "prof-1"))
+        assertTrue(store.begin(set))
+        val file = File(store.directoryFor(set.id), "set.json")
+        file.writeText(file.readText().replace("\"fanout\"", "\"fanOut\""))
+
+        assertEquals(RunSource.FanOut("sc-1", "prof-1"), assertNotNull(store.readSet(set.id)).source)
+    }
+
     private fun sampleSet() =
         RunSet(
             id = "2026-08-28T09-36-02-nightly",

@@ -898,7 +898,7 @@ private fun RunSetLine(
             // Computed from a live set, read back for one that has been reopened: `set.json` keeps entries
             // but not their reports, so a set from Recent runs can recompute none of this. Without the
             // fallback the distribution was visible only while the run that produced it was still on screen.
-            val stats = remember(set) { RunSetStats.of(set) ?: storedStats(set.id) }
+            val stats = remember(set) { RunSetStats.merge(RunSetStats.of(set), storedStats(set.id)) }
             stats?.replyLatency?.let { steps ->
                 Text(
                     "reply latency  ${RunSetStats.describe(steps)}  (${steps.samples} steps)" +

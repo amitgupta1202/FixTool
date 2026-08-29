@@ -87,6 +87,39 @@ class ScenarioAnnotationsTest {
     }
 
     /**
+     * **A lane seed is handed to the run, not minted by it.** `11=ORD-${sessionIndex}` is the canonical
+     * way to write a fan-out scenario, so flagging it made the lint wrong on every correct one — and the
+     * advice it gave ("mint it in a Send") would have replaced the lane's identity with one literal and
+     * given every lane the same ClOrdID.
+     */
+    @Test
+    fun `the four lane seeds are references, not typos`() {
+        val steps = listOf(
+            ScenarioStep.Send(
+                "35=D|11=ORD-\${sessionIndex}-\${uuid}|49=\${sessionSenderCompID}|58=\${sessionTitle}\${sessionQualifier}|41=\${typo}|",
+                "A",
+            ),
+        )
+
+        assertEquals(listOf("typo"), ScenarioAnnotations.unminted(steps))
+    }
+
+    /**
+     * **The generators resolve without a step, so they are not typos either.** Only the bare spellings
+     * ever reached the lint — `${uuid:20}` and `${now+1h}` carry characters the bare-name pattern cannot
+     * match — but the bare ones are exactly what capture writes for a TransactTime and what an author
+     * types for a one-off id.
+     */
+    @Test
+    fun `the built-in generators are not unminted references`() {
+        val steps = listOf(
+            ScenarioStep.Send("35=D|11=\${uuid}|60=\${utcnow}|42=\${now}|43=\${UTCNOW}|41=\${typo}|", "A"),
+        )
+
+        assertEquals(listOf("typo"), ScenarioAnnotations.unminted(steps), "case-insensitive: the expander is too")
+    }
+
+    /**
      * **A column IS a mint** — the row writes it before the first step runs. Without this every outline
      * would report every one of its own columns as a typo, which is a lint that has cried wolf.
      */

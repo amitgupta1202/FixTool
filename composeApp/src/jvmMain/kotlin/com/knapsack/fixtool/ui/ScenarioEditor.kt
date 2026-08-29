@@ -64,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.scenario.Lane
 import com.knapsack.fixtool.model.scenario.ExampleRow
 import com.knapsack.fixtool.model.scenario.Examples
 import com.knapsack.fixtool.model.scenario.Expectation
@@ -350,6 +351,11 @@ fun ScenarioEditor(
         // A column IS a mint — the row writes it before the first step runs — so an outline does not report
         // its own columns as typos.
         val unminted = ScenarioAnnotations.unminted(activeSteps, columns)
+        // Seeds this scenario actually reads, so a flow that names none does not advertise all four.
+        val laneSeedsReferenced =
+            ScenarioAnnotations.sites(activeSteps, columns).keys
+                .filter { it in Lane.SEED_NAMES }
+                .sorted()
         val runValues = runVariables.associate { it.name to it.value }
         VariablesStrip(
             chips =
@@ -370,6 +376,20 @@ fun ScenarioEditor(
                         tooltip =
                             runValues[name]?.let { "\${$name} = $it (last run)" }
                                 ?: "\${$name} — values appear here after a run",
+                    )
+                } +
+                // The lane a fan-out (or Bulk Send) hands the run. Referenced but never minted, like a
+                // column — and, like a column, that is what makes it work rather than what is wrong with
+                // it. Shown with its value, because the run that proves the name resolves is exactly the
+                // run whose value the old warning chip threw away.
+                laneSeedsReferenced.map { name ->
+                    VariableChipData(
+                        name = name,
+                        value = runValues[name],
+                        tooltip =
+                            "\${$name} comes from the fan-out lane (or Bulk Send) — seeded into the run's " +
+                                "scope before the first step, one value per session" +
+                                (runValues[name]?.let { ". Last run: $it" } ?: ""),
                     )
                 } +
                     unminted.map { name ->

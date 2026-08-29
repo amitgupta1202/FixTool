@@ -175,7 +175,9 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
         Text(
             "${set.nameOf(entry - 1)} · entry ${record.entry} of ${set.total} · ${parsed.messages.size} messages · " +
                 (set.entries.getOrNull(entry - 1)?.record ?: "") +
-                (if (record.dropped > 0) " · ${record.dropped} dropped by the cap" else ""),
+                (if (record.dropped > 0) " · ${record.dropped} dropped by the cap" else "") +
+                // A shorter list with no explanation reads as "that is all there was".
+                ((record.messages.size - parsed.messages.size).takeIf { it > 0 }?.let { " · $it could not be read" } ?: ""),
             color = AppTheme.Colors.textDisabled,
             fontSize = 10.sp,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp).testTag("run-entry-header"),

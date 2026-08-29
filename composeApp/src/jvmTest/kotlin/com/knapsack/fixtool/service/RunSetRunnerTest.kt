@@ -364,6 +364,44 @@ class RunSetRunnerTest {
 
     // ----------------------------------------------------------------- helpers
 
+    /**
+     * **A re-run is the entry, not just the scenario.** An outline's entry IS its row and a fan-out's
+     * entry IS its lane, so a re-run that dropped them would run something else and put the answer under
+     * the same name. The session map comes with it too, or an entry that ran against a remapped
+     * environment would re-run against the default one.
+     */
+    @Test
+    fun `re-running a recorded entry carries its row, its lane and its environment`() {
+        val sc = scenario("book-a-trade")
+        val record =
+            RunRecord(
+                setId = "set-1",
+                entry = 3,
+                iteration = 1,
+                row = ExampleRow("GBP/USD large", mapOf("symbol" to "GBP/USD")),
+                lane = Lane(7, "LoadGen [7]", "LOADGEN07", "q7"),
+                scenarioId = sc.id,
+                scenarioName = sc.name,
+                scenario = sc,
+                startedAt = 1,
+                durationMs = 5,
+                result = ScenarioResult(scenario = sc.name, passed = false, steps = emptyList()),
+                messages = emptyList(),
+                bound = emptyMap(),
+            )
+
+        val set = RunSets.rerun(sc, record, sessionMap = mapOf("CLI" to "UAT [2]"), was = "book-a-trade [GBP/USD large]", now = 9)
+
+        assertEquals(1, set.entries.size, "a new set of one")
+        val only = set.entries.single()
+        assertEquals("GBP/USD large", only.row?.name)
+        assertEquals(7, only.lane?.slot)
+        assertEquals(mapOf("CLI" to "UAT [2]"), only.sessionMap)
+        assertEquals(RunSource.Selected(listOf(sc.id)), set.source)
+        assertTrue(set.policy.isolateIterations, "isolated, like every other entry")
+        assertTrue(set.label.contains("re-run of book-a-trade [GBP/USD large]"), set.label)
+    }
+
     private fun scenario(name: String) =
         Scenario(id = "id-$name", name = name, steps = listOf(ScenarioStep.Send("35=D|", session = "s")))
 

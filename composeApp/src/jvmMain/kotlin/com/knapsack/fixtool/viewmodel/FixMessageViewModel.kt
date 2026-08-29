@@ -3049,7 +3049,7 @@ class FixMessageViewModel(
      * [onProgress] is called after every state change, so a caller can render the queue while it drains;
      * `set.json` is rewritten at the same moments, so a reader in another process sees the same progress.
      */
-    fun runSetBlocking(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet? = claimRunSlot { runSetHeld(set, onProgress) }
+    fun runSetBlocking(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet? = claimRunSlot { runSetHeld(set, onProgress = onProgress) }
 
     /**
      * **Starts a set on a background thread and answers immediately** — the control surface's job model.
@@ -3059,7 +3059,7 @@ class FixMessageViewModel(
      * route that ran it inline held one of four HTTP threads for all of them, with the MCP shim giving up
      * at fifteen seconds.
      */
-    fun startRunSet(set: RunSet): RunSet? {
+    fun startRunSet(set: RunSet, pinned: Map<String, Scenario> = emptyMap()): RunSet? {
         if (!beginScenarioRun()) return null
         // Written here, on the caller's thread, and not left to the scheduler: a 202 that hands back an id
         // has promised that the id can be fetched, and a caller polling on the next line must not race the
@@ -3069,7 +3069,7 @@ class FixMessageViewModel(
         _activeRunSet.value = starting
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                runSetHeld(starting) { }
+                runSetHeld(starting, pinned) { }
             } catch (e: Exception) {
                 logger.error("Run set failed: ${e.message}", e, notifyUser = false)
             } finally {
@@ -3080,10 +3080,10 @@ class FixMessageViewModel(
     }
 
     /** The set itself, with the slot already held by whoever called. */
-    private fun runSetHeld(set: RunSet, onProgress: (RunSet) -> Unit): RunSet {
+    private fun runSetHeld(set: RunSet, pinned: Map<String, Scenario> = emptyMap(), onProgress: (RunSet) -> Unit): RunSet {
         runRecordStore.begin(set)
         val done =
-            RunSetRunner(ViewModelRunSetHost()).run(set) { progress ->
+            RunSetRunner(ViewModelRunSetHost(pinned)).run(set) { progress ->
                 _activeRunSet.value = progress
                 onProgress(progress)
             }
@@ -3324,6 +3324,47 @@ class FixMessageViewModel(
     }
 
     /**
+     * **Re-run one recorded entry, exactly as it ran** — the design's "a new set of one".
+     *
+     * The scenario comes from the record, not from the store, so this re-runs the flow that produced the
+     * evidence in front of you rather than whatever the file has become since. Nothing is written to the
+     * scenario file: a record is a thing to compare against, and a re-run that first overwrote the file
+     * would destroy the only copy of what it was about to differ from.
+     *
+     * The row and the lane come with it, because an outline's entry and a fan-out's lane are *what the
+     * entry was* — re-running row 3 as row 1 answers a question nobody asked.
+     */
+    fun rerunRecordedEntry(setId: String, entry: Int): RunSet? {
+        val record = runRecordStore.readEntry(setId, entry)
+        if (record == null) {
+            showNotification("That entry has no record to re-run", NotificationType.ERROR)
+            return null
+        }
+        // A record written before definitions were kept can still be re-run, but it is today's file that
+        // runs and the reader is told so rather than left to assume fidelity this cannot provide.
+        val scenario =
+            record.scenario ?: scenarioService.load(record.scenarioId)?.also {
+                showNotification(
+                    "This record kept no definition, so '${it.name}' runs as it is on disk now, not as it ran",
+                    NotificationType.WARNING,
+                )
+            }
+        if (scenario == null) {
+            showNotification("'${record.scenarioName}' is neither in this record nor in the store", NotificationType.ERROR)
+            return null
+        }
+        val stored = runRecordStore.readSet(setId)
+        val set =
+            RunSets.rerun(
+                scenario = scenario,
+                record = record,
+                sessionMap = stored?.entries?.getOrNull(entry - 1)?.sessionMap.orEmpty(),
+                was = stored?.nameOf(entry - 1),
+            )
+        return startRunSet(set, pinned = mapOf(scenario.id to scenario))
+    }
+
+    /**
      * **Open the set as a document** — the entries down one side and one entry's own grid on the other.
      *
      * Focusing an entry from the rail opens the tab on it, because the rail's report is a summary and the
@@ -3347,8 +3388,12 @@ class FixMessageViewModel(
     val activeRunSet: StateFlow<RunSet?> = _activeRunSet.asStateFlow()
 
     /** The live host for a set: the app's own scenarios, its own run path, its own runs directory. */
-    private inner class ViewModelRunSetHost : RunSetHost {
-        override fun scenario(id: String): Scenario? = scenarioService.load(id)
+    /**
+     * [pinned] wins over the store, which is what "re-run it as it ran" means: a record keeps the
+     * scenario as it was that day, and looking the id up would run whatever the file says now.
+     */
+    private inner class ViewModelRunSetHost(private val pinned: Map<String, Scenario> = emptyMap()) : RunSetHost {
+        override fun scenario(id: String): Scenario? = pinned[id] ?: scenarioService.load(id)
 
         override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome? =
             runOne(scenario, entry.sessionMap, publish = false, entry = entry)

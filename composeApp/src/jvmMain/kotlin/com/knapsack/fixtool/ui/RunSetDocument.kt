@@ -170,6 +170,7 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
         return
     }
     val parsed = remember(record) { RunRecordMessages.of(record, viewModel.dictionary) }
+    val running by viewModel.scenarioRunning.collectAsState()
     val appSettings = viewModel.appSettings
     Column(modifier = modifier) {
         Text(
@@ -182,6 +183,28 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
             fontSize = 10.sp,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp).testTag("run-entry-header"),
         )
+        // **A new set of one.** The record kept the scenario as it ran, so this re-runs the flow that
+        // produced the evidence above rather than whatever the file has become — and writes nothing to
+        // that file, since a record is a thing to differ from and overwriting it first destroys the
+        // comparison. Until now this document had no action at all: a reader who saw why an entry failed
+        // had to find the scenario in the rail and hope it was still the one that ran.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        ) {
+            SlimButton(
+                "↻ Re-run as it ran",
+                onClick = { viewModel.rerunRecordedEntry(set.id, entry) },
+                enabled = !running,
+                color = AppTheme.Colors.textSecondary,
+                modifier = Modifier.testTag("run-entry-rerun"),
+            )
+            Text(
+                if (running) "  a run is already in progress" else "  runs this entry's own definition; the saved file is left alone",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 10.sp,
+            )
+        }
         Column(
             modifier =
                 Modifier

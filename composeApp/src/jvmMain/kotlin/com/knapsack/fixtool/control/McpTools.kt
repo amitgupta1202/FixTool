@@ -438,7 +438,10 @@ object McpTools {
             tool(
                 "fixtool_run_status",
                 "Where a run set has got to: {status: running|passed|failed|stopped, summary:{total,done,passed," +
-                    "failed,elapsedMs}, entries:[{n,scenario,iteration,state,durationMs,record,note}]}. Pass " +
+                    "failed,elapsedMs}, entries:[{n,scenario,iteration,state,durationMs,record,note}]}. A finished " +
+                    "set also carries stats:{replyLatency:{p50,p95,max,samples}, wallClock:{…}, failedLanes:[…]} — " +
+                    "replyLatency is the venue's number, measured between the bytes that left and the bytes that " +
+                    "answered, and is what to read a fan-out from rather than the per-entry rows. Pass " +
                     "wait=<ms> (up to 10000) to hold the call until the set finishes — under this transport's own " +
                     "ceiling, so waiting never costs you the answer. With no runSet it lists the recent sets, " +
                     "newest first. The state is read from disk, so it survives a restart of the app.",

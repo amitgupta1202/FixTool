@@ -2,6 +2,11 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunState
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * **What fifty lanes have to say, which is not fifty rows.**
@@ -51,6 +56,39 @@ object RunSetStats {
 
     /** The flow's number: how long each entry took, start to verdict. */
     fun wallClock(set: RunSet): Distribution? = distribution(set.entries.mapNotNull { it.durationMs })
+
+    /**
+     * **The distribution, as a report artifact rather than a screen.**
+     *
+     * Every number here was computed only for the Compose rail, so the one consumer that most needs it —
+     * a build step running `--fan-out` against the venue under test — could not read it at all, and the
+     * documentation promising "a p50/p95/max distribution rather than N rows" was true of exactly one
+     * surface. Written into `set.json` when the set is saved, which is the only moment the per-step
+     * latencies are all in hand: they live in the sibling record files afterwards, not in the set.
+     *
+     * Null when nothing was measured — a set of sends with no expectations has no round trip, and an
+     * invented zero would be worse than the silence.
+     */
+    fun toJson(set: RunSet): JsonObject? {
+        val steps = stepLatency(set)
+        val wall = wallClock(set)
+        if (steps == null && wall == null) return null
+        return buildJsonObject {
+            steps?.let { put("replyLatency", distributionJson(it)) }
+            wall?.let { put("wallClock", distributionJson(it)) }
+            failedLanes(set).takeIf { it.isNotEmpty() }?.let { lanes ->
+                put("failedLanes", buildJsonArray { lanes.forEach { add(it) } })
+            }
+        }
+    }
+
+    private fun distributionJson(d: Distribution): JsonObject =
+        buildJsonObject {
+            put("p50", d.p50)
+            put("p95", d.p95)
+            put("max", d.max)
+            put("samples", d.samples)
+        }
 
     /** The lanes that failed, by slot — what a fifty-lane report points at instead of listing fifty rows. */
     fun failedLanes(set: RunSet): List<Int> =

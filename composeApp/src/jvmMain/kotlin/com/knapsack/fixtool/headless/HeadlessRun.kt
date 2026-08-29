@@ -23,6 +23,7 @@ import com.knapsack.fixtool.service.RunRecorder
 import com.knapsack.fixtool.service.RunSetCodec
 import com.knapsack.fixtool.service.RunSetHost
 import com.knapsack.fixtool.service.RunSetRunner
+import com.knapsack.fixtool.service.RunSetStats
 import com.knapsack.fixtool.service.RunSetStore
 import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.ScenarioCodec
@@ -327,6 +328,15 @@ object HeadlessRun {
                     else -> "FAILED  ${set.label} (${set.failed} of ${set.total} failed)"
                 },
             )
+            // The one line a load run is actually read from. Fifty lanes printed fifty rows and a verdict
+            // — exactly the shape the distribution exists to replace — and said nothing about latency.
+            RunSetStats.stepLatency(set)?.let {
+                appendLine("        reply latency: ${RunSetStats.describe(it)} (${it.samples} steps)")
+            }
+            RunSetStats.wallClock(set)?.let { appendLine("        lane wall-clock: ${RunSetStats.describe(it)}") }
+            RunSetStats.failedLanes(set).takeIf { it.isNotEmpty() }?.let {
+                appendLine("        failed lanes: ${it.joinToString()}")
+            }
             store.directoryFor(set.id).let { appendLine("        records: $it") }
         }
 

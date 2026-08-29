@@ -123,7 +123,10 @@ directory keeps.
 session of a multi-session initiator profile, **all at once**. Each lane seeds four names into its own scope — `${sessionIndex}` (the profile slot),
 `${sessionSenderCompID}`, `${sessionTitle}`, `${sessionQualifier}` — so `11=ORD-${sessionIndex}-${uuid}`
 gives every lane its own ClOrdID. The report is a `p50/p95/max` distribution over reply latency rather
-than N rows. **Point it at the server under test**: against FixTool's own acceptor the numbers are the
+than N rows — written into the set's `set.json` as a `stats` block, and so returned by
+`GET /scenarios/runs/<id>` and `fixtool_run_status`, written by `fixtool run --json`, and printed by the
+CLI's own summary. `replyLatency` counts only the steps that measured a round trip; a Send's latency is
+local hand-over work and is not a sample. **Point it at the server under test**: against FixTool's own acceptor the numbers are the
 tool's ceiling, since one thread answers every session — the response carries a `notice` saying so. See
 the Help window's *Fanning a scenario out over those sessions* for the full list of limits.
 

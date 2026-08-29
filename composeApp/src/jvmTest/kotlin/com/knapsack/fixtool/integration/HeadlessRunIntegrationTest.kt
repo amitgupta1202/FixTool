@@ -410,6 +410,10 @@ class HeadlessRunIntegrationTest {
             assertEquals("jsonset", report["scenario"]!!.jsonPrimitive.content)
             assertTrue(report["steps"]!!.jsonArray.isNotEmpty(), "a report with no steps is not a report")
         }
+        // And the set's own distribution, which used to exist only on the Compose rail. This flow has no
+        // Expect, so there is no round trip to report — the wall clock is the number it does have.
+        val stats = assertNotNull(doc["stats"], "the distribution must reach a build box")
+        assertTrue(stats.jsonObject.containsKey("wallClock"), "$stats")
     }
 
     /** An acceptor is the far end of lanes, never their source — and it says so rather than trying. */

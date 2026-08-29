@@ -3134,9 +3134,10 @@ class FixMessageViewModel(
      * `set.json` is rewritten at the same moments, so a reader in another process sees the same progress.
      */
     fun runSetBlocking(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet? {
-        val claim = claimSessions(touchedBy(set), set.label, set.id) ?: return null
+        val reserved = set.copy(id = runRecordStore.reserve(set.id))
+        val claim = claimSessions(touchedBy(reserved), reserved.label, reserved.id) ?: return null
         return try {
-            runSetHeld(set, cancelled = { claim.stop.get() }, onProgress = onProgress)
+            runSetHeld(reserved, cancelled = { claim.stop.get() }, onProgress = onProgress)
         } finally {
             release(claim)
         }
@@ -3153,11 +3154,15 @@ class FixMessageViewModel(
     fun startRunSet(set: RunSet, pinned: Map<String, Scenario> = emptyMap()): RunSet? {
         // Resolved BEFORE the claim, not inside preflight where it used to happen: a claim that does not
         // yet know which sessions it wants cannot be checked against the ones already held.
-        val claim = claimSessions(touchedBy(set), set.label, set.id) ?: return null
+        // The id is reserved before the claim, because it identifies the claim: two sets started in the
+        // same second from the same menu item used to be handed the same id, share a records directory,
+        // and answer to one another's stop.
+        val reserved = set.copy(id = runRecordStore.reserve(set.id))
+        val claim = claimSessions(touchedBy(reserved), reserved.label, reserved.id) ?: return null
         // Written here, on the caller's thread, and not left to the scheduler: a 202 that hands back an id
         // has promised that the id can be fetched, and a caller polling on the next line must not race the
         // background thread to the first `set.json`.
-        val starting = set.copy(startedAt = System.currentTimeMillis())
+        val starting = reserved.copy(startedAt = System.currentTimeMillis())
         runRecordStore.begin(starting)
         _activeRunSet.value = starting
         viewModelScope.launch(Dispatchers.IO) {

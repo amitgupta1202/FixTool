@@ -63,6 +63,31 @@ class RunRecordStore(
 
     fun directoryFor(setId: String): File = File(dir, sanitize(setId))
 
+    /**
+     * **Reserves a free id for a set about to start**, appending `-2`, `-3`… when the one it wants is
+     * taken, and creating the directory so a concurrent caller cannot pick the same one.
+     *
+     * A set's id is a timestamp to the second plus a slug of its label, which was unique for as long as
+     * only one run could exist at a time. Once runs on disjoint sessions may overlap, two started in the
+     * same second from the same menu item collide — and a collision is not cosmetic: they share a records
+     * directory, overwrite each other's `set.json`, and a stop aimed at one reaches both.
+     */
+    @Synchronized
+    @Suppress("TooGenericExceptionCaught")
+    fun reserve(id: String): String =
+        try {
+            var candidate = id
+            var n = 1
+            while (!directoryFor(candidate).mkdirs()) {
+                n++
+                candidate = "$id-$n"
+            }
+            candidate
+        } catch (e: Exception) {
+            logger.error("Could not reserve a run record directory for '$id': ${e.message}", e)
+            id
+        }
+
     /** Creates the set's directory and writes its first `set.json`. */
     @Suppress("TooGenericExceptionCaught")
     fun begin(set: RunSet): Boolean =

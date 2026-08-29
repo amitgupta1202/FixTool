@@ -429,6 +429,27 @@ class RunRecordTest {
         }
     }
 
+    /**
+     * **Two runs started in the same second must not be the same run.** A set's id is a timestamp to the
+     * second plus a slug of its label, which was unique while only one run could exist at a time. Once
+     * runs on disjoint sessions may overlap, two started from the same menu item collide — and they then
+     * share a records directory, overwrite each other's `set.json`, and answer to one another's stop.
+     */
+    @Test
+    fun `a set id already taken is reserved as a different one`() {
+        val store = RunRecordStore(customDir = dir.absolutePath)
+        val wanted = "2026-08-29T11-19-19-selected"
+
+        val first = store.reserve(wanted)
+        val second = store.reserve(wanted)
+        val third = store.reserve(wanted)
+
+        assertEquals(wanted, first, "the first caller gets the id it asked for")
+        assertEquals("$wanted-2", second)
+        assertEquals("$wanted-3", third)
+        assertTrue(store.directoryFor(second).isDirectory, "reserved means the directory is taken, not just named")
+    }
+
     /** A record written before the tag was spelled consistently is recovered, not abandoned. */
     @Test
     fun `a set written with the old camelCase fanOut tag still reads as a fan-out`() {

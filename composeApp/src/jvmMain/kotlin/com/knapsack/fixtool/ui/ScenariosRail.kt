@@ -193,10 +193,16 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         onRunSaved = { name -> viewModel.startSavedRunSet(name) },
                         onRunFavourites = {
                             viewModel.startRunSet(
-                                viewModel.planSuite(scenarios.filter { it.id in viewState.favouriteIds }, "★ favourites"),
+                                viewModel.planSuite(
+                                    scenarios.filter { it.id in viewState.favouriteIds },
+                                    "★ favourites",
+                                    RunSource.Favourites,
+                                ),
                             )
                         },
-                        onRunFiltered = { viewModel.startRunSet(viewModel.planSuite(visible, "filtered: $filter")) },
+                        onRunFiltered = {
+                            viewModel.startRunSet(viewModel.planSuite(visible, "filtered: $filter", RunSource.Filtered(filter)))
+                        },
                         outlines = scenarios.count { it.examples?.live?.isNotEmpty() == true },
                         onSaveAsSet = { savingSet = true },
                         onRepeat = { repeating = true },

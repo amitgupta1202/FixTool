@@ -3108,9 +3108,18 @@ class FixMessageViewModel(
     /**
      * **The rail's four ways to make a set**, in one place so the rail does not have to know how one is
      * built — only which of them the author asked for.
+     *
+     * [source] records *why* these scenarios ran, which the label alone cannot: `"★ favourites"` is
+     * display text a rename would break, while `RunSource.Favourites` is the fact. Both of those
+     * variants had gone unused since they were written — every menu item recorded itself as an explicit
+     * hand-picked list, so a record could not tell "the starred ones, whatever they were that day" from
+     * "these nine ids".
      */
-    fun planSuite(scenarios: List<Scenario>, label: String): RunSet =
-        RunSets.suite(scenarios, RunSource.Selected(scenarios.map { it.id }), label, System.currentTimeMillis())
+    fun planSuite(
+        scenarios: List<Scenario>,
+        label: String,
+        source: RunSource = RunSource.Selected(scenarios.map { it.id }),
+    ): RunSet = RunSets.suite(scenarios, source, label, System.currentTimeMillis())
 
     /**
      * One entry per live row of the scenario's own table. Null — with the reason said out loud — when

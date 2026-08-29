@@ -88,6 +88,7 @@ import java.awt.Desktop
 fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
     val scenarios by viewModel.scenarios.collectAsState()
     val running by viewModel.scenarioRunning.collectAsState()
+    val busySessions by viewModel.busySessions.collectAsState()
     val result by viewModel.scenarioResult.collectAsState()
     val ran by viewModel.lastRunScenario.collectAsState()
     val viewState by viewModel.scenarioViewState.collectAsState()
@@ -309,7 +310,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 remember(listVisible, viewState.favouriteIds, viewState.sortMode, modified) {
                     railSections(listVisible, viewState.favouriteIds, viewState.sortMode) { modified[it] }
                 }
-            val run = RunView(ran, result, running)
+            val run = RunView(ran, result, running, busySessions)
             val onToggleExpand: (String) -> Unit = { id -> expanded = if (id in expanded) expanded - id else expanded + id }
             val onRequestDelete: (String) -> Unit = { confirmingDeleteId = it }
             val onDeleted = { confirmingDeleteId = null }
@@ -391,7 +392,22 @@ private data class RunView(
     val ran: Scenario?,
     val result: ScenarioResult?,
     val running: Boolean,
-)
+    /** Sessions a run currently holds. A scenario that touches none of them can still be run. */
+    val busySessions: Set<String> = emptySet(),
+) {
+    /**
+     * **Can this scenario run right now?** Not "is anything running" — the run slot is a claim over
+     * sessions, so a flow on UAT is free to start while a fifty-lane load test holds LOADGEN.
+     *
+     * A scenario naming no session runs on whichever session is first, so it waits for everything: the
+     * one case the claim cannot reason about is the one the button must not encourage.
+     */
+    fun canRun(scenario: Scenario): Boolean {
+        val steps = (scenario.setup + scenario.steps + scenario.teardown).filterNot { it.muted }
+        if (steps.any { it.sessionOrNull() == null }) return busySessions.isEmpty()
+        return steps.mapNotNull { it.sessionOrNull() }.none { it in busySessions }
+    }
+}
 
 /**
  * Renders each of [items] as a [scenarioTree], sharing the rail's expand/delete/favourite wiring. Kept
@@ -529,7 +545,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
             expanded = expanded,
             isFavourite = isFavourite,
             isSelected = isSelected,
-            runEnabled = !run.running,
+            runEnabled = run.canRun(scenario),
             confirmingDelete = confirmingDelete,
             onToggle = onToggle,
             onToggleFavourite = onToggleFavourite,

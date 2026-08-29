@@ -63,6 +63,7 @@ import com.knapsack.fixtool.service.RunRecord
 import com.knapsack.fixtool.service.RunRecordMessages
 import com.knapsack.fixtool.service.RunRecordStore
 import com.knapsack.fixtool.service.RunRecorder
+import com.knapsack.fixtool.service.RunSessions
 import com.knapsack.fixtool.service.RunSetHost
 import com.knapsack.fixtool.service.RunSetRunner
 import com.knapsack.fixtool.service.RunSetStore
@@ -2736,19 +2737,98 @@ class FixMessageViewModel(
      */
 
     /**
-     * Claims the single run slot (shared by the UI and the control surface, whose runners would
-     * otherwise race each other's consumed-message cursors). Pair with [endScenarioRun].
+     * **What one run has claimed.** The sessions it will touch, resolved before it started, and its own
+     * stop flag — a stop must reach the run it was aimed at and no other.
      */
-    fun beginScenarioRun(): Boolean =
-        _scenarioRunning.compareAndSet(expect = false, update = true).also { claimed ->
-            // Cleared by whoever claims the slot, not by whoever releases it: a stop that arrives as the
-            // previous run is exiting must not carry over and abort the next one before its first step.
-            if (claimed) stopRequested.set(false)
-        }
+    private class RunClaim(
+        val touched: RunSessions.Touched,
+        val label: String,
+        /** The run set this claim is for, so `/stop` can aim at one of several runs. */
+        val setId: String? = null,
+        val stop: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
+    )
 
-    fun endScenarioRun() {
-        _scenarioRunning.value = false
+    private val claims = java.util.concurrent.CopyOnWriteArrayList<RunClaim>()
+
+    /**
+     * **Every session a run currently holds** — what the rail greys out, rather than greying out
+     * everything because something, somewhere, is running.
+     */
+    private val _busySessions = MutableStateFlow<Set<String>>(emptySet())
+    val busySessions: StateFlow<Set<String>> = _busySessions.asStateFlow()
+
+    /**
+     * **The run slot is a claim over sessions, not one global boolean.**
+     *
+     * Cursors are per-run over per-session message logs, so two runs whose sessions are disjoint cannot
+     * see each other's traffic — which is the same licence fan-out already rests on for its lanes, drawn
+     * out one level. A bare run on UAT no longer waits for a fifty-lane load test on LOADGEN.
+     *
+     * [exclusive] is the honest answer to "we could not tell": a scenario whose steps name no session
+     * runs on whatever session happens to be first, and *which* one that is can change under it. A claim
+     * that cannot name what it touches conflicts with everything, because the alternative is two runs
+     * silently agreeing they are disjoint while driving the same session.
+     */
+    @Synchronized
+    private fun claimSessions(touched: RunSessions.Touched, label: String, setId: String? = null): RunClaim? {
+        val blocker = claims.firstOrNull { held -> RunSessions.conflict(held.touched, touched) }
+        if (blocker != null) {
+            busyReason = describeClash(blocker, touched)
+            return null
+        }
+        val claim = RunClaim(touched, label, setId)
+        claims += claim
+        refreshClaims()
+        return claim
     }
+
+    @Synchronized
+    private fun release(claim: RunClaim) {
+        claims.remove(claim)
+        refreshClaims()
+    }
+
+    private fun refreshClaims() {
+        _busySessions.value = claims.flatMap { it.touched.sessions }.toSet()
+        _scenarioRunning.value = claims.isNotEmpty()
+    }
+
+    /** Why the last refused claim was refused — what a 409 says instead of "already in progress". */
+    @Volatile
+    private var busyReason: String = "a scenario run is already in progress"
+
+    /** The refusal, in the terms the author can act on: which session, and what is holding it. */
+    private fun describeClash(blocker: RunClaim, wanted: RunSessions.Touched): String {
+        val shared = blocker.touched.sessions.filter { it in wanted.sessions }
+        return when {
+            shared.isNotEmpty() ->
+                "'${blocker.label}' is running on ${shared.joinToString()} — wait for it, or run against other sessions"
+            wanted.exclusive ->
+                "this run does not name its sessions, so it cannot run beside '${blocker.label}' — name the " +
+                    "session on each step, and runs on other sessions can proceed alongside it"
+            else ->
+                "'${blocker.label}' does not name its sessions, so nothing can run beside it until it finishes"
+        }
+    }
+
+    /** The reason the most recent claim was refused. */
+    fun runBusyReason(): String = busyReason
+
+    /** What one scenario would touch, with this window's first open session as the null-step fallback. */
+    private fun touchedBy(scenario: Scenario, sessionMap: Map<String, String>, defaultSession: String? = null) =
+        RunSessions.of(scenario, sessionMap, defaultSession, firstOpen = _sessions.firstOrNull()?.title)
+
+    /** The union over a set's entries — each with its own remap and its own lane. */
+    private fun touchedBy(set: RunSet): RunSessions.Touched =
+        RunSessions.ofAll(
+            set.entries.map { entry ->
+                // A set naming a scenario that cannot be loaded will fail that entry, but it must not
+                // claim nothing and slip past a run it would have collided with.
+                val scenario = scenarioService.load(entry.scenarioId) ?: return@map RunSessions.Touched(emptySet(), exclusive = true)
+                touchedBy(scenario, entry.sessionMap, entry.defaultSession)
+            },
+        )
+
 
     /**
      * **Ask the run in progress to stop.** Polled by the runner at every step boundary and inside every
@@ -2758,11 +2838,15 @@ class FixMessageViewModel(
      * and is halfway through a report; killing it would leave both behind. The run stops where it is,
      * says so, and does not pass — it stopped checking, which is not the same as having checked.
      */
-    fun requestScenarioStop() {
-        stopRequested.set(true)
+    fun requestScenarioStop(setId: String? = null) {
+        // Aimed when a set is named — with two runs in flight on disjoint sessions, "stop" has to mean one
+        // of them. The rail's ⏹ names none and stops what is running, which is what a single visible
+        // report has always meant.
+        claims.filter { setId == null || it.setId == setId }.forEach { it.stop.set(true) }
     }
 
-    private val stopRequested = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** True when a run holding [sessions] has been asked to stop — for a caller that wants to know. */
+    fun stopRequestedFor(setId: String): Boolean = claims.any { it.setId == setId && it.stop.get() }
 
     /**
      * Publish the last run's verdict. The rail's run report — and the route from a failed step to the
@@ -2948,25 +3032,14 @@ class FixMessageViewModel(
      * A throw is re-raised (the control surface answers HTTP 500, the UI logs) but is *notified* first,
      * because the alternative is a wiped report with no explanation next to a grid full of red rows.
      */
-    /**
-     * **Holds the single run slot for the whole of [block]** — which is what makes a set possible.
-     *
-     * The slot exists because two runners would race each other's consumed-message cursors. A *set*
-     * therefore claims it once and holds it for the whole batch rather than re-claiming per entry, and
-     * the consequence is the right one: a bare run answers "already in progress" for the duration of a
-     * batch instead of interleaving with it. Null when the slot was already taken.
-     */
-    fun <T> claimRunSlot(block: () -> T): T? {
-        if (!beginScenarioRun()) return null
+    fun runScenarioBlocking(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult? {
+        val claim = claimSessions(touchedBy(scenario, sessionMap), scenario.name) ?: return null
         return try {
-            block()
+            runOne(scenario, sessionMap, publish = true, cancelled = { claim.stop.get() }).result
         } finally {
-            endScenarioRun()
+            release(claim)
         }
     }
-
-    fun runScenarioBlocking(scenario: Scenario, sessionMap: Map<String, String> = emptyMap()): ScenarioResult? =
-        claimRunSlot { runOne(scenario, sessionMap, publish = true).result }
 
     /**
      * **One run, with the slot already held** — and the evidence it produced, collected as it ran.
@@ -2987,6 +3060,8 @@ class FixMessageViewModel(
         sessionMap: Map<String, String>,
         publish: Boolean,
         entry: RunEntry? = null,
+        /** The owning claim's stop flag — a stop must reach the run it was aimed at, and no other. */
+        cancelled: () -> Boolean = { false },
     ): EntryOutcome {
         // **Fifty lanes have no single run to tint the grid for**, and the tint map is Compose state: fifty
         // threads writing it would be a race over a surface that could not mean anything anyway. A lane
@@ -3021,7 +3096,7 @@ class FixMessageViewModel(
                         matched[message] = stepResult
                         if (tinting) _assertionResults.value = matched.toMap()
                     },
-                    cancelled = { stopRequested.get() },
+                    cancelled = cancelled,
                 ).run(
                     scenario,
                     sessionMap,
@@ -3049,7 +3124,14 @@ class FixMessageViewModel(
      * [onProgress] is called after every state change, so a caller can render the queue while it drains;
      * `set.json` is rewritten at the same moments, so a reader in another process sees the same progress.
      */
-    fun runSetBlocking(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet? = claimRunSlot { runSetHeld(set, onProgress = onProgress) }
+    fun runSetBlocking(set: RunSet, onProgress: (RunSet) -> Unit = {}): RunSet? {
+        val claim = claimSessions(touchedBy(set), set.label, set.id) ?: return null
+        return try {
+            runSetHeld(set, cancelled = { claim.stop.get() }, onProgress = onProgress)
+        } finally {
+            release(claim)
+        }
+    }
 
     /**
      * **Starts a set on a background thread and answers immediately** — the control surface's job model.
@@ -3060,7 +3142,9 @@ class FixMessageViewModel(
      * at fifteen seconds.
      */
     fun startRunSet(set: RunSet, pinned: Map<String, Scenario> = emptyMap()): RunSet? {
-        if (!beginScenarioRun()) return null
+        // Resolved BEFORE the claim, not inside preflight where it used to happen: a claim that does not
+        // yet know which sessions it wants cannot be checked against the ones already held.
+        val claim = claimSessions(touchedBy(set), set.label, set.id) ?: return null
         // Written here, on the caller's thread, and not left to the scheduler: a 202 that hands back an id
         // has promised that the id can be fetched, and a caller polling on the next line must not race the
         // background thread to the first `set.json`.
@@ -3069,21 +3153,26 @@ class FixMessageViewModel(
         _activeRunSet.value = starting
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                runSetHeld(starting, pinned) { }
+                runSetHeld(starting, pinned, cancelled = { claim.stop.get() }) { }
             } catch (e: Exception) {
                 logger.error("Run set failed: ${e.message}", e, notifyUser = false)
             } finally {
-                endScenarioRun()
+                release(claim)
             }
         }
         return starting
     }
 
     /** The set itself, with the slot already held by whoever called. */
-    private fun runSetHeld(set: RunSet, pinned: Map<String, Scenario> = emptyMap(), onProgress: (RunSet) -> Unit): RunSet {
+    private fun runSetHeld(
+        set: RunSet,
+        pinned: Map<String, Scenario> = emptyMap(),
+        cancelled: () -> Boolean = { false },
+        onProgress: (RunSet) -> Unit,
+    ): RunSet {
         runRecordStore.begin(set)
         val done =
-            RunSetRunner(ViewModelRunSetHost(pinned)).run(set) { progress ->
+            RunSetRunner(ViewModelRunSetHost(pinned, cancelled)).run(set) { progress ->
                 _activeRunSet.value = progress
                 onProgress(progress)
             }
@@ -3392,11 +3481,14 @@ class FixMessageViewModel(
      * [pinned] wins over the store, which is what "re-run it as it ran" means: a record keeps the
      * scenario as it was that day, and looking the id up would run whatever the file says now.
      */
-    private inner class ViewModelRunSetHost(private val pinned: Map<String, Scenario> = emptyMap()) : RunSetHost {
+    private inner class ViewModelRunSetHost(
+        private val pinned: Map<String, Scenario> = emptyMap(),
+        private val cancelled: () -> Boolean = { false },
+    ) : RunSetHost {
         override fun scenario(id: String): Scenario? = pinned[id] ?: scenarioService.load(id)
 
         override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome? =
-            runOne(scenario, entry.sessionMap, publish = false, entry = entry)
+            runOne(scenario, entry.sessionMap, publish = false, entry = entry, cancelled = cancelled)
 
         override fun write(record: RunRecord): String? = runRecordStore.write(record)
 
@@ -3408,7 +3500,7 @@ class FixMessageViewModel(
 
         override fun now(): Long = System.currentTimeMillis()
 
-        override fun cancelled(): Boolean = stopRequested.get()
+        override fun cancelled(): Boolean = cancelled.invoke()
     }
 
     @Suppress("TooGenericExceptionCaught")

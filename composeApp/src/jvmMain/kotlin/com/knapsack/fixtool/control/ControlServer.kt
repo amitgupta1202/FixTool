@@ -1407,7 +1407,9 @@ class ControlServer(
         // The one status code this route's old shape gains: a set holds the slot for its whole batch, so
         // "already in progress" stops being a rare race and becomes a caller's ordinary answer for
         // minutes at a time. The body is unchanged; a caller that only reads bodies sees no difference.
-        val busy = (answer as? JsonObject)?.get("error")?.jsonPrimitive?.contentOrNull == RUN_IN_PROGRESS
+        // Structural, not a string compare: the refusal now names the session and the run holding it, so
+        // matching on the message would have broken the moment it became useful.
+        val busy = (answer as? JsonObject)?.get("busy")?.jsonPrimitive?.booleanOrNull == true
         return Coded(if (busy) HTTP_CONFLICT else HTTP_OK, answer)
     }
 
@@ -1499,7 +1501,7 @@ class ControlServer(
         }
         val started =
             viewModel.startRunSet(planned)
-                ?: return Coded(HTTP_CONFLICT, errorObject(RUN_IN_PROGRESS))
+                ?: return Coded(HTTP_CONFLICT, busyError(viewModel.runBusyReason()))
         return Coded(
             HTTP_ACCEPTED,
             buildJsonObject {
@@ -1583,7 +1585,8 @@ class ControlServer(
             if (active == null || active.id != setId || !viewModel.scenarioRunning.value) {
                 return Coded(HTTP_CONFLICT, errorObject("run set '$setId' is not running"))
             }
-            viewModel.requestScenarioStop()
+            // Named, because a second run may be in flight on other sessions and this must not stop it.
+            viewModel.requestScenarioStop(setId)
             return Coded(
                 HTTP_ACCEPTED,
                 buildJsonObject {
@@ -1667,6 +1670,16 @@ class ControlServer(
      * read from `set.json` carries no per-step latencies, so without this the one number a load run
      * exists to produce was reachable only by fetching all N entry records and doing the arithmetic.
      */
+    /**
+     * A refusal because something else holds the sessions. Carries `busy` so the route can answer 409
+     * without matching on the message — which now names the session and the run holding it.
+     */
+    private fun busyError(reason: String): JsonObject =
+        buildJsonObject {
+            put("error", reason)
+            put("busy", true)
+        }
+
     private fun runSetDetail(set: RunSet, stats: JsonObject? = null): JsonObject =
         buildJsonObject {
             put("status", set.status.name.lowercase())
@@ -1746,7 +1759,7 @@ class ControlServer(
         // consume each other's messages.
         val result =
             viewModel.runScenarioBlocking(scenario, sessionMap)
-                ?: return errorObject(RUN_IN_PROGRESS)
+                ?: return busyError(viewModel.runBusyReason())
         return if (body["format"]?.jsonPrimitive?.content?.lowercase() == "junit") {
             buildJsonObject {
                 put("passed", result.passed)
@@ -3604,7 +3617,6 @@ class ControlServer(
         private const val WAIT_POLL_MS = 100L
 
         /** One sentence, two doors — and the 409 is decided by comparing against it. */
-        private const val RUN_IN_PROGRESS = "a scenario run is already in progress"
 
         private const val HTTP_ACCEPTED = 202
         private const val HTTP_CONFLICT = 409

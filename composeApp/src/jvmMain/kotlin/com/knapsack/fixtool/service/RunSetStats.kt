@@ -2,10 +2,14 @@ package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunState
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -69,17 +73,55 @@ object RunSetStats {
      * Null when nothing was measured — a set of sends with no expectations has no round trip, and an
      * invented zero would be worse than the silence.
      */
-    fun toJson(set: RunSet): JsonObject? {
+    fun toJson(set: RunSet): JsonObject? = of(set)?.let(::toJson)
+
+    /** Everything a set has to say about its timings, or null when it measured nothing. */
+    data class Stats(
+        val replyLatency: Distribution?,
+        val wallClock: Distribution?,
+        val failedLanes: List<Int> = emptyList(),
+    )
+
+    /** Computed from a set that still holds its results — a live one, mid-run or just finished. */
+    fun of(set: RunSet): Stats? {
         val steps = stepLatency(set)
         val wall = wallClock(set)
         if (steps == null && wall == null) return null
-        return buildJsonObject {
-            steps?.let { put("replyLatency", distributionJson(it)) }
-            wall?.let { put("wallClock", distributionJson(it)) }
-            failedLanes(set).takeIf { it.isNotEmpty() }?.let { lanes ->
+        return Stats(steps, wall, failedLanes(set))
+    }
+
+    fun toJson(stats: Stats): JsonObject =
+        buildJsonObject {
+            stats.replyLatency?.let { put("replyLatency", distributionJson(it)) }
+            stats.wallClock?.let { put("wallClock", distributionJson(it)) }
+            stats.failedLanes.takeIf { it.isNotEmpty() }?.let { lanes ->
                 put("failedLanes", buildJsonArray { lanes.forEach { add(it) } })
             }
         }
+
+    /**
+     * **Read back, for a set that no longer holds its results.**
+     *
+     * `set.json` stores entries but not their reports — those live in the sibling record files — so a set
+     * reopened from Recent runs cannot recompute any of this. Without this the distribution was a thing
+     * you could see only while the run that produced it was still on screen.
+     */
+    fun fromJson(obj: JsonObject): Stats? {
+        val reply = (obj["replyLatency"] as? JsonObject)?.let(::distributionFrom)
+        val wall = (obj["wallClock"] as? JsonObject)?.let(::distributionFrom)
+        if (reply == null && wall == null) return null
+        return Stats(
+            reply,
+            wall,
+            (obj["failedLanes"] as? JsonArray).orEmpty().mapNotNull { it.jsonPrimitive.intOrNull },
+        )
+    }
+
+    private fun distributionFrom(obj: JsonObject): Distribution? {
+        val p50 = obj["p50"]?.jsonPrimitive?.longOrNull ?: return null
+        val p95 = obj["p95"]?.jsonPrimitive?.longOrNull ?: return null
+        val max = obj["max"]?.jsonPrimitive?.longOrNull ?: return null
+        return Distribution(p50, p95, max, obj["samples"]?.jsonPrimitive?.intOrNull ?: 0)
     }
 
     private fun distributionJson(d: Distribution): JsonObject =

@@ -234,6 +234,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                     onFocus = { entry -> viewModel.openRunSetEntry(set.id, entry) },
                     onDismiss = { viewModel.clearActiveRunSet() },
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    storedStats = { id -> viewModel.runRecordStore.readSetStats(id)?.let { RunSetStats.fromJson(it) } },
                 )
             }
             RunStatusLine(
@@ -869,6 +870,8 @@ private fun RunSetLine(
     onFocus: (Int) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The set's stored `stats`, for a reopened set that no longer carries its entries' reports. */
+    storedStats: (String) -> RunSetStats.Stats? = { null },
 ) {
     val colour =
         when (set.status) {
@@ -892,17 +895,21 @@ private fun RunSetLine(
         // **Fifty lanes are a distribution, not fifty rows.** The step latency is the venue's number; the
         // wall clock is the flow's, and they are never offered as the same thing.
         if (set.source is RunSource.FanOut) {
-            RunSetStats.stepLatency(set)?.let { steps ->
+            // Computed from a live set, read back for one that has been reopened: `set.json` keeps entries
+            // but not their reports, so a set from Recent runs can recompute none of this. Without the
+            // fallback the distribution was visible only while the run that produced it was still on screen.
+            val stats = remember(set) { RunSetStats.of(set) ?: storedStats(set.id) }
+            stats?.replyLatency?.let { steps ->
                 Text(
                     "reply latency  ${RunSetStats.describe(steps)}  (${steps.samples} steps)" +
-                        RunSetStats.failedLanes(set).takeIf { it.isNotEmpty() }
+                        stats.failedLanes.takeIf { it.isNotEmpty() }
                             ?.let { "   failures: " + it.joinToString(", ") { slot -> "lane $slot" } }.orEmpty(),
                     color = AppTheme.Colors.textSecondary,
                     fontSize = 10.sp,
                     modifier = Modifier.testTag("run-set-latency"),
                 )
             }
-            RunSetStats.wallClock(set)?.let { wall ->
+            stats?.wallClock?.let { wall ->
                 Text(
                     "lane wall-clock  ${RunSetStats.describe(wall)}",
                     color = AppTheme.Colors.textDisabled,

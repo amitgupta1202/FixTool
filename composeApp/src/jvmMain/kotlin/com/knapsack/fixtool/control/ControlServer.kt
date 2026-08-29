@@ -1452,7 +1452,9 @@ class ControlServer(
                     val entries = scenarios.flatMap { sc -> (1..repeat).map { RunEntry(sc.id, sc.name, iteration = it) } }
                     RunSet(
                         id = RunSets.id(now, "selected"),
-                        label = if (repeat > 1) "${scenarios.size} scenarios ×$repeat" else "${scenarios.size} scenarios",
+                        label =
+                    "${scenarios.size} ${if (scenarios.size == 1) "scenario" else "scenarios"}" +
+                        if (repeat > 1) " ×$repeat" else "",
                         source = RunSource.Selected(scenarios.map { it.id }),
                         entries = entries,
                         policy = policy,

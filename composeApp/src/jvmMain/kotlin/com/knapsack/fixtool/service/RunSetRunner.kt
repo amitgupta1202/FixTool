@@ -300,7 +300,7 @@ object RunSets {
         if (rows.isEmpty()) return null
         return RunSet(
             id = id(now, scenario.name),
-            label = "${scenario.name} — ${rows.size} rows",
+            label = "${scenario.name} — ${rows.size} ${if (rows.size == 1) "row" else "rows"}",
             source = RunSource.Examples(scenario.id),
             entries = rows.map { RunEntry(scenario.id, scenario.name, row = it) },
             policy = policy,
@@ -351,7 +351,7 @@ object RunSets {
         return FanOutPlan.Ready(
             RunSet(
                 id = id(now, "${scenario.name}-fanout"),
-                label = "${scenario.name} ×${lanes.size} lanes",
+                label = "${scenario.name} ×${lanes.size} ${if (lanes.size == 1) "lane" else "lanes"}",
                 source = RunSource.FanOut(scenario.id, profileId),
                 entries =
                     lanes.map { lane ->

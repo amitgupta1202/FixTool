@@ -367,6 +367,40 @@ object RunSets {
         )
     }
 
+    /**
+     * **One recorded entry, again** — the design's "a new set of one".
+     *
+     * The row and the lane come from the record because they are *what the entry was*: re-running row 3
+     * as row 1, or lane 7 as lane 1, answers a question nobody asked. The session map comes from the set
+     * the entry belonged to, so an entry that ran against a remapped environment runs there again.
+     *
+     * The scenario is passed in rather than looked up — the caller has it from the record, which is the
+     * whole point: the file may have changed since, and this re-runs what actually ran.
+     */
+    fun rerun(
+        scenario: Scenario,
+        record: RunRecord,
+        sessionMap: Map<String, String> = emptyMap(),
+        was: String? = null,
+        now: Long = System.currentTimeMillis(),
+    ): RunSet =
+        RunSet(
+            id = id(now, "${scenario.name}-rerun"),
+            label = "${scenario.name} — re-run of ${was ?: "entry ${record.entry}"}",
+            source = RunSource.Selected(listOf(scenario.id)),
+            entries =
+                listOf(
+                    RunEntry(
+                        scenarioId = scenario.id,
+                        scenarioName = scenario.name,
+                        row = record.row,
+                        lane = record.lane,
+                        sessionMap = sessionMap,
+                    ),
+                ),
+            policy = RunPolicy(isolateIterations = true),
+        )
+
     /** N scenarios, once each — the overnight suite. */
     fun suite(scenarios: List<Scenario>, source: RunSource, label: String, now: Long, policy: RunPolicy = RunPolicy()): RunSet =
         RunSet(

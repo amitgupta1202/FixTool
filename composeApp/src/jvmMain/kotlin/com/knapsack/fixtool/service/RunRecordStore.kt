@@ -120,6 +120,23 @@ class RunRecordStore(
             null
         }
 
+    /**
+     * The `stats` block of a stored set, verbatim.
+     *
+     * Read raw rather than through [RunSet], because a set on disk carries no per-step results — the
+     * distribution cannot be recomputed from it, only read back from where it was written.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    fun readSetStats(setId: String): JsonObject? =
+        try {
+            File(directoryFor(setId), SET_FILE)
+                .takeIf { it.isFile }
+                ?.let { Json.parseToJsonElement(it.readText()).jsonObject["stats"] as? JsonObject }
+        } catch (e: Exception) {
+            logger.error("Could not read stats for set '$setId': ${e.message}", e)
+            null
+        }
+
     /** One entry's record, by its 1-based position in the set. */
     @Suppress("TooGenericExceptionCaught")
     fun readEntry(setId: String, entry: Int): RunRecord? =
@@ -212,6 +229,9 @@ object RunSetCodec {
             put("startedAt", set.startedAt)
             set.finishedAt?.let { put("finishedAt", it) }
             put("status", set.status.name.lowercase())
+            // Additive, and computed here because this is the last moment the per-step latencies are all
+            // in hand — after this they are scattered across the sibling record files.
+            RunSetStats.toJson(set)?.let { put("stats", it) }
             put(
                 "policy",
                 buildJsonObject {

@@ -7,6 +7,10 @@ import com.knapsack.fixtool.model.scenario.RunSource
 import com.knapsack.fixtool.model.scenario.RunState
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.StepResult
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -86,6 +90,31 @@ class RunSetStatsTest {
             }
 
         assertEquals(listOf(2), RunSetStats.failedLanes(set))
+    }
+
+    /**
+     * **The distribution has to leave the screen.** Every number here was computed for the Compose rail
+     * alone, so a build step running `--fan-out` against the venue under test — the one consumer the
+     * feature exists for — could not read the number the run was for.
+     */
+    @Test
+    fun `the distribution serializes for the consumers that are not a screen`() {
+        val set = laneSet(latencies = listOf(106L, 106L, 105L), durations = listOf(608L, 678L, 550L))
+
+        val json = assertNotNull(RunSetStats.toJson(set))
+
+        val reply = json["replyLatency"]!!.jsonObject
+        assertEquals(106L, reply["p50"]!!.jsonPrimitive.long)
+        assertEquals(106L, reply["max"]!!.jsonPrimitive.long)
+        assertEquals(3, reply["samples"]!!.jsonPrimitive.int)
+        assertEquals(678L, json["wallClock"]!!.jsonObject["max"]!!.jsonPrimitive.long)
+        assertNull(json["failedLanes"], "no lane failed, so the key is absent rather than empty")
+    }
+
+    /** Nothing measured means no block at all — an invented zero would be worse than the silence. */
+    @Test
+    fun `a set that measured nothing serializes to nothing`() {
+        assertNull(RunSetStats.toJson(laneSet(latencies = emptyList(), durations = emptyList())))
     }
 
     /** Seconds past a thousand milliseconds, because this line exists to be read at a glance. */

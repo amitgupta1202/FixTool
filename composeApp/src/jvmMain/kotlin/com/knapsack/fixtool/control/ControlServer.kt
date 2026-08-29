@@ -1606,7 +1606,7 @@ class ControlServer(
             Thread.sleep(WAIT_POLL_MS)
             set = viewModel.runRecordStore.readSet(setId) ?: set
         }
-        return Coded(HTTP_OK, runSetDetail(set))
+        return Coded(HTTP_OK, runSetDetail(set, viewModel.runRecordStore.readSetStats(setId)))
     }
 
     /**
@@ -1637,7 +1637,7 @@ class ControlServer(
             Thread.sleep(WAIT_POLL_MS)
             set = viewModel.runRecordStore.readSet(setId) ?: set
         }
-        return runSetDetail(set)
+        return runSetDetail(set, viewModel.runRecordStore.readSetStats(setId))
     }
 
     private fun runEntryTool(args: JsonObject): JsonElement {
@@ -1660,11 +1660,17 @@ class ControlServer(
             set.finishedAt?.let { put("finishedAt", it) }
         }
 
-    private fun runSetDetail(set: RunSet): JsonObject =
+    /**
+     * [stats] is the set's own `stats` block, read back from disk. It cannot be recomputed here: a set
+     * read from `set.json` carries no per-step latencies, so without this the one number a load run
+     * exists to produce was reachable only by fetching all N entry records and doing the arithmetic.
+     */
+    private fun runSetDetail(set: RunSet, stats: JsonObject? = null): JsonObject =
         buildJsonObject {
             put("status", set.status.name.lowercase())
             put("runSet", set.id)
             put("label", set.label)
+            stats?.let { put("stats", it) }
             put(
                 "summary",
                 buildJsonObject {

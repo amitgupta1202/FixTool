@@ -9,8 +9,8 @@ import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.StepResult
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.long
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -128,6 +128,27 @@ class RunSetStatsTest {
 
         assertEquals(live, back)
         assertEquals(listOf(2), back.failedLanes, "the lane that failed is named on the way back too")
+    }
+
+    /**
+     * **The reopened set is the case a plain elvis gets wrong**, and the one the rail is for.
+     *
+     * `set.json` keeps each entry's `durationMs` but none of their reports, so a set read back from it
+     * still computes a wall clock — non-null, enough to satisfy `?:`, and carrying no reply latency. The
+     * venue's number would stay hidden behind the flow's, which is the number the doc says never to
+     * quote. Merged field by field instead.
+     */
+    @Test
+    fun `a reopened set takes reply latency from disk and is not satisfied by its wall clock`() {
+        val stored = assertNotNull(RunSetStats.of(laneSet(latencies = listOf(106L, 106L, 105L), durations = listOf(608L, 678L, 550L))))
+        // What a set read back from set.json looks like: durations survive, results do not.
+        val reopened = assertNotNull(RunSetStats.of(laneSet(latencies = emptyList(), durations = listOf(608L, 678L, 550L))))
+        assertNull(reopened.replyLatency, "the premise: a disk set computes a wall clock and nothing else")
+
+        val shown = assertNotNull(RunSetStats.merge(reopened, stored))
+
+        assertEquals(106L, assertNotNull(shown.replyLatency).p50, "the venue's number comes from disk")
+        assertEquals(678L, assertNotNull(shown.wallClock).max, "and the wall clock is still the set's own")
     }
 
     /** Nothing measured means no block at all — an invented zero would be worse than the silence. */

@@ -100,6 +100,25 @@ object RunSetStats {
         }
 
     /**
+     * **What to show, given a set in hand and a block on disk.**
+     *
+     * Not an elvis. A set read from `set.json` keeps every entry's `durationMs`, so [of] answers it with a
+     * wall clock and no reply latency — non-null, and therefore enough to swallow a plain `?:` and leave
+     * the venue's number hidden behind the flow's. The two sources are merged field by field: whichever
+     * has the measurement wins, and the stored block supplies exactly what the reopened set cannot
+     * recompute.
+     */
+    fun merge(live: Stats?, stored: Stats?): Stats? {
+        if (live == null) return stored
+        if (stored == null) return live
+        return Stats(
+            replyLatency = live.replyLatency ?: stored.replyLatency,
+            wallClock = live.wallClock ?: stored.wallClock,
+            failedLanes = live.failedLanes.ifEmpty { stored.failedLanes },
+        )
+    }
+
+    /**
      * **Read back, for a set that no longer holds its results.**
      *
      * `set.json` stores entries but not their reports — those live in the sibling record files — so a set

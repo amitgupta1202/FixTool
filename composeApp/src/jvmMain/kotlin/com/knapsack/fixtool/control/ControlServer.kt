@@ -1581,8 +1581,10 @@ class ControlServer(
         }
         val tail = parts.getOrNull(3)
         if (tail == "stop") {
-            val active = viewModel.activeRunSet.value
-            if (active == null || active.id != setId || !viewModel.scenarioRunning.value) {
+            // Asked of the claim registry, not of `activeRunSet` — that holds the one set the rail is
+            // drawing, so with two runs in flight it named the wrong one and this refused to stop a run
+            // that was running.
+            if (!viewModel.isRunSetRunning(setId)) {
                 return Coded(HTTP_CONFLICT, errorObject("run set '$setId' is not running"))
             }
             // Named, because a second run may be in flight on other sessions and this must not stop it.
@@ -1629,11 +1631,10 @@ class ControlServer(
             }
         }
         if (args["stop"]?.jsonPrimitive?.booleanOrNull == true) {
-            val active = viewModel.activeRunSet.value
-            if (active == null || active.id != setId || !viewModel.scenarioRunning.value) {
+            if (!viewModel.isRunSetRunning(setId)) {
                 return errorObject("run set '$setId' is not running")
             }
-            viewModel.requestScenarioStop()
+            viewModel.requestScenarioStop(setId)
         }
         val waitMs = args["wait"]?.jsonPrimitive?.longOrNull?.coerceIn(0, MAX_SET_WAIT_MS) ?: 0
         val deadline = System.currentTimeMillis() + waitMs

@@ -2845,7 +2845,16 @@ class FixMessageViewModel(
         claims.filter { setId == null || it.setId == setId }.forEach { it.stop.set(true) }
     }
 
-    /** True when a run holding [sessions] has been asked to stop — for a caller that wants to know. */
+    /**
+     * **Is this set running?** The claim registry is the authority, not [activeRunSet].
+     *
+     * `activeRunSet` is one slot because the rail draws one report; with two runs in flight it names the
+     * more recent, so asking it whether the *other* one is running answers no — and `/stop` refused to
+     * stop a set that was running at the time. Found by stopping one of two concurrent runs.
+     */
+    fun isRunSetRunning(setId: String): Boolean = claims.any { it.setId == setId }
+
+    /** True when a run has been asked to stop — for a caller that wants to know. */
     fun stopRequestedFor(setId: String): Boolean = claims.any { it.setId == setId && it.stop.get() }
 
     /**
@@ -3173,7 +3182,9 @@ class FixMessageViewModel(
         runRecordStore.begin(set)
         val done =
             RunSetRunner(ViewModelRunSetHost(pinned, cancelled)).run(set) { progress ->
-                _activeRunSet.value = progress
+                // Only the run the rail is showing may repaint it. Two concurrent sets both assigning
+                // here made the one visible report alternate between two different runs' progress.
+                if (_activeRunSet.value?.id == progress.id) _activeRunSet.value = progress
                 onProgress(progress)
             }
         // Fifty lanes of order flow is fifty copies of the same three messages. After the set, never

@@ -55,8 +55,22 @@
     <!-- Logger for QuickFIX/J - can be set to INFO to reduce noise -->
     <logger name="quickfix" level="INFO"/>
 
-    <!-- Logger for our application -->
-    <logger name="com.knapsack.fixtool" level="DEBUG"/>
+    <!--
+      Logger for our application.
+
+      INFO, not DEBUG, and the difference is a throughput setting rather than a preference. The
+      per-message lines in QuickFixService (Sending / Received / toApp / fromApp) run inside the
+      QuickFIX/J callback, and the call returns only once every appender below has written the line.
+      Measured at DEBUG against the three synchronous appenders here, that is ~9.7us and ~3.4KB of
+      garbage PER MESSAGE; with the lines disabled it is ~35ns and no allocation at all — see
+      LoggingCostBenchmarkTest, which pins both numbers.
+
+      Nothing is lost by turning them off by default: QuickFIX/J already writes a full per-session
+      message log of its own through FileLogFactory (FixConnectionManager), so these lines were a
+      second copy of an audit trail that already exists. Set this back to DEBUG to get them, plus the
+      rest of the module's debug detail, when actually debugging a session.
+    -->
+    <logger name="com.knapsack.fixtool" level="INFO"/>
 
     <!-- Root logger configuration -->
     <root level="INFO">

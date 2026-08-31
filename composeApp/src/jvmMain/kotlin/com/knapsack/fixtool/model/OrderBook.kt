@@ -194,7 +194,25 @@ data class BookedOrder(
     val lastAt: LocalDateTime? get() = events.lastOrNull()?.at
 
     val firstAt: LocalDateTime? get() = events.firstOrNull()?.at
+
+    /**
+     * This order with one more event on its trail.
+     *
+     * The single place a trail grows, so the structure that makes growing it cheap cannot be bypassed
+     * by a caller writing `copy(events = events + event)` — which is exactly what every call site used
+     * to say, and what made assembling a 5,000-fill trail allocate 509MB.
+     */
+    fun recording(event: OrderEvent): BookedOrder = copy(events = events.appended(event))
 }
+
+/**
+ * [event] appended, sharing the prefix when the receiver can.
+ *
+ * A [BookedOrder] built anywhere else — a test, a fixture — holds an ordinary `listOf`, and the first
+ * append converts it. After that the trail grows in O(1). See [AppendOnlyList].
+ */
+internal fun List<OrderEvent>.appended(event: OrderEvent): List<OrderEvent> =
+    if (this is AppendOnlyList<OrderEvent>) append(event) else AppendOnlyList.from(this).append(event)
 
 /**
  * What starts a chain, what moves it, what it is keyed by — **as data**.

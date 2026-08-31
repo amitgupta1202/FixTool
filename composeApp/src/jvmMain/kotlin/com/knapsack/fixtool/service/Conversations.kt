@@ -55,12 +55,32 @@ object Conversations {
         val ids: Set<String>,
         /** In the order they were given, which for a session log is arrival order. */
         val messages: List<FixMessage>,
+        /**
+         * Where each of [messages] sat in the list handed to [group], in the same order.
+         *
+         * Carried rather than re-derived. `ConversationRows` needs positions, not objects — its render
+         * rows address the original list — and it used to recover them by building a
+         * `HashMap<FixMessage, Int>` over the whole log and looking each message back up. That is a
+         * round trip: [group] works in indices internally and threw them away at the last step, so the
+         * caller hashed a thousand data-class messages to learn something this function already knew.
+         */
+        val indices: List<Int>,
     )
 
     /** Conversations in the order they opened, plus everything that belongs to none of them. */
     data class Grouping(
         val conversations: List<Conversation>,
         val ungrouped: List<FixMessage>,
+        /**
+         * The correlation ids of each message, by position in the list handed to [group].
+         *
+         * Exposed so a caller that needs them again does not pay for a second pass. `ConversationRows`
+         * builds a per-conversation id column and called [idsOf] a second time for every message to do
+         * it — the same answer, recomputed, for the same reason the field parse was.
+         */
+        val idsPerMessage: List<List<Pair<Int, String>>> = emptyList(),
+        /** Positions of [ungrouped] in the list handed to [group], in the same order. */
+        val ungroupedIndices: List<Int> = emptyList(),
     ) {
         val total: Int get() = conversations.sumOf { it.messages.size } + ungrouped.size
     }
@@ -83,10 +103,16 @@ object Conversations {
         }
 
         val ungrouped = mutableListOf<FixMessage>()
+        val ungroupedIndices = mutableListOf<Int>()
         val byRoot = linkedMapOf<String, MutableList<Int>>()
         messages.forEachIndexed { index, message ->
             val root = idsPerMessage[index].firstOrNull()?.second?.let(union::rootOf)
-            if (root == null) ungrouped += message else byRoot.getOrPut(root) { mutableListOf() } += index
+            if (root == null) {
+                ungrouped += message
+                ungroupedIndices += index
+            } else {
+                byRoot.getOrPut(root) { mutableListOf() } += index
+            }
         }
 
         // linkedMapOf preserves first-seen order, and the first message of a component is the one that
@@ -95,14 +121,17 @@ object Conversations {
         val conversations =
             byRoot.map { (_, indices) ->
                 val opener = idsPerMessage[indices.first()].first()
+                val ids = LinkedHashSet<String>()
+                for (i in indices) for (id in idsPerMessage[i]) ids.add(id.second)
                 Conversation(
                     label = opener.second,
                     labelTag = opener.first,
-                    ids = indices.flatMapTo(linkedSetOf()) { i -> idsPerMessage[i].map { it.second } },
+                    ids = ids,
                     messages = indices.map { messages[it] },
+                    indices = indices,
                 )
             }
-        return Grouping(conversations, ungrouped)
+        return Grouping(conversations, ungrouped, idsPerMessage, ungroupedIndices)
     }
 
     /**

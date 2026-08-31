@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixFields
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.compare.EntrySource
@@ -160,8 +161,7 @@ object FixMessageHelper {
      * lost its captured value, and the reconcile view, where "Accept actual" would have written a
      * truncated value into the scenario as the thing to assert from then on.
      */
-    internal fun parseFixMessage(raw: String): List<Pair<Int, String>> =
-        parseFixMessage(raw, delimiter = delimiterOf(raw))
+    internal fun parseFixMessage(raw: String): List<Pair<Int, String>> = FixFields.parse(raw)
 
     /**
      * **The one delimiter decider**, exposed because the paste box has to report what it read — and a second
@@ -172,22 +172,11 @@ object FixMessageHelper {
      * string was a delimiter or a character inside a value — nothing can, from the string alone. That is not
      * this function's business to guess at either; see `WirePaste`, which asks the message's own arithmetic.
      */
-    fun delimiterOf(raw: String): Char = if (raw.contains(SOH)) SOH else '|'
+    fun delimiterOf(raw: String): Char = FixFields.delimiterOf(raw)
 
     /** Parses with a **known** delimiter — no guessing, so a `|` inside a value stays inside it. */
     internal fun parseFixMessage(raw: String, delimiter: Char): List<Pair<Int, String>> =
-        raw
-            .split(delimiter)
-            .filter { it.isNotBlank() }
-            .mapNotNull { field ->
-                val parts = field.split('=', limit = 2)
-                if (parts.size == 2) {
-                    val tag = parts[0].toIntOrNull()
-                    if (tag != null) tag to parts[1] else null
-                } else {
-                    null
-                }
-            }
+        FixFields.parse(raw, delimiter)
 
     /**
      * The fields of a captured message, in wire order, read from the bytes the venue actually sent —
@@ -204,11 +193,10 @@ object FixMessageHelper {
      * it: a scenario that cannot check order is not a scenario that passes. For rendering — where a
      * best-effort field list beats a blank pane — use [fieldsForDisplay].
      */
-    fun wireFields(message: FixMessage): List<Pair<Int, String>>? =
-        message.wireRaw?.let { parseFixMessage(it, delimiter = '\u0001') }
+    fun wireFields(message: FixMessage): List<Pair<Int, String>>? = message.wireFields
 
     /** The FIX field delimiter. `|` is the display substitution for it, and only ever that. */
-    const val SOH: Char = '\u0001'
+    const val SOH: Char = FixFields.SOH
 
     /**
      * Joins fields into a raw string that [parseFixMessage] reads back to **the same fields**.
@@ -230,8 +218,7 @@ object FixMessageHelper {
      * string when we do not. Never for assertions — the order may be QuickFIX's rather than the venue's,
      * and a `|` inside a value splits one field into two. See [wireFields].
      */
-    fun fieldsForDisplay(message: FixMessage): List<Pair<Int, String>> =
-        wireFields(message) ?: parseFixMessage(message.rawMessage)
+    fun fieldsForDisplay(message: FixMessage): List<Pair<Int, String>> = message.displayFields
 
     /**
      * Recursively processes fields and groups, returning the index of the next unprocessed field

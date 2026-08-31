@@ -261,6 +261,7 @@ fun FixMessageDisplay(
                     MessageDisplayContent(
                         viewMode = viewMode,
                         messages = messages,
+                        rows = rawRows,
                         listState = listState,
                         isAtBottom = isAtBottom,
                         autoScroll = autoScroll,
@@ -336,6 +337,7 @@ fun FixMessageDisplay(
         MessageDisplayContent(
             viewMode = viewMode,
             messages = messages,
+            rows = rawRows,
             listState = listState,
             isAtBottom = isAtBottom,
             autoScroll = autoScroll,
@@ -379,6 +381,16 @@ fun FixMessageDisplay(
 private fun MessageDisplayContent(
     viewMode: ViewMode,
     messages: List<AppMessage>,
+    /**
+     * The render rows for [messages], built ONCE by the caller.
+     *
+     * This used to be rebuilt here, in a second `remember` with the same keys as the caller's — so a
+     * grouped pane ran the whole grouping twice per 100ms message update, over the whole buffer, to
+     * produce two identical lists. The caller needs its copy for scroll targeting; this needs the same
+     * one to draw. Passing it is what makes them the same list rather than two derivations that agree
+     * by construction until one of them changes.
+     */
+    rows: List<ConversationRows.Row>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isAtBottom: Boolean,
     autoScroll: Boolean,
@@ -485,17 +497,6 @@ private fun MessageDisplayContent(
         ViewMode.RAW -> {
             // Raw view only
             val horizontalScrollState = rememberScrollState()
-
-            // The render list — hoisted above the selection effect because scroll targets are ROW
-            // indices; see the grid's renderRows for the full reasoning.
-            val rows =
-                remember(messages, groupByConversation, collapsedConversations, dictionary) {
-                    if (!groupByConversation) {
-                        messages.indices.map { ConversationRows.Row.Message(it) }
-                    } else {
-                        ConversationRows.build(messages, dictionary, collapsedConversations)
-                    }
-                }
 
             // Scroll to selected message when it changes — by row; -1 means a collapsed group
             // hides it, and scrolling nowhere beats jumping to an unrelated row.

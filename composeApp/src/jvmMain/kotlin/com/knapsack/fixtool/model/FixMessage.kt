@@ -89,11 +89,52 @@ data class FixMessage(
         OUTGOING,
     }
 
-    override fun toDisplayString(): String {
+    /**
+     * **The venue's bytes as fields**, parsed once — or null when we do not have those bytes.
+     *
+     * A message is immutable, so its fields are a constant, and this used to be recomputed from the raw
+     * string on every ask. That was affordable when the asks were occasional and stopped being
+     * affordable when the grid started asking three times per message per 100ms rebuild: measured over a
+     * full 1,000-message buffer, a grouped rebuild allocated 12.4MB and took 3.9ms, ten times a second,
+     * per pane. See `GroupingBenchmarkTest`.
+     *
+     * Declared in the class body rather than the constructor, exactly like [uid], so it stays out of the
+     * generated `equals`/`hashCode`/`copy` — two messages with identical content must still compare
+     * equal, and a cache is not part of what a message *is*.
+     *
+     * [LazyThreadSafetyMode.PUBLICATION] rather than the default lock: this is read from the UI thread,
+     * the scenario runner's thread and the control server's, and the computation is pure, so the worst a
+     * race can do is compute the same list twice and publish one of them. That is cheaper than putting a
+     * monitor on a read that happens thousands of times a second.
+     */
+    val wireFields: List<Pair<Int, String>>? by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        wireRaw?.let { FixFields.parse(it, FixFields.SOH) }
+    }
+
+    /**
+     * Best-effort fields **for rendering**: [wireFields] when we have them, the lossy display string when
+     * we do not. Never for assertions — see `FixMessageHelper.wireFields` for why the difference is not a
+     * detail.
+     */
+    val displayFields: List<Pair<Int, String>> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        wireFields ?: FixFields.parse(rawMessage)
+    }
+
+    /**
+     * The grid row's text, built once.
+     *
+     * Runs per visible row per frame, and once per message in every filter and search pass — the session
+     * filter calls it for every message in the buffer whenever a regex filter is set, and that whole pass
+     * re-runs on each 100ms message update. The formatter below was hoisted for this reason; the string
+     * it formats was still being rebuilt every time.
+     */
+    private val displayString: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
         val time = timestamp.format(DISPLAY_TIME_FORMAT)
         val dir = if (direction == Direction.INCOMING) "<<" else ">>"
-        return "$time $dir [$messageType] $rawMessage"
+        "$time $dir [$messageType] $rawMessage"
     }
+
+    override fun toDisplayString(): String = displayString
 
     /**
      * Check if this message matches any rejection rule
@@ -127,11 +168,43 @@ data class FixMessage(
          */
         private val DISPLAY_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 
+        /**
+         * Hoisted for the same reason as [DISPLAY_TIME_FORMAT] beside it, which was hoisted and this was
+         * not: `String.toRegex()` calls `Pattern.compile`, and this ran inside the function.
+         *
+         * [parseMessageType] is the default value of the `messageType` constructor parameter, so it runs
+         * **once per FixMessage constructed** — every message ingested, plus every one rebuilt during
+         * capture and replay. Compiling the same three-token pattern each time is pure waste on the
+         * ingest path.
+         */
+        private val MSG_TYPE_PATTERN = "35=([^\\x01|]+)".toRegex()
+
+        /**
+         * The value of tag 35, or `"UNKNOWN"`.
+         *
+         * The scan is hand-rolled because a regex is a heavy instrument for "find `35=` at a field
+         * boundary and read to the next delimiter", and this is on the per-message path. It looks only at
+         * positions where `35=` actually begins a field — start of string, or just after a delimiter —
+         * which the old pattern did not check and which matters: `10035=X` and `58=tag 35=foo` both
+         * contain the literal `35=`, and the regex matched the first of those. Falls back to the pattern
+         * for anything it cannot place, so a string with no field boundary at all still gets the old
+         * answer rather than a new kind of wrong.
+         */
         fun parseMessageType(raw: String): String {
-            // Extract message type from tag 35
-            // Match everything that is NOT a SOH character (\x01) or pipe (|)
-            val regex = "35=([^\\x01|]+)".toRegex()
-            return regex.find(raw)?.groupValues?.get(1) ?: "UNKNOWN"
+            var at = raw.indexOf(MSG_TYPE_TAG)
+            while (at >= 0) {
+                val startsField = at == 0 || raw[at - 1] == FixFields.SOH || raw[at - 1] == '|'
+                if (startsField) {
+                    val from = at + MSG_TYPE_TAG.length
+                    var to = from
+                    while (to < raw.length && raw[to] != FixFields.SOH && raw[to] != '|') to++
+                    if (to > from) return raw.substring(from, to)
+                }
+                at = raw.indexOf(MSG_TYPE_TAG, at + 1)
+            }
+            return MSG_TYPE_PATTERN.find(raw)?.groupValues?.get(1) ?: "UNKNOWN"
         }
+
+        private const val MSG_TYPE_TAG = "35="
     }
 }

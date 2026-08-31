@@ -1,0 +1,160 @@
+package com.knapsack.fixtool.perf
+
+import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.service.ConversationRows
+import com.knapsack.fixtool.service.Conversations
+import com.knapsack.fixtool.service.FixMessageHelper
+import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * **What the grid pays, ten times a second, to draw conversations it already drew.**
+ *
+ * `ConversationRows.build` is what turns a session log into grouped rows. It sits inside
+ * `remember(messages, ...)` at three call sites, and `messages` is a fresh list on every 100ms drain
+ * cycle — so during live traffic the memo never hits and the whole thing is rebuilt from scratch, ten
+ * times a second, over the entire retained buffer.
+ *
+ * Rebuilding row structure is cheap. Rebuilding it by **re-parsing every raw message string three
+ * times** is not, and that is what it did:
+ *
+ * ```
+ * Conversations.group  → idsOf(m)   → fieldsForDisplay(m)   ← parse
+ * build's idsByTag loop → idsOf(m)  → fieldsForDisplay(m)   ← parse again
+ * Conversations.summarize          → fieldsForDisplay(m)   ← parse again
+ * ```
+ *
+ * `fieldsForDisplay` had no cache: every call split the whole wire string on SOH and then split each
+ * field on `=`, allocating a fresh `List<Pair<Int, String>>` and a couple of `String`s per field. The
+ * message is immutable and its fields cannot change, so all of that was the same answer, recomputed.
+ *
+ * `Conversations`' own KDoc already said so — *"a caller regrouping on each arrival should memoize on
+ * the log rather than call it per frame"* — and no caller did.
+ */
+class GroupingBenchmarkTest {
+    private val dictionary = FixDictionaryAdapter.createDefault()
+
+    /**
+     * **The per-message unit: one parse of one message's fields.**
+     *
+     * Everything else in this file is this number multiplied by how many times the callers ask. Cached
+     * on the message as a `lazy` body property, the second and every subsequent ask is a field read.
+     */
+    @Test
+    fun `parsing one message's fields, uncached against cached`() {
+        val message = Corpus.rfqFlow(1).first()
+
+        val result =
+            Bench.compare(
+                "Reading the fields of one FIX message",
+                ops = 10_000,
+                // The uncached path, preserved verbatim: this is what fieldsForDisplay used to do on
+                // every call, and what it will do again if anyone removes the lazy field.
+                before = "parse the wire string every time" to {
+                    FixMessageHelper.parseFixMessage(message.wireRaw!!, FixMessageHelper.SOH)
+                },
+                after = "read the message's cached field list" to {
+                    FixMessageHelper.fieldsForDisplay(message)
+                },
+            )
+
+        assertTrue(
+            result.allocationFactor > 20.0,
+            "a cached field list must allocate essentially nothing per read; got ${result.allocationFactor}×",
+        )
+    }
+
+    /**
+     * **The number the grid actually pays**: one full rebuild of the grouped row list over a realistic
+     * buffer, which happens ten times a second while traffic flows.
+     *
+     * 1,000 messages is `FixMessageSession.DEFAULT_BUFFER_SIZE` — the retained window as shipped, not a
+     * stress figure. Multiply the per-op result by 10 for the per-second cost of one pane, and again by
+     * the number of open panes.
+     */
+    @Test
+    fun `building grouped rows over a full retained buffer`() {
+        val messages = Corpus.rfqFlow(1_000)
+
+        val result =
+            Bench.measure("ConversationRows.build over 1,000 messages", ops = 20) {
+                ConversationRows.build(messages, dictionary, emptySet())
+            }
+
+        println("\n┌─ Grouped row rebuild (happens ~10x/second per pane during traffic)")
+        println("│  " + result.render())
+        println("│  → per second, one pane: %,d B and %,d ms".format(result.bytesPerOp * 10, result.nanosPerOp * 10 / 1_000_000))
+        println("└─\n")
+
+        // The rows themselves are the irreducible part; the parses were not. Pinned loosely because the
+        // absolute figure depends on the machine, and the point of the pin is that it cannot go back to
+        // re-parsing — which showed up here as roughly an order of magnitude more allocation.
+        assertTrue(
+            result.bytesPerOp < 3_000_000,
+            "a grouped rebuild over 1,000 messages should not allocate megabytes; got ${result.bytesPerOp} B",
+        )
+    }
+
+    /**
+     * **Where the remaining cost sits**, so the next person to look does not have to guess.
+     *
+     * Kept after the fix rather than deleted with it. The first round of this work cut allocation by 8×
+     * and wall time by only 1.5×, which is the signature of "you fixed one thing and something else is
+     * now dominant" — and it was: `group` was still re-deriving indices the caller then threw away, and
+     * `build` was hashing every message into a `HashMap<FixMessage, Int>` to get them back. Neither
+     * showed up in the headline number. This breakdown is what found them.
+     */
+    @Test
+    fun `where the cost sits inside a grouped rebuild`() {
+        val messages = Corpus.rfqFlow(1_000)
+        val fix = messages.filterIsInstance<com.knapsack.fixtool.model.FixMessage>()
+
+        println("\n┌─ Decomposition of one grouped rebuild over 1,000 messages")
+        listOf<Pair<String, () -> Any?>>(
+            "splitting FIX from non-FIX entries" to { messages.filterIsInstance<com.knapsack.fixtool.model.FixMessage>() },
+            "Conversations.group" to { Conversations.group(fix, dictionary) },
+            "group + summarize every conversation" to {
+                Conversations.group(fix, dictionary).conversations.map { Conversations.summarize(it, dictionary) }
+            },
+            "full ConversationRows.build" to { ConversationRows.build(messages, dictionary, emptySet()) },
+        ).forEach { (name, block) -> println("│  " + Bench.measure(name, ops = 20, block = block).render()) }
+        println("└─\n")
+    }
+
+    /**
+     * The correctness half. A cache that returns a different answer than the parse it replaced would
+     * turn every grouped view into a quiet lie, so the two are asserted to agree field for field —
+     * including on a message with repeating groups, where wire order is the whole point.
+     */
+    @Test
+    fun `the cached field list is identical to a fresh parse, order included`() {
+        val messages = Corpus.rfqFlow(20) + Corpus.marketDataSnapshot(entries = 50)
+
+        messages.forEach { message ->
+            val fresh = FixMessageHelper.parseFixMessage(message.wireRaw!!, FixMessageHelper.SOH)
+            val cached = FixMessageHelper.fieldsForDisplay(message)
+            assertEquals(fresh, cached, "cached fields must equal a fresh parse, in wire order")
+            // And repeated reads must keep agreeing — a lazy that memoised a mutable list could not.
+            assertEquals(cached, FixMessageHelper.fieldsForDisplay(message), "repeat reads must be stable")
+        }
+    }
+
+    /**
+     * The grouping's own output must not change: same conversations, same labels, same membership. The
+     * cache is an implementation detail of how the fields are read, and nothing above it may notice.
+     */
+    @Test
+    fun `grouping still finds the same conversations`() {
+        val messages = Corpus.rfqFlow(50)
+        val grouping = Conversations.group(messages, dictionary)
+
+        assertEquals(10, grouping.conversations.size, "50 messages of a 5-message RFQ flow is 10 exchanges")
+        assertTrue(grouping.ungrouped.isEmpty(), "every message in the corpus carries a correlation id")
+        grouping.conversations.forEach { conversation ->
+            assertEquals(5, conversation.messages.size, "each RFQ exchange has request, quote, order, 2 fills")
+            assertTrue(conversation.label.startsWith("RFQ-"), "the opener's id labels the exchange")
+        }
+        assertEquals(messages.size, grouping.total, "nothing may be dropped or double-counted")
+    }
+}

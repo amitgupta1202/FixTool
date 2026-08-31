@@ -35,6 +35,28 @@ object Bench {
         threadBean?.getThreadAllocatedBytes(Thread.currentThread().threadId()) ?: -1L
 
     /**
+     * Bytes allocated by **every live thread**, for work that does not happen on the calling one.
+     *
+     * Compose is the reason this exists. A `runComposeUiTest` block drives composition, layout and the
+     * frame clock on threads of their own, so the calling thread's allocation counter reports the cost
+     * of `waitForIdle()` — a few kilobytes of nothing — while the work under test allocates megabytes
+     * next door. The first version of the grid benchmark measured exactly that and reported a
+     * reassuring flat line for code that was provably O(N).
+     *
+     * The trade is noise: anything else running in the JVM lands in this figure too. That is tolerable
+     * for a comparison of two arms measured back to back in the same process, and not tolerable as an
+     * absolute. Prefer [measure]'s per-thread default wherever the work is on the calling thread.
+     */
+    private fun allocatedBytesAllThreads(): Long {
+        val bean = threadBean ?: return -1L
+        val ids = bean.allThreadIds
+        val perThread = bean.getThreadAllocatedBytes(ids) ?: return -1L
+        var total = 0L
+        for (bytes in perThread) if (bytes > 0) total += bytes
+        return total
+    }
+
+    /**
      * One measured implementation: what it allocated and how long it took, per operation.
      *
      * [bytesPerOp] is the assertable figure. [nanosPerOp] is the median of the measured rounds, which
@@ -70,19 +92,27 @@ object Bench {
         ops: Int = 100,
         warmupRounds: Int = 3,
         rounds: Int = 7,
+        /**
+         * Count allocation across every thread, not just this one.
+         *
+         * Set it when the work under test runs somewhere else — Compose composition and layout do. See
+         * [allocatedBytesAllThreads] for what it costs in noise.
+         */
+        allThreads: Boolean = false,
         block: () -> Any?,
     ): Result {
+        val sample: () -> Long = if (allThreads) ::allocatedBytesAllThreads else ::allocatedBytes
         repeat(warmupRounds) { repeat(ops) { consume(block()) } }
 
         val times = LongArray(rounds)
         val allocs = LongArray(rounds)
         repeat(rounds) { round ->
             System.gc()
-            val bytes0 = allocatedBytes()
+            val bytes0 = sample()
             val t0 = System.nanoTime()
             repeat(ops) { consume(block()) }
             times[round] = System.nanoTime() - t0
-            allocs[round] = allocatedBytes() - bytes0
+            allocs[round] = sample() - bytes0
         }
         times.sort()
         allocs.sort()

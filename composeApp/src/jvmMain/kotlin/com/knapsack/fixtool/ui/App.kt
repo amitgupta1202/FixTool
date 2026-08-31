@@ -91,6 +91,25 @@ fun App(
             val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
         val showOrderBookPanel by viewModel.showOrderBookPanel.collectAsState()
             val showScenariosRail by viewModel.showScenariosRail.collectAsState()
+
+            /**
+             * Whether ANY pane is grouped by conversation — what the toolbar button lights up on.
+             *
+             * One collector over the combined flows, not `sessions.map { it.flow.collectAsState() }`.
+             * That called a composable inside a loop over a mutable list, so the number and order of
+             * composition slots depended on how many sessions were open and every add or remove shifted
+             * them, re-creating each collector. Keyed on the session count so the combination is rebuilt
+             * exactly when the set of flows to combine changes.
+             */
+            val sessionCount = viewModel.sessions.size
+            val anySessionGrouped by remember(sessionCount) {
+                val flows = viewModel.sessions.map { session -> session.groupByConversation }
+                if (flows.isEmpty()) {
+                    kotlinx.coroutines.flow.flowOf(false)
+                } else {
+                    kotlinx.coroutines.flow.combine(flows) { flags -> flags.any { on -> on } }
+                }
+            }.collectAsState(initial = viewModel.anySessionGroupedByConversation())
             // Documents live in the scenario dock now (see ScenarioDock), not in the session centre, so the
             // layout no longer tracks the active document or its tabs at this level.
 
@@ -213,7 +232,7 @@ fun App(
                         globalFilterShowIncoming = globalFilterShowIncoming,
                         globalFilterShowOutgoing = globalFilterShowOutgoing,
                         hideProtocolTags = viewModel.appSettings.hideProtocolTags,
-                        groupByConversation = viewModel.sessions.map { it.groupByConversation.collectAsState().value }.any { it },
+                        groupByConversation = anySessionGrouped,
                         onOpenMessageEditor = { viewModel.toggleMessageEditor() },
                         onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                         onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },

@@ -29,7 +29,26 @@ sealed interface Matcher {
     object Absent : Matcher
 
     /** The value must match the given regular expression. */
-    data class Regex(val pattern: String) : Matcher
+    data class Regex(val pattern: String) : Matcher {
+        /**
+         * The compiled pattern, or null if it does not compile — computed once per matcher.
+         *
+         * `kotlin.text.Regex(pattern)` calls `Pattern.compile`, and [compiled] used to do that on every
+         * call: the evaluator asks per row evaluated, so a scenario with regex rows replayed in a run
+         * set recompiled the same handful of patterns thousands of times.
+         *
+         * In the class body, not the constructor, so it stays out of the generated `equals`/`hashCode`
+         * — two matchers with the same pattern must still compare equal, and a codec that round-trips
+         * one must produce something equal to what it read.
+         */
+        internal val compiledPattern: kotlin.text.Regex? by lazy(LazyThreadSafetyMode.PUBLICATION) {
+            try {
+                kotlin.text.Regex(pattern)
+            } catch (e: java.util.regex.PatternSyntaxException) {
+                null
+            }
+        }
+    }
 
     /** The value must be a member of the given set (e.g. OrdStatus in {1,2}). */
     data class OneOf(val values: List<String>) : Matcher
@@ -83,12 +102,7 @@ sealed interface Matcher {
  * drift into disagreeing about whether a pattern is usable, or into describing the same fault two
  * different ways.
  */
-fun Matcher.Regex.compiled(): kotlin.text.Regex? =
-    try {
-        kotlin.text.Regex(pattern)
-    } catch (e: java.util.regex.PatternSyntaxException) {
-        null
-    }
+fun Matcher.Regex.compiled(): kotlin.text.Regex? = compiledPattern
 
 /**
  * What is wrong with this matcher, in the author's words, or null if it is usable.

@@ -510,7 +510,9 @@ class QuickFixService(
         // of the same object rather than two independent ones taken a moment apart.
         val wire = message.toString()
         val rawMessage = wire.toRawFixMessage()
-        logger.info("Sending: {}", rawMessage)
+        // DEBUG, not INFO: this duplicates the per-session message log QuickFIX/J already writes
+        // through FileLogFactory, and it is paid on the callback thread — see LoggingCostBenchmarkTest.
+        logger.debug("Sending: {}", rawMessage)
 
         try {
             val fixMessage =
@@ -613,7 +615,7 @@ class QuickFixService(
                 wireMessage?.toRawFixMessage()
                     ?: message.toRawFixMessage()
 
-            logger.info("Received: {}", rawMessage)
+            logger.debug("Received: {}", rawMessage)
             val fixMessage =
                 FixMessage(
                     timestamp = LocalDateTime.now(),
@@ -640,7 +642,7 @@ class QuickFixService(
         // One serialisation, two views of it — see toAdmin.
         val wire = message.toString()
         val rawMessage = wire.toRawFixMessage()
-        logger.info("QuickFIX toApp: {}", rawMessage)
+        logger.debug("QuickFIX toApp: {}", rawMessage)
 
         // Capture outgoing application message for UI display
         try {
@@ -737,7 +739,7 @@ class QuickFixService(
                 message
             }
 
-        logger.info("QuickFIX fromApp: {}", rawMessage)
+        logger.debug("QuickFIX fromApp: {}", rawMessage)
 
         try {
             // Convert QuickFIX message to our FIX message model

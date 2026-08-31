@@ -46,8 +46,15 @@ class OrderBookBenchmarkTest {
      */
     private fun fill(id: String, n: Int): Map<Int, String> =
         mapOf(
-            TAG_MSG_TYPE to "8", spec.keyTag to id, 37 to "EX-$id", 17 to "F-$n",
-            150 to "1", 39 to "1", 32 to "100", 31 to "1.0850", 14 to (n * 100).toString(),
+            TAG_MSG_TYPE to "8",
+            spec.keyTag to id,
+            37 to "EX-$id",
+            17 to "F-$n",
+            150 to "1",
+            39 to "1",
+            32 to "100",
+            31 to "1.0850",
+            14 to (n * 100).toString(),
         )
 
     private fun bookWith(orders: Int, cap: Int = 5_000): OrderBookService {
@@ -187,7 +194,13 @@ class OrderBookBenchmarkTest {
 
         val view = service.view("s")
         assertEquals(1, view.orders.size, "one order in the book")
-        assertEquals(order.events.size, view.orders.single().events.size, "and the view must see its whole trail")
+        assertEquals(
+            order.events.size,
+            view.orders
+                .single()
+                .events.size,
+            "and the view must see its whole trail",
+        )
     }
 
     /**
@@ -206,7 +219,15 @@ class OrderBookBenchmarkTest {
         assertEquals(1, service.view("s").orders.size, "a new order must be visible immediately")
 
         repeat(10) { i -> service.record("s", at, sent = true, fields = fill("ORD-1", i), raw = "") }
-        assertEquals(11, service.view("s").orders.single().events.size, "and so must every fill on it")
+        assertEquals(
+            11,
+            service
+                .view("s")
+                .orders
+                .single()
+                .events.size,
+            "and so must every fill on it",
+        )
 
         service.record("s", at, sent = false, fields = newOrder("ORD-2"), raw = "")
         assertEquals(2, service.view("s").orders.size, "and a second order")
@@ -235,12 +256,20 @@ class OrderBookBenchmarkTest {
 
         val deadline = System.currentTimeMillis() + 5_000
         while (System.currentTimeMillis() < deadline) {
-            if (flow.value.orders.singleOrNull()?.events?.size == 6) break
+            if (flow.value.orders
+                    .singleOrNull()
+                    ?.events
+                    ?.size == 6
+            ) {
+                break
+            }
             Thread.sleep(10)
         }
         assertEquals(
             6,
-            flow.value.orders.single().events.size,
+            flow.value.orders
+                .single()
+                .events.size,
             "the trailing flush must deliver the last write with no further traffic to carry it",
         )
     }
@@ -257,7 +286,11 @@ class OrderBookBenchmarkTest {
 
         assertEquals(
             4,
-            service.views("s").value.orders.single().events.size,
+            service
+                .views("s")
+                .value.orders
+                .single()
+                .events.size,
             "a fresh subscriber must see the book as it stands, not as it was last published",
         )
     }

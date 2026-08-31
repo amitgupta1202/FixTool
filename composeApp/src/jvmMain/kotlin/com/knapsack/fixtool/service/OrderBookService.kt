@@ -1,7 +1,7 @@
 package com.knapsack.fixtool.service
 
-import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.AppendOnlyList
+import com.knapsack.fixtool.model.BookReading
 import com.knapsack.fixtool.model.BookSpec
 import com.knapsack.fixtool.model.BookedOrder
 import com.knapsack.fixtool.model.OrderBook
@@ -194,7 +194,11 @@ class OrderBookService(
 
     /** [sessionKey]'s book, as a flow — created empty for a counterparty nothing has happened on yet. */
     fun views(sessionKey: String): StateFlow<BookView> =
-        books.computeIfAbsent(sessionKey) { Book(cap) }.also(::flush).published.asStateFlow()
+        books
+            .computeIfAbsent(sessionKey) { Book(cap) }
+            .also(::flush)
+            .published
+            .asStateFlow()
 
     /** Every counterparty this service has seen, in the order they first appeared. */
     fun sessions(): List<String> = books.keys().toList().sorted()

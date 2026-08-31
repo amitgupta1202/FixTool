@@ -304,7 +304,11 @@ private fun pathVerdict(file: File, kind: PathKind, detail: String?): Pair<Strin
 }
 
 /** One option in a [SegmentedChoice]. */
-class Choice<T>(val value: T, val label: String, val swatches: List<Color> = emptyList())
+class Choice<T>(
+    val value: T,
+    val label: String,
+    val swatches: List<Color> = emptyList(),
+)
 
 /**
  * A row of mutually exclusive options.

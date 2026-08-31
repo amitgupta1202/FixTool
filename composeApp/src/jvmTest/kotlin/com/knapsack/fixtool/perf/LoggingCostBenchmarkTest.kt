@@ -32,7 +32,8 @@ class LoggingCostBenchmarkTest {
     private fun contextFor(xml: String): LoggerContext {
         val context = LoggerContext()
         context.name = "bench-" + System.nanoTime()
-        JoranConfigurator().apply { this.context = context }
+        JoranConfigurator()
+            .apply { this.context = context }
             .doConfigure(ByteArrayInputStream(xml.toByteArray()))
         return context
     }
@@ -63,7 +64,7 @@ class LoggingCostBenchmarkTest {
         </configuration>
         """.trimIndent()
 
-    private val ALL = """<appender-ref ref="CONSOLE"/><appender-ref ref="FILE"/><appender-ref ref="ERROR_FILE"/>"""
+    private val allAppenders = """<appender-ref ref="CONSOLE"/><appender-ref ref="FILE"/><appender-ref ref="ERROR_FILE"/>"""
 
     /**
      * **The headline number: what one message costs when the line is on, against when it is off.**
@@ -80,8 +81,8 @@ class LoggingCostBenchmarkTest {
         val dir = Files.createTempDirectory("fixtool-log-bench").toFile()
         val raw = Corpus.rfqFlow(1).first().rawMessage
 
-        val enabled = contextFor(config(dir.absolutePath, ALL, level = "DEBUG"))
-        val disabled = contextFor(config(dir.absolutePath, ALL, level = "INFO"))
+        val enabled = contextFor(config(dir.absolutePath, allAppenders, level = "DEBUG"))
+        val disabled = contextFor(config(dir.absolutePath, allAppenders, level = "INFO"))
 
         val on = enabled.getLogger("com.knapsack.fixtool.service.QuickFixService")
         val off = disabled.getLogger("com.knapsack.fixtool.service.QuickFixService")
@@ -130,13 +131,17 @@ class LoggingCostBenchmarkTest {
                 "console only" to config(dir.absolutePath, """<appender-ref ref="CONSOLE"/>""", "DEBUG"),
                 "rolling file only" to config(dir.absolutePath, """<appender-ref ref="FILE"/>""", "DEBUG"),
                 "error file only (filtered out)" to config(dir.absolutePath, """<appender-ref ref="ERROR_FILE"/>""", "DEBUG"),
-                "all three (as shipped)" to config(dir.absolutePath, ALL, "DEBUG"),
+                "all three (as shipped)" to config(dir.absolutePath, allAppenders, "DEBUG"),
             ).map { (name, xml) -> name to contextFor(xml) }
 
         println("\n┌─ Cost of one per-message log line, by appender")
         contexts.forEach { (name, ctx) ->
             val logger = ctx.getLogger("com.knapsack.fixtool.service.QuickFixService")
-            val r = Bench.measure(name, ops = 2_000) { logger.debug("QuickFIX fromApp: {}", raw); true }
+            val r =
+                Bench.measure(name, ops = 2_000) {
+                    logger.debug("QuickFIX fromApp: {}", raw)
+                    true
+                }
             println("│  " + r.render())
         }
         println("└─\n")
@@ -163,7 +168,7 @@ class LoggingCostBenchmarkTest {
         val seq = 42
 
         // Level set so these calls are DISABLED — the point is what a disabled call still costs.
-        val context = contextFor(config(dir.absolutePath, ALL, level = "WARN"))
+        val context = contextFor(config(dir.absolutePath, allAppenders, level = "WARN"))
         val logger = context.getLogger("com.knapsack.fixtool.service.QuickFixService")
 
         val result =

@@ -658,7 +658,6 @@ private fun MessageDisplayContent(
                                 .padding(8.dp),
                     )
                 }
-
             }
         }
     }
@@ -703,21 +702,22 @@ private fun ConversationHeaderRow(
         )
         // Everything after the label is secondary: the label is what a reader scans for.
         Text(
-            text = buildString {
-                summary?.instrument?.let { append(" · ").append(it) }
-                summary?.quantity?.let { append(" ").append(it) }
-                append(" · ")
-                append(
-                    summary
-                        ?.composition
-                        ?.joinToString(", ") { "${it.name ?: it.messageType} ×${it.count}" }
-                        ?: "${header.count} message${if (header.count == 1) "" else "s"}",
-                )
-                // The dictionary's word for what the counterparty last said about state. Absent where
-                // nothing said anything — never inferred from the absence.
-                summary?.status?.valueName?.let { append(" · ").append(it) }
-                summary?.let { append(" · ").append(it.elapsedMillis).append("ms") }
-            },
+            text =
+                buildString {
+                    summary?.instrument?.let { append(" · ").append(it) }
+                    summary?.quantity?.let { append(" ").append(it) }
+                    append(" · ")
+                    append(
+                        summary
+                            ?.composition
+                            ?.joinToString(", ") { "${it.name ?: it.messageType} ×${it.count}" }
+                            ?: "${header.count} message${if (header.count == 1) "" else "s"}",
+                    )
+                    // The dictionary's word for what the counterparty last said about state. Absent where
+                    // nothing said anything — never inferred from the absence.
+                    summary?.status?.valueName?.let { append(" · ").append(it) }
+                    summary?.let { append(" · ").append(it.elapsedMillis).append("ms") }
+                },
             color = AppTheme.Colors.textSecondary,
             fontFamily = FontFamily.Monospace,
             fontSize = 11.sp,

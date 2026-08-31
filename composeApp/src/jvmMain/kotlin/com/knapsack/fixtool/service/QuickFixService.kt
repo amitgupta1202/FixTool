@@ -3,15 +3,15 @@ package com.knapsack.fixtool.service
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
 import com.knapsack.fixtool.model.AcceptorResponseRule
 import com.knapsack.fixtool.model.BookReading
-import com.knapsack.fixtool.model.OrderBook
-import com.knapsack.fixtool.model.PendingSendReason
-import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixConnectionState.*
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.OrderBook
+import com.knapsack.fixtool.model.PendingSendReason
+import com.knapsack.fixtool.model.SendReason
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessageManual
 import com.knapsack.fixtool.service.FixMessageHelper.toRawFixMessage
@@ -165,7 +165,9 @@ class QuickFixService(
     private val channels = java.util.concurrent.ConcurrentHashMap<SessionID, ClientChannel>()
 
     /** Logons turned away, counted for [acceptorStatus] and reported one by one through [onVenueEvent]. */
-    private val logonsRefused = java.util.concurrent.atomic.AtomicLong()
+    private val logonsRefused =
+        java.util.concurrent.atomic
+            .AtomicLong()
 
     /**
      * The rules' triggers, parsed **once per ruleset** rather than per inbound message — re-parsing
@@ -324,8 +326,12 @@ class QuickFixService(
      * test is looking at. Cumulative for the life of the session, so they only ever go up and a reader
      * can diff two reads rather than reason about when something was reset.
      */
-    private val triggersMatched = java.util.concurrent.atomic.AtomicLong()
-    private val responsesSent = java.util.concurrent.atomic.AtomicLong()
+    private val triggersMatched =
+        java.util.concurrent.atomic
+            .AtomicLong()
+    private val responsesSent =
+        java.util.concurrent.atomic
+            .AtomicLong()
 
     /**
      * What this acceptor is doing right now.
@@ -426,7 +432,11 @@ class QuickFixService(
      */
     private fun channelFor(sessionId: SessionID): ClientChannel {
         var arrived = false
-        val channel = channels.computeIfAbsent(sessionId) { arrived = true; ClientChannel() }
+        val channel =
+            channels.computeIfAbsent(sessionId) {
+                arrived = true
+                ClientChannel()
+            }
         if (arrived) {
             logger.info("Client session on venue {}: {}", config.senderCompID, sessionId)
             onVenueEvent?.invoke(VenueEvent.ClientArrived(sessionId))
@@ -912,7 +922,10 @@ class QuickFixService(
                     // through here ("Header fields out of order"), so every send came back warning
                     // "validation bypassed" — noise that drowned the real thing and contradicted the
                     // editor's linter. Ask the linter itself, so the two cannot disagree.
-                    FixMessageValidator.validate(rawMessage, dictionary).errors.firstOrNull()
+                    FixMessageValidator
+                        .validate(rawMessage, dictionary)
+                        .errors
+                        .firstOrNull()
                         // The lint above already named these tags, in better words. Saying it twice
                         // reads as two problems when there is one.
                         ?.takeUnless { problem -> DictionaryLint.alreadyNamed(problem, unknownTags) }
@@ -985,10 +998,11 @@ class QuickFixService(
             logger.warn("No active session for admin action")
             return false
         }
-        val session = Session.lookupSession(sessionID) ?: run {
-            logger.warn("Session not found: {}", sessionID)
-            return false
-        }
+        val session =
+            Session.lookupSession(sessionID) ?: run {
+                logger.warn("Session not found: {}", sessionID)
+                return false
+            }
         return try {
             action(session, sessionID)
             true
@@ -1037,7 +1051,9 @@ class QuickFixService(
      * initiator (whose session arrives later) and a venue client (whose session is why the pane
      * exists at all) without either needing to know which it is.
      */
-    private inner class BoundEndpoint(private val resolve: () -> SessionID?) : SessionEndpoint {
+    private inner class BoundEndpoint(
+        private val resolve: () -> SessionID?,
+    ) : SessionEndpoint {
         override val sessionId: SessionID? get() = resolve()
 
         override fun send(rawMessage: String, dictionary: FixDictionary): SendResult =
@@ -1116,7 +1132,11 @@ class QuickFixService(
         }
 
         fun state(newState: FixConnectionState) {
-            val sink = synchronized(lock) { lastState = newState; states }
+            val sink =
+                synchronized(lock) {
+                    lastState = newState
+                    states
+                }
             sink?.invoke(newState)
         }
 

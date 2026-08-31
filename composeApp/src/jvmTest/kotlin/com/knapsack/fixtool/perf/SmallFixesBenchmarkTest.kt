@@ -70,12 +70,14 @@ class SmallFixesBenchmarkTest {
             Bench.compare(
                 "The render list for 1,000 ungrouped messages",
                 ops = 2_000,
-                before = "materialise one Row per message" to {
-                    (0 until 1_000).map { ConversationRows.Row.Message(it) }
-                },
-                after = "identityRows(1_000)" to {
-                    ConversationRows.identityRows(1_000)
-                },
+                before =
+                    "materialise one Row per message" to {
+                        (0 until 1_000).map { ConversationRows.Row.Message(it) }
+                    },
+                after =
+                    "identityRows(1_000)" to {
+                        ConversationRows.identityRows(1_000)
+                    },
             )
 
         assertTrue(

@@ -123,7 +123,9 @@ class AppendOnlyListTest {
         val lock = Any()
         // AtomicReference rather than a @Volatile local (Kotlin does not allow that annotation here);
         // get/set carry the same volatile read/write semantics, which is what the test is exercising.
-        val published = java.util.concurrent.atomic.AtomicReference(AppendOnlyList.empty<Int>())
+        val published =
+            java.util.concurrent.atomic
+                .AtomicReference(AppendOnlyList.empty<Int>())
         val appends = 20_000
         val readers = 3
         val start = CountDownLatch(1)

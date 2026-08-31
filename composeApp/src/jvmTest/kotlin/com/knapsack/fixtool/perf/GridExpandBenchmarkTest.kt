@@ -75,7 +75,10 @@ class GridExpandBenchmarkTest {
             result =
                 Bench.measure(
                     "window of %,d messages".format(count),
-                    ops = 16, warmupRounds = 2, rounds = 5, allThreads = true,
+                    ops = 16,
+                    warmupRounds = 2,
+                    rounds = 5,
+                    allThreads = true,
                 ) {
                     next++
                     // A fresh list of the same length, as the ring buffer produces: one message rolls off

@@ -122,8 +122,10 @@ class GroupedViewIngestIntegrationTest {
                 drawn,
                 "every published entry — the separator included — must be drawn somewhere",
             )
-            val ungrouped = rows.filterIsInstance<ConversationRows.Row.Header>()
-                .singleOrNull { it.key == ConversationRows.UNGROUPED_KEY }
+            val ungrouped =
+                rows
+                    .filterIsInstance<ConversationRows.Row.Header>()
+                    .singleOrNull { it.key == ConversationRows.UNGROUPED_KEY }
             assertTrue(ungrouped != null, "the residue must get a header of its own, not be silently appended")
             assertEquals(1, ungrouped.count, "the separator is the only entry with no exchange to belong to")
         } finally {

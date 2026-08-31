@@ -44,13 +44,13 @@ class ReconcileScaleBenchmarkTest {
         val fields =
             wire.fields().map { (tag, value) ->
                 // Presence on the volatile ones, exact on the rest: an ordinary seeded expectation.
-                if (tag in VOLATILE) FieldExpectation(tag, Matcher.Presence) else FieldExpectation(tag, Matcher.Exact(value))
+                if (tag in volatileTags) FieldExpectation(tag, Matcher.Presence) else FieldExpectation(tag, Matcher.Exact(value))
             }
         return Expectation(fields, messageType = "W", mode = MatchMode.OPEN) to wire
     }
 
     /** Tags a seeder would not pin to a literal. */
-    private val VOLATILE = setOf(52, 270, 271)
+    private val volatileTags = setOf(52, 270, 271)
 
     /**
      * The whole authoring path — rows plus the move analysis — over snapshots an order of magnitude

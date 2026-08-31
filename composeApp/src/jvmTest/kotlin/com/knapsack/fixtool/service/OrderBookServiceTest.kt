@@ -236,6 +236,7 @@ class OrderBookServiceTest {
      * on screen against a wire that had already traded 2500. A stale book is worse than no book,
      * because it is wrong with a straight face and the reader has no way to tell.
      */
+
     /**
      * **Changes reach a watcher, and they do it without anything else having to happen.**
      *

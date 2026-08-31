@@ -9,10 +9,10 @@ import com.knapsack.fixtool.model.LatencyStatsAccumulator
 import com.knapsack.fixtool.model.PacketDirection
 import com.knapsack.fixtool.model.PacketTimestamp
 import com.knapsack.fixtool.model.TimestampSource
+import com.knapsack.fixtool.util.Coalescer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import com.knapsack.fixtool.util.Coalescer
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
@@ -204,12 +204,13 @@ class LatencyTrackingService(
             // Only the newest window, not the whole history. The panel draws `.take(50)` of this, and
             // copying ten thousand references per round trip to render fifty is the cost this publish
             // used to be. Anything wanting more asks getRecentPairs, which reads the history itself.
-            _recentPairs.value = ArrayList<CorrelatedMessagePair>(minOf(PUBLISHED_WINDOW, correlatedPairs.size)).apply {
-                for (existing in correlatedPairs) {
-                    if (size == PUBLISHED_WINDOW) break
-                    add(existing)
+            _recentPairs.value =
+                ArrayList<CorrelatedMessagePair>(minOf(PUBLISHED_WINDOW, correlatedPairs.size)).apply {
+                    for (existing in correlatedPairs) {
+                        if (size == PUBLISHED_WINDOW) break
+                        add(existing)
+                    }
                 }
-            }
         }
 
         // Update statistics
@@ -230,6 +231,7 @@ class LatencyTrackingService(
     /**
      * Update statistics state flows
      */
+
     /**
      * Publishes the statistics, at most ten times a second.
      *

@@ -114,10 +114,24 @@ private fun itemsOf(lines: List<DiffLine>, overlay: GroupOverlay, referenceOverl
     // them. So carry the surrounding entry across the gap — a null-entry line between an entry's first and
     // last row belongs to that entry's band. A stray line that is genuinely *between* two entries keeps its
     // null and sits, un-banded, where wire order puts it.
+    //
+    // One pass, not one per entry. This used to scan the whole line list for every entry in the overlay
+    // — `overlay.entries.forEach { lines.indices.filter { lines[it].entry == e } }` — building a
+    // throwaway index list each time, to learn a first and a last. That is O(entries × lines) to compute
+    // something a single sweep answers, and on a market-data snapshot (hundreds of entries against a
+    // couple of thousand lines) it is a million comparisons and hundreds of intermediate lists.
     val effective = lines.map { it.entry }.toMutableList()
-    overlay.entries.forEach { e ->
-        val own = lines.indices.filter { lines[it].entry == e }
-        if (own.isNotEmpty()) for (i in own.first()..own.last()) if (effective[i] == null) effective[i] = e
+    val span = HashMap<EntryNode, IntArray>(overlay.entries.size)
+    lines.forEachIndexed { index, line ->
+        val entry = line.entry ?: return@forEachIndexed
+        val known = span[entry]
+        if (known == null) span[entry] = intArrayOf(index, index) else known[1] = index
+    }
+    // Still driven by `overlay.entries`, in the overlay's own order, so that where two entries' spans
+    // overlap the result is the same one the per-entry scan produced.
+    overlay.entries.forEach { entry ->
+        val bounds = span[entry] ?: return@forEach
+        for (i in bounds[0]..bounds[1]) if (effective[i] == null) effective[i] = entry
     }
 
     val out = mutableListOf<DiffItem>()

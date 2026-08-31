@@ -1566,26 +1566,50 @@ object ScenarioReconcile {
         judgeable: (Matcher) -> Boolean,
     ): Map<Int, Int>? {
         val occurrences = draft.fields.groupingBy { it.tag }.eachCount()
+        val size = draft.fields.size
 
         fun movable(i: Int) = draft.fields[i].matcher !is Matcher.Absent
 
+        // **Prefix sums, so a candidate run is judged without being built.**
+        //
+        // The enumeration below considers every contiguous run — n(n+1)/2 of them — and it used to
+        // materialise each one as a `List<Int>` and then fold over it twice, to ask two questions that
+        // are both range sums. That made *enumeration alone* cubic in the draft, before any of the
+        // matching started: reconciling a 100-entry market-data snapshot allocated 477MB and took 120ms,
+        // and 4x the entries cost 27x the time. See `ReconcileScaleBenchmarkTest`.
+        //
+        // `movableUpTo[i]` and `brokenUpTo[i]` count, over `0 until i`, the rows that may move and the
+        // rows that are failing. Both questions become a subtraction, and only runs that survive them
+        // are ever built.
+        val movableUpTo = IntArray(size + 1)
+        val brokenUpTo = IntArray(size + 1)
+        for (i in 0 until size) {
+            movableUpTo[i + 1] = movableUpTo[i] + if (movable(i)) 1 else 0
+            brokenUpTo[i + 1] = brokenUpTo[i] + if (passes[i] == false) 1 else 0
+        }
+
         // Longest first, so a whole party is preferred over any single row inside it.
         val blocks = mutableListOf<List<Int>>()
-        for (length in draft.fields.size downTo 1) {
-            for (start in 0..draft.fields.size - length) {
-                val run = (start until start + length).toList()
-                if (!run.all(::movable)) continue
-                if (run.none { passes[it] == false }) continue // nothing here is broken; nothing to move
+        for (length in size downTo 1) {
+            for (start in 0..size - length) {
+                val end = start + length
+                if (movableUpTo[end] - movableUpTo[start] != length) continue
+                if (brokenUpTo[end] - brokenUpTo[start] == 0) continue // nothing broken here; nothing to move
                 if (length == 1 && occurrences.getOrDefault(draft.fields[start].tag, 0) > 1) continue
-                blocks += run
+                blocks += (start until end).toList()
             }
         }
 
         val place = mutableMapOf<Int, Int>()
         val used = mutableSetOf<Int>()
+        // Where each tag occurs in the reply, so `verbatimWindow` starts from candidate positions rather
+        // than from every position. A block can only begin where its first row's tag actually is.
+        val wirePositionsByTag = HashMap<Int, MutableList<Int>>()
+        wire.forEachIndexed { at, field -> wirePositionsByTag.getOrPut(field.first) { mutableListOf() } += at }
+
         for (block in blocks) {
             if (block.any { it in place }) continue
-            val at = verbatimWindow(draft, block, wire, used, holds, judgeable) ?: continue
+            val at = verbatimWindow(draft, block, wire, used, holds, judgeable, wirePositionsByTag) ?: continue
             block.forEachIndexed { offset, index ->
                 place[index] = at + offset
                 used += at + offset
@@ -1639,10 +1663,23 @@ object ScenarioReconcile {
         used: Set<Int>,
         holds: (Matcher, String) -> Boolean,
         judgeable: (Matcher) -> Boolean,
+        /**
+         * Where each tag occurs in [wire], so the search starts from candidate positions.
+         *
+         * A block can only begin where its first row's tag actually sits, and on the messages this
+         * matters for — a market-data snapshot, where the same handful of tags repeat per entry — that
+         * turns a scan of every position into a scan of the positions of one tag. Passed in rather than
+         * built here because the caller tries many blocks against the same reply.
+         */
+        wirePositionsByTag: Map<Int, List<Int>>,
     ): Int? {
         if (block.isEmpty() || wire.size < block.size) return null
         if (block.none { judgeable(draft.fields[it].matcher) }) return null
-        for (at in 0..wire.size - block.size) {
+        val firstTag = draft.fields[block.first()].tag
+        val candidates = wirePositionsByTag[firstTag] ?: return null
+        val last = wire.size - block.size
+        for (at in candidates) {
+            if (at > last) break // candidates are in wire order, so nothing further can fit either
             if ((at until at + block.size).any { it in used }) continue
             val fits =
                 block.withIndex().all { (offset, index) ->

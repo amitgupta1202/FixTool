@@ -63,7 +63,9 @@ object FixMessageHelper {
         // and Validate must describe the same message.
         val headerTags = FixVersion.getHeaderTags(fixVersion)
         val trailerTags = FixVersion.getTrailerTags(fixVersion)
+
         fun isHeader(tag: Int) = tag in headerTags || dataDictionary.isHeaderField(tag)
+
         fun isTrailer(tag: Int) = tag in trailerTags || dataDictionary.isTrailerField(tag)
 
         // Process header fields
@@ -90,7 +92,12 @@ object FixMessageHelper {
                 processFields(bodyFields.subList(i, end), 0, message, dataDictionary, msgTypeValue)
                 i = end
             } else {
-                val delimiter = bodyFields[group.entries.first().rows.first].first
+                val delimiter =
+                    bodyFields[
+                        group.entries
+                            .first()
+                            .rows.first,
+                    ].first
                 group.entries.forEach { entry ->
                     val instance = Group(group.groupTag, delimiter)
                     processFields(bodyFields.subList(entry.rows.first, entry.rows.last + 1), 0, instance, dataDictionary, msgTypeValue)
@@ -100,7 +107,9 @@ object FixMessageHelper {
                 // claim wins, mismatch included — rendering a count the venue never sent would
                 // hide exactly the defect this tool exists to show.
                 message.setString(group.groupTag, bodyFields[group.countRow!!].second)
-                i = group.entries.last().rows.last + 1
+                i = group.entries
+                    .last()
+                    .rows.last + 1
             }
         }
 

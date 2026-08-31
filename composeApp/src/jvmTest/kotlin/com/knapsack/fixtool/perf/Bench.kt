@@ -164,11 +164,13 @@ object Bench {
                 append("┌─ ").append(title).append('\n')
                 append("│  ").append(before.render()).append('\n')
                 append("│  ").append(after.render()).append('\n')
-                append("└─ allocation %.1f× less · time %.1f× faster (%d ops/round)".format(
-                    allocationFactor,
-                    timeFactor,
-                    before.ops,
-                ))
+                append(
+                    "└─ allocation %.1f× less · time %.1f× faster (%d ops/round)".format(
+                        allocationFactor,
+                        timeFactor,
+                        before.ops,
+                    ),
+                )
                 append('\n')
             }
     }

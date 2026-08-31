@@ -57,10 +57,12 @@ class PollScanBenchmarkTest {
                 size to result
             }
         val perSecond = measured.last().second
-        println("│  → a step waiting 5s over a full buffer: %,d B and %,d ms of scanning".format(
-            perSecond.bytesPerOp * 50,
-            perSecond.nanosPerOp * 50 / 1_000_000,
-        ))
+        println(
+            "│  → a step waiting 5s over a full buffer: %,d B and %,d ms of scanning".format(
+                perSecond.bytesPerOp * 50,
+                perSecond.nanosPerOp * 50 / 1_000_000,
+            ),
+        )
         println("└─\n")
 
         // The parse behind the scan is cached now, so a tick must not be allocating a field list per

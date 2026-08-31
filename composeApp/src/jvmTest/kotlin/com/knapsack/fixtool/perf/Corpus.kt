@@ -49,14 +49,42 @@ object Corpus {
             out += msg(seq++, "R", inbound = false, fields = listOf(131 to rfq, 55 to sym, 38 to "100000", 54 to "1"))
             out += msg(seq++, "S", inbound = true, fields = listOf(117 to quote, 131 to rfq, 55 to sym, 132 to "101.25", 133 to "101.75"))
             out += msg(seq++, "D", inbound = false, fields = listOf(11 to order, 117 to quote, 55 to sym, 38 to "100000", 44 to "101.75"))
-            out += msg(
-                seq++, "8", inbound = true,
-                fields = listOf(37 to exec, 11 to order, 17 to "$exec-1", 150 to "1", 39 to "1", 55 to sym, 32 to "40000", 31 to "101.75", 14 to "40000"),
-            )
-            out += msg(
-                seq++, "8", inbound = true,
-                fields = listOf(37 to exec, 11 to order, 17 to "$exec-2", 150 to "2", 39 to "2", 55 to sym, 32 to "60000", 31 to "101.75", 14 to "100000"),
-            )
+            out +=
+                msg(
+                    seq++,
+                    "8",
+                    inbound = true,
+                    fields =
+                        listOf(
+                            37 to exec,
+                            11 to order,
+                            17 to "$exec-1",
+                            150 to "1",
+                            39 to "1",
+                            55 to sym,
+                            32 to "40000",
+                            31 to "101.75",
+                            14 to "40000",
+                        ),
+                )
+            out +=
+                msg(
+                    seq++,
+                    "8",
+                    inbound = true,
+                    fields =
+                        listOf(
+                            37 to exec,
+                            11 to order,
+                            17 to "$exec-2",
+                            150 to "2",
+                            39 to "2",
+                            55 to sym,
+                            32 to "60000",
+                            31 to "101.75",
+                            14 to "100000",
+                        ),
+                )
             exchange++
         }
         return out.take(n)
@@ -92,11 +120,21 @@ object Corpus {
     fun fillStream(count: Int, order: String = "ORD-1"): List<FixMessage> =
         (1..count).map { i ->
             msg(
-                i, "8", inbound = true,
-                fields = listOf(
-                    37 to "EXEC-1", 11 to order, 17 to "FILL-$i", 150 to "1", 39 to "1",
-                    55 to "EUR/USD", 32 to "100", 31 to "1.0850", 14 to (i * 100).toString(),
-                ),
+                i,
+                "8",
+                inbound = true,
+                fields =
+                    listOf(
+                        37 to "EXEC-1",
+                        11 to order,
+                        17 to "FILL-$i",
+                        150 to "1",
+                        39 to "1",
+                        55 to "EUR/USD",
+                        32 to "100",
+                        31 to "1.0850",
+                        14 to (i * 100).toString(),
+                    ),
             )
         }
 
@@ -108,13 +146,14 @@ object Corpus {
         inbound: Boolean,
         fields: List<Pair<Int, String>>,
     ): FixMessage {
-        val header = listOf(
-            35 to type,
-            49 to if (inbound) "VENUE" else "CLIENT",
-            56 to if (inbound) "CLIENT" else "VENUE",
-            34 to seq.toString(),
-            52 to "20260830-09:30:00.000",
-        )
+        val header =
+            listOf(
+                35 to type,
+                49 to if (inbound) "VENUE" else "CLIENT",
+                56 to if (inbound) "CLIENT" else "VENUE",
+                34 to seq.toString(),
+                52 to "20260830-09:30:00.000",
+            )
         val wire = (header + fields).joinToString("") { (t, v) -> "$t=$v$SOH" }
         val full = "8=FIX.4.4${SOH}9=${wire.length}$SOH$wire" + "10=000$SOH"
         return FixMessage(

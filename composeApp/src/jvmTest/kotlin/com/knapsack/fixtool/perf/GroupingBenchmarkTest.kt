@@ -51,12 +51,14 @@ class GroupingBenchmarkTest {
                 ops = 10_000,
                 // The uncached path, preserved verbatim: this is what fieldsForDisplay used to do on
                 // every call, and what it will do again if anyone removes the lazy field.
-                before = "parse the wire string every time" to {
-                    FixMessageHelper.parseFixMessage(message.wireRaw!!, FixMessageHelper.SOH)
-                },
-                after = "read the message's cached field list" to {
-                    FixMessageHelper.fieldsForDisplay(message)
-                },
+                before =
+                    "parse the wire string every time" to {
+                        FixMessageHelper.parseFixMessage(message.wireRaw!!, FixMessageHelper.SOH)
+                    },
+                after =
+                    "read the message's cached field list" to {
+                        FixMessageHelper.fieldsForDisplay(message)
+                    },
             )
 
         assertTrue(

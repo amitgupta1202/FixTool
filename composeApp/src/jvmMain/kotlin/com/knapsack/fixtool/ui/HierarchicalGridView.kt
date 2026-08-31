@@ -38,10 +38,10 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AppMessage
-import com.knapsack.fixtool.service.ConversationRows
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.Separator
+import com.knapsack.fixtool.service.ConversationRows
 import com.knapsack.fixtool.service.groupCountSafe
 import kotlinx.coroutines.launch
 import quickfix.Field
@@ -1126,7 +1126,6 @@ fun HierarchicalGridView(
                     .padding(start = 8.dp, end = 20.dp, bottom = 4.dp)
                     .height(8.dp),
         )
-
     }
 }
 

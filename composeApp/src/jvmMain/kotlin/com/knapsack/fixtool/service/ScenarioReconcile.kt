@@ -272,7 +272,11 @@ object ScenarioReconcile {
      * difference, and [fixPlan] answers it separately — a band of ±0 "covering both sides" would be a
      * tooltip that describes nothing).
      */
-    data class CoveringBand(val matcher: Matcher.Numeric, val expectedText: String, val decimalTolerance: String)
+    data class CoveringBand(
+        val matcher: Matcher.Numeric,
+        val expectedText: String,
+        val decimalTolerance: String,
+    )
 
     fun coveringBand(current: Matcher, actualText: String?): CoveringBand? {
         if (actualText == null) return null
@@ -302,7 +306,10 @@ object ScenarioReconcile {
         } else {
             // Via toString (shortest round-trip decimal), never BigDecimal(double) — which would expand
             // 1.9999 to its full binary form and put fifty digits in the tooltip.
-            java.math.BigDecimal(d.toString()).stripTrailingZeros().toPlainString()
+            java.math
+                .BigDecimal(d.toString())
+                .stripTrailingZeros()
+                .toPlainString()
         }
 
     /**
@@ -315,7 +322,9 @@ object ScenarioReconcile {
     sealed interface FixTolerance {
         object CoverBoth : FixTolerance
 
-        data class Uniform(val tolerance: Double) : FixTolerance
+        data class Uniform(
+            val tolerance: Double,
+        ) : FixTolerance
     }
 
     /**
@@ -459,7 +468,11 @@ object ScenarioReconcile {
                         "presence is the honest assertion"
             }
         return PlannedFix(
-            index, row.tag, name, current, Matcher.OneOf(union),
+            index,
+            row.tag,
+            name,
+            current,
+            Matcher.OneOf(union),
             reason = "$decoded — $admitted",
             repairs = true,
             klass = FixClass.ONE_OF,
@@ -483,7 +496,11 @@ object ScenarioReconcile {
         val actual = row.actual ?: return null
         val pattern = inferPattern(current.value, actual) ?: return null
         return PlannedFix(
-            index, row.tag, name, current, Matcher.Regex(pattern),
+            index,
+            row.tag,
+            name,
+            current,
+            Matcher.Regex(pattern),
             reason = "/$pattern/ is the shape both runs share — the varying run is the venue's",
             repairs = true,
             klass = FixClass.REGEX,
@@ -507,7 +524,11 @@ object ScenarioReconcile {
         if (!ExpectationSeeder.identifierFamily(row.tag, dictionary)) return null
         val actual = row.actual ?: return null
         return PlannedFix(
-            index, row.tag, name, current, Matcher.Presence,
+            index,
+            row.tag,
+            name,
+            current,
+            Matcher.Presence,
             reason =
                 "no shape shared with $actual — the venue mints this fresh per run; " +
                     "a stable id that changed is a regression: Accept actual instead",
@@ -532,16 +553,32 @@ object ScenarioReconcile {
      * wiring, not repairs, and their names are row-scoped.
      */
     sealed interface SameFix {
-        data class Substitution(val tag: Int, val expected: String, val actual: String) : SameFix
+        data class Substitution(
+            val tag: Int,
+            val expected: String,
+            val actual: String,
+        ) : SameFix
 
-        data class LoosenClass(val tag: Int, val klass: FixClass) : SameFix
+        data class LoosenClass(
+            val tag: Int,
+            val klass: FixClass,
+        ) : SameFix
     }
 
     /** One sibling the same fix would repair: the row, and exactly what it would become. */
-    data class SiblingFix(val index: Int, val tag: Int, val proposed: Matcher, val reason: String)
+    data class SiblingFix(
+        val index: Int,
+        val tag: Int,
+        val proposed: Matcher,
+        val reason: String,
+    )
 
     /** One *other* step the same fix reaches (C2): its rows, re-gated in that step's own diff. */
-    data class StepFixes(val stepId: String, val label: String, val fixes: List<SiblingFix>)
+    data class StepFixes(
+        val stepId: String,
+        val label: String,
+        val fixes: List<SiblingFix>,
+    )
 
     /**
      * Every failing row the signature reaches, **re-gated row by row** — a substitution requires the same
@@ -560,13 +597,18 @@ object ScenarioReconcile {
             is SameFix.Substitution ->
                 rows
                     .filter { r ->
-                        r.index != null && !r.passed && !r.unknown && r.status == TagStatus.VALUE &&
+                        r.index != null &&
+                            !r.passed &&
+                            !r.unknown &&
+                            r.status == TagStatus.VALUE &&
                             r.tag == fix.tag &&
                             (r.matcher as? Matcher.Exact)?.value == fix.expected &&
                             r.actual == fix.actual
                     }.map { r ->
                         SiblingFix(
-                            r.index!!, r.tag, Matcher.Exact(fix.actual),
+                            r.index!!,
+                            r.tag,
+                            Matcher.Exact(fix.actual),
                             "the same ${fix.expected} → ${fix.actual} substitution",
                         )
                     }
@@ -662,7 +704,11 @@ object ScenarioReconcile {
             val proposed = Matcher.Numeric(expected, 0.0)
             if (proposed == current) return null
             return PlannedFix(
-                index, row.tag, name, current, proposed,
+                index,
+                row.tag,
+                name,
+                current,
+                proposed,
                 reason = "the same number, formatted differently — numeric compares values, not text",
                 repairs = true,
                 klass = FixClass.NUMERIC,
@@ -672,7 +718,11 @@ object ScenarioReconcile {
             is FixTolerance.CoverBoth -> {
                 val band = coveringBand(current, actualText) ?: return null
                 PlannedFix(
-                    index, row.tag, name, current, band.matcher,
+                    index,
+                    row.tag,
+                    name,
+                    current,
+                    band.matcher,
                     reason = "${band.expectedText} ± ${band.decimalTolerance} is the smallest band covering both sides",
                     repairs = true,
                     klass = FixClass.NUMERIC,
@@ -682,7 +732,11 @@ object ScenarioReconcile {
                 val proposed = Matcher.Numeric(expected, mode.tolerance)
                 val repairs = ExpectationEvaluator.satisfies(proposed, actualText)
                 PlannedFix(
-                    index, row.tag, name, current, proposed,
+                    index,
+                    row.tag,
+                    name,
+                    current,
+                    proposed,
                     reason =
                         if (repairs) {
                             "± ${decimalText(mode.tolerance)} covers the reply's $actualText"
@@ -718,7 +772,11 @@ object ScenarioReconcile {
         val skew = kotlin.math.abs(instant.epochSecond - anchor.epochSecond)
         val widened = TEMPORAL_LADDER.firstOrNull { it >= skew && it > current.toleranceSeconds } ?: return null
         return PlannedFix(
-            index, row.tag, name, current, Matcher.Temporal(current.kind, widened),
+            index,
+            row.tag,
+            name,
+            current,
+            Matcher.Temporal(current.kind, widened),
             reason = "the reply's moment is ${skew}s from the reference's — ±${widened}s covers it with headroom",
             repairs = true,
             klass = FixClass.TEMPORAL,
@@ -763,7 +821,8 @@ object ScenarioReconcile {
         // the new row is checking the field that was clicked.
         fun insertPairingWith(target: Expectation, at: Int): Expectation? {
             val before =
-                ExpectationEvaluator.align(target, wire)
+                ExpectationEvaluator
+                    .align(target, wire)
                     .filter { it.row != null }
                     .mapNotNull { a -> a.index?.let { it to a.wireIndex } }
 
@@ -796,7 +855,8 @@ object ScenarioReconcile {
         // Claimed by a ROW. align() also emits the reply's unasserted extras, and they carry a wireIndex —
         // counting those made every field look claimed, so nothing was ever added.
         val claimed =
-            ExpectationEvaluator.align(draft, wire)
+            ExpectationEvaluator
+                .align(draft, wire)
                 .filter { it.row != null }
                 .mapNotNull { it.wireIndex }
                 .toSet()
@@ -1099,8 +1159,12 @@ object ScenarioReconcile {
         val valueChanged =
             failing.any { d ->
                 val repeated = (counts[d.alignment.tag] ?: 0) > 1
-                val judgeable = d.alignment.row?.matcher.let { it !is Matcher.Reference && it !is Matcher.Temporal }
-                repeated && judgeable &&
+                val judgeable =
+                    d.alignment.row
+                        ?.matcher
+                        .let { it !is Matcher.Reference && it !is Matcher.Temporal }
+                repeated &&
+                    judgeable &&
                     (d.result.status == TagStatus.VALUE || d.result.status == TagStatus.INVALID)
             }
         if (!valueChanged) return Reorder.None
@@ -1185,9 +1249,13 @@ object ScenarioReconcile {
 
     /** A hand move either happened, or it did not and the author is told why. Never a silent nothing. */
     sealed interface MoveResult {
-        data class Applied(val expectation: Expectation) : MoveResult
+        data class Applied(
+            val expectation: Expectation,
+        ) : MoveResult
 
-        data class Refused(val why: String) : MoveResult
+        data class Refused(
+            val why: String,
+        ) : MoveResult
     }
 
     /**
@@ -1713,7 +1781,8 @@ object ScenarioReconcile {
 
     /** Every failing row that is the message's shape changing rather than the venue's behaviour. */
     fun isShapeChange(row: Row): Boolean =
-        !row.passed && !row.unknown &&
+        !row.passed &&
+            !row.unknown &&
             (row.status == TagStatus.MISSING || row.status == TagStatus.MOVED || row.status == TagStatus.UNEXPECTED)
 
     /**

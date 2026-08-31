@@ -9,7 +9,9 @@ package com.knapsack.fixtool.model.scenario
  */
 sealed interface Matcher {
     /** Literal string equality (default for business fields). */
-    data class Exact(val value: String) : Matcher
+    data class Exact(
+        val value: String,
+    ) : Matcher
 
     /**
      * The value must be **anything but** this one.
@@ -20,7 +22,9 @@ sealed interface Matcher {
      * message does not carry is a question with no answer, and answering it "true" would let a whole
      * missing field pass as a successful negative.
      */
-    data class NotEqual(val value: String) : Matcher
+    data class NotEqual(
+        val value: String,
+    ) : Matcher
 
     /** The tag must be present; its value is ignored (e.g. OrderID, ExecID). */
     object Presence : Matcher
@@ -29,7 +33,9 @@ sealed interface Matcher {
     object Absent : Matcher
 
     /** The value must match the given regular expression. */
-    data class Regex(val pattern: String) : Matcher {
+    data class Regex(
+        val pattern: String,
+    ) : Matcher {
         /**
          * The compiled pattern, or null if it does not compile — computed once per matcher.
          *
@@ -51,14 +57,19 @@ sealed interface Matcher {
     }
 
     /** The value must be a member of the given set (e.g. OrdStatus in {1,2}). */
-    data class OneOf(val values: List<String>) : Matcher
+    data class OneOf(
+        val values: List<String>,
+    ) : Matcher
 
     /**
      * Float comparison with tolerance: `abs(actual - expected) <= tolerance`.
      * A tolerance of 0 still ignores formatting (`1.2345` == `1.23450`) because both sides
      * are parsed as numbers first. Use a non-zero tolerance for fuzzy price/qty checks.
      */
-    data class Numeric(val expected: Double, val tolerance: Double = 0.0) : Matcher
+    data class Numeric(
+        val expected: Double,
+        val tolerance: Double = 0.0,
+    ) : Matcher
 
     /**
      * **A numeric bound rather than a value** — `> 10000`, `<= 1.0850`, `[1.08, 1.09)`.
@@ -85,13 +96,18 @@ sealed interface Matcher {
     ) : Matcher
 
     /** Format-aware date/time comparison (UTCTimestamp / UTCDateOnly). */
-    data class Temporal(val kind: TemporalKind, val toleranceSeconds: Long = 0) : Matcher
+    data class Temporal(
+        val kind: TemporalKind,
+        val toleranceSeconds: Long = 0,
+    ) : Matcher
 
     /**
      * The value must equal a `${...}` expression resolved over the scenario/session scope,
      * e.g. `Reference("\${out.D.11}")` to assert an ExecutionReport echoes the order's ClOrdID.
      */
-    data class Reference(val expression: String) : Matcher
+    data class Reference(
+        val expression: String,
+    ) : Matcher
 }
 
 /**

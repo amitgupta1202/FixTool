@@ -153,9 +153,25 @@ data class LatencyStatistics(
 class LatencyStatsAccumulator(
     private val maxSamples: Int = 10000,
 ) {
-    private val samples = mutableListOf<Long>()
+    /**
+     * An ArrayDeque, not an ArrayList: eviction is `removeFirst`, which shifts every remaining element
+     * on an ArrayList and is O(1) here. At the default 10,000-sample ceiling that shift was paid on
+     * every correlated round trip.
+     */
+    private val samples = ArrayDeque<Long>()
     private var sum = 0.0
     private var sumSquares = 0.0
+
+    /**
+     * The last computed statistics, or null when a sample has arrived since.
+     *
+     * [getStatistics] has to sort the samples to get percentiles, which is O(n log n) and allocates a
+     * full copy — and it was being called for every accumulator on every single sample, because the
+     * publish path recomputed everything per round trip. Caching does not make the sort cheaper; it
+     * makes it happen once per *read* rather than once per write, which is the right axis: nobody can
+     * read percentiles ten thousand times a second and the panel does not try.
+     */
+    private var cached: LatencyStatistics? = null
 
     @Synchronized
     fun addSample(latencyMicros: Long) {
@@ -166,13 +182,15 @@ class LatencyStatsAccumulator(
             sumSquares -= removed.toDouble() * removed.toDouble()
         }
 
-        samples.add(latencyMicros)
+        samples.addLast(latencyMicros)
         sum += latencyMicros
         sumSquares += latencyMicros.toDouble() * latencyMicros.toDouble()
+        cached = null
     }
 
     @Synchronized
     fun getStatistics(): LatencyStatistics {
+        cached?.let { return it }
         if (samples.isEmpty()) {
             return LatencyStatistics.empty()
         }
@@ -183,7 +201,16 @@ class LatencyStatsAccumulator(
         val variance = if (count > 1) (sumSquares / count) - (mean * mean) else 0.0
         val stdDev = kotlin.math.sqrt(variance.coerceAtLeast(0.0))
 
-        return LatencyStatistics(
+        return statisticsOf(sorted, count, mean, stdDev).also { cached = it }
+    }
+
+    private fun statisticsOf(
+        sorted: List<Long>,
+        count: Long,
+        mean: Double,
+        stdDev: Double,
+    ): LatencyStatistics =
+        LatencyStatistics(
             sampleCount = count,
             minMicros = sorted.first(),
             maxMicros = sorted.last(),
@@ -194,13 +221,13 @@ class LatencyStatsAccumulator(
             p99Micros = sorted[(sorted.size * 0.99).toInt().coerceAtMost(sorted.size - 1)],
             stdDevMicros = stdDev,
         )
-    }
 
     @Synchronized
     fun clear() {
         samples.clear()
         sum = 0.0
         sumSquares = 0.0
+        cached = null
     }
 
     @Synchronized

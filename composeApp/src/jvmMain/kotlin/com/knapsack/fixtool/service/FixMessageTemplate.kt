@@ -95,9 +95,46 @@ object FixMessageTemplate {
             .onFailure { logger.warn("Script engine warm-up failed; first template expression will be slow", it) }
     }
 
-    // Cache extracted message data to avoid re-processing the same messages
-    // Key: message object identity, Value: extracted field data
-    private val extractedDataCache = java.util.concurrent.ConcurrentHashMap<quickfix.Message, Map<Int, List<String>>>()
+    /**
+     * Extracted field data per message, so one template expansion does not re-walk the same message
+     * once per expression in it.
+     *
+     * **Bounded, and it was not.** This is an `object` — a singleton for the life of the process — and
+     * the map was a `ConcurrentHashMap` keyed on `quickfix.Message`, which does not override
+     * `equals`/`hashCode`. So every message was a distinct key, nothing was ever replaced, and there
+     * was no eviction and no `clear()` anywhere: every message ever run through a template stayed
+     * pinned here, with its extracted fields, long after the session's ring buffer had let it go.
+     *
+     * An LRU with a small ceiling is the right shape because the working set genuinely is small —
+     * templates read the latest message per type, so a handful of messages answer almost every
+     * expansion. `accessOrder = true` makes it evict the least recently *read* rather than the oldest
+     * written, which is what keeps those few resident.
+     *
+     * Synchronised rather than concurrent: a `LinkedHashMap` in access order mutates on `get`, so it
+     * cannot be shared without a lock. The critical section is a map lookup on a path that is already
+     * evaluating script expressions.
+     */
+    private val extractedDataCache: MutableMap<quickfix.Message, Map<Int, List<String>>> =
+        java.util.Collections.synchronizedMap(
+            object : LinkedHashMap<quickfix.Message, Map<Int, List<String>>>(
+                EXTRACTED_CACHE_CEILING,
+                0.75f,
+                true,
+            ) {
+                override fun removeEldestEntry(
+                    eldest: MutableMap.MutableEntry<quickfix.Message, Map<Int, List<String>>>?,
+                ): Boolean = size > EXTRACTED_CACHE_CEILING
+            },
+        )
+
+    /**
+     * How many messages' extracted fields are kept.
+     *
+     * Sized for the working set, not for history: a template names `incoming[...]`/`outgoing[...]` per
+     * message type, so what is live at any moment is a few dozen messages at most. Anything past that
+     * is a message no expression is going to ask about again.
+     */
+    private const val EXTRACTED_CACHE_CEILING = 256
 
     // Known FIX repeating group tags - only these tags can contain groups
     // This avoids expensive hasGroup() checks on every field

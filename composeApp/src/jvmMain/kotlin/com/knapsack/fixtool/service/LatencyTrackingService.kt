@@ -12,6 +12,7 @@ import com.knapsack.fixtool.model.TimestampSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.knapsack.fixtool.util.Coalescer
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
@@ -32,6 +33,16 @@ class LatencyTrackingService(
 ) {
     private val logger = LoggerFactory.getLogger(LatencyTrackingService::class.java)
 
+    private companion object {
+        /**
+         * How many of the newest pairs [recentPairs] publishes.
+         *
+         * Generous next to the fifty the panel draws, so the window is never the reason something is
+         * missing, and small enough that publishing it per round trip is not a cost worth measuring.
+         */
+        const val PUBLISHED_WINDOW = 256
+    }
+
     // Pending sends awaiting response (keyed by correlationType:correlationId)
     private val pendingSends = ConcurrentHashMap<String, PacketTimestamp>()
 
@@ -40,14 +51,28 @@ class LatencyTrackingService(
     private var lastCleanupTimeMicros: Long = System.currentTimeMillis() * 1000
     private val cleanupIntervalMicros: Long = 10_000_000L // Clean up every 10 seconds
 
-    // Recent correlated pairs (most recent first)
-    private val correlatedPairs = mutableListOf<CorrelatedMessagePair>()
+    /**
+     * Recent correlated pairs, most recent first.
+     *
+     * An ArrayDeque, not an ArrayList, and for the same reason `FixMessageSession.retained` is one:
+     * inserting at the front of an ArrayList shifts every element behind it, so with the default
+     * 10,000-pair ceiling every round trip moved ten thousand references before doing anything else.
+     * A deque does it in O(1) at both ends. See `LatencyHistoryBenchmarkTest`.
+     */
+    private val correlatedPairs = ArrayDeque<CorrelatedMessagePair>()
     private val pairsLock = Any()
 
     // Statistics accumulators per correlation type
     private val statisticsAccumulators = ConcurrentHashMap<CorrelationIdType, LatencyStatsAccumulator>()
 
-    // Latency lookup by raw message (for grid display)
+    /**
+     * Latency by raw message, for the grid's latency column.
+     *
+     * Bounded by [correlatedPairs], which it did not used to be: entries were added per round trip and
+     * removed only by an explicit `clearStatistics`, so a long soak run accumulated one full raw FIX
+     * message — as a map KEY — per correlated message, forever. A message that has rolled out of the
+     * history has also rolled out of the grid, so its entry could never be read again either.
+     */
     private val latencyByMessage = ConcurrentHashMap<String, Long>()
 
     // Observable state for UI
@@ -167,16 +192,24 @@ class LatencyTrackingService(
      */
     private fun addCorrelatedPair(pair: CorrelatedMessagePair) {
         synchronized(pairsLock) {
-            // Add to front (most recent first)
-            correlatedPairs.add(0, pair)
+            correlatedPairs.addFirst(pair)
 
-            // Trim to history size
+            // Trim to history size, and take the evicted pair's lookup entry with it — the index exists
+            // to answer for messages the grid can still show, and this one is past the end of the history.
             while (correlatedPairs.size > historySize) {
-                correlatedPairs.removeLast()
+                val dropped = correlatedPairs.removeLast()
+                latencyByMessage.remove(dropped.sendTimestamp.rawFixMessage)
             }
 
-            // Update state flows
-            _recentPairs.value = correlatedPairs.toList()
+            // Only the newest window, not the whole history. The panel draws `.take(50)` of this, and
+            // copying ten thousand references per round trip to render fifty is the cost this publish
+            // used to be. Anything wanting more asks getRecentPairs, which reads the history itself.
+            _recentPairs.value = ArrayList<CorrelatedMessagePair>(minOf(PUBLISHED_WINDOW, correlatedPairs.size)).apply {
+                for (existing in correlatedPairs) {
+                    if (size == PUBLISHED_WINDOW) break
+                    add(existing)
+                }
+            }
         }
 
         // Update statistics
@@ -197,18 +230,40 @@ class LatencyTrackingService(
     /**
      * Update statistics state flows
      */
+    /**
+     * Publishes the statistics, at most ten times a second.
+     *
+     * Recomputing them means sorting every accumulator's samples for the percentiles — O(n log n) with
+     * a full copy, at a default ceiling of 10,000 samples — and it was being done on every correlated
+     * round trip, for a panel showing a handful of numbers a person reads a few times a second. The
+     * [Coalescer] paces it and guarantees the trailing run, so the last round trip before traffic stops
+     * still reaches the panel rather than leaving it a few samples behind forever.
+     */
     private fun updateStatistics() {
-        _statistics.value =
-            statisticsAccumulators.mapValues { (_, accumulator) ->
-                accumulator.getStatistics()
-            }
-        _aggregateStatistics.value = aggregateAccumulator.getStatistics()
+        statisticsPublisher.request()
+    }
+
+    private val statisticsPublisher =
+        Coalescer {
+            _statistics.value =
+                statisticsAccumulators.mapValues { (_, accumulator) ->
+                    accumulator.getStatistics()
+                }
+            _aggregateStatistics.value = aggregateAccumulator.getStatistics()
+        }
+
+    /** Publishes anything outstanding at once — for a synchronous reader, and for [clearStatistics]. */
+    fun flushStatistics() {
+        statisticsPublisher.flush()
     }
 
     /**
      * Get latency for a specific raw message (for grid display)
      */
     fun getLatencyForMessage(rawMessage: String): Long? = latencyByMessage[rawMessage]
+
+    /** How many messages the lookup index holds. Bounded by the history — see [latencyByMessage]. */
+    fun latencyIndexSize(): Int = latencyByMessage.size
 
     /**
      * Get latency severity for display coloring
@@ -223,7 +278,8 @@ class LatencyTrackingService(
     /**
      * Get statistics for a specific correlation type
      */
-    fun getStatistics(type: CorrelationIdType): LatencyStatistics = statisticsAccumulators[type]?.getStatistics() ?: LatencyStatistics.empty()
+    fun getStatistics(type: CorrelationIdType): LatencyStatistics =
+        statisticsAccumulators[type]?.getStatistics() ?: LatencyStatistics.empty()
 
     /**
      * Get recent correlated pairs with optional limit

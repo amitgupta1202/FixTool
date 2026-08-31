@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.service
 
 import com.knapsack.fixtool.model.BookReading
+import com.knapsack.fixtool.model.AppendOnlyList
 import com.knapsack.fixtool.model.BookSpec
 import com.knapsack.fixtool.model.BookedOrder
 import com.knapsack.fixtool.model.OrderBook
@@ -83,6 +84,26 @@ class OrderBookService(
         const val DEFAULT_CAP = 5_000
 
         /**
+         * How often a book's published view is rebuilt while it is being written to.
+         *
+         * The same cadence `FixMessageSession` drains on, chosen the same way: it is the fastest rate a
+         * person can perceive as live, and it decouples what the panel costs from what the wire does.
+         */
+        private const val PUBLISH_INTERVAL_NANOS = 100_000_000L
+
+        /**
+         * One daemon thread for every book in the process, and it only ever runs the trailing flush —
+         * the write that would otherwise be lost when traffic stops inside the pacing window.
+         *
+         * Daemon because it must never hold the process open, and shared because a thread per
+         * connection to do a hundred-millisecond timer would be a thread per connection doing nothing.
+         */
+        private val FLUSHER: java.util.concurrent.ScheduledExecutorService =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor { runnable ->
+                Thread(runnable, "order-book-publish").apply { isDaemon = true }
+            }
+
+        /**
          * [message] reduced to the tags [spec] reads — **the one place a `quickfix.Message` meets the
          * book**, and the reason [OrderBook] never has to see one.
          *
@@ -128,6 +149,15 @@ class OrderBookService(
          * that had already traded 2500.
          */
         val published = MutableStateFlow(BookView(emptyList(), emptyList(), 0, 0, cap))
+
+        /** Something changed that [published] has not been told about yet. Guarded by the book's monitor. */
+        var dirty = false
+
+        /** A trailing flush is already booked, so [publish] must not book a second one. */
+        var flushScheduled = false
+
+        /** When [published] was last actually rebuilt, for pacing. */
+        var lastPublishedAt = 0L
     }
 
     private val books = ConcurrentHashMap<String, Book>()
@@ -153,23 +183,81 @@ class OrderBookService(
                     evictIfNeeded(book)
                 }
                 // Published either way: `cap` is on the view, so a reader is owed the new number even
-                // when nothing was dropped to reach it.
-                publish(book)
+                // when nothing was dropped to reach it. And published AT ONCE rather than paced —
+                // pacing exists to stop per-message traffic rebuilding the view a thousand times a
+                // second, and a person changing a setting is not traffic. They changed it and they are
+                // looking at it.
+                publishNow(book)
             }
         }
     }
 
     /** [sessionKey]'s book, as a flow — created empty for a counterparty nothing has happened on yet. */
-    fun views(sessionKey: String): StateFlow<BookView> = books.computeIfAbsent(sessionKey) { Book(cap) }.published.asStateFlow()
+    fun views(sessionKey: String): StateFlow<BookView> =
+        books.computeIfAbsent(sessionKey) { Book(cap) }.also(::flush).published.asStateFlow()
 
     /** Every counterparty this service has seen, in the order they first appeared. */
     fun sessions(): List<String> = books.keys().toList().sorted()
 
     fun view(sessionKey: String): BookView =
-        books[sessionKey]?.published?.value ?: BookView(emptyList(), emptyList(), 0, 0, cap)
+        books[sessionKey]?.also(::flush)?.published?.value
+            ?: BookView(emptyList(), emptyList(), 0, 0, cap)
 
-    /** Rebuilds the published view. Call inside the book's lock, after every change. */
+    /**
+     * **Marks the book changed, and rebuilds the view at most ten times a second.**
+     *
+     * Call inside the book's lock, after every change.
+     *
+     * Rebuilding is O(orders): it copies every order in the book into a fresh list to make an immutable
+     * `BookView`. Doing that per message made the cost of booking one message proportional to how much
+     * the book already held — at the shipped cap of 5,000 orders, ~40KB and ~25us per message, on the
+     * QuickFIX callback thread, for a panel that cannot draw faster than the screen refreshes.
+     *
+     * So it is paced, on the same 100ms cadence and for the same reason as `FixMessageSession`'s drain:
+     * a viewer wants the current state ten times a second, not a thousand. What it is NOT is dropped —
+     * a change that arrives inside the window books a trailing flush, so the last message before the
+     * traffic stops still reaches the panel. That distinction is the whole design: a stale book is
+     * worse than no book, and pacing without a trailing flush is how you get one.
+     *
+     * [view] flushes synchronously before reading, so a caller asking directly never sees the window.
+     */
     private fun publish(book: Book) {
+        book.dirty = true
+        val now = System.nanoTime()
+        if (now - book.lastPublishedAt >= PUBLISH_INTERVAL_NANOS) {
+            materialize(book, now)
+            return
+        }
+        if (!book.flushScheduled) {
+            book.flushScheduled = true
+            val dueInNanos = PUBLISH_INTERVAL_NANOS - (now - book.lastPublishedAt)
+            FLUSHER.schedule(
+                {
+                    synchronized(book) {
+                        book.flushScheduled = false
+                        if (book.dirty) materialize(book, System.nanoTime())
+                    }
+                },
+                dueInNanos / 1_000_000 + 1,
+                java.util.concurrent.TimeUnit.MILLISECONDS,
+            )
+        }
+    }
+
+    /**
+     * Publishes immediately, whatever the pacing window says. Call inside the book's lock.
+     *
+     * For changes a person made and is watching for — the cap, a clear. Traffic goes through [publish].
+     */
+    private fun publishNow(book: Book) {
+        book.dirty = true
+        materialize(book, System.nanoTime())
+    }
+
+    /** Rebuilds [Book.published] from the book as it stands. Call inside the book's lock. */
+    private fun materialize(book: Book, now: Long) {
+        book.dirty = false
+        book.lastPublishedAt = now
         book.published.value =
             BookView(
                 orders = book.orders.values.toList(),
@@ -180,6 +268,11 @@ class OrderBookService(
                 clearedAt = book.clearedAt,
                 clearedBy = book.clearedBy,
             )
+    }
+
+    /** Brings [book]'s published view up to date now, if anything is outstanding. */
+    private fun flush(book: Book) {
+        synchronized(book) { if (book.dirty) materialize(book, System.nanoTime()) }
     }
 
     fun order(sessionKey: String, key: String): BookedOrder? {
@@ -225,7 +318,9 @@ class OrderBookService(
             book.evicted.set(0)
             book.clearedAt = at
             book.clearedBy = by
-            publish(book)
+            // At once, like setCap and for the same reason: a person cleared this book and is watching
+            // the panel to see it empty.
+            publishNow(book)
         }
     }
 
@@ -256,27 +351,32 @@ class OrderBookService(
             )
         val book = books.computeIfAbsent(sessionKey) { Book(cap) }
         synchronized(book) {
-            val outcome = OrderBook.route(event, book.orders.keys.toSet(), spec)
+            // The live key set, not a copy of it. `route` only asks `key in known` twice, and this
+            // runs under the book's own monitor so nothing can mutate the map while it looks — but
+            // `.toSet()` built a fresh HashSet of every key in the book on EVERY message. At the
+            // shipped cap of 5,000 orders that was ~270KB and ~100us per message, on the QuickFIX
+            // callback thread, to answer two membership questions. See OrderBookBenchmarkTest.
+            val outcome = OrderBook.route(event, book.orders.keys, spec)
             when (outcome) {
                 is OrderBook.Outcome.Ignored -> Unit
                 is OrderBook.Outcome.Born -> {
-                    book.orders[outcome.key] = BookedOrder(key = outcome.key, events = listOf(event))
+                    book.orders[outcome.key] = BookedOrder(key = outcome.key, events = AppendOnlyList.of(event))
                     evictIfNeeded(book)
                 }
                 is OrderBook.Outcome.Moved -> {
                     val existing = book.orders.getValue(outcome.key)
-                    book.orders[outcome.key] = existing.copy(events = existing.events + event)
+                    book.orders[outcome.key] = existing.recording(event)
                 }
                 is OrderBook.Outcome.Chained -> {
                     val from = book.orders.getValue(outcome.from)
                     // The predecessor ends here, and says what ended it. Recording the report on both
                     // is not double counting: it is one message that is true of two orders, and a
                     // trail that omitted it on the superseded one would end mid-sentence.
-                    book.orders[outcome.from] = from.copy(events = from.events + event, supersededBy = outcome.key)
+                    book.orders[outcome.from] = from.recording(event).copy(supersededBy = outcome.key)
                     book.orders[outcome.key] =
                         BookedOrder(
                             key = outcome.key,
-                            events = listOf(event),
+                            events = AppendOnlyList.of(event),
                             supersedes = outcome.from,
                             // Quantities travel; identity does not — see OrderBook.fold, decision 3a.
                             inherited = from.current,
@@ -299,6 +399,7 @@ class OrderBookService(
                     while (book.unattributed.size > UNATTRIBUTED_KEPT) book.unattributed.removeFirst()
                 }
             }
+            // Paced: this is the per-message path, and it is the only one that is.
             if (outcome !is OrderBook.Outcome.Ignored) publish(book)
             return outcome
         }

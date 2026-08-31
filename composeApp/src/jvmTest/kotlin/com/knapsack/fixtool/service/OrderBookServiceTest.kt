@@ -236,22 +236,63 @@ class OrderBookServiceTest {
      * on screen against a wire that had already traded 2500. A stale book is worse than no book,
      * because it is wrong with a straight face and the reader has no way to tell.
      */
+    /**
+     * **Changes reach a watcher, and they do it without anything else having to happen.**
+     *
+     * This used to assert that every recorded message published *on the same call*. That was the
+     * mechanism, not the requirement, and the mechanism was costing the callback thread a full copy of
+     * the book per message — at the shipped cap of 5,000 orders, ~40KB and ~25us each, for a panel that
+     * cannot draw faster than the screen. Per-message publishing is now paced at 100ms, the same
+     * cadence and for the same reason as `FixMessageSession`'s drain.
+     *
+     * What must not come back is the defect this test was written for: a panel frozen on numbers the
+     * wire had moved past. Pacing does not reintroduce it and dropping the trailing flush would, so
+     * that is what is pinned here — the watcher converges on the truth **with no further traffic to
+     * carry it**, which is the exact case a dropped trailing flush would leave stale forever. It waits
+     * generously and returns the moment it converges, so it is slow only when it is about to fail.
+     *
+     * The synchronous read is still synchronous: [OrderBookService.view] flushes before answering, and
+     * so does [OrderBookService.views] at subscription. Only the flow's own updates are paced.
+     */
     @Test
-    fun `every change publishes, so a watcher sees the wire move`() {
+    fun `every change reaches a watcher, with no further traffic to carry it`() {
         val service = OrderBookService()
         val watched = service.views("ALPHA")
         val before = watched.value
+        assertTrue(before.orders.isEmpty(), "a book nothing has happened on starts empty rather than absent")
 
         service.receive("ALPHA", *order("ORD-1"))
-        val afterOrder = watched.value
-        service.send("ALPHA", *ack("ORD-1"))
-        val afterAck = watched.value
-
-        assertTrue(before.orders.isEmpty(), "a book nothing has happened on starts empty rather than absent")
+        val afterOrder = awaitOrder(watched)
         assertEquals(1, afterOrder.orders.size, "the order has to reach a watcher, not only the book")
         assertEquals(OrderState.PENDING, afterOrder.orders.single().state)
+
+        service.send("ALPHA", *ack("ORD-1"))
+        val afterAck = awaitState(watched, OrderState.WORKING)
         assertEquals(OrderState.WORKING, afterAck.orders.single().state, "and so does the answer that moved it")
         assertTrue(afterOrder !== afterAck, "a watcher that is handed the same object cannot know anything changed")
+    }
+
+    /** The book as the watcher sees it once it holds an order, or a failure saying it never did. */
+    private fun awaitOrder(flow: kotlinx.coroutines.flow.StateFlow<BookView>): BookView =
+        await(flow, "an order to reach the watcher") { it.orders.isNotEmpty() }
+
+    private fun awaitState(
+        flow: kotlinx.coroutines.flow.StateFlow<BookView>,
+        state: OrderState,
+    ): BookView = await(flow, "the watcher to see state $state") { it.orders.singleOrNull()?.state == state }
+
+    private fun await(
+        flow: kotlinx.coroutines.flow.StateFlow<BookView>,
+        what: String,
+        until: (BookView) -> Boolean,
+    ): BookView {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            val value = flow.value
+            if (until(value)) return value
+            Thread.sleep(5)
+        }
+        throw AssertionError("waited 5s for $what and it never arrived — the trailing flush is not running")
     }
 
     @Test

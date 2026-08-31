@@ -33,8 +33,35 @@ class GroupedViewIngestIntegrationTest {
     private fun sessionHolding(messages: List<FixMessage>, bufferSize: Int = 5_000): FixMessageSession {
         val session = FixMessageSession(title = "grouped", bufferSize = bufferSize)
         messages.forEach { session.addMessage(it) }
-        session.flushMessageQueue()
+        awaitRetained(session, minOf(messages.size, bufferSize))
         return session
+    }
+
+    /**
+     * Waits until the session has published [expected] messages.
+     *
+     * `flushMessageQueue` alone is not enough, and the reason is worth writing down: it races with the
+     * session's own drain coroutine. The poller can take a batch off the queue and be descheduled before
+     * it folds that batch into the retained window — at which point a synchronous flush drains only what
+     * is *left*, folds and publishes that, and a test reading straight afterwards sees a handful of
+     * messages instead of all of them. The poller then lands its batch and the count corrects itself a
+     * moment later.
+     *
+     * That is a pre-existing hazard in the test helper rather than anything about ingest — nothing is
+     * lost, it is only briefly under-reported — but it makes any assertion that reads immediately after
+     * a flush intermittently wrong. Waiting for the count is the honest way to ask.
+     */
+    private fun awaitRetained(session: FixMessageSession, expected: Int) {
+        session.flushMessageQueue()
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            if (session.messages.value.size >= expected) return
+            Thread.sleep(5)
+            session.flushMessageQueue()
+        }
+        throw AssertionError(
+            "waited 5s for $expected messages; the session published ${session.messages.value.size}",
+        )
     }
 
     /**
@@ -83,7 +110,7 @@ class GroupedViewIngestIntegrationTest {
         val session = FixMessageSession(title = "mixed", bufferSize = 5_000)
         traffic.forEach { session.addMessage(it) }
         session.addSeparator()
-        session.flushMessageQueue()
+        awaitRetained(session, traffic.size + 1)
 
         try {
             val published = session.messages.value
@@ -114,7 +141,7 @@ class GroupedViewIngestIntegrationTest {
     fun `grouping follows the retained window as it rolls`() {
         val session = FixMessageSession(title = "rolling", bufferSize = 25)
         Corpus.rfqFlow(100).forEach { session.addMessage(it) }
-        session.flushMessageQueue()
+        awaitRetained(session, 25)
 
         try {
             val published = session.messages.value

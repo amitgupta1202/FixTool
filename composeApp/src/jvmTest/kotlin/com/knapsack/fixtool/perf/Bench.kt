@@ -173,12 +173,25 @@ object Bench {
             }
     }
 
-    /** Keeps the JIT from deleting the work being measured. */
+    /**
+     * **The blackhole**, and it has to be unconditional.
+     *
+     * This began as `if (value.hashCode() == Int.MIN_VALUE) sink = value` — a store the JIT can prove
+     * almost never happens, which leaves it free to conclude the value never escapes and to scalar-
+     * replace the allocation entirely. Run in isolation that looked fine; run inside the full suite,
+     * with everything thoroughly warmed, it reported a list of a thousand objects allocating nothing
+     * and turned a 1,939x improvement into a 1.9x one.
+     *
+     * An unconditional store to a static field cannot be elided: something outside the loop can read
+     * it. That costs a few nanoseconds an operation and buys numbers that describe the program rather
+     * than the optimiser.
+     */
+    @JvmStatic
     @Suppress("unused")
-    private var sink: Any? = null
+    var sink: Any? = null
 
     private fun consume(value: Any?) {
-        if (value != null && value.hashCode() == Int.MIN_VALUE) sink = value
+        sink = value
     }
 
     private fun thousands(n: Long): String = "%,d".format(n)

@@ -275,12 +275,18 @@ fun PathField(
                 Text(text = emptyNote, fontSize = 11.sp, color = AppTheme.Colors.textDisabled)
             }
         } else {
-            // Keyed on the path, because [detail] reads the file — for a dictionary that means parsing
-            // its XML, and composition happens on every keystroke anywhere on the page. Existence is
-            // still checked live below; only the reading of the file is remembered.
-            val detected = remember(value) { detail(File(value)) }
-            val (message, color) = pathVerdict(File(value), kind, detected)
-            Text(text = message + trailing, fontSize = 11.sp, color = color)
+            // Keyed on the path, because BOTH halves of this touch the filesystem — [detail] reads the
+            // file (for a dictionary, that means parsing its XML) and [pathVerdict] stats it up to three
+            // times. Composition happens on every keystroke anywhere on the page, and every path field
+            // on that page recomposes with it, so leaving the existence check outside the memo meant a
+            // burst of `stat` syscalls on the UI thread per character typed. On a local disk that is
+            // survivable; on a dictionary sitting on a mounted network share, one unreachable mount
+            // freezes the settings dialog.
+            //
+            // Liveness here was worth very little in exchange: the file is not going to appear between
+            // two keystrokes, and the moment the path changes this recomputes anyway.
+            val verdict = remember(value, kind) { pathVerdict(File(value), kind, detail(File(value))) }
+            Text(text = verdict.first + trailing, fontSize = 11.sp, color = verdict.second)
         }
     }
 }

@@ -412,7 +412,7 @@ fun HierarchicalGridView(
     val renderRows =
         remember(messages, groupByConversation, collapsedConversations, dictionary) {
             if (!groupByConversation) {
-                messages.indices.map { ConversationRows.Row.Message(it) }
+                ConversationRows.identityRows(messages.size)
             } else {
                 ConversationRows.build(messages, dictionary, collapsedConversations)
             }

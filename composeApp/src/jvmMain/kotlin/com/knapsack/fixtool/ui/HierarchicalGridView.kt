@@ -276,7 +276,7 @@ fun HierarchicalGridView(
     // Keyed on the message's own identity, never its list position: the session list is a ring
     // buffer, so an index-derived key changes for every surviving row once the buffer fills, which
     // both thrashes LazyColumn and reattaches expansion/selection to the wrong messages.
-    fun getMessageId(message: AppMessage): String = message.uid.toString()
+    fun getMessageId(message: AppMessage): String = message.uidKey
 
     // Helper to get selected FixMessages in order
     fun getSelectedFixMessages(): List<FixMessage> =

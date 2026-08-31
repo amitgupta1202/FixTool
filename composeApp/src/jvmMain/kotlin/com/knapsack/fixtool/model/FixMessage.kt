@@ -25,6 +25,16 @@ sealed class AppMessage(
      */
     val uid: Long = nextUid.getAndIncrement()
 
+    /**
+     * [uid] as the string the UI keys rows and selections by.
+     *
+     * Rendered once. The grid's `getMessageId` called `uid.toString()`, and it called it from inside the
+     * `LazyColumn`'s item-provider scope — so every row in the retained window minted a fresh String on
+     * every provider rebuild, which during traffic is ten times a second. The value can never change:
+     * [uid] is assigned once at construction and is `val`.
+     */
+    val uidKey: String by lazy(LazyThreadSafetyMode.PUBLICATION) { uid.toString() }
+
     abstract fun toDisplayString(): String
 
     private companion object {

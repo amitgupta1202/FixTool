@@ -153,7 +153,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /profiles?profile=` | query: `profile` (id or name)      | **one profile's whole config** — every field, for a read → edit → save round-trip. Passwords read as `[REDACTED]` |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?, "replace"?}` | create, or **merge** into an existing profile if `id` is given → `{status, id, name, mode, applied[], warnings?}`. `replace:true` replaces the whole config instead |
 | `DELETE /profiles`   | `{"id"}` (or `?id=`)                   | delete a profile (demo profiles are protected)       |
-| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations", "show"?, "profile"?, "rule"?, "step"?, "action"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does; `editor` with a `profile` and a `rule` (+ optional `step`) opens that acceptor rule's reply step in the message editor, and `action:apply`/`action:cancel` finishes it) |
+| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations\|trace\|orderbook", "show"?, "follow"?, "profile"?, "rule"?, "step"?, "action"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `trace` opens the Trace panel and takes `"follow"`: a whole correlation value to narrow every pane to that exchange, or `null` to stop — see [Following one exchange across every session](#following-one-exchange-across-every-session); `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does; `editor` with a `profile` and a `rule` (+ optional `step`) opens that acceptor rule's reply step in the message editor, and `action:apply`/`action:cancel` finishes it) |
 | `GET /templates`     | query: `profile`?                      | list saved templates (name, type, userTags, isFavorite, fields) |
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
@@ -285,8 +285,35 @@ A trace only crosses a session where some **value** crosses it. A venue that min
 and echoes nothing leaves no edge, and joining those would be the tool inventing one — declare the
 venue's echo tag with `POST /dictionary/roles` and the join happens everywhere with no code.
 
-*Coming in a later slice:* `POST /panel {"panel":"trace"}` to drive the on-screen Trace panel and the
-followed trace. Not implemented yet — these two read routes are.
+`POST /panel {"panel":"trace"}` drives the on-screen side of it. The **Ledger** is the bottom panel
+listing every trace with its session count, its composition and the gap between its messages;
+**following** narrows every pane — tabs and split — to one exchange, ANDed on top of each pane's own
+filters rather than written into them, so stopping restores every pane exactly.
+
+```bash
+curl -s -XPOST $B/panel -d '{"panel":"trace"}'                      # open the Ledger
+curl -s -XPOST $B/panel -d '{"panel":"trace","follow":"V-2291"}'    # follow (this opens it too)
+curl -s -XPOST $B/panel -d '{"panel":"trace","follow":null}'        # stop following
+curl -s -XPOST $B/panel -d '{"panel":"trace","show":false}'         # close the panel, keep following
+```
+
+```jsonc
+{"status":"ok", "panel":"trace", "show":true,
+ "following":"RFQ-A1",        // the trace's label as the app resolved it, or null
+ "followingAnchor":"V-2291",  // the id you asked for — a trace has several names
+ "pending":false,             // true = followed, but no message carries that id YET. Not a typo:
+                              //        a typo is a 404 from /trace. An id a venue mints three hops
+                              //        in is legitimately followed before it exists.
+ "sessionCount":2, "messageCount":4}
+```
+
+`follow` and `show` combine, and each does one thing: `follow` with a value follows and opens the
+panel, `follow:null` stops following and leaves the panel as it was, `show` opens or closes without
+touching what is followed. Closing the panel never unfollows — the toolbar chip goes on naming what
+the panes are narrowed to.
+
+The Ledger's fold is per `(opener session, label)`, never per label: across sessions two venues both
+saying `ORD-1` is the normal case, not the edge.
 
 ### Template expressions
 

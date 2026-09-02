@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Added
 
+#### Trace across sessions — follow one exchange through every pane
+- **Follow across sessions.** One action on a conversation header, a message row's right-click menu, or a correlation-id field in the detail pane follows that exchange through every session at once. Every pane narrows to the trace, a toolbar chip names what is followed (`Following RFQ-A1 · 4 sessions · 14 messages`), and the set grows live as the venue mints new ids. `Esc` or the chip's ✕ stops following and every pane's own filter comes back untouched. It replaces the regex QAs typed into the search box to do the same by hand, which missed hops silently and matched `ORD-9` inside `ORD-91`.
+- **The Trace panel (Ledger).** The grouped grid, run over every session at once: one grid in time order with a Session column, per-hop **Elapsed** times on one clock, and group headers that count sessions as well as messages, so *which RFQs touched more than one session* is read off the headers. Nothing is hidden: Ungrouped is last and counted, and a trace whose first message has left a session's buffer says so. A single-session trace carries a hint pointing at the dictionary's `.roles.json` sidecar, where a venue's own echo tag can be declared to join it. Toolbar toggle beside Group.
+- **Control surface**: `GET /traces`, `GET /trace?id=` (the merged exchange with a session and elapsed time per message; a substring never matches) and `POST /panel {"panel":"trace","follow":…}`; MCP tools `fixtool_traces`, `fixtool_trace`.
+
+### ✨ Added
+
 #### The demo is the acceptor — an FX venue you can read
 - **Pressing Start Demo Server now installs a workspace, not a black box.** The demo was ~1,540 lines of hard-coded QuickFIX/J that priced six pairs behind a button — nobody could open it, read why it replied, reorder a rule or make it misbehave on purpose. It is replaced by an **FX Demo Venue** acceptor profile carrying a new **FX venue** preset bundle (21 rules), two **Demo Client** profiles, ten FX templates and one bundled scenario. Everything the demo does is now a shipped feature you can inspect and change.
 - **Three priced pairs, quoted live.** EUR/USD, GBP/USD and USD/JPY (three decimals, the FX convention) are quoted from template expressions evaluated as each reply is sent, so two quotes are never identical. The bid is drawn once and the ask derived from it, so the spread never varies and never inverts. Unknown symbols are refused with a proper `35=AG`, and unpriced orders with `103=1`.

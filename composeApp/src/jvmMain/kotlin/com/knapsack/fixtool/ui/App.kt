@@ -20,6 +20,7 @@ import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.ReplyShape
+import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.terminal.TerminalController
@@ -111,6 +112,34 @@ fun App(
                     ?.firstOrNull { anchor != null && anchor in it.ids }
                     ?.ids
                     .orEmpty()
+            }
+        val tracePanelOpen by viewModel.tracePanelOpen.collectAsState()
+        val expandedTraces by viewModel.expandedTraces.collectAsState()
+        val ungroupedTracesExpanded by viewModel.ungroupedTracesExpanded.collectAsState()
+
+        /**
+         * The Ledger's rows, rebuilt only when something it draws from changed.
+         *
+         * The index is republished on the trace ticker and is a new object only when some pane's
+         * snapshot actually changed (`TraceFollow` memoises on snapshot identity), so this memo is quiet
+         * while the app is — and does no work at all while the panel is shut, because the index is null.
+         */
+        val traceRows =
+            remember(followedTraceIndex, expandedTraces, ungroupedTracesExpanded, followedTrace?.anchorId) {
+                val index = followedTraceIndex
+                if (index == null) {
+                    emptyList()
+                } else {
+                    TraceRows.build(
+                        snapshots = index.snapshots,
+                        sessionTitles = index.sessionTitles,
+                        grouping = index.grouping,
+                        dictionary = viewModel.getDictionaryAdapter(),
+                        expanded = expandedTraces,
+                        ungroupedExpanded = ungroupedTracesExpanded,
+                        followedAnchor = followedTrace?.anchorId,
+                    )
+                }
             }
         val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
         val showOrderBookPanel by viewModel.showOrderBookPanel.collectAsState()
@@ -271,6 +300,7 @@ fun App(
                     globalFilterShowOutgoing = globalFilterShowOutgoing,
                     hideProtocolTags = viewModel.appSettings.hideProtocolTags,
                     groupByConversation = anySessionGrouped,
+                    tracePanelOpen = tracePanelOpen,
                     followingLabel = followedTrace?.label,
                     followingSessionCount = followedTrace?.sessionCount ?: 0,
                     followingMessageCount = followedTrace?.messageCount ?: 0,
@@ -296,6 +326,7 @@ fun App(
                     onGlobalFilterOutgoingChange = { show -> viewModel.setGlobalFilterShowOutgoing(show) },
                     onToggleHideProtocolTags = { viewModel.toggleHideProtocolTags() },
                     onToggleGroupByConversation = { viewModel.toggleGroupByConversationAllSessions() },
+                    onToggleTracePanel = { viewModel.toggleTracePanel() },
                     onOpenSettings = { viewModel.toggleSettingsDialog() },
                     onOpenHelp = { viewModel.toggleHelpDialog() },
                     onOpenScenarios = { viewModel.toggleScenariosRail() },
@@ -493,8 +524,11 @@ fun App(
                                         )
                                     }
 
-                                    // Search results pane at bottom (if visible)
-                                    if (showSearchResultsPane) {
+                                    // The bottom slot: the Trace panel when it is open, otherwise the
+                                    // pinned search results. One slot, because they answer the same
+                                    // shape of question over the same rows and stacking them would
+                                    // leave the grid a strip.
+                                    if (tracePanelOpen || showSearchResultsPane) {
                                         HeightResizeHandle(
                                             onDeltaPx = { dy ->
                                                 searchResultsPanelHeight =
@@ -504,12 +538,23 @@ fun App(
                                         )
 
                                         Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                            AppSearchResultsPane(
-                                                viewModel = viewModel,
-                                                pinnedSearchResults = pinnedSearchResults,
-                                                selectedMessage = selectedMessage,
-                                                modifier = Modifier.fillMaxSize(),
-                                            )
+                                            if (tracePanelOpen) {
+                                                AppTracePanel(
+                                                    viewModel = viewModel,
+                                                    rows = traceRows,
+                                                    sessionTitles = followedTraceIndex?.sessionTitles.orEmpty(),
+                                                    followingLabel = followedTrace?.label,
+                                                    selectedMessage = selectedMessage,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            } else {
+                                                AppSearchResultsPane(
+                                                    viewModel = viewModel,
+                                                    pinnedSearchResults = pinnedSearchResults,
+                                                    selectedMessage = selectedMessage,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
+                                            }
                                         }
                                     }
 
@@ -749,8 +794,8 @@ fun App(
                                             followedTraceIds = followedTraceIds,
                                         )
 
-                                        // Search results pane at bottom (if visible)
-                                        if (showSearchResultsPane) {
+                                        // The bottom slot: Trace panel when open, else pinned results.
+                                        if (tracePanelOpen || showSearchResultsPane) {
                                             HeightResizeHandle(
                                                 onDeltaPx = { dy ->
                                                     searchResultsPanelHeight =
@@ -766,12 +811,23 @@ fun App(
                                             )
 
                                             Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                                AppSearchResultsPane(
-                                                    viewModel = viewModel,
-                                                    pinnedSearchResults = pinnedSearchResults,
-                                                    selectedMessage = selectedMessage,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                )
+                                                if (tracePanelOpen) {
+                                                    AppTracePanel(
+                                                        viewModel = viewModel,
+                                                        rows = traceRows,
+                                                        sessionTitles = followedTraceIndex?.sessionTitles.orEmpty(),
+                                                        followingLabel = followedTrace?.label,
+                                                        selectedMessage = selectedMessage,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                } else {
+                                                    AppSearchResultsPane(
+                                                        viewModel = viewModel,
+                                                        pinnedSearchResults = pinnedSearchResults,
+                                                        selectedMessage = selectedMessage,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                    )
+                                                }
                                             }
                                         }
 
@@ -957,8 +1013,8 @@ fun App(
                                     followedTraceIds = followedTraceIds,
                                 )
 
-                                // Search results pane at bottom (if visible)
-                                if (showSearchResultsPane) {
+                                // The bottom slot: Trace panel when open, else pinned results.
+                                if (tracePanelOpen || showSearchResultsPane) {
                                     HeightResizeHandle(
                                         onDeltaPx = { dy ->
                                             searchResultsPanelHeight =
@@ -968,12 +1024,23 @@ fun App(
                                     )
 
                                     Box(modifier = Modifier.height(searchResultsPanelHeight)) {
-                                        AppSearchResultsPane(
-                                            viewModel = viewModel,
-                                            pinnedSearchResults = pinnedSearchResults,
-                                            selectedMessage = selectedMessage,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
+                                        if (tracePanelOpen) {
+                                            AppTracePanel(
+                                                viewModel = viewModel,
+                                                rows = traceRows,
+                                                sessionTitles = followedTraceIndex?.sessionTitles.orEmpty(),
+                                                followingLabel = followedTrace?.label,
+                                                selectedMessage = selectedMessage,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        } else {
+                                            AppSearchResultsPane(
+                                                viewModel = viewModel,
+                                                pinnedSearchResults = pinnedSearchResults,
+                                                selectedMessage = selectedMessage,
+                                                modifier = Modifier.fillMaxSize(),
+                                            )
+                                        }
                                     }
                                 }
 
@@ -1402,6 +1469,40 @@ private fun AppSearchResultsPane(
         appSettings = viewModel.appSettings,
         onSelectResult = { result -> viewModel.navigateToSearchResult(result) },
         onClose = { viewModel.closeSearchResultsPane() },
+        modifier = modifier,
+    )
+}
+
+/**
+ * The Ledger with everything it needs wired to the one app-level follow state, so all three layouts
+ * mount the same panel rather than three configurations of it.
+ */
+@Composable
+private fun AppTracePanel(
+    viewModel: FixMessageViewModel,
+    rows: List<TraceRows.Row>,
+    sessionTitles: List<String>,
+    followingLabel: String?,
+    selectedMessage: FixMessage?,
+    modifier: Modifier = Modifier,
+) {
+    TracePanel(
+        rows = rows,
+        sessionTitles = sessionTitles,
+        selectedMessage = selectedMessage,
+        dictionary = viewModel.dictionary,
+        appSettings = viewModel.appSettings,
+        followingLabel = followingLabel,
+        onToggleTrace = { key -> viewModel.toggleTrace(key) },
+        onToggleUngrouped = { viewModel.toggleUngroupedTraces() },
+        // The keys of what is on screen right now, not of some index the panel is not drawing — see
+        // TraceFollow.expandAll.
+        onExpandAll = { viewModel.expandAllTraces(rows.filterIsInstance<TraceRows.Row.Header>().map { it.key }) },
+        onCollapseAll = { viewModel.collapseAllTraces() },
+        onFollow = { id -> viewModel.follow(id) },
+        onUnfollow = { viewModel.unfollow() },
+        onSelectMember = { located, message -> viewModel.navigateToTraceMember(located.session, message) },
+        onClose = { viewModel.closeTracePanel() },
         modifier = modifier,
     )
 }

@@ -25,13 +25,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.knapsack.fixtool.model.AppMessage
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
-import com.knapsack.fixtool.model.FixMessage.Direction.INCOMING
-import com.knapsack.fixtool.model.FixMessage.Direction.OUTGOING
 import com.knapsack.fixtool.model.FixMessageSession
-import com.knapsack.fixtool.model.Separator
 import java.awt.Cursor
 
 enum class SplitOrientation {

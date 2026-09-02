@@ -73,6 +73,7 @@ import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
+import com.knapsack.fixtool.service.TraceKey
 import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
@@ -2068,6 +2069,10 @@ class FixMessageViewModel(
     val followedTrace: StateFlow<FollowedTrace?> get() = traceFollow.followedTrace
     val traceIndex: StateFlow<TraceIndex?> get() = traceFollow.traceIndex
     val tracePanelOpen: StateFlow<Boolean> get() = traceFollow.tracePanelOpen
+
+    /** The Ledger's fold state. App-level, keyed by [TraceKey] — see it for why not by label. */
+    val expandedTraces: StateFlow<Set<TraceKey>> get() = traceFollow.expandedTraces
+    val ungroupedTracesExpanded: StateFlow<Boolean> get() = traceFollow.ungroupedExpanded
 
     /** Runs only while something is followed or the panel is open; see [startTraceTicker]. */
     private var traceTicker: Job? = null
@@ -5181,6 +5186,31 @@ class FixMessageViewModel(
 
     fun toggleTracePanel() {
         if (traceFollow.tracePanelOpen.value) closeTracePanel() else openTracePanel()
+    }
+
+    fun toggleTrace(key: TraceKey) = traceFollow.toggleTrace(key)
+
+    fun toggleUngroupedTraces() = traceFollow.toggleUngrouped()
+
+    fun expandAllTraces(keys: Collection<TraceKey>) = traceFollow.expandAll(keys)
+
+    fun collapseAllTraces() = traceFollow.collapseAll()
+
+    /**
+     * A Ledger row click, doing exactly what a search result's does: raise that pane, select that
+     * message. One gesture with one meaning across both bottom panels — a row that selected app-wide in
+     * one and only locally in the other would be two features wearing one shape.
+     *
+     * [sessionIndex] is a `Located.session`: a position in the snapshot list the row was built from.
+     * Bounds-checked because a pane can close between the frame that drew the row and the click on it.
+     */
+    fun navigateToTraceMember(
+        sessionIndex: Int,
+        message: FixMessage,
+    ) {
+        if (sessionIndex !in _sessions.indices) return
+        setActiveSession(sessionIndex)
+        selectMessage(message)
     }
 
     /**

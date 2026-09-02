@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.service.ConversationRows
 import com.knapsack.fixtool.service.Conversations
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.service.Traces
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -168,6 +169,62 @@ class GroupingBenchmarkTest {
         assertTrue(
             result.bytesPerOp < 9_000_000,
             "tracing 8,000 messages should cost about eight panes' worth; got ${result.bytesPerOp} B",
+        )
+    }
+
+    /**
+     * **What the Ledger costs on top of the grouping it draws** — eight panes' worth of rows, rebuilt.
+     *
+     * `TraceRows.build` sits behind a `remember` keyed on the index and the fold set, so it runs when
+     * the grouping changes, which during live traffic is every drain tick. The budget is the same one
+     * `Traces.group` has: finish inside the 100 ms tick with room for eight pane rebuilds beside it.
+     *
+     * The two cases below are the two ends of the panel's own range, and the gap between them is the
+     * point of collapsing by default. **Collapsed** is what a reader actually opens the panel to — 200
+     * header rows and the summary behind each — and it is what the fold buys: no member rows at all.
+     * **Everything expanded** is what "Expand all" costs, 8,000 rows of it, and is the worst case a
+     * reader can ask for. Summarising is the shared floor: `Conversations.summarize` walks every message
+     * of every trace either way, which is why the two are much closer than 200 rows against 8,200.
+     */
+    @Test
+    fun `building ledger rows over eight sessions of a thousand messages`() {
+        val snapshots = List(8) { Corpus.rfqFlow(1_000) }
+        val titles = List(8) { "SESSION-$it" }
+        val grouping = Traces.group(snapshots, dictionary)
+        val allKeys = grouping.traces.map { TraceRows.keyOf(it, titles) }.toSet()
+
+        val collapsed =
+            Bench.measure("TraceRows.build, all collapsed (the panel as it opens)", ops = 5) {
+                TraceRows.build(snapshots, titles, grouping, dictionary)
+            }
+        val expanded =
+            Bench.measure("TraceRows.build, everything expanded (Expand all)", ops = 5) {
+                TraceRows.build(snapshots, titles, grouping, dictionary, expanded = allKeys, ungroupedExpanded = true)
+            }
+
+        println("\n┌─ Ledger row rebuild over 8 x 1,000 messages")
+        println("│  " + collapsed.render())
+        println("│  " + expanded.render())
+        val collapsedMs = collapsed.nanosPerOp / 1_000_000.0
+        val expandedMs = expanded.nanosPerOp / 1_000_000.0
+        println("│  → %.1f ms collapsed / %.1f ms expanded, against a 100 ms drain tick".format(collapsedMs, expandedMs))
+        println("└─\n")
+
+        assertEquals(200, TraceRows.build(snapshots, titles, grouping, dictionary).size, "one header per exchange")
+        assertEquals(
+            8_200,
+            TraceRows.build(snapshots, titles, grouping, dictionary, expanded = allKeys, ungroupedExpanded = true).size,
+            "200 headers and every one of the 8,000 messages — nothing dropped when everything is open",
+        )
+
+        // Allocation, not the stopwatch, for the reason Bench's own KDoc gives. The figure to protect is
+        // that a fully expanded Ledger stays proportional to the messages it draws — one small row object
+        // each — rather than to traces times sessions, and that it never goes back to re-parsing the
+        // messages it summarises. Measured at ~0.55 MB and ~0.7 ms, an order of magnitude under the
+        // grouping it renders (~5.6 MB, ~6 ms), because it reads the fields that pass already cached.
+        assertTrue(
+            expanded.bytesPerOp < 2_500_000,
+            "8,000 rows should cost a small object each, not a re-parse; got ${expanded.bytesPerOp} B",
         )
     }
 

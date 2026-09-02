@@ -83,62 +83,57 @@ class GlobalFilterTest {
 
     // ========================================
     // Global Filter Regex Tests
+    //
+    // The global filter is ViewModel state ANDed into what a pane shows; it is NOT written into each
+    // session. These tests used to assert the opposite — that typing in the toolbar set every pane's
+    // own `filterRegex` — which is exactly the defect: it destroyed a filter its owner had set, and
+    // clearing the toolbar then blanked every pane rather than restoring what each had.
     // ========================================
 
     @Test
-    fun testSetGlobalFilterRegexAppliesToAllSessions() =
+    fun testSetGlobalFilterRegexLeavesEachPanesOwnFilterAlone() =
         runBlocking {
-            // Create multiple sessions
             val session1 = viewModel.createSessionForTest("Session1")
             val session2 = viewModel.createSessionForTest("Session2")
+            session1.setFilterRegex("MINE")
 
-            // Set global filter regex
             viewModel.setGlobalFilterRegex("ORDER123")
-
             delay(100)
 
-            // Verify filter is applied to all sessions
-            assertEquals("ORDER123", session1.filterRegex.value, "Filter should be applied to Session1")
-            assertEquals("ORDER123", session2.filterRegex.value, "Filter should be applied to Session2")
+            assertEquals("ORDER123", viewModel.globalFilterRegex.value, "The global filter is held here")
+            assertEquals("MINE", session1.filterRegex.value, "Session1 keeps the filter its owner set")
+            assertEquals("", session2.filterRegex.value, "Session2 never had one and does not gain one")
         }
 
     @Test
-    fun testGlobalFilterRegexClearsFromAllSessions() =
+    fun testClearingGlobalFilterRestoresNothingBecauseItTookNothing() =
         runBlocking {
             val session1 = viewModel.createSessionForTest("Session1")
-            val session2 = viewModel.createSessionForTest("Session2")
+            session1.setFilterRegex("LOCAL")
 
-            // Set filter first
             viewModel.setGlobalFilterRegex("TESTFILTER")
             delay(100)
-
-            // Clear filter
             viewModel.setGlobalFilterRegex("")
             delay(100)
 
-            // Verify filter is cleared from all sessions
-            assertEquals("", session1.filterRegex.value, "Filter should be cleared from Session1")
-            assertEquals("", session2.filterRegex.value, "Filter should be cleared from Session2")
+            assertEquals("", viewModel.globalFilterRegex.value)
+            assertEquals("LOCAL", session1.filterRegex.value, "A pane's own filter survives both edits")
         }
 
     @Test
-    fun testGlobalFilterRegexAppliedToNewSessions() =
+    fun testGlobalFilterAppliesToSessionsCreatedAfterIt() =
         runBlocking {
-            // Set global filter before creating sessions
             viewModel.setGlobalFilterRegex("PREFILTER")
             delay(100)
 
-            // Create new session
             val newSession = viewModel.createSessionForTest("NewSession")
             delay(100)
 
-            // Verify existing sessions have the filter
-            // Note: New sessions don't automatically inherit the global filter,
-            // they only get it when setGlobalFilterRegex is called again
-            viewModel.setGlobalFilterRegex("NEWFILTER")
-            delay(100)
-
-            assertEquals("NEWFILTER", newSession.filterRegex.value, "New session should receive global filter update")
+            // Nothing is copied into the session — the filter applies because every pane renders
+            // through MessageFilters, which reads the one global value. So a session created later is
+            // filtered by it without ever having been told about it.
+            assertEquals("PREFILTER", viewModel.globalFilterRegex.value)
+            assertEquals("", newSession.filterRegex.value, "No write-through, so nothing to inherit")
         }
 
     // ========================================
@@ -146,75 +141,53 @@ class GlobalFilterTest {
     // ========================================
 
     @Test
-    fun testSetGlobalFilterShowIncomingAppliesToAllSessions() =
+    fun testSetGlobalFilterShowIncomingLeavesPaneDirectionAlone() =
         runBlocking {
             val session1 = viewModel.createSessionForTest("Session1")
             val session2 = viewModel.createSessionForTest("Session2")
 
-            // By default, incoming should be shown (true)
             assertTrue(session1.filterShowIncoming.value)
             assertTrue(session2.filterShowIncoming.value)
 
-            // Hide incoming messages globally
             viewModel.setGlobalFilterShowIncoming(false)
             delay(100)
 
-            assertFalse(session1.filterShowIncoming.value, "Incoming filter should be false in Session1")
-            assertFalse(session2.filterShowIncoming.value, "Incoming filter should be false in Session2")
-
-            // Show incoming messages again
-            viewModel.setGlobalFilterShowIncoming(true)
-            delay(100)
-
-            assertTrue(session1.filterShowIncoming.value, "Incoming filter should be true in Session1")
-            assertTrue(session2.filterShowIncoming.value, "Incoming filter should be true in Session2")
+            assertFalse(viewModel.globalFilterShowIncoming.value)
+            assertTrue(session1.filterShowIncoming.value, "The pane's own direction box is untouched")
+            assertTrue(session2.filterShowIncoming.value, "The pane's own direction box is untouched")
         }
 
     @Test
-    fun testSetGlobalFilterShowOutgoingAppliesToAllSessions() =
+    fun testSetGlobalFilterShowOutgoingLeavesPaneDirectionAlone() =
         runBlocking {
-            val session1 = viewModel.createSessionForTest("Session1")
-            val session2 = viewModel.createSessionForTest("Session2")
+            val session = viewModel.createSessionForTest("Session1")
+            session.setFilterShowOutgoing(false)
 
-            // By default, outgoing should be shown (true)
-            assertTrue(session1.filterShowOutgoing.value)
-            assertTrue(session2.filterShowOutgoing.value)
-
-            // Hide outgoing messages globally
             viewModel.setGlobalFilterShowOutgoing(false)
             delay(100)
-
-            assertFalse(session1.filterShowOutgoing.value, "Outgoing filter should be false in Session1")
-            assertFalse(session2.filterShowOutgoing.value, "Outgoing filter should be false in Session2")
-
-            // Show outgoing messages again
             viewModel.setGlobalFilterShowOutgoing(true)
             delay(100)
 
-            assertTrue(session1.filterShowOutgoing.value, "Outgoing filter should be true in Session1")
-            assertTrue(session2.filterShowOutgoing.value, "Outgoing filter should be true in Session2")
+            assertTrue(viewModel.globalFilterShowOutgoing.value)
+            assertFalse(session.filterShowOutgoing.value, "Turning the global one back on does not re-enable a pane's")
         }
 
     @Test
     fun testGlobalFilterDirectionIndependent() =
         runBlocking {
-            val session = viewModel.createSessionForTest("TestSession")
+            viewModel.createSessionForTest("TestSession")
 
-            // Set incoming to false
             viewModel.setGlobalFilterShowIncoming(false)
             delay(100)
 
-            // Outgoing should still be true
-            assertFalse(session.filterShowIncoming.value)
-            assertTrue(session.filterShowOutgoing.value)
+            assertFalse(viewModel.globalFilterShowIncoming.value)
+            assertTrue(viewModel.globalFilterShowOutgoing.value)
 
-            // Set outgoing to false
             viewModel.setGlobalFilterShowOutgoing(false)
             delay(100)
 
-            // Both should be false
-            assertFalse(session.filterShowIncoming.value)
-            assertFalse(session.filterShowOutgoing.value)
+            assertFalse(viewModel.globalFilterShowIncoming.value)
+            assertFalse(viewModel.globalFilterShowOutgoing.value)
         }
 
     // ========================================
@@ -268,50 +241,24 @@ class GlobalFilterTest {
     // ========================================
 
     @Test
-    fun testGlobalFilterRegexAndDirectionCombined() =
+    fun testGlobalFilterRegexAndDirectionAreHeldTogetherAndOwnedHere() =
         runBlocking {
             val session1 = viewModel.createSessionForTest("Session1")
             val session2 = viewModel.createSessionForTest("Session2")
+            session2.setFilterRegex("SESSION2-ONLY")
 
-            // Set both regex and direction filters
             viewModel.setGlobalFilterRegex("ORDER.*")
             viewModel.setGlobalFilterShowIncoming(false)
             viewModel.setGlobalFilterShowOutgoing(true)
             delay(100)
 
-            // Verify both sessions have both filters applied
-            assertEquals("ORDER.*", session1.filterRegex.value)
-            assertEquals("ORDER.*", session2.filterRegex.value)
-            assertFalse(session1.filterShowIncoming.value)
-            assertFalse(session2.filterShowIncoming.value)
-            assertTrue(session1.filterShowOutgoing.value)
-            assertTrue(session2.filterShowOutgoing.value)
-        }
-
-    @Test
-    fun testGlobalFilterWithMultipleSessionsIndependentModification() =
-        runBlocking {
-            val session1 = viewModel.createSessionForTest("Session1")
-            val session2 = viewModel.createSessionForTest("Session2")
-
-            // Set global filter
-            viewModel.setGlobalFilterRegex("GLOBAL")
-            delay(100)
-
-            // Manually override one session
-            session1.setFilterRegex("LOCAL")
-            delay(100)
-
-            // Verify session1 has local filter, session2 has global
-            assertEquals("LOCAL", session1.filterRegex.value)
-            assertEquals("GLOBAL", session2.filterRegex.value)
-
-            // Apply global filter again - should override both
-            viewModel.setGlobalFilterRegex("NEWGLOBAL")
-            delay(100)
-
-            assertEquals("NEWGLOBAL", session1.filterRegex.value)
-            assertEquals("NEWGLOBAL", session2.filterRegex.value)
+            assertEquals("ORDER.*", viewModel.globalFilterRegex.value)
+            assertFalse(viewModel.globalFilterShowIncoming.value)
+            assertTrue(viewModel.globalFilterShowOutgoing.value)
+            assertEquals("", session1.filterRegex.value)
+            assertEquals("SESSION2-ONLY", session2.filterRegex.value)
+            assertTrue(session1.filterShowIncoming.value)
+            assertTrue(session2.filterShowIncoming.value)
         }
 
     // ========================================

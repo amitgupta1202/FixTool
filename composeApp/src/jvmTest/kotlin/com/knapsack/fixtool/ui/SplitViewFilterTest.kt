@@ -11,7 +11,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Behaviour of the split-view message filter.
+ * Behaviour of a pane's own message filter.
  *
  * The filter was reshaped so the regex is compiled once and the message-type list split once, per
  * filter change, instead of once per message. These tests exist to show that reshaping did not move
@@ -19,6 +19,9 @@ import kotlin.test.assertTrue
  * admit every message rather than blanking the view mid-keystroke.
  */
 class SplitViewFilterTest {
+    // These pin the pane half of MessageFilters, which is where the split view's filter moved to when
+    // the TABS layout started using it too. See MessageFiltersTest for the global and follow halves.
+
     private fun fix(
         type: String,
         direction: FixMessage.Direction,
@@ -43,7 +46,16 @@ class SplitViewFilterTest {
         outgoing: Boolean = true,
         separators: Boolean = true,
         types: String = "",
-    ) = filterSessionMessages(all, regex, incoming, outgoing, separators, types)
+    ) = MessageFilters.apply(
+        all,
+        MessageFilters.Pane(
+            regex = regex,
+            showIncoming = incoming,
+            showOutgoing = outgoing,
+            showSeparator = separators,
+            messageTypes = types,
+        ),
+    )
 
     @Test
     fun `no filters admits everything`() {

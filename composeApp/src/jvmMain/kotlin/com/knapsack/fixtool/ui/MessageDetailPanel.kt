@@ -45,6 +45,7 @@ import com.knapsack.fixtool.model.MatchContextMode
 import com.knapsack.fixtool.model.scenario.TagResult
 import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.Minting
 import com.knapsack.fixtool.service.ReplyOffer
 import com.knapsack.fixtool.service.ReplyShape
 import com.knapsack.fixtool.service.groupCountSafe
@@ -759,6 +760,15 @@ private fun FieldRow(
                 fontSize = 8.sp,
                 modifier = Modifier.padding(end = 4.dp),
             )
+        }
+
+        // Follow this exchange — offered on correlation-id tags only, because those are the tags the
+        // relation actually draws edges from ([Minting.isCorrelationId] is the one decider). Following
+        // the value of an ordinary `54=1` would join every buy order ever sent.
+        val followTrace = LocalFollowTrace.current
+        if (followTrace != null && value.isNotBlank() && Minting.isCorrelationId(tag, dictionary)) {
+            Spacer(modifier = Modifier.width(4.dp))
+            FollowTraceButton(following = false, onClick = { followTrace(value) })
         }
 
         // Scenario assertion verdict chip: a quiet check for a pass, a loud cross for a failure — and a

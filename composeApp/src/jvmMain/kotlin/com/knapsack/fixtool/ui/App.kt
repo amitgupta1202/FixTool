@@ -88,6 +88,30 @@ fun App(
         val globalFilterRegex by viewModel.globalFilterRegex.collectAsState()
         val globalFilterShowIncoming by viewModel.globalFilterShowIncoming.collectAsState()
         val globalFilterShowOutgoing by viewModel.globalFilterShowOutgoing.collectAsState()
+
+        /**
+         * The toolbar's filter as one value, so both layouts hand [MessageFilters] the same thing.
+         * It is ANDed into every pane and written into none of them — see [MessageFilters].
+         */
+        val globalFilter =
+            remember(globalFilterRegex, globalFilterShowIncoming, globalFilterShowOutgoing) {
+                MessageFilters.Global(globalFilterRegex, globalFilterShowIncoming, globalFilterShowOutgoing)
+            }
+        val followedTrace by viewModel.followedTrace.collectAsState()
+        val followedTraceIndex by viewModel.traceIndex.collectAsState()
+        // Null, not empty, when nothing is followed: an empty set would narrow every pane to nothing,
+        // and "following an id that has not arrived yet" is a state this app deliberately holds.
+        val followedUids = followedTrace?.uids
+        val followedTraceIds =
+            remember(followedTrace, followedTraceIndex) {
+                val anchor = followedTrace?.anchorId
+                followedTraceIndex
+                    ?.grouping
+                    ?.traces
+                    ?.firstOrNull { anchor != null && anchor in it.ids }
+                    ?.ids
+                    .orEmpty()
+            }
         val showLatencyPanel by viewModel.showLatencyPanel.collectAsState()
         val showOrderBookPanel by viewModel.showOrderBookPanel.collectAsState()
         val showScenariosRail by viewModel.showScenariosRail.collectAsState()
@@ -193,6 +217,20 @@ fun App(
                         ) {
                             viewModel.toggleGlobalSearchDialog()
                             true // Consume the event
+                        } else if (event.type == KeyEventType.KeyDown &&
+                            event.key == Key.Escape &&
+                            followedTrace != null &&
+                            !showSettingsDialog &&
+                            !showHelpDialog &&
+                            !showGlobalSearchDialog
+                        ) {
+                            // Esc stops following. This is the bubble phase and the outermost handler in
+                            // the app, so anything nested that wants Esc has already had it and consumed
+                            // it — the grid clears its multi-selection here, the saved-messages popup
+                            // closes itself. The dialogs above draw over the whole window without a key
+                            // handler of their own, so they are named rather than trusted to consume.
+                            viewModel.unfollow()
+                            true
                         } else {
                             // esc no longer closes the scenario document: the editor is a bottom dock, not a
                             // full-screen pane, so esc-from-anywhere reads as a stray close. The dock tab's ×
@@ -233,6 +271,11 @@ fun App(
                     globalFilterShowOutgoing = globalFilterShowOutgoing,
                     hideProtocolTags = viewModel.appSettings.hideProtocolTags,
                     groupByConversation = anySessionGrouped,
+                    followingLabel = followedTrace?.label,
+                    followingSessionCount = followedTrace?.sessionCount ?: 0,
+                    followingMessageCount = followedTrace?.messageCount ?: 0,
+                    followingTruncatedOn = followedTrace?.truncatedSessionTitles.orEmpty(),
+                    onUnfollow = { viewModel.unfollow() },
                     onOpenMessageEditor = { viewModel.toggleMessageEditor() },
                     onToggleDetailPanel = { viewModel.toggleDetailPanel() },
                     onToggleConnectionPanel = { viewModel.toggleConnectionPanel() },
@@ -385,8 +428,27 @@ fun App(
                                             return@let
                                         }
 
+                                        // The TABS layout filters now. Its filter button toggled this
+                                        // panel and the grid below never applied it, so a pane filtered
+                                        // in split view and not in tabs — one function decides both now
+                                        // (see MessageFilters and SessionFilterBar).
+                                        val filterVisible by session.filterVisible.collectAsState()
+                                        if (filterVisible) SessionFilterBar(session)
+                                        val paneFilters =
+                                            MessageFilters.Pane(
+                                                regex = session.filterRegex.collectAsState().value,
+                                                showIncoming = session.filterShowIncoming.collectAsState().value,
+                                                showOutgoing = session.filterShowOutgoing.collectAsState().value,
+                                                showSeparator = session.filterShowSeparator.collectAsState().value,
+                                                messageTypes = session.filterMessageTypes.collectAsState().value,
+                                            )
+                                        val filteredMessages =
+                                            remember(messages, paneFilters, globalFilter, followedUids) {
+                                                MessageFilters.apply(messages, paneFilters, globalFilter, followedUids)
+                                            }
+
                                         FixMessageDisplay(
-                                            messages = messages,
+                                            messages = filteredMessages,
                                             viewMode = globalViewMode,
                                             dictionary = viewModel.dictionary,
                                             wrapText = wrapText,
@@ -415,6 +477,9 @@ fun App(
                                             groupByConversation = session.groupByConversation.collectAsState().value,
                                             collapsedConversations = session.collapsedConversations.collectAsState().value,
                                             onToggleConversation = { key -> session.toggleConversationCollapsed(key) },
+                                            followedTraceIds = followedTraceIds,
+                                            onFollowTrace = { id -> viewModel.follow(id) },
+                                            onUnfollowTrace = { viewModel.unfollow() },
                                             modifier = Modifier.weight(1f),
                                         )
                                     } ?: Box(
@@ -679,6 +744,9 @@ fun App(
                                             orientation = splitOrientation,
                                             globalViewMode = globalViewMode,
                                             selectedMessage = selectedMessage,
+                                            globalFilter = globalFilter,
+                                            followedUids = followedUids,
+                                            followedTraceIds = followedTraceIds,
                                         )
 
                                         // Search results pane at bottom (if visible)
@@ -884,6 +952,9 @@ fun App(
                                     orientation = splitOrientation,
                                     globalViewMode = globalViewMode,
                                     selectedMessage = selectedMessage,
+                                    globalFilter = globalFilter,
+                                    followedUids = followedUids,
+                                    followedTraceIds = followedTraceIds,
                                 )
 
                                 // Search results pane at bottom (if visible)
@@ -961,6 +1032,9 @@ private fun ColumnScope.SplitCentre(
     orientation: SplitOrientation,
     globalViewMode: com.knapsack.fixtool.model.FixMessageSession.ViewMode,
     selectedMessage: FixMessage?,
+    globalFilter: MessageFilters.Global = MessageFilters.Global.NONE,
+    followedUids: Set<Long>? = null,
+    followedTraceIds: Set<String> = emptySet(),
 ) {
     SplitView(
         sessions = viewModel.sessions,
@@ -977,6 +1051,11 @@ private fun ColumnScope.SplitCentre(
         gridViewColumns = viewModel.appSettings.gridViewColumns,
         assertionResults = viewModel.assertionResults,
         appSettings = viewModel.appSettings,
+        globalFilter = globalFilter,
+        followedUids = followedUids,
+        followedTraceIds = followedTraceIds,
+        onFollowTrace = { id -> viewModel.follow(id) },
+        onUnfollowTrace = { viewModel.unfollow() },
         modifier = Modifier.weight(1f),
     )
 }
@@ -1224,38 +1303,44 @@ private fun AppMessageDetailPanel(
     // automation control surface (/detail, fixtool_detail_search) drive the same state.
     val detailSearchQuery by viewModel.detailSearchQuery.collectAsState()
     val detailMatchContextMode by viewModel.detailMatchContextMode.collectAsState()
-    MessageDetailPanel(
-        message = selectedMessage,
-        dictionary = viewModel.dictionary,
-        onClose = { viewModel.toggleDetailPanel() },
-        onPasteMessage = { rawMessage ->
-            viewModel.pasteAndDisplayMessage(rawMessage)
-        },
-        appSettings = viewModel.appSettings,
-        modifier = modifier,
-        externalSearchQuery = detailSearchQuery,
-        onSearchQueryChange = { viewModel.setDetailSearch(query = it) },
-        externalMatchContextMode = detailMatchContextMode,
-        onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
-        tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags } ?: emptyList(),
-        // No step asserted on this message; the run's post-mortem held it up against an expectation the
-        // run never reached. The banner has to say that, or it claims a verdict nobody reached.
-        tagResultsAreDiagnostic = selectedMessage?.let { viewModel.assertionResults[it]?.kind } == "diagnosis",
-        onEditAssertion = selectedMessage?.let { msg -> ({ tag: Int? -> viewModel.openScenarioEditorForFailure(msg, tag) }) },
-        onDiffAgainst = { msg -> viewModel.openDiffAgainst(msg) },
-        // Empty for everything that is not an order sitting on a venue's session, which is what keeps
-        // "Reply With…" off the panel entirely for the initiator half of the app.
-        replyOffers = selectedMessage?.let { viewModel.replyOffersFor(it) } ?: emptyList(),
-        onReplyWith =
-            selectedMessage?.let { msg ->
-                (
-                    { shape: ReplyShape ->
-                        viewModel.replyWith(msg, shape)
-                        Unit
-                    }
-                )
+    // Follow reaches the field rows through a composition local rather than four more parameters
+    // threaded through the panel's private row builders. It is an optional host capability consumed
+    // deep in a tree of private functions — the case a local is for — and it means a field row can
+    // offer Follow without every helper between here and it learning what Follow is.
+    CompositionLocalProvider(LocalFollowTrace provides { id: String -> viewModel.follow(id) }) {
+        MessageDetailPanel(
+            message = selectedMessage,
+            dictionary = viewModel.dictionary,
+            onClose = { viewModel.toggleDetailPanel() },
+            onPasteMessage = { rawMessage ->
+                viewModel.pasteAndDisplayMessage(rawMessage)
             },
-    )
+            appSettings = viewModel.appSettings,
+            modifier = modifier,
+            externalSearchQuery = detailSearchQuery,
+            onSearchQueryChange = { viewModel.setDetailSearch(query = it) },
+            externalMatchContextMode = detailMatchContextMode,
+            onMatchContextModeChange = { viewModel.setDetailSearch(mode = it) },
+            tagResults = selectedMessage?.let { viewModel.assertionResults[it]?.tags } ?: emptyList(),
+            // No step asserted on this message; the run's post-mortem held it up against an expectation the
+            // run never reached. The banner has to say that, or it claims a verdict nobody reached.
+            tagResultsAreDiagnostic = selectedMessage?.let { viewModel.assertionResults[it]?.kind } == "diagnosis",
+            onEditAssertion = selectedMessage?.let { msg -> ({ tag: Int? -> viewModel.openScenarioEditorForFailure(msg, tag) }) },
+            onDiffAgainst = { msg -> viewModel.openDiffAgainst(msg) },
+            // Empty for everything that is not an order sitting on a venue's session, which is what keeps
+            // "Reply With…" off the panel entirely for the initiator half of the app.
+            replyOffers = selectedMessage?.let { viewModel.replyOffersFor(it) } ?: emptyList(),
+            onReplyWith =
+                selectedMessage?.let { msg ->
+                    (
+                        { shape: ReplyShape ->
+                            viewModel.replyWith(msg, shape)
+                            Unit
+                        }
+                    )
+                },
+        )
+    }
 }
 
 /**

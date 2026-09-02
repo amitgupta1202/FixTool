@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.IndeterminateCheckBox
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -27,7 +29,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -42,6 +46,7 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.Separator
 import com.knapsack.fixtool.service.ConversationRows
+import com.knapsack.fixtool.service.Conversations
 import com.knapsack.fixtool.service.groupCountSafe
 import kotlinx.coroutines.launch
 import quickfix.Field
@@ -256,6 +261,10 @@ fun HierarchicalGridView(
     groupByConversation: Boolean = false,
     collapsedConversations: Set<String> = emptySet(),
     onToggleConversation: (String) -> Unit = {},
+    /** Every correlation value in the app's followed trace — see [FixMessageDisplay]. */
+    followedTraceIds: Set<String> = emptySet(),
+    onFollowTrace: ((String) -> Unit)? = null,
+    onUnfollowTrace: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -1005,6 +1014,9 @@ fun HierarchicalGridView(
                                         columnWidths = columnWidths,
                                         showLatencyColumn = showLatencyColumn,
                                         onToggle = { onToggleConversation(row.key) },
+                                        following = row.label in followedTraceIds,
+                                        onFollow = onFollowTrace,
+                                        onUnfollow = onUnfollowTrace,
                                     )
                                 }
                                 return@forEach
@@ -1083,6 +1095,7 @@ fun HierarchicalGridView(
                                             latencyMicros = getLatencyForMessage?.invoke(message.rawMessage),
                                             latencyWarningThresholdMicros = latencyWarningThresholdMicros,
                                             latencyCriticalThresholdMicros = latencyCriticalThresholdMicros,
+                                            onFollowTrace = onFollowTrace,
                                         )
                                     }
 
@@ -1149,6 +1162,10 @@ private fun ConversationGroupRow(
     columnWidths: Map<String, androidx.compose.ui.unit.Dp>,
     showLatencyColumn: Boolean,
     onToggle: () -> Unit,
+    /** This group is the app's followed trace, sliced onto this pane. */
+    following: Boolean = false,
+    onFollow: ((String) -> Unit)? = null,
+    onUnfollow: (() -> Unit)? = null,
 ) {
     val summary = header.summary
     val latencyColumnWidth = if (showLatencyColumn) (columnWidths["Latency"] ?: 90.dp) else 0.dp
@@ -1262,6 +1279,24 @@ private fun ConversationGroupRow(
                 )
             }
         }
+        // Follow across sessions. Last of the painted cells, so it never displaces a column a reader
+        // is scanning — and absent on the ungrouped bucket, which is rows that belong to no exchange.
+        if (onFollow != null && header.key != ConversationRows.UNGROUPED_KEY) {
+            Box(
+                modifier =
+                    Modifier
+                        .width(28.dp)
+                        .fillMaxHeight()
+                        .background(background)
+                        .border(0.5.dp, cellBorderColor),
+                contentAlignment = Alignment.Center,
+            ) {
+                FollowTraceButton(
+                    following = following,
+                    onClick = { if (following) onUnfollow?.invoke() else onFollow(header.label) },
+                )
+            }
+        }
         // Unpainted, exactly as MessageSummaryRow ends: painting the group background here drew a
         // phantom extra column past the grid's real width.
         Spacer(modifier = Modifier.weight(1f))
@@ -1295,6 +1330,13 @@ fun MessageSummaryRow(
     latencyMicros: Long? = null,
     latencyWarningThresholdMicros: Long = 100_000L,
     latencyCriticalThresholdMicros: Long = 500_000L,
+    /**
+     * Follow the exchange this message belongs to. Null leaves the row with no context menu at all.
+     *
+     * Takes the id rather than the message because the app follows a *value*: which of this message's
+     * ids opened the exchange is a question for [Conversations.idsOf], answered when the menu opens.
+     */
+    onFollowTrace: ((String) -> Unit)? = null,
 ) {
     // Extract top-level field values (excluding repeating groups)
     val columnValues =
@@ -1356,11 +1398,32 @@ fun MessageSummaryRow(
             gridViewColumns.sumOf { tag -> (columnWidths["Tag_$tag"] ?: 120.dp).value.toInt() }.dp +
             200.dp // Extra space for spacer
 
+    // The grid had no row menu of any kind. This is the whole of it — one item — because one gesture is
+    // what this slice adds, and a menu that grows by accident is how a grid ends up with two ways to do
+    // everything and no way to find either.
+    var followMenuOpen by remember { mutableStateOf(false) }
+
     Row(
         modifier =
             Modifier
                 .height(24.dp)
-                .widthIn(min = minWidth),
+                .widthIn(min = minWidth)
+                .then(
+                    if (onFollowTrace == null) {
+                        Modifier
+                    } else {
+                        Modifier.pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                        followMenuOpen = true
+                                    }
+                                }
+                            }
+                        }
+                    },
+                ),
     ) {
         // Track mouse event for Shift detection
         var lastCheckboxMouseEvent by remember { mutableStateOf<java.awt.event.MouseEvent?>(null) }
@@ -1650,6 +1713,38 @@ fun MessageSummaryRow(
 
         // Spacer to fill remaining width (outside the selectable row to avoid highlighting)
         Spacer(modifier = Modifier.weight(1f))
+
+        // The row's context menu. A child of the Row rather than a Box around it: a collapsed
+        // DropdownMenu composes nothing and an expanded one is a Popup, so it takes no space either
+        // way — and wrapping the row would have re-indented every cell in it for no layout gain.
+        if (onFollowTrace != null) {
+            DropdownMenu(expanded = followMenuOpen, onDismissRequest = { followMenuOpen = false }) {
+                // Read only while the menu is open: asking every row in the window for its ids on
+                // every recomposition would be a second field walk per message, ten times a second.
+                val firstId = remember(message) { Conversations.idsOf(message, dictionary).firstOrNull()?.second }
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            // Named, so a reader knows what will be followed before they commit to it —
+                            // and disabled rather than hidden when there is none, because "this message
+                            // carries no correlation id" is the answer, not an empty menu.
+                            text =
+                                if (firstId == null) {
+                                    "No correlation id to follow"
+                                } else {
+                                    "Follow $firstId across sessions"
+                                },
+                            fontSize = 11.sp,
+                        )
+                    },
+                    enabled = firstId != null,
+                    onClick = {
+                        firstId?.let { onFollowTrace(it) }
+                        followMenuOpen = false
+                    },
+                )
+            }
+        }
     }
 }
 

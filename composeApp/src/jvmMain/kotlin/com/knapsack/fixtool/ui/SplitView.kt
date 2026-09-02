@@ -58,6 +58,14 @@ fun SplitView(
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
+    /** The toolbar's filter, ANDed into every pane — never written into one. See [MessageFilters]. */
+    globalFilter: MessageFilters.Global = MessageFilters.Global.NONE,
+    /** The followed trace's messages, or null when nothing is followed. See [MessageFilters.apply]. */
+    followedUids: Set<Long>? = null,
+    /** Every correlation value in the followed trace — what makes a group header show as followed. */
+    followedTraceIds: Set<String> = emptySet(),
+    onFollowTrace: ((String) -> Unit)? = null,
+    onUnfollowTrace: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     if (sessions.isEmpty()) {
@@ -169,6 +177,11 @@ fun SplitView(
                                     gridViewColumns = gridViewColumns,
                                     assertionResults = assertionResults,
                                     appSettings = appSettings,
+                                    globalFilter = globalFilter,
+                                    followedUids = followedUids,
+                                    followedTraceIds = followedTraceIds,
+                                    onFollowTrace = onFollowTrace,
+                                    onUnfollowTrace = onUnfollowTrace,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
@@ -277,6 +290,11 @@ private fun SessionPanel(
     appSettings: com.knapsack.fixtool.model.AppSettings =
         com.knapsack.fixtool.model.AppSettings
             .default(),
+    globalFilter: MessageFilters.Global = MessageFilters.Global.NONE,
+    followedUids: Set<Long>? = null,
+    followedTraceIds: Set<String> = emptySet(),
+    onFollowTrace: ((String) -> Unit)? = null,
+    onUnfollowTrace: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var isAtBottom by remember { mutableStateOf(true) }
@@ -548,282 +566,22 @@ private fun SessionPanel(
             }
         }
 
-        // Filter input section - compact single row
-        if (filterVisible) {
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(filterPanelBackgroundColor)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                // Regex filter
-                Text(
-                    text = "Regex:",
-                    color = iconTintColor,
-                    fontSize = 10.sp,
-                )
+        // Filter input section — the same bar the TABS layout draws (see SessionFilterBar).
+        if (filterVisible) SessionFilterBar(session)
 
-                val regexInteractionSource = remember { MutableInteractionSource() }
-                val regexIsFocused by regexInteractionSource.collectIsFocusedAsState()
-
-                Box(
-                    modifier =
-                        Modifier
-                            .weight(0.3f)
-                            .height(22.dp),
-                ) {
-                    BasicTextField(
-                        value = filterRegex,
-                        onValueChange = { session.setFilterRegex(it) },
-                        modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .background(textFieldBackgroundColor, textFieldBorderRadius)
-                                .border(
-                                    width = 1.dp,
-                                    color = if (regexIsFocused) activeColor else borderColor,
-                                    shape = textFieldBorderRadius,
-                                ).padding(horizontal = 6.dp, vertical = 3.dp),
-                        textStyle =
-                            TextStyle(
-                                fontSize = 10.sp,
-                                color = titleTextColor,
-                                fontFamily = FontFamily.Monospace,
-                            ),
-                        singleLine = true,
-                        cursorBrush = SolidColor(activeColor),
-                        interactionSource = regexInteractionSource,
-                        decorationBox = { innerTextField ->
-                            if (filterRegex.isEmpty() && !regexIsFocused) {
-                                Text(
-                                    text = "pattern...",
-                                    style =
-                                        TextStyle(
-                                            fontSize = 10.sp,
-                                            color = placeholderTextColor,
-                                            fontFamily = FontFamily.Monospace,
-                                        ),
-                                )
-                            }
-                            innerTextField()
-                        },
-                    )
-                }
-
-                // Message type filter
-                Text(
-                    text = "MsgType:",
-                    color = iconTintColor,
-                    fontSize = 10.sp,
-                )
-
-                val msgTypeInteractionSource = remember { MutableInteractionSource() }
-                val msgTypeIsFocused by msgTypeInteractionSource.collectIsFocusedAsState()
-
-                Box(
-                    modifier =
-                        Modifier
-                            .weight(0.3f)
-                            .height(22.dp),
-                ) {
-                    BasicTextField(
-                        value = filterMessageTypes,
-                        onValueChange = { session.setFilterMessageTypes(it) },
-                        modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .background(textFieldBackgroundColor, textFieldBorderRadius)
-                                .border(
-                                    width = 1.dp,
-                                    color = if (msgTypeIsFocused) activeColor else borderColor,
-                                    shape = textFieldBorderRadius,
-                                ).padding(horizontal = 6.dp, vertical = 3.dp),
-                        textStyle =
-                            TextStyle(
-                                fontSize = 10.sp,
-                                color = titleTextColor,
-                                fontFamily = FontFamily.Monospace,
-                            ),
-                        singleLine = true,
-                        cursorBrush = SolidColor(activeColor),
-                        interactionSource = msgTypeInteractionSource,
-                        decorationBox = { innerTextField ->
-                            if (filterMessageTypes.isEmpty() && !msgTypeIsFocused) {
-                                Text(
-                                    text = "R,S,AJ...",
-                                    style =
-                                        TextStyle(
-                                            fontSize = 10.sp,
-                                            color = placeholderTextColor,
-                                            fontFamily = FontFamily.Monospace,
-                                        ),
-                                )
-                            }
-                            innerTextField()
-                        },
-                    )
-                }
-
-                // Direction filter
-                Text(
-                    text = "Dir:",
-                    color = iconTintColor,
-                    fontSize = 10.sp,
-                )
-
-                // Incoming checkbox
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier =
-                        Modifier
-                            .padding(end = 6.dp)
-                            .clickable { session.setFilterShowIncoming(!filterShowIncoming) },
-                ) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(14.dp)
-                                .background(
-                                    color = if (filterShowIncoming) activeColor else textFieldBackgroundColor,
-                                    shape = textFieldBorderRadius,
-                                ).border(
-                                    width = 1.dp,
-                                    color = if (filterShowIncoming) activeColor else placeholderTextColor,
-                                    shape = textFieldBorderRadius,
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (filterShowIncoming) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = checkboxIconColor,
-                                modifier = Modifier.size(10.dp),
-                            )
-                        }
-                    }
-                    Text(
-                        text = "In",
-                        color = iconTintColor,
-                        fontSize = 9.sp,
-                    )
-                }
-
-                // Outgoing checkbox
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier =
-                        Modifier
-                            .padding(end = 6.dp)
-                            .clickable { session.setFilterShowOutgoing(!filterShowOutgoing) },
-                ) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(14.dp)
-                                .background(
-                                    color = if (filterShowOutgoing) activeColor else textFieldBackgroundColor,
-                                    shape = textFieldBorderRadius,
-                                ).border(
-                                    width = 1.dp,
-                                    color = if (filterShowOutgoing) activeColor else placeholderTextColor,
-                                    shape = textFieldBorderRadius,
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (filterShowOutgoing) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = checkboxIconColor,
-                                modifier = Modifier.size(10.dp),
-                            )
-                        }
-                    }
-                    Text(
-                        text = "Out",
-                        color = iconTintColor,
-                        fontSize = 9.sp,
-                    )
-                }
-
-                // Blank line checkbox
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable { session.setFilterShowSeparator(!filterShowSeparator) },
-                ) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(14.dp)
-                                .background(
-                                    color = if (filterShowSeparator) activeColor else textFieldBackgroundColor,
-                                    shape = textFieldBorderRadius,
-                                ).border(
-                                    width = 1.dp,
-                                    color = if (filterShowSeparator) activeColor else placeholderTextColor,
-                                    shape = textFieldBorderRadius,
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (filterShowSeparator) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = checkboxIconColor,
-                                modifier = Modifier.size(10.dp),
-                            )
-                        }
-                    }
-                    Text(
-                        text = "Blank",
-                        color = iconTintColor,
-                        fontSize = 9.sp,
-                    )
-                }
-
-                Spacer(modifier = Modifier.weight(0.1f))
-
-                // Close filter button
-                TooltipIconButton(
-                    tooltip = "Hide Filter",
-                    onClick = { session.toggleFilter() },
-                    modifier = Modifier.size(18.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Hide Filter",
-                        tint = iconTintColor,
-                        modifier = Modifier.size(smallIconSize),
-                    )
-                }
-            }
-        }
-
-        // Apply filter to messages
+        // What this pane shows: its own filters, the toolbar's, and the followed trace — one function,
+        // shared with the TABS layout so the two cannot answer differently. See [MessageFilters].
+        val paneFilters =
+            MessageFilters.Pane(
+                regex = filterRegex,
+                showIncoming = filterShowIncoming,
+                showOutgoing = filterShowOutgoing,
+                showSeparator = filterShowSeparator,
+                messageTypes = filterMessageTypes,
+            )
         val filteredMessages =
-            remember(
-                messages,
-                filterRegex,
-                filterShowIncoming,
-                filterShowOutgoing,
-                filterShowSeparator,
-                filterMessageTypes,
-            ) {
-                filterSessionMessages(
-                    messages = messages,
-                    filterRegex = filterRegex,
-                    filterShowIncoming = filterShowIncoming,
-                    filterShowOutgoing = filterShowOutgoing,
-                    filterShowSeparator = filterShowSeparator,
-                    filterMessageTypes = filterMessageTypes,
-                )
+            remember(messages, paneFilters, globalFilter, followedUids) {
+                MessageFilters.apply(messages, paneFilters, globalFilter, followedUids)
             }
 
         // Panel content. A venue's own pane has no traffic to show — every message on it belongs to
@@ -865,6 +623,9 @@ private fun SessionPanel(
             groupByConversation = session.groupByConversation.collectAsState().value,
             collapsedConversations = session.collapsedConversations.collectAsState().value,
             onToggleConversation = { key -> session.toggleConversationCollapsed(key) },
+            followedTraceIds = followedTraceIds,
+            onFollowTrace = onFollowTrace,
+            onUnfollowTrace = onUnfollowTrace,
             modifier = Modifier.weight(1f),
         )
     }
@@ -890,54 +651,276 @@ private val buttonSize = 24.dp
 private val textFieldBorderRadius = RoundedCornerShape(2.dp)
 
 /**
- * The split-view message filter, as a pure function so its behaviour can be pinned by tests.
+ * **One pane's own filter panel** — regex, message types, direction and blank lines.
  *
- * The regex and the message-type list are built once here rather than inside the per-message
- * lambda, where they used to be recompiled and re-split for every message in the session.
+ * Lifted out of [SessionPanel] because the TABS layout needs the same bar. Its button in the TabBar
+ * toggled `filterVisible` and nothing was ever drawn or applied, so a filter typed in split view
+ * vanished when the user switched layouts. One composable, one behaviour, both layouts.
  *
- * Both "no filter" cases are permissive, which is the long-standing behaviour: a blank regex
- * matches everything, and so does an invalid one — a half-typed pattern must not blank the view.
+ * Every control writes straight to the session, which is where a pane's own way of looking belongs —
+ * see [FixMessageSession.filterRegex]. The toolbar's global filter and the followed trace are ANDed on
+ * top at render time and never appear here, because neither of them is this pane's to change.
  */
-internal fun filterSessionMessages(
-    messages: List<AppMessage>,
-    filterRegex: String,
-    filterShowIncoming: Boolean,
-    filterShowOutgoing: Boolean,
-    filterShowSeparator: Boolean,
-    filterMessageTypes: String,
-): List<AppMessage> {
-    val compiledRegex =
-        if (filterRegex.isBlank()) {
-            null
-        } else {
-            try {
-                Regex(filterRegex, RegexOption.IGNORE_CASE)
-            } catch (e: Exception) {
-                null
-            }
-        }
-    val wantedTypes = filterMessageTypes.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+@Composable
+internal fun SessionFilterBar(session: FixMessageSession) {
+    val filterRegex by session.filterRegex.collectAsState()
+    val filterShowIncoming by session.filterShowIncoming.collectAsState()
+    val filterShowOutgoing by session.filterShowOutgoing.collectAsState()
+    val filterShowSeparator by session.filterShowSeparator.collectAsState()
+    val filterMessageTypes by session.filterMessageTypes.collectAsState()
 
-    return messages.filter { message ->
-        val directionMatch =
-            when (message) {
-                is Separator -> return@filter filterShowSeparator
-                is FixMessage ->
-                    when (message.direction) {
-                        INCOMING -> filterShowIncoming
-                        OUTGOING -> filterShowOutgoing
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(filterPanelBackgroundColor)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // Regex filter
+        Text(
+            text = "Regex:",
+            color = iconTintColor,
+            fontSize = 10.sp,
+        )
+
+        val regexInteractionSource = remember { MutableInteractionSource() }
+        val regexIsFocused by regexInteractionSource.collectIsFocusedAsState()
+
+        Box(
+            modifier =
+                Modifier
+                    .weight(0.3f)
+                    .height(22.dp),
+        ) {
+            BasicTextField(
+                value = filterRegex,
+                onValueChange = { session.setFilterRegex(it) },
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(textFieldBackgroundColor, textFieldBorderRadius)
+                        .border(
+                            width = 1.dp,
+                            color = if (regexIsFocused) activeColor else borderColor,
+                            shape = textFieldBorderRadius,
+                        ).padding(horizontal = 6.dp, vertical = 3.dp),
+                textStyle =
+                    TextStyle(
+                        fontSize = 10.sp,
+                        color = titleTextColor,
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                singleLine = true,
+                cursorBrush = SolidColor(activeColor),
+                interactionSource = regexInteractionSource,
+                decorationBox = { innerTextField ->
+                    if (filterRegex.isEmpty() && !regexIsFocused) {
+                        Text(
+                            text = "pattern...",
+                            style =
+                                TextStyle(
+                                    fontSize = 10.sp,
+                                    color = placeholderTextColor,
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                        )
                     }
+                    innerTextField()
+                },
+            )
+        }
+
+        // Message type filter
+        Text(
+            text = "MsgType:",
+            color = iconTintColor,
+            fontSize = 10.sp,
+        )
+
+        val msgTypeInteractionSource = remember { MutableInteractionSource() }
+        val msgTypeIsFocused by msgTypeInteractionSource.collectIsFocusedAsState()
+
+        Box(
+            modifier =
+                Modifier
+                    .weight(0.3f)
+                    .height(22.dp),
+        ) {
+            BasicTextField(
+                value = filterMessageTypes,
+                onValueChange = { session.setFilterMessageTypes(it) },
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(textFieldBackgroundColor, textFieldBorderRadius)
+                        .border(
+                            width = 1.dp,
+                            color = if (msgTypeIsFocused) activeColor else borderColor,
+                            shape = textFieldBorderRadius,
+                        ).padding(horizontal = 6.dp, vertical = 3.dp),
+                textStyle =
+                    TextStyle(
+                        fontSize = 10.sp,
+                        color = titleTextColor,
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                singleLine = true,
+                cursorBrush = SolidColor(activeColor),
+                interactionSource = msgTypeInteractionSource,
+                decorationBox = { innerTextField ->
+                    if (filterMessageTypes.isEmpty() && !msgTypeIsFocused) {
+                        Text(
+                            text = "R,S,AJ...",
+                            style =
+                                TextStyle(
+                                    fontSize = 10.sp,
+                                    color = placeholderTextColor,
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                        )
+                    }
+                    innerTextField()
+                },
+            )
+        }
+
+        // Direction filter
+        Text(
+            text = "Dir:",
+            color = iconTintColor,
+            fontSize = 10.sp,
+        )
+
+        // Incoming checkbox
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier =
+                Modifier
+                    .padding(end = 6.dp)
+                    .clickable { session.setFilterShowIncoming(!filterShowIncoming) },
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(14.dp)
+                        .background(
+                            color = if (filterShowIncoming) activeColor else textFieldBackgroundColor,
+                            shape = textFieldBorderRadius,
+                        ).border(
+                            width = 1.dp,
+                            color = if (filterShowIncoming) activeColor else placeholderTextColor,
+                            shape = textFieldBorderRadius,
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (filterShowIncoming) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = checkboxIconColor,
+                        modifier = Modifier.size(10.dp),
+                    )
+                }
             }
+            Text(
+                text = "In",
+                color = iconTintColor,
+                fontSize = 9.sp,
+            )
+        }
 
-        if (!directionMatch) return@filter false
+        // Outgoing checkbox
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier =
+                Modifier
+                    .padding(end = 6.dp)
+                    .clickable { session.setFilterShowOutgoing(!filterShowOutgoing) },
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(14.dp)
+                        .background(
+                            color = if (filterShowOutgoing) activeColor else textFieldBackgroundColor,
+                            shape = textFieldBorderRadius,
+                        ).border(
+                            width = 1.dp,
+                            color = if (filterShowOutgoing) activeColor else placeholderTextColor,
+                            shape = textFieldBorderRadius,
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (filterShowOutgoing) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = checkboxIconColor,
+                        modifier = Modifier.size(10.dp),
+                    )
+                }
+            }
+            Text(
+                text = "Out",
+                color = iconTintColor,
+                fontSize = 9.sp,
+            )
+        }
 
-        val messageTypeMatch =
-            filterMessageTypes.isBlank() ||
-                wantedTypes.isEmpty() ||
-                wantedTypes.any { it.equals(message.messageType, ignoreCase = true) }
+        // Blank line checkbox
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.clickable { session.setFilterShowSeparator(!filterShowSeparator) },
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(14.dp)
+                        .background(
+                            color = if (filterShowSeparator) activeColor else textFieldBackgroundColor,
+                            shape = textFieldBorderRadius,
+                        ).border(
+                            width = 1.dp,
+                            color = if (filterShowSeparator) activeColor else placeholderTextColor,
+                            shape = textFieldBorderRadius,
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (filterShowSeparator) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = checkboxIconColor,
+                        modifier = Modifier.size(10.dp),
+                    )
+                }
+            }
+            Text(
+                text = "Blank",
+                color = iconTintColor,
+                fontSize = 9.sp,
+            )
+        }
 
-        if (!messageTypeMatch) return@filter false
+        Spacer(modifier = Modifier.weight(0.1f))
 
-        compiledRegex == null || message.toDisplayString().contains(compiledRegex)
+        // Close filter button
+        TooltipIconButton(
+            tooltip = "Hide Filter",
+            onClick = { session.toggleFilter() },
+            modifier = Modifier.size(18.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Hide Filter",
+                tint = iconTintColor,
+                modifier = Modifier.size(smallIconSize),
+            )
+        }
     }
 }

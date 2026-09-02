@@ -2815,6 +2815,14 @@ class FixMessageViewModel(
     val runningSetIds: StateFlow<Set<String>> = _runningSetIds.asStateFlow()
 
     /**
+     * **Which run holds each busy session** — the same fact [busySessions] carries, with the name of what
+     * is holding it, so a greyed-out Run can say *why* before it is clicked rather than only after.
+     * [describeClash] says this at the moment of refusal; this says it in advance.
+     */
+    private val _busyHolders = MutableStateFlow<Map<String, String>>(emptyMap())
+    val busyHolders: StateFlow<Map<String, String>> = _busyHolders.asStateFlow()
+
+    /**
      * **The run slot is a claim over sessions, not one global boolean.**
      *
      * Cursors are per-run over per-session message logs, so two runs whose sessions are disjoint cannot
@@ -2848,6 +2856,9 @@ class FixMessageViewModel(
     private fun refreshClaims() {
         _busySessions.value = claims.flatMap { it.touched.sessions }.toSet()
         _runningSetIds.value = claims.mapNotNullTo(mutableSetOf()) { it.setId }
+        // First claim wins a shared session, which is the one that will be named — two claims cannot hold
+        // the same session anyway (that is what `conflict` refuses), so the map is unambiguous in practice.
+        _busyHolders.value = claims.flatMap { c -> c.touched.sessions.map { it to c.label } }.toMap()
         _scenarioRunning.value = claims.isNotEmpty()
     }
 

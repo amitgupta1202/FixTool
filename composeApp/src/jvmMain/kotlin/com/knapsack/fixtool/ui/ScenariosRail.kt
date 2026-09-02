@@ -54,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -61,6 +62,8 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -1230,6 +1233,17 @@ private fun RunSetLine(
                 )
             }
         }
+        // **The rows open something, and now they say so.** They were plain text with a clickable on it:
+        // no hover, no chevron, no hint. An author ran a set, saw only the last entry's traffic in the
+        // grid, and asked where the other entries' logs had gone — the way in was there and invisible.
+        if (set.entries.any { it.record != null }) {
+            Text(
+                "click an entry to open its record",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 9.sp,
+                modifier = Modifier.testTag("run-set-hint"),
+            )
+        }
         Column(modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp).verticalScroll(rememberScrollState())) {
             set.entries.forEachIndexed { i, entry ->
                 val mark =
@@ -1250,17 +1264,53 @@ private fun RunSetLine(
                     }
                 val name = set.nameOf(i)
                 val timing = entry.durationMs?.let { " ${it}ms" }.orEmpty()
-                Text(
-                    "  $mark $name$timing" + (entry.note?.let { " — $it" } ?: ""),
-                    color = tint,
-                    fontSize = 10.sp,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = entry.record != null) { onFocus(i + 1) }
-                            .testTag("run-set-entry-${i + 1}"),
+                RunSetEntryRow(
+                    label = "  $mark $name$timing" + (entry.note?.let { " — $it" } ?: ""),
+                    tint = tint,
+                    opens = entry.record != null,
+                    n = i + 1,
+                    onFocus = { onFocus(i + 1) },
                 )
             }
+        }
+    }
+}
+
+/**
+ * One entry of the set report. Hover lifts it, the chevron says it opens, the hand cursor says it is a
+ * target, and the click opens it — the same three signals the scenario rows above give, so an entry row
+ * reads as the same kind of thing. An entry with no record yet (pending, running, skipped) gets none of
+ * them, because there is nothing to open.
+ */
+@Composable
+private fun RunSetEntryRow(
+    label: String,
+    tint: Color,
+    opens: Boolean,
+    n: Int,
+    onFocus: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .hoverable(interaction, enabled = opens)
+                .background(if (hovered && opens) AppTheme.Colors.surfaceVariant else Color.Transparent)
+                .clickable(enabled = opens, onClick = onFocus)
+                .let { if (opens) it.pointerHoverIcon(PointerIcon.Hand) else it }
+                .testTag("run-set-entry-$n"),
+    ) {
+        Text(label, color = tint, fontSize = 10.sp, modifier = Modifier.weight(1f))
+        if (opens) {
+            Text(
+                "▸",
+                color = if (hovered) AppTheme.Colors.text else AppTheme.Colors.textDisabled,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(end = 4.dp).testTag("run-set-entry-$n-open"),
+            )
         }
     }
 }

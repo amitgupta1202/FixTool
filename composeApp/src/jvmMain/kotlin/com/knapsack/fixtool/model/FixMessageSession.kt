@@ -5,6 +5,7 @@ import com.knapsack.fixtool.service.AcceptorStatus
 import com.knapsack.fixtool.service.BookView
 import com.knapsack.fixtool.service.FixConnectionManager
 import com.knapsack.fixtool.service.LatencyTrackingManager
+import com.knapsack.fixtool.service.Minting
 import com.knapsack.fixtool.service.QuickFixService
 import com.knapsack.fixtool.service.SessionEndpoint
 import com.knapsack.fixtool.service.VenueEvent
@@ -72,6 +73,16 @@ class FixMessageSession(
 
         /** How many refused logons a venue remembers. Enough to see a pattern, not a leak. */
         private const val MAX_REFUSED_LOGONS = 50
+
+        /**
+         * How many correlation values [lostIds] keeps before it starts forgetting the oldest.
+         *
+         * Ten thousand is a couple of thousand exchanges' worth of ids — far more history than a
+         * 1,000-message window ever held, so on any session a reader is actually looking at, nothing is
+         * forgotten. Past it the truncation flag can go stale, which is the honest trade for a bound: an
+         * unbounded record of what we threw away to save memory would be the joke it sounds like.
+         */
+        private const val MAX_LOST_CORRELATION_IDS = 10_000
     }
 
     private val logger = NotifyingLogger(FixMessageSession::class.java, onError)
@@ -94,6 +105,45 @@ class FixMessageSession(
      */
     private val _discarded = MutableStateFlow(0L)
     val discarded: StateFlow<Long> = _discarded.asStateFlow()
+
+    /**
+     * **The correlation ids of messages this session no longer holds.**
+     *
+     * A cross-session trace is a component over what the sessions are *currently* holding, and both of
+     * this class's loss mechanisms take the oldest thing first — the retained window evicts its head at
+     * [bufferSize], and an overflowing ingest queue discards its head to make room. So a trace whose
+     * earliest messages fell out looks, to a reader, exactly like a trace that started later. This is the
+     * evidence that lets `Traces` say `opened before the buffer` instead: if a value in a trace's id set
+     * is in here, a message that would have been in that trace is gone.
+     *
+     * It records values, not messages, because a message is what we are throwing away and the point is to
+     * keep the cost of remembering bounded and small.
+     *
+     * **Three ways it can be wrong, and all of them make it say less.** It reads only
+     * [Minting.STANDARD_CORRELATION_TAGS], because eviction happens on threads that may have no dictionary
+     * in reach — a venue's sidecar-declared echo tag is not remembered. It forgets the oldest value past
+     * [MAX_LOST_CORRELATION_IDS], so on a session that has churned millions of messages the flag goes
+     * stale rather than the record growing without bound. And [clearMessages] empties it, because a clear
+     * is the user saying *this pane starts here* rather than the tool losing something behind their back —
+     * and because a scenario that clears and replays the same literal ids would otherwise flag every trace
+     * of its second run as truncated, for ever.
+     *
+     * Saying less is the direction that has to be safe: a trace that lost nothing is never flagged, and a
+     * trace that lost something can go unmarked. The one way it over-claims is two exchanges genuinely
+     * reusing an id value — which would already have merged them into a single trace, a documented
+     * property of the relation rather than a new hazard here.
+     *
+     * A concurrent set because the two writers are different threads — the drain coroutine and whichever
+     * QuickFIX/J callback thread [addMessage] runs on — and because readers only probe it. Handing out a
+     * copy on every drain tick would allocate a ten-thousand-element set ten times a second per pane.
+     */
+    private val lostIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** Insertion order for [lostIds], so the oldest value is the one forgotten. Guarded by itself. */
+    private val lostOrder = ArrayDeque<String>()
+
+    /** See [lostIds]. Live and read-only: probe it, do not hold it. */
+    val lostCorrelationIds: Set<String> get() = lostIds
 
     private val _wrapText = MutableStateFlow(true)
     val wrapText: StateFlow<Boolean> = _wrapText.asStateFlow()
@@ -328,7 +378,7 @@ class FixMessageSession(
                 if (batch.isNotEmpty()) {
                     synchronized(retained) {
                         batch.forEach { message ->
-                            if (retained.size >= bufferSize) retained.removeFirst()
+                            if (retained.size >= bufferSize) rememberLost(retained.removeFirst())
                             retained.addLast(message)
                         }
                         // One immutable snapshot per cycle, which is what StateFlow's readers require and
@@ -366,7 +416,13 @@ class FixMessageSession(
         // message discarded here was received and then lost, and every silent one of them turns into a
         // question about the venue somewhere downstream. See [discarded].
         if (!messageQueue.offer(message)) {
-            if (messageQueue.poll() != null) _discarded.value += 1
+            val dropped = messageQueue.poll()
+            if (dropped != null) {
+                _discarded.value += 1
+                // Same reason the count exists: a message lost here never reached a grid or a trace, and
+                // a trace that contained it must be able to say so. See [lostIds].
+                rememberLost(dropped)
+            }
             messageQueue.offer(message)
         }
     }
@@ -390,10 +446,31 @@ class FixMessageSession(
         if (batch.isEmpty()) return
         synchronized(retained) {
             batch.forEach { message ->
-                if (retained.size >= bufferSize) retained.removeFirst()
+                if (retained.size >= bufferSize) rememberLost(retained.removeFirst())
                 retained.addLast(message)
             }
             _messages.value = retained.toList()
+        }
+    }
+
+    /**
+     * **Record what a message we are about to lose was part of**, so a trace built from what survives can
+     * say it is incomplete rather than quietly starting late. See [lostIds] for the limits of the claim.
+     *
+     * Reads the message's own cached field list, so at steady state — where every message is evicted
+     * exactly once — this is a scan of a list the grid has already parsed, not a second parse of the wire
+     * string. Non-FIX entries carry no correlation id and cost nothing but the type check.
+     */
+    private fun rememberLost(message: AppMessage) {
+        if (message !is FixMessage) return
+        for ((tag, value) in message.displayFields) {
+            if (value.isBlank() || tag !in Minting.STANDARD_CORRELATION_TAGS) continue
+            if (lostIds.add(value)) {
+                synchronized(lostOrder) {
+                    lostOrder.addLast(value)
+                    while (lostOrder.size > MAX_LOST_CORRELATION_IDS) lostIds.remove(lostOrder.removeFirst())
+                }
+            }
         }
     }
 
@@ -406,6 +483,13 @@ class FixMessageSession(
             _messages.value = emptyList()
         }
         messageQueue.clear()
+        // The lost-id record too: a clear is a deliberate restart of this pane, not history the tool
+        // dropped on the floor, and keeping it would mark the next run of a replayed scenario truncated
+        // on ids it deliberately reuses. See [lostIds].
+        synchronized(lostOrder) {
+            lostOrder.clear()
+            lostIds.clear()
+        }
         latestIncomingByType.clear()
         latestOutgoingByType.clear()
         logger.info("Cleared messages for session: {}", title)

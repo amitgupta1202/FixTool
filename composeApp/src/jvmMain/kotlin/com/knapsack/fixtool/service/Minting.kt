@@ -60,4 +60,23 @@ object Minting {
      */
     fun isCorrelationId(tag: Int, dictionary: FixDictionaryAdapter?): Boolean =
         clientMints(tag, dictionary) || venueMints(tag, dictionary)
+
+    /**
+     * **The correlation tags that need no dictionary to recognise** — standard FIX only.
+     *
+     * For the one caller that has to answer [isCorrelationId] where no dictionary is in reach:
+     * `FixMessageSession` records the ids of messages it is about to throw away, and it does that on the
+     * drain and on the ingest thread, at a point where the session may not have resolved a dictionary at
+     * all. Every tag here answers true to [isCorrelationId] under *any* dictionary, because the standard
+     * sets are unconditional and a sidecar only ever adds to them — so a value recorded from this set is
+     * never a false claim. What it can do is miss: a venue's proprietary echo tag, declared in its
+     * `.roles.json` and a correlation id everywhere else, is not remembered here. That direction is the
+     * safe one — a trace under-reports lost history rather than inventing it.
+     *
+     * Lazy so that touching [Minting] does not force [ScenarioCapture] and [ExpectationSeeder] to
+     * initialise with it.
+     */
+    internal val STANDARD_CORRELATION_TAGS: Set<Int> by lazy {
+        ScenarioCapture.ID_TAGS + ExpectationSeeder.VENUE_MINTED_IDS
+    }
 }

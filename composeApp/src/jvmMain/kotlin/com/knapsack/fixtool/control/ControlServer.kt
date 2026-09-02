@@ -55,6 +55,7 @@ import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.SendResult
 import com.knapsack.fixtool.service.SessionTags
+import com.knapsack.fixtool.service.Traces
 import com.knapsack.fixtool.service.VenueTagScan
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.WirePaste
@@ -166,6 +167,8 @@ class ControlServer(
         httpServer.createContext("/scenarios/capture-paste") { ex -> handle(ex) { capturePaste(ex) } }
         httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
         httpServer.createContext("/detail") { ex -> handle(ex) { detailSearch(ex) } }
+        httpServer.createContext("/traces") { ex -> handle(ex) { traces() } }
+        httpServer.createContext("/trace") { ex -> handleCoded(ex) { trace(ex) } }
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
         httpServer.createContext("/filter") { ex -> handle(ex) { filter(ex) } }
         httpServer.createContext("/demo") { ex -> handle(ex) { demo(ex) } }
@@ -1850,6 +1853,220 @@ class ControlServer(
         }
     }
 
+    // ------------------------------------------------------------ traces (across every session)
+
+    /**
+     * **Every trace, as the Ledger's header rows read them.**
+     *
+     * The question this answers is not the one `/messages` and the grouped grid answer — *what happened
+     * to `RFQ-A1` **on this session*** ([Conversations]) — but *what happened to `RFQ-A1`*: the same
+     * relation computed over every pane's snapshot at once. An agent asking that today reads ids off
+     * `/messages` session by session and posts a regex to `/search`, which is the loop this route exists
+     * to delete. The regex only finds ids the caller already knew, and it matches text: `ORD-9` finds
+     * `ORD-91`. A trace joins on whole correlation **values** or not at all.
+     *
+     * Every field is **quoted**, never derived. [Traces.summarize] defers to [Conversations.summarize] for
+     * exactly that reason: counts are facts, `status` is the last thing a message *stated* rendered in the
+     * dictionary's own words, and `instrument`/`quantity` appear only where the opening message leaves no
+     * doubt. So an agent may assert on this the way it asserts on `fields[]`.
+     *
+     * `ungrouped` and `total` are here because nothing may be hidden: a message carrying no correlation id
+     * — a heartbeat, a logon, an unsolicited venue message — is counted rather than tidied away, and
+     * `total` is what every session is holding, so a caller can see the numbers add up.
+     */
+    private fun traces(): JsonElement {
+        val world = traceWorld()
+        val grouping = Traces.group(world.snapshots, world.dictionary, world.lostIds)
+        return buildJsonObject {
+            put(
+                "traces",
+                buildJsonArray {
+                    grouping.traces.forEach { trace ->
+                        val summary = Traces.summarize(trace, world.snapshots, world.dictionary).exchange
+                        add(
+                            buildJsonObject {
+                                putTraceIdentity(trace, world)
+                                put("messageCount", summary.messageCount)
+                                put(
+                                    "composition",
+                                    buildJsonArray {
+                                        summary.composition.forEach { part ->
+                                            add(
+                                                buildJsonObject {
+                                                    put("messageType", part.messageType)
+                                                    // Null rather than absent when the dictionary has no
+                                                    // word for the type: the reader learns the type was
+                                                    // seen and unnamed, not that the key was forgotten.
+                                                    put("name", part.name)
+                                                    put("count", part.count)
+                                                },
+                                            )
+                                        }
+                                    },
+                                )
+                                put(
+                                    "status",
+                                    summary.status?.let { stated ->
+                                        buildJsonObject {
+                                            put("tag", stated.tag)
+                                            put("fieldName", stated.fieldName)
+                                            put("value", stated.value)
+                                            put("valueName", stated.valueName)
+                                        }
+                                    } ?: JsonNull,
+                                )
+                                put("instrument", summary.instrument)
+                                put("quantity", summary.quantity)
+                                put("elapsedMillis", summary.elapsedMillis)
+                            },
+                        )
+                    }
+                },
+            )
+            put("ungrouped", grouping.ungrouped.size)
+            put("total", grouping.total)
+        }
+    }
+
+    /**
+     * **One trace at full fidelity**: every message of the exchange carrying `id`, merged into one time
+     * order across the sessions that saw it.
+     *
+     * **`id` is a whole value, not a pattern.** `?id=ORD-9` finds the trace whose id set *contains*
+     * `ORD-9` and never the one holding `ORD-91` — which is the entire point of this route existing
+     * beside `/search`, where the same string is a substring match over a display line. Give it any id
+     * the exchange carries: the client's `RFQ-A1`, the venue's `V-2291` and the quote's `Q-77` are three
+     * names for one trace and all three return it.
+     *
+     * Each message is the shape `/messages` emits — same serialiser, so `wireOrderKnown` and the ordered
+     * `fields` array mean exactly what they mean there — plus two things only a trace knows:
+     *
+     * - `session`, because [FixMessage] deliberately does not carry which pane logged it ([Located]);
+     * - `elapsedMillis`, the gap since the previous message **in this trace** on whichever session it
+     *   landed. One clock timed both ends, so the number between a request leaving the client and its
+     *   copy arriving on an LP is the venue's real forwarding time — the measurement two machines' logs
+     *   cannot reconcile. It is a measurement and not a diagnosis: the tool states the gap and says
+     *   nothing about its cause. Null on the first message, which had nothing to be measured from.
+     *
+     * A missing or blank `id` is a **400** and an unknown one a **404**: an empty result would read as
+     * "that exchange never happened", and the caller cannot tell a typo from a venue that never replied.
+     */
+    private fun trace(ex: HttpExchange): Coded {
+        val id =
+            queryParams(ex)["id"]?.takeIf { it.isNotBlank() }
+                ?: return Coded(
+                    HTTP_BAD_REQUEST,
+                    errorObject("missing 'id' — a whole correlation value the trace carries, e.g. /trace?id=RFQ-A1"),
+                )
+        val world = traceWorld()
+        val grouping = Traces.group(world.snapshots, world.dictionary, world.lostIds)
+        val trace =
+            grouping.traces.firstOrNull { id in it.ids }
+                ?: return Coded(
+                    HTTP_NOT_FOUND,
+                    errorObject(
+                        "no trace carries the id '$id' — it is matched as a whole value, never as a substring; " +
+                            "GET /traces lists every trace with the ids it holds",
+                    ),
+                )
+        val summary = Traces.summarize(trace, world.snapshots, world.dictionary).exchange
+        val messages = trace.members.map { world.snapshots[it.session][it.index] }
+        return Coded(
+            HTTP_OK,
+            buildJsonObject {
+                putTraceIdentity(trace, world)
+                put("messageCount", summary.messageCount)
+                put("elapsedMillis", summary.elapsedMillis)
+                put(
+                    "messages",
+                    buildJsonArray {
+                        messages.forEachIndexed { position, message ->
+                            val previous = messages.getOrNull(position - 1)
+                            add(
+                                buildJsonObject {
+                                    put("session", sessionRef(trace.members[position].session, world))
+                                    put(
+                                        "elapsedMillis",
+                                        previous?.let {
+                                            java.time.Duration
+                                                .between(it.timestamp, message.timestamp)
+                                                .toMillis()
+                                        },
+                                    )
+                                    // The same serialiser `/messages` uses, spread in beside the two
+                                    // trace-only keys. A second one written for this route would be a
+                                    // second answer to "what did that message say".
+                                    messageJson(message).forEach { (key, value) -> put(key, value) }
+                                },
+                            )
+                        }
+                    },
+                )
+            },
+        )
+    }
+
+    /**
+     * What both trace routes say about *which* exchange this is, written once so they cannot disagree.
+     *
+     * `sessions` is where it was seen, in the order it first appeared on each; `truncatedSessions` is
+     * where a message it would have contained was already evicted — the trace opened before the buffer,
+     * and saying so is better than a first row quietly pretending to be the first message. Empty means
+     * nothing was lost; see [Traces.group]'s `lostIds` for what that claim rests on.
+     */
+    private fun JsonObjectBuilder.putTraceIdentity(trace: Traces.Trace, world: TraceWorld) {
+        put("label", trace.label)
+        put("labelTag", trace.labelTag)
+        put("ids", buildJsonArray { trace.ids.forEach { add(it) } })
+        put("sessions", buildJsonArray { trace.sessions.forEach { add(sessionRef(it, world)) } })
+        put("truncatedSessions", buildJsonArray { trace.truncatedSessions.forEach { add(sessionRef(it, world)) } })
+    }
+
+    /** A session by the two names a caller can act on: its index, which `?session=` takes, and its title. */
+    private fun sessionRef(session: Int, world: TraceWorld): JsonObject =
+        buildJsonObject {
+            put("index", session)
+            put("title", world.titles[session])
+        }
+
+    /**
+     * **What every session is holding right now**, read in one EDT round-trip so the answer describes one
+     * moment rather than a walk across panes that kept arriving.
+     *
+     * Positional throughout, because that is [Located]'s contract: session *s* is `snapshots[s]`, and
+     * `titles`/`lostIds` are parallel to it. The lost-id sets are handed over live rather than copied —
+     * they are concurrent sets built to be probed, and [Traces.group] only probes.
+     */
+    private class TraceWorld(
+        val titles: List<String>,
+        val snapshots: List<List<FixMessage>>,
+        val lostIds: List<Set<String>>,
+        val dictionary: FixDictionaryAdapter?,
+    )
+
+    /**
+     * Grouped per request over the current snapshots, **not** read from the Trace panel's memo.
+     *
+     * The panel keeps a grouping and refreshes it on a tick, but only while it is open or something is
+     * followed — a headless agent driving a build with no panel on screen would be handed whatever the
+     * last tick saw, or nothing at all. Regrouping here costs single-digit milliseconds for eight
+     * sessions of a thousand messages, which is less than the HTTP round-trip carrying the answer, and an
+     * agent polling through a burst has to see what the panes see.
+     *
+     * TODO: if that memo ever becomes unconditional and keyed on snapshot identity, read it from here
+     * instead, so the panel and this route cannot answer differently about the same instant.
+     */
+    private fun traceWorld(): TraceWorld =
+        onEdt {
+            val sessions = viewModel.sessions.toList()
+            TraceWorld(
+                titles = sessions.map { it.title },
+                snapshots = sessions.map { it.messages.value.filterIsInstance<FixMessage>() },
+                lostIds = sessions.map { it.lostCorrelationIds },
+                dictionary = viewModel.getDictionaryAdapter(),
+            )
+        }
+
     /**
      * Applies a display filter so the message grid shows only matching rows (for a focused
      * verification screenshot). `scope` is "global" (default, across all sessions) or "session".
@@ -3253,6 +3470,9 @@ class ControlServer(
             "fixtool_wait" to { a -> waitFor(mcpExchange(a)) },
             "fixtool_get_messages" to { a -> messages(mcpExchange(a)) },
             "fixtool_search" to { a -> search(mcpExchange(a)) },
+            "fixtool_traces" to { _ -> traces() },
+            // MCP has no status codes either, so the 400/404 is the body — as `fixtool_run_scenario` does.
+            "fixtool_trace" to { a -> trace(mcpExchange(a)).body },
             "fixtool_filter" to { a -> filter(mcpExchange(a)) },
             "fixtool_select" to { a -> select(mcpExchange(a)) },
             "fixtool_assert" to { a -> assertMessage(mcpExchange(a)) },
@@ -3610,6 +3830,7 @@ class ControlServer(
 
         private const val HTTP_OK = 200
         private const val HTTP_UNAUTHORIZED = 401
+        private const val HTTP_BAD_REQUEST = 400
         private const val HTTP_NOT_FOUND = 404
         private const val HTTP_SERVER_ERROR = 500
         private const val HTTP_METHOD_NOT_ALLOWED = 405

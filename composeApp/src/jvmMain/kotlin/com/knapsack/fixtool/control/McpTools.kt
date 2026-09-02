@@ -216,6 +216,36 @@ object McpTools {
                 required = listOf("query"),
             ),
             tool(
+                "fixtool_traces",
+                "Every TRACE across every session: the grouped grid's relation computed over all sessions at once, " +
+                    "rather than one pane at a time. A trace is one business exchange followed through every session " +
+                    "that touched it, joined by shared correlation-id VALUES — the venue's own id on the far side of a " +
+                    "hop is an edge, a substring never is. Ask this instead of guessing a regex for fixtool_search when " +
+                    "the question is \"what happened to this exchange\". " +
+                    "Each header carries label, labelTag, ids (every value in the trace — what to pass to fixtool_trace), " +
+                    "sessions [{index,title}], messageCount, composition, status (the LAST status a message STATED, in " +
+                    "the dictionary's words — quoted, never inferred), instrument, quantity, elapsedMillis, and " +
+                    "truncatedSessions: sessions that already evicted a message this trace would have contained, so it " +
+                    "opened before the buffer and what you can see is not its start. " +
+                    "Plus `ungrouped` (messages carrying no correlation id at all — heartbeats, logons) and `total`, so " +
+                    "the numbers add up and nothing is hidden.",
+            ),
+            tool(
+                "fixtool_trace",
+                "ONE trace at full fidelity: every message of the exchange carrying `id`, merged into a single time " +
+                    "order across the sessions that saw it. Each message is the shape fixtool_get_messages returns " +
+                    "(timestamp, direction, messageType, raw, wireOrderKnown, ordered {tag,value} fields) plus `session` " +
+                    "{index,title} and `elapsedMillis` — the gap since the previous message IN THIS TRACE, on whichever " +
+                    "session it landed, null for the first. One clock timed both ends, so the gap between a request " +
+                    "leaving a client and its copy arriving on an LP is the venue's real forwarding time; it is a " +
+                    "measurement, not a diagnosis of what caused it. " +
+                    "`id` is matched as a WHOLE correlation value, never as a substring: ORD-9 will not find ORD-91. Any " +
+                    "id the exchange carries works — the client's RFQ-A1, the venue's V-2291 and the quote's Q-77 are " +
+                    "three names for one trace. Unknown id answers an error naming it; fixtool_traces lists them.",
+                props("id" to string("a whole correlation value the trace carries, e.g. RFQ-A1")),
+                required = listOf("id"),
+            ),
+            tool(
                 "fixtool_filter",
                 "Filter the message grid for a focused screenshot. scope global (default) or session (also supports " +
                     "messageTypes / showSeparator).",

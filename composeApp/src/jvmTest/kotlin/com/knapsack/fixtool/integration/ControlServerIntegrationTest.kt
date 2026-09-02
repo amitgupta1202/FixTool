@@ -437,7 +437,7 @@ class ControlServerIntegrationTest {
             obj(post("/mcp", """{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))["result"]!!
                 .jsonObject["tools"]!!
                 .jsonArray
-        assertEquals(47, tools.size)
+        assertEquals(49, tools.size)
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_reconcile" },
             "the diff is reachable without a hand on the mouse, or an agent can never open the surface that repairs",
@@ -460,6 +460,12 @@ class ControlServerIntegrationTest {
         assertTrue(
             tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_diff" },
             "the plain diff viewer's door (G8) exists on this transport too, not only on HTTP and the Node server",
+        )
+        assertTrue(
+            tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_traces" } &&
+                tools.any { it.jsonObject["name"]!!.jsonPrimitive.content == "fixtool_trace" },
+            "an agent can follow one exchange across every session, or it is back to guessing a regex for " +
+                "fixtool_search — where a substring of an id is a match and a missed id is silent",
         )
         tools.forEach {
             val t = it.jsonObject

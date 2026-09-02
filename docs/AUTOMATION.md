@@ -203,12 +203,90 @@ acceptor auto-responses → `{dropped}`). Used for session-recovery / gap-fill Q
 | `POST /scenarios/diff` | `{"a": {…}, "b": {…}}` — each side a **pick** `{"session", "match":{"messageType"?,"tag"?,"value"?,"direction"?}}` or a **paste** `{"paste":"<bytes>"}` | **open the plain diff viewer** on two messages — a read-only structural diff (`=`/`≠`/`+A`/`+B`), no assertions, scenario-less (Phase 7). Each side is read through the same reader the paste sheet uses — a `\|`-inside-a-value line is **refused** (never guessed), and a side with no wire bytes is refused **with the reason**. The window's title carries `diff:`, so pair with `GET /screenshot?window=diff:`. Returns `{status:"open", subject}` or an error |
 | `POST /detail`       | `{"query"?, "mode"?, "show"?}`         | drives the detail panel's tag search: sets the query and/or match-context `mode` (`bare`\|`identity`\|`full`) so a nested tag keeps its repeating-group context |
 | `POST /search`       | `{"query", "pin"?}`                    | cross-session matches sorted chronologically (a timeline); pins to the search pane |
+| `GET /traces`        | —                                      | every **trace** — one exchange as it appears across **every** session at once: `{traces:[{label, labelTag, ids[], sessions[{index,title}], messageCount, composition[], status\|null, instrument\|null, quantity\|null, elapsedMillis, truncatedSessions[]}], ungrouped, total}`. See [Following one exchange across every session](#following-one-exchange-across-every-session) |
+| `GET /trace?id=`     | query: `id` — a **whole** correlation value | that one trace at full fidelity: every message merged into one time order, each with its `session` `{index,title}`, `elapsedMillis` since the previous message *in this trace* (null for the first), and the same ordered `fields` array `/messages` emits. **400** with no `id`, **404** when no trace carries it — a substring is never a match |
 | `POST /filter`       | `{"scope"?, "session"?, "regex"?, "messageTypes"?, "showIncoming"?, "showOutgoing"?, "showSeparator"?}` | filters the grid for a focused screenshot |
 | `GET /screenshot`    | query: `window` (`main`\|`diff`\|title substring; default `main`) | `image/png` bytes of a window, picked by title. With a reconcile **and** a viewer window both open, `diff` is ambiguous — address them by substring: `window=reconcile` (the repair diff) and `window=diff:` (the plain viewer). |
 
 `session` may be an index (`0`), an id, or a title. `direction` is `in`/`out` (or omitted).
 Each message in `/messages` includes `timestamp`, `direction`, `messageType` (tag 35), the
 `raw` string, and an ordered `fields` array of `{tag, value}`.
+
+### Following one exchange across every session
+
+A **trace** is the grouped grid's relation over every session at once: one business exchange followed
+through every pane that saw it, joined by shared correlation-id **values** — and a substring never
+matches. `GET /traces` (MCP: `fixtool_traces`) lists them all; `GET /trace?id=` (MCP: `fixtool_trace`)
+returns one in full.
+
+This is the answer to *what happened to `RFQ-A1`* — as opposed to *what happened to `RFQ-A1` on this
+session*, which is what `/messages` and the grouped grid give you. The alternative is to read ids off
+each pane and post a regex to `/search`, which fails three ways: it only finds ids you already knew,
+`ORD-9` also matches `ORD-91`, and a missed id is silent. A venue that mints its own handle per hop is
+exactly the case that breaks it — the client's `RFQ-A1`, the LP's `V-2291` and the `Q-77` on the quote
+that bridges them are three names for one trace, and **any** of them returns it:
+
+```bash
+B=http://127.0.0.1:8765
+
+curl -s $B/traces                    # every exchange, with the ids each one holds
+curl -s "$B/trace?id=V-2291"         # the whole exchange, even though the client never said V-2291
+```
+
+```jsonc
+// GET /traces
+{
+  "traces": [{
+    "label": "RFQ-A1", "labelTag": 131,          // the first id on the earliest message
+    "ids": ["RFQ-A1", "V-2291", "Q-77"],         // every value in the component — pass any to /trace
+    "sessions": [{"index":0,"title":"CLIENT"}, {"index":1,"title":"LP-1"}],
+    "messageCount": 4,
+    "composition": [{"messageType":"R","name":"QuoteRequest","count":2},   // name is the dictionary's
+                    {"messageType":"S","name":"Quote","count":2}],         // word, or null if it has none
+    "status": null,                              // the last status a message STATED, or null. Never inferred
+    "instrument": "EUR/USD", "quantity": "10000000",
+    "elapsedMillis": 40,
+    "truncatedSessions": []                      // non-empty = it opened before the buffer; see below
+  }],
+  "ungrouped": 1,                                // messages carrying no correlation id (heartbeats, logons)
+  "total": 5                                     // every message every session holds, so the numbers add up
+}
+
+// GET /trace?id=V-2291  — merged across sessions, one message shown of four
+{
+  "label": "RFQ-A1", "labelTag": 131, "ids": ["RFQ-A1","V-2291","Q-77"],
+  "sessions": [{"index":0,"title":"CLIENT"},{"index":1,"title":"LP-1"}],
+  "truncatedSessions": [], "messageCount": 4, "elapsedMillis": 40,
+  "messages": [{
+    "session": {"index":1,"title":"LP-1"},
+    "elapsedMillis": 10,                         // since the previous message IN THIS TRACE; null on the first
+    "timestamp": "2026-09-02T10:00:00.010", "direction": "INCOMING", "messageType": "R",
+    "raw": "35=R|131=V-2291|55=EUR/USD|38=10000000|",
+    "wireOrderKnown": true,
+    "fields": [{"tag":35,"value":"R"},{"tag":131,"value":"V-2291"},
+               {"tag":55,"value":"EUR/USD"},{"tag":38,"value":"10000000"}]
+  }]
+}
+```
+
+Three things to read carefully:
+
+- **`elapsedMillis` on a message is a measurement, not a diagnosis.** One clock timed both ends —
+  FixTool held every session — so the gap between a request leaving the client and its copy arriving on
+  an LP is the venue's real forwarding time. The tool states the gap and says nothing about its cause.
+- **Every header field is quoted, never derived.** Counts are facts; `status` is the last status a
+  message *stated*, rendered in the dictionary's own words, or `null`; `instrument`/`quantity` appear
+  only where the opening message leaves no doubt. Assert on these the way you assert on `fields[]`.
+- **`truncatedSessions` is the honest limit.** A session's retained window evicts its oldest message,
+  so a trace that lost one opened before what you can see. Non-empty means *this trace is missing
+  history at the front* — not that the exchange started when the first row says.
+
+A trace only crosses a session where some **value** crosses it. A venue that mints a fresh id per hop
+and echoes nothing leaves no edge, and joining those would be the tool inventing one — declare the
+venue's echo tag with `POST /dictionary/roles` and the join happens everywhere with no code.
+
+*Coming in a later slice:* `POST /panel {"panel":"trace"}` to drive the on-screen Trace panel and the
+followed trace. Not implemented yet — these two read routes are.
 
 ### Template expressions
 

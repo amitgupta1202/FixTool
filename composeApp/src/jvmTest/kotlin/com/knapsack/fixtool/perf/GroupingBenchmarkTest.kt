@@ -4,6 +4,7 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.service.ConversationRows
 import com.knapsack.fixtool.service.Conversations
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.Traces
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -122,6 +123,52 @@ class GroupingBenchmarkTest {
             "full ConversationRows.build" to { ConversationRows.build(messages, dictionary, emptySet()) },
         ).forEach { (name, block) -> println("│  " + Bench.measure(name, ops = 20, block = block).render()) }
         println("└─\n")
+    }
+
+    /**
+     * **What a cross-session trace costs on the same tick** — eight full panes regrouped at once.
+     *
+     * `Traces.group` is `Conversations.group` over every session's snapshot instead of one, and it is
+     * driven by the same 100ms drain that rebuilds the panes. So the budget is not "fast enough to feel
+     * instant" but "finishes inside a tick with room for eight panes' own rebuilds beside it".
+     *
+     * Eight sessions of 1,000 is the retained window at `FixMessageSession.DEFAULT_BUFFER_SIZE`, times the
+     * number of panes a both-sides RFQ test opens. The ids repeat across sessions on purpose: that is what
+     * a venue test looks like, and it is the worst case for the union — every exchange becomes one
+     * component spanning all eight sessions rather than eight small ones — and the worst case for the sort,
+     * since every session stamps the same timestamps and the same `SenderCompID`, so the whole merge falls
+     * through to the `(session, index)` tiebreak.
+     */
+    @Test
+    fun `tracing eight sessions of a thousand messages under the drain tick`() {
+        val snapshots = List(8) { Corpus.rfqFlow(1_000) }
+
+        val result =
+            Bench.measure("Traces.group over 8 x 1,000 messages", ops = 5) {
+                Traces.group(snapshots, dictionary)
+            }
+
+        println("\n┌─ Cross-session trace rebuild over 8 x 1,000 messages")
+        println("│  " + result.render())
+        println("│  → %.1f ms per rebuild, against a 100 ms drain tick".format(result.nanosPerOp / 1_000_000.0))
+        println("└─\n")
+
+        val grouping = Traces.group(snapshots, dictionary)
+        assertEquals(8_000, grouping.total, "nothing may be dropped or double-counted across sessions")
+        assertEquals(200, grouping.traces.size, "1,000 messages of a 5-message flow is 200 exchanges, shared by all 8")
+        grouping.traces.forEach { trace ->
+            assertEquals(40, trace.members.size, "each exchange's five messages, on every one of the eight sessions")
+            assertEquals((0..7).toList(), trace.sessions)
+        }
+
+        // Allocation, not the stopwatch, for the reason Bench's own KDoc gives. The figure to protect is
+        // that this stays proportional to the messages merged — roughly what one pane's grouped rebuild
+        // costs, times eight — rather than to the traces times the sessions. Measured at ~5.6 MB and
+        // ~8 ms, comfortably inside a 100 ms tick with the eight pane rebuilds beside it.
+        assertTrue(
+            result.bytesPerOp < 9_000_000,
+            "tracing 8,000 messages should cost about eight panes' worth; got ${result.bytesPerOp} B",
+        )
     }
 
     /**

@@ -92,34 +92,19 @@ object Conversations {
             .filter { (tag, value) -> value.isNotBlank() && Minting.isCorrelationId(tag, dictionary) }
             .distinctBy { it.second }
 
+    /**
+     * The relation over one session's log.
+     *
+     * The union-find and the pass that feeds it are [CorrelationComponents]', not this function's, and
+     * deliberately: [Traces] asks the same question over every session at once, and a pane's
+     * conversation must equal its trace's slice on that pane. Two derivations could not guarantee that,
+     * and a reader seeing them disagree would have no way to tell which one was wrong.
+     */
     fun group(messages: List<FixMessage>, dictionary: FixDictionaryAdapter?): Grouping {
-        val union = Union()
         val idsPerMessage = messages.map { idsOf(it, dictionary) }
-        // Every value on one message is the same conversation as every other value on it. That single
-        // rule is what chains QuoteReqID to QuoteID to ClOrdID: the Quote carrying both joins them.
-        for (ids in idsPerMessage) {
-            val first = ids.firstOrNull()?.second ?: continue
-            ids.forEach { (_, value) -> union.join(first, value) }
-        }
-
-        val ungrouped = mutableListOf<FixMessage>()
-        val ungroupedIndices = mutableListOf<Int>()
-        val byRoot = linkedMapOf<String, MutableList<Int>>()
-        messages.forEachIndexed { index, message ->
-            val root = idsPerMessage[index].firstOrNull()?.second?.let(union::rootOf)
-            if (root == null) {
-                ungrouped += message
-                ungroupedIndices += index
-            } else {
-                byRoot.getOrPut(root) { mutableListOf() } += index
-            }
-        }
-
-        // linkedMapOf preserves first-seen order, and the first message of a component is the one that
-        // created its entry — so conversations come out in the order they opened, with no sort needed
-        // (and none wanted: a sort by timestamp would reorder same-millisecond arrivals).
+        val components = CorrelationComponents.of(idsPerMessage)
         val conversations =
-            byRoot.map { (_, indices) ->
+            components.components.map { indices ->
                 val opener = idsPerMessage[indices.first()].first()
                 val ids = LinkedHashSet<String>()
                 for (i in indices) for (id in idsPerMessage[i]) ids.add(id.second)
@@ -131,7 +116,8 @@ object Conversations {
                     indices = indices,
                 )
             }
-        return Grouping(conversations, ungrouped, idsPerMessage, ungroupedIndices)
+        val ungroupedIndices = components.ungrouped
+        return Grouping(conversations, ungroupedIndices.map { messages[it] }, idsPerMessage, ungroupedIndices)
     }
 
     /**
@@ -185,8 +171,26 @@ object Conversations {
      */
     private val STATUS_TAGS = listOf(39, 297, 87) // OrdStatus, QuoteStatus, AllocStatus
 
-    fun summarize(conversation: Conversation, dictionary: FixDictionaryAdapter?): Summary {
-        val messages = conversation.messages
+    fun summarize(conversation: Conversation, dictionary: FixDictionaryAdapter?): Summary =
+        summarize(conversation.label, conversation.labelTag, conversation.messages, dictionary)
+
+    /**
+     * The same summary over messages that are not a [Conversation].
+     *
+     * [Traces] holds one exchange's messages gathered from several sessions and every fact this needs,
+     * but no single-session container to put them in — and a second summariser written for it would be
+     * a second opinion about what a header may claim, which is the one thing this function exists to
+     * decide. So the rule above is stated once and read from both chairs.
+     *
+     * [messages] must be in the order the reader will see them: the status is the last one *stated*,
+     * and [Summary.elapsedMillis] is first to last.
+     */
+    fun summarize(
+        label: String,
+        labelTag: Int,
+        messages: List<FixMessage>,
+        dictionary: FixDictionaryAdapter?,
+    ): Summary {
         val opener = FixMessageHelper.fieldsForDisplay(messages.first())
         val composition =
             messages
@@ -205,8 +209,8 @@ object Conversations {
                 }
             }
         return Summary(
-            label = conversation.label,
-            labelTag = conversation.labelTag,
+            label = label,
+            labelTag = labelTag,
             messageCount = messages.size,
             composition = composition,
             status = status,
@@ -230,28 +234,5 @@ object Conversations {
     private fun singleValueOn(fields: List<Pair<Int, String>>, tag: Int): String? {
         val only = fields.singleOrNull { it.first == tag } ?: return null
         return only.second.takeIf { it.isNotBlank() }
-    }
-
-    /** Union-find over id values, with path compression. Small, private, and the whole algorithm. */
-    private class Union {
-        private val parent = mutableMapOf<String, String>()
-
-        fun rootOf(value: String): String {
-            var root = parent.getOrPut(value) { value }
-            while (root != parent.getValue(root)) root = parent.getValue(root)
-            var walk = value
-            while (walk != root) {
-                val next = parent.getValue(walk)
-                parent[walk] = root
-                walk = next
-            }
-            return root
-        }
-
-        fun join(a: String, b: String) {
-            val ra = rootOf(a)
-            val rb = rootOf(b)
-            if (ra != rb) parent[rb] = ra
-        }
     }
 }

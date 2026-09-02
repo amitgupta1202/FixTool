@@ -33,6 +33,7 @@ import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.service.demo.DemoServerManager
 import com.knapsack.fixtool.service.SessionIdentityResolver
 
 @Composable
@@ -1705,8 +1706,14 @@ fun ConnectionPanel(
                 if (showDemoServer) {
                     if (demoServerRunning) {
                         // Running state: show status and stop button
+                        // What is installed, not whether a socket is bound. The venue is an ordinary
+                        // profile in the list above with a state dot of its own, and that dot is the
+                        // honest answer about whether it is listening.
                         Text(
-                            text = "Running: ${demoServerFixVersion?.displayName ?: "Unknown"} on localhost:19876",
+                            text =
+                                "${DemoServerManager.VENUE_NAME} on localhost:${DemoServerManager.currentPort} · " +
+                                    "${DemoServerManager.DEMO_CLIENTS.size} clients · " +
+                                    (demoServerFixVersion?.displayName ?: "Unknown"),
                             color = AppTheme.Colors.primary,
                             fontSize = 10.sp,
                             modifier = Modifier.padding(vertical = 4.dp),

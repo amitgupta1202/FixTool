@@ -25,9 +25,10 @@ FIXTOOL_CONTROL_PORT=8799 ./gradlew :composeApp:run --quiet   # run_in_backgroun
 # wait: until curl -s http://127.0.0.1:8799/health; do sleep 1; done   (~30s first time)
 ```
 
-The demo FIX server binds a fixed port **19876**, so only one instance can own it. If the
-user's instance already runs it, don't start yours — the demo acceptor accepts
-DEMO_CLIENT1–4 and the user typically uses 1–2, so connect your instance as CLIENT3:
+The demo FX venue binds a fixed port **19876**, so only one instance can own it. If the
+user's instance already runs it, don't start yours — the venue takes `TargetCompID=*`, so it
+accepts **any** SenderCompID and you can just join it under a name of your own (the demo
+itself ships DEMO_CLIENT1–2):
 
 ```bash
 B=http://127.0.0.1:8799

@@ -204,7 +204,7 @@
     <h3>Quick Start</h3>
     <ol>
         <li>Click <strong>Start Demo Server</strong> in the toolbar to launch the built-in FX exchange</li>
-        <li>Select one of the auto-created <strong>Demo User</strong> profiles</li>
+        <li>Select one of the auto-created <strong>Demo Client</strong> profiles</li>
         <li>Click <strong>Connect</strong> to establish a FIX session</li>
         <li>Use the pre-loaded FX templates to send orders and receive fills</li>
     </ol>
@@ -215,265 +215,124 @@
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
-    <h2 id="demo-server">2. Demo FX Server</h2>
+    <h2 id="demo-server">2. Demo FX Venue</h2>
 
     <h3>Overview</h3>
-    <p>FixTool includes a built-in FX exchange simulator that provides a realistic trading environment for testing and learning. The demo server:</p>
+    <p>FixTool's demo is not a black box. Pressing <strong>Start Demo Server</strong> installs a
+    <em>workspace</em> built entirely out of features you already have: an acceptor profile whose venue
+    behaviour is a list of rules you can read, two client profiles pointed at it, message templates to
+    drive it, and one repeatable scenario that runs green out of the box.</p>
+    <p>That means everything the demo does, you can open, change, reorder or switch off &mdash; and
+    everything you learn from it applies directly to simulating a real counterparty.</p>
     <ul>
-        <li>Simulates live FX market data with realistic price movements</li>
-        <li>Supports 6 major currency pairs</li>
-        <li>Processes market and limit orders with proper execution logic</li>
-        <li>Includes pre-configured connection profiles and message templates</li>
-        <li>Requires no external dependencies or setup</li>
+        <li>An <strong>FX Demo Venue</strong> acceptor on <code>localhost:19876</code>, open to any CompID</li>
+        <li><strong>21 rules</strong> covering quotes, orders, cancels, replaces and order status</li>
+        <li>Three priced pairs, quoted live &mdash; every quote prices slightly differently</li>
+        <li>A simulated <strong>40&ndash;80ms</strong> venue latency, so replies do not land instantly</li>
+        <li>No external dependencies, no configuration</li>
     </ul>
 
-    <h3>Starting the Demo Server</h3>
+    <h3>Starting the Demo</h3>
     <ol>
-        <li>Click the <strong>Start Demo Server</strong> button in the toolbar</li>
-        <li>The server starts on <code>localhost:19876</code></li>
-        <li>Four demo profiles are automatically created: <strong>Demo User 1-4</strong></li>
-        <li>Six FX message templates are added to the saved messages</li>
+        <li>Click <strong>Start Demo Server</strong> in the Connection panel</li>
+        <li>The venue binds <code>localhost:19876</code> and both clients log on to it</li>
+        <li>Three profiles appear: <strong>FX Demo Venue</strong>, <strong>Demo Client 1</strong> and
+            <strong>Demo Client 2</strong></li>
+        <li>Ten FX message templates and one scenario are added</li>
     </ol>
 
     <div class="tip">
-        <strong>Tip:</strong> Multiple demo users allow you to simulate multi-party trading scenarios. Connect with different profiles to see how messages flow between counterparties.
+        <strong>Tip:</strong> The venue accepts <em>any</em> SenderCompID (its TargetCompID is
+        <code>*</code>), so you can point your own connection profile at
+        <code>localhost:19876</code> with <code>TargetCompID=DEMO_SERVER</code> and it will be accepted
+        too &mdash; each counterparty gets its own pane on the venue side.
     </div>
 
-    <h3>Supported Currency Pairs</h3>
+    <h3>Reading the Venue's Rules</h3>
+    <p>Select the <strong>FX Demo Venue</strong> profile and open <strong>Auto-Responses</strong> in the
+    Connection panel. Each rule is a card: what it triggers on, and what it replies with. First match
+    wins, top to bottom, which is why the order matters &mdash; the size-limit reject sits above the
+    fill rules so a huge order is rejected rather than filled.</p>
+    <p>Change a price, reorder a card, or switch one off, and the venue behaves differently on the next
+    message. Nothing is compiled in.</p>
+
+    <h3>Priced Currency Pairs</h3>
     <table>
-        <tr>
-            <th>Symbol</th>
-            <th>Base</th>
-            <th>Quote</th>
-            <th>Pip Size</th>
-            <th>Typical Spread</th>
-        </tr>
-        <tr>
-            <td>EUR/USD</td>
-            <td>EUR</td>
-            <td>USD</td>
-            <td>0.0001</td>
-            <td>2 pips</td>
-        </tr>
-        <tr>
-            <td>GBP/USD</td>
-            <td>GBP</td>
-            <td>USD</td>
-            <td>0.0001</td>
-            <td>3 pips</td>
-        </tr>
-        <tr>
-            <td>USD/JPY</td>
-            <td>USD</td>
-            <td>JPY</td>
-            <td>0.01</td>
-            <td>2 pips</td>
-        </tr>
-        <tr>
-            <td>USD/CHF</td>
-            <td>USD</td>
-            <td>CHF</td>
-            <td>0.0001</td>
-            <td>3 pips</td>
-        </tr>
-        <tr>
-            <td>AUD/USD</td>
-            <td>AUD</td>
-            <td>USD</td>
-            <td>0.0001</td>
-            <td>3 pips</td>
-        </tr>
-        <tr>
-            <td>USD/CAD</td>
-            <td>USD</td>
-            <td>CAD</td>
-            <td>0.0001</td>
-            <td>3 pips</td>
-        </tr>
+        <tr><th>Symbol</th><th>Mid</th><th>Spread</th><th>Decimals</th></tr>
+        <tr><td>EUR/USD</td><td>1.09000</td><td>2 pips</td><td>5</td></tr>
+        <tr><td>GBP/USD</td><td>1.27000</td><td>3 pips</td><td>5</td></tr>
+        <tr><td>USD/JPY</td><td>149.500</td><td>2 pips</td><td>3</td></tr>
     </table>
+    <p>Prices carry a small random movement, so two quotes for the same pair are never identical. The
+    bid is drawn once and the ask derived from it, so the spread never varies and never inverts.
+    Anything else &mdash; another pair, an unknown symbol &mdash; is refused the way a venue refuses it.</p>
 
-    <h3>Order Types and Execution</h3>
-
-    <h4>Market Orders (OrdType=1)</h4>
-    <p>Market orders are filled immediately at the current market price:</p>
-    <ul>
-        <li><strong>Buy orders</strong> fill at the current <em>ask</em> (offer) price</li>
-        <li><strong>Sell orders</strong> fill at the current <em>bid</em> price</li>
-        <li>You receive an ExecutionReport (35=8) with ExecType=2 (Fill)</li>
-    </ul>
-
-    <h4>Limit Orders (OrdType=2)</h4>
-    <p>Limit orders specify a maximum buy price or minimum sell price:</p>
-    <ul>
-        <li><strong>Marketable limit orders</strong> (buy at/above ask, or sell at/below bid) fill immediately</li>
-        <li><strong>Non-marketable limit orders</strong> rest in the order book and receive OrdStatus=0 (New)</li>
-        <li>Resting orders fill automatically when the price ticks to touch your limit</li>
-    </ul>
-
-    <div class="example">
-        <h4>Example: Limit Order Lifecycle</h4>
-        <ol>
-            <li>Current EUR/USD: Bid=1.0890, Ask=1.0893</li>
-            <li>You send: Buy limit at 1.0850 (below market)</li>
-            <li>Server responds: ExecutionReport with OrdStatus=0 (New) - order is resting</li>
-            <li>Price ticks down... eventually Ask reaches 1.0850</li>
-            <li>Server sends: ExecutionReport with OrdStatus=2 (Filled) at 1.0850</li>
-        </ol>
-    </div>
-
-    <h4>Price Simulation</h4>
-    <p>The demo server simulates realistic market movement:</p>
-    <ul>
-        <li>Prices tick every <strong>1 second</strong></li>
-        <li>Each tick moves prices <strong>0-3 pips</strong> in either direction</li>
-        <li>Spreads vary between <strong>2-5 pips</strong></li>
-        <li>Resting limit orders are checked and filled when prices move</li>
-    </ul>
-
-    <h3>Supported FIX Messages</h3>
-
+    <h3>What the Venue Answers</h3>
     <table>
-        <tr>
-            <th>Message Type</th>
-            <th>Name</th>
-            <th>Server Response</th>
-        </tr>
-        <tr>
-            <td>35=D</td>
-            <td>NewOrderSingle</td>
-            <td>ExecutionReport (35=8) - New, Filled, or Rejected</td>
-        </tr>
-        <tr>
-            <td>35=F</td>
-            <td>OrderCancelRequest</td>
-            <td>ExecutionReport (Canceled) or OrderCancelReject (35=9)</td>
-        </tr>
-        <tr>
-            <td>35=R</td>
-            <td>QuoteRequest</td>
-            <td>Quote (35=S) with current bid/ask prices</td>
-        </tr>
-        <tr>
-            <td>35=G</td>
-            <td>OrderCancelReplaceRequest</td>
-            <td>OrderCancelReject (not supported)</td>
-        </tr>
+        <tr><th>You send</th><th>The venue replies</th></tr>
+        <tr><td>QuoteRequest (35=R) for a priced pair</td>
+            <td>Quote (35=S) with a live bid and offer</td></tr>
+        <tr><td>QuoteRequest for anything else</td>
+            <td>QuoteRequestReject (35=AG), 658=1 Unknown symbol</td></tr>
+        <tr><td>Limit order (35=D, 40=2)</td>
+            <td>Acknowledged, then a partial fill, then the remainder &mdash; at your own price</td></tr>
+        <tr><td>Market order (35=D, 40=1) for a priced pair</td>
+            <td>Acknowledged, then filled at the venue's own price</td></tr>
+        <tr><td>Order for an unpriced symbol</td>
+            <td>Rejected, 103=1 Unknown symbol</td></tr>
+        <tr><td>Order above 10,000,000</td>
+            <td>Rejected, 103=3 over the venue's size limit</td></tr>
+        <tr><td>The same ClOrdID twice</td>
+            <td>Rejected, 103=6 Duplicate order</td></tr>
+        <tr><td>Cancel (35=F) for a live order</td>
+            <td>Pending cancel, then Canceled</td></tr>
+        <tr><td>Cancel for an order that already filled</td>
+            <td>Cancel reject, 102=0 Too late to cancel</td></tr>
+        <tr><td>Cancel for an order it never saw</td>
+            <td>Cancel reject, 102=1 Unknown order</td></tr>
+        <tr><td>Cancel/Replace (35=G)</td>
+            <td>Replaced &mdash; keeping the OrderID when the order is live</td></tr>
+        <tr><td>Order Status Request (35=H)</td>
+            <td>The order's real quantities, read from the venue's book</td></tr>
     </table>
+    <p>The last four are answered from the venue's <strong>order book</strong> &mdash; it knows what it is
+    holding, so "too late to cancel" and "unknown order" are different answers rather than one guess.</p>
 
     <h3>Demo Message Templates</h3>
-    <p>When you start the demo server, six ready-to-use templates are automatically created:</p>
-
+    <p>Ten templates are installed, ready to send from the message editor:</p>
     <table>
-        <tr>
-            <th>Template Name</th>
-            <th>Message Type</th>
-            <th>Description</th>
-        </tr>
-        <tr>
-            <td>FX Market Buy EUR/USD</td>
-            <td>35=D</td>
-            <td>Buy 100K EUR/USD at market price</td>
-        </tr>
-        <tr>
-            <td>FX Market Sell EUR/USD</td>
-            <td>35=D</td>
-            <td>Sell 100K EUR/USD at market price</td>
-        </tr>
-        <tr>
-            <td>FX Limit Buy EUR/USD</td>
-            <td>35=D</td>
-            <td>Buy limit at 1.0850 (GTC)</td>
-        </tr>
-        <tr>
-            <td>FX Limit Sell EUR/USD</td>
-            <td>35=D</td>
-            <td>Sell limit at 1.0950 (GTC)</td>
-        </tr>
-        <tr>
-            <td>FX Quote Request EUR/USD</td>
-            <td>35=R</td>
-            <td>Request a quote for EUR/USD</td>
-        </tr>
-        <tr>
-            <td>FX Order Cancel Request</td>
-            <td>35=F</td>
-            <td>Cancel the last sent order</td>
-        </tr>
+        <tr><th>Template</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>FX Market Buy / Sell EUR/USD</td><td>35=D</td><td>Filled at the venue's price</td></tr>
+        <tr><td>FX Limit Buy / Sell EUR/USD</td><td>35=D</td><td>Acknowledged, part-filled, filled</td></tr>
+        <tr><td>FX Quote Request EUR/USD, GBP/USD, USD/JPY</td><td>35=R</td>
+            <td>Symbol inside NoRelatedSym, as a real client sends it</td></tr>
+        <tr><td>FX Order Cancel Request</td><td>35=F</td><td>References your last order automatically</td></tr>
+        <tr><td>FX Order Cancel/Replace Request</td><td>35=G</td><td>Revises your last order</td></tr>
+        <tr><td>FX Order Status Request</td><td>35=H</td><td>Asks where your last order is</td></tr>
     </table>
 
-    <p>These templates use expression syntax for dynamic values:</p>
-    <ul>
-        <li><code>${uuid}</code> - Generates unique ClOrdID for each order</li>
-        <li><code>${now}</code> - Current timestamp for TransactTime</li>
-        <li><code>${now+2d:yyyyMMdd}</code> - T+2 settlement date</li>
-        <li><code>${outgoing["D"].valueOfTag(11)}</code> - References last order's ClOrdID for cancels</li>
-    </ul>
+    <h3>The Bundled Scenario</h3>
+    <p>One scenario, <strong>EUR/USD order lifecycle</strong>, is installed with the demo and passes on a
+    fresh install: a limit order acknowledged, half-filled, filled, and then a cancel that is correctly
+    refused as too late. Open the Scenarios rail and run it.</p>
+    <p>It is worth running <em>twice</em>. The scenario uses a fixed ClOrdID, so the second run would be
+    rejected as a duplicate out of the venue's memory of the first &mdash; which is why its setup contains
+    a <strong>Clear order book</strong> step aimed at the venue side. That step is the difference between
+    a flow that repeats and one that only worked once.</p>
 
-    <h3>Using the Demo Templates</h3>
-    <ol>
-        <li>Start the demo server and connect with a Demo User profile</li>
-        <li>Open the Message Editor (click the editor button in the toolbar)</li>
-        <li>Click <strong>Browse Saved Messages</strong> (folder icon)</li>
-        <li>Select a template like "FX Market Buy EUR/USD"</li>
-        <li>Click <strong>Load</strong> to populate the editor</li>
-        <li>Click <strong>Send</strong> to send the order</li>
-        <li>Watch for the ExecutionReport response in the message grid</li>
-    </ol>
-
-    <div class="example">
-        <h4>Try This: Complete Trading Workflow</h4>
-        <ol>
-            <li><strong>Request a Quote:</strong> Load and send "FX Quote Request EUR/USD"</li>
-            <li>View the Quote (35=S) response with current bid/ask prices</li>
-            <li><strong>Place a Limit Order:</strong> Load "FX Limit Buy EUR/USD", adjust price if needed, send</li>
-            <li>See the New acknowledgment (OrdStatus=0)</li>
-            <li>Wait for price to tick to your limit - watch for the Fill (OrdStatus=2)</li>
-            <li><strong>Or Cancel:</strong> Load "FX Order Cancel Request" and send to cancel the resting order</li>
-        </ol>
+    <div class="tip">
+        <strong>Try this:</strong> run the scenario green, then open a venue rule and change the fill
+        price. Run it again &mdash; it goes red, and the reconcile view shows exactly which field moved
+        and what it moved to.
     </div>
 
-    <h3>Order Rejections</h3>
-    <p>The demo server validates orders and rejects invalid requests:</p>
-
-    <table>
-        <tr>
-            <th>Reject Reason</th>
-            <th>OrdRejReason</th>
-            <th>Cause</th>
-        </tr>
-        <tr>
-            <td>Unknown symbol</td>
-            <td>1</td>
-            <td>Symbol not in supported pairs list</td>
-        </tr>
-        <tr>
-            <td>Invalid quantity</td>
-            <td>13</td>
-            <td>OrderQty is zero or negative</td>
-        </tr>
-        <tr>
-            <td>Limit order requires price</td>
-            <td>5</td>
-            <td>OrdType=2 but Price tag missing or invalid</td>
-        </tr>
-        <tr>
-            <td>Unsupported order type</td>
-            <td>11</td>
-            <td>Order types other than Market/Limit</td>
-        </tr>
-    </table>
-
-    <h3>Stopping the Demo Server</h3>
-    <p>Click the <strong>Stop Demo Server</strong> button in the toolbar. This will:</p>
-    <ul>
-        <li>Stop the FIX server and disconnect all sessions</li>
-        <li>Remove the demo connection profiles (Demo User 1-4)</li>
-        <li>Delete the demo message templates</li>
-        <li>Clear the in-memory order book and market data</li>
-    </ul>
+    <h3>Stopping the Demo</h3>
+    <p>Click <strong>Stop Demo Server</strong>. This disconnects the venue and its clients, closes their
+    panes, and removes the demo profiles, templates and scenario.</p>
 
     <div class="warning">
-        <strong>Note:</strong> Demo artifacts (profiles and templates with "demo-" prefix) are automatically cleaned up. Your own saved profiles and templates are <strong>never</strong> affected.
+        <strong>Note:</strong> Only demo-prefixed artifacts are removed. Your own profiles, templates and
+        scenarios are <strong>never</strong> affected.
     </div>
 
     <h3>Bundled FIX 4.4 Dictionary</h3>
@@ -2100,7 +1959,7 @@ stunnel stunnel.conf</code></pre>
     <p>After sending a NewOrderSingle and receiving an ExecutionReport (35=8), assert it:</p>
     <div class="example">
         <code>{<br>
-        &nbsp;&nbsp;"session": "Demo User 1", "messageType": "8", "direction": "in", "timeoutMs": 5000,<br>
+        &nbsp;&nbsp;"session": "Demo Client 1", "messageType": "8", "direction": "in", "timeoutMs": 5000,<br>
         &nbsp;&nbsp;"fields": [<br>
         &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 11, "matcher": { "type": "reference", "expression": "${out.D.11}" } },<br>
         &nbsp;&nbsp;&nbsp;&nbsp;{ "tag": 37, "matcher": { "type": "presence" } },<br>

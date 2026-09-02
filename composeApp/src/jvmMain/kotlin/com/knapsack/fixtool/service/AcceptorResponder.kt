@@ -33,9 +33,14 @@ import java.util.UUID
  */
 data class PlannedSend(
     val offsetMillis: Long,
+    /**
+     * The dictionary the reply is **built** with, not merely validated against — see
+     * [AcceptorResponder.buildMessage]. Null is a venue with none loaded, which still sends.
+     */
+    val dictionary: FixDictionary? = null,
     val render: () -> String,
 ) {
-    fun build(): Message = AcceptorResponder.buildMessage(render())
+    fun build(): Message = AcceptorResponder.buildMessage(render(), dictionary)
 }
 
 /** A rule whose trigger has been parsed once, ready to be asked of every inbound message. */
@@ -102,6 +107,8 @@ data class RuleOutcome(
  * when each one goes out and puts it there.
  */
 object AcceptorResponder {
+    private val logger = org.slf4j.LoggerFactory.getLogger(AcceptorResponder::class.java)
+
     private const val MSG_TYPE_TAG = 35
 
     // Matches a whole ${req.<tag>} expression, e.g. ${req.11}.
@@ -280,7 +287,7 @@ object AcceptorResponder {
         return rule.sequence().map { step ->
             offset += step.delayMillis.coerceAtLeast(0)
             val againstRequest = resolveRequestRefs(step.template, incoming, requestId)
-            PlannedSend(offset) {
+            PlannedSend(offset, dictionary) {
                 // Order refs before the expression pass, exactly as request refs are, so
                 // `${order.leavesQty / 2}` is arithmetic and not a literal.
                 resolveExpressions(resolveOrderRefs(resolveAtSendTime(againstRequest), order()), request, dictionary)
@@ -497,8 +504,30 @@ object AcceptorResponder {
             .replace("\${uuid}", UUID.randomUUID().toString())
             .replace("\${now}", LocalDateTime.now(ZoneOffset.UTC).format(NOW_FORMAT))
 
-    /** Builds a QuickFIX message from a resolved raw template (MsgType -> header, the rest -> body). */
-    fun buildMessage(resolvedRaw: String): Message {
+    /**
+     * Builds a QuickFIX message from a resolved raw template.
+     *
+     * **With a dictionary, through the same builder the send path uses** — which is the only way a
+     * reply can carry a repeating group. Without one, every tag is set flat on a bare [Message], and a
+     * `FieldMap` orders its body by tag number: a template spelling out `146=1|55=EUR/USD` comes back
+     * as `55` *before* `146`, so the count claims an entry the group has not got and the counterparty
+     * reads a malformed message. Measured, not assumed.
+     *
+     * The flat path is kept as the fallback rather than deleted, because a venue with no dictionary
+     * loaded must still answer, and because a template the manual builder chokes on should degrade to
+     * the behaviour it had before this existed rather than stop replying.
+     *
+     * It also fixes something older and quieter: the flat path routes **only** tag 35 to the header, so
+     * a rule whose template carried `115` (OnBehalfOfCompID) put a header field in the body and the
+     * counterparty answered "tag specified out of required order". The manual builder reads the
+     * dictionary's own header and trailer sections, venue dialects included.
+     */
+    fun buildMessage(resolvedRaw: String, dictionary: FixDictionary? = null): Message {
+        if (dictionary?.isLoaded() == true) {
+            runCatching { with(FixMessageHelper) { resolvedRaw.toQuickFixMessageManual(dictionary) } }
+                .onSuccess { return it }
+                .onFailure { logger.warn("Building an acceptor reply through the dictionary failed; sent flat", it) }
+        }
         val msg = Message()
         FixMessageHelper.parseFixMessage(resolvedRaw).forEach { (tag, value) ->
             if (tag == MSG_TYPE_TAG) msg.header.setString(tag, value) else msg.setString(tag, value)
@@ -506,15 +535,42 @@ object AcceptorResponder {
         return msg
     }
 
+    /**
+     * The value of [tag] on [msg], read where a trigger and a `${'$'}{req.…}` both look.
+     *
+     * Flat first — header, body, trailer — and **then, only if none of them has it, inside the first
+     * instance of each repeating group**. That last step is what lets a rule condition on a field a
+     * conformant message puts in a group: FIX 4.4's QuoteRequest carries Symbol inside
+     * `NoRelatedSym(146)`, and with a dictionary loaded QuickFIX/J parses it there, so `isSetField(55)`
+     * is false and a rule conditioned on the symbol could never fire. Measured, not assumed.
+     *
+     * **The first instance, and that is an approximation** — a two-symbol RFQ is answered about its
+     * first symbol. The alternative is refusing to read groups at all, which is what happened before
+     * and is worse: the rule silently never matched, which looks exactly like a trigger that has not
+     * come up yet.
+     *
+     * Flat wins on purpose. A message carrying the tag both flat and in a group reads the flat one, so
+     * nothing written before this existed changes what it matches.
+     */
     private fun valueOf(msg: Message, tag: Int): String? =
         try {
             when {
                 msg.header.isSetField(tag) -> msg.header.getString(tag)
                 msg.isSetField(tag) -> msg.getString(tag)
                 msg.trailer.isSetField(tag) -> msg.trailer.getString(tag)
-                else -> null
+                else -> inFirstGroupInstance(msg, tag)
             }
         } catch (e: Exception) {
             null
+        }
+
+    /** [tag] from the first entry of the first group that has it, or null. See [valueOf]. */
+    private fun inFirstGroupInstance(msg: Message, tag: Int): String? =
+        msg.groupKeyIterator().asSequence().firstNotNullOfOrNull { groupTag ->
+            try {
+                msg.getGroup(1, groupTag).takeIf { it.isSetField(tag) }?.getString(tag)
+            } catch (e: Exception) {
+                null
+            }
         }
 }

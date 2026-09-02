@@ -84,7 +84,6 @@
     <ID>MaxLineLength:App.kt$}</ID>
     <ID>MaxLineLength:AppSettings.kt$AppSettings$val gridViewColumns: List&lt;Int&gt; = listOf(11, 131, 693)</ID>
     <ID>MaxLineLength:ConnectionPanel.kt$imageVector = if (showAdvanced) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown</ID>
-    <ID>MaxLineLength:DemoFixServer.kt$DemoFixServer.Companion$"35=D|55=AMZN|54=2|38=250|40=2|44=178.25|11=CLO005|453=2|448=BROKER1|447=D|452=1|448=CLIENT1|447=D|452=3|"</ID>
     <ID>MaxLineLength:FixMessageDisplay.kt$Color(0xFFFFEB3B).copy(alpha = 0.4f)</ID>
     <ID>MaxLineLength:FixMessageViewModel.kt$FixMessageViewModel$fromIndex &lt; _activeSessionIndex.value &amp;&amp; toIndex &gt;= _activeSessionIndex.value -&gt; _activeSessionIndex.value--</ID>
     <ID>MaxLineLength:FixMessageViewModel.kt$FixMessageViewModel$fromIndex &gt; _activeSessionIndex.value &amp;&amp; toIndex &lt;= _activeSessionIndex.value -&gt; _activeSessionIndex.value++</ID>
@@ -105,7 +104,6 @@
     <ID>MaxLineLength:Toolbar.kt$tooltip = if (showDetailPanel) "Message Detail: On (click to hide)" else "Message Detail: Off (click to show)"</ID>
     <ID>MaxLineLength:Toolbar.kt$tooltip = if (showMessageEditor) "Message Editor: On (click to hide)" else "Message Editor: Off (click to show)"</ID>
     <ID>MaxLineLength:main.kt$"An unexpected error occurred:\n${throwable.message ?: throwable.toString()}\n\nThe application may continue but might be in an unstable state.\nPlease check the logs for details."</ID>
-    <ID>NestedBlockDepth:DemoFixServer.kt$DemoFixServer$private fun createMessageFromRaw(rawMessage: String, sessionId: SessionID): Message</ID>
     <ID>NestedBlockDepth:FixConnectionManager.kt$FixConnectionManager$private fun clearStoreFiles()</ID>
     <ID>NestedBlockDepth:FixDictionaryAdapter.kt$FixDictionaryAdapter.Companion$private fun parseEnumValues(file: File): Map&lt;Int, List&lt;Pair&lt;String, String&gt;&gt;&gt;</ID>
     <ID>NestedBlockDepth:FixMessageDisplay.kt$@Composable private fun MessageRow( message: AppMessage, messageIndex: Int, wrapText: Boolean = true, isSelected: Boolean = false, onSelect: (() -&gt; Unit)? = null, searchQuery: String = "", messageMatches: List&lt;Pair&lt;Int, Int&gt;&gt; = emptyList(), currentMatchOffset: Int = -1, )</ID>
@@ -117,7 +115,6 @@
     <ID>NestedBlockDepth:MessageDetailPanel.kt$private fun fieldMapMatchesSearch( fieldMap: FieldMap, dictionary: FixDictionary, searchQuery: String, hideProtocolTags: Boolean, protocolTags: Set&lt;Int&gt;, ): Boolean</ID>
     <ID>NestedBlockDepth:MessageEditorPanel.kt$private fun calculateIndentLevels(fields: List&lt;FixField&gt;, dictionary: FixDictionary): Pair&lt;List&lt;Int&gt;, List&lt;Int?&gt;&gt;</ID>
     <ID>NestedBlockDepth:QuickFixService.kt$QuickFixService$override fun toAdmin(message: Message, sessionId: SessionID)</ID>
-    <ID>SwallowedException:DemoFixServer.kt$DemoFixServer$e: Exception</ID>
     <ID>SwallowedException:FixDictionaryAdapter.kt$FixDictionaryAdapter$e: Exception</ID>
     <ID>SwallowedException:FixDictionaryAdapter.kt$FixDictionaryAdapter.Companion$e: Exception</ID>
     <ID>SwallowedException:FixMessageViewModel.kt$FixMessageViewModel$e: Exception</ID>
@@ -127,7 +124,6 @@
     <ID>SwallowedException:SplitView.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AppSettingsService.kt$AppSettingsService$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ConnectionProfileService.kt$ConnectionProfileService$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:DemoFixServer.kt$DemoFixServer$e: Exception</ID>
     <ID>TooGenericExceptionCaught:DemoServerManager.kt$DemoServerManager$e: Exception</ID>
     <ID>TooGenericExceptionCaught:FixConnectionManager.kt$FixConnectionManager$e: Exception</ID>
     <ID>TooGenericExceptionCaught:FixDictionaryAdapter.kt$FixDictionaryAdapter$e: Exception</ID>
@@ -142,7 +138,6 @@
     <ID>TooGenericExceptionCaught:SavedMessagesService.kt$SavedMessagesService$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SplitView.kt$e: Exception</ID>
     <ID>TooGenericExceptionCaught:main.kt$e: Exception</ID>
-    <ID>TooManyFunctions:DemoFixServer.kt$DemoFixServer : Application</ID>
     <ID>TooManyFunctions:FixMessageViewModel.kt$FixMessageViewModel : ViewModel</ID>
     <ID>UnusedPrivateMember:ConnectionPanel.kt$@Composable private fun SlimCheckbox( label: String, checked: Boolean, onCheckedChange: (Boolean) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>UnusedPrivateProperty:MessageEditorPanel.kt$val savedIndices = selectedFieldIndices.toList()</ID>

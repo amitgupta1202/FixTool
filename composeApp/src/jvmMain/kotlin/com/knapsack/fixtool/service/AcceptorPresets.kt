@@ -89,7 +89,16 @@ object AcceptorPresets {
     /** The id of the bundle offered on an empty rule list. */
     const val STARTER_VENUE = "starter-venue"
 
+    /** The id of the FX venue bundle — the one the demo workspace installs. See [FxVenuePreset]. */
+    const val FX_VENUE = FxVenuePreset.ID
+
     // ------------------------------------------------------------------ templates
+    //
+    // Some of what follows is `internal` rather than `private`, and the reason is [FxVenuePreset]: a
+    // second bundle in this module composes these rules **verbatim**, by name. Copying them there
+    // instead would be two venues that agree today and drift tomorrow, and the drift would be silent —
+    // a preset that stopped matching looks exactly like a venue that is working. Nothing leaves the
+    // module; outside it the catalogue is still only [all].
     //
     // Written in the order a reader wants them: what the message is, who it is about, then what it
     // says. The identity block and the timestamp are the same in every ExecutionReport here, so they
@@ -101,16 +110,16 @@ object AcceptorPresets {
      * sequence, the second resolves as each step is sent. An ack and its fill carrying different
      * OrderIDs would be two unrelated orders to any client tracking tag 37.
      */
-    private fun executionReport(vararg fields: String): String =
+    internal fun executionReport(vararg fields: String): String =
         (listOf("35=8", "37=\${req.uuid}", "17=\${uuid}") + fields + "60=\${now}").joinToString("|")
 
     /** The fields an ExecutionReport echoes from the order it is about. */
-    private const val ORDER_ECHO = "11=\${req.11}|55=\${req.55}|54=\${req.54}|38=\${req.38}"
+    internal const val ORDER_ECHO = "11=\${req.11}|55=\${req.55}|54=\${req.54}|38=\${req.38}"
 
     /** The same echo for a cancel or replace, which name the order they supersede. */
     private const val CANCEL_ECHO = "11=\${req.11}|41=\${req.41}|55=\${req.55}|54=\${req.54}"
 
-    private val ACK =
+    internal val ACK =
         executionReport("150=0", "39=0", ORDER_ECHO, "14=0", "151=\${req.38}", "6=0")
 
     private val FILL =
@@ -121,21 +130,21 @@ object AcceptorPresets {
 
     // Integer halves, taken the same way twice, so CumQty + LeavesQty is OrderQty at every step for
     // any quantity — including an odd one, where 1001/2 and 1001-1001/2 are 500 and 501.
-    private val PARTIAL_FILL =
+    internal val PARTIAL_FILL =
         executionReport(
             "150=F", "39=1", ORDER_ECHO,
             "14=\${req.38 / 2}", "151=\${req.38 - req.38 / 2}",
             "31=\${req.44}", "32=\${req.38 / 2}", "6=\${req.44}",
         )
 
-    private val FILL_REMAINDER =
+    internal val FILL_REMAINDER =
         executionReport(
             "150=F", "39=2", ORDER_ECHO,
             "14=\${req.38}", "151=0",
             "31=\${req.44}", "32=\${req.38 - req.38 / 2}", "6=\${req.44}",
         )
 
-    private val ORDER_REJECT =
+    internal val ORDER_REJECT =
         executionReport(
             "150=8", "39=8", ORDER_ECHO,
             "14=0", "151=0", "6=0", "103=3", "58=Order exceeds the venue size limit",
@@ -287,7 +296,7 @@ object AcceptorPresets {
 
     // ------------------------------------------------------------------ the catalogue
 
-    private fun condition(tag: Int, matcher: Matcher) = FieldCondition(tag, MatcherCodec.matcherToJson(matcher))
+    internal fun condition(tag: Int, matcher: Matcher) = FieldCondition(tag, MatcherCodec.matcherToJson(matcher))
 
     /** OrdType is Limit — which is what makes `${req.44}` safe to read. */
     private fun limitOrder() = listOf(condition(40, Matcher.Exact("2")))
@@ -333,7 +342,7 @@ object AcceptorPresets {
     private val cancelRejected =
         AcceptorResponseRule(whenMsgType = "F", steps = listOf(ResponseStep(CANCEL_REJECT)))
 
-    private val replaceAccepted =
+    internal val replaceAccepted =
         AcceptorResponseRule(
             whenMsgType = "G",
             // OrderQty is optional on a replace and this reply reads it, so the trigger requires it.
@@ -359,7 +368,7 @@ object AcceptorPresets {
      * the way a real venue answers it, **without** taking every legitimate cancel down with it — which
      * is exactly what the unconditional reject above cannot avoid doing.
      */
-    private val cancelRejectedUnknown =
+    internal val cancelRejectedUnknown =
         AcceptorResponseRule(
             whenMsgType = "F",
             whenOrder = OrderConstraint.UNKNOWN,
@@ -367,7 +376,7 @@ object AcceptorPresets {
         )
 
     /** Its other half: a cancel for an order the venue is actually holding gets accepted. */
-    private val cancelAcceptedWorking =
+    internal val cancelAcceptedWorking =
         AcceptorResponseRule(
             whenMsgType = "F",
             whenOrder = OrderConstraint.WORKING,
@@ -383,7 +392,7 @@ object AcceptorPresets {
      * the cancel matches nothing and the venue says *nothing at all* — which is a worse answer than
      * any wrong one, because a client waiting on silence has no error path to take.
      */
-    private val cancelAcceptedPending =
+    internal val cancelAcceptedPending =
         AcceptorResponseRule(
             whenMsgType = "F",
             whenOrder = OrderConstraint.PENDING,
@@ -391,7 +400,7 @@ object AcceptorPresets {
         )
 
     /** A cancel for an order that has already finished — rejected as too late, not as unknown. */
-    private val cancelTooLate =
+    internal val cancelTooLate =
         AcceptorResponseRule(
             whenMsgType = "F",
             whenOrder = OrderConstraint.DONE,
@@ -413,14 +422,14 @@ object AcceptorPresets {
      * duplicate from a new order is what the venue held *before* it, which is what `whenOrder` reads
      * (decision 4a).
      */
-    private val duplicateWorking =
+    internal val duplicateWorking =
         AcceptorResponseRule(
             whenMsgType = "D",
             whenOrder = OrderConstraint.WORKING,
             steps = listOf(ResponseStep(DUPLICATE_REJECT)),
         )
 
-    private val duplicatePending =
+    internal val duplicatePending =
         AcceptorResponseRule(
             whenMsgType = "D",
             whenOrder = OrderConstraint.PENDING,
@@ -436,7 +445,7 @@ object AcceptorPresets {
      * half — the same request answered *from* the book for an order it holds — needs `${order.…}` and
      * lands with slice C.
      */
-    private val statusRequestUnknown =
+    internal val statusRequestUnknown =
         AcceptorResponseRule(
             whenMsgType = "H",
             whenOrder = OrderConstraint.UNKNOWN,
@@ -491,14 +500,14 @@ object AcceptorPresets {
      * a filled order fell through to the unknown-order reject — the venue disowning an order it was
      * holding.
      */
-    private val statusRequestWorking =
+    internal val statusRequestWorking =
         AcceptorResponseRule(
             whenMsgType = "H",
             whenOrder = OrderConstraint.WORKING,
             steps = listOf(ResponseStep(ORDER_STATUS)),
         )
 
-    private val statusRequestDone =
+    internal val statusRequestDone =
         AcceptorResponseRule(
             whenMsgType = "H",
             whenOrder = OrderConstraint.DONE,
@@ -514,7 +523,7 @@ object AcceptorPresets {
      * author's template sent and cannot tell them apart; these two presets are that decision made
      * choosable rather than assumed.
      */
-    private val replaceAcceptedSameId =
+    internal val replaceAcceptedSameId =
         AcceptorResponseRule(
             whenMsgType = "G",
             whenOrder = OrderConstraint.WORKING,
@@ -549,7 +558,17 @@ object AcceptorPresets {
      * makes the card list read `unknown, pending, working, done`. A test pins that, so the
      * arrangement cannot drift into nonsense unnoticed.
      */
-    val all: List<AcceptorPreset> =
+    /**
+     * **`by lazy`, and it is load-bearing.** [FxVenuePreset] composes this object's rules by name, and
+     * this list holds that bundle — a cycle, and an eager `val` here resolves it in exactly one
+     * direction. Touch `AcceptorPresets` first and all is well; touch `FxVenuePreset` first and its own
+     * initialiser reaches back here, which runs *this* list, which reads a `preset` that is still being
+     * built — a null in the catalogue, or a StackOverflowError, decided by whichever class the JVM
+     * happened to load first. Deferring the list means neither object is ever observed half-built.
+     *
+     * The rule that keeps it safe: **nothing eagerly initialised in this object may read [all]**.
+     */
+    val all: List<AcceptorPreset> by lazy {
         listOf(
             AcceptorPreset(
                 id = STARTER_VENUE,
@@ -567,6 +586,7 @@ object AcceptorPresets {
                         replaceAccepted,
                     ),
             ),
+            FxVenuePreset.preset,
             AcceptorPreset(
                 id = "order-ack",
                 name = "Order acknowledged",
@@ -676,6 +696,7 @@ object AcceptorPresets {
                 rules = listOf(statusRequestWorking, statusRequestDone),
             ),
         )
+    }
 
     fun byId(id: String): AcceptorPreset? = all.firstOrNull { it.id == id }
 

@@ -139,8 +139,9 @@ object McpTools {
             ),
             tool(
                 "fixtool_demo",
-                "Start or stop the built-in demo FIX server (an FX acceptor on 19876) which registers " +
-                    "\"Demo User N\" profiles for self-contained tests.",
+                "Install or remove the demo FX workspace: an 'FX Demo Venue' acceptor on 19876 carrying " +
+                    "the FX venue rule bundle, two 'Demo Client N' initiator profiles, FX templates and one " +
+                    "bundled scenario. The venue accepts any CompID.",
                 props("action" to enumStr("start", "stop")),
             ),
             tool(

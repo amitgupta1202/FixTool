@@ -1909,6 +1909,9 @@ class ControlServer(
             put("status", "ok")
             put("action", action)
             put("running", onEdt { viewModel.demoServerRunning.value })
+            // Named so a caller can address the venue without knowing the constant.
+            put("venue", com.knapsack.fixtool.service.demo.DemoServerManager.VENUE_NAME)
+            put("port", com.knapsack.fixtool.service.demo.DemoServerManager.currentPort)
         }
     }
 

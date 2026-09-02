@@ -2041,7 +2041,17 @@ stunnel stunnel.conf</code></pre>
         session grid the matched message rows are tinted &mdash; selecting one shows each asserted tag in the
         detail panel with <strong>expected vs actual</strong>, red where it failed. A tag that appears more
         than once shows one row per <strong>occurrence</strong>, so the second party entry's
-        <code>PartyRole</code> is checked and reported separately from the first's.</li>
+        <code>PartyRole</code> is checked and reported separately from the first's.
+        <p><strong>Running several at once.</strong> The rail's rows can be <em>picked</em>: hover a row and
+        click its tick, or use the <strong>&#9744;</strong> button in the rail's toolbar to take everything on
+        screen (<code>Ctrl/&#8984;A</code>). Once anything is picked every row shows its box, so the next one is
+        one click away &mdash; <strong>shift-click</strong> a row for a range from the last one you picked, and
+        <strong>Ctrl/&#8984;-click</strong> a row to add or drop it without opening it. A bar above the list says
+        how many are picked and offers <strong>&#9654; Run</strong>, <strong>Save&hellip;</strong> (as a named set
+        CI can run), <strong>&#9733;</strong> (promote them all to favourites) and <strong>&#10005;</strong>
+        (<code>Esc</code>). Because "all" means what is on screen, the filter box doubles as a bulk selector:
+        type <code>QUOTE</code>, take all, clear the filter &mdash; the picks stay. They also survive the run
+        they start, so re-running the ones you just fixed is one click.</p></li>
         <li><strong>Reconcile the failure</strong> &mdash; the message viewer <em>diagnoses</em>; the diff
         window <em>authors</em>.
         <p>The message viewer tints the failed message red and shows expected against actual, so you see what

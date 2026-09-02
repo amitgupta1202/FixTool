@@ -42,3 +42,23 @@ fun railSections(
     val (favourites, others) = scenarios.partition { it.id in favouriteIds }
     return RailSections(favourites.sortedWith(comparator), others.sortedWith(comparator))
 }
+
+/**
+ * **The ids the rail is drawing, top to bottom** — the one order a shift-range and a select-all are allowed
+ * to reason about.
+ *
+ * It is not the model order and it is not [RailSections] read end to end: the scenario that just ran is
+ * lifted to the top ([pinned], and it is already absent from both sections), the ★ Favourites section only
+ * exists once something is starred, and either section may be folded shut in [collapsedSections] — a folded
+ * section's rows are off screen, so they are not in the order, so no range or select-all can reach them.
+ */
+fun railOrder(pinned: String?, sections: RailSections, collapsedSections: Set<String>): List<String> =
+    buildList {
+        pinned?.let { add(it) }
+        if (sections.favourites.isNotEmpty()) {
+            if ("favourites" !in collapsedSections) sections.favourites.forEach { add(it.id) }
+            if ("all" !in collapsedSections) sections.others.forEach { add(it.id) }
+        } else {
+            sections.others.forEach { add(it.id) }
+        }
+    }

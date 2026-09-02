@@ -6,6 +6,7 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -51,6 +52,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,15 +107,19 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     // **Selection is transient, and deliberately not view state.** A star is a lasting opinion about a
     // scenario — persisted, and it moves the row into its own section. A pick is "these, now": it must
-    // not survive a restart, must not reorder the rail, and is spent the moment the set is made.
-    var selectedIds by remember { mutableStateOf(emptySet<String>()) }
+    // not survive a restart and must not reorder the rail. It DOES survive the run it starts — see
+    // `onRunSelected`, where it used to be spent.
+    var selection by remember { mutableStateOf(RailSelection()) }
     var confirmingDeleteId by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("") }
     val activeSet by viewModel.activeRunSet.collectAsState()
+    // Cmd/Ctrl+A and Esc are handled on the rail's own root, so they need somewhere for focus to land. It is
+    // requested on the first pick, never on mount: a pane that grabs focus as it appears steals the keyboard
+    // from the grid the author was reading.
+    val railFocus = remember { FocusRequester() }
     // A scenario deleted while picked would otherwise stay in the count and run as nothing.
     LaunchedEffect(scenarios) {
-        val alive = scenarios.mapTo(mutableSetOf()) { it.id }
-        if (!alive.containsAll(selectedIds)) selectedIds = selectedIds intersect alive
+        selection = selection.prunedTo(scenarios.mapTo(mutableSetOf()) { it.id })
     }
     // The Repeat dialog outlives the menu that opened it, like the remap dialog above.
     var repeating by remember { mutableStateOf(false) }
@@ -169,12 +184,17 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     }
     if (savingSet) {
         SaveRunSetDialog(
-            // Starred wins, then whatever the list is showing — "save as set" has to mean something with
-            // nothing starred and no filter typed, and what it means then is the list in front of you.
+            // A standing pick wins — it is the most explicit thing the author has said about which
+            // scenarios they mean. Then starred, then whatever the list is showing: "save as set" has to
+            // mean something with nothing picked, nothing starred and no filter typed, and what it means
+            // then is the list in front of you.
             scenarios =
-                viewState.favouriteIds
+                selection.ids
                     .takeIf { it.isNotEmpty() }
-                    ?.let { ids -> visible.filter { it.id in ids } }
+                    ?.let { ids -> scenarios.filter { it.id in ids } }
+                    ?: viewState.favouriteIds
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { ids -> visible.filter { it.id in ids } }
                     ?: visible,
             onDismiss = { savingSet = false },
             onSave = { name, chosen ->
@@ -187,10 +207,64 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     // File dates, read once per store change — the meta line must not touch the disk per frame.
     val modified = remember(scenarios) { scenarios.associate { it.id to viewModel.scenarioService.modifiedAt(it.id) } }
 
+    // The scenario that just ran, lifted to the top so a failure is not buried behind the alphabet. The
+    // report above says WHAT failed; this puts the scenario itself — its row, its steps, their verdicts and
+    // per-step reconcile routes — where the eye already is, until the report is dismissed.
+    val pinned = ran?.id?.let { id -> scenarios.firstOrNull { it.id == id } }?.takeIf { result != null }
+    val pinnedId = pinned?.id
+    val listVisible = if (pinnedId != null) visible.filterNot { it.id == pinnedId } else visible
+    // Split into ★ favourites and the rest, each ordered by the author's chosen sort. A favourited
+    // scenario shows only in its own section (never twice), and the pinned current run is out of both.
+    val sections =
+        remember(listVisible, viewState.favouriteIds, viewState.sortMode, modified) {
+            railSections(listVisible, viewState.favouriteIds, viewState.sortMode) { modified[it] }
+        }
+    // Computed up here, above the header, because the master tick lives in the header and a range needs the
+    // drawn order — which the rows below cannot hand upwards.
+    val order = remember(pinnedId, sections, viewState.collapsedSections) { railOrder(pinnedId, sections, viewState.collapsedSections) }
+    // The two pick gestures, in one place so the row, its tick and the keyboard cannot drift apart.
+    val onPick: (String, Boolean) -> Unit = { id, shift ->
+        selection = if (shift) selection.extendTo(id, order) else selection.toggle(id)
+        runCatching { railFocus.requestFocus() }
+    }
+    val onToggleSelectAll: () -> Unit = { selection = selection.toggleAll(order) }
+    // In model order, not pick order: a set reads as the rail reads, whichever way round the author ticked.
+    val picked = remember(scenarios, selection) { scenarios.filter { it.id in selection } }
+    // One RunView for the whole rail: the selection bar's "can these run" must be the same question the
+    // rows' own Run buttons answer, or the bar offers a run the rows say is impossible.
+    val run = RunView(ran, result, running, busySessions)
+    val runSelected: () -> Unit = { viewModel.startRunSet(viewModel.planSuite(picked, "selected (${picked.size})")) }
+
     // Slim interactive targets, as the workbench had: Material3's 48dp minimum is a touch-screen convention
     // that would leave this rail room for a name and nothing else.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 20.dp) {
-        Column(modifier = modifier.fillMaxSize().background(AppTheme.Colors.background).testTag("scenarios-rail")) {
+        Column(
+            modifier =
+                modifier
+                    .fillMaxSize()
+                    .background(AppTheme.Colors.background)
+                    // Cmd/Ctrl+A and Esc, the two keys every list of this shape answers to. On the rail's
+                    // own root, so they fire only while focus is in here: the filter field consumes its own
+                    // select-all first, which is what an author typing a filter means by ⌘A.
+                    .focusRequester(railFocus)
+                    .focusable()
+                    .onKeyEvent { event ->
+                        when {
+                            event.type != KeyEventType.KeyDown -> false
+                            (event.isCtrlPressed || event.isMetaPressed) && event.key == Key.A -> {
+                                onToggleSelectAll()
+                                true
+                            }
+                            // Only when there is something to clear — otherwise Esc belongs to whatever
+                            // else is listening for it.
+                            event.key == Key.Escape && selection.isNotEmpty -> {
+                                selection = selection.clear()
+                                true
+                            }
+                            else -> false
+                        }
+                    }.testTag("scenarios-rail"),
+        ) {
             RailHeader(
                 running = running,
                 filter = filter,
@@ -214,14 +288,13 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         onRunFiltered = {
                             viewModel.startRunSet(viewModel.planSuite(visible, "filtered: $filter", RunSource.Filtered(filter)))
                         },
-                        selected = selectedIds.size,
-                        onRunSelected = {
-                            val picked = scenarios.filter { it.id in selectedIds }
-                            viewModel.startRunSet(viewModel.planSuite(picked, "selected (${picked.size})"))
-                            // Spent: the set has been made, and a tick left standing would quietly join
-                            // the next one. The starred set is the durable list; this was "these, now".
-                            selectedIds = emptySet()
-                        },
+                        selected = selection.size,
+                        // **The selection outlives the run it starts.** It used to be spent the moment the
+                        // set was made, on the argument that a tick left standing would quietly join the
+                        // next run. The selection bar answers that: a standing pick is now announced above
+                        // the list with its count, so it cannot be quiet — and re-running the six you just
+                        // fixed is the commonest thing anyone does with an ad-hoc set.
+                        onRunSelected = { runSelected() },
                         outlines = scenarios.count { it.examples?.live?.isNotEmpty() == true },
                         onSaveAsSet = { savingSet = true },
                         onRepeat = { repeating = true },
@@ -237,6 +310,8 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                     ),
                 sort = viewState.sortMode,
                 onSort = { viewModel.setScenarioSort(it) },
+                coverage = selection.coverage(order),
+                onToggleSelectAll = onToggleSelectAll,
                 anyExpanded = expanded.isNotEmpty(),
                 onToggleExpandAll = {
                     // Collapse-all when anything is open, expand-all when nothing is — one button, two jobs.
@@ -251,6 +326,28 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             )
             // Header block closed off from the list: the controls above, the run status and tree below.
             HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+            // Directly under the header, above the run report: a pick is a thing you are in the middle of
+            // doing, and it says so where the next click is going to be.
+            if (selection.isNotEmpty) {
+                RailSelectionBar(
+                    selected = selection.size,
+                    total = scenarios.size,
+                    running = running,
+                    // Every picked scenario has to be startable, or the set stops at the first busy one.
+                    canRun = picked.isNotEmpty() && picked.all { run.canRun(it) },
+                    allStarred = picked.isNotEmpty() && picked.all { it.id in viewState.favouriteIds },
+                    onRun = runSelected,
+                    onSaveAsSet = { savingSet = true },
+                    onStar = {
+                        // Star what is not starred; unstar only when they all already are. Toggling each
+                        // would have starred half the pick and unstarred the other half.
+                        val star = picked.any { it.id !in viewState.favouriteIds }
+                        picked.filter { (it.id in viewState.favouriteIds) != star }.forEach { viewModel.toggleScenarioFavourite(it.id) }
+                    },
+                    onClear = { selection = selection.clear() },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
             // **Its own set, by id.** The line used to read the global flag and stop with no id, so one ⏹
             // stopped a fan-out on LOADGEN and the bare run on UAT beside it, and a finished set reopened
             // from Recent runs wore a stop button that halted whatever else happened to be running.
@@ -305,19 +402,6 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             // scrolls *within* it. Without the weight it was measured against the full pane height, rendered
             // below the report, and ran off the bottom edge — the rows down there were unreachable, which is
             // exactly what a tall failure report made routine.
-            // The scenario that just ran, lifted to the top so a failure is not buried behind the alphabet.
-            // The report above says WHAT failed; this puts the scenario itself — its row, its steps, their
-            // verdicts and per-step reconcile routes — where the eye already is, until the report is dismissed.
-            val pinned = ran?.id?.let { id -> scenarios.firstOrNull { it.id == id } }?.takeIf { result != null }
-            val pinnedId = pinned?.id
-            val listVisible = if (pinnedId != null) visible.filterNot { it.id == pinnedId } else visible
-            // Split into ★ favourites and the rest, each ordered by the author's chosen sort. A favourited
-            // scenario shows only in its own section (never twice), and the pinned current run is out of both.
-            val sections =
-                remember(listVisible, viewState.favouriteIds, viewState.sortMode, modified) {
-                    railSections(listVisible, viewState.favouriteIds, viewState.sortMode) { modified[it] }
-                }
-            val run = RunView(ran, result, running, busySessions)
             val onToggleExpand: (String) -> Unit = { id -> expanded = if (id in expanded) expanded - id else expanded + id }
             val onRequestDelete: (String) -> Unit = { confirmingDeleteId = it }
             val onDeleted = { confirmingDeleteId = null }
@@ -333,14 +417,15 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         modifiedAt = modified[pinned.id],
                         expanded = pinned.id in expanded,
                         isFavourite = pinned.id in viewState.favouriteIds,
-                        isSelected = pinned.id in selectedIds,
+                        isSelected = pinned.id in selection,
+                        selectionActive = selection.isNotEmpty,
                         confirmingDelete = confirmingDeleteId == pinned.id,
                         onToggle = { onToggleExpand(pinned.id) },
                         onRequestDelete = { onRequestDelete(pinned.id) },
                         onDeleted = onDeleted,
                         onRemap = { remapFor = pinned },
                         onToggleFavourite = { viewModel.toggleScenarioFavourite(pinned.id) },
-                        onToggleSelected = { selectedIds = selectedIds.toggle(pinned.id) },
+                        onPick = { shift -> onPick(pinned.id, shift) },
                     )
                     item(key = "current-run-divider") {
                         HorizontalDivider(
@@ -362,9 +447,9 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                     if (!favCollapsed) {
                         scenarioTrees(
                             sections.favourites, viewModel, run, modified, expanded, viewState.favouriteIds,
-                            selectedIds, confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
+                            selection, confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
                             onRemap = { remapFor = it }, onToggleFavourite = viewModel::toggleScenarioFavourite,
-                            onToggleSelected = { selectedIds = selectedIds.toggle(it) },
+                            onPick = onPick,
                         )
                     }
                     val allCollapsed = "all" in viewState.collapsedSections
@@ -376,17 +461,17 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                     if (!allCollapsed) {
                         scenarioTrees(
                             sections.others, viewModel, run, modified, expanded, viewState.favouriteIds,
-                            selectedIds, confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
+                            selection, confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
                             onRemap = { remapFor = it }, onToggleFavourite = viewModel::toggleScenarioFavourite,
-                            onToggleSelected = { selectedIds = selectedIds.toggle(it) },
+                            onPick = onPick,
                         )
                     }
                 } else {
                     scenarioTrees(
                         sections.others, viewModel, run, modified, expanded, viewState.favouriteIds,
-                        selectedIds, confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
+                        selection, confirmingDeleteId, onToggleExpand, onRequestDelete, onDeleted,
                         onRemap = { remapFor = it }, onToggleFavourite = viewModel::toggleScenarioFavourite,
-                        onToggleSelected = { selectedIds = selectedIds.toggle(it) },
+                        onPick = onPick,
                     )
                 }
             }
@@ -428,14 +513,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTrees(
     modified: Map<String, Long?>,
     expanded: Set<String>,
     favouriteIds: Set<String>,
-    selectedIds: Set<String>,
+    selection: RailSelection,
     confirmingDeleteId: String?,
     onToggleExpand: (String) -> Unit,
     onRequestDelete: (String) -> Unit,
     onDeleted: () -> Unit,
     onRemap: (Scenario) -> Unit,
     onToggleFavourite: (String) -> Unit,
-    onToggleSelected: (String) -> Unit,
+    onPick: (String, Boolean) -> Unit,
 ) {
     items.forEach { scenario ->
         scenarioTree(
@@ -445,14 +530,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTrees(
             modifiedAt = modified[scenario.id],
             expanded = scenario.id in expanded,
             isFavourite = scenario.id in favouriteIds,
-            isSelected = scenario.id in selectedIds,
+            isSelected = scenario.id in selection,
+            selectionActive = selection.isNotEmpty,
             confirmingDelete = confirmingDeleteId == scenario.id,
             onToggle = { onToggleExpand(scenario.id) },
             onRequestDelete = { onRequestDelete(scenario.id) },
             onDeleted = onDeleted,
             onRemap = { onRemap(scenario) },
             onToggleFavourite = { onToggleFavourite(scenario.id) },
-            onToggleSelected = { onToggleSelected(scenario.id) },
+            onPick = { shift -> onPick(scenario.id, shift) },
         )
     }
 }
@@ -499,13 +585,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
     expanded: Boolean,
     isFavourite: Boolean,
     isSelected: Boolean,
+    /** Anything at all picked in the rail — which is what puts every row's empty box on screen. */
+    selectionActive: Boolean,
     confirmingDelete: Boolean,
     onToggle: () -> Unit,
     onRequestDelete: () -> Unit,
     onDeleted: () -> Unit,
     onRemap: () -> Unit,
     onToggleFavourite: () -> Unit,
-    onToggleSelected: () -> Unit,
+    onPick: (Boolean) -> Unit,
 ) {
     val ranThis = run.ran?.id == scenario.id
     item(key = scenario.id) {
@@ -552,11 +640,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.scenarioTree(
             expanded = expanded,
             isFavourite = isFavourite,
             isSelected = isSelected,
+            selectionActive = selectionActive,
             runEnabled = run.canRun(scenario),
             confirmingDelete = confirmingDelete,
             onToggle = onToggle,
             onToggleFavourite = onToggleFavourite,
-            onToggleSelected = onToggleSelected,
+            onPick = onPick,
             onRun = { viewModel.runScenario(scenario) },
             onRemap = onRemap,
             onEdit = { viewModel.openScenarioEditor(scenario) },
@@ -704,6 +793,9 @@ private fun RailHeader(
     runMenu: RunMenu,
     sort: ScenarioSort,
     onSort: (ScenarioSort) -> Unit,
+    /** How much of the drawn list is picked — the master tick's three faces. */
+    coverage: RailCoverage,
+    onToggleSelectAll: () -> Unit,
     anyExpanded: Boolean,
     onToggleExpandAll: () -> Unit,
     onCapture: () -> Unit,
@@ -760,6 +852,31 @@ private fun RailHeader(
                 placeholder = "filter…",
                 modifier = Modifier.weight(1f).testTag("rail-filter"),
             )
+            // The master tick — the one standing selection control in the rail, and the only hint that
+            // multi-select exists before anything is picked. Ninety-six per-row checkboxes are the chrome
+            // the rail's hover rule was written to prevent; one is not. Its scope is what is drawn: the
+            // filter narrows the list, so the filter narrows what "all" means.
+            // And it is where the rest of the vocabulary is taught: a square in a toolbar can say "select
+            // all", but nothing on screen can say "shift-click ranges" except the thing you hover first.
+            val cmd = if (System.getProperty("os.name").lowercase().contains("mac")) "⌘" else "Ctrl"
+            AppTooltip(
+                if (coverage == RailCoverage.ALL) {
+                    "Unpick everything on screen (Esc) · shift-click a row for a range, $cmd-click to add one"
+                } else {
+                    "Pick every scenario on screen ($cmd A) · shift-click a row for a range, $cmd-click to add one"
+                },
+            ) {
+                SlimButton(
+                    when (coverage) {
+                        RailCoverage.ALL -> "☑"
+                        RailCoverage.SOME -> "◪"
+                        RailCoverage.NONE -> "☐"
+                    },
+                    onClick = onToggleSelectAll,
+                    color = if (coverage == RailCoverage.NONE) AppTheme.Colors.textSecondary else AppTheme.Colors.info,
+                    modifier = Modifier.testTag("rail-select-all"),
+                )
+            }
             // Sort — how the list orders itself within each section.
             Box {
                 var sortOpen by remember { mutableStateOf(false) }
@@ -920,6 +1037,62 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
                 menu.onOpenRecent(set.id)
             }
         }
+    }
+}
+
+/**
+ * **What is picked, and what can be done with it** — shown only while something is, directly under the
+ * header.
+ *
+ * This bar is what earns the selection the right to outlive the run it starts. The old rule spent the pick
+ * on Run because a tick standing in a hover-only column was invisible, and an invisible pick that quietly
+ * joins the next run is a trap. A count on screen with a ✕ beside it is not invisible, so the pick can stay
+ * — and re-running the four you just fixed costs one click instead of the whole gesture again.
+ *
+ * The actions are the ones a pick is *for*: run it, keep it (as a saved set), promote it (to ★), drop it.
+ */
+@Composable
+private fun RailSelectionBar(
+    selected: Int,
+    total: Int,
+    running: Boolean,
+    canRun: Boolean,
+    allStarred: Boolean,
+    onRun: () -> Unit,
+    onSaveAsSet: () -> Unit,
+    onStar: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = modifier.fillMaxWidth().testTag("rail-selection-bar"),
+    ) {
+        // "6 of 96" and not a bare "6": the denominator is what says whether a filter is hiding the rest.
+        Text(
+            "☑ $selected of $total selected",
+            color = AppTheme.Colors.info,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).testTag("rail-selection-count"),
+        )
+        SlimButton(
+            "▶ Run",
+            onClick = onRun,
+            color = AppTheme.Colors.success,
+            enabled = !running && canRun,
+            modifier = Modifier.testTag("rail-selection-run"),
+        )
+        SlimButton("Save…", onClick = onSaveAsSet, color = AppTheme.Colors.textSecondary, modifier = Modifier.testTag("rail-selection-save"))
+        SlimButton(
+            if (allStarred) "☆" else "★",
+            onClick = onStar,
+            color = AppTheme.Colors.warning,
+            modifier = Modifier.testTag("rail-selection-star"),
+        )
+        SlimButton("✕", onClick = onClear, color = AppTheme.Colors.textSecondary, modifier = Modifier.testTag("rail-selection-clear"))
     }
 }
 
@@ -1328,13 +1501,16 @@ private fun ScenarioRailRow(
     onReconcile: () -> Unit,
     expanded: Boolean,
     isFavourite: Boolean,
-    /** Picked for "Run selected…" — transient, unlike a star, and gone once the set is made. */
+    /** Picked for "Run selected…" — transient, unlike a star, and gone when the author says so. */
     isSelected: Boolean,
+    /** Anything at all picked in the rail: while there is, every row shows its box, not just this one. */
+    selectionActive: Boolean,
     runEnabled: Boolean,
     confirmingDelete: Boolean,
     onToggle: () -> Unit,
     onToggleFavourite: () -> Unit,
-    onToggleSelected: () -> Unit,
+    /** Pick this row; the flag is "shift was held", meaning extend from the anchor rather than toggle. */
+    onPick: (Boolean) -> Unit,
     onRun: () -> Unit,
     /** Opens the "Save as scenario for other sessions" dialog — the environment-copy door. */
     onRemap: () -> Unit,
@@ -1349,6 +1525,12 @@ private fun ScenarioRailRow(
     // author was not looking at. Hover (or an in-flight delete confirm) brings them back, on that row only.
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    // **Modifiers, read the way the message grid reads them.** Compose's `clickable` hands over no keyboard
+    // state, so the last mouse event over this row is kept and asked at the click. Same idiom as
+    // `HierarchicalGridView`'s rows on purpose — that is where an author learned ⌘-click and ⇧-click here.
+    var lastMouse by remember { mutableStateOf<java.awt.event.MouseEvent?>(null) }
+    val shiftHeld = { lastMouse?.isShiftDown == true }
+    val commandHeld = { lastMouse?.isControlDown == true || lastMouse?.isMetaDown == true }
     val bg =
         when {
             verdict == RailVerdict.FAILED -> AppTheme.Colors.error.copy(alpha = 0.10f)
@@ -1361,8 +1543,22 @@ private fun ScenarioRailRow(
                 .fillMaxWidth()
                 .hoverable(interaction)
                 .background(bg)
-                .clickable(onClick = onToggle)
-                .padding(start = 6.dp, end = 4.dp, top = 2.dp, bottom = 3.dp)
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            (awaitPointerEvent().nativeEvent as? java.awt.event.MouseEvent)?.let { lastMouse = it }
+                        }
+                    }
+                }.clickable {
+                    // A plain click still opens the tree: these rows are a tree first, and every author here
+                    // already knows that. Selection is on the modifiers and on the box, so nothing they do
+                    // today changes meaning underneath them.
+                    when {
+                        shiftHeld() -> onPick(true)
+                        commandHeld() -> onPick(false)
+                        else -> onToggle()
+                    }
+                }.padding(start = 6.dp, end = 4.dp, top = 2.dp, bottom = 3.dp)
                 .testTag("scenario-row-${scenario.id}"),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -1390,24 +1586,16 @@ private fun ScenarioRailRow(
                 }
             }
             // The tick, built like the star beside it: shown once picked (that is what picked looks like),
-            // an empty box on hover for the rest. Nothing standing in the rail when nothing is selected —
-            // ninety-six idle checkboxes is the chrome the hover rule was written to avoid.
+            // an empty box on hover for the rest — **and on every row the moment anything is picked**.
+            // Ninety-six idle checkboxes is the chrome the hover rule was written to avoid; hunting for the
+            // next box by hovering, one row at a time, is what made picking four scenarios not worth doing.
+            // Hover reveals the way in, selection mode keeps it open, and an idle rail still stands empty.
             Box(modifier = Modifier.width(15.dp), contentAlignment = Alignment.Center) {
+                // Shift on the box means the same as shift on the row: extend from the anchor.
+                val pick = Modifier.clickable { onPick(shiftHeld()) }.testTag("pick-${scenario.id}")
                 when {
-                    isSelected ->
-                        Text(
-                            "☑",
-                            color = AppTheme.Colors.info,
-                            fontSize = 10.sp,
-                            modifier = Modifier.clickable(onClick = onToggleSelected).testTag("pick-${scenario.id}"),
-                        )
-                    hovered ->
-                        Text(
-                            "☐",
-                            color = AppTheme.Colors.textDisabled,
-                            fontSize = 10.sp,
-                            modifier = Modifier.clickable(onClick = onToggleSelected).testTag("pick-${scenario.id}"),
-                        )
+                    isSelected -> Text("☑", color = AppTheme.Colors.info, fontSize = 10.sp, modifier = pick)
+                    hovered || selectionActive -> Text("☐", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = pick)
                 }
             }
             Text(

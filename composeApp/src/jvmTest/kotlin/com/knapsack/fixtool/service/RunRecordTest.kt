@@ -450,6 +450,58 @@ class RunRecordTest {
         assertTrue(store.directoryFor(second).isDirectory, "reserved means the directory is taken, not just named")
     }
 
+    /**
+     * `mkdirs()` is false when the directory exists AND when it cannot be made at all. A loop that read every
+     * false as "taken" never ended on a read-only home or a parent that is a file — and it ran on the click
+     * thread, so the window froze with it.
+     */
+    @Test
+    fun `reserving under a path that cannot be created reports rather than spins`() {
+        val notADir = File(dir, "file.txt").apply { writeText("x") }
+        val store = RunRecordStore(customDir = File(notADir, "runs").absolutePath)
+
+        val reserved =
+            java.util.concurrent.CompletableFuture
+                .supplyAsync { store.reserve("2026-01-01T00-00-00-x") }
+                .get(5, java.util.concurrent.TimeUnit.SECONDS)
+
+        assertEquals("2026-01-01T00-00-00-x", reserved, "the id it asked for, and an error logged")
+    }
+
+    /**
+     * **A set that says `running` with no process running it was interrupted.** The overnight suite is the
+     * primary case and the app being closed or killed under it is the primary failure — and the file would
+     * say `running` for ever: the rail's Recent runs, the poll route waiting out every deadline, the record
+     * viewer with its elapsed still climbing. The owner says which sets are live; anything else claiming to
+     * run is healed on the first read that notices, and the healing is written back.
+     */
+    @Test
+    fun `a set left running by a process that exited is healed on read, and stays healed`() {
+        // The writer vouches for everything, as a live process does for the set it is running.
+        val writer = RunRecordStore(customDir = dir.absolutePath)
+        val set = sampleSet().copy(entries = listOf(RunEntry("sc-1", "book-a-trade"), RunEntry("sc-2", "cancel-replace")))
+        assertTrue(writer.begin(set))
+        val record = sampleRecord(set.id)
+        val name = assertNotNull(writer.write(record))
+        writer.writeSet(set.withEntry(0) { it.copy(state = RunState.PASSED, record = name, durationMs = 42, result = record.result) })
+        assertEquals(RunSetStatus.RUNNING, assertNotNull(writer.readSet(set.id)).status, "live for its owner")
+
+        // A reader that vouches for nothing — the app after a restart, with no claim for this id.
+        val reader = RunRecordStore(customDir = dir.absolutePath, isLive = { false })
+        val healed = assertNotNull(reader.readSet(set.id))
+
+        assertEquals(RunSetStatus.STOPPED, healed.status)
+        assertEquals(RunState.PASSED, healed.entries[0].state, "what did run is left alone")
+        assertEquals(RunState.SKIPPED, healed.entries[1].state)
+        assertEquals(RunRecordStore.INTERRUPTED_NOTE, healed.entries[1].note)
+        assertNotNull(healed.finishedAt, "it ended when the file was last written, not never")
+        assertEquals(RunSetStatus.STOPPED, assertNotNull(writer.readSet(set.id)).status, "written back: healed once, for every reader")
+        assertNotNull(
+            assertNotNull(reader.readSetStats(set.id))["replyLatency"],
+            "the reply latency measured while results were in hand survives a rewrite from a set that has none",
+        )
+    }
+
     /** A record written before the tag was spelled consistently is recovered, not abandoned. */
     @Test
     fun `a set written with the old camelCase fanOut tag still reads as a fan-out`() {

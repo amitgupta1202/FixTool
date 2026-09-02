@@ -56,9 +56,21 @@ data class Examples(
     val columns: List<String> = emptyList(),
     val rows: List<ExampleRow> = emptyList(),
 ) {
-    /** The rows that will actually run — a parked row is kept, like a parked step, and skipped. */
-    val live: List<ExampleRow> get() = rows.filterNot { it.muted }
+    /**
+     * The rows that will actually run — a parked row is kept, like a parked step, and skipped — **with a
+     * cell for every column**.
+     *
+     * A row is a map, and a map can lack a key: a column added after the row was, a row added before the
+     * author typed into it. The editor draws a missing cell and an empty one identically, and the run used
+     * to treat them differently — the empty cell seeded `""`, the missing one seeded nothing, so `38=${qty}`
+     * went on the wire as ten literal characters with no warning anywhere. Two rows that look the same run
+     * the same: a cell the table never got is an empty cell.
+     */
+    val live: List<ExampleRow> get() = rows.filterNot { it.muted }.map { it.filled(columns) }
 }
+
+/** The same row with every one of [columns] present — a missing cell reads as empty, a stray key is dropped. */
+fun ExampleRow.filled(columns: List<String>): ExampleRow = copy(values = columns.associateWith { values[it] ?: "" })
 
 /**
  * One row of the table: what to call it, and what to put in the scope.

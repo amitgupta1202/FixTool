@@ -1,9 +1,14 @@
 package com.knapsack.fixtool.headless
 
 import com.knapsack.fixtool.model.scenario.RunPolicy
+import com.knapsack.fixtool.model.scenario.Scenario
+import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.service.RunRecordStore
+import com.knapsack.fixtool.service.ScenarioService
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -161,6 +166,37 @@ class HeadlessRunTest {
                 .policy(fromFile.copy(stopOnFirstFailure = true))
         assertTrue(quiet.stopOnFirstFailure)
         assertEquals(250L, quiet.pauseBetweenMs)
+    }
+
+    /**
+     * `--session a=b` was read and then dropped on the batch path, so `--repeat 5 --session QUOTE1=UAT` drove
+     * QUOTE1 five times with no warning. The remap has to reach every planned entry — and be visible in the
+     * record afterwards, so a build log can show which environment a suite actually ran against.
+     */
+    @Test
+    fun `a session remap reaches every entry of a batch`() {
+        val home =
+            File.createTempFile("fixtool-home", "").apply {
+                delete()
+                mkdirs()
+            }
+        try {
+            ScenarioService(customDir = File(home, "scenarios").absolutePath).save(
+                Scenario(id = "book", name = "book", steps = listOf(ScenarioStep.Send("35=D|", session = "QUOTE1"))),
+            )
+
+            val (code, _, err) = run("run", "book", "--repeat", "2", "--session", "QUOTE1=UAT", "--home", home.absolutePath)
+
+            // No profile answers to UAT, so preflight fails — on UAT, which is the point.
+            assertEquals(HeadlessRun.EXIT_FAILED, code, err)
+            val store = RunRecordStore(customDir = File(home, "runs").absolutePath)
+            val set = store.listSets().single()
+            assertEquals(List(2) { mapOf("QUOTE1" to "UAT") }, set.entries.map { it.sessionMap })
+            val first = assertNotNull(store.readEntry(set.id, 1)).result.steps.first()
+            assertTrue(first.detail.orEmpty().contains("'UAT'"), "it looked for UAT, not QUOTE1: ${first.detail}")
+        } finally {
+            home.deleteRecursively()
+        }
     }
 
     @Test

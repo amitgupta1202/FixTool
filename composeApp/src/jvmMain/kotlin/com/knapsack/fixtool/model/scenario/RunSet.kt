@@ -51,6 +51,7 @@ data class RunSet(
     val done: Int get() = entries.count { it.state.finished }
     val passed: Int get() = entries.count { it.state == RunState.PASSED }
     val failed: Int get() = entries.count { it.state == RunState.FAILED }
+    val skipped: Int get() = entries.count { it.state == RunState.SKIPPED }
 
     /** The same entries with the one at [index] replaced — the scheduler's only mutation. */
     fun withEntry(index: Int, edit: (RunEntry) -> RunEntry): RunSet =
@@ -234,4 +235,23 @@ data class RunPolicy(
     val concurrency: Int = 1,
 )
 
-enum class RunSetStatus { RUNNING, PASSED, FAILED, STOPPED }
+enum class RunSetStatus {
+    RUNNING,
+
+    /** Every entry ran and every entry passed. The only status a CI gate may read as green. */
+    PASSED,
+    FAILED,
+
+    /** Asked to stop, or found stopped: by the author, or by a process that exited under it. */
+    STOPPED,
+
+    /**
+     * **Ran to the end, nothing failed, and not every entry ran.**
+     *
+     * A scenario deleted between planning and running is skipped by name rather than failed, because
+     * nothing about the venue is known. But a set whose verdict ignored those skips reported PASSED over
+     * entries that never ran, and a headless run exited 0 on it. A skip is not a pass, and this is the
+     * status that says so without pretending the venue did anything wrong.
+     */
+    INCOMPLETE,
+}

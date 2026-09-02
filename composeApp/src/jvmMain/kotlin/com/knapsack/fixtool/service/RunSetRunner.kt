@@ -105,6 +105,11 @@ class RunSetRunner(
         val stop =
             java.util.concurrent.atomic
                 .AtomicBoolean(false)
+        // Whatever a lane's task threw past `executeEntry` (which fails the entry rather than throwing) is
+        // collected, never allowed to abandon the other lanes: the first `get()` that threw used to end the
+        // loop with the rest still sending, the set never finished on disk, and the caller released the
+        // session claim over lanes that were still driving those sessions.
+        val failures = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
         try {
             val running =
                 start.entries.indices.map { index ->
@@ -120,15 +125,24 @@ class RunSetRunner(
                             host.writeSet(current)
                             onProgress(current)
                         }
-                        if (finished.state != RunState.PASSED && start.policy.stopOnFirstFailure) stop.set(true)
+                        if (finished.state == RunState.FAILED && start.policy.stopOnFirstFailure) stop.set(true)
                     }
                 }
-            running.forEach { it.get() }
+            running.forEach { future ->
+                try {
+                    future.get()
+                } catch (e: java.util.concurrent.ExecutionException) {
+                    failures += e.cause ?: e
+                }
+            }
         } finally {
-            pool.shutdown()
+            pool.shutdownNow()
         }
         // Whatever never started is still PENDING, and `finish` says why — stopped, or an earlier failure.
-        return finish(current, stopped = host.cancelled(), from = 0, onProgress = onProgress)
+        val done = finish(current, stopped = host.cancelled(), from = 0, onProgress = onProgress)
+        // The set is complete and on disk before the caller hears about a host that misbehaved.
+        failures.firstOrNull()?.let { throw it }
+        return done
     }
 
     private fun inOrder(set: RunSet, onProgress: (RunSet) -> Unit): RunSet {
@@ -143,7 +157,10 @@ class RunSetRunner(
             host.writeSet(current)
             onProgress(current)
 
-            val failed = current.entries[index].state != RunState.PASSED
+            // FAILED, and only FAILED. A skipped entry — the scenario was deleted since the set was planned —
+            // says nothing about the venue, and stopping a nightly suite on it would skip the rest "because
+            // an earlier entry failed" when nothing had.
+            val failed = current.entries[index].state == RunState.FAILED
             if (failed && current.policy.stopOnFirstFailure) {
                 return finish(current, stopped = false, from = index + 1, onProgress = onProgress)
             }
@@ -177,7 +194,22 @@ class RunSetRunner(
         // The entry carries everything the run needs that the scenario does not: its row's cells, its
         // lane's identity, the session remap, and the session a step that names none runs on. One path,
         // and neither the outline nor the fan-out is a second runner.
-        val outcome = host.runOne(asRun, entry)
+        //
+        // A host that throws fails THIS entry, by name, and the set goes on. It used to propagate: the
+        // scheduler had no handler, so one bad entry ended the loop with `set.json` still saying `running`,
+        // the rest of the entries never marked, the poll route waiting out every deadline, and stop
+        // answering "not running" because the claim had already been released.
+        val outcome =
+            @Suppress("TooGenericExceptionCaught")
+            try {
+                host.runOne(asRun, entry)
+            } catch (e: Exception) {
+                return entry.copy(
+                    state = RunState.FAILED,
+                    durationMs = host.now() - startedAt,
+                    note = "the run threw before it could report: ${e.javaClass.simpleName}: ${e.message ?: "no message"}",
+                )
+            }
         val elapsed = host.now() - startedAt
         if (outcome == null) {
             return entry.copy(state = RunState.SKIPPED, durationMs = elapsed, note = "the run slot was not free")
@@ -243,10 +275,13 @@ class RunSetRunner(
                     )
                 }
         }
+        // PASSED only when every entry passed. A set with a skipped entry ran to the end and nothing failed,
+        // and it is still not the green a CI gate may exit 0 on: an entry that never ran has proved nothing.
         val status =
             when {
                 stopped || done.entries.any { it.state == RunState.STOPPED } -> RunSetStatus.STOPPED
                 done.entries.any { it.state == RunState.FAILED } -> RunSetStatus.FAILED
+                done.entries.any { it.state != RunState.PASSED } -> RunSetStatus.INCOMPLETE
                 else -> RunSetStatus.PASSED
             }
         done = done.copy(status = status, finishedAt = host.now())

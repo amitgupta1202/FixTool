@@ -4,11 +4,13 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
 import com.knapsack.fixtool.model.scenario.withIds
+import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.ui.DiffWindowState
 import com.knapsack.fixtool.ui.ScenarioDoc
@@ -373,5 +375,29 @@ class ScenarioWorkspaceTest {
 
         assertEquals(id, viewModel.confirmingCloseId.value, "dirty, and the last one looking at it: it asks")
         assertTrue(viewModel.openDocuments.value.isNotEmpty(), "and it is still open until the author answers")
+    }
+
+    /**
+     * **A set entry publishes nothing, and that has to include un-publishing what was there.** An entry
+     * replaces the judged map and the attribution but used to leave the standing report alone, so after a
+     * repeat the rail still showed an older run's verdict — and its Reconcile found that verdict's step in
+     * the new run's messages, passed the unchanged-step gate, and opened the diff on iteration five's bytes
+     * judged against run one's variables. Focusing an entry is what publishes a set's verdict; until then
+     * there is none to show.
+     */
+    @Test
+    fun `a set run without focusing an entry clears the standing report rather than leaving an older verdict over it`() {
+        val stale = ScenarioResult("rfq flow", passed = false, steps = listOf(StepResult(0, "expect", "steps", passed = false, stepId = "s0")))
+        viewModel.publishScenarioResult(stale)
+        assertSame(stale, viewModel.scenarioResult.value)
+        // Fails in preflight — no such session, no profile to connect it from — so the entry runs and lands
+        // without a venue, which is all this needs: the entry ran.
+        val unrunnable = Scenario(id = "sc-2", name = "no such session", steps = listOf(ScenarioStep.Send("35=D|", session = "NOPE")))
+        viewModel.scenarioService.save(unrunnable)
+
+        val done = assertNotNull(viewModel.runSetBlocking(RunSets.repeat(unrunnable, times = 1, now = System.currentTimeMillis())))
+
+        assertEquals(RunSetStatus.FAILED, done.status, "${done.entries.map { it.note }}")
+        assertNull(viewModel.scenarioResult.value, "the entry ran; the report from before it is not about what the grid now shows")
     }
 }

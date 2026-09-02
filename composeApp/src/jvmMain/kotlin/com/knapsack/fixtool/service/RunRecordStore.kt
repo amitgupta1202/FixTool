@@ -47,6 +47,18 @@ import java.io.File
 class RunRecordStore(
     customDir: String = "",
     private val onError: ((String) -> Unit)? = null,
+    /**
+     * **Is the set with this id still being run by a live process?** The owner knows; the store cannot.
+     *
+     * A set is written as `running` when it starts and rewritten as it goes, so a process that exits under
+     * it — closed, killed, crashed at entry nine of the overnight suite — leaves a file that will say
+     * `running` for ever. Nothing on disk can tell that apart from a set that is running right now, so the
+     * owner answers: the app asks its claim registry, a headless process names the one set it is running.
+     * A set read back as `running` that the owner does not vouch for is healed on read — marked stopped,
+     * its unrun entries skipped by name — so the rail, the poll route and the record viewer stop describing
+     * a run that is not happening. The default vouches for everything, so a store nobody wired heals nothing.
+     */
+    private val isLive: (String) -> Boolean = { true },
 ) {
     private val logger = NotifyingLogger(RunRecordStore::class.java, onError)
     private val prettyJson =
@@ -78,9 +90,15 @@ class RunRecordStore(
         try {
             var candidate = id
             var n = 1
-            while (!directoryFor(candidate).mkdirs()) {
+            // `exists()`, not `!mkdirs()`: mkdirs is also false when the directory cannot be made at all — a
+            // read-only home, a parent that is a file — and a loop on that answer never ends. Reserving on
+            // the click thread, that was a frozen window.
+            while (directoryFor(candidate).exists()) {
                 n++
                 candidate = "$id-$n"
+            }
+            if (!directoryFor(candidate).mkdirs()) {
+                logger.error("Could not create the run record directory ${directoryFor(candidate)}")
             }
             candidate
         } catch (e: Exception) {
@@ -99,13 +117,20 @@ class RunRecordStore(
             false
         }
 
-    /** Rewrites `set.json`. Called after every entry, so a reader always sees the progress so far. */
+    /**
+     * Rewrites `set.json`. Called after every entry, so a reader always sees the progress so far.
+     *
+     * The `stats` block is merged with what the file already holds rather than recomputed alone: a set
+     * read back from disk carries no per-step results, so recomputing from it would keep the wall clock and
+     * silently drop the reply latency the run had measured. Live measurements win where they exist.
+     */
     @Suppress("TooGenericExceptionCaught")
     fun writeSet(set: RunSet): Boolean =
         try {
+            val stats = RunSetStats.merge(RunSetStats.of(set), readSetStats(set.id)?.let(RunSetStats::fromJson))
             AtomicFiles.writeAtomically(
                 File(directoryFor(set.id), SET_FILE),
-                prettyJson.encodeToString(JsonObject.serializer(), RunSetCodec.toJson(set)),
+                prettyJson.encodeToString(JsonObject.serializer(), RunSetCodec.toJson(set, stats)),
             )
             true
         } catch (e: Exception) {
@@ -137,13 +162,36 @@ class RunRecordStore(
     @Suppress("TooGenericExceptionCaught")
     fun readSet(setId: String): RunSet? =
         try {
-            File(directoryFor(setId), SET_FILE).takeIf { it.isFile }?.let {
-                RunSetCodec.fromJson(Json.parseToJsonElement(it.readText()).jsonObject)
-            }
+            val file = File(directoryFor(setId), SET_FILE).takeIf { it.isFile } ?: return null
+            val set = RunSetCodec.fromJson(Json.parseToJsonElement(file.readText()).jsonObject)
+            if (set.status == RunSetStatus.RUNNING && !isLive(set.id)) healInterrupted(set, file.lastModified()) else set
         } catch (e: Exception) {
             logger.error("Could not read set '$setId': ${e.message}", e)
             null
         }
+
+    /**
+     * **A set that says `running` with no process running it was interrupted**, and the file is made to
+     * say so — once, on the first read that notices.
+     *
+     * Stopped rather than failed: nothing is known about the venue, only that the run ended before it
+     * could write its own verdict. The entries that never ran, or were mid-run, are skipped with a note
+     * that names the cause, so the viewer shows "interrupted" instead of a lane that is still ⟳ a day
+     * later. `finishedAt` is the file's own last write, the closest thing to when the process died.
+     */
+    private fun healInterrupted(set: RunSet, lastWrite: Long): RunSet {
+        val healed =
+            set.copy(
+                status = RunSetStatus.STOPPED,
+                finishedAt = set.finishedAt ?: lastWrite.takeIf { it > 0 } ?: set.startedAt,
+                entries =
+                    set.entries.map { e ->
+                        if (e.state.finished) e else e.copy(state = RunState.SKIPPED, note = INTERRUPTED_NOTE)
+                    },
+            )
+        writeSet(healed)
+        return healed
+    }
 
     /**
      * The `stats` block of a stored set, verbatim.
@@ -239,14 +287,22 @@ class RunRecordStore(
     /** Ids reach the filesystem, so they are kept to a filesystem-safe charset — no traversal, no surprises. */
     private fun sanitize(id: String): String = id.replace(Regex("[^A-Za-z0-9_.-]"), "_")
 
-    private companion object {
-        const val SET_FILE = "set.json"
+    companion object {
+        private const val SET_FILE = "set.json"
+
+        /** What an entry says when the process running its set exited before the entry could. */
+        const val INTERRUPTED_NOTE = "interrupted: the process running this set exited before it finished"
     }
 }
 
 /** `set.json`: what the set was asked to do, and how far it got. */
 object RunSetCodec {
-    fun toJson(set: RunSet): JsonObject =
+    /**
+     * [stats] defaults to what the set in hand can measure. A writer holding a set that came off disk passes
+     * the merge of that and the stored block — see [RunRecordStore.writeSet] — because a reopened set has no
+     * per-step results left to recompute the reply latency from.
+     */
+    fun toJson(set: RunSet, stats: RunSetStats.Stats? = RunSetStats.of(set)): JsonObject =
         buildJsonObject {
             put("id", set.id)
             put("label", set.label)
@@ -256,7 +312,7 @@ object RunSetCodec {
             put("status", set.status.name.lowercase())
             // Additive, and computed here because this is the last moment the per-step latencies are all
             // in hand — after this they are scattered across the sibling record files.
-            RunSetStats.toJson(set)?.let { put("stats", it) }
+            stats?.let { put("stats", RunSetStats.toJson(it)) }
             put(
                 "policy",
                 buildJsonObject {

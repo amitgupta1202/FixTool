@@ -88,6 +88,7 @@ private fun SetHeader(set: RunSet) {
             RunSetStatus.RUNNING -> AppTheme.Colors.info
             RunSetStatus.STOPPED -> AppTheme.Colors.textSecondary
             RunSetStatus.FAILED -> AppTheme.Colors.error
+            RunSetStatus.INCOMPLETE -> AppTheme.Colors.warning
         }
     val elapsed = ((set.finishedAt ?: System.currentTimeMillis()) - set.startedAt).coerceAtLeast(0) / 1000
     Row(

@@ -117,7 +117,9 @@ class RunSetRunnerTest {
                 .contains("no longer on disk"),
             done.entries.single().note!!,
         )
-        assertEquals(RunSetStatus.PASSED, done.status, "a set that could not run an entry has still not failed one")
+        // Not failed: nothing about the venue is known. Not passed either: an entry that never ran proved
+        // nothing, and a CI gate reading PASSED off this set would have exited 0 over a suite that did not run.
+        assertEquals(RunSetStatus.INCOMPLETE, done.status, "a set that could not run an entry has neither failed nor passed")
     }
 
     @Test
@@ -402,6 +404,85 @@ class RunSetRunnerTest {
         assertTrue(set.label.contains("re-run of book-a-trade [GBP/USD large]"), set.label)
     }
 
+    /**
+     * A row is a map and a map can lack a key — a column added after the row, a row added before anyone
+     * typed into it. The editor draws that cell and an empty one identically; the run seeded them
+     * differently, and the missing one put `${qty}` on the wire as ten literal characters with no warning.
+     */
+    @Test
+    fun `a row that never got a cell for a column still seeds the column, empty`() {
+        val scenario =
+            scenario("book-a-trade").copy(
+                examples = Examples(columns = listOf("symbol", "qty"), rows = listOf(ExampleRow("r1", mapOf("symbol" to "EUR/USD")))),
+            )
+
+        val set = assertNotNull(RunSets.examples(scenario, now = 0L))
+
+        assertEquals(mapOf("symbol" to "EUR/USD", "qty" to ""), set.entries.single().seed)
+    }
+
+    // ------------------------------------------------------------------ a host that misbehaves
+
+    /**
+     * A host that throws used to end the whole set: no handler in the scheduler, so the exception left the
+     * loop with `set.json` still saying `running`, the rest of the entries never marked, the poll route
+     * waiting out every deadline, and stop answering "not running" because the claim was already released.
+     * One entry fails, by name, and the set goes on.
+     */
+    @Test
+    fun `an entry whose run throws fails by name and the set finishes`() {
+        val host = FakeSetHost(green = true)
+        host.throwEntries += 1
+        val set = suiteOf(host, "a", "b")
+
+        val done = RunSetRunner(host).run(set)
+
+        assertEquals(listOf(RunState.FAILED, RunState.PASSED), done.entries.map { it.state })
+        assertTrue(done.entries[0].note.orEmpty().contains("boom on run 1"), "${done.entries[0].note}")
+        assertNull(done.entries[0].record, "nothing ran to record")
+        assertEquals(RunSetStatus.FAILED, done.status)
+        assertEquals(RunSetStatus.FAILED, host.lastSet?.status, "what a reader on disk sees agrees with the return value")
+    }
+
+    /** Same promise across lanes: one bad lane must not leave the others unaccounted for, or the set unfinished. */
+    @Test
+    fun `a lane whose run throws does not abandon the other lanes`() {
+        val host = FakeSetHost(green = true)
+        host.throwEntries += 2
+        val scenario = scenario("book-a-trade").copy(steps = listOf(ScenarioStep.Send("35=D|", session = "QUOTE1")))
+        host.scenarios[scenario.id] = scenario
+        val lanes = (1..3).map { Lane(slot = it, sessionTitle = "LoadGen [$it]", senderCompID = "LOADGEN0$it", qualifier = "q$it") }
+        val plan = RunSets.fanOut(scenario, "prof-1", lanes, over = "QUOTE1", now = 0L, policy = RunPolicy(concurrency = 3))
+
+        val done = RunSetRunner(host).run(assertIs<FanOutPlan.Ready>(plan).set)
+
+        assertTrue(done.entries.all { it.state.finished }, "${done.entries.map { it.state }}")
+        assertEquals(1, done.failed)
+        assertEquals(2, done.passed)
+        assertEquals(RunSetStatus.FAILED, done.status)
+        assertEquals(RunSetStatus.FAILED, host.lastSet?.status)
+    }
+
+    /**
+     * A scenario deleted between planning and running is skipped, not failed — nothing about the venue is
+     * known. Two things followed from treating that skip as a failure: stop-on-first-failure skipped the rest
+     * "because an earlier entry failed" when nothing had, and the verdict — which only ever looked at FAILED
+     * and STOPPED — came back PASSED over a set that had barely run. Exit 0, from a suite that proved nothing.
+     */
+    @Test
+    fun `a skipped entry does not trip stop-on-first-failure, and the set is incomplete rather than passed`() {
+        val host = FakeSetHost(green = true)
+        val set = suiteOf(host, "gone", "b", "c").copy(policy = RunPolicy(stopOnFirstFailure = true))
+        host.scenarios.remove("id-gone")
+
+        val done = RunSetRunner(host).run(set)
+
+        assertEquals(listOf(RunState.SKIPPED, RunState.PASSED, RunState.PASSED), done.entries.map { it.state })
+        assertEquals(RunSetStatus.INCOMPLETE, done.status, "not PASSED: an entry that never ran proved nothing")
+        assertEquals(1, done.skipped)
+        assertEquals(2, host.ran.size, "the two that could run, did")
+    }
+
     private fun scenario(name: String) =
         Scenario(id = "id-$name", name = name, steps = listOf(ScenarioStep.Send("35=D|", session = "s")))
 
@@ -433,6 +514,12 @@ class RunSetRunnerTest {
         val failEntries = mutableSetOf<Int>()
         val stoppedEntries = mutableSetOf<Int>()
 
+        /** 1-based run numbers whose `runOne` throws instead of answering — a host that misbehaved. */
+        val throwEntries = mutableSetOf<Int>()
+
+        /** The set as the scheduler last wrote it — what a reader on disk would see. */
+        var lastSet: RunSet? = null
+
         /** Stop the set after this many entries have run. */
         var stopAfter: Int? = null
 
@@ -452,18 +539,19 @@ class RunSetRunnerTest {
         private var inFlight = 0
 
         override fun runOne(scenario: Scenario, entry: RunEntry): EntryOutcome? {
-            synchronized(this) {
+            // One block, so `n` is this run's own number: split across two, three lanes arriving together
+            // could each read the same size and two of them would answer for the same entry.
+            val n = synchronized(this) {
                 ran += scenario
                 seeds += entry.seed
                 lanesSeen += entry.lane?.slot
-            }
-            val n = synchronized(this) {
                 inFlight++
                 peakInFlight = maxOf(peakInFlight, inFlight)
                 ran.size
             }
             hold?.invoke()
             synchronized(this) { inFlight-- }
+            if (n in throwEntries) throw IllegalStateException("boom on run $n")
             val steps =
                 when {
                     n in stoppedEntries -> listOf(StepResult(-1, "stopped", "steps", passed = false))
@@ -481,6 +569,7 @@ class RunSetRunnerTest {
 
         override fun writeSet(set: RunSet) {
             setWrites++
+            lastSet = set
         }
 
         override fun sleep(ms: Long) {

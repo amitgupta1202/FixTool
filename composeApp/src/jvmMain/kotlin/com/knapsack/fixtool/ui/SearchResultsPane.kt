@@ -511,8 +511,13 @@ private fun SearchResultsGridRow(
 /**
  * Extract top-level field value from a FIX message (header, body, or trailer)
  * Matches the implementation from HierarchicalGridView.kt
+ *
+ * `internal` so the Trace panel's grid draws its `gridViewColumns` cells from the same function this
+ * one does. Those two panels share a bottom slot and a column setting, and a reader switching between
+ * them is entitled to the same value under the same heading — two copies of this would drift, and the
+ * repeating-group case (`[3]` rather than a value) is exactly the kind of detail one copy would lose.
  */
-private fun extractTopLevelFieldValue(message: FixMessage, tag: Int): String {
+internal fun extractTopLevelFieldValue(message: FixMessage, tag: Int): String {
     try {
         val qfMessage = message.quickfixMessage
 

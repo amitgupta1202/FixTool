@@ -484,6 +484,50 @@ class ControlServer(
                 sessionKey?.let { put("session", it) }
             }
         }
+        // The Ledger and the followed trace, from one call. `show` puts the panel on screen; `follow`
+        // sets what every pane is narrowed to, and `follow:null` clears it. Both may come together
+        // because following IS the gesture that opens the panel, and an agent scripting "follow this,
+        // then screenshot" would otherwise need two round-trips to say one thing.
+        //
+        // A window panel, not a per-session setting: there is one followed trace and one Ledger, which
+        // is what makes this the opposite of the `conversations` branch above — see [TraceFollow].
+        if (name == "trace") {
+            val followField = body["follow"]
+            val hasFollow = body.containsKey("follow")
+            val followId = if (followField is JsonNull) null else followField?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            if (hasFollow && followField !is JsonNull && followId == null) {
+                return errorObject("'follow' must be a whole correlation value, or null to stop following")
+            }
+            val hasShow = body.containsKey("show")
+            val state =
+                onEdt {
+                    if (hasFollow) {
+                        // follow() opens the panel itself; unfollow deliberately leaves it as it was,
+                        // the same asymmetry the ✕ on the chip has.
+                        if (followId != null) viewModel.follow(followId) else viewModel.unfollow()
+                    }
+                    // With neither key, `show` keeps its default of true and this is "open the panel",
+                    // as it is for every other panel name.
+                    if (hasShow || !hasFollow) {
+                        if (show) viewModel.openTracePanel() else viewModel.closeTracePanel()
+                    }
+                    viewModel.tracePanelOpen.value to viewModel.followedTrace.value
+                }
+            val followed = state.second
+            return buildJsonObject {
+                put("status", "ok")
+                put("panel", name)
+                put("show", state.first)
+                // What is followed *as the app resolved it*, not what was asked for. An id the venue has
+                // not echoed yet is followed with nothing in it, and `pending` is how a caller tells
+                // that apart from a typo — which /trace would have answered with a 404.
+                put("following", followed?.label)
+                put("followingAnchor", followed?.anchorId)
+                put("pending", followed?.pending ?: false)
+                put("sessionCount", followed?.sessionCount ?: 0)
+                put("messageCount", followed?.messageCount ?: 0)
+            }
+        }
         // Editing one rule's reply step in the grid rather than as a raw string, which is otherwise a
         // mouse-only path: the button on the step row is the only way in, so nothing without a hand on
         // the mouse could reach it — or check that it works. Same reason `profile` exists below.
@@ -520,7 +564,9 @@ class ControlServer(
                     }
                 if (state != show) toggle()
                 show
-            } ?: return errorObject("unknown panel '$name' (connection|editor|detail|settings|scenarios|conversations)")
+            } ?: return errorObject(
+                "unknown panel '$name' (connection|editor|detail|settings|scenarios|conversations|trace|orderbook)",
+            )
         return buildJsonObject {
             put("status", "ok")
             put("panel", name)

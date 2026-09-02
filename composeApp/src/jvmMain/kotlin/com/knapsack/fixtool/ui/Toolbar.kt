@@ -46,6 +46,8 @@ fun Toolbar(
     globalFilterShowOutgoing: Boolean = true,
     hideProtocolTags: Boolean = true,
     groupByConversation: Boolean = false,
+    /** The Trace panel is on screen. Independent of following: the Ledger lists every trace. */
+    tracePanelOpen: Boolean = false,
     /**
      * The followed trace's label, or null when nothing is followed — the chip's whole condition.
      *
@@ -74,6 +76,7 @@ fun Toolbar(
     onGlobalFilterOutgoingChange: ((Boolean) -> Unit)? = null,
     onToggleHideProtocolTags: (() -> Unit)? = null,
     onToggleGroupByConversation: (() -> Unit)? = null,
+    onToggleTracePanel: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
     onOpenHelp: (() -> Unit)? = null,
     onOpenScenarios: (() -> Unit)? = null,
@@ -558,6 +561,30 @@ fun Toolbar(
                     imageVector = Icons.Default.AccountTree,
                     contentDescription = "Group by conversation",
                     tint = AppTheme.Helpers.activeColor(groupByConversation),
+                    modifier = tooltipIconModifier,
+                )
+            }
+        }
+
+        // The Ledger, next to Group because it is the same relation one level up: Group answers "what
+        // happened to RFQ-A1 on this pane", this answers "what happened to RFQ-A1". A toggle rather
+        // than only a side effect of Follow, so the panel can be read before anything is followed —
+        // which is the point, since which exchanges crossed a session is read off its headers.
+        if (onToggleTracePanel != null) {
+            TooltipIconButton(
+                tooltip =
+                    if (tracePanelOpen) {
+                        "Trace: On (click to hide the Ledger)"
+                    } else {
+                        "Trace: Off (click for every exchange across every session)"
+                    },
+                onClick = onToggleTracePanel,
+                modifier = tooltipModifier.testTag("toggle-trace-panel"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AltRoute,
+                    contentDescription = "Trace across sessions",
+                    tint = AppTheme.Helpers.activeColor(tracePanelOpen),
                     modifier = tooltipIconModifier,
                 )
             }

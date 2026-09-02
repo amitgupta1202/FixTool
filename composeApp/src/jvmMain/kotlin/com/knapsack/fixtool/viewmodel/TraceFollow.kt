@@ -3,10 +3,13 @@ package com.knapsack.fixtool.viewmodel
 import com.knapsack.fixtool.model.AppMessage
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.service.TraceKey
+import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.service.Traces
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * **The cross-session grouping as the app currently holds it**, kept whole so nobody computes it twice.
@@ -78,8 +81,15 @@ data class FollowedTrace(
  * nothing followed and the panel shut, the index is dropped rather than maintained, because a grouping
  * nobody is reading is pure cost on the 100 ms tick.
  *
- * Not thread-safe by design: one caller drives [refresh] from one coroutine, and the results are
- * published through `StateFlow`s that any thread may read.
+ * **Two threads reach [refresh], so the mutating path is synchronized.** The ticker calls it on
+ * `Dispatchers.Default` every 100 ms, and a click calls it straight through `follow()` /
+ * `openTracePanel()` on the UI thread so the panes narrow on the click rather than on the next tick —
+ * which means both can be inside it at once. The memo's fields are plain vars, and the damage is worse
+ * than a wasted regroup: interleave the two and [sources] can end up recording one call's snapshots
+ * while [traceIndex] holds the other's, after which the identity check passes forever and the index
+ * never updates again. `@Synchronized` on the three methods that write them costs an uncontended lock
+ * per tick and removes the whole class of it. Reads go on being lock-free: results are published
+ * through `StateFlow`s that any thread may collect.
  */
 class TraceFollow {
     /**
@@ -104,8 +114,41 @@ class TraceFollow {
     private val _tracePanelOpen = MutableStateFlow(false)
     val tracePanelOpen: StateFlow<Boolean> = _tracePanelOpen.asStateFlow()
 
+    /**
+     * **Which traces the Ledger is showing the messages of.**
+     *
+     * Collapsed is the default and expansion is the exception, because the panel's first job is the
+     * question a QA cannot answer today — *which exchanges crossed more than one session* — and that is
+     * read off the headers. A Ledger that opened every trace would bury its own headers under a few
+     * thousand rows the moment it appeared.
+     *
+     * App-level and keyed by [TraceKey], not per pane: this is one view of one grouping, so there is one
+     * fold set. See [TraceKey] for why the key names the opener's session by title.
+     */
+    private val _expandedTraces = MutableStateFlow<Set<TraceKey>>(emptySet())
+    val expandedTraces: StateFlow<Set<TraceKey>> = _expandedTraces.asStateFlow()
+
+    /**
+     * The ungrouped bucket's own fold, separate because it is not a trace and has no [TraceKey].
+     *
+     * Collapsed by default like everything else, and *present* by default like nothing else: it is what
+     * the grouping could not explain, so it is counted on screen whether or not anyone opens it.
+     */
+    private val _ungroupedExpanded = MutableStateFlow(false)
+    val ungroupedExpanded: StateFlow<Boolean> = _ungroupedExpanded.asStateFlow()
+
     /** The id the user clicked. The trace is derived; this is the thing that was asked for. */
     private var anchorId: String? = null
+
+    /**
+     * The anchor whose trace has already been auto-expanded once.
+     *
+     * Following opens the trace it followed — that is the gesture and the view being one thought — but
+     * only the first time it resolves. Re-expanding it on every tick would make the fold chevron a
+     * control that undoes itself a tenth of a second later, and the reader is entitled to collapse the
+     * thing they are following and go on following it.
+     */
+    private var seededAnchor: String? = null
 
     /** The snapshot list identities the current [traceIndex] was built from. Compared by `===`. */
     private var sources: List<List<AppMessage>> = emptyList()
@@ -124,13 +167,45 @@ class TraceFollow {
      * The set does not become visible until the next [refresh]; the caller pumps one immediately so a
      * click narrows the panes on the click rather than on the next tick.
      */
+    @Synchronized
     fun follow(id: String) {
         anchorId = id
+        // A new anchor has not been auto-expanded yet, and following the same id twice deliberately
+        // re-opens it: the second press is a reader asking to see it again.
+        seededAnchor = null
     }
 
+    @Synchronized
     fun unfollow() {
         anchorId = null
+        seededAnchor = null
         _followedTrace.value = null
+    }
+
+    /** Fold or unfold one trace. The reader's choice outranks everything, including [follow]'s. */
+    fun toggleTrace(key: TraceKey) {
+        _expandedTraces.update { if (key in it) it - key else it + key }
+    }
+
+    fun toggleUngrouped() {
+        _ungroupedExpanded.value = !_ungroupedExpanded.value
+    }
+
+    /**
+     * Open everything the panel is currently showing, the bucket included.
+     *
+     * [keys] rather than "all traces I know of", because the caller is the panel and what it is showing
+     * is the list it just built — expanding traces that scrolled out of a stale index would be a fold
+     * set describing a view nobody has.
+     */
+    fun expandAll(keys: Collection<TraceKey>) {
+        _expandedTraces.value = keys.toSet()
+        _ungroupedExpanded.value = true
+    }
+
+    fun collapseAll() {
+        _expandedTraces.value = emptySet()
+        _ungroupedExpanded.value = false
     }
 
     fun openTracePanel() {
@@ -157,6 +232,7 @@ class TraceFollow {
      * closed between ticks are simply a different list — no `Located` from a previous generation is ever
      * consulted, which is why closing a pane cannot leave the followed set pointing into it.
      */
+    @Synchronized
     fun refresh(
         inputs: List<Input>,
         dictionary: FixDictionaryAdapter?,
@@ -183,7 +259,18 @@ class TraceFollow {
             sources = incoming
             sourceDictionary = dictionary
         }
-        _followedTrace.value = anchorId?.let { id -> resolve(id, _traceIndex.value) }
+        val id = anchorId
+        val index = _traceIndex.value
+        val trace = if (id == null) null else index?.grouping?.traces?.firstOrNull { id in it.ids }
+        _followedTrace.value = id?.let { resolve(it, index, trace) }
+        // The gesture and the view are one thought: what you followed is what the Ledger opens on. Once
+        // — see [seededAnchor] — and only when there is something to open, so an anchor the venue has
+        // not echoed yet expands the moment it arrives rather than never.
+        if (id != null && trace != null && index != null && id != seededAnchor) {
+            seededAnchor = id
+            val key = TraceRows.keyOf(trace, index.sessionTitles)
+            _expandedTraces.update { it + key }
+        }
     }
 
     /** Identity, element by element — the snapshots are immutable, so this is the whole question. */
@@ -203,8 +290,8 @@ class TraceFollow {
     private fun resolve(
         id: String,
         index: TraceIndex?,
+        trace: Traces.Trace?,
     ): FollowedTrace {
-        val trace = index?.grouping?.traces?.firstOrNull { id in it.ids }
         if (index == null || trace == null) {
             return FollowedTrace(
                 anchorId = id,

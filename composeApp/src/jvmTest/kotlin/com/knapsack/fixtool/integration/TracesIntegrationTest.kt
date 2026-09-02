@@ -27,6 +27,7 @@ import java.time.Duration
 import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -281,7 +282,136 @@ class TracesIntegrationTest {
         assertEquals("error", obj(get("/trace"))["status"]!!.jsonPrimitive.content)
     }
 
+    // ------------------------------------------------------------------ POST /panel {"panel":"trace"}
+
+    /**
+     * The write half of the same feature. `/traces` and `/trace` tell an agent what happened; this puts
+     * it on screen and narrows every pane to it, so a verification screenshot shows the exchange being
+     * asserted on rather than four panes of everything.
+     */
+    @Test
+    fun `panel trace opens the ledger without following anything`() {
+        clientAndLiquidityProvider()
+
+        val body = obj(post("/panel", """{"panel":"trace"}"""))
+
+        assertEquals("ok", body["status"]!!.jsonPrimitive.content)
+        assertEquals("trace", body["panel"]!!.jsonPrimitive.content)
+        assertTrue(body["show"]!!.jsonPrimitive.boolean)
+        assertTrue(viewModel.tracePanelOpen.value)
+        assertEquals(JsonNull, body["following"], "the Ledger lists every trace; it follows none of them")
+    }
+
+    /** Any id the exchange carries follows it, and following is what opens the panel. */
+    @Test
+    fun `follow narrows to one exchange, by the venue's own id, and opens the panel`() {
+        clientAndLiquidityProvider()
+
+        val body = obj(post("/panel", """{"panel":"trace","follow":"V-2291"}"""))
+
+        assertEquals("ok", body["status"]!!.jsonPrimitive.content)
+        assertEquals("RFQ-A1", body["following"]!!.jsonPrimitive.content, "the label, resolved from the anchor")
+        assertEquals("V-2291", body["followingAnchor"]!!.jsonPrimitive.content, "and the id that was asked for")
+        assertEquals(2, body["sessionCount"]!!.jsonPrimitive.int)
+        assertEquals(4, body["messageCount"]!!.jsonPrimitive.int)
+        assertEquals(false, body["pending"]!!.jsonPrimitive.boolean)
+        assertTrue(body["show"]!!.jsonPrimitive.boolean, "following IS the gesture that opens the Ledger")
+        assertEquals(setOf("RFQ-A1", "V-2291", "Q-77"), followedIds(), "the whole component, not the one id")
+    }
+
+    /**
+     * An id nobody has minted **yet** is followed with nothing in it rather than refused. A venue that
+     * mints its handle three hops in makes that the normal case, and un-following on the caller's behalf
+     * would lose the instruction. `pending` is how that is told apart from a typo, which `/trace`
+     * answers with a 404.
+     */
+    @Test
+    fun `an id that has not arrived is followed as pending, not refused`() {
+        clientAndLiquidityProvider()
+
+        val body = obj(post("/panel", """{"panel":"trace","follow":"V-ORD-8813"}"""))
+
+        assertEquals("ok", body["status"]!!.jsonPrimitive.content)
+        assertEquals("V-ORD-8813", body["following"]!!.jsonPrimitive.content)
+        assertTrue(body["pending"]!!.jsonPrimitive.boolean)
+        assertEquals(0, body["messageCount"]!!.jsonPrimitive.int)
+        assertEquals(404, get("/trace?id=V-ORD-8813").statusCode(), "the read route still says it does not exist")
+    }
+
+    @Test
+    fun `follow null stops following`() {
+        clientAndLiquidityProvider()
+        post("/panel", """{"panel":"trace","follow":"RFQ-A1"}""")
+
+        val body = obj(post("/panel", """{"panel":"trace","follow":null}"""))
+
+        assertEquals(JsonNull, body["following"])
+        assertNull(viewModel.followedTrace.value)
+    }
+
+    /**
+     * Closing the panel is closing the panel. The panes stay narrowed and the toolbar chip goes on
+     * naming what to — the same asymmetry the ✕ on the panel header has.
+     */
+    @Test
+    fun `show false closes the panel and leaves the follow alone`() {
+        clientAndLiquidityProvider()
+        post("/panel", """{"panel":"trace","follow":"RFQ-A1"}""")
+
+        val body = obj(post("/panel", """{"panel":"trace","show":false}"""))
+
+        assertEquals(false, body["show"]!!.jsonPrimitive.boolean)
+        assertEquals("RFQ-A1", body["following"]!!.jsonPrimitive.content)
+        assertTrue(viewModel.followedTrace.value != null)
+    }
+
+    /** One call to say one thing: follow this exchange, and do not put the panel on screen for it. */
+    @Test
+    fun `follow and show combine`() {
+        clientAndLiquidityProvider()
+
+        val body = obj(post("/panel", """{"panel":"trace","follow":"Q-77","show":false}"""))
+
+        assertEquals("RFQ-A1", body["following"]!!.jsonPrimitive.content)
+        assertEquals(false, body["show"]!!.jsonPrimitive.boolean)
+    }
+
+    @Test
+    fun `a blank follow is refused rather than read as null`() {
+        clientAndLiquidityProvider()
+
+        val body = obj(post("/panel", """{"panel":"trace","follow":""}"""))
+
+        assertEquals("error", body["status"]!!.jsonPrimitive.content)
+        assertNull(viewModel.followedTrace.value)
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    /** The ids of the trace the app is following, read back off the index the panes narrow by. */
+    private fun followedIds(): Set<String> {
+        val anchor = viewModel.followedTrace.value?.anchorId
+        return viewModel.traceIndex.value
+            ?.grouping
+            ?.traces
+            ?.firstOrNull { anchor != null && anchor in it.ids }
+            ?.ids
+            .orEmpty()
+    }
+
+    private fun post(
+        path: String,
+        body: String,
+    ): HttpResponse<String> {
+        val req =
+            HttpRequest
+                .newBuilder(URI.create("$baseUrl$path"))
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build()
+        return client.send(req, HttpResponse.BodyHandlers.ofString())
+    }
 
     private fun get(path: String): HttpResponse<String> {
         val req =

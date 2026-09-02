@@ -92,10 +92,16 @@ object McpTools {
                     "reachable only with a mouse. Finish it with action:apply (writes the step back to the staged " +
                     "rule; Save still persists it, and the response says saved:false) or action:cancel. Apply " +
                     "refuses, by tag, a value carrying the '|' field separator or a tag left with no value — both " +
-                    "would put a malformed message on the wire.",
+                    "would put a malformed message on the wire. " +
+                    "`trace` opens the Trace panel (the Ledger: every exchange across every session, with its " +
+                    "session count and the gap between its messages). Add `follow` with a whole correlation " +
+                    "value to narrow every pane to that one exchange — the same set fixtool_trace returns — or " +
+                    "`follow: null` to stop. Following opens the panel; show:false closes it without unfollowing.",
                 props(
-                    "panel" to enumStr("connection", "editor", "detail", "settings", "scenarios", "conversations", "orderbook"),
+                    "panel" to
+                        enumStr("connection", "editor", "detail", "settings", "scenarios", "conversations", "trace", "orderbook"),
                     "show" to boolean("default true"),
+                    "follow" to string("trace: a whole correlation value to follow, or null to stop following"),
                     "profile" to string("profile id or name (connection, or editor with a rule)"),
                     "rule" to integer("editor: which acceptor rule's reply to edit"),
                     "step" to integer("editor: which step of that reply (default 0)"),

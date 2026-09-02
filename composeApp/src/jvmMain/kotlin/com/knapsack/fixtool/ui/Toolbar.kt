@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixConnectionProfile
@@ -45,6 +46,18 @@ fun Toolbar(
     globalFilterShowOutgoing: Boolean = true,
     hideProtocolTags: Boolean = true,
     groupByConversation: Boolean = false,
+    /**
+     * The followed trace's label, or null when nothing is followed — the chip's whole condition.
+     *
+     * A label rather than a flag plus a lookup: the chip's job is to *name* what every pane is narrowed
+     * to, because a narrowing nobody can name is the silent-filter defect this feature exists to remove.
+     */
+    followingLabel: String? = null,
+    followingSessionCount: Int = 0,
+    followingMessageCount: Int = 0,
+    /** Panes whose ring dropped a message of this trace, by title. See `Traces.Trace.truncatedSessions`. */
+    followingTruncatedOn: List<String> = emptyList(),
+    onUnfollow: (() -> Unit)? = null,
     onOpenMessageEditor: (() -> Unit)? = null,
     onToggleDetailPanel: (() -> Unit)? = null,
     onToggleConnectionPanel: (() -> Unit)? = null,
@@ -117,6 +130,52 @@ fun Toolbar(
         )
 
         Spacer(modifier = Modifier.weight(1f))
+
+        // The followed trace, named. It sits beside the global filter box rather than replacing it:
+        // they are two filters of different kinds and both are in force, so hiding one while the other
+        // is on would be the app narrowing a view without saying so.
+        if (followingLabel != null) {
+            Row(
+                modifier =
+                    Modifier
+                        .height(28.dp)
+                        .background(AppTheme.Colors.primary, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .testTag("following-chip"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text =
+                        buildString {
+                            append("Following ").append(followingLabel)
+                            append(" · ").append(followingSessionCount).append(" session")
+                            if (followingSessionCount != 1) append("s")
+                            append(" · ").append(followingMessageCount).append(" message")
+                            if (followingMessageCount != 1) append("s")
+                            // What a first row cannot say for itself: this exchange opened before what
+                            // the pane still holds. Better said here than silently absent.
+                            if (followingTruncatedOn.isNotEmpty()) {
+                                append(" · history lost on ").append(followingTruncatedOn.joinToString(", "))
+                            }
+                        },
+                    color = AppTheme.Colors.background,
+                    fontSize = 11.sp,
+                    modifier = Modifier.testTag("following-chip-label"),
+                )
+                Text(
+                    text = "✕",
+                    color = AppTheme.Colors.background,
+                    fontSize = 11.sp,
+                    modifier =
+                        Modifier
+                            .testTag("unfollow-chip")
+                            .clickable { onUnfollow?.invoke() },
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+        }
 
         // Global Filter Text Field
         if (onGlobalFilterChange != null) {

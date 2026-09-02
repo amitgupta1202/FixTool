@@ -147,6 +147,12 @@ internal const val GLOBAL_SEARCH_DEBOUNCE_MS = 200L
 /** How long the layout stays still before it is written to disk — see [FixMessageViewModel.updateLayout]. */
 private const val SETTINGS_SAVE_DEBOUNCE_MS = 600L
 
+/**
+ * How often the followed trace is recomputed — the sessions' own drain cadence
+ * (`FixMessageSession.startMessagePolling`), because there is nothing new to group between two of them.
+ */
+private const val TRACE_TICK_MILLIS = 100L
+
 class FixMessageViewModel(
     private val testSettingsDir: String? = null,
 ) : ViewModel() {
@@ -2034,7 +2040,15 @@ class FixMessageViewModel(
     private val _pinnedSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
     val pinnedSearchResults: StateFlow<List<SearchResult>> = _pinnedSearchResults.asStateFlow()
 
-    // Global filter across all sessions
+    /**
+     * **The toolbar's filter: one value, applied to every pane, owned by none of them.**
+     *
+     * It used to be written *through* into each session's own `filterRegex`, which is how typing in the
+     * toolbar destroyed a filter a tester had set on one pane — and clearing the toolbar then left every
+     * pane blank rather than restoring what each had. It is state here now, ANDed into what a pane shows
+     * by [com.knapsack.fixtool.ui.MessageFilters]. The public method names are unchanged, and so is what
+     * they mean to a caller: set the global filter.
+     */
     private val _globalFilterRegex = MutableStateFlow("")
     val globalFilterRegex: StateFlow<String> = _globalFilterRegex.asStateFlow()
 
@@ -2043,6 +2057,20 @@ class FixMessageViewModel(
 
     private val _globalFilterShowOutgoing = MutableStateFlow(true)
     val globalFilterShowOutgoing: StateFlow<Boolean> = _globalFilterShowOutgoing.asStateFlow()
+
+    /**
+     * **The one followed trace, and the cross-session grouping behind it.**
+     *
+     * App-level, unlike grouping and collapse, which are per session — see [TraceFollow] for why that
+     * asymmetry is the point rather than an oversight.
+     */
+    private val traceFollow = TraceFollow()
+    val followedTrace: StateFlow<FollowedTrace?> get() = traceFollow.followedTrace
+    val traceIndex: StateFlow<TraceIndex?> get() = traceFollow.traceIndex
+    val tracePanelOpen: StateFlow<Boolean> get() = traceFollow.tracePanelOpen
+
+    /** Runs only while something is followed or the panel is open; see [startTraceTicker]. */
+    private var traceTicker: Job? = null
 
     // Global view mode (applies to all sessions)
     private val _viewMode = MutableStateFlow(FixMessageSession.ViewMode.PARSED) // Will be initialized from settings
@@ -5104,22 +5132,103 @@ class FixMessageViewModel(
         _sessions.forEach { it.clearMessages() }
     }
 
+    /**
+     * Set the filter that applies to every pane. It is ANDed with each pane's own; it never replaces one.
+     *
+     * Writing it through into `session.setFilterRegex` — which is what this did — meant the toolbar and
+     * the pane's own filter box were the same storage, so one destroyed the other and clearing the
+     * toolbar could not put back what it had overwritten. See [globalFilterRegex].
+     */
     fun setGlobalFilterRegex(regex: String) {
         _globalFilterRegex.value = regex
-        // Apply to all sessions
-        _sessions.forEach { it.setFilterRegex(regex) }
     }
 
     fun setGlobalFilterShowIncoming(show: Boolean) {
         _globalFilterShowIncoming.value = show
-        // Apply to all sessions
-        _sessions.forEach { it.setFilterShowIncoming(show) }
     }
 
     fun setGlobalFilterShowOutgoing(show: Boolean) {
         _globalFilterShowOutgoing.value = show
-        // Apply to all sessions
-        _sessions.forEach { it.setFilterShowOutgoing(show) }
+    }
+
+    /**
+     * **Follow the exchange carrying [id] through every session.** One followed trace; this replaces it.
+     *
+     * The index is refreshed on this call rather than left to the tick, so panes narrow on the click.
+     * Following opens the Trace panel — the gesture and the view are one thought — while closing that
+     * panel deliberately does not unfollow: the chip still says what the panes are showing.
+     */
+    fun follow(id: String) {
+        traceFollow.follow(id)
+        traceFollow.openTracePanel()
+        refreshTraces()
+        startTraceTicker()
+    }
+
+    fun unfollow() {
+        traceFollow.unfollow()
+    }
+
+    fun openTracePanel() {
+        traceFollow.openTracePanel()
+        refreshTraces()
+        startTraceTicker()
+    }
+
+    fun closeTracePanel() {
+        traceFollow.closeTracePanel()
+    }
+
+    fun toggleTracePanel() {
+        if (traceFollow.tracePanelOpen.value) closeTracePanel() else openTracePanel()
+    }
+
+    /**
+     * Regroup every session's current snapshot, if anything changed. Synchronous and memoised.
+     *
+     * `internal` because a test wants to pump it without waiting on the tick; the app reaches it through
+     * [follow], [openTracePanel] and [startTraceTicker].
+     */
+    internal fun refreshTraces() {
+        traceFollow.refresh(traceInputs(), getDictionaryAdapter())
+    }
+
+    /**
+     * The sessions as [TraceFollow] wants them, read fresh every time.
+     *
+     * Never cached across ticks: a `Located.session` is a position in *this* list, so a list held from a
+     * previous tick would address the wrong pane the moment one is opened or closed.
+     */
+    private fun traceInputs(): List<TraceFollow.Input> =
+        _sessions.map { session ->
+            TraceFollow.Input(
+                title = session.title,
+                messages = session.messages.value,
+                // Passed by reference; see TraceFollow.Input.lostIds.
+                lostIds = session.lostCorrelationIds,
+            )
+        }
+
+    /**
+     * Keep the followed set live on the same cadence the panes redraw on.
+     *
+     * The sessions' snapshots are gathered on the main thread — they are Compose state — and the
+     * grouping runs off it, because eight panes of a thousand messages is not work for the frame the
+     * user is looking at. The loop ends itself the moment nothing is followed and the panel is shut, so
+     * a quiet app pays nothing at all for this feature.
+     */
+    private fun startTraceTicker() {
+        if (traceTicker?.isActive == true) return
+        traceTicker =
+            viewModelScope.launch {
+                while (traceFollow.wanted) {
+                    delay(TRACE_TICK_MILLIS)
+                    if (!traceFollow.wanted) break
+                    val inputs = traceInputs()
+                    val dictionary = getDictionaryAdapter()
+                    withContext(Dispatchers.Default) { traceFollow.refresh(inputs, dictionary) }
+                }
+            }
     }
 
     // Saved Messages Operations

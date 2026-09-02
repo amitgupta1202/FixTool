@@ -77,6 +77,16 @@ fun FixMessageDisplay(
     groupByConversation: Boolean = false,
     collapsedConversations: Set<String> = emptySet(),
     onToggleConversation: (String) -> Unit = {},
+    /**
+     * Every correlation value in the app's followed trace — what a group header checks itself against.
+     *
+     * A set of *values* rather than a flag per row, because a conversation belongs to at most one trace:
+     * the relation only ever merges components, never splits one, so a header whose label is in here is
+     * the followed exchange's slice on this pane and nothing else can be.
+     */
+    followedTraceIds: Set<String> = emptySet(),
+    onFollowTrace: ((String) -> Unit)? = null,
+    onUnfollowTrace: (() -> Unit)? = null,
     onAtBottomChanged: (Boolean) -> Unit = {},
     scrollToBottomTrigger: Int = 0,
     modifier: Modifier = Modifier,
@@ -295,6 +305,9 @@ fun FixMessageDisplay(
                         groupByConversation = groupByConversation,
                         collapsedConversations = collapsedConversations,
                         onToggleConversation = onToggleConversation,
+                        followedTraceIds = followedTraceIds,
+                        onFollowTrace = onFollowTrace,
+                        onUnfollowTrace = onUnfollowTrace,
                     )
                 }
 
@@ -372,6 +385,9 @@ fun FixMessageDisplay(
             groupByConversation = groupByConversation,
             collapsedConversations = collapsedConversations,
             onToggleConversation = onToggleConversation,
+            followedTraceIds = followedTraceIds,
+            onFollowTrace = onFollowTrace,
+            onUnfollowTrace = onUnfollowTrace,
             modifier = modifier,
         )
     }
@@ -428,6 +444,9 @@ private fun MessageDisplayContent(
     groupByConversation: Boolean = false,
     collapsedConversations: Set<String> = emptySet(),
     onToggleConversation: (String) -> Unit = {},
+    followedTraceIds: Set<String> = emptySet(),
+    onFollowTrace: ((String) -> Unit)? = null,
+    onUnfollowTrace: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -486,6 +505,9 @@ private fun MessageDisplayContent(
                     groupByConversation = groupByConversation,
                     collapsedConversations = collapsedConversations,
                     onToggleConversation = onToggleConversation,
+                    followedTraceIds = followedTraceIds,
+                    onFollowTrace = onFollowTrace,
+                    onUnfollowTrace = onUnfollowTrace,
                     modifier =
                         Modifier
                             .fillMaxSize()
@@ -581,6 +603,9 @@ private fun MessageDisplayContent(
                                     ConversationHeaderRow(
                                         header = row,
                                         onToggle = { onToggleConversation(row.key) },
+                                        following = row.label in followedTraceIds,
+                                        onFollow = onFollowTrace,
+                                        onUnfollow = onUnfollowTrace,
                                     )
                                     return@itemsIndexed
                                 }
@@ -675,6 +700,9 @@ private fun MessageDisplayContent(
 private fun ConversationHeaderRow(
     header: ConversationRows.Row.Header,
     onToggle: () -> Unit,
+    following: Boolean = false,
+    onFollow: ((String) -> Unit)? = null,
+    onUnfollow: (() -> Unit)? = null,
 ) {
     val summary = header.summary
     Row(
@@ -722,6 +750,14 @@ private fun ConversationHeaderRow(
             fontFamily = FontFamily.Monospace,
             fontSize = 11.sp,
         )
+        // The ungrouped bucket has no exchange to follow — its rows are what carried no correlation id.
+        if (onFollow != null && header.key != ConversationRows.UNGROUPED_KEY) {
+            Spacer(modifier = Modifier.width(8.dp))
+            FollowTraceButton(
+                following = following,
+                onClick = { if (following) onUnfollow?.invoke() else onFollow(header.label) },
+            )
+        }
     }
 }
 

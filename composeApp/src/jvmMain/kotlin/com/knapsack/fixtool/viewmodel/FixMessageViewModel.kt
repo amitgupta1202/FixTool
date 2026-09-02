@@ -73,6 +73,7 @@ import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
+import com.knapsack.fixtool.service.LaneRole
 import com.knapsack.fixtool.service.TraceKey
 import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.ScenarioRunner
@@ -2073,6 +2074,9 @@ class FixMessageViewModel(
     /** The Ledger's fold state. App-level, keyed by [TraceKey] — see it for why not by label. */
     val expandedTraces: StateFlow<Set<TraceKey>> get() = traceFollow.expandedTraces
     val ungroupedTracesExpanded: StateFlow<Boolean> get() = traceFollow.ungroupedExpanded
+
+    /** Ledger or Lanes — one panel, two drawings of the same rows. See [TraceRendering]. */
+    val traceRendering: StateFlow<TraceRendering> get() = traceFollow.traceRendering
 
     /** Runs only while something is followed or the panel is open; see [startTraceTicker]. */
     private var traceTicker: Job? = null
@@ -5192,6 +5196,19 @@ class FixMessageViewModel(
 
     fun toggleUngroupedTraces() = traceFollow.toggleUngrouped()
 
+    /**
+     * Switch the panel between the Ledger and Lanes.
+     *
+     * Refreshes and starts the ticker for the same reason [openTracePanel] does: choosing Lanes is a
+     * reader asking to see something now, and a drawing that appeared one tick late would look like a
+     * toggle that did not take.
+     */
+    fun setTraceRendering(rendering: TraceRendering) {
+        traceFollow.setTraceRendering(rendering)
+        refreshTraces()
+        startTraceTicker()
+    }
+
     fun expandAllTraces(keys: Collection<TraceKey>) = traceFollow.expandAll(keys)
 
     fun collapseAllTraces() = traceFollow.collapseAll()
@@ -5236,7 +5253,24 @@ class FixMessageViewModel(
                 messages = session.messages.value,
                 // Passed by reference; see TraceFollow.Input.lostIds.
                 lostIds = session.lostCorrelationIds,
+                role = laneRoleOf(session),
             )
+        }
+
+    /**
+     * **Which side of the wire a pane holds** — the profile's own answer, never an inference.
+     *
+     * `FixConnectionConfig.connectionType` is the fact, and it reaches every pane the same way: a
+     * connection sets it when it is configured, and a venue's per-client pane is bound with a *copy of
+     * the acceptor profile's config* (`attachVenueClient`), so `FX Demo Venue ← DEMO_CLIENT1` says
+     * ACCEPTOR because that is what the profile behind it is. Nothing here reads a CompID, a port or a
+     * message: a pane with no config yet has no side, and says so.
+     */
+    private fun laneRoleOf(session: FixMessageSession): LaneRole =
+        when (session.currentConfig?.connectionType) {
+            FixConnectionConfig.ConnectionType.INITIATOR -> LaneRole.INITIATOR
+            FixConnectionConfig.ConnectionType.ACCEPTOR -> LaneRole.ACCEPTOR
+            null -> LaneRole.UNKNOWN
         }
 
     /**

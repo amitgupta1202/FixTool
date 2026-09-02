@@ -3,6 +3,7 @@ package com.knapsack.fixtool.viewmodel
 import com.knapsack.fixtool.model.AppMessage
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.service.LaneRole
 import com.knapsack.fixtool.service.TraceKey
 import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.service.Traces
@@ -27,7 +28,23 @@ data class TraceIndex(
     val snapshots: List<List<FixMessage>>,
     val sessionTitles: List<String>,
     val grouping: Traces.Grouping,
+    /**
+     * Which side of the wire each pane holds, captured at the same instant as [snapshots].
+     *
+     * Positional like everything else here, and gathered with the snapshots rather than read off the
+     * sessions when Lanes wants it, for the reason this whole type exists: the list of panes is rebuilt
+     * every tick, so a role read one tick later than the snapshot it labels would put an initiator's
+     * word above an acceptor's column the first time a pane is opened or closed. Empty means nobody
+     * asked, which `TraceLanes.build` reads as [LaneRole.UNKNOWN] rather than as a guess.
+     */
+    val sessionRoles: List<LaneRole> = emptyList(),
 )
+
+/** Which drawing of the trace the panel is showing. One panel, two renderings of the same rows. */
+enum class TraceRendering {
+    LEDGER,
+    LANES,
+}
 
 /**
  * **The one exchange the whole app is following**, resolved against the current [TraceIndex].
@@ -103,6 +120,8 @@ class TraceFollow {
         val title: String,
         val messages: List<AppMessage>,
         val lostIds: Set<String> = emptySet(),
+        /** Read off the pane's profile — see [LaneRole]. Defaulted so a test that has no profile says so. */
+        val role: LaneRole = LaneRole.UNKNOWN,
     )
 
     private val _followedTrace = MutableStateFlow<FollowedTrace?>(null)
@@ -136,6 +155,21 @@ class TraceFollow {
      */
     private val _ungroupedExpanded = MutableStateFlow(false)
     val ungroupedExpanded: StateFlow<Boolean> = _ungroupedExpanded.asStateFlow()
+
+    /**
+     * **Which of the panel's two drawings is on screen.**
+     *
+     * App-level beside the fold set, because it is one property of one panel. [TraceRendering.LEDGER] is
+     * the default and has to be: the Ledger answers *what is running* over every trace at once, which is
+     * the question a reader has before they have chosen anything, while Lanes draws exactly one exchange
+     * and has nothing to show until one is followed. Opening on Lanes would open on an empty picture.
+     *
+     * Deliberately not cleared by [unfollow]. A reader who was reading Lanes and stopped following is
+     * still reading Lanes, and switching the panel out from under them would be the view second-guessing
+     * a gesture that was about the filter, not about the drawing.
+     */
+    private val _traceRendering = MutableStateFlow(TraceRendering.LEDGER)
+    val traceRendering: StateFlow<TraceRendering> = _traceRendering.asStateFlow()
 
     /** The id the user clicked. The trace is derived; this is the thing that was asked for. */
     private var anchorId: String? = null
@@ -189,6 +223,10 @@ class TraceFollow {
 
     fun toggleUngrouped() {
         _ungroupedExpanded.value = !_ungroupedExpanded.value
+    }
+
+    fun setTraceRendering(rendering: TraceRendering) {
+        _traceRendering.value = rendering
     }
 
     /**
@@ -255,6 +293,7 @@ class TraceFollow {
                     snapshots = snapshots,
                     sessionTitles = inputs.map { it.title },
                     grouping = Traces.group(snapshots, dictionary, inputs.map { it.lostIds }),
+                    sessionRoles = inputs.map { it.role },
                 )
             sources = incoming
             sourceDictionary = dictionary

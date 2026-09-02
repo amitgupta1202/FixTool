@@ -47,7 +47,9 @@ import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.service.Located
 import com.knapsack.fixtool.service.TraceKey
+import com.knapsack.fixtool.service.TraceLanes
 import com.knapsack.fixtool.service.TraceRows
+import com.knapsack.fixtool.viewmodel.TraceRendering
 import java.time.format.DateTimeFormatter
 
 /**
@@ -87,6 +89,17 @@ fun TracePanel(
      * "12 traces" while the chip said "Following V-8813" would be two answers to one question.
      */
     followingLabel: String? = null,
+    /** Which drawing is on screen. One panel, two renderings of the same rows — see [TraceLanes]. */
+    rendering: TraceRendering = TraceRendering.LEDGER,
+    /**
+     * The followed trace laid out in lanes, or null when nothing is followed.
+     *
+     * Handed in already built rather than derived here, exactly as [rows] is, and for the same reason:
+     * both are memoised against the one index generation they address, and a panel that rebuilt one of
+     * them from a fresher index than the other would draw two answers to one question.
+     */
+    lanes: TraceLanes.Lanes? = null,
+    onSetRendering: (TraceRendering) -> Unit = {},
     onToggleTrace: (TraceKey) -> Unit = {},
     onToggleUngrouped: () -> Unit = {},
     onExpandAll: () -> Unit = {},
@@ -113,12 +126,27 @@ fun TracePanel(
     ) {
         TracePanelHeaderBar(
             status = statusLine(followed, followingLabel, headers.size, spannedSessions, ungroupedCount),
+            rendering = rendering,
+            onSetRendering = onSetRendering,
             onExpandAll = onExpandAll,
             onCollapseAll = onCollapseAll,
             onClose = onClose,
         )
 
         HorizontalDivider(color = AppTheme.Colors.border)
+
+        if (rendering == TraceRendering.LANES) {
+            TraceLanesView(
+                lanes = lanes,
+                headers = headers,
+                selectedMessage = selectedMessage,
+                dictionary = dictionary,
+                appSettings = appSettings,
+                onFollow = onFollow,
+                onSelectMember = onSelectMember,
+            )
+            return@Column
+        }
 
         Box(modifier = Modifier.fillMaxSize()) {
             val listState = rememberLazyListState()
@@ -199,6 +227,8 @@ fun TracePanel(
 @Composable
 private fun TracePanelHeaderBar(
     status: String,
+    rendering: TraceRendering,
+    onSetRendering: (TraceRendering) -> Unit,
     onExpandAll: () -> Unit,
     onCollapseAll: () -> Unit,
     onClose: () -> Unit,
@@ -233,8 +263,13 @@ private fun TracePanelHeaderBar(
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextAction("Expand all", "trace-expand-all", onExpandAll)
-            TextAction("Collapse all", "trace-collapse-all", onCollapseAll)
+            RenderingToggle(rendering, onSetRendering)
+            // Folding is the Ledger's own gesture and Lanes has nothing to fold, so the two actions go
+            // when it does rather than sitting there doing nothing.
+            if (rendering == TraceRendering.LEDGER) {
+                TextAction("Expand all", "trace-expand-all", onExpandAll)
+                TextAction("Collapse all", "trace-collapse-all", onCollapseAll)
+            }
             // Closes the panel and nothing else: the panes stay narrowed and the chip goes on saying so.
             TooltipIconButton(
                 tooltip = "Close (keeps following)",
@@ -250,6 +285,51 @@ private fun TracePanelHeaderBar(
             }
         }
     }
+}
+
+/**
+ * **Ledger | Lanes** — the same trace rows, two drawings, one segmented control.
+ *
+ * A toggle rather than a second panel because they are one view of one thing: the Ledger browses every
+ * exchange, Lanes reads one of them closely, and a reader moving between the two is changing the
+ * question they are asking of the rows already on screen. Two panels would make it a choice about
+ * screen real estate instead.
+ */
+@Composable
+private fun RenderingToggle(
+    rendering: TraceRendering,
+    onSetRendering: (TraceRendering) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 6.dp)) {
+        RenderingSegment("Ledger", "trace-render-ledger", rendering == TraceRendering.LEDGER) {
+            onSetRendering(TraceRendering.LEDGER)
+        }
+        RenderingSegment("Lanes", "trace-render-lanes", rendering == TraceRendering.LANES) {
+            onSetRendering(TraceRendering.LANES)
+        }
+    }
+}
+
+@Composable
+private fun RenderingSegment(
+    label: String,
+    tag: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = label,
+        fontSize = 10.sp,
+        color = if (selected) AppTheme.Colors.text else AppTheme.Colors.textSecondary,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        modifier =
+            Modifier
+                .testTag(tag)
+                .background(if (selected) AppTheme.Colors.selectionPrimary else Color.Transparent)
+                .clickable { onClick() }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 @Composable

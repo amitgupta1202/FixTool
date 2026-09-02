@@ -152,6 +152,60 @@ class RunSetRailTest {
     }
 
     /**
+     * **The rows say they open.** An author ran a set, saw only the last entry's traffic in the grid, and
+     * asked where the other entries' logs had gone. The rows were plain text with a click on them: no
+     * hover, no chevron, no hint. Now the report says so, and every entry with a record wears the chevron.
+     */
+    @Test
+    fun `the set report says its entries open, and marks each one that has a record`() {
+        val scenario = scenario("book-a-trade")
+        viewModel.scenarioService.save(scenario)
+        viewModel.refreshScenarios()
+        val set = writeFinishedSet(scenario)
+
+        composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("rail-recent-${set.id}").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("run-set-hint").assertIsDisplayed()
+        // The chevron is a child of a clickable row, so it lives in the unmerged tree.
+        composeTestRule.onNodeWithTag("run-set-entry-1-open", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("run-set-entry-2-open", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    /** An entry that has not landed has nothing to open, and must not pretend otherwise. */
+    @Test
+    fun `an entry without a record wears no chevron`() {
+        val scenario = scenario("book-a-trade")
+        viewModel.scenarioService.save(scenario)
+        viewModel.refreshScenarios()
+        val set =
+            RunSets.repeat(scenario, times = 2, now = System.currentTimeMillis()).let { planned ->
+                planned.copy(
+                    status = RunSetStatus.RUNNING,
+                    entries =
+                        listOf(
+                            planned.entries[0].copy(state = RunState.PASSED, durationMs = 12, record = "01-book-a-trade.json"),
+                            planned.entries[1].copy(state = RunState.PENDING),
+                        ),
+                )
+            }
+        viewModel.runRecordStore.begin(set)
+        viewModel.runRecordStore.writeSet(set)
+        viewModel.focusRunSet(set.id)
+
+        composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("run-set-hint").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("run-set-entry-1-open", useUnmergedTree = true).assertIsDisplayed()
+        composeTestRule.onNodeWithTag("run-set-entry-2-open", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    /**
      * The document reads the record back: the entries down one side, and for the focused one its verdict
      * and **its own message grid**, from bytes that are nowhere else by the time anybody looks.
      */

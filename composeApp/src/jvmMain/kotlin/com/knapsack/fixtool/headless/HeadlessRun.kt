@@ -218,15 +218,24 @@ object HeadlessRun {
             err.appendLine("fixtool: that run set has no entries to run")
             return EXIT_USAGE
         }
+        // `--session a=b` reaches every entry of a batch, as it always reached a single run. It used to be
+        // read and then dropped on this path, so `--repeat 5 --session QUOTE1=UAT` drove QUOTE1 five times
+        // with no warning. A lane's own remap wins where the two name the same session: that is the lane.
+        val remapped = set.copy(entries = set.entries.map { it.copy(sessionMap = options.sessionMap + it.sessionMap) })
 
         val byId = (saved + listOfNotNull(loadTargetIfFile(options, home))).associateBy { it.id }
-        val store = RunRecordStore(customDir = home?.let { "$it/runs" } ?: "")
-        err.appendLine("fixtool: running ${set.entries.size} entries — ${set.label}")
+        // This process runs exactly one set, and vouches for exactly that one: any other set the directory
+        // holds at `running` was left by a process that is gone, and is healed the first time it is read.
+        val live = java.util.concurrent.atomic.AtomicReference<String?>(null)
+        val store = RunRecordStore(customDir = home?.let { "$it/runs" } ?: "", isLive = { it == live.get() })
+        val reserved = remapped.copy(id = store.reserve(remapped.id))
+        live.set(reserved.id)
+        err.appendLine("fixtool: running ${reserved.entries.size} entries — ${reserved.label}")
 
         val done =
             try {
-                store.begin(set)
-                RunSetRunner(HeadlessSetHost(byId, host, store, settings)).run(set) { progress ->
+                store.begin(reserved)
+                RunSetRunner(HeadlessSetHost(byId, host, store, settings)).run(reserved) { progress ->
                     val last = progress.entries.lastOrNull { it.state.finished }
                     if (last != null && progress.done > 0) {
                         err.appendLine("fixtool: ${progress.done}/${progress.total} ${last.scenarioName} ${last.state.name.lowercase()}")
@@ -325,6 +334,8 @@ object HeadlessRun {
                 when (set.status) {
                     RunSetStatus.PASSED -> "PASSED  ${set.label} (${set.passed}/${set.total})"
                     RunSetStatus.STOPPED -> "STOPPED ${set.label} (${set.done}/${set.total} ran)"
+                    // Not green: an entry that never ran proved nothing, and the exit code says 1.
+                    RunSetStatus.INCOMPLETE -> "INCOMPLETE ${set.label} (${set.passed}/${set.total} passed, ${set.skipped} skipped)"
                     else -> "FAILED  ${set.label} (${set.failed} of ${set.total} failed)"
                 },
             )

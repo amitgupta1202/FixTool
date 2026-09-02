@@ -14,6 +14,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -61,10 +65,22 @@ fun ScenarioExamplesTable(
             )
             Text(summary(columns, rows), color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.weight(1f))
             if (expanded) {
-                SlimButton("+ column", onClick = { onColumns(columns + nextColumnName(columns)) }, modifier = Modifier.testTag("examples-add-column"))
+                // A new column gets a cell in every row, and a new row a cell for every column — empty, as
+                // "Extract to example column" already does. A row without the key seeded nothing, so
+                // `${qty}` shipped as ten literal characters while the row beside it, whose cell had been
+                // typed into and cleared, sent `38=`. The two look identical on screen.
+                SlimButton(
+                    "+ column",
+                    onClick = {
+                        val name = nextColumnName(columns)
+                        onColumns(columns + name)
+                        onRows(rows.map { it.copy(values = it.values + (name to "")) })
+                    },
+                    modifier = Modifier.testTag("examples-add-column"),
+                )
                 SlimButton(
                     "+ row",
-                    onClick = { onRows(rows + ExampleRow(name = nextRowName(rows), values = emptyMap())) },
+                    onClick = { onRows(rows + ExampleRow(name = nextRowName(rows), values = columns.associateWith { "" })) },
                     enabled = columns.isNotEmpty(),
                     modifier = Modifier.testTag("examples-add-row"),
                 )
@@ -125,24 +141,40 @@ private fun HeaderRow(
         Text("row", color = AppTheme.Colors.textDisabled, fontSize = 10.sp, modifier = Modifier.width(ROW_NAME_WIDTH.dp))
         columns.forEachIndexed { index, column ->
             Column(modifier = Modifier.width(CELL_WIDTH.dp).padding(end = 6.dp)) {
+                // **What is typed stays local until it is a name the table can take** — not blank, and not a
+                // sibling's. Applied on every keystroke, a rename that passed through a sibling's name merged
+                // the two columns' cells for good: `symbol` backspaced toward `symX` is `sym` on the way, and
+                // with a `sym` column beside it one row value was discarded at that keystroke and never came
+                // back. A blank name went in the same door, and nothing could ever reference it.
+                var typed by remember(column) { mutableStateOf(column) }
+                val pending = typed != column
+                val taken = columns.withIndex().any { (i, c) -> i != index && c == typed }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SlimField(
-                        value = column,
+                        value = typed,
                         onValueChange = { renamed ->
-                            // Renaming a column renames the cells with it: a row whose keys drifted from the
-                            // columns would seed nothing, and the value would vanish without a word.
-                            val from = columns[index]
-                            onColumns(columns.mapIndexed { i, c -> if (i == index) renamed else c })
-                            onRows(rows.map { r -> r.copy(values = r.values.mapKeys { (k, _) -> if (k == from) renamed else k }) })
+                            typed = renamed
+                            val clashes = columns.withIndex().any { (i, c) -> i != index && c == renamed }
+                            if (renamed.isNotBlank() && !clashes) {
+                                // Renaming a column renames the cells with it: a row whose keys drifted from
+                                // the columns would seed nothing, and the value would vanish without a word.
+                                val from = columns[index]
+                                onColumns(columns.mapIndexed { i, c -> if (i == index) renamed else c })
+                                onRows(rows.map { r -> r.copy(values = r.values.mapKeys { (k, _) -> if (k == from) renamed else k }) })
+                            }
                         },
                         monospace = true,
                         modifier = Modifier.width((CELL_WIDTH - 46).dp).testTag("examples-column-$index"),
                     )
                     Text(
-                        columnRole(column),
-                        color = if (column in unread) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
+                        when {
+                            pending && typed.isBlank() -> "name needed"
+                            pending && taken -> "name taken"
+                            else -> columnRole(column)
+                        },
+                        color = if (pending || column in unread) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
                         fontSize = 10.sp,
-                        modifier = Modifier.padding(start = 3.dp),
+                        modifier = Modifier.padding(start = 3.dp).testTag("examples-column-role-$index"),
                     )
                     SlimButton(
                         "×",

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -114,6 +115,62 @@ class ScenarioExamplesTableTest {
         assertEquals(listOf("instrument", "qty"), table.columns)
         assertEquals("EUR/USD", table.rows.single().values["instrument"], "the value moved with the name: ${table.rows}")
         assertNull(table.rows.single().values["symbol"])
+    }
+
+    /**
+     * A rename is applied on every keystroke, so `symbol` typed toward `qty2` is `qty` on the way — and with a
+     * `qty` column beside it, applying that keystroke merged the two columns' cells and threw one value away
+     * for good. What is typed stays local until it is a name the table can take, and the header says why.
+     */
+    @Test
+    fun `renaming a column onto a sibling's name is held back until the name is free`() {
+        render()
+
+        composeTestRule.onNodeWithTag("examples-column-0").performTextClearance()
+        composeTestRule.onNodeWithTag("examples-column-0").performTextInput("qty")
+        composeTestRule.waitForIdle()
+
+        val held = assertNotNull(latest?.examples ?: outline.examples)
+        assertEquals(listOf("symbol", "qty"), held.columns, "the clash is not applied")
+        assertEquals(mapOf("symbol" to "EUR/USD", "qty" to "100"), held.rows.single().values, "and no cell was lost on the way")
+        composeTestRule.onNodeWithTag("examples-column-role-0").assertTextEquals("name taken")
+
+        composeTestRule.onNodeWithTag("examples-column-0").performTextInput("2")
+        composeTestRule.waitForIdle()
+
+        val renamed = assertNotNull(latest?.examples)
+        assertEquals(listOf("qty2", "qty"), renamed.columns, "typing on past the clash lands the rename")
+        assertEquals(mapOf("qty2" to "EUR/USD", "qty" to "100"), renamed.rows.single().values)
+    }
+
+    /** A blank name can never be referenced, so it is never a column. */
+    @Test
+    fun `a blank column name is not applied`() {
+        render()
+
+        composeTestRule.onNodeWithTag("examples-column-0").performTextClearance()
+        composeTestRule.waitForIdle()
+
+        assertEquals(listOf("symbol", "qty"), (latest?.examples ?: outline.examples)?.columns)
+        composeTestRule.onNodeWithTag("examples-column-role-0").assertTextEquals("name needed")
+    }
+
+    /**
+     * A row without the key seeded nothing, so `${qty}` shipped as ten literal characters, while the row
+     * beside it whose cell had been typed into and cleared sent `38=`. On screen the two are identical.
+     */
+    @Test
+    fun `a new column has a cell in every row, and a new row a cell for every column`() {
+        render()
+
+        composeTestRule.onNodeWithTag("examples-add-column").performClick()
+        composeTestRule.onNodeWithTag("examples-add-row").performClick()
+        composeTestRule.waitForIdle()
+
+        val table = assertNotNull(latest?.examples)
+        val added = table.columns.last()
+        assertEquals("", table.rows[0].values[added], "the existing row got the new column's cell: ${table.rows[0].values}")
+        assertEquals(table.columns.toSet(), table.rows[1].values.keys, "the new row has a cell for every column")
     }
 
     /** Dropping a column drops its cells too, for the same reason. */

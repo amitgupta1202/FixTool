@@ -88,6 +88,7 @@ import java.awt.Desktop
 fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier) {
     val scenarios by viewModel.scenarios.collectAsState()
     val running by viewModel.scenarioRunning.collectAsState()
+    val runningSets by viewModel.runningSetIds.collectAsState()
     val busySessions by viewModel.busySessions.collectAsState()
     val result by viewModel.scenarioResult.collectAsState()
     val ran by viewModel.lastRunScenario.collectAsState()
@@ -250,20 +251,26 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             )
             // Header block closed off from the list: the controls above, the run status and tree below.
             HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+            // **Its own set, by id.** The line used to read the global flag and stop with no id, so one ⏹
+            // stopped a fan-out on LOADGEN and the bare run on UAT beside it, and a finished set reopened
+            // from Recent runs wore a stop button that halted whatever else happened to be running.
+            val activeId = activeSet?.id
             activeSet?.let { set ->
                 RunSetLine(
                     set = set,
-                    running = running,
-                    onStop = { viewModel.requestScenarioStop() },
+                    running = set.id in runningSets,
+                    onStop = { viewModel.requestScenarioStop(set.id) },
                     onFocus = { entry -> viewModel.openRunSetEntry(set.id, entry) },
                     onDismiss = { viewModel.clearActiveRunSet() },
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     storedStats = { id -> viewModel.runRecordStore.readSetStats(id)?.let { RunSetStats.fromJson(it) } },
                 )
             }
+            // "Running…" for whatever is running that the set line above is not about: a bare run, or a
+            // second set the rail is not drawing. Its stop reaches exactly those.
             RunStatusLine(
-                running = running && activeSet == null,
-                onStop = { viewModel.requestScenarioStop() },
+                running = running && (activeId == null || activeId !in runningSets),
+                onStop = { viewModel.requestScenarioStopExcept(activeId) },
                 result = result,
                 dictionary = viewModel.dictionary,
                 // Keyed on the STORE as well as the result: the route consults the file on disk, so a save or
@@ -940,6 +947,7 @@ private fun RunSetLine(
             RunSetStatus.RUNNING -> AppTheme.Colors.info
             RunSetStatus.STOPPED -> AppTheme.Colors.textSecondary
             RunSetStatus.FAILED -> AppTheme.Colors.error
+            RunSetStatus.INCOMPLETE -> AppTheme.Colors.warning
         }
     Column(modifier = modifier.testTag("run-set-report")) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -952,31 +960,9 @@ private fun RunSetLine(
                 fontSize = 11.sp,
                 modifier = Modifier.weight(1f),
             )
-        }
-        // **Fifty lanes are a distribution, not fifty rows.** The step latency is the venue's number; the
-        // wall clock is the flow's, and they are never offered as the same thing.
-        if (set.source is RunSource.FanOut) {
-            // Computed from a live set, read back for one that has been reopened: `set.json` keeps entries
-            // but not their reports, so a set from Recent runs can recompute none of this. Without the
-            // fallback the distribution was visible only while the run that produced it was still on screen.
-            val stats = remember(set) { RunSetStats.merge(RunSetStats.of(set), storedStats(set.id)) }
-            stats?.replyLatency?.let { steps ->
-                Text(
-                    "reply latency  ${RunSetStats.describe(steps)}  (${steps.samples} steps)" +
-                        stats.failedLanes.takeIf { it.isNotEmpty() }
-                            ?.let { "   failures: " + it.joinToString(", ") { slot -> "lane $slot" } }.orEmpty(),
-                    color = AppTheme.Colors.textSecondary,
-                    fontSize = 10.sp,
-                    modifier = Modifier.testTag("run-set-latency"),
-                )
-            }
-            stats?.wallClock?.let { wall ->
-                Text(
-                    "lane wall-clock  ${RunSetStats.describe(wall)}",
-                    color = AppTheme.Colors.textDisabled,
-                    fontSize = 10.sp,
-                )
-            }
+            // On the header row, for EVERY set. These two buttons had slipped inside the fan-out block
+            // below, so a repeat or a suite — the sets people actually run — had no stop and no way to put
+            // the report down; only a fan-out could be stopped from the rail.
             if (running) {
                 TooltipIconButton(
                     tooltip = "Stop this set — the entry running stops where it is, and the rest are skipped",
@@ -1003,6 +989,31 @@ private fun RunSetLine(
                         modifier = Modifier.size(11.dp),
                     )
                 }
+            }
+        }
+        // **Fifty lanes are a distribution, not fifty rows.** The step latency is the venue's number; the
+        // wall clock is the flow's, and they are never offered as the same thing.
+        if (set.source is RunSource.FanOut) {
+            // Computed from a live set, read back for one that has been reopened: `set.json` keeps entries
+            // but not their reports, so a set from Recent runs can recompute none of this. Without the
+            // fallback the distribution was visible only while the run that produced it was still on screen.
+            val stats = remember(set) { RunSetStats.merge(RunSetStats.of(set), storedStats(set.id)) }
+            stats?.replyLatency?.let { steps ->
+                Text(
+                    "reply latency  ${RunSetStats.describe(steps)}  (${steps.samples} steps)" +
+                        stats.failedLanes.takeIf { it.isNotEmpty() }
+                            ?.let { "   failures: " + it.joinToString(", ") { slot -> "lane $slot" } }.orEmpty(),
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 10.sp,
+                    modifier = Modifier.testTag("run-set-latency"),
+                )
+            }
+            stats?.wallClock?.let { wall ->
+                Text(
+                    "lane wall-clock  ${RunSetStats.describe(wall)}",
+                    color = AppTheme.Colors.textDisabled,
+                    fontSize = 10.sp,
+                )
             }
         }
         Column(modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp).verticalScroll(rememberScrollState())) {

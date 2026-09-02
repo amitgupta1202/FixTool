@@ -242,6 +242,41 @@ class RunSetRailTest {
         return set
     }
 
+    /**
+     * **⏹ on a set stops that set, and nothing else.** The line used to read the global "something is
+     * running" flag and stop with no id, so a fan-out on one profile and a bare run on another shared one
+     * stop button — and a finished set reopened from Recent runs wore a ⏹ that halted whatever else
+     * happened to be running.
+     *
+     * Two runs on two disconnected sessions, each parked in a Wait for a logon that never comes: the set's
+     * stop lands on the set, and the bare run beside it is still holding its session afterwards.
+     */
+    @Test
+    fun `the set line's stop stops its own set and leaves the run beside it alone`() {
+        viewModel.createSessionForTest("S")
+        viewModel.createSessionForTest("T")
+        val onS = Scenario(id = "on-s", name = "on S", steps = listOf(ScenarioStep.Wait(session = "S", state = "LOGGED_ON", timeoutMs = 20_000)))
+        val onT = Scenario(id = "on-t", name = "on T", steps = listOf(ScenarioStep.Wait(session = "T", state = "LOGGED_ON", timeoutMs = 20_000)))
+        viewModel.scenarioService.save(onS)
+        viewModel.scenarioService.save(onT)
+        viewModel.refreshScenarios()
+        val set = assertNotNull(viewModel.startRunSet(RunSets.repeat(onS, times = 1, now = System.currentTimeMillis())))
+        viewModel.runScenario(onT)
+        composeTestRule.waitUntil(5_000) { viewModel.isRunSetRunning(set.id) && "T" in viewModel.busySessions.value }
+
+        try {
+            composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+            composeTestRule.onNodeWithTag("stop-run-set").assertIsDisplayed().performClick()
+
+            composeTestRule.waitUntil(5_000) { !viewModel.isRunSetRunning(set.id) }
+            assertTrue("T" in viewModel.busySessions.value, "the bare run on T is still going")
+            assertTrue("S" !in viewModel.busySessions.value, "the set released its session")
+        } finally {
+            viewModel.requestScenarioStop()
+            composeTestRule.waitUntil(5_000) { !viewModel.scenarioRunning.value }
+        }
+    }
+
     private fun scenario(name: String) =
         Scenario(id = "sc-$name", name = name, steps = listOf(ScenarioStep.Send("35=D|", session = "s")))
 }

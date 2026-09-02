@@ -2159,6 +2159,9 @@ class FixMessageViewModel(
         RunRecordStore(
             customDir = resolveStoragePath("", "runs"),
             onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            // The claim registry is the one thing that knows whether a set is being run by THIS process. A
+            // set on disk that says `running` and holds no claim was left by an app that exited under it.
+            isLive = { setId -> isRunSetRunning(setId) },
         )
     }
 
@@ -2801,6 +2804,17 @@ class FixMessageViewModel(
     val busySessions: StateFlow<Set<String>> = _busySessions.asStateFlow()
 
     /**
+     * **The ids of the sets currently holding a claim** — what the rail's set line reads to know whether
+     * ITS set is running, as opposed to whether anything is.
+     *
+     * The line used to read the global flag and stop with no id, so with a fan-out on LOADGEN and a bare
+     * run on UAT, one ⏹ stopped both, and a finished set reopened from Recent runs wore a stop button that
+     * halted a different run entirely.
+     */
+    private val _runningSetIds = MutableStateFlow<Set<String>>(emptySet())
+    val runningSetIds: StateFlow<Set<String>> = _runningSetIds.asStateFlow()
+
+    /**
      * **The run slot is a claim over sessions, not one global boolean.**
      *
      * Cursors are per-run over per-session message logs, so two runs whose sessions are disjoint cannot
@@ -2833,6 +2847,7 @@ class FixMessageViewModel(
 
     private fun refreshClaims() {
         _busySessions.value = claims.flatMap { it.touched.sessions }.toSet()
+        _runningSetIds.value = claims.mapNotNullTo(mutableSetOf()) { it.setId }
         _scenarioRunning.value = claims.isNotEmpty()
     }
 
@@ -2883,9 +2898,17 @@ class FixMessageViewModel(
      */
     fun requestScenarioStop(setId: String? = null) {
         // Aimed when a set is named — with two runs in flight on disjoint sessions, "stop" has to mean one
-        // of them. The rail's ⏹ names none and stops what is running, which is what a single visible
-        // report has always meant.
+        // of them. Unnamed, it stops everything, which is what the control surface's bare stop has meant.
         claims.filter { setId == null || it.setId == setId }.forEach { it.stop.set(true) }
+    }
+
+    /**
+     * **Stop everything except the set the rail is showing.** The rail's single-run line reads "Running…"
+     * for whatever holds a claim that is not the set on screen — a bare run beside a set, or a second set
+     * the rail is not drawing — and its stop has to reach exactly those. The set on screen has its own ⏹.
+     */
+    fun requestScenarioStopExcept(setId: String?) {
+        claims.filter { setId == null || it.setId != setId }.forEach { it.stop.set(true) }
     }
 
     /**
@@ -3123,7 +3146,12 @@ class FixMessageViewModel(
             // A new run makes the cross-step revert stale — its "before" describes a run that is over.
             sameFixSnapshot = null
             noteScenarioRun(scenario, sessionMap)
-            if (publish) publishScenarioResult(null)
+            // Cleared for a set entry too, not only for a published run. An entry replaces the judged map
+            // and the attribution but used to leave the standing report alone, so the rail kept an older
+            // run's verdict over this entry's messages — and its Reconcile opened that verdict on these
+            // bytes, judged against the older run's variables. Focusing an entry is what publishes a
+            // set's verdict; until then there is none to show.
+            publishScenarioResult(null)
             setAssertionResults(emptyMap())
         }
         val matched = linkedMapOf<FixMessage, StepResult>()

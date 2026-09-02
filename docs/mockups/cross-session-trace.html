@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trace Across Sessions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --paper: #F2F4F1; --card: #FFFFFF; --ink: #1A1F1D; --muted: #5E6866; --faint: #8B9592;
+    --rule: #D5DBD6; --accent: #1F6F8B; --accent-soft: #E1EEF3; --warn: #9A5B12; --warn-soft: #F7EBD8;
+    --good: #2E7D46; --bad: #A8433B;
+
+    /* FixTool's own tokens: fixed in both themes, because the frames depict the app and the app is dark. */
+    --fx-bg: #1E1E1E; --fx-header: #202020; --fx-surface: #2B2B2B; --fx-variant: #252525;
+    --fx-border: #3A3A3A; --fx-text: #E0E0E0; --fx-text2: #B0B0B0; --fx-dim: #6A6A6A;
+    --fx-teal: #4EC9B0; --fx-blue: #569CD6; --fx-amber: #CE9178; --fx-purple: #C586C0;
+    --fx-yellow: #DCDCAA; --fx-green: #98C379; --fx-red: #E06C75;
+    /* Session badge hues, in the app's own usernameColors order. */
+    --s-client: #4EC9B0; --s-lp1: #569CD6; --s-lp2: #CE9178; --s-lp3: #C586C0;
+
+    --serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: "Source Sans 3", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --col: 42rem; --wide: 72rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #161A19; --card: #1D2221; --ink: #E2E6E4; --muted: #98A3A0; --faint: #6F7A77;
+      --rule: #2A3230; --accent: #5FB3C9; --accent-soft: #17303A; --warn: #E0A85A; --warn-soft: #33281A;
+      --good: #7FBF95; --bad: #D98A82;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #161A19; --card: #1D2221; --ink: #E2E6E4; --muted: #98A3A0; --faint: #6F7A77;
+    --rule: #2A3230; --accent: #5FB3C9; --accent-soft: #17303A; --warn: #E0A85A; --warn-soft: #33281A;
+    --good: #7FBF95; --bad: #D98A82;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans);
+         font-size: 17px; line-height: 1.58; -webkit-font-smoothing: antialiased; }
+  main { max-width: var(--wide); margin: 0 auto; padding: 2.6rem 1.25rem 5rem; }
+  .col { max-width: var(--col); }
+
+  .eyebrow { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase;
+             color: var(--accent); margin: 0 0 0.9rem; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(2.3rem, 5.2vw, 3.4rem); line-height: 1.02;
+       letter-spacing: -0.02em; margin: 0 0 0.8rem; text-wrap: balance; }
+  .standfirst { font-size: 1.15rem; color: var(--muted); max-width: 36rem; margin: 0 0 1.2rem; }
+  .standfirst strong { color: var(--ink); font-weight: 500; }
+  .meta { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); display: flex; gap: 1.4rem; flex-wrap: wrap; }
+  .meta b { color: var(--muted); font-weight: 500; }
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.8rem; margin-bottom: 2.4rem; }
+
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 1.75rem; line-height: 1.12; letter-spacing: -0.012em;
+       margin: 3rem 0 0.5rem; text-wrap: balance; }
+  h3 { font-family: var(--sans); font-weight: 600; font-size: 1.02rem; margin: 1.8rem 0 0.3rem; }
+  p { margin: 0 0 1rem; }
+  p.lede { font-size: 1.08rem; }
+  ul { padding-left: 1.2rem; margin: 0 0 1rem; }
+  li { margin: 0 0 0.35rem; }
+  code { font-family: var(--mono); font-size: 0.84em; background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 3px; }
+  .kicker { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin: 0 0 0.4rem; }
+
+  /* Findings list: a fact per row, with where it lives. */
+  .facts { display: grid; grid-template-columns: 1fr; gap: 0; border-top: 1px solid var(--rule); margin: 1rem 0 1.4rem; }
+  .fact { display: grid; grid-template-columns: 9.5rem 1fr; gap: 1rem; padding: 0.7rem 0; border-bottom: 1px solid var(--rule); }
+  .fact .k { font-family: var(--mono); font-size: 0.74rem; color: var(--warn); padding-top: 0.25rem; }
+  .fact .v { margin: 0; }
+  .fact .v code { background: transparent; padding: 0; color: var(--muted); }
+
+  /* ---------- app frames ---------- */
+  .frame { margin: 1.3rem 0 0.6rem; }
+  .frame-cap { font-size: 0.9rem; color: var(--muted); margin: 0.45rem 0 1.4rem; max-width: var(--col); }
+  .frame-cap b { color: var(--ink); font-weight: 600; }
+  .app { background: var(--fx-bg); border: 1px solid var(--fx-border); border-radius: 5px; overflow: hidden;
+         font-family: var(--sans); font-size: 13px; color: var(--fx-text); line-height: 1.35; }
+  .app * { font-variant-numeric: tabular-nums; }
+  .toolbar { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: var(--fx-header);
+             border-bottom: 1px solid var(--fx-border); flex-wrap: wrap; }
+  .toolbar .ttl { font-weight: 600; color: var(--fx-text2); font-size: 12px; letter-spacing: 0.02em; }
+  .tb-btn { border: 1px solid var(--fx-border); background: var(--fx-surface); color: var(--fx-text2); border-radius: 3px;
+            padding: 3px 8px; font-size: 12px; font-family: inherit; }
+  .tb-btn.on { border-color: var(--fx-teal); color: var(--fx-teal); }
+  .filterbox { display: flex; align-items: center; gap: 6px; background: var(--fx-surface); border: 1px solid var(--fx-border);
+               border-radius: 3px; padding: 3px 8px; color: var(--fx-text); font-family: var(--mono); font-size: 12px; min-width: 20rem; }
+  .filterbox .lbl { color: var(--fx-dim); font-family: var(--sans); }
+  .filterbox .rx { color: var(--fx-yellow); }
+  .chip { display: inline-flex; align-items: center; gap: 8px; background: #1A2C2A; border: 1px solid var(--fx-teal);
+          color: var(--fx-teal); border-radius: 999px; padding: 2px 6px 2px 10px; font-size: 12px; }
+  .chip b { font-family: var(--mono); font-weight: 600; }
+  .chip .x { all: unset; cursor: pointer; color: var(--fx-text2); padding: 0 5px; border-radius: 999px; line-height: 1; }
+  .chip .x:hover { background: var(--fx-surface); color: var(--fx-text); }
+  .panes { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 0; background: var(--fx-border); }
+  .pane { background: var(--fx-bg); min-width: 0; }
+  .pane-hd { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--fx-variant);
+             border-bottom: 1px solid var(--fx-border); color: var(--fx-text2); font-size: 12px; }
+  .pane-hd .role { color: var(--fx-dim); font-size: 11px; }
+  .pane-hd .cnt { margin-left: auto; color: var(--fx-dim); font-family: var(--mono); font-size: 11px; }
+  .sb { display: inline-block; width: 8px; height: 8px; border-radius: 2px; vertical-align: 0; }
+  .sb.client { background: var(--s-client); } .sb.lp1 { background: var(--s-lp1); }
+  .sb.lp2 { background: var(--s-lp2); } .sb.lp3 { background: var(--s-lp3); }
+  .app table { border-collapse: collapse; width: 100%; }
+  .app th { background: var(--fx-header); color: var(--fx-text2); font-weight: 600; text-align: left; padding: 4px 8px;
+            font-size: 11.5px; border-bottom: 1px solid var(--fx-border); white-space: nowrap; }
+  .app td { padding: 3px 8px; border-bottom: 1px solid #262626; white-space: nowrap; }
+  .app .num { text-align: right; }
+  .app .t2 { color: var(--fx-text2); } .app .dim { color: var(--fx-dim); }
+  .app .out { color: var(--fx-blue); } .app .inc { color: var(--fx-teal); }
+  .app .ok { color: var(--fx-green); } .app .warn { color: var(--fx-amber); } .app .bad { color: var(--fx-red); }
+  .app .id { font-family: var(--mono); font-size: 11.5px; }
+  .scroller { overflow-x: auto; }
+  .app table { min-width: 34rem; }
+  .panes .app table { min-width: 0; }
+
+  /* the "today" frame: rows the regex mis-handles */
+  tr.ghost td { color: var(--fx-dim); font-style: italic; border-bottom: 1px dashed #333; }
+  tr.ghost td .id { color: var(--fx-dim); }
+  tr.false td { background: #2E2222; }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+         padding: 1px 5px; border-radius: 2px; margin-left: 6px; vertical-align: 1px; }
+  .tag.miss { color: var(--fx-amber); border: 1px solid var(--fx-amber); }
+  .tag.fp { color: var(--fx-red); border: 1px solid var(--fx-red); }
+
+  /* group rows, as the shipped conversation view draws them */
+  tr.group > td { background: var(--fx-variant); border-top: 1px solid var(--fx-border); color: var(--fx-text2); }
+  tr.group .label { color: var(--fx-text); font-weight: 700; font-family: var(--mono); font-size: 12px; }
+  tr.group button.fold { all: unset; cursor: pointer; color: var(--fx-text2); display: inline-block; width: 1.1em; }
+  tr.group button.fold:focus-visible { outline: 1px solid var(--fx-teal); }
+  tbody.collapsed tr.member { display: none; }
+  .follow { all: unset; cursor: pointer; font-family: var(--sans); font-size: 11.5px; color: var(--fx-teal);
+            border: 1px solid transparent; border-radius: 3px; padding: 1px 7px; margin-left: 10px; }
+  .follow:hover, .follow:focus-visible { border-color: var(--fx-teal); outline: none; }
+  .following .follow.active { background: var(--fx-teal); color: var(--fx-bg); }
+  .spans { color: var(--fx-dim); font-size: 11.5px; }
+  .spans .sb { margin-right: 3px; }
+
+  /* following state: panes filter to the trace */
+  .following tr[data-t]:not([data-t="A1"]) { display: none; }
+  .following .toolbar .filterbox { display: none; }
+  .demo:not(.following) .chip { display: none; }
+  .demo:not(.following) .tracepanel { display: none; }
+
+  /* trace panel */
+  .tracepanel { border-top: 2px solid var(--fx-border); }
+  .tp-hd { display: flex; align-items: center; gap: 12px; padding: 5px 10px; background: var(--fx-header); border-bottom: 1px solid var(--fx-border); }
+  .tp-hd .ttl { font-weight: 600; color: var(--fx-text2); font-size: 12px; }
+  .tabs { display: inline-flex; border: 1px solid var(--fx-border); border-radius: 3px; overflow: hidden; }
+  .tabs button { all: unset; cursor: pointer; padding: 2px 10px; font-size: 12px; color: var(--fx-text2); font-family: inherit; }
+  .tabs button[aria-selected="true"] { background: var(--fx-surface); color: var(--fx-text); }
+  .tabs button:focus-visible { outline: 1px solid var(--fx-teal); outline-offset: -1px; }
+  .tp-hd .close { all: unset; cursor: pointer; margin-left: auto; color: var(--fx-dim); padding: 0 6px; }
+  .tp-hd .close:hover { color: var(--fx-text); }
+  .sess { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11.5px; }
+
+  /* lanes */
+  .lanes { display: grid; grid-template-columns: 5.4rem repeat(4, minmax(11rem, 1fr)); min-width: 52rem; }
+  .lanes .lh { position: sticky; top: 0; background: var(--fx-header); border-bottom: 1px solid var(--fx-border);
+               padding: 5px 8px; font-size: 11.5px; color: var(--fx-text2); font-weight: 600; }
+  .lanes .lh .role { color: var(--fx-dim); font-weight: 400; margin-left: 6px; }
+  .lanes .lh.acc-first, .lanes .lc.acc-first { border-left: 1px dashed #4a4a4a; }
+  .lanes .el { padding: 4px 8px; font-family: var(--mono); font-size: 11px; color: var(--fx-amber); text-align: right;
+               border-bottom: 1px solid #232323; }
+  .lanes .el.t { color: var(--fx-text2); }
+  .lanes .lc { position: relative; border-bottom: 1px solid #232323; padding: 3px 8px; min-height: 26px;
+               background: linear-gradient(to right, transparent calc(50% - 0.5px), #2E2E2E calc(50% - 0.5px), #2E2E2E calc(50% + 0.5px), transparent calc(50% + 0.5px)); }
+  .lanes .lc.on { background: none; }
+  .msg { display: inline-flex; align-items: center; gap: 6px; border-radius: 3px; padding: 2px 7px; font-size: 12px;
+         background: var(--fx-surface); border: 1px solid var(--fx-border); white-space: nowrap; }
+  .msg.out { border-color: #2f5170; } .msg.inc { border-color: #2e5a52; }
+  .msg .arr { font-size: 10px; }
+  .msg.out .arr { color: var(--fx-blue); } .msg.inc .arr { color: var(--fx-teal); }
+  .msg .mt { font-weight: 600; color: var(--fx-text); }
+  .msg .id { color: var(--fx-text2); }
+  .lc.out-side { text-align: right; }
+
+  /* the honest limit */
+  .hint { padding: 6px 10px 7px 34px; color: var(--fx-text2); font-size: 12px; background: var(--fx-bg); border-bottom: 1px solid #262626; }
+  .hint .link { color: var(--fx-dim); margin-left: 8px; }
+
+  /* recommendation */
+  .rec { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1px; background: var(--rule);
+         border: 1px solid var(--rule); margin: 1.2rem 0 1.4rem; }
+  .rec > div { background: var(--card); padding: 1rem 1.1rem 1.1rem; }
+  .rec .k { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.35rem; }
+  .rec h4 { font-family: var(--sans); font-weight: 600; font-size: 1rem; margin: 0 0 0.4rem; }
+  .rec p { font-size: 0.93rem; color: var(--muted); margin: 0 0 0.4rem; }
+  .rec .pick { border-top: 3px solid var(--accent); }
+  .rec .pick .k { color: var(--accent); }
+  .rec .pick .k::after { content: "  ·  recommended"; letter-spacing: 0.06em; }
+
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: no-preference) { .msg, .chip { transition: background 120ms; } }
+  @media (max-width: 720px) { .fact { grid-template-columns: 1fr; gap: 0.2rem; } }
+</style>
+</head>
+<body>
+
+<main>
+<header class="mast">
+  <p class="eyebrow">FixTool · proposal mockup</p>
+  <h1>Trace Across Sessions</h1>
+  <p class="standfirst">The grouped grid answers <strong>what happened to RFQ-A1 on this session</strong>. Nothing answers <strong>what happened to RFQ-A1</strong>. One gesture on a conversation follows it through every session; one panel shows the whole exchange in time order, on one clock.</p>
+  <div class="meta"><span><b>Depicts</b> an RFQ venue under test: FixTool holds the client and three liquidity providers</span><span><b>Interactive</b> click Follow, fold groups, switch Ledger / Lanes</span></div>
+</header>
+
+<section class="col">
+  <h2>Today: the regex hunt</h2>
+  <p class="lede">A QA holds four sessions against the venue. One RFQ leaves traces in all four, under three different ids, because the venue mints its own on the way through. To read it end to end they find each id by eye and type a regex into the global filter box.</p>
+</section>
+
+<div class="frame">
+  <div class="app scroller">
+    <div class="toolbar"><span class="ttl">Sessions</span>
+      <div class="filterbox"><span class="lbl">Filter</span><span class="rx">RFQ-A1|V-2291|ORD-9</span></div>
+      <button class="tb-btn" type="button">Split ▾</button><button class="tb-btn" type="button">Group</button></div>
+    <div class="panes">
+      <div class="pane"><div class="pane-hd"><span class="sb client"></span>CLIENT-A <span class="role">initiator</span><span class="cnt">7 of 10</span></div>
+        <table>
+          <tr><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th>Ids</th></tr>
+          <tr><td class="t2">01.100</td><td class="out">OUT</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="id">RFQ-A1</td></tr>
+          <tr><td class="t2">01.310</td><td class="inc">IN</td><td>S</td><td>Quote 1.0849 / 1.0851</td><td class="id">RFQ-A1 · Q-LP1-77</td></tr>
+          <tr><td class="t2">01.520</td><td class="out">OUT</td><td>D</td><td>NewOrderSingle Buy 10,000,000</td><td class="id">ORD-9 · Q-LP1-77</td></tr>
+          <tr class="false"><td class="t2">01.531</td><td class="out">OUT</td><td>D</td><td>NewOrderSingle Buy 5,000,000<span class="tag fp">false match</span></td><td class="id">ORD-91 · Q-9</td></tr>
+          <tr><td class="t2">01.610</td><td class="inc">IN</td><td>8</td><td>ExecReport · New</td><td class="id">ORD-9 · 4471</td></tr>
+          <tr class="false"><td class="t2">01.640</td><td class="inc">IN</td><td>8</td><td>ExecReport · New<span class="tag fp">false match</span></td><td class="id">ORD-91 · 4472</td></tr>
+          <tr><td class="t2">01.744</td><td class="inc">IN</td><td>8</td><td>ExecReport · <span class="ok">Filled</span></td><td class="id">ORD-9 · 4471</td></tr>
+        </table></div>
+      <div class="pane"><div class="pane-hd"><span class="sb lp1"></span>LP-1 <span class="role">acceptor</span><span class="cnt">2 of 5</span></div>
+        <table>
+          <tr><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th>Ids</th></tr>
+          <tr><td class="t2">01.131</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="id">V-2291</td></tr>
+          <tr><td class="t2">01.192</td><td class="out">OUT</td><td>S</td><td>Quote 1.0849 / 1.0851</td><td class="id">V-2291 · Q-LP1-77</td></tr>
+          <tr class="ghost"><td class="t2">01.548</td><td>IN</td><td>D</td><td>NewOrderSingle<span class="tag miss">hidden</span></td><td class="id">V-ORD-8813 · Q-LP1-77</td></tr>
+          <tr class="ghost"><td class="t2">01.590</td><td>OUT</td><td>8</td><td>ExecReport · New<span class="tag miss">hidden</span></td><td class="id">V-ORD-8813 · LP1-X1</td></tr>
+          <tr class="ghost"><td class="t2">01.712</td><td>OUT</td><td>8</td><td>ExecReport · Filled<span class="tag miss">hidden</span></td><td class="id">V-ORD-8813 · LP1-X1</td></tr>
+        </table></div>
+      <div class="pane"><div class="pane-hd"><span class="sb lp2"></span>LP-2 <span class="role">acceptor</span><span class="cnt">2 of 2</span></div>
+        <table>
+          <tr><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th>Ids</th></tr>
+          <tr><td class="t2">01.133</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="id">V-2291</td></tr>
+          <tr><td class="t2">01.180</td><td class="out">OUT</td><td>S</td><td>Quote 1.0850 / 1.0853</td><td class="id">V-2291 · Q-LP2-31</td></tr>
+        </table></div>
+      <div class="pane"><div class="pane-hd"><span class="sb lp3"></span>LP-3 <span class="role">acceptor</span><span class="cnt">2 of 2</span></div>
+        <table>
+          <tr><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th>Ids</th></tr>
+          <tr><td class="t2">01.134</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="id">V-2291</td></tr>
+          <tr><td class="t2">01.240</td><td class="out">OUT</td><td>S</td><td>Quote 1.0851 / 1.0854</td><td class="id">V-2291 · Q-LP3-05</td></tr>
+        </table></div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>What the regex does.</b> The dashed rows are LP-1's order leg. It is on screen only because this mockup draws it; in the app those rows are filtered out, and nothing says so. The QA concludes LP-1 never received the order. The red rows are a second, unrelated order that matched because <code>ORD-9</code> is a substring of <code>ORD-91</code>.</p>
+</div>
+
+<section class="col">
+  <p>Each of these is a separate way to be wrong, and they compound:</p>
+  <div class="facts">
+    <div class="fact"><div class="k">must know every id</div><p class="v">The regex only finds what the QA already typed. A venue that mints per hop (<code>V-2291</code>, <code>V-ORD-8813</code>) adds ids as the flow runs, so the regex is stale by the time the order leg arrives.</p></div>
+    <div class="fact"><div class="k">silent omission</div><p class="v">A missed id does not look like a mistake. It looks like the venue dropped a message.</p></div>
+    <div class="fact"><div class="k">substring match</div><p class="v">Filtering runs over the display string, not field values. <code>ORD-9</code> matches <code>ORD-91</code>, <code>ORD-9X</code>, and any <code>OrderID</code> that happens to contain it.</p></div>
+    <div class="fact"><div class="k">clobbered filters</div><p class="v">The global filter box writes the same regex into every pane, overwriting whatever each pane had. <code>setGlobalFilterRegex</code></p></div>
+    <div class="fact"><div class="k">tabs mode</div><p class="v">In tabs view the filter button shows a panel that never applies. Only split view filters. <code>App.kt:389</code> passes the unfiltered list.</p></div>
+    <div class="fact"><div class="k">order in the head</div><p class="v">Even when every pane is right, which pane's row came first is read off timestamps across four grids.</p></div>
+  </div>
+  <p>The tool already knows the answer to all of this. The grouped grid joins messages by shared correlation values, and that relation does not care which session a message came from. Fed all four logs at once, the same union-find joins <code>RFQ-A1</code> to <code>Q-LP1-77</code> on the client, <code>Q-LP1-77</code> to <code>V-2291</code> on LP-1, and <code>V-2291</code> to every other LP, with no rule written anywhere.</p>
+</section>
+
+<section class="col">
+  <h2>The gesture: Follow</h2>
+  <p class="lede">Every conversation header, message row and correlation-id field grows one action: <strong>Follow across sessions</strong>. It replaces the regex with the set of ids the tool computed, and it keeps computing as messages arrive.</p>
+  <p>Try it below. Follow the RFQ-A1 group in the client pane. Every pane narrows to that exchange, a chip names what is being followed, and the Trace panel opens underneath.</p>
+</section>
+
+<div class="frame">
+  <div id="demo" class="app demo scroller">
+    <div class="toolbar"><span class="ttl">Sessions</span>
+      <div class="filterbox"><span class="lbl">Filter</span><span class="dim">…</span></div>
+      <span class="chip">Following <b>RFQ-A1</b><span class="dim">·</span>4 sessions<span class="dim">·</span>14 messages<button class="x" type="button" data-unfollow aria-label="Stop following">✕</button></span>
+      <button class="tb-btn" type="button">Split ▾</button><button class="tb-btn on" type="button">Group</button></div>
+    <div class="panes">
+      <div class="pane"><div class="pane-hd"><span class="sb client"></span>CLIENT-A <span class="role">initiator</span><span class="cnt">10</span></div>
+        <table>
+          <tr><th></th><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th>Ids</th></tr>
+          <tbody data-grp>
+            <tr class="group" data-t="A1"><td><button class="fold" type="button" aria-expanded="true">▼</button></td>
+              <td colspan="3"><span class="label">RFQ-A1</span> <span class="spans">· EUR/USD 10M</span></td>
+              <td>QuoteRequest ×1 · Quote ×1 · Order ×1 · <span class="ok">Filled</span><button class="follow" type="button" data-follow aria-pressed="false">Follow ↗</button></td><td></td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.100</td><td class="out">OUT</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="id">RFQ-A1</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.310</td><td class="inc">IN</td><td>S</td><td>Quote 1.0849 / 1.0851</td><td class="id">RFQ-A1 · Q-LP1-77</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.520</td><td class="out">OUT</td><td>D</td><td>NewOrderSingle Buy 10,000,000</td><td class="id">ORD-9 · Q-LP1-77</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.610</td><td class="inc">IN</td><td>8</td><td>ExecReport · New</td><td class="id">ORD-9 · 4471</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.744</td><td class="inc">IN</td><td>8</td><td>ExecReport · <span class="ok">Filled</span></td><td class="id">ORD-9 · 4471</td></tr>
+          </tbody>
+          <tbody data-grp>
+            <tr class="group" data-t="B2"><td><button class="fold" type="button" aria-expanded="true">▼</button></td>
+              <td colspan="3"><span class="label">RFQ-B2</span> <span class="spans">· GBP/USD 5M</span></td>
+              <td>QuoteRequest ×1 · Quote ×1 · Order ×1 · New<button class="follow" type="button" aria-pressed="false">Follow ↗</button></td><td></td></tr>
+            <tr class="member" data-t="B2"><td></td><td class="t2">01.203</td><td class="out">OUT</td><td>R</td><td>QuoteRequest GBP/USD 5,000,000</td><td class="id">RFQ-B2</td></tr>
+            <tr class="member" data-t="B2"><td></td><td class="t2">01.402</td><td class="inc">IN</td><td>S</td><td>Quote 1.2630 / 1.2634</td><td class="id">RFQ-B2 · Q-9</td></tr>
+            <tr class="member" data-t="B2"><td></td><td class="t2">01.531</td><td class="out">OUT</td><td>D</td><td>NewOrderSingle Buy 5,000,000</td><td class="id">ORD-91 · Q-9</td></tr>
+            <tr class="member" data-t="B2"><td></td><td class="t2">01.640</td><td class="inc">IN</td><td>8</td><td>ExecReport · New</td><td class="id">ORD-91 · 4472</td></tr>
+          </tbody>
+          <tbody data-grp class="collapsed">
+            <tr class="group" data-t=""><td><button class="fold" type="button" aria-expanded="false">▶</button></td>
+              <td colspan="3"><span class="label">Ungrouped</span></td><td class="dim">1 message · session traffic</td><td></td></tr>
+            <tr class="member" data-t=""><td></td><td class="t2">31.100</td><td class="inc">IN</td><td>0</td><td>Heartbeat</td><td></td></tr>
+          </tbody>
+        </table></div>
+      <div class="pane"><div class="pane-hd"><span class="sb lp1"></span>LP-1 <span class="role">acceptor</span><span class="cnt">5</span></div>
+        <table>
+          <tr><th></th><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th>Ids</th></tr>
+          <tbody data-grp>
+            <tr class="group" data-t="A1"><td><button class="fold" type="button" aria-expanded="true">▼</button></td>
+              <td colspan="3"><span class="label">V-2291</span> <span class="spans">· EUR/USD 10M</span></td>
+              <td>QuoteRequest ×1 · Quote ×1 · Order ×1 · <span class="ok">Filled</span><button class="follow" type="button" data-follow aria-pressed="false">Follow ↗</button></td><td></td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.131</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="id">V-2291</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.192</td><td class="out">OUT</td><td>S</td><td>Quote 1.0849 / 1.0851</td><td class="id">V-2291 · Q-LP1-77</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.548</td><td class="inc">IN</td><td>D</td><td>NewOrderSingle Buy 10,000,000</td><td class="id">V-ORD-8813 · Q-LP1-77</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.590</td><td class="out">OUT</td><td>8</td><td>ExecReport · New</td><td class="id">V-ORD-8813 · LP1-X1</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.712</td><td class="out">OUT</td><td>8</td><td>ExecReport · <span class="ok">Filled</span></td><td class="id">V-ORD-8813 · LP1-X1</td></tr>
+          </tbody>
+        </table></div>
+      <div class="pane"><div class="pane-hd"><span class="sb lp2"></span>LP-2 <span class="role">acceptor</span><span class="cnt">2</span></div>
+        <table>
+          <tr><th></th><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th>Ids</th></tr>
+          <tbody data-grp>
+            <tr class="group" data-t="A1"><td><button class="fold" type="button" aria-expanded="true">▼</button></td>
+              <td colspan="3"><span class="label">V-2291</span> <span class="spans">· EUR/USD 10M</span></td>
+              <td>QuoteRequest ×1 · Quote ×1<button class="follow" type="button" data-follow aria-pressed="false">Follow ↗</button></td><td></td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.133</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="id">V-2291</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.180</td><td class="out">OUT</td><td>S</td><td>Quote 1.0850 / 1.0853</td><td class="id">V-2291 · Q-LP2-31</td></tr>
+          </tbody>
+        </table></div>
+      <div class="pane"><div class="pane-hd"><span class="sb lp3"></span>LP-3 <span class="role">acceptor</span><span class="cnt">2</span></div>
+        <table>
+          <tr><th></th><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th>Ids</th></tr>
+          <tbody data-grp>
+            <tr class="group" data-t="A1"><td><button class="fold" type="button" aria-expanded="true">▼</button></td>
+              <td colspan="3"><span class="label">V-2291</span> <span class="spans">· EUR/USD 10M</span></td>
+              <td>QuoteRequest ×1 · Quote ×1<button class="follow" type="button" data-follow aria-pressed="false">Follow ↗</button></td><td></td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.134</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="id">V-2291</td></tr>
+            <tr class="member" data-t="A1"><td></td><td class="t2">01.240</td><td class="out">OUT</td><td>S</td><td>Quote 1.0851 / 1.0854</td><td class="id">V-2291 · Q-LP3-05</td></tr>
+          </tbody>
+        </table></div>
+    </div>
+
+    <div class="tracepanel">
+      <div class="tp-hd"><span class="ttl">Trace</span>
+        <div class="tabs" role="tablist" aria-label="Rendering">
+          <button type="button" role="tab" aria-selected="true" data-tab="ledger">Ledger</button>
+          <button type="button" role="tab" aria-selected="false" data-tab="lanes">Lanes</button></div>
+        <span class="dim" style="font-size:11.5px">RFQ-A1 · 4 sessions · 14 messages · 644 ms end to end · one clock</span>
+        <button class="close" type="button" data-unfollow aria-label="Close trace panel">✕</button></div>
+
+      <div data-panel="ledger" class="scroller">
+        <table>
+          <tr><th></th><th>Session</th><th>Time</th><th>Dir</th><th>Type</th><th>Summary</th><th class="num">Elapsed</th><th>QuoteReqID</th><th>QuoteID</th><th>ClOrdID</th></tr>
+          <tbody data-grp>
+            <tr class="group"><td><button class="fold" type="button" aria-expanded="true">▼</button></td>
+              <td colspan="4"><span class="label">RFQ-A1</span> <span class="spans">· EUR/USD 10M · <span class="sb client"></span><span class="sb lp1"></span><span class="sb lp2"></span><span class="sb lp3"></span>4 sessions</span></td>
+              <td>QuoteRequest ×4 · Quote ×4 · Order ×2 · ExecReport ×4 · <span class="ok">Filled</span></td>
+              <td class="num warn">644 ms</td><td class="id t2">RFQ-A1 · V-2291</td><td class="id t2">Q-LP1-77 +2</td><td class="id t2">ORD-9 · V-ORD-8813</td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb client"></span>CLIENT-A</span></td><td class="t2">10:00:01.100</td><td class="out">OUT</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="num dim">—</td><td class="id">RFQ-A1</td><td></td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp1"></span>LP-1</span></td><td class="t2">10:00:01.131</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="num warn">+31</td><td class="id">V-2291</td><td></td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp2"></span>LP-2</span></td><td class="t2">10:00:01.133</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="num warn">+2</td><td class="id">V-2291</td><td></td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp3"></span>LP-3</span></td><td class="t2">10:00:01.134</td><td class="inc">IN</td><td>R</td><td>QuoteRequest EUR/USD 10,000,000</td><td class="num warn">+1</td><td class="id">V-2291</td><td></td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp2"></span>LP-2</span></td><td class="t2">10:00:01.180</td><td class="out">OUT</td><td>S</td><td>Quote 1.0850 / 1.0853</td><td class="num warn">+46</td><td class="id">V-2291</td><td class="id">Q-LP2-31</td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp1"></span>LP-1</span></td><td class="t2">10:00:01.192</td><td class="out">OUT</td><td>S</td><td>Quote 1.0849 / 1.0851</td><td class="num warn">+12</td><td class="id">V-2291</td><td class="id">Q-LP1-77</td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp3"></span>LP-3</span></td><td class="t2">10:00:01.240</td><td class="out">OUT</td><td>S</td><td>Quote 1.0851 / 1.0854</td><td class="num warn">+48</td><td class="id">V-2291</td><td class="id">Q-LP3-05</td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb client"></span>CLIENT-A</span></td><td class="t2">10:00:01.310</td><td class="inc">IN</td><td>S</td><td>Quote 1.0849 / 1.0851</td><td class="num warn">+70</td><td class="id">RFQ-A1</td><td class="id">Q-LP1-77</td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb client"></span>CLIENT-A</span></td><td class="t2">10:00:01.520</td><td class="out">OUT</td><td>D</td><td>NewOrderSingle Buy 10,000,000</td><td class="num warn">+210</td><td></td><td class="id">Q-LP1-77</td><td class="id">ORD-9</td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp1"></span>LP-1</span></td><td class="t2">10:00:01.548</td><td class="inc">IN</td><td>D</td><td>NewOrderSingle Buy 10,000,000</td><td class="num warn">+28</td><td></td><td class="id">Q-LP1-77</td><td class="id">V-ORD-8813</td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp1"></span>LP-1</span></td><td class="t2">10:00:01.590</td><td class="out">OUT</td><td>8</td><td>ExecReport · New</td><td class="num warn">+42</td><td></td><td></td><td class="id">V-ORD-8813</td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb client"></span>CLIENT-A</span></td><td class="t2">10:00:01.610</td><td class="inc">IN</td><td>8</td><td>ExecReport · New</td><td class="num warn">+20</td><td></td><td></td><td class="id">ORD-9</td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb lp1"></span>LP-1</span></td><td class="t2">10:00:01.712</td><td class="out">OUT</td><td>8</td><td>ExecReport · <span class="ok">Filled</span></td><td class="num warn">+102</td><td></td><td></td><td class="id">V-ORD-8813</td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb client"></span>CLIENT-A</span></td><td class="t2">10:00:01.744</td><td class="inc">IN</td><td>8</td><td>ExecReport · <span class="ok">Filled</span></td><td class="num warn">+32</td><td></td><td></td><td class="id">ORD-9</td></tr>
+          </tbody>
+          <tbody data-grp class="collapsed">
+            <tr class="group"><td><button class="fold" type="button" aria-expanded="false">▶</button></td>
+              <td colspan="4"><span class="label">RFQ-B2</span> <span class="spans">· GBP/USD 5M · <span class="sb client"></span>1 session</span></td>
+              <td>QuoteRequest ×1 · Quote ×1 · Order ×1 · New</td>
+              <td class="num warn">437 ms</td><td class="id t2">RFQ-B2</td><td class="id t2">Q-9</td><td class="id t2">ORD-91</td></tr>
+            <tr class="member"><td colspan="10" class="hint">No other session carries any of this trace's ids. If the venue forwards it under an id of its own, declare that tag in the dictionary's <code style="background:var(--fx-surface);color:var(--fx-text2)">.roles.json</code> sidecar and the join is automatic.<span class="link">Link to another trace…</span></td></tr>
+          </tbody>
+          <tbody data-grp class="collapsed">
+            <tr class="group"><td><button class="fold" type="button" aria-expanded="false">▶</button></td>
+              <td colspan="4"><span class="label">Ungrouped</span></td><td class="dim">4 messages · heartbeats, session traffic</td><td class="num dim">—</td><td></td><td></td><td></td></tr>
+            <tr class="member"><td></td><td><span class="sess"><span class="sb client"></span>CLIENT-A</span></td><td class="t2">10:00:31.100</td><td class="inc">IN</td><td>0</td><td>Heartbeat</td><td class="num dim">—</td><td></td><td></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div data-panel="lanes" class="scroller" hidden>
+        <div class="lanes">
+          <div class="lh">elapsed</div>
+          <div class="lh"><span class="sb client"></span> CLIENT-A<span class="role">initiator</span></div>
+          <div class="lh acc-first"><span class="sb lp1"></span> LP-1<span class="role">acceptor</span></div>
+          <div class="lh"><span class="sb lp2"></span> LP-2<span class="role">acceptor</span></div>
+          <div class="lh"><span class="sb lp3"></span> LP-3<span class="role">acceptor</span></div>
+
+          <div class="el t">01.100</div><div class="lc on out-side"><span class="msg out"><span class="mt">R</span> QuoteRequest <span class="id">RFQ-A1</span><span class="arr">▶</span></span></div><div class="lc acc-first"></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+31</div><div class="lc"></div><div class="lc on acc-first"><span class="msg inc"><span class="arr">◀</span><span class="mt">R</span> QuoteRequest <span class="id">V-2291</span></span></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+2</div><div class="lc"></div><div class="lc acc-first"></div><div class="lc on"><span class="msg inc"><span class="arr">◀</span><span class="mt">R</span> QuoteRequest <span class="id">V-2291</span></span></div><div class="lc"></div>
+          <div class="el">+1</div><div class="lc"></div><div class="lc acc-first"></div><div class="lc"></div><div class="lc on"><span class="msg inc"><span class="arr">◀</span><span class="mt">R</span> QuoteRequest <span class="id">V-2291</span></span></div>
+          <div class="el">+46</div><div class="lc"></div><div class="lc acc-first"></div><div class="lc on out-side"><span class="msg out"><span class="mt">S</span> 1.0850 / 1.0853 <span class="id">Q-LP2-31</span><span class="arr">▶</span></span></div><div class="lc"></div>
+          <div class="el">+12</div><div class="lc"></div><div class="lc on acc-first out-side"><span class="msg out"><span class="mt">S</span> 1.0849 / 1.0851 <span class="id">Q-LP1-77</span><span class="arr">▶</span></span></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+48</div><div class="lc"></div><div class="lc acc-first"></div><div class="lc"></div><div class="lc on out-side"><span class="msg out"><span class="mt">S</span> 1.0851 / 1.0854 <span class="id">Q-LP3-05</span><span class="arr">▶</span></span></div>
+          <div class="el">+70</div><div class="lc on"><span class="msg inc"><span class="arr">◀</span><span class="mt">S</span> 1.0849 / 1.0851 <span class="id">Q-LP1-77</span></span></div><div class="lc acc-first"></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+210</div><div class="lc on out-side"><span class="msg out"><span class="mt">D</span> Buy 10,000,000 <span class="id">ORD-9</span><span class="arr">▶</span></span></div><div class="lc acc-first"></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+28</div><div class="lc"></div><div class="lc on acc-first"><span class="msg inc"><span class="arr">◀</span><span class="mt">D</span> Buy 10,000,000 <span class="id">V-ORD-8813</span></span></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+42</div><div class="lc"></div><div class="lc on acc-first out-side"><span class="msg out"><span class="mt">8</span> New <span class="id">LP1-X1</span><span class="arr">▶</span></span></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+20</div><div class="lc on"><span class="msg inc"><span class="arr">◀</span><span class="mt">8</span> New <span class="id">4471</span></span></div><div class="lc acc-first"></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+102</div><div class="lc"></div><div class="lc on acc-first out-side"><span class="msg out"><span class="mt">8</span> <span class="ok">Filled</span> <span class="id">LP1-X1</span><span class="arr">▶</span></span></div><div class="lc"></div><div class="lc"></div>
+          <div class="el">+32</div><div class="lc on"><span class="msg inc"><span class="arr">◀</span><span class="mt">8</span> <span class="ok">Filled</span> <span class="id">4471</span></span></div><div class="lc acc-first"></div><div class="lc"></div><div class="lc"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>Follow, then read.</b> The chip is the whole filter: no text, nothing to keep in sync, and it grows as the venue mints. Stop following and every pane's own filter comes back untouched. The Trace panel sits where pinned search results already live.</p>
+</div>
+
+<section class="col">
+  <h2>Ledger: every trace, every session, one grid</h2>
+  <p>The Ledger is the grouped grid the app already draws, run over all sessions at once. Two things change. A <strong>Session</strong> column says where each row happened, and the group header counts sessions as well as messages, so <em>which RFQs touched more than one session</em> is read off the headers.</p>
+  <p><strong>Elapsed</strong> is the time since the previous message in the trace, whichever session it was on. Every timestamp in the ledger comes from the same clock, because FixTool held every one of these sessions. So <code>+31</code> between the client's request going out and LP-1's copy arriving is a real measurement of the venue, not a guess reconciled across two machines' logs. The tool states the gap. It does not say what caused it.</p>
+  <p>Nothing is hidden. Heartbeats and anything without a correlation id land in Ungrouped, last and counted, as they do today. A trace whose first message has already left the session buffer says so in its header rather than pretending to have started later.</p>
+</section>
+
+<section class="col">
+  <h2>Lanes: the same rows, as the picture QAs draw</h2>
+  <p>Switch the panel to <strong>Lanes</strong> and each session becomes a column, time runs down, and each message sits in its lane pointing out of FixTool or into it. Initiator sessions sit left of the dashed rule, acceptors right of it. That split is read from the profiles, not inferred.</p>
+  <p>The venue under test is the space between the lanes. Nothing is drawn there, because FixTool holds no session with itself. What it does hold is both ends of every hop, which is why the request leaving the client lane and arriving in three acceptor lanes a few milliseconds later is the one view a venue's own logs cannot give.</p>
+  <p>In a both-sides test, where FixTool plays the client and the venue in one instance, the same bytes appear as an OUT in one lane and an IN in another. Lanes draws those as one arrow when the wire bytes are identical, which is a fact about the bytes, not a claim about the venue.</p>
+</section>
+
+<section class="col">
+  <h2>Where the chain breaks</h2>
+  <p>A trace only crosses a session boundary where some value crosses it. A venue that mints a fresh id per hop and echoes nothing leaves no edge, and no tool can join those honestly. Two remedies, neither of which guesses:</p>
+  <ul>
+    <li><strong>Declare the tag.</strong> Most venues carry the originating id somewhere on the far side, often in a proprietary tag. Naming that tag in the dictionary's roles sidecar makes it a correlation id everywhere, and the trace joins with no further work. The header hint above is the tool saying so at the moment it matters.</li>
+    <li><strong>Link by hand.</strong> A QA who knows two traces are one exchange says so, and the ledger draws them joined with a dotted rule labelled as linked by them. Never joined by time proximity, which would be the tool inventing an edge.</li>
+  </ul>
+</section>
+
+<section class="col">
+  <h2>Three treatments, one recommendation</h2>
+  <div class="rec">
+    <div><p class="k">A · Follow only</p><h4>The chip, no new panel</h4><p>Every pane narrows to the followed trace; reading stays in the panes QAs already know.</p><p>Removes every failure in the list above. Order across panes still lives in the reader's head, and in tabs view they still flip tabs.</p></div>
+    <div class="pick"><p class="k">A + B · Follow and Ledger</p><h4>The chip opens the Trace panel</h4><p>One grid, all sessions, all traces, in time order with a Session column and elapsed gaps. Reuses the grouped grid and its columns unchanged.</p><p>Answers every question the regex was trying to ask, for every trace at once, with the same columns and folding the grid has today.</p></div>
+    <div><p class="k">C · Lanes</p><h4>The panel's second rendering</h4><p>Swimlanes for one followed trace: the whiteboard diagram, drawn from the ledger's rows.</p><p>Most readable for one exchange; not a view of many at once. Ships after A + B is live-verified, as a toggle inside the same panel.</p></div>
+  </div>
+  <p>Follow with the Ledger first, because it changes what a QA can be wrong about. Lanes second, because it changes how fast they read. Manual linking and the roles-sidecar hint ride with the Ledger, since the header is where the break shows.</p>
+</section>
+</main>
+
+<script>
+(function () {
+  var demo = document.getElementById('demo');
+  function setFollow(on) {
+    demo.classList.toggle('following', on);
+    demo.querySelectorAll('[data-follow]').forEach(function (b) {
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.classList.toggle('active', on);
+      b.textContent = on ? 'Following' : 'Follow ↗';
+    });
+    if (on) {
+      var panel = demo.querySelector('.tracepanel');
+      if (panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+  demo.querySelectorAll('[data-follow]').forEach(function (b) {
+    b.addEventListener('click', function () { setFollow(!demo.classList.contains('following')); });
+  });
+  demo.querySelectorAll('[data-unfollow]').forEach(function (b) {
+    b.addEventListener('click', function () { setFollow(false); });
+  });
+  document.querySelectorAll('button.fold').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var body = b.closest('tbody');
+      var open = body.classList.toggle('collapsed') === false;
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+      b.textContent = open ? '▼' : '▶';
+    });
+  });
+  demo.querySelectorAll('[data-tab]').forEach(function (t) {
+    t.addEventListener('click', function () {
+      var which = t.getAttribute('data-tab');
+      demo.querySelectorAll('[data-tab]').forEach(function (o) { o.setAttribute('aria-selected', o === t ? 'true' : 'false'); });
+      demo.querySelectorAll('[data-panel]').forEach(function (p) { p.hidden = p.getAttribute('data-panel') !== which; });
+    });
+  });
+})();
+</script>
+</body>
+</html>

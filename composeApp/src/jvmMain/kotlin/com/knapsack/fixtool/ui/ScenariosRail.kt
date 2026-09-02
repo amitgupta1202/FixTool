@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.rememberDialogState
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.ScenarioSort
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
@@ -101,6 +102,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     val running by viewModel.scenarioRunning.collectAsState()
     val runningSets by viewModel.runningSetIds.collectAsState()
     val busySessions by viewModel.busySessions.collectAsState()
+    val busyHolders by viewModel.busyHolders.collectAsState()
     val result by viewModel.scenarioResult.collectAsState()
     val ran by viewModel.lastRunScenario.collectAsState()
     val viewState by viewModel.scenarioViewState.collectAsState()
@@ -232,8 +234,15 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     val picked = remember(scenarios, selection) { scenarios.filter { it.id in selection } }
     // One RunView for the whole rail: the selection bar's "can these run" must be the same question the
     // rows' own Run buttons answer, or the bar offers a run the rows say is impossible.
-    val run = RunView(ran, result, running, busySessions)
-    val runSelected: () -> Unit = { viewModel.startRunSet(viewModel.planSuite(picked, "selected (${picked.size})")) }
+    val run = RunView(ran, result, running, busySessions, busyHolders)
+    // The claim can still be refused between reading the tooltip and clicking — and a run that names no
+    // sessions conflicts with everything without appearing in `busySessions` at all, so the button was
+    // never grey for it. A Run that does nothing and says nothing is the worst of the three outcomes.
+    val runSelected: () -> Unit = {
+        if (viewModel.startRunSet(viewModel.planSuite(picked, "selected (${picked.size})")) == null) {
+            viewModel.showNotification(viewModel.runBusyReason(), NotificationType.WARNING)
+        }
+    }
 
     // Slim interactive targets, as the workbench had: Material3's 48dp minimum is a touch-screen convention
     // that would leave this rail room for a name and nothing else.
@@ -332,9 +341,9 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                 RailSelectionBar(
                     selected = selection.size,
                     total = scenarios.size,
-                    running = running,
-                    // Every picked scenario has to be startable, or the set stops at the first busy one.
-                    canRun = picked.isNotEmpty() && picked.all { run.canRun(it) },
+                    // Every picked scenario has to be startable, or the set stops at the first busy one
+                    // — and when one is not, the button says which, rather than going quietly grey.
+                    blocked = blockedReason(picked, run),
                     allStarred = picked.isNotEmpty() && picked.all { it.id in viewState.favouriteIds },
                     onRun = runSelected,
                     onSaveAsSet = { savingSet = true },
@@ -479,26 +488,56 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     }
 }
 
-/** Everything the tree needs to know about the last run, in one value so a row is not handed four. */
-private data class RunView(
+/**
+ * Everything the tree needs to know about the last run, in one value so a row is not handed four.
+ *
+ * `internal`, like [scenarioVerdict] beside it, because the questions it answers — can this start, and if
+ * not what is holding it — are worth a unit test rather than a UI one.
+ */
+internal data class RunView(
     val ran: Scenario?,
     val result: ScenarioResult?,
     val running: Boolean,
     /** Sessions a run currently holds. A scenario that touches none of them can still be run. */
     val busySessions: Set<String> = emptySet(),
+    /** Which run holds each of those, for the sentence a greyed-out Run owes the author. */
+    val busyHolders: Map<String, String> = emptyMap(),
 ) {
     /**
      * **Can this scenario run right now?** Not "is anything running" — the run slot is a claim over
      * sessions, so a flow on UAT is free to start while a fifty-lane load test holds LOADGEN.
+     */
+    fun canRun(scenario: Scenario): Boolean = blockedOn(scenario).isEmpty()
+
+    /**
+     * **Which of the sessions this scenario needs are already held**, and therefore why it cannot start.
+     * Empty means it can.
      *
      * A scenario naming no session runs on whichever session is first, so it waits for everything: the
      * one case the claim cannot reason about is the one the button must not encourage.
      */
-    fun canRun(scenario: Scenario): Boolean {
+    fun blockedOn(scenario: Scenario): Set<String> {
         val steps = (scenario.setup + scenario.steps + scenario.teardown).filterNot { it.muted }
-        if (steps.any { it.sessionOrNull() == null }) return busySessions.isEmpty()
-        return steps.mapNotNull { it.sessionOrNull() }.none { it in busySessions }
+        if (steps.any { it.sessionOrNull() == null }) return busySessions
+        return steps.mapNotNull { it.sessionOrNull() }.filterTo(mutableSetOf()) { it in busySessions }
     }
+}
+
+/**
+ * **Why the picked set cannot start — or null when it can.**
+ *
+ * A disabled button with no sentence beside it is how an author concludes a feature is broken. The rail
+ * already says this at the moment of refusal (`describeClash`, which a 409 carries); with twenty
+ * scenarios picked and one session held, saying it *only* afterwards means guessing which of the twenty
+ * is the problem.
+ */
+internal fun blockedReason(picked: List<Scenario>, run: RunView): String? {
+    val blocked = picked.filter { run.blockedOn(it).isNotEmpty() }
+    if (blocked.isEmpty()) return null
+    val sessions = blocked.flatMapTo(sortedSetOf()) { run.blockedOn(it) }
+    val holders = sessions.mapNotNull { run.busyHolders[it] }.distinct()
+    val held = if (holders.isEmpty()) "" else " — held by ${holders.joinToString { "'$it'" }}"
+    return "${blocked.size} of ${picked.size} wait on ${sessions.joinToString()}$held"
 }
 
 /**
@@ -1055,8 +1094,8 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
 private fun RailSelectionBar(
     selected: Int,
     total: Int,
-    running: Boolean,
-    canRun: Boolean,
+    /** Why Run is refused, or null when it is not — the tooltip, and the enabled state, in one value. */
+    blocked: String?,
     allStarred: Boolean,
     onRun: () -> Unit,
     onSaveAsSet: () -> Unit,
@@ -1078,13 +1117,15 @@ private fun RailSelectionBar(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).testTag("rail-selection-count"),
         )
-        SlimButton(
-            "▶ Run",
-            onClick = onRun,
-            color = AppTheme.Colors.success,
-            enabled = !running && canRun,
-            modifier = Modifier.testTag("rail-selection-run"),
-        )
+        AppTooltip(blocked ?: "Run the $selected picked scenarios, in one set") {
+            SlimButton(
+                "▶ Run",
+                onClick = onRun,
+                color = AppTheme.Colors.success,
+                enabled = blocked == null,
+                modifier = Modifier.testTag("rail-selection-run"),
+            )
+        }
         SlimButton("Save…", onClick = onSaveAsSet, color = AppTheme.Colors.textSecondary, modifier = Modifier.testTag("rail-selection-save"))
         SlimButton(
             if (allStarred) "☆" else "★",

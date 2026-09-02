@@ -96,12 +96,17 @@ object McpTools {
                     "`trace` opens the Trace panel (the Ledger: every exchange across every session, with its " +
                     "session count and the gap between its messages). Add `follow` with a whole correlation " +
                     "value to narrow every pane to that one exchange — the same set fixtool_trace returns — or " +
-                    "`follow: null` to stop. Following opens the panel; show:false closes it without unfollowing.",
+                    "`follow: null` to stop. Following opens the panel; show:false closes it without unfollowing. " +
+                    "`render` switches the same rows between the two drawings: `ledger` (the grid, every trace) " +
+                    "or `lanes` (one column per session, time down, the followed trace only — so follow " +
+                    "something first or it shows the list to pick from). Combines with follow and show; the " +
+                    "response always says which drawing is on screen.",
                 props(
                     "panel" to
                         enumStr("connection", "editor", "detail", "settings", "scenarios", "conversations", "trace", "orderbook"),
                     "show" to boolean("default true"),
                     "follow" to string("trace: a whole correlation value to follow, or null to stop following"),
+                    "render" to enumStr("ledger", "lanes"),
                     "profile" to string("profile id or name (connection, or editor with a rule)"),
                     "rule" to integer("editor: which acceptor rule's reply to edit"),
                     "step" to integer("editor: which step of that reply (default 0)"),

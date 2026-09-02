@@ -5,6 +5,7 @@ import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.service.FixMessageHelper
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import com.knapsack.fixtool.viewmodel.TraceRendering
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -374,6 +375,42 @@ class TracesIntegrationTest {
 
         assertEquals("RFQ-A1", body["following"]!!.jsonPrimitive.content)
         assertEquals(false, body["show"]!!.jsonPrimitive.boolean)
+    }
+
+    /**
+     * **The panel's second drawing, driven from the same call.** An agent scripting a Lanes screenshot
+     * says "follow this and draw it as lanes" once, because that is one thought — the same reason
+     * `follow` and `show` already combine.
+     */
+    @Test
+    fun `render switches the drawing, and combines with follow`() {
+        clientAndLiquidityProvider()
+
+        val opened = obj(post("/panel", """{"panel":"trace"}"""))
+        assertEquals("ledger", opened["render"]!!.jsonPrimitive.content, "the grid is what the panel opens on")
+
+        val body = obj(post("/panel", """{"panel":"trace","follow":"V-2291","render":"lanes"}"""))
+
+        assertEquals("ok", body["status"]!!.jsonPrimitive.content)
+        assertEquals("lanes", body["render"]!!.jsonPrimitive.content)
+        assertEquals("RFQ-A1", body["following"]!!.jsonPrimitive.content, "one call, both things said")
+        assertEquals(TraceRendering.LANES, viewModel.traceRendering.value)
+
+        // And back, without touching what is followed — each key does one thing.
+        val back = obj(post("/panel", """{"panel":"trace","render":"ledger"}"""))
+        assertEquals("ledger", back["render"]!!.jsonPrimitive.content)
+        assertEquals("RFQ-A1", back["following"]!!.jsonPrimitive.content)
+    }
+
+    /** A rendering nobody defined is a typo, and a typo that silently drew the Ledger would be worse. */
+    @Test
+    fun `an unknown render is refused`() {
+        clientAndLiquidityProvider()
+
+        val body = obj(post("/panel", """{"panel":"trace","render":"swimlanes"}"""))
+
+        assertEquals("error", body["status"]!!.jsonPrimitive.content)
+        assertEquals(TraceRendering.LEDGER, viewModel.traceRendering.value)
     }
 
     @Test

@@ -64,6 +64,7 @@ import com.knapsack.fixtool.ui.diff.EditOp
 import com.knapsack.fixtool.ui.diff.ReconcileSession
 import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import com.knapsack.fixtool.viewmodel.TraceRendering
 import com.sun.net.httpserver.Headers
 import com.sun.net.httpserver.HttpContext
 import com.sun.net.httpserver.HttpExchange
@@ -498,6 +499,17 @@ class ControlServer(
             if (hasFollow && followField !is JsonNull && followId == null) {
                 return errorObject("'follow' must be a whole correlation value, or null to stop following")
             }
+            // Which of the panel's two drawings to show. A third key on the same call for the same
+            // reason `follow` and `show` share one: "follow this and draw it as lanes" is one thought,
+            // and an agent scripting a screenshot should not need three round-trips to say it.
+            val renderField = body["render"]?.jsonPrimitive?.content
+            val rendering =
+                when (renderField?.lowercase()) {
+                    null -> null
+                    "ledger" -> TraceRendering.LEDGER
+                    "lanes" -> TraceRendering.LANES
+                    else -> return errorObject("'render' must be 'ledger' or 'lanes'")
+                }
             val hasShow = body.containsKey("show")
             val state =
                 onEdt {
@@ -506,6 +518,7 @@ class ControlServer(
                         // the same asymmetry the ✕ on the chip has.
                         if (followId != null) viewModel.follow(followId) else viewModel.unfollow()
                     }
+                    if (rendering != null) viewModel.setTraceRendering(rendering)
                     // With neither key, `show` keeps its default of true and this is "open the panel",
                     // as it is for every other panel name.
                     if (hasShow || !hasFollow) {
@@ -514,10 +527,14 @@ class ControlServer(
                     viewModel.tracePanelOpen.value to viewModel.followedTrace.value
                 }
             val followed = state.second
+            // The rendering as the app holds it, not what was asked for — a call that named none still
+            // reports which drawing is on screen, so a caller never has to assume.
+            val drawnAs = viewModel.traceRendering.value
             return buildJsonObject {
                 put("status", "ok")
                 put("panel", name)
                 put("show", state.first)
+                put("render", drawnAs.name.lowercase())
                 // What is followed *as the app resolved it*, not what was asked for. An id the venue has
                 // not echoed yet is followed with nothing in it, and `pending` is how a caller tells
                 // that apart from a typo — which /trace would have answered with a 404.

@@ -153,7 +153,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `GET /profiles?profile=` | query: `profile` (id or name)      | **one profile's whole config** — every field, for a read → edit → save round-trip. Passwords read as `[REDACTED]` |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?, "replace"?}` | create, or **merge** into an existing profile if `id` is given → `{status, id, name, mode, applied[], warnings?}`. `replace:true` replaces the whole config instead |
 | `DELETE /profiles`   | `{"id"}` (or `?id=`)                   | delete a profile (demo profiles are protected)       |
-| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations\|trace\|orderbook", "show"?, "follow"?, "profile"?, "rule"?, "step"?, "action"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `trace` opens the Trace panel and takes `"follow"`: a whole correlation value to narrow every pane to that exchange, or `null` to stop — see [Following one exchange across every session](#following-one-exchange-across-every-session); `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does; `editor` with a `profile` and a `rule` (+ optional `step`) opens that acceptor rule's reply step in the message editor, and `action:apply`/`action:cancel` finishes it) |
+| `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations\|trace\|orderbook", "show"?, "follow"?, "render"?, "profile"?, "rule"?, "step"?, "action"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `trace` opens the Trace panel and takes `"follow"`: a whole correlation value to narrow every pane to that exchange, or `null` to stop, and `"render"`: `ledger` (the grid, every trace) or `lanes` (the followed trace as swimlanes) — see [Following one exchange across every session](#following-one-exchange-across-every-session); `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does; `editor` with a `profile` and a `rule` (+ optional `step`) opens that acceptor rule's reply step in the message editor, and `action:apply`/`action:cancel` finishes it) |
 | `GET /templates`     | query: `profile`?                      | list saved templates (name, type, userTags, isFavorite, fields) |
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
@@ -295,10 +295,12 @@ curl -s -XPOST $B/panel -d '{"panel":"trace"}'                      # open the L
 curl -s -XPOST $B/panel -d '{"panel":"trace","follow":"V-2291"}'    # follow (this opens it too)
 curl -s -XPOST $B/panel -d '{"panel":"trace","follow":null}'        # stop following
 curl -s -XPOST $B/panel -d '{"panel":"trace","show":false}'         # close the panel, keep following
+curl -s -XPOST $B/panel -d '{"panel":"trace","follow":"V-2291","render":"lanes"}'   # follow, drawn as lanes
+curl -s -XPOST $B/panel -d '{"panel":"trace","render":"ledger"}'    # back to the grid
 ```
 
 ```jsonc
-{"status":"ok", "panel":"trace", "show":true,
+{"status":"ok", "panel":"trace", "show":true, "render":"lanes",
  "following":"RFQ-A1",        // the trace's label as the app resolved it, or null
  "followingAnchor":"V-2291",  // the id you asked for — a trace has several names
  "pending":false,             // true = followed, but no message carries that id YET. Not a typo:
@@ -307,10 +309,30 @@ curl -s -XPOST $B/panel -d '{"panel":"trace","show":false}'         # close the 
  "sessionCount":2, "messageCount":4}
 ```
 
-`follow` and `show` combine, and each does one thing: `follow` with a value follows and opens the
-panel, `follow:null` stops following and leaves the panel as it was, `show` opens or closes without
-touching what is followed. Closing the panel never unfollows — the toolbar chip goes on naming what
-the panes are narrowed to.
+`follow`, `show` and `render` combine, and each does one thing: `follow` with a value follows and
+opens the panel, `follow:null` stops following and leaves the panel as it was, `show` opens or closes
+without touching what is followed, `render` switches the drawing without touching either. Closing the
+panel never unfollows — the toolbar chip goes on naming what the panes are narrowed to. `render` is
+echoed on every `trace` call, asked for or not, so a caller never has to assume which drawing a
+screenshot is about to catch.
+
+#### Ledger and Lanes — two drawings of the same rows
+
+`render:"ledger"` (the default) is the grid: **every** trace, its session count, its composition and
+the gap between its messages. `render:"lanes"` is the swimlane picture of the **one** followed trace:
+a column per session with initiators left of a dashed rule and acceptors right of it (read from each
+profile's `connectionType`, not inferred from CompIDs), time running down, and each message a chip in
+the lane of the pane that logged it. With nothing followed, Lanes lists the traces to pick from rather
+than drawing an empty grid — so an agent scripting a Lanes screenshot follows first.
+
+The two cannot disagree, because both read the same trace rows, with one deliberate difference: in a
+both-sides test the same bytes appear as an OUT on one pane and an IN on another, and **Lanes draws
+those as one arrow when the bytes are identical**. That is a fact about two strings — not a claim that
+the venue forwarded anything. The Ledger keeps both rows, because both panes logged it. The elapsed
+printed on the arrow is the gap between the two ends of that hop, measured on one clock; the gutter
+beside a row is the gap since the previous row *started* (so it never goes negative when a venue fans
+one request out to several lanes), and where nothing pairs — every real venue test — it is the
+Ledger's Elapsed to the millisecond. Like every other elapsed here both state a gap and never a cause.
 
 The Ledger's fold is per `(opener session, label)`, never per label: across sessions two venues both
 saying `ORD-1` is the normal case, not the edge.

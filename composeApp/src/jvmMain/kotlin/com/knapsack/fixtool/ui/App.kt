@@ -20,12 +20,14 @@ import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.ReplyShape
+import com.knapsack.fixtool.service.TraceLanes
 import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
 import com.knapsack.fixtool.ui.terminal.TerminalController
 import com.knapsack.fixtool.ui.terminal.TerminalDockSlot
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import com.knapsack.fixtool.viewmodel.TraceRendering
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -1486,6 +1488,32 @@ private fun AppTracePanel(
     selectedMessage: FixMessage?,
     modifier: Modifier = Modifier,
 ) {
+    val rendering by viewModel.traceRendering.collectAsState()
+    val index by viewModel.traceIndex.collectAsState()
+    val followed by viewModel.followedTrace.collectAsState()
+    val anchor = followed?.anchorId
+
+    /**
+     * The followed trace as lanes, built only while Lanes is the drawing on screen.
+     *
+     * Keyed on the same index generation `rows` is, so the two renderings can never be one tick apart —
+     * and gated on the rendering so a reader on the Ledger pays nothing for the picture they are not
+     * looking at.
+     */
+    val lanes =
+        remember(index, anchor, rendering) {
+            if (rendering != TraceRendering.LANES) {
+                null
+            } else {
+                val current = index
+                current
+                    ?.grouping
+                    ?.traces
+                    ?.firstOrNull { anchor != null && anchor in it.ids }
+                    ?.let { TraceLanes.build(it, current.snapshots, current.sessionTitles, current.sessionRoles) }
+            }
+        }
+
     TracePanel(
         rows = rows,
         sessionTitles = sessionTitles,
@@ -1493,6 +1521,9 @@ private fun AppTracePanel(
         dictionary = viewModel.dictionary,
         appSettings = viewModel.appSettings,
         followingLabel = followingLabel,
+        rendering = rendering,
+        lanes = lanes,
+        onSetRendering = { viewModel.setTraceRendering(it) },
         onToggleTrace = { key -> viewModel.toggleTrace(key) },
         onToggleUngrouped = { viewModel.toggleUngroupedTraces() },
         // The keys of what is on screen right now, not of some index the panel is not drawing — see

@@ -1,9 +1,12 @@
 package com.knapsack.fixtool.perf
 
 import com.knapsack.fixtool.model.FixDictionaryAdapter
+import com.knapsack.fixtool.model.FixMessage
+import com.knapsack.fixtool.service.LaneRole
 import com.knapsack.fixtool.service.ConversationRows
 import com.knapsack.fixtool.service.Conversations
 import com.knapsack.fixtool.service.FixMessageHelper
+import com.knapsack.fixtool.service.TraceLanes
 import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.service.Traces
 import org.junit.Test
@@ -225,6 +228,68 @@ class GroupingBenchmarkTest {
         assertTrue(
             expanded.bytesPerOp < 2_500_000,
             "8,000 rows should cost a small object each, not a re-parse; got ${expanded.bytesPerOp} B",
+        )
+    }
+
+    /**
+     * **What Lanes costs to lay out** — one followed trace of a thousand messages, over eight panes.
+     *
+     * `TraceLanes.build` sits behind a `remember` keyed on the index, so during live traffic it runs on
+     * the same 100 ms drain tick the Ledger's rows do, and the budget is the same: finish inside the
+     * tick with eight pane rebuilds beside it.
+     *
+     * The corpus is the shape that makes pairing work hardest, which is also the shape Lanes exists for.
+     * Every pane holds the *same* fill stream against one order — so all 1,000 messages are one trace
+     * across all eight sessions, and every message on an OUT pane has a byte-identical twin on each of
+     * the four IN panes. That is the worst case for the same-bytes index: one bucket per distinct
+     * message body, every candidate in it live, and half the trace looking for a partner.
+     *
+     * The figure to protect is that this stays proportional to the messages laid out — one small row
+     * object each, plus the index — rather than to messages times candidates, which is what a linear
+     * scan per arrival would have cost.
+     */
+    @Test
+    fun `laying out lanes over a thousand-message trace on eight sessions`() {
+        // Half the panes send it and half receive it: a both-sides test at eight panes, which is what
+        // makes every message a pairing candidate rather than a row on its own.
+        val snapshots =
+            List(8) { session ->
+                Corpus.fillStream(125, order = "ORD-1").map { message ->
+                    if (session % 2 == 0) message.copy(direction = FixMessage.Direction.OUTGOING) else message
+                }
+            }
+        val titles = List(8) { "SESSION-$it" }
+        val roles = List(8) { if (it % 2 == 0) LaneRole.INITIATOR else LaneRole.ACCEPTOR }
+        val trace = Traces.group(snapshots, dictionary).traces.single()
+        assertEquals(1_000, trace.members.size, "one order's fills on eight panes is one trace of a thousand")
+
+        val result =
+            Bench.measure("TraceLanes.build over a 1,000-message 8-session trace", ops = 5) {
+                TraceLanes.build(trace, snapshots, titles, roles)
+            }
+
+        val lanes = TraceLanes.build(trace, snapshots, titles, roles)
+        println("\n┌─ Lanes layout over a 1,000-message trace on 8 sessions")
+        println("│  " + result.render())
+        println("│  → %.1f ms per layout, against a 100 ms drain tick".format(result.nanosPerOp / 1_000_000.0))
+        println("│  → %d lanes, %d rows, %d of them same-bytes hops".format(lanes.lanes.size, lanes.rows.size, lanes.rows.count { it.paired }))
+        println("└─\n")
+
+        assertEquals(8, lanes.lanes.size, "one column per pane the trace touched")
+        assertEquals(
+            trace.members.size,
+            lanes.rows.sumOf { if (it.paired) 2 else 1 },
+            "every message drawn exactly once — a hop is one row with two ends, never a dropped message",
+        )
+
+        // Allocation, not the stopwatch, for the reason Bench's own KDoc gives. Measured at ~0.14 MB and
+        // ~0.4 ms — an order of magnitude under the grouping it draws from, because it reads only each
+        // message's timestamp, direction and bytes and never its fields. The pin is what stops a return
+        // to scanning every pending candidate per arrival, which showed up here as the allocation of the
+        // index times the messages rather than beside them.
+        assertTrue(
+            result.bytesPerOp < 600_000,
+            "laying out 1,000 messages should cost a small object each; got ${result.bytesPerOp} B",
         )
     }
 

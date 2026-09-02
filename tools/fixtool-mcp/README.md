@@ -82,7 +82,7 @@ list becomes available, so starting the app after Claude Code is fine.
 ## Example flow (self-contained, no external server)
 
 1. `fixtool_demo { "action": "start" }`
-2. `fixtool_connect { "profile": "Demo User 1" }`
+2. `fixtool_connect { "profile": "Demo Client 1" }`
 3. Poll `fixtool_sessions` until state is `LOGGED_ON`
 4. `fixtool_send { "raw": "8=FIX.4.4|35=D|11=ORD1|55=EUR/USD|54=1|38=1000000|40=1|60=20260624-21:47:47|" }`
 5. `fixtool_get_messages { "session": "0", "direction": "incoming" }` → assert an

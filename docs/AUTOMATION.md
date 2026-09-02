@@ -3,7 +3,7 @@
 FixTool ships an optional, loopback-only HTTP **control surface** that lets external tools —
 Claude Code via the [MCP server](../tools/fixtool-mcp/README.md), plain `curl`, or CI
 scripts — drive a running instance for automated testing: connect sessions, send FIX
-messages, read back parsed messages to verify fields, toggle the built-in demo server, and
+messages, read back parsed messages to verify fields, install the demo FX venue workspace, and
 capture screenshots.
 
 ## Why a control surface (and not "Playwright for the UI")
@@ -158,7 +158,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
 | `POST /templates/load` | `{"id"}`                             | load a template into the editor (opens the editor panel; may switch the active session — see [Message templates](#message-templates)) |
-| `POST /demo`         | `{"action":"start"\|"stop"}`           | `{status, action, running}`                          |
+| `POST /demo`         | `{"action":"start"\|"stop"}`           | `{status, action, running, venue, port}`             |
 | `POST /connect`      | `{"profile":"<name or id>"}`           | `{status, profile}` (logon is async)                 |
 | `POST /disconnect`   | `{"profile":"<name or id>"}`           | `{status, profile}`                                  |
 | `POST /send`         | `{"raw":"8=FIX.4.4|35=D|…", "session"?, "resolve"?}` | `{status, result}`; `resolve` (default **false**) resolves `${…}` first — without it `raw` goes on the wire verbatim |
@@ -791,7 +791,7 @@ curl -s -XPOST $B/templates/load -d '{"id":"<id-from-create>"}'
 B=http://127.0.0.1:8765
 
 curl -s -XPOST $B/demo    -d '{"action":"start"}'
-curl -s -XPOST $B/connect -d '{"profile":"Demo User 1"}'
+curl -s -XPOST $B/connect -d '{"profile":"Demo Client 1"}'
 # wait until state is LOGGED_ON
 until curl -s $B/sessions | grep -q LOGGED_ON; do sleep 0.5; done
 

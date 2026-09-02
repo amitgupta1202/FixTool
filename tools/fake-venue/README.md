@@ -6,7 +6,7 @@ assertion engine reads the bytes the venue actually sent.**
 
 ## Why the built-in demo acceptor cannot do this
 
-The demo acceptor (`service/demo/DemoFixServer.kt`) is built on QuickFIX/J. It composes its
+FixTool's own acceptor is built on QuickFIX/J, as is the demo venue it now powers. It composes its
 ExecutionReport with `message.setString(37, …)`, `setString(11, …)`, and QuickFIX serialises
 that to the socket. QuickFIX, with no `fieldOrder` configured, always serialises the body
 **ascending by tag** and appends repeating groups at the end.

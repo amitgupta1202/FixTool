@@ -82,7 +82,9 @@ import com.knapsack.fixtool.service.VenueEvent
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
+import com.knapsack.fixtool.service.demo.DemoScenarioProvider
 import com.knapsack.fixtool.service.demo.DemoServerManager
+import com.knapsack.fixtool.service.demo.DemoTemplatesProvider
 import com.knapsack.fixtool.ui.CaptureReviewState
 import com.knapsack.fixtool.ui.DiffStepRef
 import com.knapsack.fixtool.ui.DiffStepSlot
@@ -2259,10 +2261,14 @@ class FixMessageViewModel(
             handleDemoProfilesChanged(demoProfiles)
         }
 
-        // Set up demo template management
-        DemoServerManager.onDemoTemplatesChanged = { _ ->
-            // Reload saved messages to reflect template changes
-            loadSavedMessagesForActiveSession()
+        // Set up demo template management. The manager builds; this persists — through the services
+        // that honour the user's configured paths, which the manager's own copy did not.
+        DemoServerManager.onDemoTemplatesChanged = { templates ->
+            handleDemoTemplatesChanged(templates)
+        }
+
+        DemoServerManager.onDemoScenariosChanged = { scenarios ->
+            handleDemoScenariosChanged(scenarios)
         }
     }
 
@@ -4171,6 +4177,14 @@ class FixMessageViewModel(
         sessionId: SessionID,
     ) {
         val venue = listener.venueService() ?: return
+        // A venue whose profile has been removed is a venue being taken down, and a pane opened for it
+        // now is an orphan: it shows a conversation on an engine that is stopping, and nothing will
+        // clean it up because the thing that would have has already run. Declining is the whole fix for
+        // the panes that used to survive Stop.
+        if (_connectionProfiles.none { it.id == profileId }) {
+            logger.info("Not opening a pane for {} — venue profile '{}' is no longer present", sessionId, profile.name)
+            return
+        }
         val existing = _sessions.firstOrNull { it.clientSessionId == sessionId }
         if (existing != null) {
             logger.info("Client {} is back on venue '{}'", sessionId, listener.title)
@@ -4941,12 +4955,8 @@ class FixMessageViewModel(
     // Demo Server Management
     val demoServerFixVersion: StateFlow<FixVersion?> = DemoServerManager.currentFixVersion
 
-    fun startDemoServer(fixVersion: FixVersion = FixVersion.FIX_4_4) {
-        try {
-            DemoServerManager.start(fixVersion)
-        } catch (e: Exception) {
-            // Error already logged by manager
-        }
+    fun startDemoServer(fixVersion: FixVersion = FixVersion.DEFAULT, port: Int = DemoServerManager.DEMO_PORT) {
+        DemoServerManager.start(fixVersion, port)
     }
 
     fun stopDemoServer() {
@@ -4954,22 +4964,135 @@ class FixMessageViewModel(
     }
 
     /**
-     * Handles demo profile creation/deletion when demo server starts/stops
+     * Installs or removes the demo workspace's profiles — **and connects them**, which is the half that
+     * is new.
+     *
+     * **The profile list is emptied before the sessions are, and the order is a fix.** A venue opens a
+     * pane whenever a counterparty logs on, and the demo's clients keep reconnecting while everything is
+     * winding down — so panes were still being minted after the sweep that was meant to remove them, and
+     * Stop left two dead panes on screen. [attachVenueClient] refuses to open one for a profile that is
+     * no longer here, so taking the profiles away first closes the door before the sweep walks through it.
+     *
+     * These profiles are **not persisted**. They live in the in-memory list for as long as the demo is
+     * installed, which is enough for everything that reads profiles — including a scenario's
+     * auto-connect, which looks them up by name in `connectionProfiles`.
      */
     private fun handleDemoProfilesChanged(demoProfiles: List<FixConnectionProfile>) {
-        // Remove existing demo profiles
         val nonDemoProfiles = _connectionProfiles.filter { !DemoServerManager.isDemoProfile(it.id) }
         _connectionProfiles.clear()
         _connectionProfiles.addAll(nonDemoProfiles)
 
-        // Add new demo profiles
+        if (demoProfiles.isEmpty()) disconnectDemoSessions()
+
         if (demoProfiles.isNotEmpty()) {
             _connectionProfiles.addAll(demoProfiles)
-            // Re-sort profiles
             val sortedProfiles = _connectionProfiles.sortedBy { it.name.lowercase() }
             _connectionProfiles.clear()
             _connectionProfiles.addAll(sortedProfiles)
+
+            // Anything a previous Stop could not reach — see [sweepDemoSessions]. Start has to work
+            // whatever state the last one left behind.
+            sweepDemoSessions()
+
+            // In the order the manager gave them: venue, then clients.
+            demoProfiles.forEach { profile -> connectProfile(profile.id, profile) }
         }
+    }
+
+    /**
+     * Takes the demo's sessions down and closes their panes.
+     *
+     * **The venue first**, which is the opposite of how they came up and is deliberate. The demo's
+     * clients auto-reconnect, so for as long as the port is open they will dial it again — and the
+     * venue answers by minting a fresh pane for each, filed under the venue's own profile id. Those
+     * panes outlive the Stop that was meant to remove them, and the next Start finds them and
+     * "reconnects" them instead of creating the venue, so the demo comes back with no venue in it.
+     * Closing the port first is what stops a reconnect having anywhere to land. Found by the
+     * stop-and-start-again test, which is the only one that could have.
+     */
+    private fun disconnectDemoSessions() {
+        // Held as sessions, not indices. [closeSession] removes a venue's per-client panes along with
+        // the venue, so every index taken before this loop goes stale part-way through it — and a stale
+        // index closes whichever session has since slid into that slot, which on a bad day is one of the
+        // user's own.
+        DemoServerManager.getDemoProfileIds().forEach { profileId ->
+            val sessions =
+                profileToSessionMap[profileId].orEmpty()
+                    .distinct()
+                    .filter { it in _sessions.indices }
+                    .map { _sessions[it] }
+
+            sessions.forEach { session ->
+                runCatching { session.disconnect() }.onFailure {
+                    logger.error("Error disconnecting demo session: ${it.message}", it, notifyUser = false)
+                }
+            }
+            sessions.forEach { session ->
+                val index = _sessions.indexOf(session)
+                if (index >= 0) closeSession(index)
+            }
+        }
+
+        sweepDemoSessions()
+    }
+
+    /**
+     * Closes every session the demo owns, **by name**.
+     *
+     * The backstop for both directions of the same race. A session's disconnect finishes on its own
+     * coroutine, so a pane can be minted by a reconnect that lands after the list it would have been
+     * found in was read — which no amount of ordering can rule out. Called on the way down, and again
+     * on the way **up**, because Start is the operation that must work regardless of how Stop went: a
+     * stale pane filed under the venue's profile id is adopted by `connectProfile` as the venue's own
+     * session, and the venue is then never created.
+     *
+     * Safe to sweep by title: these names are the demo's and nothing else mints them.
+     */
+    private fun sweepDemoSessions() {
+        val demoTitles =
+            (
+                listOf(DemoServerManager.VENUE_NAME) +
+                    DemoServerManager.DEMO_CLIENTS.indices.map { DemoServerManager.clientName(it) } +
+                    DemoServerManager.DEMO_CLIENTS.map { DemoServerManager.venuePaneFor(it) }
+            ).toSet()
+        while (true) {
+            val index = _sessions.indexOfFirst { it.title in demoTitles }
+            if (index < 0) break
+            runCatching { _sessions[index].disconnect() }
+            closeSession(index)
+        }
+        DemoServerManager.getDemoProfileIds().forEach { profileToSessionMap.remove(it) }
+    }
+
+    /** Saves the demo's templates, or deletes every demo-prefixed one when the list is empty. */
+    private fun handleDemoTemplatesChanged(templates: List<SavedFixMessage>) {
+        val anchor = DemoServerManager.getDemoProfileIds().firstOrNull() ?: return
+        if (templates.isEmpty()) {
+            DemoTemplatesProvider.getDemoTemplateIds().forEach { id ->
+                savedMessagesService.deleteMessage(anchor, id)
+            }
+        } else {
+            templates.forEach { template ->
+                savedMessagesService
+                    .saveMessage(template.userTags.firstOrNull() ?: anchor, template)
+                    .onFailure { logger.error("Failed to create demo template ${template.name}: ${it.message}") }
+            }
+        }
+        loadSavedMessagesForActiveSession()
+    }
+
+    /** Saves the demo's bundled scenarios, or deletes them. Routed through the rail's own service. */
+    private fun handleDemoScenariosChanged(scenarios: List<Scenario>) {
+        if (scenarios.isEmpty()) {
+            DemoScenarioProvider.scenarioIds().forEach { scenarioService.delete(it) }
+        } else {
+            scenarios.forEach { scenario ->
+                if (!scenarioService.save(scenario)) {
+                    logger.error("Failed to install demo scenario '${scenario.name}'")
+                }
+            }
+        }
+        refreshScenarios()
     }
 
     // Global session operations

@@ -5,6 +5,26 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ✨ Added
+
+#### The demo is the acceptor — an FX venue you can read
+- **Pressing Start Demo Server now installs a workspace, not a black box.** The demo was ~1,540 lines of hard-coded QuickFIX/J that priced six pairs behind a button — nobody could open it, read why it replied, reorder a rule or make it misbehave on purpose. It is replaced by an **FX Demo Venue** acceptor profile carrying a new **FX venue** preset bundle (21 rules), two **Demo Client** profiles, ten FX templates and one bundled scenario. Everything the demo does is now a shipped feature you can inspect and change.
+- **Three priced pairs, quoted live.** EUR/USD, GBP/USD and USD/JPY (three decimals, the FX convention) are quoted from template expressions evaluated as each reply is sent, so two quotes are never identical. The bid is drawn once and the ask derived from it, so the spread never varies and never inverts. Unknown symbols are refused with a proper `35=AG`, and unpriced orders with `103=1`.
+- **The venue answers from its order book**: cancels distinguish *too late to cancel* from *unknown order*, replaces keep the OrderID, status requests report real quantities, and a repeated ClOrdID is rejected as a duplicate. It ships with a 40–80ms simulated latency, so replies do not land suspiciously instantly.
+- **One bundled scenario — "EUR/USD order lifecycle"** — runs green on a fresh install and is repeatable, because its setup clears the venue's order book. Break a venue rule and run it again to see the reconcile view name the field that moved.
+- The venue takes `TargetCompID=*`, so **any** client CompID can join it, each getting its own pane on the venue side.
+
+### 🔧 Changed
+- **Acceptor replies are built through the loaded data dictionary.** They can now carry repeating groups (a conformant `QuoteRequestReject` needs one), and a rule template's header fields — `115` OnBehalfOfCompID, a venue dialect's own header tags — are placed in the header instead of the body, where they previously drew "tag specified out of required order" from the counterparty.
+- **Acceptor rules can match on a field inside a repeating group.** A conformant FIX 4.4 `QuoteRequest` carries Symbol inside `NoRelatedSym`, where no trigger could previously see it. Flat fields still take precedence, so no existing rule changes what it matches.
+
+### 🐛 Fixed
+- **Stopping the demo and starting it again brought back a demo with no venue in it.** The demo's clients auto-reconnect, so a venue taken down while they were still live was immediately dialled again and minted fresh panes; those outlived the Stop and were adopted by the next Start in the venue's place. The venue is now closed first, and Start sweeps anything a previous Stop could not reach.
+- **Stopping the demo left two dead venue panes on screen.** A pane is no longer opened for a venue whose profile has already been removed.
+- Demo templates were written to the default store rather than the configured one, ignoring a custom saved-messages path.
+
 ## [1.12.0] - 2026-07-24
 
 ### ✨ Added

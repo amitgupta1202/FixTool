@@ -42,16 +42,31 @@ class AcceptorPresetsTest {
      * The message **each rule** is designed against — per rule, not per preset, because a bundle's
      * rules answer different message types and a cancel rule asked about an order is a test of nothing.
      */
-    private fun sampleFor(rule: AcceptorResponseRule): String =
-        when (rule.whenMsgType) {
-            // The one D rule that conditions on quantity is the size-limit reject, and it needs an
-            // order that exceeds the limit or it would not fire to be judged at all.
-            "D" -> if (rule.trigger().any { it.tag == 38 }) hugeOrder else limitOrder
+    private fun sampleFor(rule: AcceptorResponseRule): String {
+        // Derived from the rule's own trigger, not a table keyed on MsgType. A table was enough while
+        // every 35=D preset answered any symbol at any order type; the FX venue's rules name three
+        // symbols and two order types, so a fixed 55=ACME sample would ask each of them whether it
+        // fires for a message it was never meant to answer — and they would all correctly say no.
+        val symbol =
+            when (val m = rule.trigger().firstOrNull { it.tag == 55 }?.parsed()) {
+                is Matcher.Exact -> m.value
+                is Matcher.OneOf -> m.values.first()
+                else -> "ACME"
+            }
+        val quantity = if (rule.trigger().any { it.tag == 38 }) "20000000" else "1000"
+        val market = rule.trigger().any { it.tag == 40 && it.parsed() == Matcher.Exact("1") }
+        return when (rule.whenMsgType) {
+            "D" ->
+                "35=D|11=ORD-1|55=$symbol|54=1|38=$quantity" +
+                    (if (market) "|40=1" else "|40=2|44=185.25") +
+                    "|60=20260730-09:14:22.000"
+            "R" -> "35=R|131=Q-1|55=$symbol|54=1|38=1000000"
             "F" -> cancel
             "G" -> replace
             "H" -> statusRequest
             else -> error("no sample message for 35=${rule.whenMsgType}")
         }
+    }
 
     /**
      * The venue state **each rule** is designed against, which for a rule that asks the book is the

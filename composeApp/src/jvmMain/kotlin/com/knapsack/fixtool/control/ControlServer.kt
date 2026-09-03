@@ -2190,12 +2190,6 @@ class ControlServer(
     private fun demo(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val action = body["action"]?.jsonPrimitive?.content?.lowercase() ?: "start"
-        val name = body["name"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: "FX Venue"
-        val version =
-            body["fixVersion"]?.jsonPrimitive?.content?.let { asked ->
-                FixVersion.entries.firstOrNull { it.name == asked || it.displayName == asked }
-            } ?: FixVersion.DEFAULT
-
         val outcome =
             onEdt {
                 when (action) {
@@ -2203,13 +2197,7 @@ class ControlServer(
                         viewModel.closeWorkspace()
                         Result.success(viewModel.openWorkspace)
                     }
-                    else ->
-                        viewModel.openExample(
-                            ExampleWorkspaces.FX_VENUE,
-                            name,
-                            viewModel.defaultWorkspaceLocation(),
-                            version,
-                        )
+                    else -> viewModel.openExample(ExampleWorkspaces.FX_VENUE)
                 }
             }
         outcome.exceptionOrNull()?.let { return errorObject("could not $action the example: ${it.message}") }
@@ -2229,7 +2217,11 @@ class ControlServer(
     private fun workspace(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val requested = body["workspace"]?.jsonPrimitive?.content
-        if (ex.requestMethod == "POST") {
+        val example = body["example"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        if (ex.requestMethod == "POST" && example != null) {
+            val opened = onEdt { viewModel.openExample(example) }
+            opened.exceptionOrNull()?.let { return errorObject("could not open example '$example': ${it.message}") }
+        } else if (ex.requestMethod == "POST") {
             if (requested.isNullOrBlank()) {
                 onEdt { viewModel.closeWorkspace() }
             } else {

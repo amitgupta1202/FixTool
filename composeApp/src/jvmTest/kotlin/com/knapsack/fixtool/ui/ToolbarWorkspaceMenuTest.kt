@@ -29,7 +29,7 @@ class ToolbarWorkspaceMenuTest {
     }
 
     @Test
-    fun `quick connect shows on a fresh install and offers the example`() {
+    fun `quick connect shows on a fresh install and offers a new workspace`() {
         var asked = false
         rule.setContent {
             Toolbar(
@@ -38,7 +38,7 @@ class ToolbarWorkspaceMenuTest {
                 onViewModeChange = { },
                 connectionProfiles = emptyList(),
                 onQuickConnect = { _, _ -> },
-                onOpenExample = { asked = true },
+                onNewWorkspace = { asked = true },
             )
         }
 
@@ -46,8 +46,64 @@ class ToolbarWorkspaceMenuTest {
         rule.onNodeWithText("No saved profiles").assertExists()
         rule.onNodeWithTag("workspace-close").assertDoesNotExist()
 
-        rule.onNodeWithTag("workspace-open-example").performClick()
+        rule.onNodeWithTag("workspace-new").performClick()
         assertTrue(asked)
+    }
+
+    /**
+     * The point of the whole naming: an example is one of the things Open can open, not a second kind
+     * of workspace with a verb of its own.
+     */
+    @Test
+    fun `open offers a folder to browse to and the examples we ship`() {
+        var browsed = false
+        var opened: String? = null
+        rule.setContent {
+            Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
+                viewMode = ViewMode.SPLIT_HORIZONTAL,
+                onViewModeChange = { },
+                onQuickConnect = { _, _ -> },
+                onNewWorkspace = { },
+                onOpenWorkspace = { browsed = true },
+                examples = listOf("fx-venue" to "FX Venue"),
+                onOpenExample = { opened = it },
+            )
+        }
+
+        rule.onNodeWithTag("quick-connect").performClick()
+        rule.onNodeWithTag("workspace-open").performClick()
+        assertTrue(!browsed, "Open asks what to open; it must not go straight to a file dialog")
+
+        rule.onNodeWithText("FX Venue").assertExists()
+        rule.onNodeWithTag("workspace-example-fx-venue").performClick()
+        assertEquals("fx-venue", opened)
+    }
+
+    @Test
+    fun `browse is the other half of open, and back returns to the profile list`() {
+        var browsed = false
+        rule.setContent {
+            Toolbar(
+                globalSessionViewMode = FixMessageSession.ViewMode.PARSED,
+                viewMode = ViewMode.SPLIT_HORIZONTAL,
+                onViewModeChange = { },
+                onQuickConnect = { _, _ -> },
+                onNewWorkspace = { },
+                onOpenWorkspace = { browsed = true },
+                examples = listOf("fx-venue" to "FX Venue"),
+                onOpenExample = { },
+            )
+        }
+
+        rule.onNodeWithTag("quick-connect").performClick()
+        rule.onNodeWithTag("workspace-open").performClick()
+        rule.onNodeWithTag("workspace-open-back").performClick()
+        rule.onNodeWithText("No saved profiles").assertExists()
+
+        rule.onNodeWithTag("workspace-open").performClick()
+        rule.onNodeWithTag("workspace-browse").performClick()
+        assertTrue(browsed)
     }
 
     @Test
@@ -61,7 +117,7 @@ class ToolbarWorkspaceMenuTest {
                 onQuickConnect = { _, _ -> },
                 workspaceOpen = true,
                 workspaceName = "fx-venue",
-                onOpenExample = { },
+                onNewWorkspace = { },
                 onCloseWorkspace = { closed = true },
             )
         }
@@ -82,7 +138,7 @@ class ToolbarWorkspaceMenuTest {
                 viewMode = ViewMode.SPLIT_HORIZONTAL,
                 onViewModeChange = { },
                 onQuickConnect = { _, _ -> },
-                onOpenExample = { },
+                onNewWorkspace = { },
                 recentWorkspaces = listOf(first),
                 onOpenRecentWorkspace = { opened = it },
             )
@@ -109,7 +165,7 @@ class ToolbarWorkspaceMenuTest {
                 viewMode = ViewMode.SPLIT_HORIZONTAL,
                 onViewModeChange = { },
                 onQuickConnect = { _, _ -> },
-                onOpenExample = { },
+                onNewWorkspace = { },
             )
         }
 

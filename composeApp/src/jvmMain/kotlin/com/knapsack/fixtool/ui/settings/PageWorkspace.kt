@@ -325,7 +325,7 @@ private fun WorkspaceFolder(context: SettingsContext) {
                 "so opening another workspace does not rearrange the app around you.",
     ) {
         Text(
-            text = context.workspace.folder,
+            text = "${context.workspace.name} — ${context.workspace.folder}",
             fontSize = 11.sp,
             color = AppTheme.Colors.text,
             modifier = Modifier.testTag("settings-workspace-folder"),
@@ -333,9 +333,11 @@ private fun WorkspaceFolder(context: SettingsContext) {
         Text(
             text =
                 if (context.workspace.isDefault) {
-                    "This is the installation's own directory, which is where a fresh install keeps everything."
+                    "Default is the installation's own directory. It is a workspace like any other and it is " +
+                        "where everyone starts, so nothing had to move when workspaces arrived — it just got " +
+                        "a name. Closing any other workspace comes back here."
                 } else {
-                    "A project workspace. Close it to go back to the installation's own directory."
+                    "A workspace of its own. Close it to come back to Default."
                 },
             fontSize = 11.sp,
             color = AppTheme.Colors.textDisabled,

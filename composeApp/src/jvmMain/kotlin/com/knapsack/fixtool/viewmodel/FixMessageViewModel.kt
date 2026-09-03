@@ -4074,6 +4074,9 @@ class FixMessageViewModel(
     /** How many recent workspaces the switcher offers. Enough for a week's projects, not a history. */
     private val recentWorkspacesKept = 8
 
+    /** What the installation's own directory is called, since it is a workspace and needs a name. */
+    private val defaultWorkspaceLabel = "Default"
+
     /** The project workspace open right now, for anything that has to show or report it. */
     val openWorkspace: File
         get() = WorkspacePaths.current.root
@@ -4081,6 +4084,18 @@ class FixMessageViewModel(
     /** True while the installation's own directory is the open workspace, which is a fresh install. */
     val openWorkspaceIsHome: Boolean
         get() = WorkspacePaths.current.root == WorkspacePaths.home.root
+
+    /**
+     * What to call the open workspace.
+     *
+     * The installation's own directory is a workspace like any other and is where everyone starts,
+     * including everyone who installed FixTool before workspaces existed — so it gets a name rather
+     * than a blank, and nothing on disk moves to give it one. `Default` is not a folder called
+     * "default": it is `~/.fixtool` itself, which is why it cannot be closed and never appears in
+     * Recent. Closing any other workspace returns here.
+     */
+    val openWorkspaceName: String
+        get() = if (openWorkspaceIsHome) defaultWorkspaceLabel else openWorkspace.name
 
     /**
      * The workspaces opened before, newest first, minus any that have since gone.
@@ -4095,27 +4110,46 @@ class FixMessageViewModel(
                 .filter { it.isDirectory }
 
     /**
-     * The example whose dialog is open, or null.
+     * The New workspace dialog is open.
      *
-     * Held here rather than in a composable because two places offer the action — the empty session
-     * area and Quick Connect — and both are rebuilt independently. One piece of state means one
-     * dialog, wherever it was asked for.
+     * Held here rather than in a composable because more than one place offers the action and each is
+     * rebuilt independently. One piece of state means one dialog, wherever it was asked for.
      */
-    var pendingExample by mutableStateOf<ExampleWorkspaces.Example?>(null)
+    var creatingWorkspace by mutableStateOf(false)
         private set
 
-    /** Offers the first bundled example, which is the only one there is so far. */
-    fun requestOpenExample(exampleId: String? = null) {
-        pendingExample =
-            if (exampleId == null) {
-                ExampleWorkspaces.all().firstOrNull()
-            } else {
-                ExampleWorkspaces.byId(exampleId)
-            }
+    fun requestNewWorkspace() {
+        creatingWorkspace = true
     }
 
-    fun dismissExampleDialog() {
-        pendingExample = null
+    fun dismissNewWorkspace() {
+        creatingWorkspace = false
+    }
+
+    /** Creates an empty workspace and opens it. */
+    fun createWorkspace(
+        name: String,
+        location: File,
+    ): Result<File> =
+        ExampleWorkspaces
+            .createEmpty(name, location)
+            .onFailure { showNotification("Could not create the workspace: ${it.message}", NotificationType.ERROR) }
+            .mapCatching { created -> openWorkspace(created).getOrThrow() }
+
+    /**
+     * What a session in this workspace will actually speak, and where that is decided.
+     *
+     * Shown wherever a FIX version looks like it might be a choice, because it is not one here: a
+     * loaded data dictionary overrides a profile's beginString at connect time, and one is essentially
+     * always loaded.
+     */
+    fun wireVersionNote(): String {
+        val version = runCatching { dictionary.getDataDictionary()?.version }.getOrNull()
+        return if (version.isNullOrBlank()) {
+            "Sessions will speak whatever each profile's BeginString says; no dictionary is loaded."
+        } else {
+            "Sessions will speak $version, from the dictionary in Settings -> Protocol."
+        }
     }
 
     /** Every example that ships with the app. */
@@ -4171,16 +4205,39 @@ class FixMessageViewModel(
      * the user's own files and had to find them again by id prefix to take them back out; this hands
      * over a directory that is theirs, which needs no uninstall because nothing was mixed in.
      */
-    fun openExample(
-        exampleId: String,
-        name: String,
+    fun openExample(exampleId: String): Result<File> {
+        val example =
+            ExampleWorkspaces.byId(exampleId)
+                ?: return Result.failure(IllegalArgumentException("no bundled example '$exampleId'"))
+        val location = ExampleWorkspaces.defaultLocation()
+        val name = unusedWorkspaceName(example.defaultWorkspaceName, location)
+        val copied = ExampleWorkspaces.open(exampleId, name, location)
+        copied.exceptionOrNull()?.let {
+            showNotification("Could not open ${example.displayName}: ${it.message}", NotificationType.ERROR)
+        }
+        return copied.mapCatching { created -> openWorkspace(created).getOrThrow() }
+    }
+
+    /**
+     * `FX Venue`, or `FX Venue 2` when that folder is taken.
+     *
+     * Opening an example asks nothing, so it cannot ask what to do about a name already in use — and
+     * refusing would be the wrong answer to "give me a clean one", which is the whole reason someone
+     * opens an example twice.
+     */
+    private fun unusedWorkspaceName(
+        preferred: String,
         location: File,
-        fixVersion: FixVersion,
-    ): Result<File> =
-        ExampleWorkspaces
-            .open(exampleId, name, location, fixVersion)
-            .onFailure { showNotification("Could not open the example: ${it.message}", NotificationType.ERROR) }
-            .mapCatching { created -> openWorkspace(created).getOrThrow() }
+    ): String {
+        if (!File(location, ExampleWorkspaces.slug(preferred)).exists()) {
+            return preferred
+        }
+        var suffix = 2
+        while (File(location, ExampleWorkspaces.slug("$preferred $suffix")).exists()) {
+            suffix++
+        }
+        return "$preferred $suffix"
+    }
 
     private fun closeEverySession() {
         disconnectAllSessions()

@@ -17,12 +17,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * **The empty session area is the example's front door.**
+ * **The empty session area is the bundled example's front door.**
  *
- * The bundled example exists for the person looking at this exact screen — a fresh install with
- * nothing to connect to — so the button that opens it lives here, not at the bottom of a profile form
- * they have not opened yet. Once a workspace is open the button withdraws: its profiles are ordinary
- * rows in Quick Connect, and the way back to the examples is the same menu.
+ * The example exists for the person looking at this exact screen — a fresh install with nothing to
+ * connect to — so the shortcut to it lives here, not at the bottom of a profile form they have not
+ * opened yet. It names the example rather than inventing a verb for it: this is the same thing Quick
+ * Connect offers under Open workspace, reached in one click instead of three.
+ *
+ * Once a workspace is open the button withdraws, because its profiles are ordinary rows in Quick
+ * Connect and the way to another workspace is that menu.
  *
  * Shared by the TABS and SPLIT layouts, which used to carry two copies of the same sentence.
  */
@@ -55,7 +58,7 @@ fun NoSessionsPlaceholder(
                     if (workspaceOpen) {
                         "Reconnect a profile from Quick Connect in the toolbar, or open the connection panel."
                     } else {
-                        "Connect a saved profile, or open the bundled example: an FX venue, two clients, " +
+                        "Connect a saved profile, or open the bundled FX Venue example: a venue, two clients, " +
                             "message templates and scenarios that run green, copied into a workspace of your own."
                     },
                 color = AppTheme.Colors.textDisabled,
@@ -65,7 +68,7 @@ fun NoSessionsPlaceholder(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (onOpenExample != null && !workspaceOpen) {
                     SlimButton(
-                        text = "Open example workspace",
+                        text = "Open FX Venue example",
                         onClick = onOpenExample,
                         color = AppTheme.Colors.primary,
                         modifier = Modifier.testTag("empty-open-example"),

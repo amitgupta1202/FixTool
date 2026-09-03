@@ -46,6 +46,8 @@ data class VenueTagSettings(
 data class WorkspaceSettings(
     /** The open project workspace. */
     val folder: String = "",
+    /** What to call it. The installation's own directory is a workspace too, and it is called Default. */
+    val name: String = "",
     /** The open workspace is the installation's own directory, so there is nothing to close. */
     val isDefault: Boolean = true,
     val onOpen: () -> Unit = {},

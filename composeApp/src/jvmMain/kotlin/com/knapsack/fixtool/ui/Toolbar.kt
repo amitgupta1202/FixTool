@@ -81,10 +81,16 @@ fun Toolbar(
     workspaceOpen: Boolean = false,
     /** The name of the open workspace, shown on the menu's own header row. */
     workspaceName: String? = null,
-    /** Copies a bundled example into a workspace and opens it. Null hides the item. */
-    onOpenExample: (() -> Unit)? = null,
-    /** Opens an existing workspace folder. Null hides the item. */
+    /** Creates an empty workspace. Null hides the item. */
+    onNewWorkspace: (() -> Unit)? = null,
+    /** Browses to an existing workspace folder. Null hides the Open item. */
     onOpenWorkspace: (() -> Unit)? = null,
+    /**
+     * The examples Open can offer besides a folder on disk. Each is copied to a workspace of its own
+     * on the way in, because the bundle lives inside the application and cannot be edited in place.
+     */
+    examples: List<Pair<String, String>> = emptyList(),
+    onOpenExample: ((String) -> Unit)? = null,
     onCloseWorkspace: (() -> Unit)? = null,
     /** Workspaces opened before, newest first. Empty hides the submenu. */
     recentWorkspaces: List<File> = emptyList(),
@@ -335,7 +341,7 @@ fun Toolbar(
         // you can pick, then the thing that makes more of them. Once the workspace is installed its three
         // profiles are ordinary rows above with their own state dots, so there is no second status light
         // here to disagree with them; the item just turns into Stop.
-        val workspaceItemsShown = onOpenExample != null || onOpenWorkspace != null
+        val workspaceItemsShown = onNewWorkspace != null || onOpenWorkspace != null
         if ((onQuickConnect != null && connectionProfiles.isNotEmpty()) || workspaceItemsShown) {
             var expanded by remember { mutableStateOf(false) }
 
@@ -343,12 +349,16 @@ fun Toolbar(
             // until Back or a pick — rather than opening a second popup over the first. Reset with the
             // menu so it never reopens on the recent page.
             var pickingRecent by remember { mutableStateOf(false) }
+            // Open has two kinds of answer — a folder you have, and an example we ship — so it asks
+            // inside the same popup rather than going straight to a file dialog.
+            var pickingOpen by remember { mutableStateOf(false) }
             // Which profile is being asked "in which environment?". Null means the profile list is
             // showing. Reset with the menu, so it never reopens on an environment page.
             var pickingEnvironmentFor by remember { mutableStateOf<FixConnectionProfile?>(null) }
             val close = {
                 expanded = false
                 pickingRecent = false
+                pickingOpen = false
                 pickingEnvironmentFor = null
             }
 
@@ -454,6 +464,56 @@ fun Toolbar(
                             },
                             modifier = Modifier.testTag("environment-as-saved"),
                         )
+                    } else if (pickingOpen) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(text = "Open workspace", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.ChevronLeft,
+                                    contentDescription = "Back",
+                                    tint = AppTheme.Colors.textSecondary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            onClick = { pickingOpen = false },
+                            modifier = Modifier.testTag("workspace-open-back"),
+                        )
+                        DropdownMenuItem(
+                            text = { Text(text = "Browse…", color = AppTheme.Colors.text, fontSize = 11.sp) },
+                            onClick = {
+                                close()
+                                onOpenWorkspace?.invoke()
+                            },
+                            modifier = Modifier.testTag("workspace-browse"),
+                        )
+                        if (examples.isNotEmpty()) {
+                            HorizontalDivider(
+                                color = AppTheme.Separators.color,
+                                thickness = AppTheme.Separators.dividerThickness,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                            examples.forEach { (id, displayName) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(text = displayName, color = AppTheme.Colors.text, fontSize = 11.sp)
+                                            Text(
+                                                text = "bundled example, copied to a workspace of its own",
+                                                color = AppTheme.Colors.textDisabled,
+                                                fontSize = 9.sp,
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        close()
+                                        onOpenExample?.invoke(id)
+                                    },
+                                    modifier = Modifier.testTag("workspace-example-$id"),
+                                )
+                            }
+                        }
                     } else if (pickingRecent) {
                         DropdownMenuItem(
                             text = {
@@ -579,27 +639,32 @@ fun Toolbar(
                                     modifier = Modifier.testTag("workspace-current"),
                                 )
                             }
-                            if (onOpenExample != null) {
+                            if (onNewWorkspace != null) {
                                 DropdownMenuItem(
                                     text = {
-                                        Text(text = "Open example…", color = AppTheme.Colors.text, fontSize = 11.sp)
+                                        Text(text = "New workspace…", color = AppTheme.Colors.text, fontSize = 11.sp)
                                     },
                                     onClick = {
                                         close()
-                                        onOpenExample()
+                                        onNewWorkspace()
                                     },
-                                    modifier = Modifier.testTag("workspace-open-example"),
+                                    modifier = Modifier.testTag("workspace-new"),
                                 )
                             }
                             if (onOpenWorkspace != null) {
                                 DropdownMenuItem(
                                     text = {
-                                        Text(text = "Open workspace…", color = AppTheme.Colors.text, fontSize = 11.sp)
+                                        Text(text = "Open workspace", color = AppTheme.Colors.text, fontSize = 11.sp)
                                     },
-                                    onClick = {
-                                        close()
-                                        onOpenWorkspace()
+                                    trailingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.ChevronRight,
+                                            contentDescription = "Choose what to open",
+                                            tint = AppTheme.Colors.textSecondary,
+                                            modifier = Modifier.size(16.dp),
+                                        )
                                     },
+                                    onClick = { pickingOpen = true },
                                     modifier = Modifier.testTag("workspace-open"),
                                 )
                             }

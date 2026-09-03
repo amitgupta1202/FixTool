@@ -5,11 +5,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import com.knapsack.fixtool.model.AppSettings
-import com.knapsack.fixtool.model.LayoutState
-import com.knapsack.fixtool.model.ScenarioSort
-import com.knapsack.fixtool.model.ScenarioViewState
+import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.FixConnectionConfig
-import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
@@ -17,23 +14,28 @@ import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
+import com.knapsack.fixtool.model.LayoutState
 import com.knapsack.fixtool.model.MatchContextMode
-import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.MessageEditorState
-import com.knapsack.fixtool.model.ReplyStepApply
+import com.knapsack.fixtool.model.MintingSide
 import com.knapsack.fixtool.model.Notification
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.PendingSendReason
+import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.model.ScenarioSort
+import com.knapsack.fixtool.model.ScenarioViewState
 import com.knapsack.fixtool.model.SendReason
+import com.knapsack.fixtool.model.TagRole
+import com.knapsack.fixtool.model.TagRoleOverlay
 import com.knapsack.fixtool.model.scenario.Expectation
-import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.Lane
+import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.RunEntry
+import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSource
-import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
@@ -46,19 +48,20 @@ import com.knapsack.fixtool.model.scenario.withIds
 import com.knapsack.fixtool.model.scenario.withSessions
 import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.AppSettingsService
-import com.knapsack.fixtool.service.LayoutStateService
-import com.knapsack.fixtool.service.ReplyOffer
-import com.knapsack.fixtool.service.ReplyShape
 import com.knapsack.fixtool.service.ConnectionProfileService
+import com.knapsack.fixtool.service.EntryOutcome
 import com.knapsack.fixtool.service.ExpectationSeeder
+import com.knapsack.fixtool.service.FanOutPlan
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageHelper.toQuickFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.FixMessageValidator
+import com.knapsack.fixtool.service.LaneRole
+import com.knapsack.fixtool.service.LayoutStateService
 import com.knapsack.fixtool.service.MessageView
 import com.knapsack.fixtool.service.RawMessageView
-import com.knapsack.fixtool.service.SavedMessagesService
-import com.knapsack.fixtool.service.EntryOutcome
+import com.knapsack.fixtool.service.ReplyOffer
+import com.knapsack.fixtool.service.ReplyShape
 import com.knapsack.fixtool.service.RunRecord
 import com.knapsack.fixtool.service.RunRecordMessages
 import com.knapsack.fixtool.service.RunRecordStore
@@ -67,19 +70,18 @@ import com.knapsack.fixtool.service.RunSessions
 import com.knapsack.fixtool.service.RunSetHost
 import com.knapsack.fixtool.service.RunSetRunner
 import com.knapsack.fixtool.service.RunSetStore
-import com.knapsack.fixtool.service.FanOutPlan
 import com.knapsack.fixtool.service.RunSets
+import com.knapsack.fixtool.service.SavedMessagesService
 import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.service.ScenarioCapture
 import com.knapsack.fixtool.service.ScenarioCodec
-import com.knapsack.fixtool.service.LaneRole
-import com.knapsack.fixtool.service.TraceKey
 import com.knapsack.fixtool.service.ScenarioReconcile
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
 import com.knapsack.fixtool.service.ScenarioViewStateService
 import com.knapsack.fixtool.service.SessionIdentityResolver
+import com.knapsack.fixtool.service.TraceKey
 import com.knapsack.fixtool.service.VenueEvent
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
@@ -132,14 +134,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import quickfix.SessionID
 import kotlinx.serialization.json.jsonObject
+import quickfix.SessionID
 import java.io.File
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import com.knapsack.fixtool.model.TagRole
-import com.knapsack.fixtool.model.TagRoleOverlay
 
 /**
  * How long global search waits for typing to settle before scanning. Exposed so tests can wait out
@@ -907,7 +907,11 @@ class FixMessageViewModel(
 
     /** The session a step runs on, for [mintingSideOf]; null where the step means "the active session". */
     private fun stepSessionOf(scenarioId: String, stepId: String): String? =
-        scenarioDraft(scenarioId)?.draft?.steps?.firstOrNull { it.stepId == stepId }?.session
+        scenarioDraft(scenarioId)
+            ?.draft
+            ?.steps
+            ?.firstOrNull { it.stepId == stepId }
+            ?.session
 
     /**
      * The session's every change, written into the scenario's draft — and **the golden re-pointed only when
@@ -2792,7 +2796,9 @@ class FixMessageViewModel(
         val label: String,
         /** The run set this claim is for, so `/stop` can aim at one of several runs. */
         val setId: String? = null,
-        val stop: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
+        val stop: java.util.concurrent.atomic.AtomicBoolean =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false),
     )
 
     private val claims = java.util.concurrent.CopyOnWriteArrayList<RunClaim>()
@@ -2898,7 +2904,6 @@ class FixMessageViewModel(
                 touchedBy(scenario, entry.sessionMap, entry.defaultSession)
             },
         )
-
 
     /**
      * **Ask the run in progress to stop.** Polled by the runner at every step boundary and inside every
@@ -3450,7 +3455,9 @@ class FixMessageViewModel(
             val shortfall: String?,
         ) : FanOutLanes
 
-        data class Unavailable(val why: String) : FanOutLanes
+        data class Unavailable(
+            val why: String,
+        ) : FanOutLanes
     }
 
     fun startRepeat(scenario: Scenario, times: Int, pauseMs: Long): RunSet? =
@@ -3601,7 +3608,12 @@ class FixMessageViewModel(
             RunSets.rerun(
                 scenario = scenario,
                 record = record,
-                sessionMap = stored?.entries?.getOrNull(entry - 1)?.sessionMap.orEmpty(),
+                sessionMap =
+                    stored
+                        ?.entries
+                        ?.getOrNull(entry - 1)
+                        ?.sessionMap
+                        .orEmpty(),
                 was = stored?.nameOf(entry - 1),
             )
         return startRunSet(set, pinned = mapOf(scenario.id to scenario))
@@ -3631,6 +3643,7 @@ class FixMessageViewModel(
     val activeRunSet: StateFlow<RunSet?> = _activeRunSet.asStateFlow()
 
     /** The live host for a set: the app's own scenarios, its own run path, its own runs directory. */
+
     /**
      * [pinned] wins over the store, which is what "re-run it as it ran" means: a record keeps the
      * scenario as it was that day, and looking the id up would run whatever the file says now.
@@ -3703,6 +3716,7 @@ class FixMessageViewModel(
      * about coverage. A message FixTool cannot read is a message the scenario will not check, and an author
      * who is not told has been handed a test that looks complete and is not.
      */
+
     /**
      * **Accept an echo proposal**: merge [roles] into the venue's sidecar and re-read it, so the capture
      * on screen re-seeds immediately.
@@ -3736,8 +3750,7 @@ class FixMessageViewModel(
                         "capture has been re-seeded, and future captures on this dictionary will use them.",
                     NotificationType.INFO,
                 )
-            }
-            .onFailure {
+            }.onFailure {
                 showNotification("Could not write the tag roles sidecar: ${it.message}", NotificationType.ERROR)
             }
     }
@@ -4342,7 +4355,6 @@ class FixMessageViewModel(
                 historySize = _appSettings.value.latencyHistorySize,
                 warningThresholdMicros = _appSettings.value.latencyWarningThresholdMicros,
                 criticalThresholdMicros = _appSettings.value.latencyCriticalThresholdMicros,
-                networkInterface = _appSettings.value.captureNetworkInterface.ifBlank { null },
             )
         }
     }
@@ -5149,7 +5161,8 @@ class FixMessageViewModel(
         // user's own.
         DemoServerManager.getDemoProfileIds().forEach { profileId ->
             val sessions =
-                profileToSessionMap[profileId].orEmpty()
+                profileToSessionMap[profileId]
+                    .orEmpty()
                     .distinct()
                     .filter { it in _sessions.indices }
                     .map { _sessions[it] }

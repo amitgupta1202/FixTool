@@ -60,7 +60,6 @@ data class AppSettings(
     val scenariosPath: String = "", // Path to scenarios directory (empty = default: ~/.fixtool/scenarios)
     // Latency Tracking Settings
     val enableLatencyTracking: Boolean = false, // Enable latency tracking feature
-    val captureNetworkInterface: String = "", // Network interface for packet capture (empty = auto-detect)
     // Tags to use for correlation (ClOrdID, QuoteReqID, QuoteID, MDReqID, OrderID, ExecID)
     val latencyCorrelationTags: List<Int> = listOf(11, 131, 117, 262, 37, 17),
     val latencyHistorySize: Int = 10000, // Maximum number of latency samples to retain

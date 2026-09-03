@@ -1,8 +1,8 @@
 package com.knapsack.fixtool.perf
 
 import com.knapsack.fixtool.model.CorrelationIdType
-import com.knapsack.fixtool.model.PacketDirection
-import com.knapsack.fixtool.model.PacketTimestamp
+import com.knapsack.fixtool.model.MessageStamp
+import com.knapsack.fixtool.model.WireDirection
 import com.knapsack.fixtool.service.LatencyTrackingService
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -30,20 +30,20 @@ import kotlin.test.assertTrue
  * latency-tracked soak run accumulated one whole message string per round trip, indefinitely.
  */
 class LatencyHistoryBenchmarkTest {
-    private fun send(id: Int): PacketTimestamp =
-        PacketTimestamp(
+    private fun send(id: Int): MessageStamp =
+        MessageStamp(
             timestampMicros = id * 1_000L,
-            direction = PacketDirection.SEND,
+            direction = WireDirection.SEND,
             correlationType = CorrelationIdType.CL_ORD_ID,
             correlationId = "ORD-$id",
             messageType = "D",
             rawFixMessage = "8=FIX.4.4|35=D|11=ORD-$id|55=EUR/USD|38=1000000|",
         )
 
-    private fun receive(id: Int): PacketTimestamp =
-        PacketTimestamp(
+    private fun receive(id: Int): MessageStamp =
+        MessageStamp(
             timestampMicros = id * 1_000L + 250,
-            direction = PacketDirection.RECEIVE,
+            direction = WireDirection.RECEIVE,
             correlationType = CorrelationIdType.CL_ORD_ID,
             correlationId = "ORD-$id",
             messageType = "8",
@@ -51,8 +51,8 @@ class LatencyHistoryBenchmarkTest {
         )
 
     private fun round(service: LatencyTrackingService, id: Int) {
-        service.recordPacket(send(id))
-        service.recordPacket(receive(id))
+        service.recordStamp(send(id))
+        service.recordStamp(receive(id))
     }
 
     /**

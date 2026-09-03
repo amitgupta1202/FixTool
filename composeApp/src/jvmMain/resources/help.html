@@ -1651,7 +1651,7 @@ ${incoming["D"].valueOfTag(38)}
         <tr><td><strong>Appearance</strong></td><td><strong>Message colours</strong>, <strong>Default view mode</strong> (grid/terminal), <strong>Default layout</strong>.</td></tr>
         <tr><td><strong>Sessions</strong></td><td><strong>Message buffer</strong> (how many messages a session retains), <strong>Order book</strong> (how many orders a venue still remembers &mdash; see below), <strong>Auto-sync session to editor</strong>.</td></tr>
         <tr><td><strong>Storage</strong></td><td><strong>Connection profiles</strong>, <strong>Saved messages</strong>, <strong>Scenarios</strong> &mdash; where each is written. All three apply on restart. <strong>Run records</strong> &mdash; <strong>Messages per run record</strong> and <strong>Run sets kept</strong>.</td></tr>
-        <tr><td><strong>Latency</strong></td><td>Round-trip measurement &mdash; see <a href="#latency">10. Latency Measurement</a>. <strong>Network interface</strong> for packet capture (<em>Auto-detect</em> by default).</td></tr>
+        <tr><td><strong>Latency</strong></td><td>Round-trip measurement &mdash; see <a href="#latency">10. Latency Measurement</a>. Stamped at the socket, so there is nothing to configure beyond the tags and thresholds.</td></tr>
         <tr><td><strong>Developer</strong></td><td>The loopback control server &mdash; see <a href="#automation">11. Automation &amp; AI Control</a>.</td></tr>
     </table>
 
@@ -1792,7 +1792,7 @@ ${incoming["D"].valueOfTag(38)}
     <h4>Latency Panel</h4>
     <p>Click the <strong>Timer icon</strong> in the toolbar to open the Latency Panel, which shows:</p>
     <ul>
-        <li><strong>Capture Status</strong> - Shows timestamp source (Packet or App-level)</li>
+        <li><strong>Source badge</strong> - <em>Socket</em>: hover it to read exactly what the stamp includes and leaves out</li>
         <li><strong>Aggregate Statistics</strong> - Combined stats across all correlation types</li>
         <li><strong>Per-Type Statistics</strong> - Breakdown by correlation ID type (ClOrdID, QuoteReqID, etc.)</li>
         <li><strong>Recent Correlations</strong> - Table of recent request/response pairs with RTT</li>
@@ -1846,78 +1846,22 @@ ${incoming["D"].valueOfTag(38)}
         <strong>Tip:</strong> Percentiles are more useful than averages for understanding latency. A low p50 with a high p99 indicates occasional slow responses that averages would hide.
     </div>
 
-    <h3>Timestamp Accuracy</h3>
-    <p>FixTool supports two timestamp sources with different accuracy levels:</p>
-
-    <h4>Packet-Level Timestamps (~10μs accuracy)</h4>
-    <p>Uses kernel-level packet capture via pcap4j library for the most accurate timing. This measures the actual network wire time, eliminating application processing overhead.</p>
-
-    <p><strong>Requirements:</strong></p>
+    <h3>Where the Stamps Are Taken</h3>
+    <p>Both ends of a round trip are stamped at FixTool's <strong>socket</strong>, by a filter in the network layer QuickFIX/J is built on:</p>
     <ul>
-        <li><strong>macOS:</strong> Add user to <code>access_bpf</code> group or run with <code>sudo</code></li>
-        <li><strong>Linux:</strong> Grant <code>CAP_NET_RAW</code> capability or run as root</li>
-        <li><strong>Windows:</strong> Run as Administrator with Npcap installed</li>
+        <li><strong>Send</strong> &mdash; the instant the operating system has accepted the last byte of the message. Serialisation, the write queue and TLS encryption are all behind that point.</li>
+        <li><strong>Receive</strong> &mdash; the instant one message has been framed out of the (decrypted) byte stream. QuickFIX/J's queue, parse and dictionary validation are all ahead of it.</li>
     </ul>
-
-    <div class="example">
-        <h4>macOS Setup (Recommended)</h4>
-        <pre><code># Add current user to access_bpf group (one-time setup)
-sudo dseditgroup -o edit -a $(whoami) -t user access_bpf
-
-# Log out and log back in for changes to take effect</code></pre>
-    </div>
-
-    <h4>Application-Level Timestamps (~100μs accuracy)</h4>
-    <p>Fallback mode using Java <code>System.currentTimeMillis()</code>. This is automatically used when packet capture is unavailable. While less precise, it still provides useful latency measurements for most purposes.</p>
-
-    <p>The Latency Panel shows a badge indicating which timestamp source is active:</p>
-    <ul>
-        <li><span style="color: #4ec9b0; font-weight: bold;">Packet</span> - Using packet-level timestamps</li>
-        <li><span style="color: #dcdcaa; font-weight: bold;">App-level</span> - Using application timestamps (fallback)</li>
-    </ul>
-
-    <h3>TLS/SSL Encrypted Connections</h3>
-
-    <div class="warning">
-        <strong>Limitation:</strong> Packet-level timestamps <strong>cannot</strong> work with TLS/SSL encrypted connections. When you enable SSL in the connection profile, FixTool automatically uses application-level timestamps.
-    </div>
-
-    <p><strong>Why?</strong> Packet capture sees the encrypted TCP packets, but the FIX message content inside is encrypted and unreadable. Without being able to parse the messages, correlation IDs cannot be extracted.</p>
-
-    <h4>Workaround: Using stunnel for Packet-Level Timestamps</h4>
-    <p>If you need packet-level accuracy (~10μs) for a TLS server, you can use <strong>stunnel</strong> as a local TLS proxy:</p>
-
-    <div class="example">
-        <h4>Architecture</h4>
-        <pre><code>FixTool → localhost:9876 (unencrypted) → stunnel → remote-server:443 (TLS)</code></pre>
-        <p>Packet capture on the loopback interface sees the <strong>unencrypted</strong> traffic between FixTool and stunnel.</p>
-    </div>
-
-    <div class="example">
-        <h4>stunnel Setup (macOS/Linux)</h4>
-        <pre><code># Install stunnel
-brew install stunnel   # macOS
-apt install stunnel    # Linux
-
-# Create config file: stunnel.conf
-[fix-proxy]
-client = yes
-accept = 127.0.0.1:9876
-connect = your-remote-server:443
-
-# Run stunnel
-stunnel stunnel.conf</code></pre>
-
-        <p>Then in FixTool:</p>
-        <ul>
-            <li>Set Host to <code>localhost</code> and Port to <code>9876</code></li>
-            <li>Disable SSL in the connection profile (stunnel handles encryption)</li>
-            <li>Packet capture will work on the unencrypted local traffic</li>
-        </ul>
-    </div>
+    <p>So the number is network plus venue, and nothing of FixTool's own FIX engine on either side. What remains inside it is the kernel's socket handling and, on a TLS session, the decryption of the reply &mdash; single-digit microseconds on a warm JVM.</p>
 
     <div class="tip">
-        <strong>Note:</strong> When using stunnel, the measured RTT includes stunnel's encryption/decryption overhead (typically &lt;1ms). For most use cases, this is negligible compared to network latency.
+        <strong>No setup.</strong> The stamps need no privileges, no packet capture library and no network interface to choose, and they work identically on a plain and on a TLS connection (a venue on port 443, say). Earlier versions offered a libpcap capture for this; it could not read an encrypted stream and has been removed.
+    </div>
+
+    <p>The badge on the Latency Panel's header reads <strong>Socket</strong>; hovering it repeats the two definitions above.</p>
+
+    <div class="warning">
+        <strong>What it cannot tell you.</strong> A stamp is taken on one machine's clock. A round trip is therefore a difference on that one clock and is meaningful; a single send or receive time compared against a venue's own timestamps is not, unless the two clocks are known to agree. Where a run report shows a step latency, that figure comes from the FIX engine's own stamps and includes FixTool's processing &mdash; see <a href="#assertions">12. Automated Verification &amp; Scenarios</a>.
     </div>
 
     <h3>Configurable Thresholds</h3>
@@ -1950,11 +1894,11 @@ stunnel stunnel.conf</code></pre>
         <li>Check that your messages contain supported correlation IDs</li>
     </ul>
 
-    <h4>"App-level" badge shown instead of "Packet"</h4>
+    <h4>The number looks too small, or too large</h4>
     <ul>
-        <li>Packet capture requires elevated privileges (see requirements above)</li>
-        <li>On macOS, ensure you're in the <code>access_bpf</code> group and have logged out/in</li>
-        <li>App-level timestamps still provide useful measurements, just with lower precision</li>
+        <li>Against the demo venue a round trip is its simulated latency (40&ndash;80ms by default) plus a few tens of microseconds of loopback; set the venue's latency to <em>Off</em> to see the floor</li>
+        <li>A round trip is stamped on this machine's clock at both ends, so it is unaffected by the venue's clock &mdash; but a single stamp compared against a venue timestamp is only as good as the two clocks' agreement</li>
+        <li>Nothing FixTool does after a reply is framed &mdash; queueing, parsing, validating, drawing &mdash; is in the number; a slow UI does not make a venue look slow</li>
     </ul>
 
     <h4>Statistics not updating</h4>

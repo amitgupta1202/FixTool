@@ -242,6 +242,8 @@ class FixConnectionManager(
                             logFactory,
                             messageFactory,
                         )
+                    // Before start(): the connector reads its chain builder once, when it is built.
+                    initiator?.setIoFilterChainBuilder(SocketStampFilter(quickFixService::deliverStamp).chainBuilder())
                     initiator?.start()
                     logger.info("QuickFIX Initiator started")
                 }
@@ -255,6 +257,8 @@ class FixConnectionManager(
                             logFactory,
                             messageFactory,
                         )
+                    // Before start(), for the same reason as the initiator's.
+                    acceptor?.setIoFilterChainBuilder(SocketStampFilter(quickFixService::deliverStamp).chainBuilder())
                     if (config.acceptsAnyClient()) attachVenueSessionProvider(acceptor!!, settings)
                     acceptor?.start()
                     logger.info("QuickFIX Acceptor started")
@@ -278,14 +282,16 @@ class FixConnectionManager(
      * the key it looks this up under. No `SocketAcceptAddress` is written, so it is the port alone.
      */
     private fun attachVenueSessionProvider(acceptor: SocketAcceptor, settings: SessionSettings) {
-        val templateId = settings.sectionIterator().asSequence().firstOrNull() ?: run {
-            logger.error("No session template in the acceptor settings — no client will be able to log on")
-            return
-        }
-        val port = config.socketAcceptPort.ifBlank { config.port }.toIntOrNull() ?: run {
-            logger.error("Acceptor port '{}' is not a number — cannot accept clients", config.socketAcceptPort)
-            return
-        }
+        val templateId =
+            settings.sectionIterator().asSequence().firstOrNull() ?: run {
+                logger.error("No session template in the acceptor settings — no client will be able to log on")
+                return
+            }
+        val port =
+            config.socketAcceptPort.ifBlank { config.port }.toIntOrNull() ?: run {
+                logger.error("Acceptor port '{}' is not a number — cannot accept clients", config.socketAcceptPort)
+                return
+            }
         acceptor.setSessionProvider(
             InetSocketAddress(port),
             VenueSessionProvider(

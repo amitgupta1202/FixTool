@@ -42,7 +42,6 @@ internal fun customisedSettings(): AppSettings =
         savedMessagesPath = "/tmp/saved.json",
         scenariosPath = "/tmp/scenarios",
         enableLatencyTracking = true,
-        captureNetworkInterface = "en0",
         latencyCorrelationTags = listOf(11),
         latencyHistorySize = 500,
         latencyWarningThresholdMicros = 1_000L,

@@ -18,6 +18,12 @@ class SettingsContext(
     /** What the venue tag roles sidecar currently says, or what was just written to it. */
     val venueTagNote: String,
     val venueTagNoteIsFresh: Boolean,
+    /** The open project workspace, which the Storage page reports rather than edits. */
+    val workspaceFolder: String = "",
+    /** The open workspace is the installation's own directory, so there is nothing to close. */
+    val workspaceIsDefault: Boolean = true,
+    val onOpenWorkspace: () -> Unit = {},
+    val onCloseWorkspace: () -> Unit = {},
 )
 
 /**

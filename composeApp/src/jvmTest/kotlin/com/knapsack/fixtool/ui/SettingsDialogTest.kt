@@ -65,7 +65,7 @@ class SettingsDialogTest {
             "tags" to "Grid view columns",
             "appearance" to "Message colours",
             "sessions" to "Message buffer",
-            "storage" to "Connection profiles",
+            "storage" to "Workspace folder",
             "developer" to "Automation control",
         ).forEach { (id, heading) ->
             composeTestRule.onNodeWithTag("settings-page-$id").performClick()

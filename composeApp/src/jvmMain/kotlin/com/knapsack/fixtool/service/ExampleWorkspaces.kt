@@ -99,6 +99,7 @@ object ExampleWorkspaces {
                 out.writeText(body)
             }
             applyTo(target, fixVersion, now)
+            writeGitignore(target)
             logger.info("Opened example '{}' as '{}' in {}", exampleId, name, target.absolutePath)
             target
         }
@@ -129,6 +130,32 @@ object ExampleWorkspaces {
                 )
             }
         profiles.saveProfiles(updated)
+    }
+
+    /**
+     * A workspace is meant to be committable, so it arrives knowing what must not be.
+     *
+     * `secrets.json` holds the logon passwords, and the rest is machine output: QuickFIX/J's sequence
+     * store and message log, and the run records. Written once, at copy time, and never touched
+     * again — a user who wants to track their store has only to delete a line.
+     */
+    private fun writeGitignore(workspace: File) {
+        val file = File(workspace, ".gitignore")
+        if (file.exists()) {
+            return
+        }
+        file.writeText(
+            """
+            # Logon passwords. The rest of this workspace is meant to be shared; this file is not.
+            secrets.json
+
+            # QuickFIX/J's sequence-number store and message log, and this machine's run records.
+            store/
+            log/
+            logs/
+            runs/
+            """.trimIndent() + "\n",
+        )
     }
 
     /**

@@ -52,6 +52,11 @@ fun SettingsDialog(
     dictionary: FixDictionary,
     onSave: (AppSettings) -> Unit,
     onDismiss: () -> Unit,
+    /** The open project workspace. The Storage page reports it; it is not a setting. */
+    workspaceFolder: String = "",
+    workspaceIsDefault: Boolean = true,
+    onOpenWorkspace: () -> Unit = {},
+    onCloseWorkspace: () -> Unit = {},
 ) {
     val draft = remember { SettingsDraft(currentSettings) }
     val pages = remember { settingsPages() }
@@ -122,6 +127,10 @@ fun SettingsDialog(
                                         openVenueTagRoles = { showVenueTagRoles = true },
                                         venueTagNote = venueTagNote,
                                         venueTagNoteIsFresh = venueRolesSaved != null,
+                                        workspaceFolder = workspaceFolder,
+                                        workspaceIsDefault = workspaceIsDefault,
+                                        onOpenWorkspace = onOpenWorkspace,
+                                        onCloseWorkspace = onCloseWorkspace,
                                     ),
                             )
                         }

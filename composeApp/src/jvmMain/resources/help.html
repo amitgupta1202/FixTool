@@ -526,6 +526,25 @@
     <strong>Close workspace</strong> goes back to your own profiles and scenarios. The menu shows even
     with no saved profiles, so a fresh install has a way in.</p>
 
+    <h3 id="workspaces">Workspaces</h3>
+    <p>A <strong>workspace</strong> is a folder holding the profiles, saved messages, scenarios and run
+    records you are working with, plus QuickFIX/J's own sequence store and message log. A fresh install
+    keeps all of it in <code>~/.fixtool</code>, which is simply the workspace it starts in &mdash; so
+    nothing moved when workspaces arrived.</p>
+    <p>What does <em>not</em> move with a workspace is anything belonging to the person at the keyboard:
+    the data dictionary, the window layout, the rail's sort order and everything in Settings. Opening a
+    second workspace gives you other profiles and other scenarios, not a fresh install.</p>
+    <p>Logon passwords are kept in <code>secrets.json</code> beside the profiles rather than inside
+    <code>connection_profiles.json</code>, so the interesting half of a workspace &mdash; CompIDs, hosts,
+    acceptor rules &mdash; is a file you can commit or hand to a colleague without handing over a
+    credential. This is a separation, not encryption: the two files sit in the same directory with the
+    same permissions. A workspace opened from an example arrives with a <code>.gitignore</code> already
+    covering the secrets, the store, the log and the run records.</p>
+    <p>Set <code>FIXTOOL_WORKSPACE</code> to move the whole installation, Settings included &mdash; what
+    a build box wants when the profiles and scenarios under test are the ones checked in beside the
+    code. A leading <code>~</code> is expanded, because a CI config file is not a shell.
+    <code>fixtool run --home</code> still wins over it for the length of one run.</p>
+
     <h3>Example workspace</h3>
     <p>For testing and learning, open the example workspace (see <a href="#demo-server">Section 2</a>).
     It provides:</p>

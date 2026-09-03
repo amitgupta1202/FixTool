@@ -3179,19 +3179,27 @@ class FixMessageViewModel(
         // ClearMessages on the session it captured from.
         val host = ViewModelScenarioHost(this, defaultSession = entry?.defaultSession)
         val resolved = scenario.withSessions(sessionMap)
+        // **The watermark is taken here, synchronously, before the run can move.** What a session shows at
+        // this instant is history and stays out of the record; only sessions that exist now can have any.
+        host.sessionsOf(resolved).forEach { (title, session) ->
+            recorder.observe(title, session.messages.value.filterIsInstance<FixMessage>())
+        }
         // **Watched as they appear, not resolved once.** A session that preflight auto-connects does not
         // exist when the run starts, so a collector list taken here was missing it and the entry came out
         // PASSED with an empty record: the first entry of every set that had to bring its sessions up
         // showed no grid, while the second, which found them connected, showed seventeen messages. The
         // watcher re-resolves the scenario's sessions until the run is over and subscribes to each one the
-        // first time it is there.
+        // first time it is there — and everything it then sees is this entry's, never history, because a
+        // session it is meeting for the first time was brought up by this very run. (Observing it with the
+        // watermark call instead filed whatever had landed before the poll as history, and an entry that
+        // connected its own session came back with an empty record: RunSetRailTest, under load.)
         val watcher =
             viewModelScope.launch(Dispatchers.IO) {
                 val collecting = mutableSetOf<FixMessageSession>()
                 while (isActive) {
                     host.sessionsOf(resolved).forEach { (title, session) ->
                         if (collecting.add(session)) {
-                            launch { session.messages.collect { recorder.observe(title, it.filterIsInstance<FixMessage>()) } }
+                            launch { session.messages.collect { recorder.observeLive(title, it.filterIsInstance<FixMessage>()) } }
                         }
                     }
                     delay(RECORDER_RESOLVE_MS)
@@ -3213,9 +3221,10 @@ class FixMessageViewModel(
                     { name -> entry?.sourceOf(name) ?: VariableSource.ROW },
                 )
             // Resolved again now the run is over, for the same reason: a direct sample of every session the
-            // scenario touched, including any the run itself brought up.
+            // scenario touched, including any the run itself brought up — live, since anything on a session
+            // the watermark did not see is this entry's.
             host.sessionsOf(resolved).forEach { (title, session) ->
-                recorder.observe(title, session.messages.value.filterIsInstance<FixMessage>())
+                recorder.observeLive(title, session.messages.value.filterIsInstance<FixMessage>())
             }
             // Published while the run slot is still held: a verdict that lands after the slot is free can
             // land on top of the *next* run's freshly-cleared state, and the report would then name one

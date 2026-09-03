@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 Fixed
+- **An entry that auto-connected its own session could write an empty record.** The recorder learned of a session preflight brought up on a 100ms poll, and whatever landed on it before that poll was filed as history and left out of the record. The watermark is now taken once, synchronously, before the run moves, and a session first seen while the run is under way contributes everything it shows. (`RunSetRailTest`, which failed under load for exactly this reason, is deterministic again.)
+
 ### 🔧 Changed
 
 #### Latency is stamped at the socket, and works through TLS

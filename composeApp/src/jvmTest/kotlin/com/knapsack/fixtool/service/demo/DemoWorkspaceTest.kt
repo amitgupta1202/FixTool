@@ -174,17 +174,20 @@ class DemoWorkspaceTest {
 
     // ---------------------------------------------------------------- the scenario
 
-    /** It has to survive the round trip through the store, or Start installs something unloadable. */
+    /** They have to survive the round trip through the store, or Start installs something unloadable. */
     @Test
-    fun `the bundled scenario round-trips through the codec`() {
-        val original = DemoScenarioProvider.scenarios().single()
+    fun `the bundled scenarios round-trip through the codec`() {
+        val bundled = DemoScenarioProvider.scenarios()
+        assertEquals(DemoScenarioProvider.scenarioIds().toSet(), bundled.map { it.id }.toSet(), "the cleanup list is the install list")
 
-        val onDisk = Json.parseToJsonElement(ScenarioCodec.toJson(original).toString()).jsonObject
-        val back = ScenarioCodec.fromJson(onDisk)
+        bundled.forEach { original ->
+            val onDisk = Json.parseToJsonElement(ScenarioCodec.toJson(original).toString()).jsonObject
+            val back = ScenarioCodec.fromJson(onDisk)
 
-        assertEquals(original.name, back.name)
-        assertEquals(original.steps.size, back.steps.size)
-        assertEquals(original.setup.size, back.setup.size)
+            assertEquals(original.name, back.name)
+            assertEquals(original.steps.size, back.steps.size, original.name)
+            assertEquals(original.setup.size, back.setup.size, original.name)
+        }
     }
 
     /**
@@ -192,17 +195,35 @@ class DemoWorkspaceTest {
      * and a fresh install's one bundled scenario is red on first press.
      */
     @Test
-    fun `the bundled scenario names only sessions the workspace brings up`() {
-        val scenario = DemoScenarioProvider.scenarios().single()
+    fun `the bundled scenarios name only sessions the workspace brings up`() {
         val available =
             profiles.map { it.name }.toSet() +
                 DemoServerManager.DEMO_CLIENTS.map { DemoServerManager.venuePaneFor(it) }
 
-        (scenario.setup + scenario.steps + scenario.teardown).forEach { step ->
-            val session = step.session
-            assertNotNull(session, "a bundled scenario must name its sessions rather than rely on the active one")
-            assertTrue(session in available, "step names '$session', which the demo never creates")
+        DemoScenarioProvider.scenarios().forEach { scenario ->
+            (scenario.setup + scenario.steps + scenario.teardown).forEach { step ->
+                val session = step.session
+                assertNotNull(session, "${scenario.name}: a bundled scenario must name its sessions rather than rely on the active one")
+                assertTrue(session in available, "${scenario.name} names '$session', which the demo never creates")
+            }
         }
+    }
+
+    /**
+     * The probe waits for the Heartbeat that echoes *its* id. QuickFIX/J also sends Heartbeats on its own
+     * timer, with no TestReqID; a predicate on the type alone would judge the first of those and fail.
+     */
+    @Test
+    fun `the probe waits for the heartbeat that echoes its own id, not any heartbeat`() {
+        val probe = DemoScenarioProvider.scenarios().single { it.id == DemoScenarioProvider.PROBE_ID }
+        val send = probe.steps.filterIsInstance<ScenarioStep.Send>().single()
+        val expect = probe.steps.filterIsInstance<ScenarioStep.Expect>().single()
+
+        assertTrue(send.raw.startsWith("35=1|112="), "a TestRequest carrying a TestReqID: ${send.raw}")
+        val id = send.raw.substringAfter("112=").substringBefore("|")
+        val match = assertNotNull(expect.match, "the probe must say which Heartbeat it is waiting for")
+        assertEquals("0", match.messageType)
+        assertEquals(listOf(112 to id), match.fields.map { it.tag to it.value })
     }
 
     /**
@@ -215,7 +236,7 @@ class DemoWorkspaceTest {
         val clear =
             DemoScenarioProvider
                 .scenarios()
-                .single()
+                .single { it.id == DemoScenarioProvider.LIFECYCLE_ID }
                 .setup
                 .filterIsInstance<ScenarioStep.ClearOrderBook>()
                 .single()
@@ -230,7 +251,7 @@ class DemoWorkspaceTest {
      */
     @Test
     fun `the bundled scenario asserts only deterministic values`() {
-        val scenario = DemoScenarioProvider.scenarios().single()
+        val scenario = DemoScenarioProvider.scenarios().single { it.id == DemoScenarioProvider.LIFECYCLE_ID }
         val sent = scenario.steps.filterIsInstance<ScenarioStep.Send>()
 
         assertTrue(

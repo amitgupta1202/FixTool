@@ -25,6 +25,7 @@ object DemoTemplatesProvider {
             createOrderCancelTemplate(profileIds),
             createOrderReplaceTemplate(profileIds),
             createOrderStatusTemplate(profileIds),
+            createSessionProbeTemplate(profileIds),
         ) + PRICED_PAIRS.map { pair -> createQuoteRequestTemplate(profileIds, pair) }
 
     /**
@@ -57,6 +58,25 @@ object DemoTemplatesProvider {
                     SavedFixField(tag = "60", value = "\${now}"), // TransactTime
                     SavedFixField(tag = "15", value = "USD"), // Currency
                     SavedFixField(tag = "59", value = "0"), // TimeInForce = Day
+                ),
+        )
+
+    /**
+     * Session probe (35=1): FIX's own ping. The venue's session engine must answer with a Heartbeat
+     * echoing the TestReqID, before any rule or book is involved and with nothing placed — so with
+     * latency tracking on, each send is one session-layer round trip in the Latency panel, under
+     * TestReqID. Fresh id per send so a panel row is never ambiguous about which probe it answers.
+     */
+    private fun createSessionProbeTemplate(profileIds: Set<String>): SavedFixMessage =
+        SavedFixMessage(
+            id = "${DEMO_TEMPLATE_PREFIX}session-probe",
+            name = "Session Probe (TestRequest)",
+            userTags = profileIds,
+            isFavorite = false,
+            fields =
+                listOf(
+                    SavedFixField(tag = "35", value = "1"), // MsgType = TestRequest
+                    SavedFixField(tag = "112", value = "PROBE-\${uuid}"), // TestReqID = unique, echoed by the Heartbeat
                 ),
         )
 

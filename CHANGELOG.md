@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ✨ Added
+
+#### A session probe, as a template and a scenario
+- **Session Probe (TestRequest)** joins the demo templates and **Session round-trip probe** joins the demo scenarios. One TestRequest out, the Heartbeat that echoes its TestReqID back: the venue's session engine answers before any rule, order book or simulated latency, so the round trip is the network and the engine alone. Run the scenario as a set of a hundred for a p50/p95/max of the session layer, or point the client profile at a real venue and probe that. The predicate names the id, so QuickFIX/J's own timer Heartbeats are not mistaken for the answer.
+
 ### 🐛 Fixed
 - **An entry that auto-connected its own session could write an empty record.** The recorder learned of a session preflight brought up on a 100ms poll, and whatever landed on it before that poll was filed as history and left out of the record. The watermark is now taken once, synchronously, before the run moves, and a session first seen while the run is under way contributes everything it shows. (`RunSetRailTest`, which failed under load for exactly this reason, is deterministic again.)
 

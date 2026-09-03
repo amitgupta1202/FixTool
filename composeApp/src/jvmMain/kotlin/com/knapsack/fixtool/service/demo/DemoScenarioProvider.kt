@@ -7,6 +7,7 @@ import com.knapsack.fixtool.model.scenario.MatchPredicate
 import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioStep
+import com.knapsack.fixtool.model.scenario.TagValue
 
 /**
  * **One scenario that is green on a fresh install**, shipped as code the way the demo templates are.
@@ -27,6 +28,15 @@ object DemoScenarioProvider {
 
     const val LIFECYCLE_ID = "${DEMO_SCENARIO_PREFIX}eurusd-lifecycle"
 
+    const val PROBE_ID = "${DEMO_SCENARIO_PREFIX}session-probe"
+
+    /**
+     * A fixed TestReqID, for the same reason as [ORDER_ID] but without the teaching: a Heartbeat is
+     * stateless, so the venue answers the hundredth probe exactly as it answered the first, and an
+     * expectation can name the value it is waiting for.
+     */
+    private const val PROBE_REQ_ID = "DEMO-PROBE-1"
+
     /**
      * **A fixed ClOrdID, not `${uuid}`** — and that is the teaching, not an oversight.
      *
@@ -45,9 +55,9 @@ object DemoScenarioProvider {
     /** The venue leg — the per-client pane, which is the only session that owns a book to clear. */
     private val venuePane = DemoServerManager.venuePaneFor(DemoServerManager.DEMO_CLIENTS.first())
 
-    fun scenarios(): List<Scenario> = listOf(lifecycle())
+    fun scenarios(): List<Scenario> = listOf(lifecycle(), probe())
 
-    fun scenarioIds(): List<String> = listOf(LIFECYCLE_ID)
+    fun scenarioIds(): List<String> = listOf(LIFECYCLE_ID, PROBE_ID)
 
     fun isDemoScenario(scenarioId: String): Boolean = scenarioId.startsWith(DEMO_SCENARIO_PREFIX)
 
@@ -120,6 +130,39 @@ object DemoScenarioProvider {
                                         FieldExpectation(41, Matcher.Exact(ORDER_ID)),
                                         FieldExpectation(102, Matcher.Exact("0")),
                                     ),
+                            ),
+                    ),
+                ),
+        )
+
+    /**
+     * **FIX's own ping, as a scenario**: one TestRequest out, the Heartbeat that echoes its id back.
+     *
+     * The venue's session engine answers this before any rule, book or simulated latency is involved, so
+     * the round trip is the network and the engine and nothing else — the floor under every order. On
+     * its own it is one number; run as a **set of a hundred** it is a `p50/p95/max` of the session layer,
+     * which is what a team qualifying a venue's connectivity wants and what they used to script by hand.
+     *
+     * The predicate names the id as well as the type. QuickFIX/J sends its own Heartbeats on the timer,
+     * with no TestReqID, and a match on `35=0` alone would judge the first of those to arrive and fail on
+     * a field it never had.
+     */
+    private fun probe(): Scenario =
+        Scenario(
+            id = PROBE_ID,
+            name = "Session round-trip probe",
+            binding = BindScope.THIS_RUN,
+            steps =
+                listOf(
+                    ScenarioStep.Send("35=1|112=$PROBE_REQ_ID", session = client),
+                    ScenarioStep.Expect(
+                        session = client,
+                        match = MatchPredicate(messageType = "0", fields = listOf(TagValue(112, PROBE_REQ_ID))),
+                        timeoutMs = 5_000,
+                        expectation =
+                            Expectation(
+                                messageType = "0",
+                                fields = listOf(FieldExpectation(112, Matcher.Exact(PROBE_REQ_ID))),
                             ),
                     ),
                 ),

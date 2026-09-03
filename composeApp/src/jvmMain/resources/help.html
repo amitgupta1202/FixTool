@@ -239,7 +239,7 @@
         <li>The venue binds <code>localhost:19876</code> and both clients log on to it</li>
         <li>Three profiles appear: <strong>FX Demo Venue</strong>, <strong>Demo Client 1</strong> and
             <strong>Demo Client 2</strong></li>
-        <li>Ten FX message templates and one scenario are added</li>
+        <li>Eleven message templates and two scenarios are added</li>
     </ol>
 
     <div class="tip">
@@ -304,7 +304,7 @@
     constraint; open any of them and the word is on the card.</p>
 
     <h3>Demo Message Templates</h3>
-    <p>Ten templates are installed, ready to send from the message editor:</p>
+    <p>Eleven templates are installed, ready to send from the message editor:</p>
     <table>
         <tr><th>Template</th><th>Type</th><th>Notes</th></tr>
         <tr><td>FX Market Buy / Sell EUR/USD</td><td>35=D</td><td>Filled at the venue's price</td></tr>
@@ -314,12 +314,24 @@
         <tr><td>FX Order Cancel Request</td><td>35=F</td><td>References your last order automatically</td></tr>
         <tr><td>FX Order Cancel/Replace Request</td><td>35=G</td><td>Revises your last order</td></tr>
         <tr><td>FX Order Status Request</td><td>35=H</td><td>Asks where your last order is</td></tr>
+        <tr><td>Session Probe (TestRequest)</td><td>35=1</td><td>FIX's own ping. The venue's session engine echoes the id in a Heartbeat; with latency tracking on, each send is one session-layer round trip in the Latency panel</td></tr>
     </table>
 
-    <h3>The Bundled Scenario</h3>
-    <p>One scenario, <strong>EUR/USD order lifecycle</strong>, is installed with the demo and passes on a
-    fresh install: a limit order acknowledged, half-filled, filled, and then a cancel that is correctly
-    refused as too late. Open the Scenarios rail and run it.</p>
+    <h3>The Bundled Scenarios</h3>
+    <p>Two scenarios are installed with the demo and pass on a fresh install. <strong>EUR/USD order
+    lifecycle</strong> is a limit order acknowledged, half-filled, filled, and then a cancel that is
+    correctly refused as too late. Open the Scenarios rail and run it.</p>
+    <p><strong>Session round-trip probe</strong> sends one TestRequest and waits for the Heartbeat that
+    echoes its TestReqID. The venue's session engine answers that before any rule, order book or simulated
+    latency is involved, so the round trip is the network and the engine and nothing else: the floor under
+    every order. Run it once for one number; run it as a <strong>set of a hundred</strong> (right-click it
+    in the rail, or <code>POST /scenarios/runs</code>) and the set report gives a p50/p95/max of the
+    session layer, which is what a team qualifying a venue's connectivity used to script by hand. Point the
+    client profile at a real venue and the same scenario probes that venue. Two things to know: the report's
+    per-step latency is the FIX engine's stamp, while the Latency panel's figure for the same probe is the
+    socket's and excludes FixTool's own path (see <a href="#latency">10. Latency Measurement</a>); and the
+    expectation reads the Heartbeat from the session log, so <em>Show heartbeat messages</em> must be on
+    for the client profile, as it is by default.</p>
     <p>It is worth running <em>twice</em>. The scenario uses a fixed ClOrdID, so the second run would be
     rejected as a duplicate out of the venue's memory of the first &mdash; which is why its setup contains
     a <strong>Clear order book</strong> step aimed at the venue side. That step is the difference between
@@ -1768,7 +1780,7 @@ ${incoming["D"].valueOfTag(38)}
         <tr>
             <td>112</td>
             <td>TestReqID</td>
-            <td>TestRequest &rarr; Heartbeat. FIX's own ping: the venue's session engine must echo the id, before any order book or risk check and with nothing placed. Send <code>35=1|112=PING-1|</code> from a template or a scenario for a safe probe of the network and the engine alone &mdash; the floor under every order round trip, and the part of an order's latency that is not the venue's business logic.</td>
+            <td>TestRequest &rarr; Heartbeat. FIX's own ping: the venue's session engine must echo the id, before any order book or risk check and with nothing placed. Send <code>35=1|112=PING-1|</code> from a template or a scenario for a safe probe of the network and the engine alone &mdash; the floor under every order round trip, and the part of an order's latency that is not the venue's business logic. The demo installs both: a <em>Session Probe</em> template and a <em>Session round-trip probe</em> scenario, described under <a href="#demo-server">2. Demo FX Venue</a>.</td>
         </tr>
         <tr>
             <td>&mdash;</td>

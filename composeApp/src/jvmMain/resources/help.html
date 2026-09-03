@@ -296,8 +296,12 @@
         <tr><td>Order Status Request (35=H)</td>
             <td>The order's real quantities, read from the venue's book</td></tr>
     </table>
-    <p>The last four are answered from the venue's <strong>order book</strong> &mdash; it knows what it is
-    holding, so "too late to cancel" and "unknown order" are different answers rather than one guess.</p>
+    <p>The last <strong>six</strong> are answered from the venue's <a href="#order-book">order book</a>
+    &mdash; the duplicate check, all three cancels, the replace and the status request. It knows what it is
+    holding, so &ldquo;too late to cancel&rdquo; and &ldquo;unknown order&rdquo; are different answers
+    rather than one guess, and a replace can keep the OrderID because there is an order to keep it
+    <em>from</em>. Ten of the twenty-one rules carry a <a href="#when-order"><code>whenOrder</code></a>
+    constraint; open any of them and the word is on the card.</p>
 
     <h3>Demo Message Templates</h3>
     <p>Ten templates are installed, ready to send from the message editor:</p>
@@ -652,6 +656,25 @@
         </table>
     </div>
 
+    <h3 id="editor-raw">The RAW MESSAGE pane &mdash; type either side</h3>
+
+    <p>Beneath the field grid is a <strong>RAW MESSAGE</strong> pane, and it is not a read-only preview:
+    the two are <strong>bound both ways</strong>. Edit a field and the raw string follows; type or correct
+    the raw string and the grid re-parses to match. So a message can be built whichever way is faster for
+    the one you have &mdash; row by row when composing from scratch, as a single line when copying the
+    shape of something that already exists.</p>
+
+    <ul>
+        <li><strong>Paste from Clipboard</strong> turns a message copied out of a log, a ticket or an email
+        into fields, ready to edit and send &mdash; the usual way a support case becomes a reproduction.</li>
+        <li><strong>Copy</strong> takes the raw string back out.</li>
+        <li><strong>Clear All Fields</strong> empties the editor.</li>
+    </ul>
+
+    <p>Field values may hold <a href="#message-templates">template expressions</a>, so the raw pane shows
+    the message <em>as authored</em>; the <code>${&hellip;}</code> are resolved at the moment you press
+    Send.</p>
+
     <h3 id="bulk-send">Send to All Sessions (Bulk Send)</h3>
     <p>Next to the <strong>Send</strong> button is a <strong>Send to All Sessions</strong> button
         (megaphone icon). It sends the current message over <em>every logged-on session</em> -
@@ -859,7 +882,7 @@
         </tr>
         <tr>
             <td><code>${sessionIndex}</code></td>
-            <td>1-based position among the targeted sessions (1, 2, 3, ...)</td>
+            <td>1-based position among the sessions actually being sent to (1, 2, 3, &hellip;) &mdash; <strong>not</strong> the profile slot; see the warning below</td>
         </tr>
         <tr>
             <td><code>${sessionSenderCompID}</code></td>
@@ -876,6 +899,17 @@
     </table>
 
     <div class="example">
+        <div class="warning">
+            <strong><code>${sessionIndex}</code> means two different things, and only one of them is
+            stable.</strong> On a <strong>Bulk Send</strong> it is the position among the sessions being
+            sent to <em>right now</em>, so if slot 2 of five is down, the session in slot 3 is handed
+            <code>2</code>. In a <a href="#connections">fanned-out scenario</a> it is the profile
+            <strong>slot</strong> &mdash; lane 7 is slot 7 on every run, whatever is up.
+            <br><br>
+            So do not use it as a durable client identity across runs: prefer
+            <code>${sessionSenderCompID}</code>, which is that session's own resolved CompID either way.
+        </div>
+
         <h4>Example: Traceable MDReqID per Session</h4>
         <table class="fix-table">
             <tr>
@@ -984,9 +1018,39 @@
                 <td><code>${LocalDateTime.now().plusDays(1)...}</code></td>
                 <td>Offset with custom format: tomorrow (date only)</td>
             </tr>
+            <tr>
+                <td><code>${now+5min}</code></td>
+                <td><code>${LocalDateTime.now().plusMinutes(5)...}</code></td>
+                <td>Minutes are spelled <code>min</code> &mdash; see the warning below</td>
+            </tr>
+            <tr>
+                <td><code>${utcnow}</code></td>
+                <td><code>${LocalDateTime.now(ZoneOffset.UTC)...}</code></td>
+                <td><strong>UTC</strong> timestamp in FIX format &mdash; takes the same <code>:pattern</code> and <code>+/-</code> offsets as <code>now</code></td>
+            </tr>
+            <tr>
+                <td><code>${uuid:20}</code></td>
+                <td>&mdash;</td>
+                <td>A <strong>dash-less</strong> UUID cut to 20 characters (1&ndash;32), for venues that cap ClOrdID length</td>
+            </tr>
         </table>
 
-        <p><strong>Offset units:</strong> <code>h</code> (hours), <code>d</code> (days), <code>w</code> (weeks), <code>m</code> (months), <code>y</code> (years)</p>
+        <p><strong>Offset units:</strong> <code>min</code> (minutes), <code>h</code> (hours), <code>d</code> (days), <code>w</code> (weeks), <code>m</code> (months), <code>y</code> (years)</p>
+
+        <div class="warning">
+            <strong>A bare <code>m</code> is months, not minutes.</strong> <code>${now+5m}</code> is five
+            <em>months</em> from now; five minutes is <code>${now+5min}</code>. Minutes are the one unit
+            spelled out, and it is matched first so <code>5min</code> can never read as five months.
+        </div>
+
+        <div class="warning">
+            <strong>Use <code>${utcnow}</code> for UTCTimestamp fields</strong> &mdash; TransactTime(60),
+            ValidUntilTime(62), ExpireTime(126) and the rest. <code>${now}</code> is your machine's
+            <em>local</em> clock, so a template written in London and replayed in Singapore carries an
+            eight-hour error in a field the venue reads as UTC &mdash; and the message is well-formed, so
+            nothing rejects it. This is why <a href="#scenarios">capture</a> mints <code>${utcnow}</code>
+            for those fields rather than <code>${now}</code>.
+        </div>
 
         <h4>Common Tag Names</h4>
         <p>These tag names work without a data dictionary:</p>
@@ -1503,25 +1567,63 @@ ${incoming["D"].valueOfTag(38)}
 
     <h2 id="filtering">8. Filtering Messages</h2>
 
-    <h3>Global Filter</h3>
-    <p>Filter messages across all sessions using the global filter controls:</p>
+    <p>There are two filters and they compose. The <strong>global filter</strong> in the toolbar applies to
+    every session at once; each session's own <strong>filter row</strong> applies to that pane alone. A
+    message is shown only if it passes <em>both</em> &mdash; so you can narrow every pane to
+    <code>EUR/USD</code> from the toolbar and still keep one pane on <code>35=8</code> of its own.</p>
+
+    <h3>The global filter</h3>
     <ul>
-        <li><strong>Regex Pattern:</strong> Enter a regular expression to match messages</li>
-        <li><strong>In/Out Checkboxes:</strong> Show/hide incoming or outgoing messages</li>
-        <li>Filters apply to all open sessions simultaneously</li>
-        <li>Clear filters by clearing the regex and checking both boxes</li>
+        <li><strong>Regex</strong> &mdash; <em>Filter all sessions (regex)&hellip;</em> in the toolbar.</li>
+        <li><strong>In / Out</strong> &mdash; the two checkboxes beside it, showing or hiding a direction
+        across every pane.</li>
+        <li>Clear it by emptying the box and re-checking both.</li>
+    </ul>
+    <p>Typing here never touches a pane's own filter: clear the toolbar and every pane is exactly as its
+    owner left it.</p>
+
+    <h3>A session's own filter row</h3>
+    <p>Each pane's funnel icon opens a row with three controls, which are finer than the toolbar's:</p>
+    <ul>
+        <li><strong>Regex:</strong> a pattern (<code>pattern&hellip;</code>).</li>
+        <li><strong>MsgType:</strong> a comma-separated list (<code>R,S,AJ&hellip;</code>) &mdash; matched
+        against the message's <em>type</em>, so it cannot accidentally hit a payload that happens to
+        contain the same characters. Prefer it to a regex whenever you are selecting by message type.</li>
+        <li><strong>Dir:</strong> incoming, outgoing, or both, for this pane.</li>
     </ul>
 
-    <div class="example">
-        <h4>Example Filters:</h4>
-        <ul>
-            <li><code>35=D</code> - Show only NewOrderSingle messages</li>
-            <li><code>EUR/USD</code> - Show only messages mentioning EUR/USD</li>
-            <li><code>ClOrdID=ORDER.*</code> - Show orders with IDs starting with ORDER</li>
-        </ul>
+    <h3 id="filter-what-matches">What the regex actually matches</h3>
+
+    <div class="warning">
+        <strong>The pattern is matched against the raw FIX message, so it sees tag <em>numbers</em>, not
+        field names.</strong> <code>11=ORDER.*</code> finds orders whose ClOrdID starts with
+        <code>ORDER</code>; <code>ClOrdID=ORDER.*</code> matches nothing at all, because those characters
+        are never on the wire. This is the commonest reason a filter looks broken.
     </div>
 
-    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+    <p>Precisely, each row is matched as <code>&lt;time&gt; &lt;&lt;|&gt;&gt; [&lt;MsgType&gt;]
+    &lt;raw message&gt;</code>, pipe-delimited, and the match is
+    <strong>case-insensitive</strong> and unanchored. A pattern that does not compile is treated as
+    <em>no filter</em> rather than as an error, so a half-typed regex shows everything instead of
+    nothing.</p>
+
+    <table>
+        <tr><th>Pattern</th><th>Finds</th></tr>
+        <tr><td><code>35=D</code></td><td>NewOrderSingles &mdash; though <strong>MsgType:</strong> <code>D</code> is the better tool.</td></tr>
+        <tr><td><code>EUR/USD</code></td><td>Anything mentioning the pair, in any field.</td></tr>
+        <tr><td><code>11=ORDER.*</code></td><td>Orders whose ClOrdID starts with <code>ORDER</code>.</td></tr>
+        <tr><td><code>39=[12]</code></td><td>OrdStatus partially filled or filled.</td></tr>
+        <tr><td><code>\|150=F\|</code></td><td>Fills only &mdash; delimiters pinned, so <code>150=F</code> cannot match inside another value.</td></tr>
+    </table>
+
+    <div class="tip">
+        <strong>When you want an exchange rather than a pattern</strong>, do not write a regex for it:
+        <a href="#trace-follow">Follow</a> narrows every pane to one exchange by correlation
+        <em>value</em>, so it grows as the venue mints new ids and can never match <code>ORD-9</code>
+        inside <code>ORD-91</code>. Following leaves both filters untouched and restores them when you stop.
+    </div>
+
+    <div class="back-to-top"><a href="#top">&uarr; Back to Top</a></div>
 
     <h2 id="settings">9. Settings</h2>
 
@@ -1548,8 +1650,8 @@ ${incoming["D"].valueOfTag(38)}
         <tr><td><strong>Tags</strong></td><td><strong>Grid view columns</strong>, and <strong>Protocol tags</strong> &mdash; the ones the engine owns rather than you.</td></tr>
         <tr><td><strong>Appearance</strong></td><td><strong>Message colours</strong>, <strong>Default view mode</strong> (grid/terminal), <strong>Default layout</strong>.</td></tr>
         <tr><td><strong>Sessions</strong></td><td><strong>Message buffer</strong> (how many messages a session retains), <strong>Order book</strong> (how many orders a venue still remembers &mdash; see below), <strong>Auto-sync session to editor</strong>.</td></tr>
-        <tr><td><strong>Storage</strong></td><td><strong>Connection profiles</strong>, <strong>Saved messages</strong>, <strong>Scenarios</strong> &mdash; where each is written. All three apply on restart.</td></tr>
-        <tr><td><strong>Latency</strong></td><td>Round-trip measurement &mdash; see <a href="#latency">10. Latency Measurement</a>.</td></tr>
+        <tr><td><strong>Storage</strong></td><td><strong>Connection profiles</strong>, <strong>Saved messages</strong>, <strong>Scenarios</strong> &mdash; where each is written. All three apply on restart. <strong>Run records</strong> &mdash; <strong>Messages per run record</strong> and <strong>Run sets kept</strong>.</td></tr>
+        <tr><td><strong>Latency</strong></td><td>Round-trip measurement &mdash; see <a href="#latency">10. Latency Measurement</a>. <strong>Network interface</strong> for packet capture (<em>Auto-detect</em> by default).</td></tr>
         <tr><td><strong>Developer</strong></td><td>The loopback control server &mdash; see <a href="#automation">11. Automation &amp; AI Control</a>.</td></tr>
     </table>
 
@@ -1660,6 +1762,11 @@ ${incoming["D"].valueOfTag(38)}
             <td>17</td>
             <td>ExecID</td>
             <td>Execution Reports</td>
+        </tr>
+        <tr>
+            <td>&mdash;</td>
+            <td>Logon</td>
+            <td>The session handshake itself (<code>35=A</code> out &rarr; <code>35=A</code> back) &mdash; how long the venue took to let you on. A Logon carries no correlation tag, so FixTool pairs it per session rather than by a field.</td>
         </tr>
     </table>
 
@@ -2066,6 +2173,20 @@ stunnel stunnel.conf</code></pre>
     expands to its steps, each carrying live <code>&#10003; / &#10007; / &#9656; running / &ndash; not run</code>
     status, with <strong>Run</strong>, edit, duplicate, and delete per scenario.</p>
 
+    <p>Its header carries the ways in and out. <strong>Run &#9662;</strong> and the sort (<strong>&#8645;</strong>),
+    collapse-all (<strong>&#8863;</strong>) and select-all (<strong>&#9744;</strong>) controls are covered
+    below; the <strong>&hellip;</strong> menu holds the rest:</p>
+    <ul>
+        <li><strong>Capture from sessions&hellip;</strong> &mdash; record a live flow into a scenario.</li>
+        <li><strong>Paste wire&hellip;</strong> &mdash; build one from pasted FIX lines instead (a server log
+        fragment, a message out of an email).</li>
+        <li><strong>New blank scenario</strong> &mdash; start from nothing.</li>
+        <li><strong>&#8646; Diff messages&hellip;</strong> &mdash; the plain
+        <a href="#diff-viewer">diff viewer</a>, with two empty slots to fill.</li>
+        <li><strong>Open scenarios folder</strong> &mdash; reveals <code>~/.fixtool/scenarios/</code>, for
+        when the answer is git rather than the app.</li>
+    </ul>
+
     <p>Scenario documents &mdash; the flow editor, capture review and a run set's record &mdash; open in a
     <strong>dock across the foot of the window</strong>, full width beneath the sessions, the same
     tool-window idiom the <a href="#embedded-terminal">terminal</a> uses. Every open document sits behind
@@ -2379,6 +2500,7 @@ stunnel stunnel.conf</code></pre>
         <tr><td><code>Run selected&hellip; (N)</code></td><td>The rows picked in the rail &mdash; an ad-hoc set, without starring anything you did not mean to.</td></tr>
         <tr><td><code>Repeat a scenario &times;N&hellip;</code></td><td>The flakiness question. <em>&ldquo;Run one scenario N times and report every iteration.&rdquo;</em></td></tr>
         <tr><td><code>Run examples table&hellip; (N)</code></td><td>One entry per live row of a scenario's table.</td></tr>
+        <tr><td><code>Fan out over sessions&hellip; (N)</code></td><td>One lane per session of a multi-session profile, concurrently &mdash; see <a href="#connections">Fanning a scenario out</a>.</td></tr>
         <tr><td><code>Save as set&hellip;</code></td><td>Turns what is on screen into the named file CI runs.</td></tr>
         <tr><td><code>Recent &#9656; &lt;label&gt; (passed/total)</code></td><td>Reopens a finished set from its record on disk.</td></tr>
     </table>

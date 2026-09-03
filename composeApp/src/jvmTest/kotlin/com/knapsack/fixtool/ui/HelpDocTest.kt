@@ -153,6 +153,32 @@ class HelpDocTest {
     }
 
     /**
+     * The two corrections that actively mislead when wrong, rather than merely being absent.
+     *
+     * The guide told authors to filter on `ClOrdID=…`, which cannot match — the pattern is run against
+     * the raw message, where fields are tag numbers. And the offset table stopped at `h`/`d`/`w`/`m`/`y`,
+     * so `${now+5m}` reads as five minutes to anyone who has not read the expander: it is five months.
+     * Both produce a wrong result that looks like a working feature, which is why they are pinned.
+     */
+    @Test
+    fun `the guide does not mislead about filters or time units`() {
+        val flat = html.flat()
+
+        val claims =
+            mapOf(
+                "the filter matches tag numbers, not field names" to "tag <em>numbers</em>, not",
+                "the wrong spelling is named" to "<code>ClOrdID=ORDER.*</code> matches nothing",
+                "a bare m is months" to "is months, not minutes",
+                "minutes are spelled min" to "\${now+5min}",
+                "utcnow exists for UTCTimestamp fields" to "\${utcnow}",
+                "and why local time is wrong there" to "TransactTime(60)",
+            )
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the guide no longer says: $missing")
+    }
+
+    /**
      * The guide is hand-wrapped at ~110 columns, so a pinned phrase is regularly split across a newline
      * and several spaces of indent. Matching on the raw text would then fail for a pure reflow — a
      * "the chapter no longer says" that is really "the chapter was re-indented", which teaches the next

@@ -68,6 +68,86 @@ class HelpDocTest {
         assertTrue(missing.isEmpty(), "the acceptor chapter no longer says: $missing")
     }
 
+    /**
+     * The acceptor chapter's *stateful* half. The rules engine shipped stateless and grew a memory over
+     * three slices; the chapter described only the stateless half for two releases, which is the drift
+     * this pins. Each claim is a fact an author gets wrong at a cost.
+     */
+    @Test
+    fun `the acceptor chapter states what the venue remembers`() {
+        val chapter = html.substringAfter("""id="acceptor-rules"""").substringBefore("""<h2 id="trace"""")
+
+        val claims =
+            mapOf(
+                "the book records and the rules decide" to "The book records; the rules decide",
+                "an order is a fold over its own trail" to "computed on read",
+                "whenOrder's four words" to "whenOrder",
+                "the constraint reads the state before this message" to
+                    "reads the state held <em>before</em> this message",
+                "a reply carries the reason that chose it" to "carries the reason that chose it",
+                "\${order.…} resolves per step as it is sent" to "resolve per step, as that step is sent",
+                "a reference is never sent as an empty field" to "never sent as an empty field",
+                "TargetCompID=* opts an acceptor into being a venue" to "becomes a <strong>venue</strong>",
+                "refused logons are reported" to "Refused logons are reported",
+                "Reply With… offers the venue's own shapes" to "Reply With&hellip;",
+            )
+        val missing = claims.filterValues { it !in chapter }.keys
+
+        assertTrue(missing.isEmpty(), "the acceptor chapter no longer says: $missing")
+    }
+
+    /**
+     * The scenarios chapter's multi-run half. A run set, an examples table and the batch CLI were each
+     * reachable long before the guide mentioned them, and a feature nobody can find is one that did not
+     * ship.
+     */
+    @Test
+    fun `the scenarios chapter states how many runs are made and read back`() {
+        val chapter = html.substringAfter("""id="assertions"""").substringBefore("""<h2 id="acceptor-rules"""")
+
+        val claims =
+            mapOf(
+                "a single run is a set of one" to "A single run is a set of one",
+                "the record on disk is the artifact" to "The record on disk is the artifact",
+                "a record is written as each entry lands" to "as it lands",
+                "focusing an entry is what publishes it" to "Clicking an entry is what publishes it",
+                "entries isolate so a repeat cannot go falsely green" to "THIS_RUN",
+                "the run slot is claimed once per set" to "claimed once per set",
+                "a disabled menu item stays visible with its count" to "stays visible and disabled",
+                "clearing the order book is the run boundary" to "Clear order book",
+                "an examples column is seeded before setup runs" to "before setup runs",
+                "accept-actual on an outline breaks the other rows" to "belongs to <em>all</em> the rows",
+                "the batch CLI flags" to "--stop-on-failure",
+                "a set is a job over the control surface" to "/scenarios/runs",
+            )
+        val missing = claims.filterValues { it !in chapter }.keys
+
+        assertTrue(missing.isEmpty(), "the scenarios chapter no longer says: $missing")
+    }
+
+    /** The trace chapter, by what makes a trace different from a search box with a regex in it. */
+    @Test
+    fun `the trace chapter states what following an exchange does`() {
+        val chapter = html.substringAfter("""id="trace"""")
+
+        val claims =
+            mapOf(
+                "one click narrows every session pane" to "narrows <em>every</em> session pane",
+                "the set grows as the venue mints new ids" to "grows live",
+                "Esc restores each pane's own filter" to "comes back exactly as you left it",
+                "the Ledger counts sessions as well as messages" to "count sessions as well as messages",
+                "nothing is hidden — ungrouped is counted" to "Ungrouped messages come last",
+                "an undeclared venue id is why a trace stays in one session" to ".roles.json",
+                "lanes put initiators and acceptors on opposite sides" to "never guessed from a CompID",
+                "the venue under test is the space between the lanes" to
+                    "the space between the lanes",
+                "one arrow carries the hop time" to "one arrow carrying the hop time",
+            )
+        val missing = claims.filterValues { it !in chapter }.keys
+
+        assertTrue(missing.isEmpty(), "the trace chapter no longer says: $missing")
+    }
+
     /** Loaded exactly as `HelpDialog` loads it, so the ids under test are the ones the app can reach. */
     private fun parsedIds(): Set<String> {
         val pane = JEditorPane("text/html", html)

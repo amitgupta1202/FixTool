@@ -174,7 +174,7 @@
         <h2>Table of Contents</h2>
         <ul>
             <li><a href="#getting-started">1. Getting Started</a></li>
-            <li><a href="#demo-server">2. Demo FX Server</a></li>
+            <li><a href="#demo-server">2. Demo FX Venue</a></li>
             <li><a href="#connections">3. Managing Connections</a></li>
             <li><a href="#viewing-messages">4. Viewing Messages</a></li>
             <li><a href="#sending-messages">5. Sending Messages</a></li>
@@ -186,6 +186,7 @@
             <li><a href="#automation">11. Automation &amp; AI Control</a></li>
             <li><a href="#assertions">12. Automated Verification &amp; Scenarios</a></li>
             <li><a href="#acceptor-rules">13. Acceptor Auto-Responses</a></li>
+            <li><a href="#trace">14. Tracing an Exchange Across Sessions</a></li>
         </ul>
     </div>
 
@@ -1528,7 +1529,7 @@ ${incoming["D"].valueOfTag(38)}
         </tr>
         <tr><td><strong>Tags</strong></td><td><strong>Grid view columns</strong>, and <strong>Protocol tags</strong> &mdash; the ones the engine owns rather than you.</td></tr>
         <tr><td><strong>Appearance</strong></td><td><strong>Message colours</strong>, <strong>Default view mode</strong> (grid/terminal), <strong>Default layout</strong>.</td></tr>
-        <tr><td><strong>Sessions</strong></td><td><strong>Message buffer</strong> (how many messages a session retains), <strong>Auto-sync session to editor</strong>.</td></tr>
+        <tr><td><strong>Sessions</strong></td><td><strong>Message buffer</strong> (how many messages a session retains), <strong>Order book</strong> (how many orders a venue still remembers &mdash; see below), <strong>Auto-sync session to editor</strong>.</td></tr>
         <tr><td><strong>Storage</strong></td><td><strong>Connection profiles</strong>, <strong>Saved messages</strong>, <strong>Scenarios</strong> &mdash; where each is written. All three apply on restart.</td></tr>
         <tr><td><strong>Latency</strong></td><td>Round-trip measurement &mdash; see <a href="#latency">10. Latency Measurement</a>.</td></tr>
         <tr><td><strong>Developer</strong></td><td>The loopback control server &mdash; see <a href="#automation">11. Automation &amp; AI Control</a>.</td></tr>
@@ -1557,6 +1558,19 @@ ${incoming["D"].valueOfTag(38)}
         <li><strong>User-defined fields</strong> &mdash; apply the same rules to custom tags. Turn this <em>off</em> when a venue sends fields its published dictionary does not describe</li>
         <li><strong>Incoming messages</strong> &mdash; the master switch for the three above</li>
     </ul>
+
+    <h3 id="order-book-cap">Order book <span style="font-weight:normal">&mdash; Sessions</span></h3>
+    <p>How many orders a FixTool <a href="#order-book">venue</a> still knows about, per counterparty. It sits
+    directly beneath <strong>Message buffer</strong>, and that placement is the point: the two bound
+    different things and are constantly mistaken for one number. The buffer is how far back you can
+    <em>scroll</em>; this is how far back the venue can still <em>answer</em>. Deriving one from the other
+    would mean a cancel for order 400 coming back <em>&ldquo;unknown&rdquo;</em> because the grid had
+    scrolled past it &mdash; a venue behaviour nobody configured.</p>
+    <p><strong>It applies to books already open.</strong> The moment you discover the cap is too small is the
+    middle of the soak run that proved it, and a setting you could only apply by reconnecting would cost the
+    very state it was raised to preserve. Lowering it evicts down to the new number at once &mdash; finished
+    orders first, and the evictions counted in the panel footer, because a setting that quietly shrank a
+    venue's memory is exactly the silence this is written against. Raising it drops nothing.</p>
 
     <h3>Rejection rules <span style="font-weight:normal">&mdash; Protocol</span></h3>
     <p>Which messages are highlighted in red as rejections:</p>
@@ -2271,6 +2285,190 @@ stunnel stunnel.conf</code></pre>
     <code>POST /scenarios/run</code> takes <code>sessions</code> as <code>{from: to}</code> to re-aim a single
     run, same preflight auto-connect, no copy saved.)</p>
 
+    <h3 id="run-sets">Running many at once &mdash; run sets</h3>
+
+    <p>A scenario answers &ldquo;does this flow still work?&rdquo;. Four questions need more than one run,
+    and they are all the same machinery:</p>
+
+    <ul>
+        <li><strong>Is it flaky?</strong> One scenario, twenty times.</li>
+        <li><strong>Does the suite still pass?</strong> Twelve scenarios, once each.</li>
+        <li><strong>Does it work for every case?</strong> One scenario, once per row of a table &mdash; see
+        <a href="#examples-table">the examples table</a>.</li>
+        <li><strong>Does it hold under load?</strong> One flow, fifty clients at once &mdash; see
+        <a href="#connections">fanning a scenario out</a>.</li>
+    </ul>
+
+    <p>A <strong>run set</strong> is an ordered list of run requests, planned up front so the queue is
+    visible before it starts. A single run is a set of one, which is why nothing downstream &mdash; the
+    report, the reconcile view, the JUnit output &mdash; had to learn a second shape.</p>
+
+    <h4>Run &#9662; &mdash; the four ways to make one</h4>
+
+    <p>Beside the rail's filter, <strong>Run &#9662;</strong> opens on:</p>
+
+    <ul>
+        <li><strong>A saved set by name</strong>, with its size on the item.</li>
+        <li><strong>&#9733; Favourites</strong> &mdash; everything starred, in rail order.</li>
+        <li><strong>The current filter</strong> &mdash; whatever the list is showing right now.</li>
+        <li><strong>Repeat a scenario &times;N</strong> &mdash; the flakiness question.</li>
+        <li><strong>Run examples table&hellip;</strong>, and <strong>Run selected&hellip;</strong> for an
+        ad-hoc set picked in the rail without starring anything you did not mean to.</li>
+        <li><strong>Save as set&hellip;</strong> turns what is on screen into the file CI runs by name.</li>
+    </ul>
+
+    <p>An item that cannot be used <strong>stays visible and disabled, with its count showing</strong>. You
+    cannot tell &ldquo;there is nothing starred&rdquo; from &ldquo;this feature does not exist&rdquo; if the
+    item is simply withheld. A greyed-out <strong>Run</strong> says what is holding it.</p>
+
+    <p>To build one by hand, pick the rows in the rail (<strong>Running several at once</strong>, above) and
+    use the bar's <strong>&#9654; Run</strong> or <strong>Save&hellip;</strong>. Picking is scoped to the
+    order the rail is actually drawing, so a range means what you can see.</p>
+
+    <h4>The record on disk is the artifact</h4>
+
+    <p>Entry 2's setup calls <strong>Clear messages</strong>, so the moment the second scenario starts the
+    first one's messages are gone from the grid &mdash; and even without a clear, a session is a ring
+    buffer. Eleven of twelve reports would point at messages that are not there.</p>
+
+    <p>So each entry writes its own record to
+    <code>~/.fixtool/runs/&lt;set&gt;/NN-&lt;scenario&gt;.json</code> &mdash; the report verbatim, the bytes,
+    the scenario <em>as it ran</em>, and which message each step judged &mdash; <strong>as it lands</strong>,
+    not at the end, because the run this exists for is the one that gets killed at entry nine. An overnight
+    suite is read in the morning, from an app that may have been closed since.</p>
+
+    <p>Which is why <strong>a set survives a restart</strong>, and why a headless run on a build box leaves
+    exactly the same thing to read as a run you started with a click.</p>
+
+    <h4>The set report, and reading an entry back</h4>
+
+    <p>While a set runs, the <strong>set report</strong> takes the single run's place in the rail: label,
+    progress, failures, elapsed, <strong>&#9209;</strong> to stop it, and a dismiss when it is done (the
+    records stay on disk &mdash; this is a view, not a delete). Under it, one row per entry with its mark,
+    its name, its duration, and for one that never ran, the reason. Finished sets are listed under
+    <strong>Recent runs</strong> with their verdict and score.</p>
+
+    <p><strong>Clicking an entry is what publishes it.</strong> Entries run publishing nothing &mdash; a set
+    of twenty would re-aim your open reconcile window twenty times while you were reading it &mdash; so
+    focusing an entry is the deliberate act that says &ldquo;this is the run I am looking at now&rdquo;. It
+    republishes the verdict <em>from the record</em>, so an entry focused an hour later says exactly what one
+    focused a second later said.</p>
+
+    <p>An entry opens as a <strong>run set document</strong>: entries down the left, and for the focused one
+    its verdict, its steps with their latencies, its variables, and <strong>its own message grid</strong>,
+    re-parsed from the bytes the record kept and tinted by what that entry decided. Its header says which
+    entry you are looking at &mdash; <code>book-a-trade &middot; entry 2 of 12 &middot; 5 messages</code>
+    &mdash; because a record's grid that looked identical to the live one would be worse than none. Any
+    entry can be <strong>re-run as it ran</strong>.</p>
+
+    <p><strong>Reconcile works from an entry that ran an hour ago</strong>, because the record carries the
+    scenario as it ran. Without that, you could edit an assertion, click Reconcile, and be shown the old
+    bytes against the new expectation &mdash; with <em>Accept actual</em> writing a repair for a run that
+    never happened.</p>
+
+    <h4>Isolation, and the run slot</h4>
+
+    <p>Entries isolate by default: each runs under <code>THIS_RUN</code> binding scope so iteration 2 cannot
+    bind iteration 1's reply and report that the venue answered when it has not &mdash; which on a
+    twenty-times repeat would be a false green by construction, in the one feature whose whole purpose is
+    catching flakiness. Isolation is an in-memory copy; the saved scenario is never rewritten.</p>
+
+    <p>The <strong>run slot</strong> is claimed once per set, not once per entry, because two runners would
+    race each other's consumed-message cursors. A single run started during a set is told the slot is taken
+    rather than quietly interleaving with it.</p>
+
+    <div class="tip">
+        <strong>The run boundary.</strong> A repeatable scenario that drives a FixTool venue also needs the
+        venue's memory reset, or the second <code>35=D</code> on a fixed ClOrdID is read as a move rather
+        than a birth. <strong>Clear order book</strong> is a scenario step for exactly that, aimed at the
+        venue side; capture writes one beside <strong>Clear messages</strong> for every pane that owns a
+        book. Aimed at anything else the run is <em>refused in preflight</em>, by name &mdash; a setup step
+        that quietly does nothing is worse than one that will not run, because the run then goes green on
+        state it never reset.
+    </div>
+
+    <h3 id="examples-table">The examples table &mdash; one scenario, once per row</h3>
+
+    <p>A scenario was already a Scenario Outline and nobody had noticed: every step resolves
+    <code>${&hellip;}</code> against one scope, and that scope already works in both directions &mdash; a Send
+    puts <code>${symbol}</code> on the wire, an Expect's <strong>reference</strong> matcher asserts
+    <code>${symbol}</code> came back. What was missing was the table.</p>
+
+    <p>The <strong>examples table</strong> sits across the foot of the editor, under both panes. Collapsed it
+    is a single line, so a scenario with no table pays nothing for the feature existing. Columns are variable
+    names, edited in place; a row can be named, parked (kept, not deleted), or dropped.</p>
+
+    <p>The columns are seeded into the scope <strong>before setup runs</strong>, and a cell is resolved as it
+    is seeded &mdash; so a row may say <code>${uuid}</code> and give each of its runs a fresh id, which is
+    what makes an outline safe to run twice.</p>
+
+    <h4>Getting the first table written</h4>
+
+    <p>Nobody hand-writes one. A capture bakes literals into its sends, so the <strong>&#9638;</strong> beside
+    each Send value <strong>extracts it to a column</strong>: <code>55=EURUSD</code> becomes
+    <code>${symbol}</code>, named through the dictionary's own field name, and <em>every existing row</em>
+    gets the literal as its cell. Every row, not just the first &mdash; those rows were already sending that
+    literal, and filling only row 1 would leave the others quietly sending nothing.</p>
+
+    <p>Each column carries a badge derived from the steps that read it &mdash; <strong>&uarr; out</strong>
+    (the row drives the flow), <strong>&darr; in</strong> (the row asserts the reply), <strong>&uarr;&darr;</strong>
+    for both &mdash; and a column no step reads at all is named under the table. Not an error, but not
+    something to discover by watching a run pass while proving nothing about the column.</p>
+
+    <h4>What a row is called, and what happens when one fails</h4>
+
+    <p>An entry names itself <code>book-a-trade [EUR/USD partial fill]</code>, so the JUnit XML, the build
+    log, the rail and the document cannot come to disagree about it. Run one row by name to debug the row
+    that failed without re-running the other seven.</p>
+
+    <div class="warning">
+    <p><strong>On an outline, the reconcile gutter's plain <em>Accept actual</em> is a
+    trap</strong>, and is treated as one: the expectation belongs to <em>all</em> the rows, so writing this
+    run's literal into it repairs row 3 and silently breaks the other seven. The offer that tracks the
+    examples column is drawn first and wins any tie, and it says why it is the one.</p>
+    </div>
+
+    <h3 id="scenario-cli">Running a suite from the command line</h3>
+
+    <p>The same scheduler the app uses, over a headless host &mdash; so a suite behaves identically whether
+    a click or a build step started it, which is the property that makes &ldquo;it passes locally&rdquo; a
+    claim worth arguing with.</p>
+
+    <div class="example">
+        <p><code>fixtool run --all --home ci/fixtool --junit reports/ --stop-on-failure</code><br>
+        <code>fixtool run --set nightly --junit reports/nightly.xml</code><br>
+        <code>fixtool run book-a-trade --repeat 20 --pause 500ms</code><br>
+        <code>fixtool run book-a-trade --rows</code> &nbsp;/&nbsp; <code>--row "EUR/USD partial"</code><br>
+        <code>fixtool run book-a-trade --fan-out LoadGen --over sellside</code></p>
+    </div>
+
+    <table>
+        <tr><th>Flag</th><th>What it does</th></tr>
+        <tr><td><code>--all</code></td><td>Every scenario in the store, in name order.</td></tr>
+        <tr><td><code>--set &lt;name&gt;</code></td><td>A saved set from <code>~/.fixtool/sets/</code>. An entry naming a scenario nothing answers to is reported beside the plan and the rest still run &mdash; a nightly suite should not stop existing the day somebody renames a file.</td></tr>
+        <tr><td><code>--repeat N</code></td><td>The same scenario N times, isolated.</td></tr>
+        <tr><td><code>--rows</code> / <code>--row &lt;name&gt;</code></td><td>Once per examples row, or one named row.</td></tr>
+        <tr><td><code>--fan-out &lt;profile&gt;</code></td><td>One lane per session the profile declares.</td></tr>
+        <tr><td><code>--pause 500ms</code></td><td>Between entries. Takes <code>500ms</code>, <code>2s</code> or a bare number; one it cannot parse is refused rather than read as zero.</td></tr>
+        <tr><td><code>--stop-on-failure</code></td><td>Applied <em>over</em> a saved set's own policy and never takes it away.</td></tr>
+        <tr><td><code>--junit &lt;path&gt;</code></td><td>Reads its argument: a <code>.xml</code> file gets the whole set as one <code>&lt;testsuites&gt;</code>; a directory gets one report per entry.</td></tr>
+        <tr><td><code>--json &lt;file&gt;</code></td><td>The set, with each entry's full report folded in &mdash; one file that answers which entry failed and at which step.</td></tr>
+    </table>
+
+    <p>The exit code is the verdict. <strong>Sessions stay up across entries</strong>: bringing them down
+    between scenarios would make a suite mostly logon traffic and change what it is testing.</p>
+
+    <div class="tip">
+        <strong>Driving a set from an agent.</strong> <code>POST /scenarios/run</code> is unchanged for a
+        single scenario. Given <code>set</code>, <code>ids</code> or <code>repeat</code> it starts a
+        <em>job</em> and answers <code>202</code> with an id &mdash; a twelve-scenario suite is minutes, and
+        the MCP shim gives up at fifteen seconds. Then <code>GET /scenarios/runs</code>,
+        <code>GET /scenarios/runs/&lt;id&gt;?wait=10000</code>,
+        <code>GET /scenarios/runs/&lt;id&gt;/entries/3</code> and
+        <code>POST /scenarios/runs/&lt;id&gt;/stop</code>. The state is read from disk, so the answer
+        survives a restart. MCP tools: <code>fixtool_run_set</code>, <code>fixtool_run_status</code>,
+        <code>fixtool_run_entry</code>.
+    </div>
     <h3 id="diff-viewer">Comparing two messages &mdash; the plain diff viewer</h3>
     <p>Sometimes you just want to see how two messages differ, with no scenario and no assertion in sight:
     UAT vs PROD replies for the same order, pre- vs post-upgrade ExecutionReports, &ldquo;why did clearing
@@ -2503,6 +2701,203 @@ stunnel stunnel.conf</code></pre>
     then, four seconds later, the fill" &mdash; so the moment you see it is the wrong claim, you need it to
     stop <em>now</em>, not after it has finished being wrong.</p>
 
+    <h3 id="venue-many-clients">One venue, many clients</h3>
+
+    <p>An acceptor normally names its counterparty: one <strong>TargetCompID</strong>, one client, and a
+    logon from anyone else is refused. That is a test result, not a limitation &mdash; so it stays the
+    default.</p>
+
+    <p>Set <strong>TargetCompID</strong> to <code>*</code> and the acceptor becomes a <strong>venue</strong>:
+    it binds the port once, accepts a logon from <em>any</em> counterparty addressed to your
+    SenderCompID, and gives each client <strong>its own session and its own pane</strong>. Your own
+    SenderCompID is never wildcarded &mdash; a venue answers to its own name.</p>
+
+    <p>This is the topology a venue actually has. The alternative was a port per client, which forces the
+    client under test to be reconfigured away from its real settings &mdash; so you end up testing a
+    configuration nobody ships.</p>
+
+    <ul>
+        <li><strong>Refused logons are reported</strong> &mdash; a notification, a line on the venue pane,
+        and a counter on <code>GET /sessions</code>. Nothing else records them, and without them a wrong
+        CompID, a wrong port and a firewall look identical from both ends.</li>
+        <li><strong>A client's pane outlives its session</strong>, marked disconnected, and a reconnect from
+        the same CompID reuses it &mdash; because what explains a drop is the traffic just before it. One
+        client logging out never stops the port.</li>
+        <li><strong>The acceptor's own tab is a venue overview</strong> &mdash; port, client list, refused
+        logons, rule status, and a per-client roll-up of the order book. It shows no message grid, because
+        every message belongs to one of the clients.</li>
+    </ul>
+
+    <p>Rules stay profile-wide, so one set of rules serves every client.</p>
+
+    <h3 id="order-book">What the venue remembers &mdash; the order book</h3>
+
+    <p>A rules engine with no memory answers the same message the same way forever. That is wrong in a
+    way clients notice: a cancel for an order nobody ever placed comes back <em>&ldquo;canceled&rdquo;</em>,
+    and a duplicate ClOrdID is accepted as a new order.</p>
+
+    <p>So the venue keeps an <strong>order book</strong>: one book per counterparty, holding what it is
+    currently holding for that client. Two sentences govern it, and they are worth learning because every
+    other behaviour follows from them:</p>
+
+    <ol>
+        <li><strong>The book records; the rules decide.</strong> Nothing about the book changes what your
+        venue answers unless a rule you can read asks it to.</li>
+        <li><strong>An order is its own trail, folded.</strong> Every number on a row &mdash; CumQty,
+        LeavesQty, the state &mdash; is computed on read from the list of messages that touched that order,
+        never accumulated as they arrive.</li>
+    </ol>
+
+    <p>The book is fed from <strong>the wire</strong>, not from the rules engine, so a reply you typed by
+    hand moves it exactly as a rule's reply does. And where a report you sent carries <code>14</code> or
+    <code>151</code>, <strong>those are the values booked</strong> &mdash; the fold never prefers its own
+    running total to what the venue told the client, which is what makes a bust (<code>150=H</code>,
+    restating quantities <em>downward</em>) work.</p>
+
+    <p><strong>Identity is stated, never inherited.</strong> A replacement's OrderID comes from tag
+    <code>37</code> on a message, or from that order's own earlier events &mdash; never from the order it
+    supersedes. Venues genuinely disagree here: many keep one id across a chain, several crypto and
+    futures venues mint a new one, so <code>37=${order.orderId}</code> and <code>37=${uuid}</code> must
+    produce different books. Quantities <em>do</em> carry across a replace: how much of a chain has traded
+    is a fact about the chain, while which id it wears is a fact the venue states.</p>
+
+    <h4>The panel</h4>
+
+    <p>The toolbar's <strong>Order Book</strong> toggle opens a side panel against the active session
+    &mdash; for a venue, the client pane you are already reading, since a book belongs to a counterparty
+    and the pane is what names it. Its position and visibility persist across launches.</p>
+
+    <p><strong>A row is a claim; expanding it shows the evidence.</strong> Each trail line is one message
+    that touched the order, with what the order looked like <em>after</em> it &mdash; so
+    <code>CumQty 2500</code> is not something you are asked to believe, it is two fills you can count.
+    Clicking a trail line selects that message in the grid, because the next question a trail raises is
+    always &ldquo;what exactly did we send them?&rdquo;.</p>
+
+    <p>The footer says the three ways the book may be <em>wrong</em>, which is the other half of the same
+    stance:</p>
+
+    <ul>
+        <li><strong>Unattributed reports</strong> &mdash; the count opens to the list and the reason,
+        because &ldquo;2 unattributed&rdquo; says something is broken and nothing about what.</li>
+        <li><strong>Evicted orders</strong> &mdash; the book is capped (see
+        <a href="#settings">Settings &rarr; Sessions &rarr; Order book</a>), finished orders evicted before
+        working ones. An evicted order answers a cancel <em>&ldquo;unknown&rdquo;</em>, which is a venue
+        behaviour nobody configured, so it is counted rather than silent.</li>
+        <li><strong>Cleared, or never filled</strong> &mdash; an empty book otherwise reads identically as
+        &ldquo;nothing has happened here&rdquo; and &ldquo;somebody pressed clear thirty seconds ago&rdquo;,
+        which send a tester in opposite directions. The empty state never just says &ldquo;no orders&rdquo;.</li>
+    </ul>
+
+    <p>An initiator session says so rather than showing an empty book: a client's own view of the orders it
+    sent is a different feature, deliberately not this one.</p>
+
+    <h3 id="when-order">Rules that read the book</h3>
+
+    <p>A trigger can carry one <strong>whenOrder</strong> constraint, ANDed with its tag conditions, taking
+    one of four words:</p>
+
+    <table>
+        <tr><th>Word</th><th>What it means</th></tr>
+        <tr><td><code>unknown</code></td><td>This book has never held this ClOrdID &mdash; a new order.</td></tr>
+        <tr><td><code>pending</code></td><td>Sent to us, but we have told the client nothing yet.</td></tr>
+        <tr><td><code>working</code></td><td>Acknowledged and live, with quantity still to fill.</td></tr>
+        <tr><td><code>done</code></td><td>Filled, canceled, rejected or expired &mdash; finished.</td></tr>
+    </table>
+
+    <p>Which makes the venue answer one message two ways:</p>
+
+    <div class="example">
+        <p><code>35=F</code> and the order is <strong>unknown</strong> &rarr; <code>35=9</code>,
+        <code>102=1</code> &mdash; unknown order<br>
+        <code>35=F</code> and the order is <strong>working</strong> &rarr; pending cancel, then canceled<br>
+        <code>35=F</code> and the order is <strong>done</strong> &rarr; <code>35=9</code>,
+        <code>102=0</code> &mdash; too late to cancel</p>
+    </div>
+
+    <div class="warning">
+    <p><strong>The constraint reads the state held <em>before</em> this message.</strong>
+    The book is fed from the wire and the wire is read first, so by the time any rule is asked, the
+    message's own arrival has already been booked &mdash; a new <code>35=D</code> would read
+    <code>pending</code>, and a rule conditioned <code>unknown</code> on <code>35=D</code> could never
+    fire. Read <em>before</em>, <code>unknown</code> means &ldquo;a new order&rdquo; and anything else means
+    &ldquo;we already hold this id&rdquo;, which is the whole of what a duplicate is. The reading is taken
+    once per incoming message, so every rule in the list is judged against the same answer.</p>
+    </div>
+
+    <p>There is deliberately no word for &ldquo;pending <em>or</em> working&rdquo;. Rejecting a duplicate
+    ClOrdID is two rules, and inventing a fifth word would cost the other four the property that earns
+    them.</p>
+
+    <p><strong>Every reply now carries the reason that chose it</strong>, shown in the detail panel beside
+    the bytes:</p>
+
+    <div class="example">
+        <p><em>sent by rule 3 &mdash; 35=F matched, and the book said ORD-9 was unknown at 09:14:22.418</em><br>
+        <em>sent by hand &mdash; &ldquo;Fill the remainder&rdquo; against ORD-5000, working, 2500 leaves</em></p>
+    </div>
+
+    <p>The reason is <strong>written when the decision is made</strong>, not re-derived afterwards, and that
+    is a requirement rather than an optimisation: a cancel rejected at :22 because the order was unknown
+    would re-derive as <em>accepted</em> at :25, so a tool that reconstructs after the fact states the wrong
+    reason confidently.</p>
+
+    <h3 id="order-vocabulary">Reading the book in a reply</h3>
+
+    <p>A reply template can read what the venue is holding, standing alone or inside arithmetic, exactly as
+    <code>${req.&hellip;}</code> reads the triggering message:</p>
+
+    <table>
+        <tr><th>Reference</th><th>What it resolves to</th></tr>
+        <tr><td><code>${order.orderId}</code></td><td>The OrderID this venue gave the client.</td></tr>
+        <tr><td><code>${order.clOrdId}</code></td><td>The client's own id for the order.</td></tr>
+        <tr><td><code>${order.symbol}</code>, <code>${order.side}</code></td><td>As the order was placed.</td></tr>
+        <tr><td><code>${order.orderQty}</code></td><td>The quantity ordered.</td></tr>
+        <tr><td><code>${order.cumQty}</code>, <code>${order.leavesQty}</code></td><td>Filled so far, and left to fill.</td></tr>
+        <tr><td><code>${order.avgPx}</code>, <code>${order.price}</code></td><td>Average fill price, and the order's limit price.</td></tr>
+        <tr><td><code>${order.state}</code></td><td><code>pending</code>, <code>working</code> or <code>done</code>.</td></tr>
+    </table>
+
+    <p>Names, not tag numbers, because half of them are facts the venue <em>computed</em> rather than fields
+    of any message &mdash; <code>${order.14}</code> would send a reader looking at the wire for something
+    that was never on it.</p>
+
+    <p><strong>They resolve per step, as that step is sent.</strong> That is the whole difference from
+    <code>${req.&hellip;}</code>, which is a fact about the triggering message and cannot change. The book
+    can, and it changes <em>inside a single reply</em>, because each step reaches the wire and is recorded
+    before the next is built:</p>
+
+    <div class="example">
+        <p><code>14=${order.cumQty + order.leavesQty / 2}</code> &rarr; <code>500</code>, then
+        <code>750</code>, then <code>1000</code></p>
+        <p>Read once at trigger time instead, all three report <code>500</code>, and a client tracking
+        CumQty watches each fill undo the last.</p>
+    </div>
+
+    <p><strong>A reference that cannot resolve is never sent as an empty field</strong>, refused at three
+    levels: the rule refuses to validate, <strong>Reply With&hellip;</strong> greys out the shape with the
+    reason, and a step whose references cannot resolve is not sent and says why. The last is a backstop for
+    what defeats the other two &mdash; a book cleared mid-sequence, an eviction &mdash; not the mechanism.</p>
+
+    <div class="tip">
+        <strong>Resetting between runs.</strong> A scenario run twice meets its own history: the second
+        <code>35=D</code> on a fixed ClOrdID routes as a move rather than a birth, and a venue that rejects
+        duplicate ClOrdIDs rejects the very order it acknowledged a second earlier. The
+        <strong>Clear order book</strong> scenario step is the run boundary that fixes it &mdash; see
+        <a href="#assertions">Automated Verification &amp; Scenarios</a>. Capture writes one for you when
+        it authors a both-sides flow.
+    </div>
+
+    <h3 id="reply-with">Replying by hand &mdash; Reply With&hellip;</h3>
+
+    <p>Rules answer what you anticipated. <strong>Reply With&hellip;</strong>, on an incoming message's
+    right-click menu in a venue pane, answers what you did not: it offers the venue's own shapes &mdash;
+    acknowledge, fill, partially fill, reject, cancel &mdash; already filled in from that message and from
+    the book, so a one-off reply does not mean composing an ExecutionReport from memory.</p>
+
+    <p>A shape that cannot work is <strong>shown greyed with its reason</strong> rather than hidden: filling
+    a market order at a limit price it never carried, or quoting an OrderID for an order the venue does not
+    hold. A hand-sent reply moves the order book exactly as a rule's does, and carries its own recorded
+    reason &mdash; the client cannot tell which of them sent it, and neither should the record.</p>
     <h3>When a rule does not fire</h3>
 
     <p>A rule that cannot work says so on its own card, in amber, under the step it belongs to. Read that
@@ -2511,7 +2906,7 @@ stunnel stunnel.conf</code></pre>
 
     <table>
         <tr><th>What you see</th><th>What it means</th></tr>
-        <tr><td>Nothing fires after an edit</td><td>The session was already up. Rules compile at connect &mdash; disconnect and reconnect.</td></tr>
+        <tr><td>Nothing fires after an edit</td><td>The save did not reach the engine. Saving <em>does</em> reach a live session &mdash; check the rule is enabled and that no earlier rule for that MsgType shadows it. <code>rulesLive</code> on <code>GET /sessions</code> reports what is actually compiled and in force, which is the answer to &ldquo;I saved it, why does nothing happen&rdquo;.</td></tr>
         <tr><td>The card is dimmed</td><td>The rule is switched off. The message falls through to the rule below it.</td></tr>
         <tr><td><em>"the rule has no trigger MsgType, so nothing can match it"</em></td><td><strong>When 35=</strong> is blank.</td></tr>
         <tr><td><em>"the condition on tag N is not a usable matcher"</em> / <em>"&hellip; is a reference, and a trigger has no scenario scope"</em></td><td>One condition is unusable, so <strong>the whole rule is skipped</strong>. A trigger missing one of its constraints would be looser than you wrote it, and a rule that fires on messages you excluded is the dangerous direction to be wrong in &mdash; so it is dropped entirely rather than loosened.</td></tr>
@@ -2534,13 +2929,77 @@ stunnel stunnel.conf</code></pre>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
+    <h2 id="trace">14. Tracing an Exchange Across Sessions</h2>
+
+    <p>One business exchange rarely lives in one session. An RFQ arrives on the client leg, a quote request
+    goes out to the liquidity provider on another, the provider's quote comes back, and the client is
+    filled &mdash; four hops, four panes, four different ids for what everyone involved would call one
+    thing.</p>
+
+    <p>The usual answer was a regex typed into the search box, and it fails in both directions: it misses a
+    hop the moment the venue mints a new id, and <code>ORD-9</code> matches inside <code>ORD-91</code>.</p>
+
+    <h3 id="trace-follow">Following one exchange</h3>
+
+    <p><strong>Follow</strong> is on a conversation header, on a message row's right-click menu, and on any
+    correlation-id field in the detail panel. One click narrows <em>every</em> session pane to that
+    exchange at once, and a chip in the toolbar names what is being followed:</p>
+
+    <div class="example">
+        <p><code>Following RFQ-A1 &middot; 4 sessions &middot; 14 messages</code></p>
+    </div>
+
+    <p>The set <strong>grows live</strong> as the venue mints new ids &mdash; a quote id that appears two
+    minutes in joins the trace without you doing anything. <code>Esc</code>, or the chip's <strong>&times;</strong>,
+    stops following, and every pane's own filter comes back exactly as you left it.</p>
+
+    <p>Hops are joined by the ids messages actually carry: a reply echoing the request's id, a venue's own
+    id quoted back on the next message. Which is why a trace is only as good as what your venue declares
+    &mdash; see <a href="#venue-tag-roles">Your venue's own correlation ids</a>.</p>
+
+    <h3 id="trace-panel">The Trace panel &mdash; the Ledger</h3>
+
+    <p>The toolbar's <strong>Trace</strong> toggle, beside Group, opens the grouped grid run over every
+    session at once: one grid in time order with a <strong>Session</strong> column, per-hop
+    <strong>Elapsed</strong> times on one clock, and group headers that count sessions as well as messages
+    &mdash; so <em>which RFQs touched more than one session</em> is read straight off the headers.</p>
+
+    <p>Nothing is hidden. Ungrouped messages come last and are counted rather than dropped, and a trace
+    whose first message has already left a session's buffer says so rather than presenting a partial
+    exchange as a whole one.</p>
+
+    <p>A trace that stubbornly stays in one session carries a hint pointing at the dictionary's
+    <code>.roles.json</code> sidecar &mdash; usually the venue's own echo tag has not been declared yet, and
+    declaring it is what joins the legs.</p>
+
+    <h3 id="trace-lanes">Lanes</h3>
+
+    <p>The Trace panel's second rendering: <strong>one column per session</strong>, time running down, each
+    message a chip in its lane pointing out of FixTool or into it. Initiator sessions sit left of a dashed
+    rule and acceptors right of it &mdash; read from the profile, never guessed from a CompID.</p>
+
+    <p><strong>The venue under test is the space between the lanes.</strong> That is the whole idea: when
+    FixTool holds both ends of a hop, the same bytes leaving one lane and arriving in another are drawn as
+    <strong>one arrow carrying the hop time</strong>, so the latency you are reading is the thing in the
+    middle rather than anything FixTool did.</p>
+
+    <div class="tip">
+        <strong>Driving it from an agent or CI.</strong> <code>GET /traces</code> lists them;
+        <code>GET /trace?id=</code> returns the merged exchange with a session and an elapsed time per
+        message (an id is matched whole &mdash; a substring never matches). <code>POST /panel
+        {"panel":"trace","follow":&hellip;,"render":"lanes"}</code> opens and switches it. MCP tools:
+        <code>fixtool_traces</code>, <code>fixtool_trace</code>.
+    </div>
+
+    <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
+
     <div class="tip">
         <strong>Need More Help?</strong><br>
         For bugs or feature requests, visit: <a href="https://github.com/amitgupta1202/FixTool" target="_blank">GitHub Issues</a>
     </div>
 
     <p style="text-align: center; color: #808080; margin-top: 40px; padding-bottom: 20px;">
-        FixTool v1.0 | <a href="https://www.fixtrading.org/" target="_blank">Learn more about FIX Protocol</a>
+        FixTool | <a href="https://www.fixtrading.org/" target="_blank">Learn more about FIX Protocol</a>
     </p>
 
 </body>

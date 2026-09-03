@@ -49,6 +49,8 @@ kotlin {
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
+            // Native file and folder dialogs: NSOpenPanel on macOS, IFileOpenDialog on Windows, XDG portal on Linux.
+            implementation(libs.filekit.dialogs)
 
             // QuickFIX/J for FIX protocol connections
             implementation(libs.quickfixj.core)
@@ -93,6 +95,11 @@ compose.desktop {
                 "java.scripting",
                 // Embedded automation control server (com.sun.net.httpserver), opt-in via FIXTOOL_CONTROL_PORT
                 "jdk.httpserver",
+                // FileKit's Linux file dialogs reach the XDG portal over D-Bus, and dbus-java's unix-socket
+                // transport touches jdk.net.ExtendedSocketOptions. Its availability probe only catches
+                // Exception, so a runtime image without this module fails the first Browse with a
+                // NoClassDefFoundError instead of quietly dropping back to AWT.
+                "jdk.net",
             )
 
             val macIconFile = project.file("src/jvmMain/resources/icon.icns")

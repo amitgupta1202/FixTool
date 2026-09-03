@@ -93,7 +93,7 @@ private fun ProtocolContent(context: SettingsContext) {
                 placeholder = "Path to a data dictionary XML",
                 kind = PathKind.EXISTING_FILE,
                 chooserTitle = "Select data dictionary file",
-                fileFilter = "XML Files (*.xml)" to "xml",
+                fileExtension = "xml",
                 emptyNote = "No dictionary configured — tags will show as numbers without names.",
                 detail = { file ->
                     runCatching { FixDictionaryAdapter.detectVersionFromFile(file) }.getOrNull()?.displayName
@@ -112,7 +112,7 @@ private fun ProtocolContent(context: SettingsContext) {
                 placeholder = "Path to FIXT11.xml",
                 kind = PathKind.EXISTING_FILE,
                 chooserTitle = "Select transport dictionary file (FIXT11.xml)",
-                fileFilter = "XML Files (*.xml)" to "xml",
+                fileExtension = "xml",
                 emptyNote = "Optional below FIX 5.0.",
                 startNear = { settings.defaultDataDictionary },
             )

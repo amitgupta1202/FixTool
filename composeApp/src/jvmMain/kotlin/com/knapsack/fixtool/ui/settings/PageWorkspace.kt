@@ -162,7 +162,7 @@ private fun StorageContent(context: SettingsContext) {
             placeholder = "~/.fixtool/connection_profiles.json",
             kind = PathKind.FILE_TO_WRITE,
             chooserTitle = "Select connection profiles file",
-            fileFilter = "JSON Files (*.json)" to "json",
+            fileExtension = "json",
             emptyNote = "Default: ~/.fixtool/connection_profiles.json",
         )
     }
@@ -174,7 +174,7 @@ private fun StorageContent(context: SettingsContext) {
             placeholder = "~/.fixtool/saved_messages.json",
             kind = PathKind.FILE_TO_WRITE,
             chooserTitle = "Select saved messages file",
-            fileFilter = "JSON Files (*.json)" to "json",
+            fileExtension = "json",
             emptyNote = "Default: ~/.fixtool/saved_messages.json",
         )
     }

@@ -54,11 +54,8 @@ import quickfix.FieldMap
 import java.awt.Cursor
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
-import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 /**
  * Resize handle for adjusting column widths
@@ -336,23 +333,17 @@ fun HierarchicalGridView(
     // Save selected messages to file
     fun saveSelectedToFile() {
         val selected = getSelectedFixMessages()
-        if (selected.isNotEmpty()) {
-            val fileChooser =
-                JFileChooser().apply {
-                    dialogTitle = "Save Messages to File"
-                    fileSelectionMode = JFileChooser.FILES_ONLY
-                    fileFilter = FileNameExtensionFilter("FIX Message Files (*.fix, *.txt)", "fix", "txt")
-                    selectedFile = File("messages_${System.currentTimeMillis()}.fix")
-                }
-
-            if (fileChooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
-                var file = fileChooser.selectedFile
-                // Ensure file has extension
-                if (!file.name.endsWith(".fix") && !file.name.endsWith(".txt")) {
-                    file = File(file.absolutePath + ".fix")
-                }
-                file.writeText(selected.joinToString("\n") { it.rawMessage })
-            }
+        if (selected.isEmpty()) {
+            return
+        }
+        coroutineScope.launch {
+            val chosen =
+                chooseFileToSave(
+                    suggestedName = "messages_${System.currentTimeMillis()}",
+                    extension = "fix",
+                ) ?: return@launch
+            withDefaultExtension(chosen, allowed = setOf("fix", "txt"), default = "fix")
+                .writeText(selected.joinToString("\n") { it.rawMessage })
         }
     }
 

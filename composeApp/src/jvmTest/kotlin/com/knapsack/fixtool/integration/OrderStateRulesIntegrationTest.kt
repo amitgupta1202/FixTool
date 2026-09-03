@@ -452,6 +452,83 @@ class OrderStateRulesIntegrationTest {
         assertNotNull(sent(pane, "8").first().sendReason)
     }
 
+    // ---------------------------------------------------------------- the card's mark
+
+    /**
+     * **The mark on the rule card and the reason on the reply have to name the same rule.**
+     *
+     * They are the same fact approached from opposite ends — "which rule answered this message" read
+     * off the message, and "which rule just answered" read off the list — and they are computed once,
+     * from `authoredRules`, precisely so they cannot drift. If they ever disagree then one of the two
+     * is pointing at the wrong card, and there is no way to tell from the screen which one: both look
+     * like confident answers. So the assertion is not that the index is 1 or 2, it is that the two
+     * surfaces agree, which stays true when the venue's rule list is edited.
+     */
+    @Test
+    fun `the venue records which rule answered, and it is the rule the reply says sent it`() {
+        connectVenue(cancelVenue())
+        val venue = viewModel.sessions.first { it.isVenue }
+        val client = connectClient("ALPHA")
+        val pane = awaitPane("ALPHA")
+
+        assertNull(venue.lastRuleFired.value, "nothing has been asked of the venue yet")
+
+        client.sendFixMessage(cancelOf("ORD-1", "CXL-1"), viewModel.dictionary)
+        assertTrue(awaitCondition(15_000) { sent(pane, "9").isNotEmpty() }, "the venue should have rejected the cancel")
+
+        val fired = assertNotNull(venue.lastRuleFired.value, "the venue must record the rule that answered")
+        val reason = assertNotNull(sent(pane, "9").single().sendReason)
+        assertEquals(
+            reason.ruleIndex,
+            fired.ruleIndex,
+            "the card to mark and the rule the reply names must be the same one",
+        )
+        assertEquals("F", fired.whenMsgType, "it was a cancel that tripped it")
+        assertEquals(1, fired.steps, "and a cancel reject is a one-step reply")
+
+        // Reported once per triggering message, not once per step — so the two-step accepted cancel
+        // leaves one record and not two.
+        client.sendFixMessage(order, viewModel.dictionary)
+        assertTrue(awaitCondition(15_000) { booked(pane, "ORD-1")?.state == OrderState.WORKING })
+        client.sendFixMessage(cancelOf("ORD-1", "CXL-2"), viewModel.dictionary)
+        assertTrue(
+            awaitCondition(15_000) { sent(pane, "8").count { field(it, 11) == "CXL-2" } == 2 },
+            "the accepted cancel is a two-step reply",
+        )
+        val accepted = assertNotNull(venue.lastRuleFired.value)
+        assertEquals(2, accepted.steps, "the record describes the whole reply, not the step that landed last")
+        assertTrue(
+            accepted.ruleIndex != fired.ruleIndex,
+            "a different rule answered this one — same list, and the book chose",
+        )
+    }
+
+    /**
+     * A saved edit is the one thing that can make the recorded number name a different card, since it
+     * is a position in a list that has just been replaced. Nothing is the right answer then.
+     */
+    @Test
+    fun `a rules reload drops the record, rather than leaving it pointing at a renumbered card`() {
+        val rules = cancelVenue()
+        connectVenue(rules)
+        val venue = viewModel.sessions.first { it.isVenue }
+        val client = connectClient("ALPHA")
+        val pane = awaitPane("ALPHA")
+
+        client.sendFixMessage(cancelOf("ORD-1", "CXL-1"), viewModel.dictionary)
+        assertTrue(awaitCondition(15_000) { sent(pane, "9").isNotEmpty() })
+        assertNotNull(venue.lastRuleFired.value)
+
+        // The same rules with one more in front of them: every index below it now names its neighbour.
+        val shifted = listOf(AcceptorPresets.byId("order-ack")!!.rules.single()) + rules
+        assertNotNull(venue.reloadAcceptorRules(shifted, venue.currentConfig!!.acceptorLatency))
+
+        assertNull(
+            venue.lastRuleFired.value,
+            "the number was a position in the ruleset that has just been replaced",
+        )
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** The Send button's tail, as `ReplyWithIntegrationTest` establishes it. */

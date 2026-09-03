@@ -4313,6 +4313,11 @@ class FixMessageViewModel(
                                 "from ${event.sessionId.targetCompID}",
                             NotificationType.WARNING,
                         )
+                    // Nothing to do here: the session it arrived on has already recorded it, and the
+                    // rules editor reads it from there. A notification per rule would be one per
+                    // message the venue answers, which on a busy venue is the notification area
+                    // becoming the message log.
+                    is VenueEvent.RuleFired -> Unit
                 }
             }
         }

@@ -1,6 +1,7 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,7 +22,11 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -38,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorResponseRule
@@ -51,6 +57,8 @@ import com.knapsack.fixtool.service.AcceptorPresets
 import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.ExpectationEvaluator
 import com.knapsack.fixtool.service.MatcherCodec
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * Authoring for an acceptor profile's auto-response rules.
@@ -84,6 +92,11 @@ fun AcceptorRulesEditor(
     onOpenStepInEditor: ((ruleIndex: Int, stepIndex: Int) -> Unit)? = null,
     /** The step currently being edited elsewhere, so its row can say so. */
     editingStep: Pair<Int, Int>? = null,
+    /**
+     * The rule that answered most recently, if the caller can vouch that this list is the one it fired
+     * in. Null is the right answer whenever it cannot — see [RuleCard]'s marking.
+     */
+    firedRule: RuleFiredMark? = null,
 ) {
     // ---- why the touch target is set here
     //
@@ -99,7 +112,15 @@ fun AcceptorRulesEditor(
     // for their own dense rows. DenseIconRowClickTest holds the general case; the row tests below click
     // each button of each row on this surface.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 16.dp) {
-        AcceptorRulesEditorContent(rules, onRulesChange, modifier, dictionary, onOpenStepInEditor, editingStep)
+        AcceptorRulesEditorContent(
+            rules,
+            onRulesChange,
+            modifier,
+            dictionary,
+            onOpenStepInEditor,
+            editingStep,
+            firedRule,
+        )
     }
 }
 
@@ -111,6 +132,7 @@ private fun AcceptorRulesEditorContent(
     dictionary: FixDictionary?,
     onOpenStepInEditor: ((ruleIndex: Int, stepIndex: Int) -> Unit)?,
     editingStep: Pair<Int, Int>?,
+    firedRule: RuleFiredMark?,
 ) {
     // The connection panel is drag-resizable from a tenth of the window to six tenths of it, so this
     // editor is asked to live at anything from ~250dp to ~1000dp. Sized for the narrow end only, it
@@ -124,9 +146,29 @@ private fun AcceptorRulesEditorContent(
         // just happened, not a property of the rule, so the next edit of any kind clears it.
         var placement by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
+        // ---- why cards start closed
+        //
+        // The FX venue preset is twenty-one rules, and open they were twenty-one forms: a checkbox, a
+        // MsgType field, a matcher per condition, a delay and a raw template per step. None of that is
+        // wrong to *edit* and all of it is wrong to *read* — which is what somebody does first, and
+        // what a demo does exclusively. Closed, a rule is two lines saying what it answers and what it
+        // sends back, and twenty-one of those are a list you can scroll.
+        //
+        // Kept here by position rather than per card, so one button can open or close the lot.
+        var expanded by remember { mutableStateOf(emptySet<Int>()) }
+
         fun edit(updated: List<AcceptorResponseRule>) {
             placement = null
             onRulesChange(updated)
+        }
+
+        // A move or a delete renumbers every rule below it, and these are positions — so the honest
+        // thing is to drop them all rather than leave a card that was open showing its neighbour's
+        // fields. Only these two: routing an ordinary edit through here would close the card being
+        // typed into on every keystroke.
+        fun structuralEdit(updated: List<AcceptorResponseRule>) {
+            expanded = emptySet()
+            edit(updated)
         }
 
         fun add(preset: AcceptorPreset) {
@@ -147,10 +189,29 @@ private fun AcceptorRulesEditorContent(
                     fontSize = 9.sp,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (rules.isNotEmpty()) {
+                        val allOpen = expanded.size == rules.size
+                        TooltipIconButton(
+                            tooltip = if (allOpen) "Close every rule" else "Open every rule",
+                            onClick = { expanded = if (allOpen) emptySet() else rules.indices.toSet() },
+                            modifier = Modifier.size(18.dp).testTag("rules-expand-all"),
+                        ) {
+                            Icon(
+                                imageVector = if (allOpen) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                                contentDescription = if (allOpen) "Close every rule" else "Open every rule",
+                                tint = AppTheme.Colors.textSecondary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
                     PresetMenu(existing = rules, onPick = { add(it) })
                     TooltipIconButton(
                         tooltip = "Add an empty rule",
                         onClick = {
+                            // Opened as it is added. A preset arrives already saying what it does, so it
+                            // is left closed like everything else; an empty rule says nothing until it
+                            // is filled in, and the fields to fill are the ones behind the fold.
+                            expanded = expanded + rules.size
                             edit(rules + AcceptorResponseRule(whenMsgType = "", steps = listOf(ResponseStep(template = ""))))
                         },
                         modifier = Modifier.size(18.dp),
@@ -192,11 +253,16 @@ private fun AcceptorRulesEditorContent(
                     wide = wide,
                     shadowedBy = AcceptorResponder.shadowingRule(rules, ruleIndex),
                     note = placement?.takeIf { it.first == ruleIndex }?.second,
+                    fired = firedRule?.takeIf { it.ruleIndex == ruleIndex },
+                    expanded = ruleIndex in expanded,
+                    onToggleExpanded = {
+                        expanded = if (ruleIndex in expanded) expanded - ruleIndex else expanded + ruleIndex
+                    },
                     onOpenStep = onOpenStepInEditor?.let { open -> { step -> open(ruleIndex, step) } },
                     editingStep = editingStep?.takeIf { it.first == ruleIndex }?.second,
                     onChange = { updated -> edit(rules.replaced(ruleIndex, updated)) },
-                    onDelete = { edit(rules.without(ruleIndex)) },
-                    onMove = { by -> edit(rules.moved(ruleIndex, by)) },
+                    onDelete = { structuralEdit(rules.without(ruleIndex)) },
+                    onMove = { by -> structuralEdit(rules.moved(ruleIndex, by)) },
                 )
             }
         }
@@ -278,6 +344,47 @@ private fun triggerLine(rule: AcceptorResponseRule): String =
         // reading it as though it were another tag is the misreading worth spending four characters on.
         (rule.whenOrder?.let { " and the order is ${it.word}" } ?: "")
 
+/**
+ * **A rule in one line: what has to be true, and what goes back.**
+ *
+ * The closed card's whole content, so it carries the two facts the open card spends a form on. Written
+ * in the tool's own matcher vocabulary (`oneOf [...]`, `range > 10000000`) rather than translated into
+ * English, because that is the vocabulary of the editor the reader is about to open, of the scenario
+ * workbench's expectations, and of `/acceptor/test`'s verdicts — a fourth phrasing that existed only
+ * on the closed card would be a dialect nobody could search for.
+ *
+ * The reply is a count and a span rather than its templates: `3 steps over 500ms` is the claim a
+ * sequence makes about time, and it is the one thing about a rule that is invisible in the raw JSON
+ * the templates are made of.
+ */
+private fun ruleDigest(rule: AcceptorResponseRule): String {
+    val conditions =
+        rule.trigger().map { condition ->
+            val matcher = condition.parsed()
+            "${condition.tag} " + (matcher?.let { ExpectationEvaluator.describe(it) } ?: "?")
+        }
+    // Last, and in words, for the same reason [triggerLine] puts it last: it is the one clause that is
+    // not about the message at all.
+    val order = rule.whenOrder?.let { "the order is ${it.word}" }
+    // Said out loud, because "no conditions" is not a rule doing nothing — it is the catch-all, and the
+    // reason every card above it in the same MsgType has to be read in order.
+    val trigger = (conditions + listOfNotNull(order)).ifEmpty { listOf("any 35=${rule.whenMsgType}") }
+
+    val steps = rule.sequence()
+    val span = steps.sumOf { it.delayMillis.coerceAtLeast(0) }
+    val reply =
+        when {
+            steps.size == 1 -> "1 step"
+            span > 0 -> "${steps.size} steps over ${span}ms"
+            else -> "${steps.size} steps"
+        }
+
+    return (trigger + reply).joinToString(" · ")
+}
+
+/** The same clock the reply's own `SendReason` line prints, so the card and the message agree. */
+private val FIRED_AT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+
 private fun stepLines(rule: AcceptorResponseRule): List<String> {
     var offset = 0L
     return rule.sequence().mapIndexed { index, step ->
@@ -306,6 +413,10 @@ private fun RuleCard(
     shadowedBy: Int?,
     /** Why this rule is where it is, when it did not simply go on the end. Cleared by the next edit. */
     note: String?,
+    /** Set when this is the rule that answered most recently. */
+    fired: RuleFiredMark?,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     onOpenStep: ((Int) -> Unit)?,
     /** Which of this rule's steps is open in the message editor, if one is. */
     editingStep: Int?,
@@ -325,7 +436,20 @@ private fun RuleCard(
                 .fillMaxWidth()
                 .padding(top = 4.dp)
                 .background(AppTheme.Colors.surfaceVariant, RoundedCornerShape(2.dp))
-                .padding(4.dp)
+                // **The rule that just answered, wearing the colour the grid already uses for "this
+                // just happened".** Drawn over the card's own fill rather than replacing it, because
+                // it is a 25%-opacity wash — the same one a recently-sent message row gets, so the two
+                // halves of "my order went out and rule 7 answered it" are marked in one language.
+                //
+                // Never the only signal: the header prints the time beside it. A mark a colour-blind
+                // reader cannot see is a mark that is not there, and this one exists to be pointed at.
+                .then(
+                    if (fired != null) {
+                        Modifier.background(AppTheme.Colors.messageRecentlySent, RoundedCornerShape(2.dp))
+                    } else {
+                        Modifier
+                    },
+                ).padding(4.dp)
                 // Dimmed, not hidden and not greyed into unreadability: a disabled rule is still being
                 // read and edited — switching it off is how an author asks "what happens without this
                 // one", and the answer is only useful while they can still see what "this one" was.
@@ -345,6 +469,20 @@ private fun RuleCard(
                     modifier = Modifier.size(12.dp),
                 )
             }
+            // ---- the number
+            //
+            // Every other place that names a rule names it by this: the shadowing warning below says
+            // "rule 1 answers every 35=D", `SendReason` puts "sent by rule 7" on each reply the venue
+            // sends, and `/acceptor/rules` addresses rules by index. The card was the one surface that
+            // knew its own number and did not print it — so a reader told which rule answered them had
+            // no way to find it, and counted cards.
+            Text(
+                text = "${position + 1}.",
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.testTag("rule-number-$position"),
+            )
             Text("When 35=", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
             SlimField(
                 value = rule.whenMsgType,
@@ -355,6 +493,15 @@ private fun RuleCard(
                 placeholder = "D",
             )
             Spacer(Modifier.weight(1f))
+            fired?.let {
+                Text(
+                    text = "fired ${it.at.format(FIRED_AT)}",
+                    color = AppTheme.Colors.highlightCurrent,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(end = 2.dp).testTag("rule-fired-$position"),
+                )
+            }
             // First match wins, so a rule's position is part of what it means — not a display preference.
             TooltipIconButton("Move earlier", { onMove(-1) }, Modifier.size(16.dp), enabled = position > 0) {
                 Icon(Icons.Default.ArrowUpward, "Move rule earlier", tint = AppTheme.Colors.textSecondary, modifier = Modifier.size(12.dp))
@@ -365,73 +512,116 @@ private fun RuleCard(
             TooltipIconButton("Delete rule", onDelete, Modifier.size(16.dp)) {
                 Icon(Icons.Default.Close, "Delete rule", tint = AppTheme.Colors.error, modifier = Modifier.size(12.dp))
             }
+            TooltipIconButton(
+                tooltip = if (expanded) "Close this rule" else "Open this rule to edit it",
+                onClick = onToggleExpanded,
+                modifier = Modifier.size(16.dp).testTag("rule-expand-$position"),
+            ) {
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Close rule" else "Open rule",
+                    tint = AppTheme.Colors.textSecondary,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
         }
 
-        // Both spellings, shown as the one list they behave as. Any edit writes the whole list back as
-        // `conditions` and clears `whenFields` — the same rule as the reply's two spellings: migration
-        // is a consequence of editing, never of looking.
-        val conditions = rule.trigger()
-
-        fun withConditions(updated: List<FieldCondition>) =
-            onChange(rule.copy(whenFields = emptyMap(), conditions = updated))
-
-        conditions.forEachIndexed { index, condition ->
-            ConditionRow(
-                condition = condition,
-                dictionary = dictionary,
-                wide = wide,
-                onChange = { updated -> withConditions(conditions.replaced(index, updated)) },
-                onDelete = { withConditions(conditions.without(index)) },
+        // ---- closed: the rule in a line
+        //
+        // What it asks of a message and what it sends back, which together are the whole of what a rule
+        // *is*. Clickable, because a reader who has read it and wants the fields is already pointing at
+        // it — and the row is text, so there is no field here for the click to belong to.
+        if (!expanded) {
+            Text(
+                text = ruleDigest(rule),
+                color = AppTheme.Colors.textSecondary,
+                fontSize = 9.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onToggleExpanded)
+                        .padding(start = 8.dp, top = 1.dp, bottom = 1.dp)
+                        .testTag("rule-digest-$position"),
             )
         }
 
-        // The one condition no tag can express, so it gets a row of its own rather than a place in the
-        // list above. It is always shown — including as "any", its off position — because a rule that
-        // *could* ask the book and does not is a thing an author needs to see in order to change, and
-        // hiding it behind an "+ add" would make the venue's memory a feature you have to already know
-        // about. See decision 1: everything the book causes is on a card that can be read.
-        OrderConstraintRow(
-            constraint = rule.whenOrder,
-            onChange = { updated -> onChange(rule.copy(whenOrder = updated)) },
-        )
+        // ---- open: the fields
+        //
+        // Behind the fold and nothing else is — every warning below stays on the closed card, because a
+        // rule that can never fire has to say so whether or not anybody has opened it.
+        if (expanded) {
+            // Both spellings, shown as the one list they behave as. Any edit writes the whole list back
+            // as `conditions` and clears `whenFields` — the same rule as the reply's two spellings:
+            // migration is a consequence of editing, never of looking.
+            val conditions = rule.trigger()
 
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 8.dp)) {
-            SlimButton(
-                text = "+ condition",
-                onClick = {
-                    withConditions(conditions + FieldCondition(0, MatcherCodec.matcherToJson(Matcher.Exact(""))))
-                },
+            fun withConditions(updated: List<FieldCondition>) =
+                onChange(rule.copy(whenFields = emptyMap(), conditions = updated))
+
+            conditions.forEachIndexed { index, condition ->
+                ConditionRow(
+                    condition = condition,
+                    dictionary = dictionary,
+                    wide = wide,
+                    onChange = { updated -> withConditions(conditions.replaced(index, updated)) },
+                    onDelete = { withConditions(conditions.without(index)) },
+                )
+            }
+
+            // The one condition no tag can express, so it gets a row of its own rather than a place in
+            // the list above. It is always shown — including as "any", its off position — because a rule
+            // that *could* ask the book and does not is a thing an author needs to see in order to
+            // change, and hiding it behind an "+ add" would make the venue's memory a feature you have
+            // to already know about. See decision 1: everything the book causes is on a card that can
+            // be read.
+            OrderConstraintRow(
+                constraint = rule.whenOrder,
+                onChange = { updated -> onChange(rule.copy(whenOrder = updated)) },
             )
-        }
 
-        // ---- reply
-        Spacer(Modifier.height(4.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Reply", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
-            SlimButton(text = "+ step", onClick = { withSteps(steps + ResponseStep(template = "", delayMillis = 0)) })
-        }
+            Row(modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 8.dp)) {
+                SlimButton(
+                    text = "+ condition",
+                    onClick = {
+                        withConditions(conditions + FieldCondition(0, MatcherCodec.matcherToJson(Matcher.Exact(""))))
+                    },
+                )
+            }
 
-        var offset = 0L
-        steps.forEachIndexed { stepIndex, step ->
-            offset += step.delayMillis.coerceAtLeast(0)
-            StepRow(
-                step = step,
-                number = stepIndex + 1,
-                ruleNumber = position,
-                offsetMillis = offset,
-                wide = wide,
-                canMoveUp = stepIndex > 0,
-                canMoveDown = stepIndex < steps.size - 1,
-                onOpen = onOpenStep?.let { open -> { open(stepIndex) } },
-                editing = editingStep == stepIndex,
-                onChange = { updated -> withSteps(steps.replaced(stepIndex, updated)) },
-                onDelete = { withSteps(steps.without(stepIndex)) },
-                onMove = { by -> withSteps(steps.moved(stepIndex, by)) },
-            )
+            // ---- reply
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Reply", color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+                SlimButton(
+                    text = "+ step",
+                    onClick = { withSteps(steps + ResponseStep(template = "", delayMillis = 0)) },
+                )
+            }
+
+            var offset = 0L
+            steps.forEachIndexed { stepIndex, step ->
+                offset += step.delayMillis.coerceAtLeast(0)
+                StepRow(
+                    step = step,
+                    number = stepIndex + 1,
+                    ruleNumber = position,
+                    offsetMillis = offset,
+                    wide = wide,
+                    canMoveUp = stepIndex > 0,
+                    canMoveDown = stepIndex < steps.size - 1,
+                    onOpen = onOpenStep?.let { open -> { open(stepIndex) } },
+                    editing = editingStep == stepIndex,
+                    onChange = { updated -> withSteps(steps.replaced(stepIndex, updated)) },
+                    onDelete = { withSteps(steps.without(stepIndex)) },
+                    onMove = { by -> withSteps(steps.moved(stepIndex, by)) },
+                )
+            }
         }
 
         // Said here because there is nowhere else it can be said: a rule that cannot reply looks

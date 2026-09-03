@@ -1,11 +1,11 @@
 package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -35,6 +35,18 @@ class AcceptorRulesEditorActionsTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    /**
+     * Opens a card, because they start closed.
+     *
+     * Every test below that reaches a condition row, a step row or the book constraint goes through
+     * here first — those controls are behind the fold now, and a test that quietly passed because the
+     * node it looked for was merely absent would be worse than one that fails.
+     */
+    private fun openRule(position: Int) {
+        composeTestRule.onNodeWithTag("rule-expand-$position").performClick()
+        composeTestRule.waitForIdle()
+    }
+
     private val twoStepRule =
         AcceptorResponseRule(
             whenMsgType = "D",
@@ -58,6 +70,8 @@ class AcceptorRulesEditorActionsTest {
             }
         }
 
+        openRule(1)
+
         // Addressed by tag rather than by index among identical icons: the point of the assertion is
         // *which* step the editor is handed, and an index into a flat list of buttons is exactly the
         // thing that would still pass if the rows handed over the wrong one.
@@ -73,6 +87,10 @@ class AcceptorRulesEditorActionsTest {
                 AcceptorRulesEditor(rules = listOf(twoStepRule), onRulesChange = {}, onOpenStepInEditor = null)
             }
         }
+
+        // Opened, so what is being asserted is that no editor means no button — and not merely that a
+        // closed card shows no step rows, which is true of every step button whether it exists or not.
+        openRule(0)
 
         composeTestRule.onNodeWithTag("step-edit-0-1").assertDoesNotExist()
     }
@@ -145,6 +163,7 @@ class AcceptorRulesEditorActionsTest {
      * looked complete and only its rightmost button did anything. Clicking each is the only assertion
      * that can tell the difference.
      */
+
     /**
      * Every button in the step row, one at a time. Not a formality: these are 16dp buttons 4dp apart,
      * and Material3's default 48dp touch target had each one covering its left neighbour — so the row
@@ -169,6 +188,8 @@ class AcceptorRulesEditorActionsTest {
                 )
             }
         }
+
+        openRule(0)
 
         composeTestRule.onNodeWithTag("step-edit-0-2").performClick()
         assertEquals(listOf(0 to 1), opened, "the open button")
@@ -224,6 +245,11 @@ class AcceptorRulesEditorActionsTest {
         assertEquals(listOf("D"), latest.map { it.whenMsgType }, "Delete rule")
     }
 
+    /**
+     * On the **closed** card, which is the point: nothing is opened here first. A rule that can never
+     * fire looks perfectly configured and produces nothing at run time, so the one place that says so
+     * cannot be behind a fold — a reader scrolling twenty-one closed cards has to be able to see it.
+     */
     @Test
     fun `a rule an earlier one already answers is told so on its own card`() {
         composeTestRule.setContent {
@@ -260,6 +286,8 @@ class AcceptorRulesEditorActionsTest {
             }
         }
 
+        openRule(0)
+
         composeTestRule.onNodeWithText("and the order is").assertExists()
         composeTestRule.onNodeWithTag("rule-when-order").assertExists()
         composeTestRule.onNodeWithText("any ▾").assertExists()
@@ -275,6 +303,8 @@ class AcceptorRulesEditorActionsTest {
                 AcceptorRulesEditor(rules = rules, onRulesChange = { rules = it })
             }
         }
+
+        openRule(0)
 
         composeTestRule.onNodeWithTag("rule-when-order").performClick()
         composeTestRule.onNodeWithText("working").performClick()
@@ -296,6 +326,7 @@ class AcceptorRulesEditorActionsTest {
             }
         }
 
+        openRule(0)
         composeTestRule.onNodeWithTag("rule-when-order").performClick()
 
         composeTestRule.onNodeWithText("this venue has never seen it").assertExists()

@@ -253,6 +253,21 @@ class FixMessageSession(
     private val _refusedLogons = MutableStateFlow<List<VenueEvent.LogonRefused>>(emptyList())
     val refusedLogons: StateFlow<List<VenueEvent.LogonRefused>> = _refusedLogons.asStateFlow()
 
+    /**
+     * **The rule that answered most recently**, so the card that did it can say so.
+     *
+     * One slot rather than a list: the question it answers is "which of these twenty-one rules just
+     * replied to me", asked while looking at the list, and a history of that belongs to the messages —
+     * each of which carries its own [com.knapsack.fixtool.model.SendReason] naming the rule that sent
+     * it. This is the live pointer, not the record.
+     *
+     * Held by the session that owns the engine, which for a venue is the venue's own pane and not any
+     * of its clients' — so a rule tripped by `DEMO_CLIENT2` lands in the same place as one tripped by
+     * `DEMO_CLIENT1`, which is what makes the mark correct on a list that belongs to neither.
+     */
+    private val _lastRuleFired = MutableStateFlow<VenueEvent.RuleFired?>(null)
+    val lastRuleFired: StateFlow<VenueEvent.RuleFired?> = _lastRuleFired.asStateFlow()
+
     /** Where this session's venue events go. Set by whoever owns the pane, before it connects. */
     var venueEventListener: ((VenueEvent) -> Unit)? = null
 
@@ -260,8 +275,11 @@ class FixMessageSession(
     fun venueService(): QuickFixService? = quickFixService
 
     private fun handleVenueEvent(event: VenueEvent) {
-        if (event is VenueEvent.LogonRefused) {
-            _refusedLogons.value = (_refusedLogons.value + event).takeLast(MAX_REFUSED_LOGONS)
+        when (event) {
+            is VenueEvent.LogonRefused ->
+                _refusedLogons.value = (_refusedLogons.value + event).takeLast(MAX_REFUSED_LOGONS)
+            is VenueEvent.RuleFired -> _lastRuleFired.value = event
+            is VenueEvent.ClientArrived -> Unit
         }
         venueEventListener?.invoke(event)
     }
@@ -732,6 +750,10 @@ class FixMessageSession(
         val live = quickFixService?.reloadAcceptorRules(rules, latency) ?: return null
         _connectionConfig.value =
             _connectionConfig.value?.copy(acceptorResponseRules = rules, acceptorLatency = latency)
+        // **Dropped, because it is an index into the list that just went away.** "Rule 7 fired" is only
+        // true of the ruleset it fired in; after a save that inserted a rule above it, the same number
+        // names a different card. Nothing is a fine answer to "which rule fired" and a wrong card is not.
+        _lastRuleFired.value = null
         return live
     }
 

@@ -6,6 +6,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -15,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,18 +65,7 @@ fun TooltipIconButton(
 
     TooltipArea(
         tooltip = {
-            if (shouldShowTooltip) {
-                Text(
-                    text = tooltip,
-                    modifier =
-                        Modifier
-                            .shadow(4.dp, tooltipShape)
-                            .background(AppTheme.Colors.border, tooltipShape)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    color = AppTheme.Colors.text,
-                    fontSize = 11.sp,
-                )
-            }
+            if (shouldShowTooltip) TooltipBubble(text = tooltip)
         },
         delayMillis = 0, // We handle delay manually now
         // The hover watch belongs OUT here, on the tooltip's own box, not on the button's modifier. Inside,
@@ -121,20 +113,7 @@ fun AppTooltip(
     content: @Composable () -> Unit,
 ) {
     TooltipArea(
-        tooltip = {
-            Text(
-                text = text,
-                modifier =
-                    Modifier
-                        .shadow(4.dp, tooltipShape)
-                        .background(AppTheme.Colors.border, tooltipShape)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                        .widthIn(max = maxWidth),
-                color = AppTheme.Colors.text,
-                fontSize = 11.sp,
-                fontFamily = if (monospace) androidx.compose.ui.text.font.FontFamily.Monospace else null,
-            )
-        },
+        tooltip = { TooltipBubble(text = text, monospace = monospace, maxWidth = maxWidth) },
         delayMillis = 500,
         modifier = modifier,
         tooltipPlacement =
@@ -159,18 +138,7 @@ fun TooltipFloatingActionButton(
     content: @Composable () -> Unit,
 ) {
     TooltipArea(
-        tooltip = {
-            Text(
-                text = tooltip,
-                modifier =
-                    Modifier
-                        .shadow(4.dp, tooltipShape)
-                        .background(AppTheme.Colors.border, tooltipShape)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                color = AppTheme.Colors.text,
-                fontSize = 11.sp,
-            )
-        },
+        tooltip = { TooltipBubble(text = tooltip) },
         delayMillis = 600,
         tooltipPlacement =
             TooltipPlacement.ComponentRect(
@@ -191,6 +159,40 @@ fun TooltipFloatingActionButton(
 }
 
 // No local color constants needed - all colors now use AppTheme.Colors
+
+/**
+ * **The one bubble every tooltip here draws, and the one place it is kept out of text selection.**
+ *
+ * A tooltip is a [Text] in a popup, which is its own layout root. Composed under a `SelectionContainer`
+ * (the detail pane's field list is one) it inherits the container's selection registrar and is counted
+ * among its selectables. The first thing a mouse press on any text in that container does is sort the
+ * selectables by position relative to the container, and asking for the popup text's position there is
+ * asking Compose to relate two roots that share no ancestor: `IllegalArgumentException: layouts are not
+ * part of the same hierarchy`, the press dies, and the click under the pointer never fires. Nobody
+ * drag-selects a tooltip, so [DisableSelection] costs nothing and takes the bubble out of the registrar
+ * altogether. See TooltipInSelectionContainerTest.
+ */
+@Composable
+private fun TooltipBubble(
+    text: String,
+    monospace: Boolean = false,
+    maxWidth: Dp? = null,
+) {
+    DisableSelection {
+        Text(
+            text = text,
+            modifier =
+                Modifier
+                    .shadow(4.dp, tooltipShape)
+                    .background(AppTheme.Colors.border, tooltipShape)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .then(if (maxWidth != null) Modifier.widthIn(max = maxWidth) else Modifier),
+            color = AppTheme.Colors.text,
+            fontSize = 11.sp,
+            fontFamily = if (monospace) FontFamily.Monospace else null,
+        )
+    }
+}
 
 // Shape constants
 private val tooltipShape = RoundedCornerShape(4.dp)

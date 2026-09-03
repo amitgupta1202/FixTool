@@ -468,7 +468,9 @@
                 side a load <em>target</em> is a different job.</li>
             <li><strong>Latency is measured at the client</strong>, from the moment FixTool handed the bytes
                 to the session to the moment it read the reply. It therefore includes FixTool's own send and
-                ingest path, not only the network and the venue.</li>
+                ingest path, not only the network and the venue. This is the run report's figure, taken at
+                the FIX engine; the Latency panel stamps at the socket instead and leaves that path out &mdash;
+                see <a href="#latency">10. Latency Measurement</a>.</li>
             <li><strong>Template expressions are evaluated one at a time, process-wide.</strong> The Kotlin
                 expression engine is not thread-safe, so anything needing it — <code>${uuid}</code>,
                 <code>${out.D.11}</code>, date arithmetic — is serialised across lanes. A plain
@@ -555,7 +557,7 @@
     <p>Each group gets a <strong>summary row</strong> in the grid's own columns: the id that opened the
     exchange and its instrument, what arrived (<em>NewOrderSingle &times;1 &middot; ExecutionReport
     &times;2</em>), the last status any message <em>stated</em> &mdash; quoted in the dictionary's words,
-    never computed &mdash; and the first-to-last round-trip in the Latency column. Click a summary row to
+    never computed &mdash; and the exchange's first-to-last elapsed time in the Latency column. Click a summary row to
     fold or open its group. Fold everything and the grid reads as an index of exchanges: one row per
     order, per RFQ, per subscription.</p>
 
@@ -1770,6 +1772,8 @@ ${incoming["D"].valueOfTag(38)}
         </tr>
     </table>
 
+    <p>The six tags are the defaults, not the limit: the list is edited under <strong>Settings &rarr; Latency &rarr; Correlation tags</strong>, and a reply is paired with its request on the first tag in the list that both carry. A venue's own identifier declared under <strong>Protocol &rarr; Venue tag roles</strong> is read by scenario capture and the conversation grid, not by the latency tracker, so add it to this list as well to time it.</p>
+
     <h3>Enabling Latency Tracking</h3>
     <ol>
         <li>Open <strong>Settings</strong> from the toolbar and choose the <strong>Latency</strong> page</li>
@@ -1782,7 +1786,7 @@ ${incoming["D"].valueOfTag(38)}
     <h3>Viewing Latency Data</h3>
 
     <h4>Message Grid</h4>
-    <p>When enabled, a <strong>Latency</strong> column appears in the grid view showing round-trip time in microseconds (μs) for correlated outbound messages. The column uses color coding:</p>
+    <p>When enabled, a <strong>Latency</strong> column appears in the grid view showing the round-trip time of each correlated outbound message &mdash; in microseconds under a millisecond, otherwise in milliseconds or seconds. The column uses color coding:</p>
     <ul>
         <li><span style="color: #4ec9b0;">Green</span> - Normal latency (below warning threshold)</li>
         <li><span style="color: #dcdcaa;">Yellow</span> - Warning (above warning threshold, below critical)</li>
@@ -1867,8 +1871,8 @@ ${incoming["D"].valueOfTag(38)}
     <h3>Configurable Thresholds</h3>
     <p>On the <strong>Latency</strong> page you can configure thresholds:</p>
     <ul>
-        <li><strong>Warning Threshold:</strong> Default 100,000μs (100ms) - latencies above this show in yellow</li>
-        <li><strong>Critical Threshold:</strong> Default 500,000μs (500ms) - latencies above this show in red</li>
+        <li><strong>Warning Threshold:</strong> entered in milliseconds, default 100 ms - round trips above this show in yellow</li>
+        <li><strong>Critical Threshold:</strong> entered in milliseconds, default 500 ms - round trips above this show in red; Save is refused if it is not above the warning threshold</li>
         <li><strong>History Size:</strong> Number of samples retained for statistics (default 10,000)</li>
     </ul>
 

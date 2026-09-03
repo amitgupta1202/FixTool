@@ -33,6 +33,7 @@ import com.knapsack.fixtool.model.BookedOrder
 import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.OrderState
+import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.OrderBookService
 import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.service.AcceptorPresets
@@ -104,6 +105,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import javax.imageio.ImageIO
 import javax.swing.SwingUtilities
+import java.io.File
 
 /**
  * A small loopback-only HTTP control surface that lets external tools (Claude Code, an MCP
@@ -173,6 +175,7 @@ class ControlServer(
         httpServer.createContext("/search") { ex -> handle(ex) { search(ex) } }
         httpServer.createContext("/filter") { ex -> handle(ex) { filter(ex) } }
         httpServer.createContext("/demo") { ex -> handle(ex) { demo(ex) } }
+        httpServer.createContext("/workspace") { ex -> handle(ex) { workspace(ex) } }
         httpServer.createContext("/connect") { ex -> handle(ex) { connect(ex) } }
         httpServer.createContext("/disconnect") { ex -> handle(ex) { disconnect(ex) } }
         httpServer.createContext("/send/all") { ex -> handle(ex) { sendAll(ex) } }
@@ -2176,22 +2179,86 @@ class ControlServer(
         }
     }
 
+    /**
+     * The demo, over the example workspace it became.
+     *
+     * Kept at `/demo` with the same two actions because scripts and the MCP tool call it by that name.
+     * `start` copies the bundled FX venue into a workspace and opens it; `stop` closes the workspace,
+     * which is the nearest true thing to the old uninstall — the copy stays on disk, because it is the
+     * caller's now and deleting a directory is not what "stop" ought to mean.
+     */
     private fun demo(ex: HttpExchange): JsonElement {
         val body = readJson(ex)
         val action = body["action"]?.jsonPrimitive?.content?.lowercase() ?: "start"
-        onEdt {
-            when (action) {
-                "stop" -> viewModel.stopDemoServer()
-                else -> viewModel.startDemoServer()
+        val name = body["name"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: "FX Venue"
+        val version =
+            body["fixVersion"]?.jsonPrimitive?.content?.let { asked ->
+                FixVersion.entries.firstOrNull { it.name == asked || it.displayName == asked }
+            } ?: FixVersion.DEFAULT
+
+        val outcome =
+            onEdt {
+                when (action) {
+                    "stop" -> {
+                        viewModel.closeWorkspace()
+                        Result.success(viewModel.openWorkspace)
+                    }
+                    else ->
+                        viewModel.openExample(
+                            ExampleWorkspaces.FX_VENUE,
+                            name,
+                            viewModel.defaultWorkspaceLocation(),
+                            version,
+                        )
+                }
+            }
+        outcome.exceptionOrNull()?.let { return errorObject("could not $action the example: ${it.message}") }
+
+        return buildJsonObject {
+            put("status", "ok")
+            put("action", action)
+            put("workspace", onEdt { viewModel.openWorkspace.absolutePath })
+            put("running", onEdt { !viewModel.openWorkspaceIsHome })
+            // Named so a caller can address the venue without knowing the constant.
+            put("venue", "FX Demo Venue")
+            put("port", DEMO_VENUE_PORT)
+        }
+    }
+
+    /** The open workspace, and the door to changing it. */
+    private fun workspace(ex: HttpExchange): JsonElement {
+        val body = readJson(ex)
+        val requested = body["workspace"]?.jsonPrimitive?.content
+        if (ex.requestMethod == "POST") {
+            if (requested.isNullOrBlank()) {
+                onEdt { viewModel.closeWorkspace() }
+            } else {
+                val opened = onEdt { viewModel.openWorkspace(File(requested)) }
+                opened.exceptionOrNull()?.let { return errorObject("could not open '$requested': ${it.message}") }
             }
         }
         return buildJsonObject {
             put("status", "ok")
-            put("action", action)
-            put("running", onEdt { viewModel.demoServerRunning.value })
-            // Named so a caller can address the venue without knowing the constant.
-            put("venue", com.knapsack.fixtool.service.demo.DemoServerManager.VENUE_NAME)
-            put("port", com.knapsack.fixtool.service.demo.DemoServerManager.currentPort)
+            put("workspace", onEdt { viewModel.openWorkspace.absolutePath })
+            put("isDefault", onEdt { viewModel.openWorkspaceIsHome })
+            put(
+                "recent",
+                buildJsonArray { onEdt { viewModel.recentWorkspaces }.forEach { add(JsonPrimitive(it.absolutePath)) } },
+            )
+            put(
+                "examples",
+                buildJsonArray {
+                    ExampleWorkspaces.all().forEach { example ->
+                        add(
+                            buildJsonObject {
+                                put("id", example.id)
+                                put("displayName", example.displayName)
+                                put("summary", example.summary)
+                            },
+                        )
+                    }
+                },
+            )
         }
     }
 
@@ -3524,6 +3591,7 @@ class ControlServer(
             "fixtool_delete_template" to { a -> deleteTemplate(mcpExchange(a)) },
             "fixtool_load_template" to { a -> loadTemplate(mcpExchange(a)) },
             "fixtool_demo" to { a -> demo(mcpExchange(a)) },
+            "fixtool_workspace" to { a -> workspace(mcpExchange(a)) },
             "fixtool_connect" to { a -> connect(mcpExchange(a)) },
             "fixtool_disconnect" to { a -> disconnect(mcpExchange(a)) },
             "fixtool_send" to { a -> send(mcpExchange(a)) },
@@ -3859,6 +3927,9 @@ class ControlServer(
         }
 
     companion object {
+        /** The port the bundled FX venue example binds, named so `/demo` can report it. */
+        const val DEMO_VENUE_PORT = 19876
+
         /** The main window's title, so `?window=main` finds it by name rather than by list order. */
         const val MAIN_WINDOW_TITLE = "FixTool - FiX Message Viewer"
 

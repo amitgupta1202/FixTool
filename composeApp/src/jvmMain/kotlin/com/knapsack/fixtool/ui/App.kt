@@ -29,6 +29,7 @@ import com.knapsack.fixtool.ui.terminal.TerminalDockSlot
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import com.knapsack.fixtool.viewmodel.TraceRendering
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.slf4j.LoggerFactory
@@ -79,8 +80,9 @@ fun App(
         val globalSearchResults by viewModel.globalSearchResults.collectAsState()
         val showSearchResultsPane by viewModel.showSearchResultsPane.collectAsState()
         val pinnedSearchResults by viewModel.pinnedSearchResults.collectAsState()
-        val demoServerRunning by viewModel.demoServerRunning.collectAsState()
         val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
+        // Native folder dialogs suspend, and the Open workspace item is a menu click.
+        val workspaceScope = rememberCoroutineScope()
         val savedMessages = viewModel.savedMessages
         val editorState by viewModel.editorState.collectAsState()
         val currentProfileId = viewModel.getCurrentProfileId()
@@ -319,9 +321,18 @@ fun App(
                     onGetProfileConnectionState = { profileId ->
                         viewModel.getProfileConnectionState(profileId)
                     },
-                    demoWorkspaceInstalled = demoServerRunning,
-                    onStartDemoWorkspace = { viewModel.startDemoServer(it) },
-                    onStopDemoWorkspace = { viewModel.stopDemoServer() },
+                    workspaceOpen = !viewModel.openWorkspaceIsHome,
+                    workspaceName = viewModel.openWorkspace.name.takeUnless { viewModel.openWorkspaceIsHome },
+                    onOpenExample = { viewModel.requestOpenExample() },
+                    onOpenWorkspace = {
+                        workspaceScope.launch {
+                            chooseDirectory(title = "Open workspace", startIn = viewModel.defaultWorkspaceLocation())
+                                ?.let { folder -> viewModel.openWorkspace(folder) }
+                        }
+                    },
+                    onCloseWorkspace = { viewModel.closeWorkspace() },
+                    recentWorkspaces = viewModel.recentWorkspaces,
+                    onOpenRecentWorkspace = { viewModel.openWorkspace(it) },
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },
@@ -346,6 +357,18 @@ fun App(
                         dictionary = viewModel.dictionary,
                         onSave = { settings -> viewModel.saveAppSettings(settings) },
                         onDismiss = { viewModel.toggleSettingsDialog() },
+                    )
+                }
+
+                // Open example: copies a bundled example into a workspace of its own.
+                viewModel.pendingExample?.let { example ->
+                    OpenExampleDialog(
+                        example = example,
+                        defaultLocation = viewModel.defaultWorkspaceLocation(),
+                        onDismiss = { viewModel.dismissExampleDialog() },
+                        onOpen = { name, location, fixVersion ->
+                            viewModel.openExample(example.id, name, location, fixVersion)
+                        },
                     )
                 }
 
@@ -518,8 +541,8 @@ fun App(
                                             modifier = Modifier.weight(1f),
                                         )
                                     } ?: NoSessionsPlaceholder(
-                                        demoWorkspaceInstalled = demoServerRunning,
-                                        onStartDemoWorkspace = { viewModel.startDemoServer() },
+                                        workspaceOpen = !viewModel.openWorkspaceIsHome,
+                                        onOpenExample = { viewModel.requestOpenExample() },
                                         onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
                                         modifier = Modifier.weight(1f).fillMaxSize(),
                                     )
@@ -1087,7 +1110,6 @@ private fun ColumnScope.SplitCentre(
     followedUids: Set<Long>? = null,
     followedTraceIds: Set<String> = emptySet(),
 ) {
-    val demoWorkspaceInstalled by viewModel.demoServerRunning.collectAsState()
     val connectionPanelOpen by viewModel.showConnectionPanel.collectAsState()
     SplitView(
         sessions = viewModel.sessions,
@@ -1109,8 +1131,8 @@ private fun ColumnScope.SplitCentre(
         followedTraceIds = followedTraceIds,
         onFollowTrace = { id -> viewModel.follow(id) },
         onUnfollowTrace = { viewModel.unfollow() },
-        demoWorkspaceInstalled = demoWorkspaceInstalled,
-        onStartDemoWorkspace = { viewModel.startDemoServer() },
+        workspaceOpen = !viewModel.openWorkspaceIsHome,
+        onOpenExample = { viewModel.requestOpenExample() },
         onOpenConnectionPanel = { if (!connectionPanelOpen) viewModel.toggleConnectionPanel() },
         modifier = Modifier.weight(1f),
     )

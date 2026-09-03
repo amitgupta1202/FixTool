@@ -174,7 +174,7 @@
         <h2>Table of Contents</h2>
         <ul>
             <li><a href="#getting-started">1. Getting Started</a></li>
-            <li><a href="#demo-server">2. Demo FX Venue</a></li>
+            <li><a href="#demo-server">2. The FX Venue Example</a></li>
             <li><a href="#connections">3. Managing Connections</a></li>
             <li><a href="#viewing-messages">4. Viewing Messages</a></li>
             <li><a href="#sending-messages">5. Sending Messages</a></li>
@@ -204,45 +204,50 @@
 
     <h3>Quick Start</h3>
     <ol>
-        <li>Click <strong>Start demo workspace</strong> in the empty session area (or pick it from
-            <strong>Quick Connect &#9662;</strong> in the toolbar) to install the built-in FX venue</li>
-        <li>Select one of the auto-created <strong>Demo Client</strong> profiles</li>
+        <li>Click <strong>Open example workspace</strong> in the empty session area (or
+            <strong>Open example&hellip;</strong> from <strong>Quick Connect &#9662;</strong> in the
+            toolbar) and accept the defaults</li>
+        <li>Select one of the <strong>Demo Client</strong> profiles the example brought with it</li>
         <li>Click <strong>Connect</strong> to establish a FIX session</li>
         <li>Use the pre-loaded FX templates to send orders and receive fills</li>
     </ol>
 
     <div class="tip">
-        <strong>New to FixTool?</strong> Start with the demo workspace - it's the fastest way to explore FIX messaging without any external dependencies.
+        <strong>New to FixTool?</strong> Start with the example workspace - it's the fastest way to explore FIX messaging without any external dependencies.
     </div>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
-    <h2 id="demo-server">2. Demo FX Venue</h2>
+    <h2 id="demo-server">2. The FX Venue Example</h2>
 
     <h3>Overview</h3>
-    <p>FixTool's demo is not a black box. Pressing <strong>Start demo workspace</strong> installs a
+    <p>FixTool's example is not a black box. <strong>Open example&hellip;</strong> copies a
     <em>workspace</em> built entirely out of features you already have: an acceptor profile whose venue
-    behaviour is a list of rules you can read, two client profiles pointed at it, message templates to
-    drive it, and one repeatable scenario that runs green out of the box.</p>
-    <p>That means everything the demo does, you can open, change, reorder or switch off &mdash; and
+    behaviour is a list of rules you can read, client profiles pointed at it, message templates to
+    drive it, and repeatable scenarios that run green out of the box.</p>
+    <p>That means everything the example does, you can open, change, reorder or switch off &mdash; and
     everything you learn from it applies directly to simulating a real counterparty.</p>
+    <p>It is a <em>copy</em>, into a folder you name. Nothing is mixed into your own profiles or
+    scenarios, so there is nothing to uninstall, and what you change in it is yours to keep or commit.
+    Open it again under a different name whenever you want a clean one.</p>
     <ul>
         <li>An <strong>FX Demo Venue</strong> acceptor on <code>localhost:19876</code>, open to any CompID</li>
-        <li><strong>21 rules</strong> covering quotes, orders, cancels, replaces and order status</li>
-        <li>Three priced pairs, quoted live &mdash; every quote prices slightly differently</li>
+        <li>Response rules covering quotes, orders, cancels, replaces and order status</li>
+        <li>Priced pairs, quoted live &mdash; every quote prices slightly differently</li>
         <li>A simulated <strong>40&ndash;80ms</strong> venue latency, so replies do not land instantly</li>
         <li>No external dependencies, no configuration</li>
     </ul>
 
-    <h3>Starting the Demo</h3>
+    <h3>Opening the Example</h3>
     <ol>
-        <li>Click <strong>Start demo workspace</strong> where the sessions would be. To pick the FIX
-            version first, open <strong>Quick Connect &#9662;</strong> in the toolbar and choose
-            <strong>Start demo workspace&hellip;</strong> instead</li>
-        <li>The venue binds <code>localhost:19876</code> and both clients log on to it</li>
-        <li>Three profiles appear: <strong>FX Demo Venue</strong>, <strong>Demo Client 1</strong> and
-            <strong>Demo Client 2</strong></li>
-        <li>Eleven message templates and two scenarios are added</li>
+        <li>Click <strong>Open example workspace</strong> where the sessions would be, or choose
+            <strong>Open example&hellip;</strong> from <strong>Quick Connect &#9662;</strong> in the
+            toolbar</li>
+        <li>Name it, choose where it goes, and pick the FIX version its sessions speak. Enter accepts
+            the defaults</li>
+        <li>The workspace opens with the venue and its client profiles, the templates and the
+            scenarios. Connect the venue first, then the clients</li>
+        <li>The venue binds <code>localhost:19876</code> and the clients log on to it</li>
     </ol>
 
     <div class="tip">
@@ -321,7 +326,7 @@
     </table>
 
     <h3>The Bundled Scenarios</h3>
-    <p>Two scenarios are installed with the demo and pass on a fresh install. <strong>EUR/USD order
+    <p>The example brings scenarios that pass as soon as its sessions are up. <strong>EUR/USD order
     lifecycle</strong> is a limit order acknowledged, half-filled, filled, and then a cancel that is
     correctly refused as too late. Open the Scenarios rail and run it.</p>
     <p><strong>Session round-trip probe</strong> sends one TestRequest and waits for the Heartbeat that
@@ -346,14 +351,16 @@
         and what it moved to.
     </div>
 
-    <h3>Stopping the Demo</h3>
-    <p>Open <strong>Quick Connect &#9662;</strong> in the toolbar and click <strong>Stop demo
-    workspace</strong>. This disconnects the venue and its clients, closes their
-    panes, and removes the demo profiles, templates and scenario.</p>
+    <h3>Closing the Workspace</h3>
+    <p>Open <strong>Quick Connect &#9662;</strong> in the toolbar and click <strong>Close
+    workspace</strong>. This disconnects the venue and its clients, closes their panes, and puts your
+    own profiles, templates and scenarios back on screen.</p>
 
     <div class="warning">
-        <strong>Note:</strong> Only demo-prefixed artifacts are removed. Your own profiles, templates and
-        scenarios are <strong>never</strong> affected.
+        <strong>Nothing is deleted.</strong> The workspace folder stays exactly where you put it &mdash;
+        it is yours. <strong>Recent workspaces</strong> in the same menu opens it again, and your own
+        profiles were never touched while it was open, because the example lives in its own folder
+        rather than in yours.
     </div>
 
     <h3>Bundled FIX 4.4 Dictionary</h3>
@@ -513,13 +520,14 @@
     <p><strong>Quick Connect</strong> in the toolbar is the shortcut past the Connection panel: it drops
     down every saved profile, and picking one connects it. Use the panel when you are <em>authoring</em> a
     profile; use this when you already have one and just want it up.</p>
-    <p>The last item in the menu is the demo workspace: <strong>Start demo workspace&hellip;</strong>
-    asks which FIX version the venue should speak and installs it, and once installed the same item reads
-    <strong>Stop demo workspace</strong>. The menu shows even with no saved profiles, so a fresh install
-    has a way in.</p>
+    <p>The last items in the menu are about workspaces. <strong>Open example&hellip;</strong> copies a
+    bundled example into a folder you name; <strong>Open workspace&hellip;</strong> opens one you already
+    have; <strong>Recent workspaces</strong> lists the ones you opened before; and
+    <strong>Close workspace</strong> goes back to your own profiles and scenarios. The menu shows even
+    with no saved profiles, so a fresh install has a way in.</p>
 
-    <h3>Demo workspace</h3>
-    <p>For testing and learning, install the demo workspace (see <a href="#demo-server">Section 2</a>).
+    <h3>Example workspace</h3>
+    <p>For testing and learning, open the example workspace (see <a href="#demo-server">Section 2</a>).
     It provides:</p>
     <ul>
         <li>An FX venue acceptor on port 19876 whose behaviour is a list of rules you can read and edit</li>
@@ -1789,7 +1797,7 @@ ${incoming["D"].valueOfTag(38)}
         <tr>
             <td>112</td>
             <td>TestReqID</td>
-            <td>TestRequest &rarr; Heartbeat. FIX's own ping: the venue's session engine must echo the id, before any order book or risk check and with nothing placed. Send <code>35=1|112=PING-1|</code> from a template or a scenario for a safe probe of the network and the engine alone &mdash; the floor under every order round trip, and the part of an order's latency that is not the venue's business logic. The demo installs both: a <em>Session Probe</em> template and a <em>Session round-trip probe</em> scenario, described under <a href="#demo-server">2. Demo FX Venue</a>.</td>
+            <td>TestRequest &rarr; Heartbeat. FIX's own ping: the venue's session engine must echo the id, before any order book or risk check and with nothing placed. Send <code>35=1|112=PING-1|</code> from a template or a scenario for a safe probe of the network and the engine alone &mdash; the floor under every order round trip, and the part of an order's latency that is not the venue's business logic. The example brings both: a <em>Session Probe</em> template and a <em>Session round-trip probe</em> scenario, described under <a href="#demo-server">2. The FX Venue Example</a>.</td>
         </tr>
         <tr>
             <td>&mdash;</td>

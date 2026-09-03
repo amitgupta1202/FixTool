@@ -33,7 +33,7 @@ class ScenarioViewStateService(
         if (customPath.isNotBlank()) {
             File(customPath)
         } else {
-            WorkspacePaths.current.scenarioViewState
+            WorkspacePaths.home.scenarioViewState
         }
 
     init {

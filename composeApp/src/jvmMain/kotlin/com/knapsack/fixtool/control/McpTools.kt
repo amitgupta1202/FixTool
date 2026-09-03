@@ -150,10 +150,25 @@ object McpTools {
             ),
             tool(
                 "fixtool_demo",
-                "Install or remove the demo FX workspace: an 'FX Demo Venue' acceptor on 19876 carrying " +
-                    "the FX venue rule bundle, two 'Demo Client N' initiator profiles, FX templates and one " +
-                    "bundled scenario. The venue accepts any CompID.",
-                props("action" to enumStr("start", "stop")),
+                "Open or close the FX venue example workspace: an 'FX Demo Venue' acceptor on 19876 carrying " +
+                    "the FX venue rule bundle, two 'Demo Client N' initiator profiles, FX templates and " +
+                    "bundled scenarios. The venue accepts any CompID. start copies the example into a " +
+                    "workspace of its own and opens it (name defaults to 'FX Venue'); stop closes the " +
+                    "workspace without deleting it.",
+                props(
+                    "action" to enumStr("start", "stop"),
+                    "name" to string("workspace name for start (default 'FX Venue')"),
+                    "fixVersion" to string("FIX version the copied sessions speak (default FIX 4.4)"),
+                ),
+            ),
+            tool(
+                "fixtool_workspace",
+                "Read or change the open project workspace — the profiles, saved messages, scenarios and " +
+                    "run records. GET-style with no arguments: reports the open workspace, whether it is the " +
+                    "installation's own directory, the recently opened ones and the bundled examples. Pass " +
+                    "workspace=<path> to open that folder, or workspace=\"\" to close and go back to the " +
+                    "installation's own directory. Opening one takes every session down first.",
+                props("workspace" to string("folder to open, or empty to close")),
             ),
             tool(
                 "fixtool_connect",

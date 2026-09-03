@@ -1,0 +1,208 @@
+{
+    "id": "demo-scenario-eurusd-lifecycle",
+    "name": "EUR/USD order lifecycle",
+    "binding": "this_run",
+    "createdAt": 1788467446628,
+    "setup": [
+        {
+            "stepId": "09cd0ca0-3c1a-3b10-b40a-63c1534e9c9b",
+            "type": "clearMessages",
+            "session": "Demo Client 1"
+        },
+        {
+            "stepId": "26cf1c43-8791-3262-81c0-9e9d4c535152",
+            "type": "clearOrderBook",
+            "session": "FX Demo Venue ← DEMO_CLIENT1"
+        }
+    ],
+    "steps": [
+        {
+            "stepId": "b9069504-bcf1-31cb-803a-97ebb3e51f68",
+            "type": "send",
+            "raw": "35=D|11=DEMO-LIFECYCLE-1|55=EUR/USD|54=1|38=1000000|40=2|44=1.08950|60=${now}",
+            "session": "Demo Client 1"
+        },
+        {
+            "stepId": "2bcfa4fa-46ec-3361-9fb1-7b927db16621",
+            "type": "expect",
+            "session": "Demo Client 1",
+            "direction": "in",
+            "match": {
+                "messageType": "8",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "8",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 39,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "0"
+                        }
+                    },
+                    {
+                        "tag": 150,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "0"
+                        }
+                    },
+                    {
+                        "tag": 151,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1000000"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "8c3d3d4c-a0ba-3632-b18b-1e646bd8f4c9",
+            "type": "expect",
+            "session": "Demo Client 1",
+            "direction": "in",
+            "match": {
+                "messageType": "8",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "8",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 14,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "500000"
+                        }
+                    },
+                    {
+                        "tag": 31,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1.08950"
+                        }
+                    },
+                    {
+                        "tag": 39,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1"
+                        }
+                    },
+                    {
+                        "tag": 150,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "F"
+                        }
+                    },
+                    {
+                        "tag": 151,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "500000"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "12d33c57-82fe-38d3-b3a3-f2e32d30a456",
+            "type": "expect",
+            "session": "Demo Client 1",
+            "direction": "in",
+            "match": {
+                "messageType": "8",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "8",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 14,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1000000"
+                        }
+                    },
+                    {
+                        "tag": 31,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "1.08950"
+                        }
+                    },
+                    {
+                        "tag": 39,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "2"
+                        }
+                    },
+                    {
+                        "tag": 150,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "F"
+                        }
+                    },
+                    {
+                        "tag": 151,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "0"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "stepId": "7300d2c0-f366-3d23-bb19-b970f02a54bd",
+            "type": "send",
+            "raw": "35=F|11=DEMO-CANCEL-1|41=DEMO-LIFECYCLE-1|55=EUR/USD|54=1|60=${now}",
+            "session": "Demo Client 1"
+        },
+        {
+            "stepId": "0471b1c4-fb6b-35c1-9ef6-3eb1363080ac",
+            "type": "expect",
+            "session": "Demo Client 1",
+            "direction": "in",
+            "match": {
+                "messageType": "9",
+                "fields": []
+            },
+            "timeoutMs": 10000,
+            "expectation": {
+                "messageType": "9",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 41,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "DEMO-LIFECYCLE-1"
+                        }
+                    },
+                    {
+                        "tag": 102,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "0"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "teardown": [],
+    "userTags": [],
+    "version": 1
+}

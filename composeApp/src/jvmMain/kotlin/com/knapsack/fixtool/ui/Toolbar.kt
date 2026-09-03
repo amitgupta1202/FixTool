@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
-import com.knapsack.fixtool.model.FixVersion
+import java.io.File
 
 enum class ViewMode {
     TABS,
@@ -70,11 +70,18 @@ fun Toolbar(
     onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
-    /** The demo workspace is installed. Its profiles are listed above; this only decides Start vs Stop. */
-    demoWorkspaceInstalled: Boolean = false,
-    /** Installs the demo workspace speaking the chosen FIX version. Null hides the item. */
-    onStartDemoWorkspace: ((FixVersion) -> Unit)? = null,
-    onStopDemoWorkspace: (() -> Unit)? = null,
+    /** A project workspace is open rather than the installation's own directory. Decides Close vs nothing. */
+    workspaceOpen: Boolean = false,
+    /** The name of the open workspace, shown on the menu's own header row. */
+    workspaceName: String? = null,
+    /** Copies a bundled example into a workspace and opens it. Null hides the item. */
+    onOpenExample: (() -> Unit)? = null,
+    /** Opens an existing workspace folder. Null hides the item. */
+    onOpenWorkspace: (() -> Unit)? = null,
+    onCloseWorkspace: (() -> Unit)? = null,
+    /** Workspaces opened before, newest first. Empty hides the submenu. */
+    recentWorkspaces: List<File> = emptyList(),
+    onOpenRecentWorkspace: ((File) -> Unit)? = null,
     onSearchAllSessions: (() -> Unit)? = null,
     onAddSeparatorToAll: (() -> Unit)? = null,
     onClearAll: (() -> Unit)? = null,
@@ -321,17 +328,17 @@ fun Toolbar(
         // you can pick, then the thing that makes more of them. Once the workspace is installed its three
         // profiles are ordinary rows above with their own state dots, so there is no second status light
         // here to disagree with them; the item just turns into Stop.
-        val demoItemShown = onStartDemoWorkspace != null && onStopDemoWorkspace != null
-        if ((onQuickConnect != null && connectionProfiles.isNotEmpty()) || demoItemShown) {
+        val workspaceItemsShown = onOpenExample != null || onOpenWorkspace != null
+        if ((onQuickConnect != null && connectionProfiles.isNotEmpty()) || workspaceItemsShown) {
             var expanded by remember { mutableStateOf(false) }
 
-            // Start asks which FIX version the venue and its clients should speak. It asks inside the
-            // same popup — the list replaces the profiles until Back or a pick — rather than opening a
-            // second popup over the first. Reset with the menu so it never reopens on the version page.
-            var pickingDemoVersion by remember { mutableStateOf(false) }
+            // Recent workspaces are asked for inside the same popup — the list replaces the profiles
+            // until Back or a pick — rather than opening a second popup over the first. Reset with the
+            // menu so it never reopens on the recent page.
+            var pickingRecent by remember { mutableStateOf(false) }
             val close = {
                 expanded = false
-                pickingDemoVersion = false
+                pickingRecent = false
             }
 
             Box {
@@ -373,11 +380,11 @@ fun Toolbar(
                             .background(AppTheme.Colors.surface)
                             .widthIn(min = 200.dp),
                 ) {
-                    if (pickingDemoVersion) {
+                    if (pickingRecent) {
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    text = "FIX version for the demo",
+                                    text = "Recent workspaces",
                                     color = AppTheme.Colors.textSecondary,
                                     fontSize = 11.sp,
                                 )
@@ -390,28 +397,27 @@ fun Toolbar(
                                     modifier = Modifier.size(16.dp),
                                 )
                             },
-                            onClick = { pickingDemoVersion = false },
-                            modifier = Modifier.testTag("demo-version-back"),
+                            onClick = { pickingRecent = false },
+                            modifier = Modifier.testTag("workspace-recent-back"),
                         )
-                        FixVersion.entries.forEach { version ->
+                        recentWorkspaces.forEach { workspace ->
                             DropdownMenuItem(
                                 text = {
-                                    Text(
-                                        text =
-                                            if (version == FixVersion.DEFAULT) {
-                                                "${version.displayName}  (default)"
-                                            } else {
-                                                version.displayName
-                                            },
-                                        color = AppTheme.Colors.text,
-                                        fontSize = 11.sp,
-                                    )
+                                    Column {
+                                        Text(text = workspace.name, color = AppTheme.Colors.text, fontSize = 11.sp)
+                                        Text(
+                                            text = workspace.parent.orEmpty(),
+                                            color = AppTheme.Colors.textDisabled,
+                                            fontSize = 9.sp,
+                                            maxLines = 1,
+                                        )
+                                    }
                                 },
                                 onClick = {
                                     close()
-                                    onStartDemoWorkspace?.invoke(version)
+                                    onOpenRecentWorkspace?.invoke(workspace)
                                 },
-                                modifier = Modifier.testTag("demo-version-${version.name}"),
+                                modifier = Modifier.testTag("workspace-recent-${workspace.name}"),
                             )
                         }
                     } else {
@@ -462,7 +468,7 @@ fun Toolbar(
                             }
                         }
 
-                        if (demoItemShown) {
+                        if (workspaceItemsShown) {
                             if (onQuickConnect != null) {
                                 HorizontalDivider(
                                     color = AppTheme.Separators.color,
@@ -470,40 +476,71 @@ fun Toolbar(
                                     modifier = Modifier.padding(vertical = 4.dp),
                                 )
                             }
-                            if (demoWorkspaceInstalled) {
+                            if (workspaceName != null) {
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            text = "Stop demo workspace",
-                                            color = AppTheme.Colors.text,
-                                            fontSize = 11.sp,
+                                            text = "Workspace: $workspaceName",
+                                            color = AppTheme.Colors.textDisabled,
+                                            fontSize = 10.sp,
                                         )
+                                    },
+                                    enabled = false,
+                                    onClick = {},
+                                    modifier = Modifier.testTag("workspace-current"),
+                                )
+                            }
+                            if (onOpenExample != null) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(text = "Open example…", color = AppTheme.Colors.text, fontSize = 11.sp)
                                     },
                                     onClick = {
                                         close()
-                                        onStopDemoWorkspace?.invoke()
+                                        onOpenExample()
                                     },
-                                    modifier = Modifier.testTag("demo-stop"),
+                                    modifier = Modifier.testTag("workspace-open-example"),
                                 )
-                            } else {
+                            }
+                            if (onOpenWorkspace != null) {
                                 DropdownMenuItem(
                                     text = {
-                                        Text(
-                                            text = "Start demo workspace…",
-                                            color = AppTheme.Colors.text,
-                                            fontSize = 11.sp,
-                                        )
+                                        Text(text = "Open workspace…", color = AppTheme.Colors.text, fontSize = 11.sp)
+                                    },
+                                    onClick = {
+                                        close()
+                                        onOpenWorkspace()
+                                    },
+                                    modifier = Modifier.testTag("workspace-open"),
+                                )
+                            }
+                            if (recentWorkspaces.isNotEmpty() && onOpenRecentWorkspace != null) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(text = "Recent workspaces", color = AppTheme.Colors.text, fontSize = 11.sp)
                                     },
                                     trailingIcon = {
                                         Icon(
                                             imageVector = Icons.Default.ChevronRight,
-                                            contentDescription = "Choose FIX version",
+                                            contentDescription = "Choose a recent workspace",
                                             tint = AppTheme.Colors.textSecondary,
                                             modifier = Modifier.size(16.dp),
                                         )
                                     },
-                                    onClick = { pickingDemoVersion = true },
-                                    modifier = Modifier.testTag("demo-start"),
+                                    onClick = { pickingRecent = true },
+                                    modifier = Modifier.testTag("workspace-recent"),
+                                )
+                            }
+                            if (workspaceOpen && onCloseWorkspace != null) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(text = "Close workspace", color = AppTheme.Colors.text, fontSize = 11.sp)
+                                    },
+                                    onClick = {
+                                        close()
+                                        onCloseWorkspace()
+                                    },
+                                    modifier = Modifier.testTag("workspace-close"),
                                 )
                             }
                         }

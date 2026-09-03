@@ -63,15 +63,15 @@ fun SplitView(
     onFollowTrace: ((String) -> Unit)? = null,
     onUnfollowTrace: (() -> Unit)? = null,
     /** For the empty state only. See [NoSessionsPlaceholder]. */
-    demoWorkspaceInstalled: Boolean = false,
-    onStartDemoWorkspace: (() -> Unit)? = null,
+    workspaceOpen: Boolean = false,
+    onOpenExample: (() -> Unit)? = null,
     onOpenConnectionPanel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     if (sessions.isEmpty()) {
         NoSessionsPlaceholder(
-            demoWorkspaceInstalled = demoWorkspaceInstalled,
-            onStartDemoWorkspace = onStartDemoWorkspace,
+            workspaceOpen = workspaceOpen,
+            onOpenExample = onOpenExample,
             onOpenConnectionPanel = onOpenConnectionPanel,
             modifier = modifier,
         )

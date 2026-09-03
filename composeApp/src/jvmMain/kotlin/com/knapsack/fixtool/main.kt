@@ -35,7 +35,7 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
     // Create log directory before any logger is instantiated
     // This prevents logback initialization failures on first run
-    val logDir = WorkspacePaths.current.logs
+    val logDir = WorkspacePaths.home.logs
     logDir.mkdirs()
 
     // `fixtool run <scenario>` never opens a window. The branch is here, before anything Compose or

@@ -45,14 +45,17 @@ grid, the FX Demo Venue pane beside it, a green scenario run visible in the rail
 **SCREEN:** fresh app, no profiles.
 
 **ACTIONS:**
-1. Click **Start demo workspace** in the empty session area.
-2. Let the three profiles appear: *FX Demo Venue*, *Demo Client 1*, *Demo Client 2*.
-3. Let the clients log on; point the cursor at the venue's pane title *FX Demo Venue ← DEMO_CLIENT1*.
+1. Click **Open example workspace** in the empty session area.
+2. Press Enter to accept the defaults in the dialog (name, location, FIX version).
+3. Let the profiles appear: *FX Demo Venue*, *Demo Client 1*, *Demo Client 2*. Connect the venue, then
+   the clients.
+4. Let the clients log on; point the cursor at the venue's pane title *FX Demo Venue ← DEMO_CLIENT1*.
 
 **NARRATION** (~150 words):
 
-> I'm starting from an empty install. One click — Start demo workspace — and FixTool builds a small FX
-> workspace: one venue, two clients, and a set of message templates.
+> I'm starting from an empty install. One click — Open example workspace — Enter to take the defaults,
+> and FixTool copies a small FX workspace into a folder of its own: one venue, two clients, and a set of
+> message templates. It is a copy, so anything I change here is mine.
 >
 > The important thing here is what the venue *is*. It is not a canned simulator — it's FixTool's own
 > acceptor mode, running in the same window, with an ordinary connection profile. The two clients
@@ -330,10 +333,10 @@ a spare editor tab before recording. Keep the same line for every take.
 
 - Launch for staging: `FIXTOOL_CONTROL_PORT=8765 ./gradlew :composeApp:run` (the same port the MCP
   chapter uses; enable Automation control in settings once, on camera, in Chapter 6).
-- **Reset between takes:** **Quick Connect ▾ → Stop demo workspace**, then **Start demo workspace**
-  (from the empty session area) restores the venue, clients,
-  templates and the bundled scenario to their shipped state; delete any captured `gbp-fill`
-  scenario and revert any rule edit before re-rolling Chapters 4–6.
+- **Reset between takes:** **Quick Connect ▾ → Close workspace**, then **Open example workspace**
+  under a new name. A fresh copy is the reset, so nothing has to be un-edited: the venue, clients,
+  templates and bundled scenarios come back in their shipped state and any captured `gbp-fill`
+  scenario or rule edit is left behind in the old folder.
 - Chapter 1's opening frame is recorded **last** — it's the end state of a full rehearsal run.
 - Verify during rehearsal, before believing this script: the exact `fixtool` launcher path for
   Chapter 7 on the recording machine, and that the Chapter 6 agent names the scenario `gbp-fill`

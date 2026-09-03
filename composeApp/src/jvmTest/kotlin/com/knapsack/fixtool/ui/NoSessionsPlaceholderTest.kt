@@ -8,40 +8,40 @@ import org.junit.Rule
 import org.junit.Test
 import kotlin.test.assertTrue
 
-/** The empty session area is where a fresh install meets the demo. */
+/** The empty session area is where a fresh install meets the bundled example. */
 class NoSessionsPlaceholderTest {
     @get:Rule
     val rule = createComposeRule()
 
     @Test
-    fun `a fresh install is offered the demo and the connection panel`() {
+    fun `a fresh install is offered the example and the connection panel`() {
         var started = false
         var opened = false
         rule.setContent {
             NoSessionsPlaceholder(
-                onStartDemoWorkspace = { started = true },
+                onOpenExample = { started = true },
                 onOpenConnectionPanel = { opened = true },
             )
         }
 
         rule.onNodeWithText("No active sessions").assertExists()
-        rule.onNodeWithTag("empty-start-demo").performClick()
+        rule.onNodeWithTag("empty-open-example").performClick()
         rule.onNodeWithTag("empty-open-connection").performClick()
         assertTrue(started)
         assertTrue(opened)
     }
 
     @Test
-    fun `an installed workspace withdraws the start button`() {
+    fun `an open workspace withdraws the example button`() {
         rule.setContent {
             NoSessionsPlaceholder(
-                demoWorkspaceInstalled = true,
-                onStartDemoWorkspace = { },
+                workspaceOpen = true,
+                onOpenExample = { },
                 onOpenConnectionPanel = { },
             )
         }
 
-        rule.onNodeWithTag("empty-start-demo").assertDoesNotExist()
+        rule.onNodeWithTag("empty-open-example").assertDoesNotExist()
         rule.onNodeWithTag("empty-open-connection").assertExists()
     }
 }

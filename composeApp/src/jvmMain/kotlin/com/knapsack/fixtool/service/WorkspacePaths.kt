@@ -50,26 +50,57 @@ class WorkspacePaths(
         const val DEFAULT_DIR_NAME = ".fixtool"
 
         /**
-         * The workspace this process is using.
+         * Where this installation keeps its **preferences** — the dictionary paths, the window layout,
+         * the latency thresholds, the rail's sort order.
+         *
+         * Separate from [current] because those are properties of the person at the keyboard, not of
+         * the project they have open. Opening a second workspace must not hand them a fresh install
+         * with no dictionary loaded and every panel back in its default place.
+         */
+        @Volatile
+        var home: WorkspacePaths = of(null)
+            private set
+
+        /**
+         * The workspace **open right now** — the profiles, saved messages, scenarios, run records and
+         * QuickFIX/J session store.
          *
          * A settable global rather than a constructor argument, because the thing it replaces was
          * `System.getProperty("user.home")`: read wherever it was needed, including from a
          * [com.knapsack.fixtool.model.FixConnectionConfig] default that no injection reaches. Every
          * service still takes its own explicit override first, so a test that passes one is unaffected
          * by whatever this says.
+         *
+         * Defaults to [home], which is why an install that never opens a second workspace behaves
+         * exactly as it did before any of this existed.
          */
         @Volatile
-        var current: WorkspacePaths = of(null)
+        var current: WorkspacePaths = home
             private set
 
-        /** Points this process at [root], or back at the default when it is null or blank. */
+        /**
+         * Relocates the whole installation, preferences included: the `FIXTOOL_WORKSPACE` env var and
+         * `fixtool run --home`. Null or blank puts it back to `~/.fixtool`.
+         */
         fun use(root: String?) {
-            current = of(root)
+            home = of(root)
+            current = home
         }
 
-        /** Puts back a workspace taken from [current], for a caller that has to restore what it moved. */
+        /** Puts back a state taken from [home] and [current], for a caller restoring what it moved. */
         fun use(paths: WorkspacePaths) {
+            home = paths
             current = paths
+        }
+
+        /**
+         * Opens a project workspace, leaving preferences where they are.
+         *
+         * This is what "Open example" and "Open workspace" do. Null goes back to keeping project data
+         * in [home], which is the state a fresh install is in.
+         */
+        fun open(root: String?) {
+            current = if (root.isNullOrBlank()) home else of(root)
         }
 
         fun of(root: String?): WorkspacePaths =

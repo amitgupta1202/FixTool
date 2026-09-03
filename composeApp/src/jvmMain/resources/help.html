@@ -1882,7 +1882,22 @@ ${incoming["D"].valueOfTag(38)}
     <p>The badge on the Latency Panel's header reads <strong>Socket</strong>; hovering it repeats the two definitions above.</p>
 
     <div class="warning">
-        <strong>What it cannot tell you.</strong> A stamp is taken on one machine's clock. A round trip is therefore a difference on that one clock and is meaningful; a single send or receive time compared against a venue's own timestamps is not, unless the two clocks are known to agree. Where a run report shows a step latency, that figure comes from the FIX engine's own stamps and includes FixTool's processing &mdash; see <a href="#assertions">12. Automated Verification &amp; Scenarios</a>.
+        <strong>Round trips only, never one leg.</strong> Both stamps come off this machine's clock, so a
+        round trip is a difference on one clock and is sound: whatever that clock's offset from true time
+        is, it cancels in the subtraction. A <em>one-way</em> time is not. Comparing a send stamp against
+        the venue's own <code>SendingTime(52)</code> or <code>TransactTime(60)</code> differences two
+        different machines' clocks, and the offset between them lands whole in the answer &mdash; on an
+        unsynchronised desktop, routinely tens of milliseconds, which is larger than the latency being
+        measured and enough to make it come out negative. So the panel answers how long the round trip
+        took, and never how long the outbound leg took.
+    </div>
+
+    <div class="warning">
+        <strong>A run report's step latency is a different number.</strong> Where a scenario report shows a
+        step latency, that figure is taken from the FIX engine's own capture stamps rather than the
+        socket's, so it includes FixTool's own parse, validation and dispatch. The same exchange therefore
+        reads higher there than it does here, by design and not by disagreement &mdash; see
+        <a href="#assertions">12. Automated Verification &amp; Scenarios</a>.
     </div>
 
     <h3>Configurable Thresholds</h3>

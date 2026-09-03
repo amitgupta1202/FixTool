@@ -24,17 +24,17 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.AcceptorLatencyConfig
-import com.knapsack.fixtool.model.EditorTarget
-import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.model.AcceptorResponseRule
+import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
-import com.knapsack.fixtool.service.demo.DemoServerManager
+import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.service.SessionIdentityResolver
+import com.knapsack.fixtool.service.demo.DemoServerManager
 
 @Composable
 fun ConnectionPanel(
@@ -117,6 +117,20 @@ fun ConnectionPanel(
                 onGetProfileSessions(profile.id).ifEmpty { listOfNotNull(onGetProfileSession(profile.id)) }
             }.orEmpty()
     val sessionStates = profileSessions.map { it.connectionState.collectAsState().value }
+
+    // **Which rule answered most recently, on any of this profile's sessions.**
+    //
+    // Collected across the group and reduced to the latest, because a venue's rules are answering four
+    // clients from one list and the question the list is asked is "which of you just replied to me",
+    // not "which of you replied to DEMO_CLIENT2". In practice only the session holding the engine
+    // reports at all — a venue client's pane shares its venue's service — so this is a max over one
+    // non-null value, and written as a reduction anyway so a multi-session acceptor cannot show the
+    // older of two answers.
+    val lastRuleFired =
+        profileSessions
+            .map { it.lastRuleFired.collectAsState().value }
+            .filterNotNull()
+            .maxByOrNull { it.at }
 
     // Representative state: the most-connected session in the group (identical to the
     // session's own state for single-session profiles)
@@ -1522,7 +1536,8 @@ fun ConnectionPanel(
                                     "the step was applied to a profile that is no longer loaded"
                                 // An index is only an address while the list holds still. Deleting or
                                 // reordering a rule with a step of it open moves what lives here.
-                                acceptorRules.getOrNull(applied.ruleIndex)
+                                acceptorRules
+                                    .getOrNull(applied.ruleIndex)
                                     ?.sequence()
                                     ?.getOrNull(applied.stepIndex)
                                     ?.template != applied.snapshot ->
@@ -1530,10 +1545,11 @@ fun ConnectionPanel(
                                         "it was opened, so the edit was not applied over it"
                                 else -> {
                                     val rule = acceptorRules[applied.ruleIndex]
-                                    val steps = rule.sequence().replaced(
-                                        applied.stepIndex,
-                                        rule.sequence()[applied.stepIndex].copy(template = applied.template),
-                                    )
+                                    val steps =
+                                        rule.sequence().replaced(
+                                            applied.stepIndex,
+                                            rule.sequence()[applied.stepIndex].copy(template = applied.template),
+                                        )
                                     acceptorRules =
                                         acceptorRules.replaced(
                                             applied.ruleIndex,
@@ -1552,6 +1568,19 @@ fun ConnectionPanel(
                             acceptorRules = it
                         },
                         dictionary = dictionary,
+                        // ---- withheld the moment it could be wrong
+                        //
+                        // The number is a position in the ruleset the *session* is running, which is
+                        // the one last saved. The list on screen is the staged one, and an unsaved
+                        // insert or reorder moves what lives at that position — so a mark that kept
+                        // showing would point at whichever card had drifted into rule 7's place. That
+                        // is worse than no mark: it is a confident wrong answer to the one question
+                        // this whole feature exists to answer. Equality of the two lists is the cheap
+                        // proof they agree, and the marker comes back the moment Save makes them.
+                        firedRule =
+                            lastRuleFired
+                                ?.takeIf { acceptorRules == selectedProfile?.config?.acceptorResponseRules }
+                                ?.let { RuleFiredMark(ruleIndex = it.ruleIndex, at = it.at) },
                         onOpenStepInEditor =
                             onOpenReplyStepInEditor?.let { open ->
                                 { ruleIndex, stepIndex ->

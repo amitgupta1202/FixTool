@@ -94,6 +94,26 @@ sealed interface VenueEvent {
         override val sessionId: SessionID,
         override val at: LocalDateTime = LocalDateTime.now(),
     ) : VenueEvent
+
+    /**
+     * **A rule matched and is answering.** The venue's own news even though it happened on a session,
+     * because the rule belongs to the venue and not to the counterparty that tripped it — one card in
+     * one list, whichever of four clients sent the message.
+     *
+     * Reported once per triggering message, not once per step: a sequence is one rule's single answer
+     * played over time, and a card that flashed three times for one order would be describing three
+     * decisions that were never made.
+     *
+     * [ruleIndex] is the position in the profile's **authored** list, so it is the number on the card
+     * and the same one [com.knapsack.fixtool.model.SendReason] carries onto every step of the reply.
+     */
+    data class RuleFired(
+        override val sessionId: SessionID,
+        val ruleIndex: Int,
+        val whenMsgType: String,
+        val steps: Int,
+        override val at: LocalDateTime = LocalDateTime.now(),
+    ) : VenueEvent
 }
 
 /**
@@ -137,9 +157,9 @@ class QuickFixService(
     private val onConnectionFailed: (() -> Unit)? = null,
     private val onWarning: ((String) -> Unit)? = null,
     /**
-     * Where a venue's own news goes — a client arriving, a logon refused. Null for everything that is
-     * not an acceptor open to any client, which is every connection that has exactly one session and
-     * therefore nothing to report that its own state does not already say.
+     * Where a venue's own news goes — a client arriving, a logon refused, a rule firing. The first two
+     * only ever happen to an acceptor open to any client; the third happens to any acceptor with rules,
+     * which is why this is wired for all of them rather than only for a wildcard venue.
      */
     private val onVenueEvent: ((VenueEvent) -> Unit)? = null,
     /**
@@ -858,6 +878,22 @@ class QuickFixService(
             // snapshot taken now would report the same quantity every time. See AcceptorResponder.plan.
             val planned =
                 AcceptorResponder.plan(rule, incoming, request, dictionary) { orderFields(sessionId, incoming) }
+
+            // Announced here, once, and only for a rule the profile still holds. A rule that fired but
+            // cannot be found in the authored list has no card to mark, and marking the wrong one is
+            // worse than marking none — the same reason a null `ruleNumber` leaves the reason silent.
+            ruleNumber?.let { number ->
+                onVenueEvent?.invoke(
+                    VenueEvent.RuleFired(
+                        sessionId = sessionId,
+                        ruleIndex = number,
+                        whenMsgType = rule.whenMsgType,
+                        steps = planned.size,
+                        at = request.timestamp,
+                    ),
+                )
+            }
+
             planned.forEachIndexed { index, send ->
                 // **The decision was made here, once, and every step of the reply carries it.** Taken
                 // now rather than when each step goes out, because there was one decision — a sequence

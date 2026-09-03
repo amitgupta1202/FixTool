@@ -29,6 +29,15 @@ class ConnectionProfileService(
             WorkspacePaths.current.connectionProfiles
         }
 
+    /**
+     * Beside the profiles, whatever directory those turned out to be in.
+     *
+     * Derived from [profilesFile] rather than from [WorkspacePaths], because a caller that pointed the
+     * profiles somewhere specific means the passwords for those profiles, not the ones belonging to
+     * whichever workspace happens to be open.
+     */
+    private val secrets = ProfileSecrets(File(profilesFile.parentFile ?: File("."), "secrets.json"))
+
     init {
         // Ensure directory exists
         profilesFile.parentFile?.mkdirs()
@@ -49,7 +58,15 @@ class ConnectionProfileService(
             } else {
                 val content = profilesFile.readText()
                 val container = json.decodeFromString<ProfilesContainer>(content)
-                container.profiles
+                val profiles = secrets.applyTo(container.profiles)
+                // A file written before the split still has its passwords inline. Rewriting it here
+                // rather than waiting for the next save means the credential stops being in the
+                // shareable file at the first opportunity, and the user never had to do anything.
+                if (secrets.needsMigration(container.profiles)) {
+                    logger.info("Moving ${profilesFile.name} passwords into secrets.json")
+                    saveProfiles(profiles)
+                }
+                profiles
             }
         } catch (e: Exception) {
             val errorMsg = "Failed to load connection profiles: ${e.message}"
@@ -63,7 +80,7 @@ class ConnectionProfileService(
      */
     fun saveProfiles(profiles: List<FixConnectionProfile>): Boolean =
         try {
-            val container = ProfilesContainer(profiles)
+            val container = ProfilesContainer(secrets.extractFrom(profiles))
             val content = json.encodeToString(container)
             profilesFile.writeText(content)
             true
@@ -100,6 +117,7 @@ class ConnectionProfileService(
      */
     fun deleteProfile(profileId: String): Result<List<FixConnectionProfile>> {
         val profiles = loadProfiles().filterNot { it.id == profileId }
+        secrets.forget(profileId)
         return if (saveProfiles(profiles)) {
             Result.success(profiles)
         } else {

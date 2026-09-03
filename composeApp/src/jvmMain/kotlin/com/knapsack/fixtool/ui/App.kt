@@ -357,6 +357,15 @@ fun App(
                         dictionary = viewModel.dictionary,
                         onSave = { settings -> viewModel.saveAppSettings(settings) },
                         onDismiss = { viewModel.toggleSettingsDialog() },
+                        workspaceFolder = viewModel.openWorkspace.absolutePath,
+                        workspaceIsDefault = viewModel.openWorkspaceIsHome,
+                        onOpenWorkspace = {
+                            workspaceScope.launch {
+                                chooseDirectory(title = "Open workspace", startIn = viewModel.openWorkspace)
+                                    ?.let { folder -> viewModel.openWorkspace(folder) }
+                            }
+                        },
+                        onCloseWorkspace = { viewModel.closeWorkspace() },
                     )
                 }
 

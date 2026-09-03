@@ -148,6 +148,22 @@ class ExampleWorkspacesTest {
     }
 
     @Test
+    fun `the example ships no secrets file, so a copy starts with no credentials`() {
+        assertFalse(fxVenue.files.any { it.contains("secrets") }, "the manifest names a secrets file")
+        assertFalse(File(openInTemp(), "secrets.json").exists(), "a fresh copy has a secrets file")
+    }
+
+    @Test
+    fun `a new workspace arrives knowing what must not be committed`() {
+        val gitignore = File(openInTemp(), ".gitignore")
+        assertTrue(gitignore.isFile, "a workspace meant for a repo arrived without a .gitignore")
+        val body = gitignore.readText()
+        listOf("secrets.json", "store/", "log/", "runs/").forEach {
+            assertTrue(body.contains(it), ".gitignore does not cover $it")
+        }
+    }
+
+    @Test
     fun `a name becomes a folder someone can read`() {
         assertEquals("fx-venue", ExampleWorkspaces.slug("FX Venue"))
         assertEquals("my-venue-2", ExampleWorkspaces.slug("  My Venue (2)  "))

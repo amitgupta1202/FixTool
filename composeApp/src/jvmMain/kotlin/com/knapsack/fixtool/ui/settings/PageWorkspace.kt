@@ -1,8 +1,13 @@
 package com.knapsack.fixtool.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.MessageColorScheme
 import com.knapsack.fixtool.ui.AppTheme
@@ -138,14 +143,31 @@ fun storagePage(): SettingsPage =
     SettingsPage(
         id = "storage",
         title = "Storage",
-        subtitle = "Where your work is written on this machine. The paths apply on restart.",
+        subtitle = "Which workspace your profiles, messages and scenarios come from.",
         contains =
             listOf(
-                "connection profiles file", "saved messages file", "scenarios directory", "git", "paths",
-                "run records", "runs directory", "evidence", "retention", "history",
+                "workspace",
+                "workspace folder",
+                "connection profiles file",
+                "saved messages file",
+                "scenarios directory",
+                "git",
+                "paths",
+                "FIXTOOL_WORKSPACE",
+                "run records",
+                "runs directory",
+                "evidence",
+                "retention",
+                "history",
             ),
         owns = {
-            listOf(it.connectionProfilesPath, it.savedMessagesPath, it.scenariosPath, it.runRecordCap, it.runRecordsKept)
+            listOf(
+                it.connectionProfilesPath,
+                it.savedMessagesPath,
+                it.scenariosPath,
+                it.runRecordCap,
+                it.runRecordsKept,
+            )
         },
         content = { StorageContent(it) },
     )
@@ -155,48 +177,59 @@ private fun StorageContent(context: SettingsContext) {
     val draft = context.draft
     val settings = draft.value
 
-    SettingsBlock(title = "Connection profiles") {
-        PathField(
-            value = settings.connectionProfilesPath,
-            onValueChange = { draft.edit { copy(connectionProfilesPath = it) } },
-            placeholder = "~/.fixtool/connection_profiles.json",
-            kind = PathKind.FILE_TO_WRITE,
-            chooserTitle = "Select connection profiles file",
-            fileExtension = "json",
-            emptyNote = "Default: ~/.fixtool/connection_profiles.json",
-        )
-    }
-
-    SettingsBlock(title = "Saved messages") {
-        PathField(
-            value = settings.savedMessagesPath,
-            onValueChange = { draft.edit { copy(savedMessagesPath = it) } },
-            placeholder = "~/.fixtool/saved_messages.json",
-            kind = PathKind.FILE_TO_WRITE,
-            chooserTitle = "Select saved messages file",
-            fileExtension = "json",
-            emptyNote = "Default: ~/.fixtool/saved_messages.json",
-        )
-    }
-
+    // One row, where there were three. The profiles file, the saved-messages file and the scenarios
+    // directory each used to be configured separately, which meant three chances to point a colleague
+    // at two of them: a workspace is the three of them together plus the session store, and moving it
+    // is one decision. The three settings are still honoured (see the overrides block below) so
+    // nobody's existing configuration changed under them, but there is no longer a way to make a new
+    // one by accident.
     SettingsBlock(
-        title = "Scenarios",
-        description = "One git-friendly JSON per scenario, named for the scenario — point this at a repo to version-track them.",
+        title = "Workspace folder",
+        description =
+            "The profiles, saved messages, scenarios and run records you are working with. Everything " +
+                "else — the dictionary, the window layout, these settings — stays with the installation, " +
+                "so opening another workspace does not rearrange the app around you.",
     ) {
-        PathField(
-            value = settings.scenariosPath,
-            onValueChange = { draft.edit { copy(scenariosPath = it) } },
-            placeholder = "~/.fixtool/scenarios",
-            kind = PathKind.DIRECTORY,
-            chooserTitle = "Select scenarios directory",
-            emptyNote = "Default: ~/.fixtool/scenarios",
+        Text(
+            text = context.workspaceFolder,
+            fontSize = 11.sp,
+            color = AppTheme.Colors.text,
+            modifier = Modifier.testTag("settings-workspace-folder"),
         )
         Text(
-            text = "Scenario files are written one per scenario, so a tracked directory diffs and reviews cleanly.",
+            text =
+                if (context.workspaceIsDefault) {
+                    "This is the installation's own directory, which is where a fresh install keeps everything."
+                } else {
+                    "A project workspace. Close it to go back to the installation's own directory."
+                },
+            fontSize = 11.sp,
+            color = AppTheme.Colors.textDisabled,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SettingsButton(
+                text = "Open workspace…",
+                onClick = context.onOpenWorkspace,
+                modifier = Modifier.testTag("settings-open-workspace"),
+            )
+            SettingsButton(
+                text = "Close workspace",
+                onClick = context.onCloseWorkspace,
+                enabled = !context.workspaceIsDefault,
+                modifier = Modifier.testTag("settings-close-workspace"),
+            )
+        }
+        Text(
+            text =
+                "Set FIXTOOL_WORKSPACE to move the whole installation, settings included — what a build " +
+                    "box wants when the profiles and scenarios under test are the ones checked in beside " +
+                    "the code. `fixtool run --home` wins over it for one run.",
             fontSize = 11.sp,
             color = AppTheme.Colors.textDisabled,
         )
     }
+
+    PathOverrides(draft, settings)
 
     // Records are output, not source: they are written under ~/.fixtool/runs (or a headless run's own
     // --home) and are not given a path of their own. What is worth configuring is how much of a run is
@@ -211,5 +244,53 @@ private fun StorageContent(context: SettingsContext) {
     ) {
         NumberField(draft = draft, setting = NumberSetting.RUN_RECORD_CAP)
         NumberField(draft = draft, setting = NumberSetting.RUN_RECORDS_KEPT)
+    }
+}
+
+/**
+ * The three per-store path settings, shown only to whoever already set one.
+ *
+ * They predate the workspace and still win over it, so they cannot simply be dropped — someone has a
+ * scenarios directory pointed at a repository and it must keep working. They are not offered to
+ * anyone who has not got one, because the workspace folder is the answer now.
+ */
+@Composable
+private fun PathOverrides(
+    draft: SettingsDraft,
+    settings: com.knapsack.fixtool.model.AppSettings,
+) {
+    val overrides =
+        listOfNotNull(
+            settings.connectionProfilesPath.takeIf { it.isNotBlank() }?.let { "Connection profiles" to it },
+            settings.savedMessagesPath.takeIf { it.isNotBlank() }?.let { "Saved messages" to it },
+            settings.scenariosPath.takeIf { it.isNotBlank() }?.let { "Scenarios" to it },
+        )
+    if (overrides.isEmpty()) {
+        return
+    }
+    SettingsBlock(
+        title = "Path overrides in effect",
+        description =
+            "These were set before workspaces existed and still win over the workspace folder above. " +
+                "Clear one to hand that store back to the workspace.",
+    ) {
+        overrides.forEach { (label, path) ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(text = "$label: $path", fontSize = 11.sp, color = AppTheme.Colors.text)
+                SettingsButton(
+                    text = "Clear",
+                    onClick = {
+                        draft.edit {
+                            when (label) {
+                                "Connection profiles" -> copy(connectionProfilesPath = "")
+                                "Saved messages" -> copy(savedMessagesPath = "")
+                                else -> copy(scenariosPath = "")
+                            }
+                        }
+                    },
+                    modifier = Modifier.testTag("settings-clear-override-$label"),
+                )
+            }
+        }
     }
 }

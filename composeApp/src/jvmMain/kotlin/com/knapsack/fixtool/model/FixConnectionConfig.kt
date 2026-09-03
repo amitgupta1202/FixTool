@@ -1,5 +1,6 @@
 package com.knapsack.fixtool.model
 
+import com.knapsack.fixtool.service.WorkspacePaths
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -26,8 +27,8 @@ data class FixConnectionConfig(
     // Display settings
     val showHeartbeat: Boolean = true, // Show heartbeat messages in session panel
     // Storage settings
-    val fileStorePath: String = "${System.getProperty("user.home")}/.fixtool/store",
-    val fileLogPath: String = "${System.getProperty("user.home")}/.fixtool/log",
+    val fileStorePath: String = WorkspacePaths.current.sessionStore.absolutePath,
+    val fileLogPath: String = WorkspacePaths.current.sessionLog.absolutePath,
     // Advanced settings
     val socketConnectHost: String = "localhost", // Usually localhost for port-forwarded connections
     val socketConnectPort: String = "", // Maps to port field

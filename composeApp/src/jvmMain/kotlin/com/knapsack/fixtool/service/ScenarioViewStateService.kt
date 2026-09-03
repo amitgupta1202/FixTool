@@ -33,7 +33,7 @@ class ScenarioViewStateService(
         if (customPath.isNotBlank()) {
             File(customPath)
         } else {
-            File(System.getProperty("user.home"), ".fixtool/scenario_view.json")
+            WorkspacePaths.current.scenarioViewState
         }
 
     init {

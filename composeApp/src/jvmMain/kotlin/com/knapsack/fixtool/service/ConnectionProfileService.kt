@@ -26,7 +26,7 @@ class ConnectionProfileService(
         if (customPath.isNotBlank()) {
             File(customPath)
         } else {
-            File(System.getProperty("user.home"), ".fixtool/connection_profiles.json")
+            WorkspacePaths.current.connectionProfiles
         }
 
     init {

@@ -68,7 +68,7 @@ class RunRecordStore(
         }
 
     private val dir: File =
-        if (customDir.isNotBlank()) File(customDir) else File(System.getProperty("user.home"), ".fixtool/runs")
+        if (customDir.isNotBlank()) File(customDir) else WorkspacePaths.current.runs
 
     /** Where run records live. One directory per set. */
     val directory: File get() = dir

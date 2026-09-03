@@ -34,7 +34,7 @@ class LayoutStateService(
         if (customPath.isNotBlank()) {
             File(customPath)
         } else {
-            File(System.getProperty("user.home"), ".fixtool/layout.json")
+            WorkspacePaths.current.layout
         }
 
     init {

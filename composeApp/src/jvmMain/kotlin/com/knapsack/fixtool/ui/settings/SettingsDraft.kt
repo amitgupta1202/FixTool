@@ -112,7 +112,9 @@ enum class NumberSetting(
  * both without being mentioned in either. There is no list left to fall out of step.
  */
 @Stable
-class SettingsDraft(val original: AppSettings) {
+class SettingsDraft(
+    val original: AppSettings,
+) {
     var value by mutableStateOf(original)
         private set
 
@@ -151,7 +153,6 @@ class SettingsDraft(val original: AppSettings) {
             connectionProfilesPath = value.connectionProfilesPath.trim(),
             savedMessagesPath = value.savedMessagesPath.trim(),
             scenariosPath = value.scenariosPath.trim(),
-            captureNetworkInterface = value.captureNetworkInterface.trim(),
         )
 
     fun textOf(setting: NumberSetting): String = typing[setting] ?: setting.readFrom(value).toString()

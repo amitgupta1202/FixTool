@@ -676,20 +676,16 @@ fun App(
                                     ) {
                                         viewModel.activeSession?.let { session ->
                                             val latencyTrackingService = session.getLatencyTrackingService()
-                                            val captureStatus by session.captureStatus.collectAsState()
 
                                             if (latencyTrackingService != null) {
                                                 val statistics by latencyTrackingService.statistics.collectAsState()
                                                 val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
                                                 val recentPairs by latencyTrackingService.recentPairs.collectAsState()
-                                                val timestampSource by latencyTrackingService.timestampSource.collectAsState()
 
                                                 LatencyPanel(
                                                     statistics = statistics,
                                                     aggregateStatistics = aggregateStatistics,
                                                     recentPairs = recentPairs,
-                                                    captureStatus = captureStatus,
-                                                    timestampSource = timestampSource,
                                                     warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
                                                     criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
                                                     onClear = { session.clearLatencyStatistics() },
@@ -956,20 +952,16 @@ fun App(
                                         ) {
                                             viewModel.activeSession?.let { session ->
                                                 val latencyTrackingService = session.getLatencyTrackingService()
-                                                val captureStatus by session.captureStatus.collectAsState()
 
                                                 if (latencyTrackingService != null) {
                                                     val statistics by latencyTrackingService.statistics.collectAsState()
                                                     val aggregateStatistics by latencyTrackingService.aggregateStatistics.collectAsState()
                                                     val recentPairs by latencyTrackingService.recentPairs.collectAsState()
-                                                    val timestampSource by latencyTrackingService.timestampSource.collectAsState()
 
                                                     LatencyPanel(
                                                         statistics = statistics,
                                                         aggregateStatistics = aggregateStatistics,
                                                         recentPairs = recentPairs,
-                                                        captureStatus = captureStatus,
-                                                        timestampSource = timestampSource,
                                                         warningThresholdMicros = viewModel.appSettings.latencyWarningThresholdMicros,
                                                         criticalThresholdMicros = viewModel.appSettings.latencyCriticalThresholdMicros,
                                                         onClear = { session.clearLatencyStatistics() },

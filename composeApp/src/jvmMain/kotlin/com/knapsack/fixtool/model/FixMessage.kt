@@ -56,7 +56,8 @@ data class FixMessage(
     val quickfixMessage: Message,
     /**
      * High-precision capture timestamp in microseconds since epoch.
-     * Captured at the QuickFIX/J callback layer for accurate latency measurement.
+     * Stamped at the QuickFIX/J callback on the shared CaptureClock; run records and scenario reports
+     * measure with it. The latency panel measures at the socket instead — see SocketStampFilter.
      * Default of 0 indicates timestamp was not captured (backward compatibility).
      */
     val captureTimeMicros: Long = 0L,

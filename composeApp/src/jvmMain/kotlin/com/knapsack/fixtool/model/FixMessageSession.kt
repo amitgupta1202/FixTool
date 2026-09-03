@@ -1,16 +1,15 @@
 package com.knapsack.fixtool.model
 
-// Latency tracking model imports are in this package (CaptureStatus, PacketDirection, TimestampSource)
 import com.knapsack.fixtool.service.AcceptorStatus
 import com.knapsack.fixtool.service.BookView
 import com.knapsack.fixtool.service.FixConnectionManager
-import com.knapsack.fixtool.service.LatencyTrackingManager
+import com.knapsack.fixtool.service.LatencyTrackingService
 import com.knapsack.fixtool.service.Minting
 import com.knapsack.fixtool.service.QuickFixService
 import com.knapsack.fixtool.service.SessionEndpoint
+import com.knapsack.fixtool.service.SocketStamp
 import com.knapsack.fixtool.service.VenueEvent
 import com.knapsack.fixtool.util.NotifyingLogger
-import quickfix.SessionID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -18,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import quickfix.SessionID
 import java.time.LocalDateTime
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
@@ -281,19 +281,18 @@ class FixMessageSession(
             sessionId = sessionId,
             onMessage = { message -> addMessage(message) },
             onState = { state -> _connectionState.value = state },
+            onStamp = { stamp -> onSocketStamp(stamp) },
         )
         logger.info("Pane '{}' bound to venue client {}", title, sessionId)
     }
+
     private val latestIncomingByType = ConcurrentHashMap<String, FixMessage>()
     private val latestOutgoingByType = ConcurrentHashMap<String, FixMessage>()
 
-    // Latency tracking
-    private var latencyTrackingManager: LatencyTrackingManager? = null
+    // Latency tracking — fed by the socket-level stamps QuickFixService routes to [onSocketStamp].
+    private var latencyTracker: LatencyTrackingService? = null
     private val _latencyTrackingEnabled = MutableStateFlow(false)
     val latencyTrackingEnabled: StateFlow<Boolean> = _latencyTrackingEnabled.asStateFlow()
-
-    private val _captureStatus = MutableStateFlow<CaptureStatus>(CaptureStatus.Stopped)
-    val captureStatus: StateFlow<CaptureStatus> = _captureStatus.asStateFlow()
 
     enum class ViewMode {
         RAW,
@@ -401,16 +400,8 @@ class FixMessageSession(
         }
         // Track the most recent message per type so callers don't have to rescan history
         when (message.direction) {
-            FixMessage.Direction.INCOMING -> {
-                latestIncomingByType[message.messageType] = message
-                // Record for latency tracking (app-level fallback)
-                recordIncomingForLatency(message)
-            }
-            FixMessage.Direction.OUTGOING -> {
-                latestOutgoingByType[message.messageType] = message
-                // Record for latency tracking (app-level fallback)
-                recordOutgoingForLatency(message)
-            }
+            FixMessage.Direction.INCOMING -> latestIncomingByType[message.messageType] = message
+            FixMessage.Direction.OUTGOING -> latestOutgoingByType[message.messageType] = message
         }
         // Drop oldest enqueued item if we're at capacity to avoid unbounded growth. Counted, because a
         // message discarded here was received and then lost, and every silent one of them turns into a
@@ -528,13 +519,7 @@ class FixMessageSession(
                     config = config,
                     dictionary = effectiveDictionary,
                     onMessageReceived = { message -> addMessage(message) },
-                    onStateChanged = { state ->
-                        _connectionState.value = state
-                        // Start latency tracking when logged on
-                        if (state == FixConnectionState.LOGGED_ON && latencyTrackingManager != null) {
-                            startLatencyTracking(config, appSettings.captureNetworkInterface.ifBlank { null })
-                        }
-                    },
+                    onStateChanged = { state -> _connectionState.value = state },
                     onError = onError,
                     onWarning = onWarning,
                     onConnectionFailed = {
@@ -550,6 +535,7 @@ class FixMessageSession(
                     },
                     onVenueEvent = { event -> handleVenueEvent(event) },
                     orderBookCap = appSettings.orderBookCap,
+                    onSocketStamp = { stamp -> onSocketStamp(stamp) },
                 )
             endpoint = quickFixService?.ownerEndpoint()
 
@@ -583,9 +569,6 @@ class FixMessageSession(
         }
         scope.launch {
             try {
-                // Stop latency tracking
-                stopLatencyTracking()
-
                 // Send logout message if currently logged on
                 if (_connectionState.value == FixConnectionState.LOGGED_ON) {
                     logger.info("Sending logout before disconnect for session: {}", title)
@@ -768,39 +751,30 @@ class FixMessageSession(
 
     /**
      * Enable latency tracking for this session.
-     * Should be called before or after connect() based on settings.
+     *
+     * Before or after connect, it makes no difference: the socket filter is on every connection from the
+     * moment it is built and stamps regardless, and a stamp finds a tracker here or is dropped. Nothing
+     * to start, no privilege to ask for, no interface to pick.
      */
     fun enableLatencyTracking(
         correlationTags: List<Int> = listOf(11, 131, 117, 262, 37, 17),
         historySize: Int = 10000,
         warningThresholdMicros: Long = 100_000L,
         criticalThresholdMicros: Long = 500_000L,
-        networkInterface: String? = null,
-        onFallbackNotification: ((String) -> Unit)? = null,
     ) {
-        if (latencyTrackingManager != null) {
+        if (latencyTracker != null) {
             logger.info("Latency tracking already enabled for session: {}", title)
             return
         }
 
-        latencyTrackingManager =
-            LatencyTrackingManager(
+        latencyTracker =
+            LatencyTrackingService(
                 correlationTags = correlationTags,
                 historySize = historySize,
                 warningThresholdMicros = warningThresholdMicros,
                 criticalThresholdMicros = criticalThresholdMicros,
-                onError = onError,
-                onFallbackNotification = onFallbackNotification,
             )
-
         _latencyTrackingEnabled.value = true
-
-        // If already connected, start tracking
-        val config = _connectionConfig.value
-        if (config != null && _connectionState.value == FixConnectionState.LOGGED_ON) {
-            startLatencyTracking(config, networkInterface)
-        }
-
         logger.info("Latency tracking enabled for session: {}", title)
     }
 
@@ -808,127 +782,37 @@ class FixMessageSession(
      * Disable latency tracking for this session
      */
     fun disableLatencyTracking() {
-        latencyTrackingManager?.stopTracking()
-        latencyTrackingManager = null
+        latencyTracker = null
         _latencyTrackingEnabled.value = false
-        _captureStatus.value = CaptureStatus.Stopped
         logger.info("Latency tracking disabled for session: {}", title)
-    }
-
-    /**
-     * Start latency tracking (called when session connects)
-     */
-    private fun startLatencyTracking(
-        config: FixConnectionConfig,
-        networkInterface: String? = null,
-    ) {
-        val manager = latencyTrackingManager ?: return
-
-        val port =
-            config.port.toIntOrNull()
-                ?: config.socketConnectPort.toIntOrNull()
-                ?: config.socketAcceptPort.toIntOrNull()
-
-        if (port == null) {
-            logger.warn("Cannot start latency tracking: no valid port configured")
-            return
-        }
-
-        // For TLS connections, skip packet capture entirely - encrypted payloads can't be parsed
-        // Use application-level timestamps instead
-        if (config.useSSL) {
-            _captureStatus.value = CaptureStatus.Fallback("TLS connection - using app-level timestamps")
-            logger.info(
-                "Latency tracking started for session {} on port {}: app-level (TLS encrypted)",
-                title,
-                port,
-            )
-            return
-        }
-
-        // Determine the effective network interface
-        // Use loopback (lo0) for localhost connections, otherwise use provided or auto-detect
-        val host = config.socketConnectHost.lowercase()
-        val effectiveInterface =
-            networkInterface ?: if (isLocalhostAddress(host)) {
-                "lo0" // Use loopback for localhost connections
-            } else {
-                null // Let PacketCaptureService auto-detect
-            }
-
-        val success = manager.startTracking(effectiveInterface, port)
-        _captureStatus.value = manager.captureStatus.value
-
-        logger.info(
-            "Latency tracking started for session {} on port {} (interface: {}): {}",
-            title,
-            port,
-            effectiveInterface ?: "auto",
-            if (success) "packet capture" else "app-level fallback",
-        )
-    }
-
-    /**
-     * Check if the host is a localhost address
-     */
-    private fun isLocalhostAddress(host: String): Boolean =
-        host == "localhost" ||
-            host == "127.0.0.1" ||
-            host == "::1" ||
-            host.startsWith("127.")
-
-    /**
-     * Stop latency tracking (called when session disconnects)
-     */
-    private fun stopLatencyTracking() {
-        latencyTrackingManager?.stopTracking()
-        _captureStatus.value = CaptureStatus.Stopped
     }
 
     /**
      * Get the latency tracking service (for UI access)
      */
-    fun getLatencyTrackingService() = latencyTrackingManager?.trackingService
+    fun getLatencyTrackingService(): LatencyTrackingService? = latencyTracker
 
     /**
      * Get latency for a specific message (for grid display)
      */
-    fun getLatencyForMessage(rawMessage: String): Long? = latencyTrackingManager?.trackingService?.getLatencyForMessage(rawMessage)
+    fun getLatencyForMessage(rawMessage: String): Long? = latencyTracker?.getLatencyForMessage(rawMessage)
 
     /**
-     * Record an outgoing message for latency tracking
+     * A message crossed this session's socket — the connection's [com.knapsack.fixtool.service.SocketStampFilter]
+     * saw it, QuickFixService routed it here. On the MINA I/O thread; with tracking off it costs one null check.
      */
-    private fun recordOutgoingForLatency(message: FixMessage) {
-        latencyTrackingManager?.recordApplicationTimestamp(
-            direction = PacketDirection.SEND,
-            rawMessage = message.rawMessage,
-            captureTimeMicros = message.captureTimeMicros,
-        )
-    }
-
-    /**
-     * Record an incoming message for latency tracking
-     */
-    private fun recordIncomingForLatency(message: FixMessage) {
-        latencyTrackingManager?.recordApplicationTimestamp(
-            direction = PacketDirection.RECEIVE,
-            rawMessage = message.rawMessage,
-            captureTimeMicros = message.captureTimeMicros,
-        )
+    private fun onSocketStamp(stamp: SocketStamp) {
+        val tracker = latencyTracker ?: return
+        tracker.record(stamp.direction, stamp.wire, stamp.micros)
     }
 
     /**
      * Clear latency statistics
      */
     fun clearLatencyStatistics() {
-        latencyTrackingManager?.trackingService?.clearStatistics()
+        latencyTracker?.clearStatistics()
         logger.info("Cleared latency statistics for session: {}", title)
     }
-
-    /**
-     * Get current timestamp source being used
-     */
-    fun getLatencyTimestampSource(): TimestampSource = latencyTrackingManager?.getCurrentTimestampSource() ?: TimestampSource.APPLICATION
 
     fun destroy() {
         if (isVenueClient) {

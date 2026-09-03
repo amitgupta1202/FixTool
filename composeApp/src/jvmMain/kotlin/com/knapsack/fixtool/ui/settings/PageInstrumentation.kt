@@ -19,14 +19,19 @@ fun latencyPage(): SettingsPage =
         subtitle = "Round-trip measurement, and the tags a reply is recognised by.",
         contains =
             listOf(
-                "latency tracking", "round trip", "packet capture", "network interface", "correlation tags",
-                "warning threshold", "critical threshold", "history size", "latency column",
+                "latency tracking",
+                "round trip",
+                "socket",
+                "correlation tags",
+                "warning threshold",
+                "critical threshold",
+                "history size",
+                "latency column",
             ),
         owns = {
             listOf(
                 it.enableLatencyTracking,
                 it.showLatencyColumn,
-                it.captureNetworkInterface,
                 it.latencyCorrelationTags,
                 it.latencyWarningThresholdMicros,
                 it.latencyCriticalThresholdMicros,
@@ -43,7 +48,9 @@ private fun LatencyContent(context: SettingsContext) {
 
     SettingsBlock(
         title = "Latency tracking",
-        description = "Times a request against its reply. Packet-level capture needs elevated privileges.",
+        description =
+            "Times a request against its reply, stamped where the bytes leave and enter FixTool's socket. " +
+                "Works through TLS and needs no privileges.",
     ) {
         SettingsCheckbox(
             label = "Enable latency tracking",
@@ -82,26 +89,6 @@ private fun LatencyContent(context: SettingsContext) {
             emptyNote = "No correlation tags — nothing can be paired, so no latency will be measured.",
             testTagPrefix = "settings-correlation-tags",
         )
-    }
-
-    SettingsBlock(
-        title = "Capture",
-        description = "Which interface packets are read from. Left empty, FixTool picks one.",
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "Network interface",
-                fontSize = 12.sp,
-                color = AppTheme.Colors.text,
-                modifier = Modifier.width(150.dp),
-            )
-            SettingsField(
-                value = settings.captureNetworkInterface,
-                onValueChange = { draft.edit { copy(captureNetworkInterface = it) } },
-                placeholder = "Auto-detect",
-                modifier = Modifier.width(220.dp),
-            )
-        }
     }
 
     SettingsBlock(

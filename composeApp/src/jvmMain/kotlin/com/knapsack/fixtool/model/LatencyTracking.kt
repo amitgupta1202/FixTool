@@ -42,44 +42,37 @@ enum class CorrelationIdType(
     }
 }
 
-/**
- * Direction of network traffic
- */
-enum class PacketDirection {
+/** Which way a message crossed FixTool's socket. */
+enum class WireDirection {
     SEND,
     RECEIVE,
 }
 
 /**
- * Timestamp source indicating the accuracy level
+ * One message at the socket boundary, and when it crossed.
+ *
+ * Stamped by `SocketStampFilter`: a SEND when the kernel has accepted the last byte of the message,
+ * a RECEIVE when the message has been framed out of the (decrypted) stream and before the FIX engine
+ * queues, parses or validates it. The FIX engine's own work is on neither side of the number.
+ *
+ * [rawFixMessage] is the pipe-delimited form, the same form the grid keys its rows by, so a round trip
+ * can be looked up from the outbound row that started it.
  */
-enum class TimestampSource(
-    val displayName: String,
-    val accuracyDescription: String,
-) {
-    PACKET("Packet", "~10μs"),
-    APPLICATION("App-level", "~100μs"),
-}
-
-/**
- * A captured packet timestamp with extracted FIX message data
- */
-data class PacketTimestamp(
+data class MessageStamp(
     val timestampMicros: Long,
-    val direction: PacketDirection,
+    val direction: WireDirection,
     val correlationId: String,
     val correlationType: CorrelationIdType,
     val messageType: String,
     val rawFixMessage: String,
-    val source: TimestampSource = TimestampSource.PACKET,
 )
 
 /**
  * A correlated pair of send/receive messages with calculated round-trip time
  */
 data class CorrelatedMessagePair(
-    val sendTimestamp: PacketTimestamp,
-    val receiveTimestamp: PacketTimestamp,
+    val sendTimestamp: MessageStamp,
+    val receiveTimestamp: MessageStamp,
     val roundTripMicros: Long,
 ) {
     /**
@@ -232,47 +225,4 @@ class LatencyStatsAccumulator(
 
     @Synchronized
     fun getSampleCount(): Int = samples.size
-}
-
-/**
- * Network interface information for packet capture configuration
- */
-data class NetworkInterfaceInfo(
-    val name: String,
-    val displayName: String,
-    val description: String,
-    val addresses: List<String>,
-    val isLoopback: Boolean,
-) {
-    /**
-     * User-friendly display string
-     */
-    fun toDisplayString(): String {
-        val addrs = addresses.take(2).joinToString(", ")
-        return if (addrs.isNotEmpty()) {
-            "$displayName ($addrs)"
-        } else {
-            displayName
-        }
-    }
-}
-
-/**
- * Capture status for UI display
- */
-sealed class CaptureStatus {
-    data object Stopped : CaptureStatus()
-
-    data class Running(
-        val source: TimestampSource,
-        val interfaceName: String,
-    ) : CaptureStatus()
-
-    data class Error(
-        val message: String,
-    ) : CaptureStatus()
-
-    data class Fallback(
-        val reason: String,
-    ) : CaptureStatus()
 }

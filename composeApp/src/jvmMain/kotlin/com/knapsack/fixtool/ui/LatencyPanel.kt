@@ -1,5 +1,7 @@
 package com.knapsack.fixtool.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -21,12 +23,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.knapsack.fixtool.model.CaptureStatus
 import com.knapsack.fixtool.model.CorrelatedMessagePair
 import com.knapsack.fixtool.model.CorrelationIdType
 import com.knapsack.fixtool.model.LatencySeverity
 import com.knapsack.fixtool.model.LatencyStatistics
-import com.knapsack.fixtool.model.TimestampSource
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -39,8 +39,6 @@ fun LatencyPanel(
     statistics: Map<CorrelationIdType, LatencyStatistics>,
     aggregateStatistics: LatencyStatistics,
     recentPairs: List<CorrelatedMessagePair>,
-    captureStatus: CaptureStatus,
-    timestampSource: TimestampSource,
     warningThresholdMicros: Long,
     criticalThresholdMicros: Long,
     onClear: () -> Unit,
@@ -74,11 +72,7 @@ fun LatencyPanel(
                     color = AppTheme.Colors.text,
                 )
 
-                // Status badge
-                LatencyStatusBadge(
-                    captureStatus = captureStatus,
-                    timestampSource = timestampSource,
-                )
+                SourceBadge()
             }
 
             Row(
@@ -207,52 +201,53 @@ fun LatencyPanel(
                 }
             }
         }
-
-        // Fallback notice if applicable
-        if (captureStatus is CaptureStatus.Fallback) {
-            HorizontalDivider(color = AppTheme.Separators.color, thickness = 1.dp)
-            FallbackNotice(reason = captureStatus.reason)
-        }
     }
 }
 
 /**
- * Status badge showing capture mode
+ * Where the numbers come from — the one thing about a latency that a reader has to know before
+ * trusting it, so it is on the header rather than in the help. The tooltip says what the stamp
+ * includes and what it leaves out; see `SocketStampFilter` for the mechanism.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LatencyStatusBadge(
-    captureStatus: CaptureStatus,
-    timestampSource: TimestampSource,
-) {
-    val (text, color) =
-        when (captureStatus) {
-            is CaptureStatus.Running ->
-                Pair(
-                    "${timestampSource.displayName} (${timestampSource.accuracyDescription})",
-                    AppTheme.Colors.primary,
+private fun SourceBadge() {
+    val color = AppTheme.Colors.primary
+    TooltipArea(
+        tooltip = {
+            Box(
+                modifier =
+                    Modifier
+                        .background(AppTheme.Colors.surfaceHeader, RoundedCornerShape(4.dp))
+                        .border(1.dp, AppTheme.Colors.border, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .widthIn(max = 360.dp),
+            ) {
+                Text(
+                    text =
+                        "Stamped at FixTool's socket, after TLS: a send when the kernel has taken the last byte, " +
+                            "a reply when it has been framed out of the stream. The FIX engine's queue, parse and " +
+                            "validation are not in the number. No privileges needed.",
+                    fontSize = 11.sp,
+                    color = AppTheme.Colors.text,
                 )
-            is CaptureStatus.Fallback ->
-                Pair(
-                    "${TimestampSource.APPLICATION.displayName} (${TimestampSource.APPLICATION.accuracyDescription})",
-                    AppTheme.Colors.warning,
-                )
-            is CaptureStatus.Error -> Pair("Error", AppTheme.Colors.error)
-            is CaptureStatus.Stopped -> Pair("Stopped", AppTheme.Colors.textDisabled)
-        }
-
-    Box(
-        modifier =
-            Modifier
-                .background(color.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                .border(1.dp, color.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+            }
+        },
     ) {
-        Text(
-            text = text,
-            fontSize = 10.sp,
-            color = color,
-            fontWeight = FontWeight.Medium,
-        )
+        Box(
+            modifier =
+                Modifier
+                    .background(color.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                    .border(1.dp, color.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+        ) {
+            Text(
+                text = "Socket",
+                fontSize = 10.sp,
+                color = color,
+                fontWeight = FontWeight.Medium,
+            )
+        }
     }
 }
 
@@ -511,42 +506,6 @@ private fun RecentCorrelationsTable(
 
                 HorizontalDivider(color = AppTheme.Colors.border.copy(alpha = 0.5f), thickness = 0.5.dp)
             }
-        }
-    }
-}
-
-/**
- * Notice shown when using application-level fallback
- */
-@Composable
-private fun FallbackNotice(reason: String) {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(AppTheme.Colors.warning.copy(alpha = 0.1f))
-                .padding(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Info,
-            contentDescription = null,
-            tint = AppTheme.Colors.warning,
-            modifier = Modifier.size(16.dp),
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = "Using application-level timestamps",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = AppTheme.Colors.warning,
-            )
-            Text(
-                text = reason,
-                fontSize = 10.sp,
-                color = AppTheme.Colors.textSecondary,
-            )
         }
     }
 }

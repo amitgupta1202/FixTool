@@ -148,6 +148,12 @@ class QuickFixService(
      * service without an opinion about it get the shipped one.
      */
     orderBookCap: Int = OrderBookService.DEFAULT_CAP,
+    /**
+     * Where a socket-level stamp for the one bound session goes — the owning pane's latency tracker.
+     * A venue routes stamps per counterparty through [channels] instead, so this is unused there.
+     * See [SocketStampFilter] for where the stamps come from and what instant they mark.
+     */
+    private val onSocketStamp: ((SocketStamp) -> Unit)? = null,
 ) : Application {
     private val logger = NotifyingLogger(QuickFixService::class.java, onError, onWarning)
 
@@ -454,8 +460,13 @@ class QuickFixService(
      * Points a client's pane at its session: everything buffered since the session was created is
      * delivered, in order, before this returns, and everything after it goes straight through.
      */
-    fun attachClient(sessionId: SessionID, onMessage: (FixMessage) -> Unit, onState: (FixConnectionState) -> Unit) {
-        channelFor(sessionId).attach(onMessage, onState)
+    fun attachClient(
+        sessionId: SessionID,
+        onMessage: (FixMessage) -> Unit,
+        onState: (FixConnectionState) -> Unit,
+        onStamp: (SocketStamp) -> Unit,
+    ) {
+        channelFor(sessionId).attach(onMessage, onState, onStamp)
     }
 
     /** Detaches a closed pane. The session itself is untouched — closing a pane is not a logout. */
@@ -469,10 +480,26 @@ class QuickFixService(
     }
 
     /**
+     * A message crossed this connection's socket — see [SocketStampFilter]. Routed like [deliver], to the
+     * pane whose latency tracker measures this session, with two differences a stamp earns: nothing is
+     * buffered for a pane that has not attached yet (a stamp with no tracker to receive it is not
+     * evidence, it is a number about nothing), and no channel is created for a session this venue has
+     * not otherwise heard of. Runs on the MINA I/O thread, so it does nothing but route.
+     */
+    fun deliverStamp(stamp: SocketStamp) {
+        if (isVenue) {
+            val sessionId = stamp.sessionId ?: return
+            channels[sessionId]?.stamp(stamp)
+        } else {
+            onSocketStamp?.invoke(stamp)
+        }
+    }
+
+    /**
      * Called for administrative messages (to admin) before they are sent
      */
     override fun toAdmin(message: Message, sessionId: SessionID) {
-        // Capture timestamp immediately for accurate latency tracking
+        // Stamped before anything else: the engine-side time run records and scenario reports read.
         val captureMicros = captureTimeMicros()
 
         // For Logon messages, add password if required
@@ -615,7 +642,7 @@ class QuickFixService(
      * Called for administrative messages (from admin) received
      */
     override fun fromAdmin(message: Message, sessionId: SessionID) {
-        // Capture timestamp immediately for accurate latency tracking
+        // Stamped before anything else: the engine-side time run records and scenario reports read.
         val captureMicros = captureTimeMicros()
 
         try {
@@ -646,7 +673,7 @@ class QuickFixService(
      * Called for application messages before they are sent
      */
     override fun toApp(message: Message, sessionId: SessionID) {
-        // Capture timestamp immediately for accurate latency tracking
+        // Stamped before anything else: the engine-side time run records and scenario reports read.
         val captureMicros = captureTimeMicros()
 
         // One serialisation, two views of it — see toAdmin.
@@ -720,7 +747,7 @@ class QuickFixService(
      * Called for application messages received
      */
     override fun fromApp(message: Message, sessionId: SessionID) {
-        // Capture timestamp immediately for accurate latency tracking
+        // Stamped before anything else: the engine-side time run records and scenario reports read.
         val captureMicros = captureTimeMicros()
 
         // The bytes as they arrived — QFJ kept them; see wireBytesOf.
@@ -1113,6 +1140,10 @@ class QuickFixService(
         private val lock = Any()
         private var messages: ((FixMessage) -> Unit)? = null
         private var states: ((FixConnectionState) -> Unit)? = null
+
+        /** Socket stamps for this counterparty's pane. Never buffered — see [deliverStamp]. */
+        @Volatile
+        private var stamps: ((SocketStamp) -> Unit)? = null
         private val buffered = ArrayDeque<FixMessage>()
         private var lastState: FixConnectionState = CONNECTING
 
@@ -1142,7 +1173,12 @@ class QuickFixService(
 
         fun isLoggedOn(): Boolean = synchronized(lock) { lastState == LOGGED_ON }
 
-        fun attach(onMessage: (FixMessage) -> Unit, onState: (FixConnectionState) -> Unit) {
+        fun stamp(stamp: SocketStamp) {
+            stamps?.invoke(stamp)
+        }
+
+        fun attach(onMessage: (FixMessage) -> Unit, onState: (FixConnectionState) -> Unit, onStamp: (SocketStamp) -> Unit) {
+            stamps = onStamp
             val (drained, state) =
                 synchronized(lock) {
                     messages = onMessage

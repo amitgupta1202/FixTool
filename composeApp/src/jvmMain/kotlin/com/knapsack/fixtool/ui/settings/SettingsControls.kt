@@ -28,9 +28,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.ui.AppTheme
 import com.knapsack.fixtool.ui.TooltipIconButton
+import com.knapsack.fixtool.ui.chooseDirectory
+import com.knapsack.fixtool.ui.chooseFileToOpen
+import com.knapsack.fixtool.ui.chooseFileToSave
+import com.knapsack.fixtool.ui.dialogStartDirectory
+import com.knapsack.fixtool.ui.saveNameAndExtension
+import kotlinx.coroutines.launch
 import java.io.File
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 /** A titled group of related controls inside a settings page. */
 @Composable
@@ -211,12 +215,13 @@ fun PathField(
     kind: PathKind,
     chooserTitle: String,
     modifier: Modifier = Modifier,
-    fileFilter: Pair<String, String>? = null,
+    fileExtension: String? = null,
     emptyNote: String? = null,
     trailing: String = "",
     detail: (File) -> String? = { null },
     startNear: () -> String = { "" },
 ) {
+    val scope = rememberCoroutineScope()
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -232,32 +237,31 @@ fun PathField(
             TooltipIconButton(
                 tooltip = chooserTitle,
                 onClick = {
-                    val chooser =
-                        JFileChooser().apply {
-                            dialogTitle = chooserTitle
-                            fileSelectionMode =
-                                if (kind == PathKind.DIRECTORY) JFileChooser.DIRECTORIES_ONLY else JFileChooser.FILES_ONLY
-                            fileFilter?.let { (label, ext) -> setFileFilter(FileNameExtensionFilter(label, ext)) }
-                            val anchor = value.ifBlank { startNear() }
-                            if (anchor.isNotBlank()) {
-                                val file = File(anchor)
-                                if (file.exists()) {
-                                    if (kind == PathKind.DIRECTORY) {
-                                        currentDirectory = file
-                                    } else {
-                                        currentDirectory = file.parentFile
-                                        if (value.isNotBlank()) selectedFile = file
-                                    }
+                    scope.launch {
+                        val startIn =
+                            dialogStartDirectory(
+                                path = value.ifBlank { startNear() },
+                                namesDirectory = kind == PathKind.DIRECTORY,
+                            )
+                        val chosen =
+                            when (kind) {
+                                PathKind.DIRECTORY -> chooseDirectory(title = chooserTitle, startIn = startIn)
+                                PathKind.EXISTING_FILE ->
+                                    chooseFileToOpen(
+                                        title = chooserTitle,
+                                        extensions = setOfNotNull(fileExtension),
+                                        startIn = startIn,
+                                    )
+                                // A write path's placeholder IS the default path, so it names the file to
+                                // propose while the field is still empty.
+                                PathKind.FILE_TO_WRITE -> {
+                                    val (name, extension) =
+                                        saveNameAndExtension(File(value.ifBlank { placeholder }).name, fileExtension)
+                                    chooseFileToSave(suggestedName = name, extension = extension, startIn = startIn)
                                 }
                             }
-                        }
-                    val approved =
-                        if (kind == PathKind.FILE_TO_WRITE) {
-                            chooser.showSaveDialog(null)
-                        } else {
-                            chooser.showOpenDialog(null)
-                        }
-                    if (approved == JFileChooser.APPROVE_OPTION) onValueChange(chooser.selectedFile.absolutePath)
+                        chosen?.let { onValueChange(it.absolutePath) }
+                    }
                 },
                 modifier = Modifier.size(24.dp),
             ) {

@@ -12,6 +12,7 @@ kotlin = "2.2.21"
 pty4j = "0.13.10"
 kotlinx-coroutines = "1.11.0"
 kotlinx-serialization = "1.9.0"
+filekit = "0.12.0"
 ktlint = "12.1.2"
 logback = "1.5.34"
 quickfixj = "2.3.2"
@@ -28,6 +29,7 @@ androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecyc
 androidx-lifecycle-runtimeCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
 kotlinx-coroutinesSwing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+filekit-dialogs = { module = "io.github.vinceglb:filekit-dialogs", version.ref = "filekit" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 quickfixj-core = { module = "org.quickfixj:quickfixj-core", version.ref = "quickfixj" }
 quickfixj-messages-all = { module = "org.quickfixj:quickfixj-messages-all", version.ref = "quickfixj" }

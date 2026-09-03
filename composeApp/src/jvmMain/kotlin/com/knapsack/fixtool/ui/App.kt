@@ -18,6 +18,7 @@ import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
+import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.ReplyShape
 import com.knapsack.fixtool.service.TraceLanes
@@ -323,14 +324,16 @@ fun App(
                         viewModel.getProfileConnectionState(profileId)
                     },
                     workspaceOpen = !viewModel.openWorkspaceIsHome,
-                    workspaceName = viewModel.openWorkspace.name.takeUnless { viewModel.openWorkspaceIsHome },
-                    onOpenExample = { viewModel.requestOpenExample() },
+                    workspaceName = viewModel.openWorkspaceName,
+                    onNewWorkspace = { viewModel.requestNewWorkspace() },
                     onOpenWorkspace = {
                         workspaceScope.launch {
                             chooseDirectory(title = "Open workspace", startIn = viewModel.defaultWorkspaceLocation())
                                 ?.let { folder -> viewModel.openWorkspace(folder) }
                         }
                     },
+                    examples = viewModel.bundledExamples().map { it.id to it.displayName },
+                    onOpenExample = { id -> viewModel.openExample(id) },
                     onCloseWorkspace = { viewModel.closeWorkspace() },
                     recentWorkspaces = viewModel.recentWorkspaces,
                     onOpenRecentWorkspace = { viewModel.openWorkspace(it) },
@@ -363,6 +366,7 @@ fun App(
                         workspace =
                             WorkspaceSettings(
                                 folder = viewModel.openWorkspace.absolutePath,
+                                name = viewModel.openWorkspaceName,
                                 isDefault = viewModel.openWorkspaceIsHome,
                                 onOpen = {
                                     workspaceScope.launch {
@@ -380,15 +384,13 @@ fun App(
                     )
                 }
 
-                // Open example: copies a bundled example into a workspace of its own.
-                viewModel.pendingExample?.let { example ->
-                    OpenExampleDialog(
-                        example = example,
+                // New workspace: an empty folder of its own, named and placed.
+                if (viewModel.creatingWorkspace) {
+                    NewWorkspaceDialog(
                         defaultLocation = viewModel.defaultWorkspaceLocation(),
-                        onDismiss = { viewModel.dismissExampleDialog() },
-                        onOpen = { name, location, fixVersion ->
-                            viewModel.openExample(example.id, name, location, fixVersion)
-                        },
+                        wireVersionNote = viewModel.wireVersionNote(),
+                        onDismiss = { viewModel.dismissNewWorkspace() },
+                        onCreate = { name, location -> viewModel.createWorkspace(name, location) },
                     )
                 }
 
@@ -562,7 +564,7 @@ fun App(
                                         )
                                     } ?: NoSessionsPlaceholder(
                                         workspaceOpen = !viewModel.openWorkspaceIsHome,
-                                        onOpenExample = { viewModel.requestOpenExample() },
+                                        onOpenExample = { viewModel.openExample(ExampleWorkspaces.FX_VENUE) },
                                         onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
                                         modifier = Modifier.weight(1f).fillMaxSize(),
                                     )
@@ -1152,7 +1154,7 @@ private fun ColumnScope.SplitCentre(
         onFollowTrace = { id -> viewModel.follow(id) },
         onUnfollowTrace = { viewModel.unfollow() },
         workspaceOpen = !viewModel.openWorkspaceIsHome,
-        onOpenExample = { viewModel.requestOpenExample() },
+        onOpenExample = { viewModel.openExample(ExampleWorkspaces.FX_VENUE) },
         onOpenConnectionPanel = { if (!connectionPanelOpen) viewModel.toggleConnectionPanel() },
         modifier = Modifier.weight(1f),
     )

@@ -34,56 +34,54 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.ExampleWorkspaces
 import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Copy a bundled example into a workspace of your own.
+ * A new, empty workspace: what to call it and where to put it.
  *
- * Three questions, all of them answered before the dialog opens: what to call it, where to put it,
- * and which FIX version its sessions speak. Enter takes the defaults, which is the path a viewer
- * seeing FixTool for the first time should be able to walk without reading anything — the whole
- * reason the old Start Demo Server button needed no dialog at all.
+ * Two questions, both answered before the dialog opens, so Enter is the whole interaction. There is
+ * no third question about the FIX version, and that is a correction rather than a simplification: the
+ * field used to be here and it was theatre. A loaded data dictionary overrides a profile's
+ * `beginString` at connect time, and one is essentially always loaded, so picking 4.2 here produced a
+ * 4.4 session. The note at the bottom says what the sessions will actually speak and points at the
+ * setting that decides it.
  *
- * What it is NOT is a second installer. The copy is an ordinary workspace read by the same services
- * that read every other one, so nothing here validates or versions the example beyond the copy
- * succeeding.
+ * Starting from the bundled example is **not** here either. That is Open's job — an example is one of
+ * the things Open can open, not a kind of workspace this dialog has to know about.
  */
 @Composable
-fun OpenExampleDialog(
-    example: ExampleWorkspaces.Example,
+fun NewWorkspaceDialog(
     defaultLocation: File,
+    /** What the sessions in this workspace will speak, and where that is decided. Blank hides the note. */
+    wireVersionNote: String = "",
     onDismiss: () -> Unit,
-    onOpen: (name: String, location: File, fixVersion: FixVersion) -> Unit,
+    onCreate: (name: String, location: File) -> Unit,
 ) {
-    var name by remember(example) { mutableStateOf(example.defaultWorkspaceName) }
+    var name by remember { mutableStateOf("Workspace") }
     var location by remember(defaultLocation) { mutableStateOf(defaultLocation.absolutePath) }
-    var fixVersion by remember { mutableStateOf(FixVersion.DEFAULT) }
     val scope = rememberCoroutineScope()
     val focus = remember { FocusRequester() }
 
     val valid = name.isNotBlank() && location.isNotBlank()
 
-    fun open() {
+    fun create() {
         if (valid) {
-            onOpen(name.trim(), File(location), fixVersion)
+            onCreate(name.trim(), File(location))
             onDismiss()
         }
     }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(6.dp), color = AppTheme.Colors.surface) {
-            OpenExampleForm(
-                example = example,
+            NewWorkspaceForm(
                 defaultLocation = defaultLocation,
+                wireVersionNote = wireVersionNote,
                 name = name,
                 onNameChange = { name = it },
                 location = location,
                 onLocationChange = { location = it },
-                fixVersion = fixVersion,
-                onFixVersionChange = { fixVersion = it },
                 nameFocus = focus,
                 valid = valid,
                 onBrowse = {
@@ -94,34 +92,26 @@ fun OpenExampleDialog(
                         )?.let { chosen -> location = chosen.absolutePath }
                     }
                 },
-                onOpen = ::open,
+                onCreate = ::create,
                 onDismiss = onDismiss,
             )
         }
     }
 }
 
-/**
- * The dialog's three questions and its two buttons.
- *
- * Separated from [OpenExampleDialog] so the state lives in one place and the layout in another: the
- * dialog owns what the user has typed, and this owns nothing at all.
- */
 @Composable
 @Suppress("LongParameterList")
-private fun OpenExampleForm(
-    example: ExampleWorkspaces.Example,
+private fun NewWorkspaceForm(
     defaultLocation: File,
+    wireVersionNote: String,
     name: String,
     onNameChange: (String) -> Unit,
     location: String,
     onLocationChange: (String) -> Unit,
-    fixVersion: FixVersion,
-    onFixVersionChange: (FixVersion) -> Unit,
     nameFocus: FocusRequester,
     valid: Boolean,
     onBrowse: () -> Unit,
-    onOpen: () -> Unit,
+    onCreate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     Column(
@@ -130,23 +120,23 @@ private fun OpenExampleForm(
             Modifier
                 .width(460.dp)
                 .padding(14.dp)
-                .testTag("open-example-dialog")
+                .testTag("new-workspace-dialog")
                 // Enter accepts the defaults from anywhere in the dialog, including the moment it
                 // opens, so the fast path is one keystroke and needs no tabbing to a button first.
                 .onPreviewKeyEvent { event ->
                     val entered = event.key == Key.Enter || event.key == Key.NumPadEnter
                     if (event.type == KeyEventType.KeyDown && entered) {
-                        onOpen()
+                        onCreate()
                         true
                     } else {
                         false
                     }
                 },
     ) {
-        Text("Open example: ${example.displayName}", color = AppTheme.Colors.text, fontSize = 13.sp)
+        Text("New workspace", color = AppTheme.Colors.text, fontSize = 13.sp)
         Text(
-            "${example.summary} Copied into a workspace of its own, so what you change is yours " +
-                "and there is nothing to uninstall.",
+            "A folder holding its own profiles, saved messages, scenarios and session store. " +
+                "The dictionary, the window layout and your settings stay with the installation.",
             color = AppTheme.Colors.textSecondary,
             fontSize = 10.sp,
         )
@@ -155,58 +145,42 @@ private fun OpenExampleForm(
             SlimField(
                 value = name,
                 onValueChange = onNameChange,
-                placeholder = example.defaultWorkspaceName,
-                modifier = Modifier.weight(1f).focusRequester(nameFocus).testTag("open-example-name"),
+                placeholder = "Workspace",
+                modifier = Modifier.weight(1f).focusRequester(nameFocus).testTag("new-workspace-name"),
             )
         }
 
-        LabelledRow("Location") {
-            SlimField(
-                value = location,
-                onValueChange = onLocationChange,
-                placeholder = defaultLocation.absolutePath,
-                modifier = Modifier.weight(1f).testTag("open-example-location"),
-            )
-            TooltipIconButton(
-                tooltip = "Choose a folder for the workspace",
-                onClick = onBrowse,
-                modifier = Modifier.size(24.dp).testTag("open-example-browse"),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Folder,
-                    contentDescription = "Browse",
-                    tint = AppTheme.Colors.primary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-
-        LabelledRow("FIX version") {
-            SlimDropdown(
-                value = fixVersion,
-                options = FixVersion.entries.toList(),
-                onValueChange = { onFixVersionChange(it ?: FixVersion.DEFAULT) },
-                displayText = { version -> versionLabel(version) },
-                modifier = Modifier.weight(1f).testTag("open-example-version"),
-            )
-        }
+        LocationRow(
+            location = location,
+            onLocationChange = onLocationChange,
+            defaultLocation = defaultLocation,
+            onBrowse = onBrowse,
+        )
 
         Text(
             "Goes in ${File(location, ExampleWorkspaces.slug(name)).absolutePath}",
             color = AppTheme.Colors.textDisabled,
             fontSize = 10.sp,
-            modifier = Modifier.testTag("open-example-target"),
+            modifier = Modifier.testTag("new-workspace-target"),
         )
+        if (wireVersionNote.isNotBlank()) {
+            Text(
+                text = wireVersionNote,
+                color = AppTheme.Colors.textDisabled,
+                fontSize = 10.sp,
+                modifier = Modifier.testTag("new-workspace-wire-version"),
+            )
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             Spacer(Modifier.weight(1f))
             SlimButton("Cancel", onClick = onDismiss, color = AppTheme.Colors.textSecondary)
             SlimButton(
-                "Open",
-                onClick = onOpen,
+                "Create",
+                onClick = onCreate,
                 color = if (valid) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
                 enabled = valid,
-                modifier = Modifier.testTag("open-example-confirm"),
+                modifier = Modifier.testTag("new-workspace-create"),
             )
         }
     }
@@ -229,5 +203,32 @@ private fun LabelledRow(
     }
 }
 
-private fun versionLabel(version: FixVersion): String =
-    if (version == FixVersion.DEFAULT) "${version.displayName}  (default)" else version.displayName
+/** The location field and the button that fills it from a native folder dialog. */
+@Composable
+private fun LocationRow(
+    location: String,
+    onLocationChange: (String) -> Unit,
+    defaultLocation: File,
+    onBrowse: () -> Unit,
+) {
+    LabelledRow("Location") {
+        SlimField(
+            value = location,
+            onValueChange = onLocationChange,
+            placeholder = defaultLocation.absolutePath,
+            modifier = Modifier.weight(1f).testTag("new-workspace-location"),
+        )
+        TooltipIconButton(
+            tooltip = "Choose a folder for the workspace",
+            onClick = onBrowse,
+            modifier = Modifier.size(24.dp).testTag("new-workspace-browse"),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = "Browse",
+                tint = AppTheme.Colors.primary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}

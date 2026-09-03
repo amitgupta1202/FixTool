@@ -1,6 +1,5 @@
 package com.knapsack.fixtool.service
 
-import com.knapsack.fixtool.model.FixVersion
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -79,7 +78,6 @@ object ExampleWorkspaces {
         exampleId: String,
         name: String,
         location: File,
-        fixVersion: FixVersion,
         now: Long = System.currentTimeMillis(),
     ): Result<File> {
         val example =
@@ -98,7 +96,7 @@ object ExampleWorkspaces {
                 out.parentFile?.mkdirs()
                 out.writeText(body)
             }
-            applyTo(target, fixVersion, now)
+            stampTimes(target, now)
             writeGitignore(target)
             logger.info("Opened example '{}' as '{}' in {}", exampleId, name, target.absolutePath)
             target
@@ -106,30 +104,50 @@ object ExampleWorkspaces {
     }
 
     /**
-     * Stamps the copy with the version asked for and with real timestamps.
+     * Gives the copy real timestamps.
      *
      * The bundled file carries `createdAt: 0`, which is how the export keeps a machine's clock out of
      * the repository. A workspace wants the truth, and the truth is that these profiles were made now.
+     *
+     * The FIX version is deliberately NOT rewritten. It used to be, from a field in the dialog, and
+     * that field was theatre: a loaded data dictionary overrides a profile's beginString at connect
+     * time (`FixConnectionManager.determineBeginString`), and one is essentially always loaded. The
+     * copy keeps the version the bundle carries, and Settings -> Protocol is where the wire version is
+     * actually decided.
      */
-    private fun applyTo(
+    private fun stampTimes(
         workspace: File,
-        fixVersion: FixVersion,
         now: Long,
     ) {
         val profiles = ConnectionProfileService(customPath = File(workspace, "connection_profiles.json").absolutePath)
         val updated =
             profiles.loadProfiles().map { profile ->
-                profile.copy(
-                    createdAt = now,
-                    lastUsedAt = now,
-                    config =
-                        profile.config.copy(
-                            beginString = fixVersion.beginString,
-                            applVerID = fixVersion.applVerID,
-                        ),
-                )
+                profile.copy(createdAt = now, lastUsedAt = now)
             }
         profiles.saveProfiles(updated)
+    }
+
+    /**
+     * Creates an empty workspace: a directory, and the .gitignore every workspace wants.
+     *
+     * The other half of Open, and the reason New exists at all. Before this the only way to a clean
+     * workspace was to make a folder in Finder and browse to it, which is a thing the app should be
+     * able to do for you.
+     */
+    fun createEmpty(
+        name: String,
+        location: File,
+    ): Result<File> {
+        val target = File(location, slug(name))
+        if (target.exists() && target.listFiles().orEmpty().isNotEmpty()) {
+            return Result.failure(IllegalStateException("'${target.absolutePath}' already holds a workspace"))
+        }
+        return runCatching {
+            require(target.isDirectory || target.mkdirs()) { "could not create '${target.absolutePath}'" }
+            writeGitignore(target)
+            logger.info("Created empty workspace in {}", target.absolutePath)
+            target
+        }
     }
 
     /**

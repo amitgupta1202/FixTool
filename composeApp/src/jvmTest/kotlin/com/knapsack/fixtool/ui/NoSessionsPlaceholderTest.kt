@@ -14,7 +14,7 @@ class NoSessionsPlaceholderTest {
     val rule = createComposeRule()
 
     @Test
-    fun `a fresh install is offered the example and the connection panel`() {
+    fun `a fresh install is offered the bundled example and the connection panel`() {
         var started = false
         var opened = false
         rule.setContent {

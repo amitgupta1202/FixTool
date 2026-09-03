@@ -1,6 +1,5 @@
 package com.knapsack.fixtool.service
 
-import com.knapsack.fixtool.model.FixVersion
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -19,9 +18,11 @@ import kotlin.test.assertTrue
 class ExampleWorkspacesTest {
     private val fxVenue = assertNotNull(ExampleWorkspaces.byId(ExampleWorkspaces.FX_VENUE), "fx-venue is not in the build")
 
-    private fun openInTemp(version: FixVersion = FixVersion.DEFAULT): File {
+    private fun openInTemp(): File {
         val location = Files.createTempDirectory("example-open").toFile()
-        return ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location, version, now = 1_700_000_000_000L).getOrThrow()
+        return ExampleWorkspaces
+            .open(ExampleWorkspaces.FX_VENUE, "FX Venue", location, now = 1_700_000_000_000L)
+            .getOrThrow()
     }
 
     @Test
@@ -100,11 +101,18 @@ class ExampleWorkspacesTest {
         )
     }
 
+    /**
+     * The copy keeps the bundle's version, and the dialog no longer pretends to ask.
+     *
+     * A FIX version field used to be on the way in, and it was theatre: a loaded data dictionary
+     * overrides a profile's beginString at connect time, and one is essentially always loaded, so
+     * picking 4.2 produced a 4.4 session. Settings -> Protocol is where the wire version is decided.
+     */
     @Test
-    fun `the FIX version asked for is the one the copied sessions speak`() {
-        profilesIn(openInTemp(FixVersion.FIX_5_0_SP2)).forEach {
-            assertEquals("FIXT.1.1", it.config.beginString)
-            assertEquals("9", it.config.applVerID)
+    fun `the copy speaks what the bundle says, and nothing rewrites it on the way in`() {
+        profilesIn(openInTemp()).forEach {
+            assertEquals("FIX.4.4", it.config.beginString)
+            assertEquals(null, it.config.applVerID)
         }
     }
 
@@ -133,8 +141,8 @@ class ExampleWorkspacesTest {
     @Test
     fun `opening onto an existing workspace is refused rather than overwriting it`() {
         val location = Files.createTempDirectory("example-clash").toFile()
-        ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location, FixVersion.DEFAULT).getOrThrow()
-        val second = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location, FixVersion.DEFAULT)
+        ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
+        val second = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location)
         assertTrue(second.isFailure)
         assertTrue(second.exceptionOrNull()!!.message!!.contains("already holds a workspace"))
     }
@@ -142,9 +150,30 @@ class ExampleWorkspacesTest {
     @Test
     fun `an unknown example is a failure, not an empty workspace`() {
         val location = Files.createTempDirectory("example-unknown").toFile()
-        val result = ExampleWorkspaces.open("no-such-example", "Whatever", location, FixVersion.DEFAULT)
+        val result = ExampleWorkspaces.open("no-such-example", "Whatever", location)
         assertTrue(result.isFailure)
         assertFalse(File(location, "whatever").exists())
+    }
+
+    // ---------------------------------------------------------------- a workspace of your own
+
+    @Test
+    fun `a new workspace is an empty folder that knows what must not be committed`() {
+        val location = Files.createTempDirectory("new-workspace").toFile()
+        val created = ExampleWorkspaces.createEmpty("My Venue", location).getOrThrow()
+
+        assertEquals(File(location, "my-venue"), created)
+        assertTrue(File(created, ".gitignore").isFile)
+        assertEquals(listOf(".gitignore"), created.list()!!.toList(), "a new workspace starts with no content")
+    }
+
+    @Test
+    fun `creating onto an existing workspace is refused rather than merging into it`() {
+        val location = Files.createTempDirectory("new-workspace-clash").toFile()
+        ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "Taken", location).getOrThrow()
+        val second = ExampleWorkspaces.createEmpty("Taken", location)
+        assertTrue(second.isFailure)
+        assertTrue(second.exceptionOrNull()!!.message!!.contains("already holds a workspace"))
     }
 
     @Test

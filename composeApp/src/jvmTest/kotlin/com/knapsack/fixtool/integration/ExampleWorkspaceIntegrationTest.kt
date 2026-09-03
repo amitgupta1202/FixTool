@@ -1,7 +1,6 @@
 package com.knapsack.fixtool.integration
 
 import com.knapsack.fixtool.model.FixConnectionState
-import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -86,7 +85,7 @@ class ExampleWorkspaceIntegrationTest {
     private fun openAndConnect(): File {
         val workspace =
             ExampleWorkspaces
-                .open(ExampleWorkspaces.FX_VENUE, "FX Venue", location, FixVersion.FIX_4_4)
+                .open(ExampleWorkspaces.FX_VENUE, "FX Venue", location)
                 .getOrThrow()
 
         val profilesFile = File(workspace, "connection_profiles.json").absolutePath
@@ -119,7 +118,7 @@ class ExampleWorkspaceIntegrationTest {
     fun `opening the example gives a workspace holding the venue, its clients, templates and scenarios`() {
         val workspace =
             ExampleWorkspaces
-                .open(ExampleWorkspaces.FX_VENUE, "FX Venue", location, FixVersion.FIX_4_4)
+                .open(ExampleWorkspaces.FX_VENUE, "FX Venue", location)
                 .getOrThrow()
         viewModel.openWorkspace(workspace).getOrThrow()
 

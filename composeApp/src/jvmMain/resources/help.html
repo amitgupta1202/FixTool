@@ -204,9 +204,8 @@
 
     <h3>Quick Start</h3>
     <ol>
-        <li>Click <strong>Open example workspace</strong> in the empty session area (or
-            <strong>Open example&hellip;</strong> from <strong>Quick Connect &#9662;</strong> in the
-            toolbar) and accept the defaults</li>
+        <li>Click <strong>Open FX Venue example</strong> in the empty session area (or
+            <strong>Quick Connect &#9662; &rarr; Open workspace &rarr; FX Venue</strong>)</li>
         <li>Select one of the <strong>Demo Client</strong> profiles the example brought with it</li>
         <li>Click <strong>Connect</strong> to establish a FIX session</li>
         <li>Use the pre-loaded FX templates to send orders and receive fills</li>
@@ -240,11 +239,12 @@
 
     <h3>Opening the Example</h3>
     <ol>
-        <li>Click <strong>Open example workspace</strong> where the sessions would be, or choose
-            <strong>Open example&hellip;</strong> from <strong>Quick Connect &#9662;</strong> in the
-            toolbar</li>
-        <li>Name it, choose where it goes, and pick the FIX version its sessions speak. Enter accepts
-            the defaults</li>
+        <li>Click <strong>Open FX Venue example</strong> where the sessions would be, or open
+            <strong>Quick Connect &#9662; &rarr; Open workspace</strong> and pick <strong>FX Venue</strong>
+            from under Browse&hellip;</li>
+        <li>It is copied to <code>~/.fixtool/workspaces/fx-venue</code> and opened. No dialog: the
+            example is one of the things Open can open, and opening it asks nothing. Open it again and
+            you get <code>fx-venue-2</code>, which is how you get a clean one</li>
         <li>The workspace opens with the venue and its client profiles, the templates and the
             scenarios. Connect the venue first, then the clients</li>
         <li>The venue binds <code>localhost:19876</code> and the clients log on to it</li>
@@ -520,17 +520,25 @@
     <p><strong>Quick Connect</strong> in the toolbar is the shortcut past the Connection panel: it drops
     down every saved profile, and picking one connects it. Use the panel when you are <em>authoring</em> a
     profile; use this when you already have one and just want it up.</p>
-    <p>The last items in the menu are about workspaces. <strong>Open example&hellip;</strong> copies a
-    bundled example into a folder you name; <strong>Open workspace&hellip;</strong> opens one you already
-    have; <strong>Recent workspaces</strong> lists the ones you opened before; and
-    <strong>Close workspace</strong> goes back to your own profiles and scenarios. The menu shows even
-    with no saved profiles, so a fresh install has a way in.</p>
+    <p>The last items in the menu are about workspaces: <strong>New workspace&hellip;</strong>,
+    <strong>Open workspace</strong> (Browse&hellip; to a folder you have, or one of the bundled
+    examples), <strong>Recent workspaces</strong>, and <strong>Close workspace</strong>. The menu shows
+    even with no saved profiles, so a fresh install has a way in.</p>
 
     <h3 id="workspaces">Workspaces</h3>
     <p>A <strong>workspace</strong> is a folder holding the profiles, saved messages, scenarios and run
-    records you are working with, plus QuickFIX/J's own sequence store and message log. A fresh install
-    keeps all of it in <code>~/.fixtool</code>, which is simply the workspace it starts in &mdash; so
-    nothing moved when workspaces arrived.</p>
+    records you are working with, plus QuickFIX/J's own sequence store and message log. There is one
+    kind of workspace and two ways to get one: <strong>New</strong> makes an empty one,
+    <strong>Open</strong> opens a folder you already have or one of the examples FixTool ships.</p>
+    <p><strong>Default</strong> is <code>~/.fixtool</code> itself. It is a workspace like any other and
+    it is where everyone starts, including everyone who installed FixTool before workspaces existed
+    &mdash; so nothing had to move on upgrade, the directory just got a name. Default cannot be closed
+    and never appears in Recent, because closing any other workspace is what comes back to it.</p>
+    <p>An <strong>example</strong> is not a third thing. It is a workspace we ship inside the
+    application, which is why opening one copies it out first: editing it in place would mean editing
+    the installed app, and the next release would overwrite your work. Once copied it is an ordinary
+    workspace with nothing example-ish about it &mdash; same files, same loaders, listed in Recent
+    beside any other.</p>
     <p>What does <em>not</em> move with a workspace is anything belonging to the person at the keyboard:
     the data dictionary, the window layout, the rail's sort order and everything in Settings. Opening a
     second workspace gives you other profiles and other scenarios, not a fresh install.</p>

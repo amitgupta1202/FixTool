@@ -486,6 +486,12 @@
         </ul>
     </div>
 
+    <h3 id="quick-connect">Quick Connect</h3>
+
+    <p><strong>Quick Connect</strong> in the toolbar is the shortcut past the Connection panel: it drops
+    down every saved profile, and picking one connects it. Use the panel when you are <em>authoring</em> a
+    profile; use this when you already have one and just want it up.</p>
+
     <h3>Demo Server</h3>
     <p>For testing and learning, use the built-in Demo FX Server (see <a href="#demo-server">Section 2</a>). It provides:</p>
     <ul>
@@ -521,6 +527,18 @@
     </table>
 
     <p>Toggle between views using the view mode button in the toolbar (grid icon / terminal icon).</p>
+
+    <h3 id="workbench-layout">The workbench remembers itself</h3>
+
+    <p>Panel sizes, which panels are open, and the heights of the docks are saved as you change them and
+    restored the next time you launch. Drag sizes are written when you let go of the handle, so a resize
+    costs nothing while you are dragging.</p>
+
+    <p>This is <strong>view state, not a setting</strong> &mdash; it lives in
+    <code>~/.fixtool/layout.json</code> rather than in
+    <a href="#settings">Settings</a>, so nothing here can be exported as configuration or shared with a
+    colleague, and nothing you do to the layout changes how FixTool behaves. Delete the file to get the
+    default arrangement back.</p>
 
     <h3 id="conversations">Grouping by conversation</h3>
     <p>The tree icon in a <strong>session's own button strip</strong> folds that session's grid by
@@ -1850,6 +1868,28 @@ stunnel stunnel.conf</code></pre>
     An MCP server is <strong>built into the app</strong> (loopback-only, off by default), so there is
     nothing extra to install.</p>
 
+    <h3 id="embedded-terminal">The quickest way in &mdash; the built-in terminal</h3>
+
+    <p>The toolbar's <strong>Terminal</strong> toggle opens a shell docked across the foot of the main
+    window, the same idiom the scenario editor uses: drag the grip at the top to grow it, and the header's
+    <strong>&times;</strong> closes it. It is a real terminal on a real PTY, so a full-screen TUI renders
+    and reflows properly.</p>
+
+    <p>Its point is what it puts in the environment. <strong>The running control endpoint is injected into
+    the shell</strong>, so a <code>claude</code> you launch in here already targets <em>this</em> FixTool
+    over MCP &mdash; no port to look up, nothing to register, no second window to arrange beside the
+    first. Enable automation control (below), open the terminal, type <code>claude</code>, and ask it to
+    drive the app.</p>
+
+    <div class="tip">
+        <strong>Not to be confused with</strong> the <em>Terminal view</em> in
+        <a href="#viewing-messages">Viewing Messages</a>, which is a way of rendering the message grid as
+        raw text. This is a shell.
+    </div>
+
+    <p>The steps below are the manual route &mdash; what to do when you want Claude Code running in your
+    own project's directory, against your own codebase, driving FixTool from outside.</p>
+
     <h3>Step 1 &mdash; Enable automation control</h3>
     <ol>
         <li>Open <strong>Settings</strong> (gear icon) and choose the <strong>Developer</strong> page.</li>
@@ -2024,9 +2064,19 @@ stunnel stunnel.conf</code></pre>
     toggle from the toolbar (or with <code>fixtool_panel "scenarios"</code>), so the session grid, detail
     panel, and rail are all on screen at once. The rail is a <em>test-runner tree</em>: every scenario
     expands to its steps, each carrying live <code>&#10003; / &#10007; / &#9656; running / &ndash; not run</code>
-    status, with <strong>Run</strong>, edit, duplicate, and delete per scenario. Scenario documents &mdash;
-    the flow editor and capture review &mdash; open as <strong>tabs in the centre</strong> beside the session
-    tabs (in SPLIT view they take one split while a live session keeps the other).</p>
+    status, with <strong>Run</strong>, edit, duplicate, and delete per scenario.</p>
+
+    <p>Scenario documents &mdash; the flow editor, capture review and a run set's record &mdash; open in a
+    <strong>dock across the foot of the window</strong>, full width beneath the sessions, the same
+    tool-window idiom the <a href="#embedded-terminal">terminal</a> uses. Every open document sits behind
+    its own tab strip. Drag its top edge to resize; the chevron <strong>minimizes it to its header</strong>
+    without tearing it out of composition, so the scroll position and the field you were typing in survive
+    a glance away. Opening or focusing any document &mdash; clicking a step in the rail, following a failure,
+    opening a capture &mdash; restores it and lands on that step. With no documents open the dock is absent
+    entirely.</p>
+
+    <p>The point of the dock is what it is <em>not</em>: it is no longer a pane inside the session split, so
+    the editor no longer moves or resizes as a side effect of the view mode you happen to be in.</p>
     <ol>
         <li><strong>Work a flow normally</strong> &mdash; connect and send/receive messages across one
         or more sessions (e.g. an RFQ: QuoteRequest out, Quote back; or an order and its
@@ -2098,11 +2148,25 @@ stunnel stunnel.conf</code></pre>
             stays whole-tag for the same reason arrows are per-entry: deleting a lone row of a repeated tag
             would silently re-aim its survivors.)</li>
         </ul>
+        <p><strong>When the venue has moved the same way everywhere</strong> &mdash; a reordered repeating
+        group, a tag it now sends on every message, one it has stopped sending &mdash; repairing row by row
+        is the wrong unit of work. Three controls work on the whole step at once:</p>
+        <ul>
+            <li><strong>Accept all shape changes</strong> &mdash; the reorder, the tags the venue added and
+            the ones it dropped, in one click. Never a <em>value</em> mismatch: those are the rows that mean
+            something, and they stay for you to judge. Offered only when there is shape churn to take.</li>
+            <li><strong>Re-seed from reference</strong> &mdash; rebuild the expectation from the other side
+            wholesale, for when the message has changed past the point of patching.</li>
+            <li><strong>Revert this step</strong> &mdash; undo this step's whole pass, leaving the window
+            standing. It is not called <em>Cancel</em> on purpose: beside a strip of five repaired steps,
+            &ldquo;Cancel&rdquo; reads as &ldquo;cancel all of that&rdquo;.</li>
+        </ul>
         <p>You can also edit directly &mdash; change a matcher, type a value, or <strong>drag</strong> a row
         or a whole entry into place &mdash; and every edit <strong>re-judges live</strong>: you watch the step
         go green as you resolve it, and a fix that does not fix shows red before you save.
         <strong>&#8984;Z / &#8984;&#8679;Z</strong> walk undo/redo. Nothing is written until you press
-        <strong>Save</strong>; <strong>Save &amp; re-run</strong> writes and replays in one click, and the
+        <strong>Save</strong> &mdash; repairs are staged, not saved, so a pass you think better of costs
+        nothing; <strong>Save &amp; re-run</strong> writes and replays in one click, and the
         rail verdict answers on the spot.</p>
         <p><strong>The pass carries you to the next failure.</strong> The runner stops at the first failing
         step, so adapting a scenario to an environment that diverges in several places would otherwise mean
@@ -2307,15 +2371,17 @@ stunnel stunnel.conf</code></pre>
 
     <p>Beside the rail's filter, <strong>Run &#9662;</strong> opens on:</p>
 
-    <ul>
-        <li><strong>A saved set by name</strong>, with its size on the item.</li>
-        <li><strong>&#9733; Favourites</strong> &mdash; everything starred, in rail order.</li>
-        <li><strong>The current filter</strong> &mdash; whatever the list is showing right now.</li>
-        <li><strong>Repeat a scenario &times;N</strong> &mdash; the flakiness question.</li>
-        <li><strong>Run examples table&hellip;</strong>, and <strong>Run selected&hellip;</strong> for an
-        ad-hoc set picked in the rail without starring anything you did not mean to.</li>
-        <li><strong>Save as set&hellip;</strong> turns what is on screen into the file CI runs by name.</li>
-    </ul>
+    <table>
+        <tr><th>Item</th><th>What it runs</th></tr>
+        <tr><td><code>Run set &#9656; &lt;name&gt; (N)</code></td><td>A saved set, with its size on the item.</td></tr>
+        <tr><td><code>Run &#9733; favourites (N)</code></td><td>Everything starred, in rail order.</td></tr>
+        <tr><td><code>Run filtered (N)</code></td><td>Whatever the list is showing right now.</td></tr>
+        <tr><td><code>Run selected&hellip; (N)</code></td><td>The rows picked in the rail &mdash; an ad-hoc set, without starring anything you did not mean to.</td></tr>
+        <tr><td><code>Repeat a scenario &times;N&hellip;</code></td><td>The flakiness question. <em>&ldquo;Run one scenario N times and report every iteration.&rdquo;</em></td></tr>
+        <tr><td><code>Run examples table&hellip; (N)</code></td><td>One entry per live row of a scenario's table.</td></tr>
+        <tr><td><code>Save as set&hellip;</code></td><td>Turns what is on screen into the named file CI runs.</td></tr>
+        <tr><td><code>Recent &#9656; &lt;label&gt; (passed/total)</code></td><td>Reopens a finished set from its record on disk.</td></tr>
+    </table>
 
     <p>An item that cannot be used <strong>stays visible and disabled, with its count showing</strong>. You
     cannot tell &ldquo;there is nothing starred&rdquo; from &ldquo;this feature does not exist&rdquo; if the
@@ -2394,9 +2460,17 @@ stunnel stunnel.conf</code></pre>
     puts <code>${symbol}</code> on the wire, an Expect's <strong>reference</strong> matcher asserts
     <code>${symbol}</code> came back. What was missing was the table.</p>
 
-    <p>The <strong>examples table</strong> sits across the foot of the editor, under both panes. Collapsed it
-    is a single line, so a scenario with no table pays nothing for the feature existing. Columns are variable
-    names, edited in place; a row can be named, parked (kept, not deleted), or dropped.</p>
+    <p>The <strong>examples table</strong> sits across the foot of the editor, under both panes, behind a
+    <code>&#9656; Examples</code> header. Collapsed it is a single line summarising itself &mdash;
+    <code>3 rows &times; 2 columns &middot; 1 parked</code>, or <code>no table &mdash; this scenario runs
+    once</code> &mdash; so a scenario with no table pays nothing for the feature existing.</p>
+
+    <p><code>+ column</code> and <code>+ row</code> grow it. Columns are variable names edited in place; a
+    rename that is blank or collides is refused on the spot with <code>name needed</code> or
+    <code>name taken</code>, and stays local until it is neither &mdash; applied per keystroke, a rename
+    passing <em>through</em> a sibling's name would merge the two columns' cells for good. A row can be
+    named (<code>name this row</code>), <code>mute</code>d &mdash; parked, kept, skipped on every run
+    &mdash; or dropped, and <strong>renaming or dropping a column takes its cells with it</strong>.</p>
 
     <p>The columns are seeded into the scope <strong>before setup runs</strong>, and a cell is resolved as it
     is seeded &mdash; so a row may say <code>${uuid}</code> and give each of its runs a fresh id, which is
@@ -2412,8 +2486,10 @@ stunnel stunnel.conf</code></pre>
 
     <p>Each column carries a badge derived from the steps that read it &mdash; <strong>&uarr; out</strong>
     (the row drives the flow), <strong>&darr; in</strong> (the row asserts the reply), <strong>&uarr;&darr;</strong>
-    for both &mdash; and a column no step reads at all is named under the table. Not an error, but not
-    something to discover by watching a run pass while proving nothing about the column.</p>
+    for both. A column no step reads at all is named under the table &mdash; <code>No step reads
+    ${spread}</code> &mdash; which is not an error, but not something to discover by watching a run pass
+    while proving nothing about the column. And the variables strip no longer reports a table's own columns
+    as never-minted typos: a column <em>is</em> a mint, written by the row before the first step runs.</p>
 
     <h4>What a row is called, and what happens when one fails</h4>
 
@@ -2763,15 +2839,26 @@ stunnel stunnel.conf</code></pre>
 
     <h4>The panel</h4>
 
-    <p>The toolbar's <strong>Order Book</strong> toggle opens a side panel against the active session
+    <p>The toolbar's <strong>Order Book</strong> toggle (<em>&ldquo;what this venue is holding, per
+    counterparty&rdquo;</em>) opens a side panel headed <strong>Orders</strong>, against the active session
     &mdash; for a venue, the client pane you are already reading, since a book belongs to a counterparty
-    and the pane is what names it. Its position and visibility persist across launches.</p>
+    and the pane is what names it. Its title bar names the session and counts what it holds
+    (<code>FX Demo Venue &larr; DEMO_CLIENT1 &middot; 1 order &middot; 0 working</code>), and its position
+    and visibility persist across launches.</p>
 
-    <p><strong>A row is a claim; expanding it shows the evidence.</strong> Each trail line is one message
-    that touched the order, with what the order looked like <em>after</em> it &mdash; so
-    <code>CumQty 2500</code> is not something you are asked to believe, it is two fills you can count.
-    Clicking a trail line selects that message in the grid, because the next question a trail raises is
-    always &ldquo;what exactly did we send them?&rdquo;.</p>
+    <p>One row per order: <strong>ClOrdID</strong>, <strong>OrderID</strong>, <strong>Symbol</strong>,
+    <strong>Side</strong>, <strong>OrderQty</strong>, <strong>CumQty</strong>, <strong>LeavesQty</strong>,
+    <strong>AvgPx</strong> and <strong>Status</strong> &mdash; an order that was replaced reads
+    <code>replaced &rarr; &lt;the id that superseded it&gt;</code>.</p>
+
+    <p><strong>A row is a claim; expanding it shows the evidence</strong> &mdash; the trail, captioned
+    <em>&ldquo;every number above is this, folded&rdquo;</em>. Each line is one message that touched the
+    order, labelled by what it did (<code>order received</code>, <code>ack</code>,
+    <code>fill 500000</code>) and carrying what the order looked like <em>after</em> it
+    (<code>cum 500000 &middot; leaves 500000</code>) &mdash; so <code>CumQty 1000000</code> is not
+    something you are asked to believe, it is two fills you can count. Clicking a trail line selects that
+    message in the grid, because the next question a trail raises is always &ldquo;what exactly did we send
+    them?&rdquo;.</p>
 
     <p>The footer says the three ways the book may be <em>wrong</em>, which is the other half of the same
     stance:</p>
@@ -2785,7 +2872,9 @@ stunnel stunnel.conf</code></pre>
         behaviour nobody configured, so it is counted rather than silent.</li>
         <li><strong>Cleared, or never filled</strong> &mdash; an empty book otherwise reads identically as
         &ldquo;nothing has happened here&rdquo; and &ldquo;somebody pressed clear thirty seconds ago&rdquo;,
-        which send a tester in opposite directions. The empty state never just says &ldquo;no orders&rdquo;.</li>
+        which send a tester in opposite directions. So the empty state never just says &ldquo;no
+        orders&rdquo;: it is either <em>&ldquo;No orders yet &mdash; this venue has not been sent
+        one&rdquo;</em> or <em>&ldquo;Cleared 16:37:59.412 &mdash; the control surface&rdquo;</em>.</li>
     </ul>
 
     <p>An initiator session says so rather than showing an empty book: a client's own view of the orders it
@@ -2889,15 +2978,26 @@ stunnel stunnel.conf</code></pre>
 
     <h3 id="reply-with">Replying by hand &mdash; Reply With&hellip;</h3>
 
-    <p>Rules answer what you anticipated. <strong>Reply With&hellip;</strong>, on an incoming message's
-    right-click menu in a venue pane, answers what you did not: it offers the venue's own shapes &mdash;
-    acknowledge, fill, partially fill, reject, cancel &mdash; already filled in from that message and from
-    the book, so a one-off reply does not mean composing an ExecutionReport from memory.</p>
+    <p>Rules answer what you anticipated. <strong>Reply With&hellip;</strong> answers what you did not.
+    Select a message on a venue's client session and the button appears <strong>first in the Message
+    Details header</strong> (it is drawn only where a reply makes sense &mdash; never on an initiator's
+    session). It offers the venue's own shapes &mdash; acknowledge, fill, partially fill, reject, cancel
+    &mdash; already filled in from that message and from the book, so a one-off reply does not mean
+    composing an ExecutionReport from memory.</p>
+
+    <div class="warning">
+        <p><strong>Picking a shape sends nothing.</strong> It loads the resolved reply into the
+        <a href="#sending-messages">message editor</a>, where you can read it, change it, and then press
+        Send &mdash; the improvised reply gets the same review as any other message. It also makes the
+        session that received the message <strong>active</strong> first, because on a venue with several
+        clients logged on, the one whose order this is is the only right answer; you may still change it
+        in the editor, but it will never silently default to whichever tab you last looked at.</p>
+    </div>
 
     <p>A shape that cannot work is <strong>shown greyed with its reason</strong> rather than hidden: filling
     a market order at a limit price it never carried, or quoting an OrderID for an order the venue does not
-    hold. A hand-sent reply moves the order book exactly as a rule's does, and carries its own recorded
-    reason &mdash; the client cannot tell which of them sent it, and neither should the record.</p>
+    hold. Once sent, a hand-typed reply moves the order book exactly as a rule's does, and carries its own
+    recorded reason &mdash; the client cannot tell which of them sent it, and neither should the record.</p>
     <h3>When a rule does not fire</h3>
 
     <p>A rule that cannot work says so on its own card, in amber, under the step it belongs to. Read that
@@ -2959,18 +3059,34 @@ stunnel stunnel.conf</code></pre>
 
     <h3 id="trace-panel">The Trace panel &mdash; the Ledger</h3>
 
-    <p>The toolbar's <strong>Trace</strong> toggle, beside Group, opens the grouped grid run over every
-    session at once: one grid in time order with a <strong>Session</strong> column, per-hop
-    <strong>Elapsed</strong> times on one clock, and group headers that count sessions as well as messages
-    &mdash; so <em>which RFQs touched more than one session</em> is read straight off the headers.</p>
+    <p>The toolbar's <strong>Trace</strong> toggle (<em>&ldquo;every exchange across every session&rdquo;</em>)
+    opens the <strong>Ledger</strong> at the foot of the window: the grouped grid run over every session at
+    once. Its header counts the whole picture &mdash; <code>8 traces across 2 sessions &middot; 68
+    ungrouped</code> &mdash; and <strong>Expand all</strong> / <strong>Collapse all</strong> open every
+    trace or shut them.</p>
+
+    <p>Columns are <strong>Session</strong>, Time, Dir, SeqNum, MsgType, Summary, <strong>Elapsed</strong>
+    (per hop, on one clock) and then the correlation ids themselves &mdash; ClOrdID, QuoteReqID and the
+    rest &mdash; one column each. A group header names the exchange and what it is about
+    (<code>VRF-ORD-1 &middot; EUR/USD 1000000</code>), summarises its composition
+    (<code>NewOrderSingle &times;1 &middot; ExecutionReport &times;3</code>), and
+    <strong>counts sessions as well as messages</strong> &mdash; so <em>which RFQs touched more than one session</em> is read
+    straight off the headers.</p>
 
     <p>Nothing is hidden. Ungrouped messages come last and are counted rather than dropped, and a trace
     whose first message has already left a session's buffer says so rather than presenting a partial
     exchange as a whole one.</p>
 
-    <p>A trace that stubbornly stays in one session carries a hint pointing at the dictionary's
-    <code>.roles.json</code> sidecar &mdash; usually the venue's own echo tag has not been declared yet, and
-    declaring it is what joins the legs.</p>
+    <p>A trace that stubbornly stays in one session says so on its own header, with the remedy in it:</p>
+
+    <div class="example">
+        <p><em>one session only &middot; if the far side echoes this under its own tag, name that tag in
+        the dictionary's .roles.json sidecar and the trace joins</em></p>
+    </div>
+
+    <p>That needs no code &mdash; see <a href="#venue-tag-roles">Your venue's own correlation ids</a>. A
+    venue that answers under a tag FixTool has no opinion about leaves no edge to follow, and joining the
+    legs anyway would be the tool inventing one.</p>
 
     <h3 id="trace-lanes">Lanes</h3>
 
@@ -2981,7 +3097,14 @@ stunnel stunnel.conf</code></pre>
     <p><strong>The venue under test is the space between the lanes.</strong> That is the whole idea: when
     FixTool holds both ends of a hop, the same bytes leaving one lane and arriving in another are drawn as
     <strong>one arrow carrying the hop time</strong>, so the latency you are reading is the thing in the
-    middle rather than anything FixTool did.</p>
+    middle rather than anything FixTool did. Six messages across two sessions therefore draw three rows,
+    not six.</p>
+
+    <p>The first column is <strong>elapsed</strong>: an absolute time on the first row, then
+    <code>+48 ms</code>, <code>+318 ms</code> against the hop before it. The panel header carries the
+    whole trip &mdash; <code>Following VT-89c4053a &middot; 2 sessions &middot; 6 messages &middot; 367
+    ms</code> &mdash; and <strong>Ledger</strong> / <strong>Lanes</strong> in its top right switch the
+    rendering.</p>
 
     <div class="tip">
         <strong>Driving it from an agent or CI.</strong> <code>GET /traces</code> lists them;

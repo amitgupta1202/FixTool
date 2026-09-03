@@ -757,7 +757,7 @@ class FixMessageSession(
      * to start, no privilege to ask for, no interface to pick.
      */
     fun enableLatencyTracking(
-        correlationTags: List<Int> = listOf(11, 131, 117, 262, 37, 17),
+        correlationTags: List<Int> = CorrelationIdType.allTags(),
         historySize: Int = 10000,
         warningThresholdMicros: Long = 100_000L,
         criticalThresholdMicros: Long = 500_000L,
@@ -770,6 +770,8 @@ class FixMessageSession(
         latencyTracker =
             LatencyTrackingService(
                 correlationTags = correlationTags,
+                // Read at first use, not now: the dictionary arrives with connect(), after this is called.
+                nameOf = { tag -> _dictionary?.getFieldName(tag) },
                 historySize = historySize,
                 warningThresholdMicros = warningThresholdMicros,
                 criticalThresholdMicros = criticalThresholdMicros,

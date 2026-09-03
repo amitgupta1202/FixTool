@@ -3,37 +3,62 @@ package com.knapsack.fixtool.model
 import kotlinx.serialization.Serializable
 
 /**
- * Correlation ID types for matching request/response FIX messages
+ * **What a reply is paired with its request by**: one FIX tag, or the Logon handshake.
+ *
+ * A value keyed by its tag, not an enum. It used to be an enum of six, and the Latency settings page
+ * offered every field in the dictionary while the tracker silently ignored any tag that was not one of
+ * the six — a venue's own quote reference could be added to the list and would never pair. Now any tag
+ * in the list pairs, and one the built-ins do not name is named from the loaded dictionary, or by its
+ * number when the dictionary does not know it either.
+ *
+ * Equality is by [tag] alone, so the panel's per-type statistics have one bucket per tag whatever the
+ * name resolved to.
  */
-enum class CorrelationIdType(
+class CorrelationIdType(
     val tag: Int,
     val displayName: String,
 ) {
-    /**
-     * Session-level logon correlation (35=A → 35=A).
-     * Uses synthetic correlation ID since logon has no explicit correlation tag.
-     * Tag -35 is a special marker (not a real FIX tag).
-     */
-    LOGON(-35, "Logon"),
+    override fun equals(other: Any?): Boolean = other is CorrelationIdType && other.tag == tag
 
-    CL_ORD_ID(11, "ClOrdID"),
-    QUOTE_REQ_ID(131, "QuoteReqID"),
-    QUOTE_ID(117, "QuoteID"),
-    MD_REQ_ID(262, "MDReqID"),
-    ORDER_ID(37, "OrderID"),
-    EXEC_ID(17, "ExecID"),
-    ;
+    override fun hashCode(): Int = tag
+
+    override fun toString(): String = "$displayName($tag)"
 
     companion object {
-        /**
-         * Get correlation type from FIX tag number
-         */
-        fun fromTag(tag: Int): CorrelationIdType? = entries.find { it.tag == tag }
+        /** Not a real FIX tag: the Logon has no correlation field, so it is paired per session under this marker. */
+        const val LOGON_TAG = -35
+
+        /** Session-level logon correlation (35=A → 35=A). */
+        val LOGON = CorrelationIdType(LOGON_TAG, "Logon")
+
+        val CL_ORD_ID = CorrelationIdType(11, "ClOrdID")
+        val QUOTE_REQ_ID = CorrelationIdType(131, "QuoteReqID")
+        val QUOTE_ID = CorrelationIdType(117, "QuoteID")
+        val MD_REQ_ID = CorrelationIdType(262, "MDReqID")
+        val ORDER_ID = CorrelationIdType(37, "OrderID")
+        val EXEC_ID = CorrelationIdType(17, "ExecID")
 
         /**
-         * Get all available tag numbers (excludes special types like LOGON)
+         * TestRequest → Heartbeat: FIX's own ping. The venue's session engine must echo the id, before any
+         * order book or risk check is involved and with nothing placed — a probe of the network and the
+         * engine alone, and the floor under every order round trip.
          */
-        fun allTags(): List<Int> = entries.filter { it.tag > 0 }.map { it.tag }
+        val TEST_REQ_ID = CorrelationIdType(112, "TestReqID")
+
+        /** The built-in tags, in the order the default list tries them. */
+        val builtIn: List<CorrelationIdType> = listOf(CL_ORD_ID, QUOTE_REQ_ID, QUOTE_ID, MD_REQ_ID, ORDER_ID, EXEC_ID, TEST_REQ_ID)
+
+        /**
+         * The type for [tag]: a built-in by its standard name, otherwise named by [nameOf] (the dictionary,
+         * typically), otherwise by its number.
+         */
+        fun fromTag(
+            tag: Int,
+            nameOf: (Int) -> String? = { null },
+        ): CorrelationIdType = builtIn.firstOrNull { it.tag == tag } ?: CorrelationIdType(tag, nameOf(tag) ?: "Tag $tag")
+
+        /** The built-in tag numbers, which is what a fresh install correlates on. */
+        fun allTags(): List<Int> = builtIn.map { it.tag }
 
         /**
          * Check if a message type is a logon (35=A)

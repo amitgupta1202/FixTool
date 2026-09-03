@@ -113,6 +113,18 @@ class LatencyIntegrationTest {
         val row = assertNotNull(cli.snapshotLatestOutgoingByType()["D"], "the order is in the session's log")
         assertEquals(pair.roundTripMicros, cli.getLatencyForMessage(row.rawMessage), "the outbound row resolves to its round trip")
 
+        // FIX's own ping: QuickFIX/J on the venue side answers a TestRequest with a Heartbeat echoing tag 112,
+        // with nothing placed — so this is a session-layer round trip and pairs under TestReqID.
+        val ping = "PING-$runId"
+        assertTrue(status(post("/send", """{"session":"CLI","raw":"35=1|112=$ping|"}""")) in listOf("sent", "warning"))
+        assertTrue(
+            awaitCondition { tracker.getPairsByType(CorrelationIdType.TEST_REQ_ID).any { it.sendTimestamp.correlationId == ping } },
+            "the Heartbeat that echoes the TestReqID is paired with the TestRequest",
+        )
+        val probe = tracker.getPairsByType(CorrelationIdType.TEST_REQ_ID).single { it.sendTimestamp.correlationId == ping }
+        assertEquals("1", probe.sendTimestamp.messageType)
+        assertEquals("0", probe.receiveTimestamp.messageType)
+
         tracker.flushStatistics()
         assertEquals(
             1,
@@ -120,7 +132,13 @@ class LatencyIntegrationTest {
                 .getValue(CorrelationIdType.CL_ORD_ID)
                 .sampleCount,
         )
-        assertEquals(2, tracker.aggregateStatistics.value.sampleCount, "the logon and the order")
+        assertEquals(
+            1,
+            tracker.statistics.value
+                .getValue(CorrelationIdType.TEST_REQ_ID)
+                .sampleCount,
+        )
+        assertEquals(3, tracker.aggregateStatistics.value.sampleCount, "the logon, the order and the probe")
     }
 
     /** A venue with one rule (an order is filled) and a client dialling it, both on this machine. */

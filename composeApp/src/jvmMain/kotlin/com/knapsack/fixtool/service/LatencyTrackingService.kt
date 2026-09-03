@@ -25,9 +25,13 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * The Logon is the one message paired without a tag: an initiator's outgoing `35=A` and the venue's
  * `35=A` back are the session's first round trip, and worth a number.
+ *
+ * [correlationTags] is tried in order and the first tag a message carries decides its pairing. Any tag
+ * pairs, not only the built-ins; [nameOf] names the others for the panel, and is asked once per tag.
  */
 class LatencyTrackingService(
     private val correlationTags: List<Int> = CorrelationIdType.allTags(),
+    private val nameOf: (Int) -> String? = { null },
     private val historySize: Int = 10000,
     private val warningThresholdMicros: Long = 100_000L, // 100ms
     private val criticalThresholdMicros: Long = 500_000L, // 500ms
@@ -54,8 +58,16 @@ class LatencyTrackingService(
         val SOH: Char = Char(1)
     }
 
-    // Pending sends awaiting response (keyed by correlationType:correlationId)
+    // Pending sends awaiting response (keyed by tag:correlationId)
     private val pendingSends = ConcurrentHashMap<String, MessageStamp>()
+
+    /**
+     * The type for each configured tag, resolved on first use rather than at construction: the tracker is
+     * created before the session connects, and the dictionary [nameOf] reads may not be loaded until then.
+     */
+    private val typesByTag = ConcurrentHashMap<Int, CorrelationIdType>()
+
+    private fun typeOf(tag: Int): CorrelationIdType = typesByTag.computeIfAbsent(tag) { CorrelationIdType.fromTag(it, nameOf) }
 
     // Track last cleanup time to avoid cleaning up on every message
     @Volatile
@@ -100,8 +112,9 @@ class LatencyTrackingService(
     private val aggregateAccumulator = LatencyStatsAccumulator(historySize)
 
     init {
-        // Initialize accumulators for all correlation types
-        CorrelationIdType.entries.forEach { type ->
+        // The built-ins and the Logon up front; a configured tag outside them gets its accumulator on its
+        // first round trip, in addCorrelatedPair.
+        (CorrelationIdType.builtIn + CorrelationIdType.LOGON).forEach { type ->
             statisticsAccumulators[type] = LatencyStatsAccumulator(historySize)
         }
     }
@@ -135,13 +148,12 @@ class LatencyTrackingService(
 
         for (tag in correlationTags) {
             val correlationId = tagValue(wire, tag) ?: continue
-            val correlationType = CorrelationIdType.fromTag(tag) ?: continue
             recordStamp(
                 MessageStamp(
                     timestampMicros = micros,
                     direction = direction,
                     correlationId = correlationId,
-                    correlationType = correlationType,
+                    correlationType = typeOf(tag),
                     messageType = messageType,
                     rawFixMessage = wire.toRawFixMessage(),
                 ),
@@ -154,7 +166,7 @@ class LatencyTrackingService(
      * Record one stamped message. Handles correlation of send/receive pairs.
      */
     fun recordStamp(stamp: MessageStamp) {
-        val key = "${stamp.correlationType.name}:${stamp.correlationId}"
+        val key = "${stamp.correlationType.tag}:${stamp.correlationId}"
 
         when (stamp.direction) {
             WireDirection.SEND -> {

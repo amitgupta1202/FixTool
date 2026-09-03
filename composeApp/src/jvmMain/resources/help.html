@@ -1766,13 +1766,18 @@ ${incoming["D"].valueOfTag(38)}
             <td>Execution Reports</td>
         </tr>
         <tr>
+            <td>112</td>
+            <td>TestReqID</td>
+            <td>TestRequest &rarr; Heartbeat. FIX's own ping: the venue's session engine must echo the id, before any order book or risk check and with nothing placed. Send <code>35=1|112=PING-1|</code> from a template or a scenario for a safe probe of the network and the engine alone &mdash; the floor under every order round trip, and the part of an order's latency that is not the venue's business logic.</td>
+        </tr>
+        <tr>
             <td>&mdash;</td>
             <td>Logon</td>
             <td>The session handshake itself (<code>35=A</code> out &rarr; <code>35=A</code> back) &mdash; how long the venue took to let you on. A Logon carries no correlation tag, so FixTool pairs it per session rather than by a field.</td>
         </tr>
     </table>
 
-    <p>The six tags are the defaults, not the limit: the list is edited under <strong>Settings &rarr; Latency &rarr; Correlation tags</strong>, and a reply is paired with its request on the first tag in the list that both carry. A venue's own identifier declared under <strong>Protocol &rarr; Venue tag roles</strong> is read by scenario capture and the conversation grid, not by the latency tracker, so add it to this list as well to time it.</p>
+    <p>The seven tags are the defaults, not the limit: the list is edited under <strong>Settings &rarr; Latency &rarr; Correlation tags</strong>, any tag in the dictionary can be added, and a reply is paired with its request on the first tag in the list that both carry. A tag that is not one of the built-ins is shown in the panel under its dictionary name. A venue's own identifier declared under <strong>Protocol &rarr; Venue tag roles</strong> is read by scenario capture and the conversation grid, not by the latency tracker, so add it to this list as well to time it. A list saved by an earlier version keeps its own contents, so add 112 by hand there if you want the probe.</p>
 
     <h3>Enabling Latency Tracking</h3>
     <ol>

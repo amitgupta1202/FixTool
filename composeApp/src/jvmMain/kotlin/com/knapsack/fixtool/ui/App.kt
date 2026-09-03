@@ -24,6 +24,7 @@ import com.knapsack.fixtool.service.TraceLanes
 import com.knapsack.fixtool.service.TraceRows
 import com.knapsack.fixtool.ui.FixField.Companion.resolveTemplates
 import com.knapsack.fixtool.ui.FixField.Companion.toRawMessage
+import com.knapsack.fixtool.ui.settings.WorkspaceSettings
 import com.knapsack.fixtool.ui.terminal.TerminalController
 import com.knapsack.fixtool.ui.terminal.TerminalDockSlot
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
@@ -333,6 +334,8 @@ fun App(
                     onCloseWorkspace = { viewModel.closeWorkspace() },
                     recentWorkspaces = viewModel.recentWorkspaces,
                     onOpenRecentWorkspace = { viewModel.openWorkspace(it) },
+                    environments = viewModel.environments,
+                    onConnectProfileIn = { profile, environment -> viewModel.connectProfileIn(profile, environment) },
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },
@@ -357,15 +360,23 @@ fun App(
                         dictionary = viewModel.dictionary,
                         onSave = { settings -> viewModel.saveAppSettings(settings) },
                         onDismiss = { viewModel.toggleSettingsDialog() },
-                        workspaceFolder = viewModel.openWorkspace.absolutePath,
-                        workspaceIsDefault = viewModel.openWorkspaceIsHome,
-                        onOpenWorkspace = {
-                            workspaceScope.launch {
-                                chooseDirectory(title = "Open workspace", startIn = viewModel.openWorkspace)
-                                    ?.let { folder -> viewModel.openWorkspace(folder) }
-                            }
-                        },
-                        onCloseWorkspace = { viewModel.closeWorkspace() },
+                        workspace =
+                            WorkspaceSettings(
+                                folder = viewModel.openWorkspace.absolutePath,
+                                isDefault = viewModel.openWorkspaceIsHome,
+                                onOpen = {
+                                    workspaceScope.launch {
+                                        chooseDirectory(title = "Open workspace", startIn = viewModel.openWorkspace)
+                                            ?.let { folder -> viewModel.openWorkspace(folder) }
+                                    }
+                                },
+                                onClose = { viewModel.closeWorkspace() },
+                                environments = viewModel.environments,
+                                environmentProposal = viewModel.proposeEnvironments().takeIf { it.isWorthDoing },
+                                onExtractEnvironments = {
+                                    viewModel.adoptEnvironments(viewModel.proposeEnvironments())
+                                },
+                            ),
                     )
                 }
 

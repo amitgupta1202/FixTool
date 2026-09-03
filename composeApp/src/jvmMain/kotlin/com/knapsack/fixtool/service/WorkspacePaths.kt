@@ -27,6 +27,12 @@ class WorkspacePaths(
     val appSettings: File get() = File(root, "app_settings.json")
     val connectionProfiles: File get() = File(root, "connection_profiles.json")
     val savedMessages: File get() = File(root, "saved_messages.json")
+
+    /** Where a counterparty is, as distinct from who it is. See [com.knapsack.fixtool.model.Environment]. */
+    val environments: File get() = File(root, "environments.json")
+
+    /** Logon passwords, kept out of the file a workspace is shared as. */
+    val secrets: File get() = File(root, "secrets.json")
     val scenarioViewState: File get() = File(root, "scenario_view.json")
     val layout: File get() = File(root, "layout.json")
     val scenarios: File get() = File(root, "scenarios")

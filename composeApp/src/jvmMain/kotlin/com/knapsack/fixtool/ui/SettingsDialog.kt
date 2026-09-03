@@ -29,11 +29,13 @@ import androidx.compose.ui.window.DialogProperties
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.service.VenueTagScan
+import com.knapsack.fixtool.ui.settings.SettingsButton
 import com.knapsack.fixtool.ui.settings.SettingsContext
 import com.knapsack.fixtool.ui.settings.SettingsDraft
-import com.knapsack.fixtool.ui.settings.SettingsButton
 import com.knapsack.fixtool.ui.settings.SettingsField
 import com.knapsack.fixtool.ui.settings.SettingsPage
+import com.knapsack.fixtool.ui.settings.VenueTagSettings
+import com.knapsack.fixtool.ui.settings.WorkspaceSettings
 import com.knapsack.fixtool.ui.settings.settingsPages
 
 /**
@@ -52,11 +54,8 @@ fun SettingsDialog(
     dictionary: FixDictionary,
     onSave: (AppSettings) -> Unit,
     onDismiss: () -> Unit,
-    /** The open project workspace. The Storage page reports it; it is not a setting. */
-    workspaceFolder: String = "",
-    workspaceIsDefault: Boolean = true,
-    onOpenWorkspace: () -> Unit = {},
-    onCloseWorkspace: () -> Unit = {},
+    /** The open project workspace. The Storage page reports it; none of it is a setting. */
+    workspace: WorkspaceSettings = WorkspaceSettings(),
 ) {
     val draft = remember { SettingsDraft(currentSettings) }
     val pages = remember { settingsPages() }
@@ -80,6 +79,17 @@ fun SettingsDialog(
     val problems = draft.problems
     val requestClose = { if (draft.isDirty) confirmingDiscard = true else onDismiss() }
 
+    // Built once rather than at the call site below, so the one page that is showing does not have the
+    // whole context reconstructed inside a conditional.
+    val context =
+        settingsContext(
+            draft = draft,
+            dictionary = dictionary,
+            fields = fields,
+            venueTags = VenueTagSettings({ showVenueTagRoles = true }, venueTagNote, venueRolesSaved != null),
+            workspace = workspace,
+        )
+
     Dialog(
         onDismissRequest = requestClose,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -97,44 +107,18 @@ fun SettingsDialog(
                     )
                     HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
 
-                    Row(modifier = Modifier.weight(1f)) {
-                        SettingsSidebar(
-                            pages = listed,
-                            openPage = openPage,
-                            draft = draft,
-                            query = query,
-                            onQueryChange = { query = it },
-                            onOpen = { openPageId = it.id },
-                        )
-                        VerticalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-
-                        if (openPage == null) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = "No settings match \"$query\".",
-                                    fontSize = 12.sp,
-                                    color = AppTheme.Colors.textDisabled,
-                                )
-                            }
-                        } else {
-                            SettingsPageBody(
-                                page = openPage,
-                                context =
-                                    SettingsContext(
-                                        draft = draft,
-                                        dictionary = dictionary,
-                                        fields = fields,
-                                        openVenueTagRoles = { showVenueTagRoles = true },
-                                        venueTagNote = venueTagNote,
-                                        venueTagNoteIsFresh = venueRolesSaved != null,
-                                        workspaceFolder = workspaceFolder,
-                                        workspaceIsDefault = workspaceIsDefault,
-                                        onOpenWorkspace = onOpenWorkspace,
-                                        onCloseWorkspace = onCloseWorkspace,
-                                    ),
-                            )
-                        }
-                    }
+                    SettingsBody(
+                        nav =
+                            SettingsNav(
+                                pages = listed,
+                                openPage = openPage,
+                                query = query,
+                                onQueryChange = { query = it },
+                                onOpen = { openPageId = it.id },
+                            ),
+                        context = context,
+                        modifier = Modifier.weight(1f),
+                    )
 
                     HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
                     SettingsFooter(
@@ -403,3 +387,70 @@ private fun BoxScope.DiscardConfirmation(onKeepEditing: () -> Unit, onDiscard: (
 private val restoreDefaultsButtonColor = Color(0xFF4A4A4A)
 private val cancelButtonColor = Color(0xFF3A3A3A)
 private val scrimColor = Color(0xAA000000)
+
+/**
+ * The context every page reads from, in one place.
+ *
+ * A named function rather than a constructor call inline, because the dialog it is called from is a
+ * long composable already and this is the part of it that has nothing to do with layout.
+ */
+private fun settingsContext(
+    draft: SettingsDraft,
+    dictionary: FixDictionary,
+    fields: List<Pair<Int, String>>,
+    venueTags: VenueTagSettings,
+    workspace: WorkspaceSettings,
+) = SettingsContext(
+    draft = draft,
+    dictionary = dictionary,
+    fields = fields,
+    venueTags = venueTags,
+    workspace = workspace,
+)
+
+/**
+ * The sidebar and the page beside it: the middle band of the dialog, between its header and footer.
+ *
+ * A page that a search has hidden leaves nothing to show, and saying so is better than a blank half
+ * of a dialog with matches sitting in the list next to it.
+ */
+@Composable
+private fun SettingsBody(
+    nav: SettingsNav,
+    context: SettingsContext,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier) {
+        SettingsSidebar(
+            pages = nav.pages,
+            openPage = nav.openPage,
+            draft = context.draft,
+            query = nav.query,
+            onQueryChange = nav.onQueryChange,
+            onOpen = nav.onOpen,
+        )
+        VerticalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+
+        val page = nav.openPage
+        if (page == null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No settings match \"${nav.query}\".",
+                    fontSize = 12.sp,
+                    color = AppTheme.Colors.textDisabled,
+                )
+            }
+        } else {
+            SettingsPageBody(page = page, context = context)
+        }
+    }
+}
+
+/** Which pages the search left, which one is open, and the two ways to change that. */
+private data class SettingsNav(
+    val pages: List<SettingsPage>,
+    val openPage: SettingsPage?,
+    val query: String,
+    val onQueryChange: (String) -> Unit,
+    val onOpen: (SettingsPage) -> Unit,
+)

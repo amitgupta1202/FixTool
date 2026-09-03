@@ -3,7 +3,9 @@ package com.knapsack.fixtool.ui.settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import com.knapsack.fixtool.model.AppSettings
+import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixDictionary
+import com.knapsack.fixtool.service.Environments
 
 /**
  * Everything a page needs to draw itself, handed down once instead of threaded through each control.
@@ -14,16 +16,45 @@ class SettingsContext(
     val dictionary: FixDictionary,
     /** The loaded dictionary's fields, scanned once for every tag picker on every page. */
     val fields: List<Pair<Int, String>>,
-    val openVenueTagRoles: () -> Unit,
-    /** What the venue tag roles sidecar currently says, or what was just written to it. */
-    val venueTagNote: String,
-    val venueTagNoteIsFresh: Boolean,
-    /** The open project workspace, which the Storage page reports rather than edits. */
-    val workspaceFolder: String = "",
+    /** The venue tag roles sidecar: the door to it, and what it currently says. */
+    val venueTags: VenueTagSettings,
+    /** What the Storage page reports about the workspace, none of which is a setting. */
+    val workspace: WorkspaceSettings = WorkspaceSettings(),
+)
+
+/**
+ * The venue tag roles sidecar, as the Protocol page sees it.
+ *
+ * Grouped for the same reason as [WorkspaceSettings]: three facets of one subject, and every page
+ * that does not care about venue tags should have to skip exactly one thing.
+ */
+data class VenueTagSettings(
+    val open: () -> Unit = {},
+    /** What the sidecar currently says, or what was just written to it. */
+    val note: String = "",
+    val noteIsFresh: Boolean = false,
+)
+
+/**
+ * The workspace, as Settings sees it: things to show and two or three things to do, and not one
+ * setting among them.
+ *
+ * A value object rather than seven more parameters on [SettingsContext], because they are seven
+ * facets of one subject and every page that does not care about the workspace should have to skip
+ * exactly one thing.
+ */
+data class WorkspaceSettings(
+    /** The open project workspace. */
+    val folder: String = "",
     /** The open workspace is the installation's own directory, so there is nothing to close. */
-    val workspaceIsDefault: Boolean = true,
-    val onOpenWorkspace: () -> Unit = {},
-    val onCloseWorkspace: () -> Unit = {},
+    val isDefault: Boolean = true,
+    val onOpen: () -> Unit = {},
+    val onClose: () -> Unit = {},
+    /** The workspace's environments, listed rather than edited. */
+    val environments: List<Environment> = emptyList(),
+    /** What extracting environments from the saved profiles would produce, or null if not worth it. */
+    val environmentProposal: Environments.Companion.Proposal? = null,
+    val onExtractEnvironments: () -> Unit = {},
 )
 
 /**

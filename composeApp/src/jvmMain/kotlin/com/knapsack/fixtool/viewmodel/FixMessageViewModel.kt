@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.EditorTarget
+import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionConfig
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
@@ -52,6 +53,7 @@ import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.EntryOutcome
+import com.knapsack.fixtool.service.Environments
 import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FanOutPlan
@@ -2141,6 +2143,13 @@ class FixMessageViewModel(
     val connectionProfiles: List<FixConnectionProfile> = _connectionProfiles
 
     // Saved messages
+    // The workspace's environments — where a counterparty is, as distinct from who it is. Empty in a
+    // workspace that has never extracted any, which is every workspace until someone does.
+    private val environmentStore = Rebuildable { Environments(WorkspacePaths.current.environments) }
+    private val environmentsService by environmentStore
+    private val _environments = mutableStateListOf<Environment>()
+    val environments: List<Environment> = _environments
+
     private val savedMessagesStore =
         Rebuildable {
             SavedMessagesService(
@@ -2302,6 +2311,8 @@ class FixMessageViewModel(
 
         // Validate dictionary on startup
         validateDataDictionary()
+
+        loadEnvironments()
 
         // Load saved connection profiles
         loadConnectionProfiles()
@@ -4178,6 +4189,7 @@ class FixMessageViewModel(
 
     /** Drops every store that reads the workspace and loads the new one's contents into the UI. */
     private fun rereadWorkspace() {
+        environmentStore.reset()
         profileStore.reset()
         savedMessagesStore.reset()
         scenarioStore.reset()
@@ -4185,6 +4197,7 @@ class FixMessageViewModel(
         runSetHolder.reset()
 
         loadConnectionProfiles()
+        loadEnvironments()
         refreshScenarios()
         _savedMessages.clear()
         loadSavedMessagesForActiveSession()
@@ -4337,6 +4350,45 @@ class FixMessageViewModel(
         sendMessageToAllConnectedSessions(rawToFields(raw))
 
     // Connection management methods
+    private fun loadEnvironments() {
+        _environments.clear()
+        _environments.addAll(environmentsService.load())
+    }
+
+    /**
+     * Connects [profile] as it would be in [environment] — the endpoint swapped, the identity kept.
+     *
+     * The profile on disk is not touched. An environment is a way of connecting a counterparty, not an
+     * edit to it, so choosing UAT does not rewrite the profile and leave the next person wondering
+     * which environment it was last pointed at.
+     */
+    fun connectProfileIn(
+        profile: FixConnectionProfile,
+        environment: Environment,
+    ) {
+        connectProfile(profile.id, profile.copy(config = environment.applyTo(profile.config)))
+    }
+
+    /** What splitting the saved profiles into counterparties and environments would look like. */
+    fun proposeEnvironments(): Environments.Companion.Proposal = Environments.propose(_connectionProfiles.toList())
+
+    /**
+     * Accepts a proposal: the environments are written, the profiles are left exactly as they are.
+     *
+     * Deliberately additive. The profiles the split speaks for keep working as themselves, so a desk
+     * can try one connection through an environment before trusting the idea — and nothing has to be
+     * undone if they do not.
+     */
+    fun adoptEnvironments(proposal: Environments.Companion.Proposal): Boolean {
+        if (!environmentsService.save(proposal.environments)) {
+            showNotification("Could not write the environments", NotificationType.ERROR)
+            return false
+        }
+        loadEnvironments()
+        showNotification("${proposal.environments.size} environments extracted", NotificationType.INFO)
+        return true
+    }
+
     fun connectProfile(profileId: String, profile: FixConnectionProfile) {
         // Acceptors bind a single listen port, so they always run as one session
         val targetCount =

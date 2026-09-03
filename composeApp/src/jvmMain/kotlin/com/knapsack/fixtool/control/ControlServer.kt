@@ -2246,6 +2246,21 @@ class ControlServer(
                 buildJsonArray { onEdt { viewModel.recentWorkspaces }.forEach { add(JsonPrimitive(it.absolutePath)) } },
             )
             put(
+                "environments",
+                buildJsonArray {
+                    onEdt { viewModel.environments }.forEach { environment ->
+                        add(
+                            buildJsonObject {
+                                put("name", environment.name)
+                                put("host", environment.host)
+                                put("port", environment.port)
+                                environment.useSSL?.let { put("useSSL", it) }
+                            },
+                        )
+                    }
+                },
+            )
+            put(
                 "examples",
                 buildJsonArray {
                     ExampleWorkspaces.all().forEach { example ->

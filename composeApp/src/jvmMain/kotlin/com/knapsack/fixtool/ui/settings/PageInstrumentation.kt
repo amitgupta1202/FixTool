@@ -77,9 +77,12 @@ private fun LatencyContent(context: SettingsContext) {
     SettingsBlock(
         title = "Correlation tags",
         description =
-            "The tags latency follows a message by: a reply is matched to its request when one of these " +
-                "carries the same value both ways. Venue identifiers declared under Protocol › Venue tag " +
-                "roles are read by scenario capture, not here — add one to this list to time it as well.",
+            "The tags latency follows a message by, tried in this order: a reply is matched to its request " +
+                "when one of these carries the same value both ways. Any tag works and is named from the " +
+                "dictionary. Venue identifiers declared under Protocol › Venue tag roles are read by " +
+                "scenario capture, not here — add one to this list to time it as well. TestReqID (112) " +
+                "pairs a TestRequest with the Heartbeat that echoes it: a probe of the venue's session " +
+                "layer with no order behind it.",
     ) {
         TagListEditor(
             selected = settings.latencyCorrelationTags,

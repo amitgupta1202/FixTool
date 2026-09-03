@@ -467,6 +467,35 @@ curl -s -XPOST $B/scenarios/run -d '{"scenario":{
 `fixtool_run_scenario` / `fixtool_delete_scenario` are the MCP equivalents —
 get + save give an agent a lossless read → edit → save-back loop.
 
+#### The examples table — one scenario, once per row
+
+A scenario is a Scenario Outline: `examples` declares the columns, and each row seeds them into the run's
+scope **before setup runs**, so `${symbol}` on a send and a `reference` matcher asserting `${symbol}` both
+resolve to that row's value. Additive and default-omitting — a scenario with no table grows no key.
+
+```jsonc
+"examples": {
+  "columns": ["symbol", "qty"],
+  "rows": [
+    {"name": "EUR/USD 1M", "values": {"symbol": "EUR/USD", "qty": "1000000"}},
+    {"name": "GBP/USD 2M", "values": {"symbol": "GBP/USD", "qty": "2000000"}},
+    {"name": "parked",     "values": {"symbol": "USD/JPY", "qty": "3000000"}, "muted": true}
+  ]
+}
+```
+
+The cell map is **`values`**, not `cells`. This matters more than it looks: a cell under a key no column
+declares is *dropped on load* (the columns are the contract), so a misspelled key does not error — the row
+runs with that column seeding an empty string, and the send goes out carrying nothing where it should have
+carried a value. If a row's cells arrive empty, check the key first.
+
+A cell is resolved as it is seeded, so a row may hold `${uuid}` and give each of its runs a fresh id —
+which is what makes an outline safe to run twice. `muted` parks a row: kept, skipped on every run.
+
+Run it with `{"id":…,"rows":true}` (or `{"rows":["EUR/USD 1M"]}` for named rows) and each entry's record
+carries the `row` it ran — `{"name":…, "values":{…}}` — so a failure names the case, not just the
+iteration. Entries are named `<scenario> [<row name>]` everywhere: the rail, the record, and the JUnit XML.
+
 ### Setting up connections from scratch
 
 `POST /profiles` is how an agent configures a connection — it writes the same profile the

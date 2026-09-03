@@ -63,7 +63,8 @@ class HelpDocTest {
                 "a step can be edited in the message editor" to "Editing a step in the message editor",
                 "applying a step is not saving it" to "Applying is not saving",
             )
-        val missing = claims.filterValues { it !in chapter }.keys
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the acceptor chapter no longer says: $missing")
     }
@@ -91,7 +92,8 @@ class HelpDocTest {
                 "refused logons are reported" to "Refused logons are reported",
                 "Reply With… offers the venue's own shapes" to "Reply With&hellip;",
             )
-        val missing = claims.filterValues { it !in chapter }.keys
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the acceptor chapter no longer says: $missing")
     }
@@ -120,7 +122,8 @@ class HelpDocTest {
                 "the batch CLI flags" to "--stop-on-failure",
                 "a set is a job over the control surface" to "/scenarios/runs",
             )
-        val missing = claims.filterValues { it !in chapter }.keys
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the scenarios chapter no longer says: $missing")
     }
@@ -135,7 +138,7 @@ class HelpDocTest {
                 "one click narrows every session pane" to "narrows <em>every</em> session pane",
                 "the set grows as the venue mints new ids" to "grows live",
                 "Esc restores each pane's own filter" to "comes back exactly as you left it",
-                "the Ledger counts sessions as well as messages" to "count sessions as well as messages",
+                "the Ledger counts sessions as well as messages" to "sessions as well as messages",
                 "nothing is hidden — ungrouped is counted" to "Ungrouped messages come last",
                 "an undeclared venue id is why a trace stays in one session" to ".roles.json",
                 "lanes put initiators and acceptors on opposite sides" to "never guessed from a CompID",
@@ -143,10 +146,20 @@ class HelpDocTest {
                     "the space between the lanes",
                 "one arrow carries the hop time" to "one arrow carrying the hop time",
             )
-        val missing = claims.filterValues { it !in chapter }.keys
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
 
         assertTrue(missing.isEmpty(), "the trace chapter no longer says: $missing")
     }
+
+    /**
+     * The guide is hand-wrapped at ~110 columns, so a pinned phrase is regularly split across a newline
+     * and several spaces of indent. Matching on the raw text would then fail for a pure reflow — a
+     * "the chapter no longer says" that is really "the chapter was re-indented", which teaches the next
+     * author to weaken the claim rather than fix the wrap. Collapse runs of whitespace on both sides and
+     * the assertion is about the words.
+     */
+    private fun String.flat(): String = replace(Regex("""\s+"""), " ")
 
     /** Loaded exactly as `HelpDialog` loads it, so the ids under test are the ones the app can reach. */
     private fun parsedIds(): Set<String> {

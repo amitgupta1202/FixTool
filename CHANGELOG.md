@@ -5,6 +5,27 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-09-03
+
+The release where the venue you author became a venue you can read: twenty-one rules fold into
+twenty-one lines, each numbered the way every other surface already names them, and the one that
+just answered marks itself.
+
+### ✨ Added
+
+#### The rules read as a numbered list, and the one that just fired says so
+
+- **A rule folds to one line.** The FX venue preset is 21 rules and the editor drew all 21 open — a checkbox, a MsgType field, a matcher per condition, a delay and a raw template per step, about nine screens of it. Fine for writing a venue, wrong for reading one, which is what a new user does first and what a demo does exclusively. Closed, a card is `55 oneOf [EUR/USD,GBP/USD,USD/JPY] · 40 exact 2 · 3 steps over 500ms`: the trigger in the same matcher vocabulary the open card, scenario expectations and `/acceptor/test` already speak, and the reply as a count and a *span* — that span being the claim a sequence makes about time, and the one thing about a rule that is invisible in the raw FIX the steps are made of. A rule with no conditions reads `any 35=D` rather than looking unfinished. One button in the header opens or closes the whole list.
+- **A card prints its number.** `SendReason` has put *"sent by rule 7"* on every auto-response since the order book landed, the shadowing warning says *"rule 1 answers every 35=D"*, and `/acceptor/rules` addresses rules by index. The card was the one surface that knew its own position and did not print it, so a reader told which rule answered them counted cards to find it.
+- **The rule that just answered marks itself** — `fired 09:14:22.418`, in the wash the grid gives a message it has just sent, on the clock the reply's own reason line prints. It follows the venue's port rather than one client, so a rule tripped by `DEMO_CLIENT2` marks the same list as one tripped by `DEMO_CLIENT1`.
+- **The mark is withheld rather than guessed.** The number is a position in the ruleset the *session* is running, which is the one last saved — so while the staged list differs from the saved one, and after a rules reload, no card is marked at all. An unsaved insert or reorder moves what lives at that position, and a confident wrong answer to the one question this exists to answer is worse than no answer. Save, and the mark comes back.
+- **What is open is a position**, so a move or a delete closes every card rather than leaving one open over its neighbour's fields. A rule added by hand arrives open, since it says nothing until it is filled in. Warnings stay *outside* the fold: a rule that can never fire has to say so whether or not anybody opened it.
+- The guide's acceptor chapter gains a **Reading the list** section covering all of it, pinned by `HelpDocTest`.
+
+### 🐛 Fixed
+
+- **A press on a field in the detail pane could kill the click, and take the Follow glyph with it.** Every tooltip bubble is drawn in a popup, which is its own layout root; composed inside the detail pane's `SelectionContainer` it joined that container's selectables, and the first press on any text there sorted them by position across two roots sharing no ancestor — *"layouts are not part of the same hierarchy"*, the pointer coroutine died, the desktop error dialog came up, and the click was lost. The three tooltip variants now share one bubble that opts out of selection.
+
 ## [1.14.0] - 2026-09-03
 
 The release where the latency figure stopped including the tool that reports it: round trips are

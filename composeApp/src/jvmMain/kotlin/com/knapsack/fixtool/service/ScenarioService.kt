@@ -37,7 +37,7 @@ class ScenarioService(
         if (customDir.isNotBlank()) {
             File(customDir)
         } else {
-            File(System.getProperty("user.home"), ".fixtool/scenarios")
+            WorkspacePaths.current.scenarios
         }
 
     /** Where scenarios live on disk — one JSON per scenario, made for diffing/sharing/PR-ing. */

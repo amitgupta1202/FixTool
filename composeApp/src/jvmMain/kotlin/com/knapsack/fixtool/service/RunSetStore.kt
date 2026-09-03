@@ -55,7 +55,7 @@ class RunSetStore(
         }
 
     private val dir: File =
-        if (customDir.isNotBlank()) File(customDir) else File(System.getProperty("user.home"), ".fixtool/sets")
+        if (customDir.isNotBlank()) File(customDir) else WorkspacePaths.current.sets
 
     val directory: File get() = dir
 

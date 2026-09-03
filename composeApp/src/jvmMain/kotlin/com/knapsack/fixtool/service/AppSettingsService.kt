@@ -28,7 +28,7 @@ class AppSettingsService(
         if (customSettingsDir != null) {
             File(customSettingsDir, "app_settings.json")
         } else {
-            File(System.getProperty("user.home"), ".fixtool/app_settings.json")
+            WorkspacePaths.current.appSettings
         }
 
     init {

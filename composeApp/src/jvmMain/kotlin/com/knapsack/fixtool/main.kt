@@ -18,6 +18,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.knapsack.fixtool.control.ControlServerLauncher
 import com.knapsack.fixtool.headless.HeadlessRun
+import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.ui.App
 import com.knapsack.fixtool.ui.diff.DiffViewerWindow
 import com.knapsack.fixtool.ui.diff.DiffWindow
@@ -27,7 +28,6 @@ import org.slf4j.LoggerFactory
 import java.awt.Window
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
-import java.io.File
 import javax.swing.JOptionPane
 import javax.swing.JOptionPane.ERROR_MESSAGE
 import kotlin.system.exitProcess
@@ -35,7 +35,7 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
     // Create log directory before any logger is instantiated
     // This prevents logback initialization failures on first run
-    val logDir = File(System.getProperty("user.home"), ".fixtool/logs")
+    val logDir = WorkspacePaths.current.logs
     logDir.mkdirs()
 
     // `fixtool run <scenario>` never opens a window. The branch is here, before anything Compose or

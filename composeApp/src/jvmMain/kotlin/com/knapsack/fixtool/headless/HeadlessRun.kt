@@ -30,6 +30,7 @@ import com.knapsack.fixtool.service.ScenarioCodec
 import com.knapsack.fixtool.service.ScenarioReport
 import com.knapsack.fixtool.service.ScenarioRunner
 import com.knapsack.fixtool.service.ScenarioService
+import com.knapsack.fixtool.service.WorkspacePaths
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -63,46 +64,60 @@ object HeadlessRun {
     /** True when [args] ask for a headless run, so `main` knows not to open a window. */
     fun handles(args: Array<String>): Boolean = args.firstOrNull() in setOf("run", "--help", "-h", "help")
 
+    /**
+     * Runs the command and puts the workspace back.
+     *
+     * `--home` moves a process-wide setting, which is free in the CLI (the process exits straight
+     * after) and not free anywhere else: two runs in one JVM, which is what the tests are, would
+     * otherwise have the first one's home decide where the second one looks.
+     */
     @Suppress("ReturnCount")
     fun execute(args: Array<String>, out: Appendable, err: Appendable): Int {
-        if (args.firstOrNull() != "run") {
-            out.appendLine(USAGE)
-            return if (args.firstOrNull() in setOf("--help", "-h", "help")) EXIT_PASSED else EXIT_USAGE
-        }
-        val options =
-            Options.parse(args.drop(1)) ?: run {
-                err.appendLine("fixtool: could not read the arguments")
+        val previous = WorkspacePaths.current
+        try {
+            if (args.firstOrNull() != "run") {
+                out.appendLine(USAGE)
+                return if (args.firstOrNull() in setOf("--help", "-h", "help")) EXIT_PASSED else EXIT_USAGE
+            }
+            val options =
+                Options.parse(args.drop(1)) ?: run {
+                    err.appendLine("fixtool: could not read the arguments")
+                    err.appendLine(USAGE)
+                    return EXIT_USAGE
+                }
+            // `--home` names the workspace, and from here on every service finds it through
+            // WorkspacePaths rather than rebuilding each path from the string a second time.
+            WorkspacePaths.use(options.home)
+            if (options.isSet) return executeSet(options, out, err)
+            if (options.target.isBlank()) {
+                err.appendLine("fixtool run: name a scenario (an id, a saved name, or a path to a .json file)")
                 err.appendLine(USAGE)
                 return EXIT_USAGE
             }
-        if (options.isSet) return executeSet(options, out, err)
-        if (options.target.isBlank()) {
-            err.appendLine("fixtool run: name a scenario (an id, a saved name, or a path to a .json file)")
-            err.appendLine(USAGE)
-            return EXIT_USAGE
+
+            val settings = AppSettingsService().loadSettings()
+            val scenario = loadScenario(options.target, err) ?: return EXIT_USAGE
+            val profiles = ConnectionProfileService().loadProfiles()
+            val dictionary = dictionaryFor(settings, err)
+
+            err.appendLine("fixtool: running '${scenario.name}'")
+            val host = HeadlessScenarioHost(profiles, dictionary, settings) { err.appendLine("fixtool: $it") }
+            val result =
+                try {
+                    ScenarioRunner(host).run(scenario, options.sessionMap)
+                } finally {
+                    // Always, including when a step threw: a run that leaves a venue holding an open
+                    // session is worse than one that fails, and the process is about to exit anyway.
+                    host.disconnectAll()
+                }
+
+            out.append(summary(result))
+            options.junitFile?.let { write(it, ScenarioReport.toJUnitXml(result), err) }
+            options.jsonFile?.let { write(it, ScenarioReport.toJson(result).toString(), err) }
+            return if (result.passed) EXIT_PASSED else EXIT_FAILED
+        } finally {
+            WorkspacePaths.use(previous)
         }
-
-        val home = options.home
-        val settings = AppSettingsService(customSettingsDir = home).loadSettings()
-        val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
-        val profiles = ConnectionProfileService(customPath = home?.let { "$it/connection_profiles.json" } ?: "").loadProfiles()
-        val dictionary = dictionaryFor(settings, err)
-
-        err.appendLine("fixtool: running '${scenario.name}'")
-        val host = HeadlessScenarioHost(profiles, dictionary, settings) { err.appendLine("fixtool: $it") }
-        val result =
-            try {
-                ScenarioRunner(host).run(scenario, options.sessionMap)
-            } finally {
-                // Always, including when a step threw: a run that leaves a venue holding an open
-                // session is worse than one that fails, and the process is about to exit anyway.
-                host.disconnectAll()
-            }
-
-        out.append(summary(result))
-        options.junitFile?.let { write(it, ScenarioReport.toJUnitXml(result), err) }
-        options.jsonFile?.let { write(it, ScenarioReport.toJson(result).toString(), err) }
-        return if (result.passed) EXIT_PASSED else EXIT_FAILED
     }
 
     /**
@@ -115,23 +130,22 @@ object HeadlessRun {
      */
     @Suppress("ReturnCount", "LongMethod")
     private fun executeSet(options: Options, out: Appendable, err: Appendable): Int {
-        val home = options.home
-        val settings = AppSettingsService(customSettingsDir = home).loadSettings()
-        val scenarioService = ScenarioService(customDir = home?.let { "$it/scenarios" } ?: "")
+        val settings = AppSettingsService().loadSettings()
+        val scenarioService = ScenarioService()
         val saved = scenarioService.list()
         val now = System.currentTimeMillis()
 
         // The host comes up before the set is planned, because a fan-out set cannot be planned without
         // it: its entries are one per lane that actually logged on, which is a fact about live sessions
         // rather than about the scenario file. Nothing is dialled by merely constructing it.
-        val profiles = ConnectionProfileService(customPath = home?.let { "$it/connection_profiles.json" } ?: "").loadProfiles()
+        val profiles = ConnectionProfileService().loadProfiles()
         val host = HeadlessScenarioHost(profiles, dictionaryFor(settings, err), settings) { err.appendLine("fixtool: $it") }
 
         val set =
             when {
                 options.set != null -> {
                     val file =
-                        RunSetStore(customDir = home?.let { "$it/sets" } ?: "").load(options.set)
+                        RunSetStore().load(options.set)
                             ?: run {
                                 err.appendLine("fixtool: no saved run set '${options.set}'")
                                 return EXIT_USAGE
@@ -155,7 +169,7 @@ object HeadlessRun {
                     )
                 }
                 options.fanOut != null -> {
-                    val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
+                    val scenario = loadScenario(options.target, err) ?: return EXIT_USAGE
                     val matches = profiles.filter { it.id == options.fanOut || it.name == options.fanOut }.distinctBy { it.id }
                     val profile =
                         when (matches.size) {
@@ -195,7 +209,7 @@ object HeadlessRun {
                     }
                 }
                 options.rows != null -> {
-                    val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
+                    val scenario = loadScenario(options.target, err) ?: return EXIT_USAGE
                     val only = options.rows.takeIf { it.isNotEmpty() }
                     only?.filterNot { name -> scenario.examples?.live.orEmpty().any { it.name == name } }
                         ?.forEach { err.appendLine("fixtool: '${scenario.name}' has no live row named '$it'") }
@@ -210,7 +224,7 @@ object HeadlessRun {
                         }
                 }
                 else -> {
-                    val scenario = loadScenario(options.target, home, err) ?: return EXIT_USAGE
+                    val scenario = loadScenario(options.target, err) ?: return EXIT_USAGE
                     RunSets.repeat(scenario, options.repeat, now, options.policy(RunPolicy()))
                 }
             }
@@ -223,11 +237,11 @@ object HeadlessRun {
         // with no warning. A lane's own remap wins where the two name the same session: that is the lane.
         val remapped = set.copy(entries = set.entries.map { it.copy(sessionMap = options.sessionMap + it.sessionMap) })
 
-        val byId = (saved + listOfNotNull(loadTargetIfFile(options, home))).associateBy { it.id }
+        val byId = (saved + listOfNotNull(loadTargetIfFile(options))).associateBy { it.id }
         // This process runs exactly one set, and vouches for exactly that one: any other set the directory
         // holds at `running` was left by a process that is gone, and is healed the first time it is read.
         val live = java.util.concurrent.atomic.AtomicReference<String?>(null)
-        val store = RunRecordStore(customDir = home?.let { "$it/runs" } ?: "", isLive = { it == live.get() })
+        val store = RunRecordStore(isLive = { it == live.get() })
         val reserved = remapped.copy(id = store.reserve(remapped.id))
         live.set(reserved.id)
         err.appendLine("fixtool: running ${reserved.entries.size} entries — ${reserved.label}")
@@ -253,9 +267,9 @@ object HeadlessRun {
     }
 
     /** A `--repeat` target that is a file rather than a saved scenario still has to be findable by id. */
-    private fun loadTargetIfFile(options: Options, home: String?): Scenario? =
+    private fun loadTargetIfFile(options: Options): Scenario? =
         if (options.set == null && !options.all && options.target.isNotBlank()) {
-            loadScenario(options.target, home, StringBuilder())
+            loadScenario(options.target, StringBuilder())
         } else {
             null
         }
@@ -352,7 +366,7 @@ object HeadlessRun {
         }
 
     /** A scenario by saved id or name, or a path to a JSON file — a CI checkout has files, not a store. */
-    private fun loadScenario(target: String, home: String?, err: Appendable): Scenario? {
+    private fun loadScenario(target: String, err: Appendable): Scenario? {
         val file = File(target)
         if (file.isFile) {
             return try {
@@ -362,7 +376,7 @@ object HeadlessRun {
                 null
             }
         }
-        val service = ScenarioService(customDir = home?.let { "$it/scenarios" } ?: "")
+        val service = ScenarioService()
         val found = service.load(target) ?: service.list().firstOrNull { it.name == target }
         if (found == null) {
             err.appendLine("fixtool: no scenario '$target' — not a file, and no saved scenario of that id or name")

@@ -40,7 +40,7 @@ class SavedMessagesService(
         if (customPath.isNotBlank()) {
             File(customPath)
         } else {
-            File(System.getProperty("user.home"), ".fixtool/saved_messages.json")
+            WorkspacePaths.current.savedMessages
         }
 
     init {

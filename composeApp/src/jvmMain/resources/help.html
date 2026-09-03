@@ -204,14 +204,15 @@
 
     <h3>Quick Start</h3>
     <ol>
-        <li>Click <strong>Start Demo Server</strong> in the toolbar to launch the built-in FX exchange</li>
+        <li>Click <strong>Start demo workspace</strong> in the empty session area (or pick it from
+            <strong>Quick Connect &#9662;</strong> in the toolbar) to install the built-in FX venue</li>
         <li>Select one of the auto-created <strong>Demo Client</strong> profiles</li>
         <li>Click <strong>Connect</strong> to establish a FIX session</li>
         <li>Use the pre-loaded FX templates to send orders and receive fills</li>
     </ol>
 
     <div class="tip">
-        <strong>New to FixTool?</strong> Start with the Demo FX Server - it's the fastest way to explore FIX messaging without any external dependencies.
+        <strong>New to FixTool?</strong> Start with the demo workspace - it's the fastest way to explore FIX messaging without any external dependencies.
     </div>
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
@@ -219,7 +220,7 @@
     <h2 id="demo-server">2. Demo FX Venue</h2>
 
     <h3>Overview</h3>
-    <p>FixTool's demo is not a black box. Pressing <strong>Start Demo Server</strong> installs a
+    <p>FixTool's demo is not a black box. Pressing <strong>Start demo workspace</strong> installs a
     <em>workspace</em> built entirely out of features you already have: an acceptor profile whose venue
     behaviour is a list of rules you can read, two client profiles pointed at it, message templates to
     drive it, and one repeatable scenario that runs green out of the box.</p>
@@ -235,7 +236,9 @@
 
     <h3>Starting the Demo</h3>
     <ol>
-        <li>Click <strong>Start Demo Server</strong> in the Connection panel</li>
+        <li>Click <strong>Start demo workspace</strong> where the sessions would be. To pick the FIX
+            version first, open <strong>Quick Connect &#9662;</strong> in the toolbar and choose
+            <strong>Start demo workspace&hellip;</strong> instead</li>
         <li>The venue binds <code>localhost:19876</code> and both clients log on to it</li>
         <li>Three profiles appear: <strong>FX Demo Venue</strong>, <strong>Demo Client 1</strong> and
             <strong>Demo Client 2</strong></li>
@@ -344,7 +347,8 @@
     </div>
 
     <h3>Stopping the Demo</h3>
-    <p>Click <strong>Stop Demo Server</strong>. This disconnects the venue and its clients, closes their
+    <p>Open <strong>Quick Connect &#9662;</strong> in the toolbar and click <strong>Stop demo
+    workspace</strong>. This disconnects the venue and its clients, closes their
     panes, and removes the demo profiles, templates and scenario.</p>
 
     <div class="warning">
@@ -509,13 +513,18 @@
     <p><strong>Quick Connect</strong> in the toolbar is the shortcut past the Connection panel: it drops
     down every saved profile, and picking one connects it. Use the panel when you are <em>authoring</em> a
     profile; use this when you already have one and just want it up.</p>
+    <p>The last item in the menu is the demo workspace: <strong>Start demo workspace&hellip;</strong>
+    asks which FIX version the venue should speak and installs it, and once installed the same item reads
+    <strong>Stop demo workspace</strong>. The menu shows even with no saved profiles, so a fresh install
+    has a way in.</p>
 
-    <h3>Demo Server</h3>
-    <p>For testing and learning, use the built-in Demo FX Server (see <a href="#demo-server">Section 2</a>). It provides:</p>
+    <h3>Demo workspace</h3>
+    <p>For testing and learning, install the demo workspace (see <a href="#demo-server">Section 2</a>).
+    It provides:</p>
     <ul>
-        <li>A realistic FX exchange simulation on port 19876</li>
-        <li>Live price movements and order execution</li>
-        <li>Pre-configured profiles and message templates</li>
+        <li>An FX venue acceptor on port 19876 whose behaviour is a list of rules you can read and edit</li>
+        <li>Two client profiles already pointed at it, logging on as soon as it is installed</li>
+        <li>Message templates and a scenario that runs green on a fresh install</li>
         <li>No external dependencies required</li>
     </ul>
 

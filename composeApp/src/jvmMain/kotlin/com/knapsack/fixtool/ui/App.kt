@@ -80,7 +80,6 @@ fun App(
         val showSearchResultsPane by viewModel.showSearchResultsPane.collectAsState()
         val pinnedSearchResults by viewModel.pinnedSearchResults.collectAsState()
         val demoServerRunning by viewModel.demoServerRunning.collectAsState()
-        val demoServerFixVersion by viewModel.demoServerFixVersion.collectAsState()
         val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
         val savedMessages = viewModel.savedMessages
         val editorState by viewModel.editorState.collectAsState()
@@ -320,6 +319,9 @@ fun App(
                     onGetProfileConnectionState = { profileId ->
                         viewModel.getProfileConnectionState(profileId)
                     },
+                    demoWorkspaceInstalled = demoServerRunning,
+                    onStartDemoWorkspace = { viewModel.startDemoServer(it) },
+                    onStopDemoWorkspace = { viewModel.stopDemoServer() },
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
                     onAddSeparatorToAll = { viewModel.addSeparatorToAllSessions() },
                     onClearAll = { viewModel.clearAllSessions() },
@@ -515,16 +517,12 @@ fun App(
                                             onUnfollowTrace = { viewModel.unfollow() },
                                             modifier = Modifier.weight(1f),
                                         )
-                                    } ?: Box(
+                                    } ?: NoSessionsPlaceholder(
+                                        demoWorkspaceInstalled = demoServerRunning,
+                                        onStartDemoWorkspace = { viewModel.startDemoServer() },
+                                        onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
                                         modifier = Modifier.weight(1f).fillMaxSize(),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            text = "No active sessions. Click the connection button to connect to a FIX server.",
-                                            color = Color(0xFF6A6A6A),
-                                            fontSize = 14.sp,
-                                        )
-                                    }
+                                    )
 
                                     // The bottom slot: the Trace panel when it is open, otherwise the
                                     // pinned search results. One slot, because they answer the same
@@ -629,10 +627,6 @@ fun App(
                                             onClose = { viewModel.toggleConnectionPanel() },
                                             selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
                                             dictionary = viewModel.dictionary,
-                                            demoServerRunning = demoServerRunning,
-                                            demoServerFixVersion = demoServerFixVersion,
-                                            onStartDemoServer = { viewModel.startDemoServer(it) },
-                                            onStopDemoServer = { viewModel.stopDemoServer() },
                                             onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
                                                 viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
                                             },
@@ -905,10 +899,6 @@ fun App(
                                                 onClose = { viewModel.toggleConnectionPanel() },
                                                 selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
                                                 dictionary = viewModel.dictionary,
-                                                demoServerRunning = demoServerRunning,
-                                                demoServerFixVersion = demoServerFixVersion,
-                                                onStartDemoServer = { viewModel.startDemoServer(it) },
-                                                onStopDemoServer = { viewModel.stopDemoServer() },
                                                 onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
                                                     viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
                                                 },
@@ -1097,6 +1087,8 @@ private fun ColumnScope.SplitCentre(
     followedUids: Set<Long>? = null,
     followedTraceIds: Set<String> = emptySet(),
 ) {
+    val demoWorkspaceInstalled by viewModel.demoServerRunning.collectAsState()
+    val connectionPanelOpen by viewModel.showConnectionPanel.collectAsState()
     SplitView(
         sessions = viewModel.sessions,
         dictionary = viewModel.dictionary,
@@ -1117,6 +1109,9 @@ private fun ColumnScope.SplitCentre(
         followedTraceIds = followedTraceIds,
         onFollowTrace = { id -> viewModel.follow(id) },
         onUnfollowTrace = { viewModel.unfollow() },
+        demoWorkspaceInstalled = demoWorkspaceInstalled,
+        onStartDemoWorkspace = { viewModel.startDemoServer() },
+        onOpenConnectionPanel = { if (!connectionPanelOpen) viewModel.toggleConnectionPanel() },
         modifier = Modifier.weight(1f),
     )
 }

@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.FixVersion
 
 enum class ViewMode {
     TABS,
@@ -68,6 +70,11 @@ fun Toolbar(
     onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
+    /** The demo workspace is installed. Its profiles are listed above; this only decides Start vs Stop. */
+    demoWorkspaceInstalled: Boolean = false,
+    /** Installs the demo workspace speaking the chosen FIX version. Null hides the item. */
+    onStartDemoWorkspace: ((FixVersion) -> Unit)? = null,
+    onStopDemoWorkspace: (() -> Unit)? = null,
     onSearchAllSessions: (() -> Unit)? = null,
     onAddSeparatorToAll: (() -> Unit)? = null,
     onClearAll: (() -> Unit)? = null,
@@ -306,9 +313,26 @@ fun Toolbar(
             Spacer(modifier = Modifier.width(8.dp))
         }
 
-        // Quick Connect Dropdown
-        if (onQuickConnect != null && connectionProfiles.isNotEmpty()) {
+        // **Quick Connect ▾ — the profile selector, and the demo workspace's home.**
+        //
+        // Shown even with no saved profiles, because that is the one moment the trailing item matters: a
+        // fresh install has nothing to connect to, and the demo is how it gets something. The item sits
+        // after the profiles the way "Edit Configurations…" trails a run-configuration list — the things
+        // you can pick, then the thing that makes more of them. Once the workspace is installed its three
+        // profiles are ordinary rows above with their own state dots, so there is no second status light
+        // here to disagree with them; the item just turns into Stop.
+        val demoItemShown = onStartDemoWorkspace != null && onStopDemoWorkspace != null
+        if ((onQuickConnect != null && connectionProfiles.isNotEmpty()) || demoItemShown) {
             var expanded by remember { mutableStateOf(false) }
+
+            // Start asks which FIX version the venue and its clients should speak. It asks inside the
+            // same popup — the list replaces the profiles until Back or a pick — rather than opening a
+            // second popup over the first. Reset with the menu so it never reopens on the version page.
+            var pickingDemoVersion by remember { mutableStateOf(false) }
+            val close = {
+                expanded = false
+                pickingDemoVersion = false
+            }
 
             Box {
                 Row(
@@ -317,7 +341,8 @@ fun Toolbar(
                             .height(28.dp)
                             .background(AppTheme.Colors.border, RoundedCornerShape(4.dp))
                             .clickable { expanded = true }
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .testTag("quick-connect"),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -342,42 +367,146 @@ fun Toolbar(
 
                 DropdownMenu(
                     expanded = expanded,
-                    onDismissRequest = { expanded = false },
+                    onDismissRequest = close,
                     modifier =
                         Modifier
                             .background(AppTheme.Colors.surface)
                             .widthIn(min = 200.dp),
                 ) {
-                    connectionProfiles.forEach { profile ->
-                        val connectionState =
-                            onGetProfileConnectionState?.invoke(profile.id) ?: FixConnectionState.DISCONNECTED
-                        val stateColor = connectionState.getColor()
-
+                    if (pickingDemoVersion) {
                         DropdownMenuItem(
                             text = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    // Status indicator dot
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .size(8.dp)
-                                                .background(stateColor, CircleShape),
-                                    )
+                                Text(
+                                    text = "FIX version for the demo",
+                                    color = AppTheme.Colors.textSecondary,
+                                    fontSize = 11.sp,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.ChevronLeft,
+                                    contentDescription = "Back",
+                                    tint = AppTheme.Colors.textSecondary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            onClick = { pickingDemoVersion = false },
+                            modifier = Modifier.testTag("demo-version-back"),
+                        )
+                        FixVersion.entries.forEach { version ->
+                            DropdownMenuItem(
+                                text = {
                                     Text(
-                                        text = profile.name,
+                                        text =
+                                            if (version == FixVersion.DEFAULT) {
+                                                "${version.displayName}  (default)"
+                                            } else {
+                                                version.displayName
+                                            },
                                         color = AppTheme.Colors.text,
                                         fontSize = 11.sp,
                                     )
-                                }
-                            },
-                            onClick = {
-                                expanded = false
-                                onQuickConnect(profile.id, profile)
-                            },
-                        )
+                                },
+                                onClick = {
+                                    close()
+                                    onStartDemoWorkspace?.invoke(version)
+                                },
+                                modifier = Modifier.testTag("demo-version-${version.name}"),
+                            )
+                        }
+                    } else {
+                        if (onQuickConnect != null) {
+                            if (connectionProfiles.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "No saved profiles",
+                                            color = AppTheme.Colors.textDisabled,
+                                            fontSize = 11.sp,
+                                        )
+                                    },
+                                    enabled = false,
+                                    onClick = {},
+                                )
+                            }
+                            connectionProfiles.forEach { profile ->
+                                val connectionState =
+                                    onGetProfileConnectionState?.invoke(profile.id) ?: FixConnectionState.DISCONNECTED
+                                val stateColor = connectionState.getColor()
+
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            // Status indicator dot
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .size(8.dp)
+                                                        .background(stateColor, CircleShape),
+                                            )
+                                            Text(
+                                                text = profile.name,
+                                                color = AppTheme.Colors.text,
+                                                fontSize = 11.sp,
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        close()
+                                        onQuickConnect(profile.id, profile)
+                                    },
+                                )
+                            }
+                        }
+
+                        if (demoItemShown) {
+                            if (onQuickConnect != null) {
+                                HorizontalDivider(
+                                    color = AppTheme.Separators.color,
+                                    thickness = AppTheme.Separators.dividerThickness,
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                )
+                            }
+                            if (demoWorkspaceInstalled) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Stop demo workspace",
+                                            color = AppTheme.Colors.text,
+                                            fontSize = 11.sp,
+                                        )
+                                    },
+                                    onClick = {
+                                        close()
+                                        onStopDemoWorkspace?.invoke()
+                                    },
+                                    modifier = Modifier.testTag("demo-stop"),
+                                )
+                            } else {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Start demo workspace…",
+                                            color = AppTheme.Colors.text,
+                                            fontSize = 11.sp,
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.ChevronRight,
+                                            contentDescription = "Choose FIX version",
+                                            tint = AppTheme.Colors.textSecondary,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
+                                    onClick = { pickingDemoVersion = true },
+                                    modifier = Modifier.testTag("demo-start"),
+                                )
+                            }
+                        }
                     }
                 }
             }

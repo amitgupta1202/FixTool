@@ -5111,7 +5111,6 @@ class FixMessageViewModel(
     }
 
     // Demo Server Management
-    val demoServerFixVersion: StateFlow<FixVersion?> = DemoServerManager.currentFixVersion
 
     fun startDemoServer(fixVersion: FixVersion = FixVersion.DEFAULT, port: Int = DemoServerManager.DEMO_PORT) {
         DemoServerManager.start(fixVersion, port)

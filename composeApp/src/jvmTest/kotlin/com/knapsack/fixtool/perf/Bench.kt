@@ -31,8 +31,15 @@ object Bench {
         threadBean?.isThreadAllocatedMemorySupported == true &&
             threadBean.isThreadAllocatedMemoryEnabled
 
-    private fun allocatedBytes(): Long =
-        threadBean?.getThreadAllocatedBytes(Thread.currentThread().threadId()) ?: -1L
+    /**
+     * The calling thread's allocation counter, read without naming a thread id.
+     *
+     * `Thread.threadId()` is JDK 19; the release build compiles on 17, so it resolved here and did not
+     * there — a break no local run can see, because the compiler's API surface is whichever JDK Gradle
+     * happens to run on. `getCurrentThreadAllocatedBytes` has been on `com.sun.management.ThreadMXBean`
+     * since JDK 14 and says what this actually wants, so the id is not needed at all.
+     */
+    private fun allocatedBytes(): Long = threadBean?.currentThreadAllocatedBytes ?: -1L
 
     /**
      * Bytes allocated by **every live thread**, for work that does not happen on the calling one.

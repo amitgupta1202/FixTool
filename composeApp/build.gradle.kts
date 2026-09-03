@@ -13,7 +13,17 @@ plugins {
 }
 
 kotlin {
-    jvm()
+    // The release build compiles on JDK 17 (.github/workflows/release.yml) while a developer's JDK is
+    // whatever sdkman last selected. Without a declared release the compiler's API surface is simply
+    // whichever JDK Gradle runs on, so a JDK 18+ method compiles locally and fails on the tag push —
+    // which is exactly how Thread.threadId() reached a tagged release. -Xjdk-release pins the API
+    // surface to 17 on every machine, so the break is a red local build instead of a red release.
+    jvm {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+            freeCompilerArgs.add("-Xjdk-release=17")
+        }
+    }
 
     sourceSets {
         commonMain.dependencies {

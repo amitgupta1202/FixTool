@@ -34,6 +34,10 @@ every order.
 The release where the acceptor grew a memory, one scenario became a suite, and an exchange
 became something you can follow across every session at once.
 
+_Never published as its own download — this version was not tagged, so no installers were built
+for it. Everything below shipped in 1.14.0, whose installers are built from a tree that contains
+all of it._
+
 ### ✨ Added
 
 #### The acceptor remembers what it is holding (#35)

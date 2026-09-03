@@ -3483,6 +3483,22 @@ class FixMessageViewModel(
     fun focusRunSet(setId: String): RunSet? = runRecordStore.readSet(setId)?.also { _activeRunSet.value = it }
 
     /**
+     * The entry in focus, with its record parsed **once**. The run set document's grid and the detail
+     * panel's per-tag lookup must see the same message objects: a second parse would produce equal-looking
+     * messages the published map could never match, and a click on a red row would open a panel with no
+     * verdict on it.
+     */
+    data class FocusedRunEntry(
+        val setId: String,
+        val entry: Int,
+        val record: RunRecord,
+        val parsed: RunRecordMessages.Parsed,
+    )
+
+    private val _focusedRunEntry = MutableStateFlow<FocusedRunEntry?>(null)
+    val focusedRunEntry: StateFlow<FocusedRunEntry?> = _focusedRunEntry.asStateFlow()
+
+    /**
      * **Focus one entry of a set: this is what publishes it.**
      *
      * A set runs its entries without publishing anything — twenty entries would re-aim the author's open
@@ -3495,6 +3511,14 @@ class FixMessageViewModel(
      */
     fun focusRunEntry(setId: String, entry: Int): ScenarioResult? {
         val record = runRecordStore.readEntry(setId, entry) ?: return null
+        val focused = FocusedRunEntry(setId, entry, record, RunRecordMessages.of(record, dictionary))
+        _focusedRunEntry.value = focused
+        publishFocusedRunEntry(focused)
+        return record.result
+    }
+
+    private fun publishFocusedRunEntry(focused: FocusedRunEntry) {
+        val record = focused.record
         // The scenario **as it ran**, from the record — not as it is on disk now. The gate that keeps a
         // repair honest asks whether the step that failed is still that step, and comparing today's file
         // against today's file answers yes every time.
@@ -3504,10 +3528,25 @@ class FixMessageViewModel(
         // the record has kept both. The keys are the re-parsed objects, so the live grid — which holds
         // different objects, from a later entry or from nothing at all — is left untinted rather than
         // borrowing a verdict about traffic it is not showing.
-        val parsed = RunRecordMessages.of(record, dictionary)
-        setAssertionResults(parsed.judged)
+        setAssertionResults(focused.parsed.judged)
         publishScenarioResult(record.result)
-        return record.result
+    }
+
+    /**
+     * **A row of a record's grid was clicked.** Select it for the detail panel with the entry's own per-tag
+     * verdicts behind it, so the panel says why the row is red: expected beside actual, tag by tag, exactly
+     * as it does for the live grid after a single run.
+     *
+     * The verdicts are published again if a run since has replaced them. The panel looks a message up by
+     * identity in the published map, and the click is on the entry the reader is looking at, so that
+     * entry's verdicts are the ones to have there. An armed diff or reconcile slot takes the click first,
+     * as it does on the live grid: a record's message is as good a reference as a live one.
+     */
+    fun selectRecordMessage(setId: String, entry: Int, message: FixMessage) {
+        _focusedRunEntry.value
+            ?.takeIf { it.setId == setId && it.entry == entry && !_assertionResults.value.containsKey(message) }
+            ?.let(::publishFocusedRunEntry)
+        selectMessageFromGrid(message)
     }
 
     /**

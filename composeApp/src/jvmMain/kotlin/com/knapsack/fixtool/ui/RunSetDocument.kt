@@ -16,6 +16,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -25,6 +26,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunState
@@ -159,7 +161,19 @@ private fun EntryList(set: RunSet, focused: Int, onFocus: (Int) -> Unit, modifie
  */
 @Composable
 private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int, modifier: Modifier = Modifier) {
-    val record = remember(set.id, entry, set.entries.getOrNull(entry - 1)?.record) { viewModel.runRecordStore.readEntry(set.id, entry) }
+    // **One parse, shared with the view model.** The grid below is handed the focused entry's messages, and
+    // the detail panel looks a clicked row up by identity in the map the view model published when the
+    // entry was focused. Parsing the record here as well gave the grid equal-looking objects the panel
+    // could never match, so a click on a red row opened nothing. The document reads the parse the focus
+    // produced, and asks for the focus when it has none, which is a tab restored after a restart.
+    val focused by viewModel.focusedRunEntry.collectAsState()
+    val current = focused?.takeIf { it.setId == set.id && it.entry == entry }
+    val record =
+        current?.record
+            ?: remember(set.id, entry, set.entries.getOrNull(entry - 1)?.record) { viewModel.runRecordStore.readEntry(set.id, entry) }
+    LaunchedEffect(set.id, entry, record != null) {
+        if (record != null && current == null) viewModel.focusRunEntry(set.id, entry)
+    }
     if (record == null) {
         Text(
             set.entries.getOrNull(entry - 1)?.note
@@ -170,7 +184,8 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
         )
         return
     }
-    val parsed = remember(record) { RunRecordMessages.of(record, viewModel.dictionary) }
+    val parsed = current?.parsed ?: remember(record) { RunRecordMessages.of(record, viewModel.dictionary) }
+    val selected by viewModel.selectedMessage.collectAsState()
     val running by viewModel.scenarioRunning.collectAsState()
     val appSettings = viewModel.appSettings
     Column(modifier = modifier) {
@@ -222,7 +237,7 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
                 fontSize = 11.sp,
                 modifier = Modifier.testTag("run-entry-verdict"),
             )
-            record.result.steps.forEach { step -> StepLine(step) }
+            record.result.steps.forEachIndexed { i, step -> StepLine(step, viewModel.dictionary, i) }
             record.row?.let { row ->
                 Text(
                     "row ${row.name}:   " + row.values.entries.joinToString("   ") { "${it.key}=${it.value}" },
@@ -256,6 +271,10 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
                     dictionary = viewModel.dictionary,
                     hideProtocolTags = appSettings.hideProtocolTags,
                     gridViewColumns = appSettings.gridViewColumns,
+                    selectedMessage = selected,
+                    // A click opens the detail panel on the row with the entry's per-tag verdicts behind it:
+                    // that is where "why is this row red" is answered, tag by tag, expected beside actual.
+                    onSelectMessage = { m -> if (m != null) viewModel.selectRecordMessage(set.id, entry, m) },
                     assertionResults = parsed.judged,
                     appSettings = appSettings,
                     modifier = Modifier.fillMaxSize().testTag("run-entry-grid"),
@@ -266,9 +285,21 @@ private fun EntryDetail(viewModel: FixMessageViewModel, set: RunSet, entry: Int,
 }
 
 @Composable
-private fun StepLine(step: StepResult) {
+private fun StepLine(
+    step: StepResult,
+    dictionary: FixDictionary,
+    index: Int,
+) {
     val mark = if (step.passed) "ok" else "FAIL"
     val where = if (step.stepIndex < 0) step.kind else "step ${step.stepIndex + 1} ${step.kind}"
+    // The failed tags, named, with what was expected and what came: the reason, readable before any click.
+    // "FAIL step 2 expect (steps) · messageType=8" named the step and left the author to open the bytes and
+    // work out which of five asserted tags was the wrong one.
+    val failed = step.tags.filterNot { it.passed }
+    val why =
+        failed.take(STEP_FAILED_TAGS).joinToString("") { t ->
+            " · ${t.tag} ${dictionary.getFieldName(t.tag) ?: "(?)"}: ${describeTagFailure(t)}"
+        } + (if (failed.size > STEP_FAILED_TAGS) " · ${failed.size - STEP_FAILED_TAGS} more" else "")
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
         Text(
             mark,
@@ -277,14 +308,18 @@ private fun StepLine(step: StepResult) {
         )
         Text(
             "$where (${step.phase})" + (step.latencyMs?.let { " · ${it}ms" } ?: "") +
-                (step.detail?.let { " — ${it.take(STEP_DETAIL)}" } ?: ""),
+                (step.detail?.let { " — ${it.take(STEP_DETAIL)}" } ?: "") + why,
             color = AppTheme.Colors.textSecondary,
             fontSize = 10.sp,
-            maxLines = 2,
+            maxLines = 3,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.testTag("run-entry-step-$index"),
         )
     }
 }
 
 /** How much of a step's detail the entry's report shows before the grid takes over the explaining. */
 private const val STEP_DETAIL = 160
+
+/** How many failed tags a step line spells out before it counts the rest. */
+private const val STEP_FAILED_TAGS = 3

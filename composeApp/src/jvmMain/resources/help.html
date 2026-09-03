@@ -2717,6 +2717,44 @@ ${incoming["D"].valueOfTag(38)}
     rules and the latency travel that way: CompIDs, ports and SSL are the session's identity and still need
     a reconnect to change.</p>
 
+    <h3>Reading the list</h3>
+
+    <p>Rules are <strong>numbered</strong>, and a card arrives <strong>closed</strong>. The number is the
+    one every other surface already names a rule by: the shadowing warning below says <em>"rule 1 answers
+    every 35=D"</em>, a reply's reason line says <em>"sent by rule 7"</em>, and
+    <a href="#automation"><code>/acceptor/rules</code></a> addresses rules by index. The card was the one
+    place that knew its own position and did not print it, so a reader told which rule answered them
+    counted cards to find it.</p>
+
+    <p>Closed, a card is <strong>the rule in a line</strong> &mdash; what has to be true, and what goes
+    back: <code>55 oneOf [EUR/USD,GBP/USD,USD/JPY] &middot; 40 exact 2 &middot; 3 steps over 500ms</code>.
+    The trigger is written in the same matcher vocabulary the open card, <a href="#assertions">&sect;12's
+    expectations</a> and <code>/acceptor/test</code> use, so there is one vocabulary rather than a second
+    wearing the first one's clothes. The reply is a count and a <em>span</em> rather than its templates,
+    that span being the claim a sequence makes about time and the one thing about a rule that is invisible
+    in the raw FIX the steps are made of. A rule with no conditions reads <code>any 35=D</code>, because
+    a catch-all is not a rule doing nothing &mdash; it is the reason every card above it has to be read in
+    order.</p>
+
+    <p>Click the line or the chevron to open the fields, or the fold button in the header to open and
+    close the whole list at once. What is open is a <em>position</em>, so a move or a delete closes every
+    card rather than leaving one open over its neighbour's fields; a rule you add by hand arrives open,
+    since it says nothing until it is filled in. Warnings stay <em>outside</em> the fold: a rule that can
+    never fire has to say so whether or not anybody opened it.</p>
+
+    <p><strong>The rule that just answered marks itself</strong> &mdash; <code>fired 09:14:22.418</code> on
+    the card, in the wash the grid gives a message it has just sent, reading the clock the reply's own
+    reason line prints. It follows the venue's port and not one client, so a rule tripped by
+    <code>DEMO_CLIENT2</code> marks the same list as one tripped by <code>DEMO_CLIENT1</code>.</p>
+
+    <div class="warning">
+        <strong>The mark is withheld rather than guessed.</strong> The number is a position in the ruleset
+        the <em>session</em> is running, which is the one last saved &mdash; so while the list on screen
+        differs from the saved one, and after a rules reload, no card is marked at all. An unsaved insert
+        or reorder moves what lives at that position, and a confident wrong answer to "which rule answered
+        me?" is worse than no answer. Save, and the mark comes back.
+    </div>
+
     <h3>Starting from a preset</h3>
 
     <p>An empty acceptor answers nothing, and writing the first ExecutionReport by hand means knowing which

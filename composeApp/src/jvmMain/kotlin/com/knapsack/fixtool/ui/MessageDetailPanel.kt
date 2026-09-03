@@ -628,7 +628,7 @@ private fun AssertionSummaryBanner(
             failed.take(5).forEach { tr ->
                 val name = dictionary.getFieldName(tr.tag) ?: ""
                 Text(
-                    text = "   ${tr.tag} $name${occurrenceSuffix(tr, failed)} — ${describe(tr)}",
+                    text = "   ${tr.tag} $name${occurrenceSuffix(tr, failed)} — ${describeTagFailure(tr)}",
                     color = AppTheme.Colors.error,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
@@ -663,7 +663,7 @@ private fun occurrenceSuffix(result: TagResult, failed: List<TagResult>): String
  * they are not the same bug — one is a regression, the other is a reshuffle that a click will accept.
  * The status says which.
  */
-private fun describe(tr: TagResult): String =
+internal fun describeTagFailure(tr: TagResult): String =
     when (tr.status) {
         TagStatus.MISSING -> "expected ${tr.expected}, but the reply has no such tag"
         TagStatus.MOVED -> "expected ${tr.expected} here — the value is in the reply, but not in this position"

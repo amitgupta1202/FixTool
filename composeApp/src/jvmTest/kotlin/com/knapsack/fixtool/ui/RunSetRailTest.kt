@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -15,12 +16,15 @@ import com.knapsack.fixtool.model.scenario.Scenario
 import com.knapsack.fixtool.model.scenario.ScenarioResult
 import com.knapsack.fixtool.model.scenario.ScenarioStep
 import com.knapsack.fixtool.model.scenario.StepResult
+import com.knapsack.fixtool.model.scenario.TagResult
+import com.knapsack.fixtool.model.scenario.TagStatus
 import com.knapsack.fixtool.service.RecordedMessage
 import com.knapsack.fixtool.service.RunRecord
 import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import kotlin.test.assertSame
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -231,10 +235,66 @@ class RunSetRailTest {
         composeTestRule.onNodeWithTag("run-entry-grid").assertIsDisplayed()
     }
 
+    /**
+     * **Clicking a red row says why it is red.** The record's grid was rendered without a selection handler,
+     * so a click expanded the row and nothing more: the detail panel never opened, and the reason a step
+     * failed stayed in the file. Now the click selects the row for the detail panel with the entry's own
+     * per-tag verdicts behind it, from the one parse the focus produced, so the panel's identity lookup hits.
+     */
+    @Test
+    fun `clicking a row of the record's grid selects it with the entry's per-tag verdicts behind it`() {
+        val scenario = scenario("book-a-trade")
+        viewModel.scenarioService.save(scenario)
+        viewModel.refreshScenarios()
+        val set = writeFinishedSet(scenario, withMessages = true, judged = true)
+
+        composeTestRule.setContent {
+            RunSetDocument(viewModel, ScenarioDoc.RunSetView(set.id, entry = 2), modifier = Modifier.fillMaxSize())
+        }
+        composeTestRule.waitForIdle()
+
+        // The document asked for the focus itself, and its grid shows that parse rather than one of its own.
+        val focused = assertNotNull(viewModel.focusedRunEntry.value, "opening the document on an entry focuses it")
+        assertEquals(2, focused.entry)
+        val judged = focused.parsed.messages[1]
+
+        composeTestRule.onNodeWithTag("message-row-${judged.timestamp}").performClick()
+        // The row also answers a double click, so a single one is delivered only once the double-tap window
+        // has closed. Move the test clock past it.
+        composeTestRule.mainClock.advanceTimeBy(1_000)
+        composeTestRule.waitForIdle()
+
+        assertSame(judged, viewModel.selectedMessage.value, "the clicked row is the selected message, by identity")
+        val tags = assertNotNull(viewModel.assertionResults[judged]?.tags, "the detail panel's lookup finds the entry's verdict")
+        assertEquals(listOf(151), tags.map { it.tag })
+    }
+
+    /** The reason, readable before any click: the FAIL step line names the tag, expected beside actual. */
+    @Test
+    fun `the FAIL step line names the failed tag with expected and actual`() {
+        val scenario = scenario("book-a-trade")
+        viewModel.scenarioService.save(scenario)
+        viewModel.refreshScenarios()
+        val set = writeFinishedSet(scenario, withMessages = true, judged = true)
+
+        composeTestRule.setContent {
+            RunSetDocument(viewModel, ScenarioDoc.RunSetView(set.id, entry = 2), modifier = Modifier.fillMaxSize())
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("run-entry-step-0").assertTextContains("151", substring = true)
+        composeTestRule.onNodeWithTag("run-entry-step-0").assertTextContains("expected 999, got 1000000", substring = true)
+    }
+
     // ----------------------------------------------------------------- fixtures
 
     /** A set as it looks the morning after: on disk, one entry green, one red, the app restarted since. */
-    private fun writeFinishedSet(scenario: Scenario, withMessages: Boolean = false): com.knapsack.fixtool.model.scenario.RunSet {
+    private fun writeFinishedSet(
+        scenario: Scenario,
+        withMessages: Boolean = false,
+        /** The failed entry's step judged message 1 on tag 151, so a record has a verdict to click on. */
+        judged: Boolean = false,
+    ): com.knapsack.fixtool.model.scenario.RunSet {
         val set =
             RunSets.repeat(scenario, times = 2, now = System.currentTimeMillis()).copy(
                 status = RunSetStatus.FAILED,
@@ -276,7 +336,33 @@ class RunSetRailTest {
                         ScenarioResult(
                             scenario = scenario.name,
                             passed = passed,
-                            steps = listOf(StepResult(0, "expect", "steps", passed = passed, detail = "messageType=8")),
+                            steps =
+                                listOf(
+                                    StepResult(
+                                        0,
+                                        "expect",
+                                        "steps",
+                                        passed = passed,
+                                        detail = "messageType=8",
+                                        tags =
+                                            if (judged && !passed) {
+                                                listOf(
+                                                    TagResult(
+                                                        tag = 151,
+                                                        matcher = "exact 999",
+                                                        expected = "999",
+                                                        actual = "1000000",
+                                                        passed = false,
+                                                        index = 0,
+                                                        status = TagStatus.VALUE,
+                                                    ),
+                                                )
+                                            } else {
+                                                emptyList()
+                                            },
+                                        stepId = "st-expect",
+                                    ),
+                                ),
                             durationMs = 12,
                         ),
                     scenario = scenario,
@@ -285,11 +371,24 @@ class RunSetRailTest {
                             emptyList()
                         } else {
                             listOf(
-                                RecordedMessage(0, "CLI", incoming = false, atMicros = 10, raw = "8=FIX.4.4|35=D|11=ORD-1|55=EUR/USD|10=001|"),
-                                RecordedMessage(1, "CLI", incoming = true, atMicros = 210, raw = "8=FIX.4.4|35=8|11=ORD-1|39=2|10=002|"),
+                                // A second apart, so the two rows do not share a timestamp (and a grid row tag).
+                                RecordedMessage(
+                                    0,
+                                    "CLI",
+                                    incoming = false,
+                                    atMicros = 1_000_000,
+                                    raw = "8=FIX.4.4|35=D|11=ORD-1|55=EUR/USD|10=001|",
+                                ),
+                                RecordedMessage(
+                                    1,
+                                    "CLI",
+                                    incoming = true,
+                                    atMicros = 2_000_000,
+                                    raw = "8=FIX.4.4|35=8|11=ORD-1|39=2|151=1000000|10=002|",
+                                ),
                             )
                         },
-                    bound = emptyMap(),
+                    bound = if (judged) mapOf("st-expect" to 1) else emptyMap(),
                 ),
             )
         }

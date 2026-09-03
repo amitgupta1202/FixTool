@@ -34,7 +34,7 @@ class LayoutStateService(
         if (customPath.isNotBlank()) {
             File(customPath)
         } else {
-            WorkspacePaths.current.layout
+            WorkspacePaths.home.layout
         }
 
     init {

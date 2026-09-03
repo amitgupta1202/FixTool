@@ -1,0 +1,12 @@
+{
+  "id": "fx-venue",
+  "displayName": "FX Venue",
+  "summary": "An FX venue, two clients, message templates and two scenarios that run green.",
+  "defaultWorkspaceName": "FX Venue",
+  "files": [
+    "connection_profiles.json",
+    "saved_messages.json",
+    "scenarios/eur-usd-order-lifecycle--demo-sce.json",
+    "scenarios/session-round-trip-probe--demo-sce.json"
+  ]
+}

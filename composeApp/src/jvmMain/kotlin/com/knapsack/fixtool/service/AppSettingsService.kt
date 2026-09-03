@@ -28,7 +28,7 @@ class AppSettingsService(
         if (customSettingsDir != null) {
             File(customSettingsDir, "app_settings.json")
         } else {
-            WorkspacePaths.current.appSettings
+            WorkspacePaths.home.appSettings
         }
 
     init {

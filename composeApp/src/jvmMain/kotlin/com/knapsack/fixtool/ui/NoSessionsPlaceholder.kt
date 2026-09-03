@@ -17,20 +17,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * **The empty session area is the demo's front door.**
+ * **The empty session area is the example's front door.**
  *
- * The demo workspace exists for the person looking at this exact screen — a fresh install with nothing
- * to connect to — so the button that installs it lives here, not at the bottom of a profile form they
- * have not opened yet. Once the workspace is installed the button withdraws: its profiles are ordinary
- * rows in Quick Connect, and a second Start could only fail.
+ * The bundled example exists for the person looking at this exact screen — a fresh install with
+ * nothing to connect to — so the button that opens it lives here, not at the bottom of a profile form
+ * they have not opened yet. Once a workspace is open the button withdraws: its profiles are ordinary
+ * rows in Quick Connect, and the way back to the examples is the same menu.
  *
  * Shared by the TABS and SPLIT layouts, which used to carry two copies of the same sentence.
  */
 @Composable
 fun NoSessionsPlaceholder(
-    demoWorkspaceInstalled: Boolean = false,
-    /** Installs the demo workspace at its default FIX version. Null hides the button. */
-    onStartDemoWorkspace: (() -> Unit)? = null,
+    /** A project workspace is open, so the offer to open an example withdraws. */
+    workspaceOpen: Boolean = false,
+    /** Offers the bundled example, through the dialog that names and places the copy. Null hides the button. */
+    onOpenExample: (() -> Unit)? = null,
     /** Opens (never toggles) the connection panel. Null hides the button. */
     onOpenConnectionPanel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -51,23 +52,23 @@ fun NoSessionsPlaceholder(
             )
             Text(
                 text =
-                    if (demoWorkspaceInstalled) {
+                    if (workspaceOpen) {
                         "Reconnect a profile from Quick Connect in the toolbar, or open the connection panel."
                     } else {
-                        "Connect a saved profile, or install the demo workspace: an FX venue, two clients, " +
-                            "message templates and a scenario that runs green."
+                        "Connect a saved profile, or open the bundled example: an FX venue, two clients, " +
+                            "message templates and scenarios that run green, copied into a workspace of your own."
                     },
                 color = AppTheme.Colors.textDisabled,
                 fontSize = 11.sp,
                 textAlign = TextAlign.Center,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (onStartDemoWorkspace != null && !demoWorkspaceInstalled) {
+                if (onOpenExample != null && !workspaceOpen) {
                     SlimButton(
-                        text = "Start demo workspace",
-                        onClick = onStartDemoWorkspace,
+                        text = "Open example workspace",
+                        onClick = onOpenExample,
                         color = AppTheme.Colors.primary,
-                        modifier = Modifier.testTag("empty-start-demo"),
+                        modifier = Modifier.testTag("empty-open-example"),
                     )
                 }
                 if (onOpenConnectionPanel != null) {

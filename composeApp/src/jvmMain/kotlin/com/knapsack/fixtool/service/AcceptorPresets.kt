@@ -77,8 +77,11 @@ data class ReplyOffer(
  *
  * A file would need loading, validating, versioning, and an answer for the user who edits it. These
  * need none of that, and they are the single source the menu, the control surface and (later) the
- * "Reply With…" action all read. Same call [com.knapsack.fixtool.service.demo.DemoTemplatesProvider]
- * made for the demo server's messages.
+ * "Reply With…" action all read.
+ *
+ * Note that the bundled FX venue example went the other way and IS a file, because a copy of it
+ * belongs to the user who opened it. These do not get copied — a preset is applied to a profile and
+ * the rules it produces are what gets saved — so there is nothing here for a file to own.
  */
 object AcceptorPresets {
     const val GROUP_BUNDLES = "Bundles"

@@ -1,0 +1,47 @@
+{
+    "id": "demo-scenario-session-probe",
+    "name": "Session round-trip probe",
+    "binding": "this_run",
+    "createdAt": 1788467446643,
+    "setup": [],
+    "steps": [
+        {
+            "stepId": "5de5eeec-09d6-383d-9d64-ff3909f2e184",
+            "type": "send",
+            "raw": "35=1|112=DEMO-PROBE-1",
+            "session": "Demo Client 1"
+        },
+        {
+            "stepId": "09504980-bcc8-3019-b4aa-f4376f8c5b2c",
+            "type": "expect",
+            "session": "Demo Client 1",
+            "direction": "in",
+            "match": {
+                "messageType": "0",
+                "fields": [
+                    {
+                        "tag": 112,
+                        "value": "DEMO-PROBE-1"
+                    }
+                ]
+            },
+            "timeoutMs": 5000,
+            "expectation": {
+                "messageType": "0",
+                "mode": "open",
+                "fields": [
+                    {
+                        "tag": 112,
+                        "matcher": {
+                            "type": "exact",
+                            "value": "DEMO-PROBE-1"
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "teardown": [],
+    "userTags": [],
+    "version": 1
+}

@@ -1,8 +1,10 @@
 package com.knapsack.fixtool.viewmodel
 
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.knapsack.fixtool.model.AppSettings
 import com.knapsack.fixtool.model.EditorTarget
@@ -50,6 +52,7 @@ import com.knapsack.fixtool.service.AcceptorResponder
 import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.EntryOutcome
+import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FanOutPlan
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
@@ -83,12 +86,10 @@ import com.knapsack.fixtool.service.ScenarioViewStateService
 import com.knapsack.fixtool.service.SessionIdentityResolver
 import com.knapsack.fixtool.service.TraceKey
 import com.knapsack.fixtool.service.VenueEvent
+import com.knapsack.fixtool.service.WorkspacePaths
 import com.knapsack.fixtool.service.compare.ReferenceMessage
 import com.knapsack.fixtool.service.compare.ReferenceOption
 import com.knapsack.fixtool.service.compare.WirePaste
-import com.knapsack.fixtool.service.demo.DemoScenarioProvider
-import com.knapsack.fixtool.service.demo.DemoServerManager
-import com.knapsack.fixtool.service.demo.DemoTemplatesProvider
 import com.knapsack.fixtool.ui.CaptureReviewState
 import com.knapsack.fixtool.ui.DiffStepRef
 import com.knapsack.fixtool.ui.DiffStepSlot
@@ -110,6 +111,7 @@ import com.knapsack.fixtool.ui.diff.ViewerSlot
 import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.ui.sessionOrNull
 import com.knapsack.fixtool.util.NotifyingLogger
+import com.knapsack.fixtool.util.Rebuildable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -2125,33 +2127,41 @@ class FixMessageViewModel(
     val appSettings: AppSettings
         get() = _appSettings.value
 
-    // Connection profiles (lazy-initialized to use appSettings paths)
-    private val profileService by lazy {
-        ConnectionProfileService(
-            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-            customPath = resolveStoragePath(_appSettings.value.connectionProfilesPath, "connection_profiles.json"),
-        )
-    }
+    // Connection profiles — built on first use, so an explicit path from settings is in place by then,
+    // and droppable, so opening a workspace can point them somewhere else.
+    private val profileStore =
+        Rebuildable {
+            ConnectionProfileService(
+                onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+                customPath = resolveStoragePath(_appSettings.value.connectionProfilesPath, "connection_profiles.json"),
+            )
+        }
+    private val profileService by profileStore
     private val _connectionProfiles = mutableStateListOf<FixConnectionProfile>()
     val connectionProfiles: List<FixConnectionProfile> = _connectionProfiles
 
-    // Saved messages (lazy-initialized to use appSettings paths)
-    private val savedMessagesService by lazy {
-        SavedMessagesService(
-            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-            customPath = resolveStoragePath(_appSettings.value.savedMessagesPath, "saved_messages.json"),
-        )
-    }
+    // Saved messages
+    private val savedMessagesStore =
+        Rebuildable {
+            SavedMessagesService(
+                onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+                customPath = resolveStoragePath(_appSettings.value.savedMessagesPath, "saved_messages.json"),
+            )
+        }
+    private val savedMessagesService by savedMessagesStore
     private val _savedMessages = mutableStateListOf<SavedFixMessage>()
     val savedMessages: List<SavedFixMessage> = _savedMessages
 
-    // Repeatable scenarios — directory store (lazy-initialized to use appSettings paths)
-    val scenarioService by lazy {
-        ScenarioService(
-            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-            customDir = resolveStoragePath(_appSettings.value.scenariosPath, "scenarios"),
-        )
-    }
+    // Repeatable scenarios — one file per scenario, in a directory. The listener is attached where the
+    // service is built, because a workspace switch builds a new one and the rail still has to be told.
+    private val scenarioStore =
+        Rebuildable {
+            ScenarioService(
+                onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+                customDir = resolveStoragePath(_appSettings.value.scenariosPath, "scenarios"),
+            ).also { service -> service.onChanged = { refreshScenarios() } }
+        }
+    val scenarioService by scenarioStore
 
     /**
      * Where a run set writes its evidence — one directory per set under `~/.fixtool/runs`.
@@ -2160,15 +2170,17 @@ class FixMessageViewModel(
      * setting is how much of a run is kept ([AppSettings.runRecordCap]) and for how many runs
      * ([AppSettings.runRecordsKept]).
      */
-    val runRecordStore by lazy {
-        RunRecordStore(
-            customDir = resolveStoragePath("", "runs"),
-            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-            // The claim registry is the one thing that knows whether a set is being run by THIS process. A
-            // set on disk that says `running` and holds no claim was left by an app that exited under it.
-            isLive = { setId -> isRunSetRunning(setId) },
-        )
-    }
+    private val runRecordHolder =
+        Rebuildable {
+            RunRecordStore(
+                customDir = resolveStoragePath("", "runs"),
+                onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+                // The claim registry is the one thing that knows whether a set is being run by THIS process. A
+                // set on disk that says `running` and holds no claim was left by an app that exited under it.
+                isLive = { setId -> isRunSetRunning(setId) },
+            )
+        }
+    val runRecordStore by runRecordHolder
 
     /**
      * Named run sets — `~/.fixtool/sets/<name>.json`, the thing CI selects by name in a checkout.
@@ -2177,12 +2189,14 @@ class FixMessageViewModel(
      * already the per-profile filter, so a `nightly` tag would hide the scenario from every
      * profile-filtered listing.
      */
-    val runSetStore by lazy {
-        RunSetStore(
-            customDir = resolveStoragePath("", "sets"),
-            onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
-        )
-    }
+    private val runSetHolder =
+        Rebuildable {
+            RunSetStore(
+                customDir = resolveStoragePath("", "sets"),
+                onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+            )
+        }
+    val runSetStore by runSetHolder
 
     // The rail's view-chrome store — a small local JSON beside app_settings.json, never in the scenarios dir.
     private val scenarioViewStateService by lazy {
@@ -2193,15 +2207,23 @@ class FixMessageViewModel(
     }
 
     /**
-     * Resolves where a JSON store (connection profiles, saved messages) is kept. An explicit
-     * setting always wins. Otherwise, when constructed with a [testSettingsDir] the store is kept
-     * beside that dir's app_settings.json, so tests stay isolated and never read or write the real
-     * ~/.fixtool files; in normal use this returns blank and the service applies its own default.
+     * Resolves where a JSON store (connection profiles, saved messages) is kept.
+     *
+     * An explicit setting always wins. Otherwise, when constructed with a [testSettingsDir], the
+     * store is kept beside that dir's app_settings.json, so tests stay isolated and never read or
+     * write the real ~/.fixtool files. In normal use this returns blank and the service applies its
+     * own default, which is the open workspace.
+     *
+     * **The test directory stands in for the installation, not for an open workspace.** It applies
+     * only while project data would be coming from the installation's own directory anyway: a test
+     * that opens a workspace means the files in that workspace, and a testSettingsDir that kept
+     * winning would have made the whole feature untestable — which is exactly how it was caught.
      */
     private fun resolveStoragePath(configured: String, fileName: String): String =
         when {
             configured.isNotBlank() -> configured
-            testSettingsDir != null -> java.io.File(testSettingsDir, fileName).absolutePath
+            testSettingsDir != null && WorkspacePaths.current.root == WorkspacePaths.home.root ->
+                java.io.File(testSettingsDir, fileName).absolutePath
             else -> ""
         }
 
@@ -2229,9 +2251,6 @@ class FixMessageViewModel(
         if (index < 0) return null
         return profileIdForSessionIndex(index)?.let { id -> _connectionProfiles.find { it.id == id } }
     }
-
-    // Demo server state
-    val demoServerRunning: StateFlow<Boolean> = DemoServerManager.isRunning
 
     // Message editor state (persisted when opening/closing)
     private val _editorFields = mutableStateListOf<FixField>()
@@ -2269,7 +2288,6 @@ class FixMessageViewModel(
         // The rail renders this list; nothing else may hold a copy of it — and it is refreshed by the service,
         // not by each caller, because two of the four doors that write a scenario (the control surface and
         // fixtool_save_scenario) do not come through here at all.
-        scenarioService.onChanged = { refreshScenarios() }
         refreshScenarios()
         // The rail's sort/favourites/collapsed-sections, restored from last session (defaults if absent).
         _scenarioViewState.value = scenarioViewStateService.load()
@@ -2300,26 +2318,15 @@ class FixMessageViewModel(
 
         // Global search scans off the UI thread, debounced — started once, lives with the ViewModel.
         startGlobalSearchPipeline()
-
-        // Set up demo profile management
-        DemoServerManager.onDemoProfilesChanged = { demoProfiles ->
-            handleDemoProfilesChanged(demoProfiles)
-        }
-
-        // Set up demo template management. The manager builds; this persists — through the services
-        // that honour the user's configured paths, which the manager's own copy did not.
-        DemoServerManager.onDemoTemplatesChanged = { templates ->
-            handleDemoTemplatesChanged(templates)
-        }
-
-        DemoServerManager.onDemoScenariosChanged = { scenarios ->
-            handleDemoScenariosChanged(scenarios)
-        }
     }
 
     private fun loadAppSettings() {
         _appSettings.value = settingsService.loadSettings()
         // Bring the panels back the way the user left them, before anyone observes them (below).
+        // This also decides the workspace, which is why it runs BEFORE any store that reads one is
+        // built. A recorded workspace that has since been deleted or unmounted is ignored rather than
+        // reported: an app that opens on its own directory works, and a modal about a folder at
+        // startup helps nobody.
         restoreLayoutState()
         // Load data dictionary from app settings after loading settings
         loadDictionaryFromSettings()
@@ -2329,6 +2336,7 @@ class FixMessageViewModel(
     private fun restoreLayoutState() {
         val l = layoutStateService.load()
         _layoutState.value = l
+        l.openWorkspace.takeIf { it.isNotBlank() && File(it).isDirectory }?.let { WorkspacePaths.open(it) }
         _showScenariosRail.value = l.showScenariosRail
         _showDetailPanel.value = l.showDetailPanel
         _showMessageEditor.value = l.showMessageEditor
@@ -4050,6 +4058,138 @@ class FixMessageViewModel(
      */
     var automationControlHook: ((enabled: Boolean, port: Int) -> Unit)? = null
 
+    // Workspaces
+
+    /** How many recent workspaces the switcher offers. Enough for a week's projects, not a history. */
+    private val recentWorkspacesKept = 8
+
+    /** The project workspace open right now, for anything that has to show or report it. */
+    val openWorkspace: File
+        get() = WorkspacePaths.current.root
+
+    /** True while the installation's own directory is the open workspace, which is a fresh install. */
+    val openWorkspaceIsHome: Boolean
+        get() = WorkspacePaths.current.root == WorkspacePaths.home.root
+
+    /**
+     * The workspaces opened before, newest first, minus any that have since gone.
+     *
+     * Filtered on read rather than pruned on write, because a folder on a volume that is not mounted
+     * has not been deleted and should come back in the list when the volume does.
+     */
+    val recentWorkspaces: List<File>
+        get() =
+            _layoutState.value.recentWorkspaces
+                .map(::File)
+                .filter { it.isDirectory }
+
+    /**
+     * The example whose dialog is open, or null.
+     *
+     * Held here rather than in a composable because two places offer the action — the empty session
+     * area and Quick Connect — and both are rebuilt independently. One piece of state means one
+     * dialog, wherever it was asked for.
+     */
+    var pendingExample by mutableStateOf<ExampleWorkspaces.Example?>(null)
+        private set
+
+    /** Offers the first bundled example, which is the only one there is so far. */
+    fun requestOpenExample(exampleId: String? = null) {
+        pendingExample =
+            if (exampleId == null) {
+                ExampleWorkspaces.all().firstOrNull()
+            } else {
+                ExampleWorkspaces.byId(exampleId)
+            }
+    }
+
+    fun dismissExampleDialog() {
+        pendingExample = null
+    }
+
+    /** Every example that ships with the app. */
+    fun bundledExamples(): List<ExampleWorkspaces.Example> = ExampleWorkspaces.all()
+
+    /** Where a new workspace goes unless the user browses elsewhere. */
+    fun defaultWorkspaceLocation(): File = ExampleWorkspaces.defaultLocation()
+
+    /**
+     * Opens a project workspace: sessions down, stores dropped, everything read again from [directory].
+     *
+     * Preferences do not move. The dictionary, the window layout and the rail's sort order belong to
+     * the person at the keyboard, and a second workspace that arrived looking like a fresh install
+     * would be a worse answer than not having workspaces at all.
+     *
+     * Sessions come down first and are not brought back up. They were logged on against the previous
+     * workspace's profiles, and a pane whose profile no longer exists is one nothing can explain.
+     */
+    fun openWorkspace(directory: File): Result<File> {
+        if (!directory.isDirectory) {
+            return Result.failure(IllegalArgumentException("'${directory.absolutePath}' is not a directory"))
+        }
+        logger.info("Opening workspace {}", directory.absolutePath)
+        closeEverySession()
+        WorkspacePaths.open(directory.absolutePath)
+        rereadWorkspace()
+        val path = directory.absolutePath
+        updateLayout { layout ->
+            layout.copy(
+                openWorkspace = path,
+                recentWorkspaces = (listOf(path) + layout.recentWorkspaces.filter { it != path }).take(recentWorkspacesKept),
+            )
+        }
+        showNotification("Workspace: ${directory.name}", NotificationType.INFO)
+        return Result.success(directory)
+    }
+
+    /** Goes back to keeping project data in the installation's own directory. */
+    fun closeWorkspace() {
+        if (openWorkspaceIsHome) return
+        logger.info("Closing workspace, back to {}", WorkspacePaths.home.root.absolutePath)
+        closeEverySession()
+        WorkspacePaths.open(null)
+        rereadWorkspace()
+        updateLayout { it.copy(openWorkspace = "") }
+        showNotification("Workspace closed", NotificationType.INFO)
+    }
+
+    /**
+     * Copies a bundled example into a workspace of its own and opens it.
+     *
+     * The replacement for Start Demo Server. That installed its profiles, templates and scenarios into
+     * the user's own files and had to find them again by id prefix to take them back out; this hands
+     * over a directory that is theirs, which needs no uninstall because nothing was mixed in.
+     */
+    fun openExample(
+        exampleId: String,
+        name: String,
+        location: File,
+        fixVersion: FixVersion,
+    ): Result<File> =
+        ExampleWorkspaces
+            .open(exampleId, name, location, fixVersion)
+            .onFailure { showNotification("Could not open the example: ${it.message}", NotificationType.ERROR) }
+            .mapCatching { created -> openWorkspace(created).getOrThrow() }
+
+    private fun closeEverySession() {
+        disconnectAllSessions()
+        while (_sessions.isNotEmpty()) closeSession(_sessions.lastIndex)
+    }
+
+    /** Drops every store that reads the workspace and loads the new one's contents into the UI. */
+    private fun rereadWorkspace() {
+        profileStore.reset()
+        savedMessagesStore.reset()
+        scenarioStore.reset()
+        runRecordHolder.reset()
+        runSetHolder.reset()
+
+        loadConnectionProfiles()
+        refreshScenarios()
+        _savedMessages.clear()
+        loadSavedMessagesForActiveSession()
+    }
+
     fun saveAppSettings(settings: AppSettings) {
         _appSettings.value = settings
         if (!settingsService.saveSettings(settings)) {
@@ -4486,12 +4626,6 @@ class FixMessageViewModel(
         }
 
     fun deleteConnectionProfile(profileId: String) {
-        // Don't delete demo profiles - they're managed by the demo server
-        if (DemoServerManager.isDemoProfile(profileId)) {
-            logger.warn("Cannot delete demo profile: {}", profileId)
-            return
-        }
-
         profileService
             .deleteProfile(profileId)
             .onSuccess {
@@ -5110,149 +5244,6 @@ class FixMessageViewModel(
         }
     }
 
-    // Demo Server Management
-
-    fun startDemoServer(fixVersion: FixVersion = FixVersion.DEFAULT, port: Int = DemoServerManager.DEMO_PORT) {
-        DemoServerManager.start(fixVersion, port)
-    }
-
-    fun stopDemoServer() {
-        DemoServerManager.stop()
-    }
-
-    /**
-     * Installs or removes the demo workspace's profiles — **and connects them**, which is the half that
-     * is new.
-     *
-     * **The profile list is emptied before the sessions are, and the order is a fix.** A venue opens a
-     * pane whenever a counterparty logs on, and the demo's clients keep reconnecting while everything is
-     * winding down — so panes were still being minted after the sweep that was meant to remove them, and
-     * Stop left two dead panes on screen. [attachVenueClient] refuses to open one for a profile that is
-     * no longer here, so taking the profiles away first closes the door before the sweep walks through it.
-     *
-     * These profiles are **not persisted**. They live in the in-memory list for as long as the demo is
-     * installed, which is enough for everything that reads profiles — including a scenario's
-     * auto-connect, which looks them up by name in `connectionProfiles`.
-     */
-    private fun handleDemoProfilesChanged(demoProfiles: List<FixConnectionProfile>) {
-        val nonDemoProfiles = _connectionProfiles.filter { !DemoServerManager.isDemoProfile(it.id) }
-        _connectionProfiles.clear()
-        _connectionProfiles.addAll(nonDemoProfiles)
-
-        if (demoProfiles.isEmpty()) disconnectDemoSessions()
-
-        if (demoProfiles.isNotEmpty()) {
-            _connectionProfiles.addAll(demoProfiles)
-            val sortedProfiles = _connectionProfiles.sortedBy { it.name.lowercase() }
-            _connectionProfiles.clear()
-            _connectionProfiles.addAll(sortedProfiles)
-
-            // Anything a previous Stop could not reach — see [sweepDemoSessions]. Start has to work
-            // whatever state the last one left behind.
-            sweepDemoSessions()
-
-            // In the order the manager gave them: venue, then clients.
-            demoProfiles.forEach { profile -> connectProfile(profile.id, profile) }
-        }
-    }
-
-    /**
-     * Takes the demo's sessions down and closes their panes.
-     *
-     * **The venue first**, which is the opposite of how they came up and is deliberate. The demo's
-     * clients auto-reconnect, so for as long as the port is open they will dial it again — and the
-     * venue answers by minting a fresh pane for each, filed under the venue's own profile id. Those
-     * panes outlive the Stop that was meant to remove them, and the next Start finds them and
-     * "reconnects" them instead of creating the venue, so the demo comes back with no venue in it.
-     * Closing the port first is what stops a reconnect having anywhere to land. Found by the
-     * stop-and-start-again test, which is the only one that could have.
-     */
-    private fun disconnectDemoSessions() {
-        // Held as sessions, not indices. [closeSession] removes a venue's per-client panes along with
-        // the venue, so every index taken before this loop goes stale part-way through it — and a stale
-        // index closes whichever session has since slid into that slot, which on a bad day is one of the
-        // user's own.
-        DemoServerManager.getDemoProfileIds().forEach { profileId ->
-            val sessions =
-                profileToSessionMap[profileId]
-                    .orEmpty()
-                    .distinct()
-                    .filter { it in _sessions.indices }
-                    .map { _sessions[it] }
-
-            sessions.forEach { session ->
-                runCatching { session.disconnect() }.onFailure {
-                    logger.error("Error disconnecting demo session: ${it.message}", it, notifyUser = false)
-                }
-            }
-            sessions.forEach { session ->
-                val index = _sessions.indexOf(session)
-                if (index >= 0) closeSession(index)
-            }
-        }
-
-        sweepDemoSessions()
-    }
-
-    /**
-     * Closes every session the demo owns, **by name**.
-     *
-     * The backstop for both directions of the same race. A session's disconnect finishes on its own
-     * coroutine, so a pane can be minted by a reconnect that lands after the list it would have been
-     * found in was read — which no amount of ordering can rule out. Called on the way down, and again
-     * on the way **up**, because Start is the operation that must work regardless of how Stop went: a
-     * stale pane filed under the venue's profile id is adopted by `connectProfile` as the venue's own
-     * session, and the venue is then never created.
-     *
-     * Safe to sweep by title: these names are the demo's and nothing else mints them.
-     */
-    private fun sweepDemoSessions() {
-        val demoTitles =
-            (
-                listOf(DemoServerManager.VENUE_NAME) +
-                    DemoServerManager.DEMO_CLIENTS.indices.map { DemoServerManager.clientName(it) } +
-                    DemoServerManager.DEMO_CLIENTS.map { DemoServerManager.venuePaneFor(it) }
-            ).toSet()
-        while (true) {
-            val index = _sessions.indexOfFirst { it.title in demoTitles }
-            if (index < 0) break
-            runCatching { _sessions[index].disconnect() }
-            closeSession(index)
-        }
-        DemoServerManager.getDemoProfileIds().forEach { profileToSessionMap.remove(it) }
-    }
-
-    /** Saves the demo's templates, or deletes every demo-prefixed one when the list is empty. */
-    private fun handleDemoTemplatesChanged(templates: List<SavedFixMessage>) {
-        val anchor = DemoServerManager.getDemoProfileIds().firstOrNull() ?: return
-        if (templates.isEmpty()) {
-            DemoTemplatesProvider.getDemoTemplateIds().forEach { id ->
-                savedMessagesService.deleteMessage(anchor, id)
-            }
-        } else {
-            templates.forEach { template ->
-                savedMessagesService
-                    .saveMessage(template.userTags.firstOrNull() ?: anchor, template)
-                    .onFailure { logger.error("Failed to create demo template ${template.name}: ${it.message}") }
-            }
-        }
-        loadSavedMessagesForActiveSession()
-    }
-
-    /** Saves the demo's bundled scenarios, or deletes them. Routed through the rail's own service. */
-    private fun handleDemoScenariosChanged(scenarios: List<Scenario>) {
-        if (scenarios.isEmpty()) {
-            DemoScenarioProvider.scenarioIds().forEach { scenarioService.delete(it) }
-        } else {
-            scenarios.forEach { scenario ->
-                if (!scenarioService.save(scenario)) {
-                    logger.error("Failed to install demo scenario '${scenario.name}'")
-                }
-            }
-        }
-        refreshScenarios()
-    }
-
     // Global session operations
     fun addSeparatorToAllSessions() {
         _sessions.forEach { it.addSeparator() }
@@ -5838,7 +5829,6 @@ class FixMessageViewModel(
     override fun onCleared() {
         super.onCleared()
         _sessions.forEach { it.destroy() }
-        DemoServerManager.stop()
     }
 }
 

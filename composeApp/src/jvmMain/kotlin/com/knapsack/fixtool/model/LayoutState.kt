@@ -34,4 +34,20 @@ data class LayoutState(
     val terminalVisible: Boolean = false,
     val terminalMinimized: Boolean = false,
     val scenarioDockMinimized: Boolean = false,
+    /**
+     * The project workspace open at last exit, so the app comes back where it was left. Empty means
+     * the installation's own directory, which is where a fresh install keeps everything.
+     *
+     * Here and not in [AppSettings] for the reason this file's header gives: every field of
+     * app_settings.json must be a setting somebody can edit on a settings page, and which workspace
+     * was open is not edited, it is remembered.
+     */
+    val openWorkspace: String = "",
+    /**
+     * Workspaces opened before, newest first.
+     *
+     * A path that no longer exists is filtered on read rather than pruned on write: a folder on a
+     * volume that is not mounted has not been deleted, and should come back when the volume does.
+     */
+    val recentWorkspaces: List<String> = emptyList(),
 )

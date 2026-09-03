@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunState
@@ -24,6 +25,7 @@ import com.knapsack.fixtool.service.RunSets
 import com.knapsack.fixtool.service.SavedRunEntry
 import com.knapsack.fixtool.service.SavedRunSet
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
+import java.time.LocalDateTime
 import kotlin.test.assertSame
 import org.junit.After
 import org.junit.Before
@@ -33,6 +35,7 @@ import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import quickfix.Message
 
 /**
  * **The rail's half of a run set**: the menu that makes one, and the report that reads one back.
@@ -286,6 +289,45 @@ class RunSetRailTest {
         composeTestRule.onNodeWithTag("run-entry-step-0").assertTextContains("expected 999, got 1000000", substring = true)
     }
 
+    /**
+     * **A session the run brings up is recorded too.** The recorder used to resolve the sessions to watch
+     * once, before the run. A session preflight auto-connected did not exist yet, so nothing watched it, and
+     * the entry came out PASSED with an empty record and no grid. Seen on the first entry of every set that
+     * had to connect first. Here the session's only profile is an initiator to a port nobody listens on: the
+     * run creates the session, the Wait times out, and a message added while it waited must be in the record.
+     */
+    @Test
+    fun `a session auto-connected by the run is recorded, not only the ones that existed before it`() {
+        viewModel.createProfileWithoutSessionForTest("S")
+        val scenario =
+            Scenario(
+                id = "sc-auto-connect",
+                name = "auto-connect",
+                steps = listOf(ScenarioStep.Wait(session = "S", state = "LOGGED_ON", timeoutMs = 2_000)),
+            )
+        viewModel.scenarioService.save(scenario)
+        viewModel.refreshScenarios()
+
+        val set = assertNotNull(viewModel.startRunSet(viewModel.planSuite(listOf(scenario), "auto-connect")))
+        try {
+            // The session exists only once preflight has connected it. A message lands while the Wait runs.
+            composeTestRule.waitUntil(5_000) { viewModel.sessions.any { it.title == "S" } }
+            val session = viewModel.sessions.first { it.title == "S" }
+            session.addMessage(business("8=FIX.4.4|35=0|", FixMessage.Direction.INCOMING, 1))
+            session.flushMessageQueue()
+            composeTestRule.waitUntil(10_000) { !viewModel.isRunSetRunning(set.id) }
+        } finally {
+            viewModel.requestScenarioStop()
+        }
+
+        val record = assertNotNull(viewModel.runRecordStore.readEntry(set.id, 1), "the entry wrote a record")
+        assertEquals(
+            listOf("8=FIX.4.4|35=0|"),
+            record.messages.map { it.raw.replace('\u0001', '|') },
+            "the message that arrived on the auto-connected session is the record",
+        )
+    }
+
     // ----------------------------------------------------------------- fixtures
 
     /** A set as it looks the morning after: on disk, one entry green, one red, the app restarted since. */
@@ -429,6 +471,15 @@ class RunSetRailTest {
             composeTestRule.waitUntil(5_000) { !viewModel.scenarioRunning.value }
         }
     }
+
+    private fun business(raw: String, dir: FixMessage.Direction, second: Int): FixMessage =
+        FixMessage(
+            timestamp = LocalDateTime.of(2026, 6, 30, 10, 0, second),
+            direction = dir,
+            rawMessage = raw,
+            quickfixMessage = Message(),
+            wireRaw = raw.replace('|', '\u0001'),
+        )
 
     private fun scenario(name: String) =
         Scenario(id = "sc-$name", name = name, steps = listOf(ScenarioStep.Send("35=D|", session = "s")))

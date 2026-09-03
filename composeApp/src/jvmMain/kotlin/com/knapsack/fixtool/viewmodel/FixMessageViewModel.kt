@@ -126,6 +126,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -3172,11 +3173,23 @@ class FixMessageViewModel(
         // clear and read session 0 — and a captured scenario has such a step, since capture writes
         // ClearMessages on the session it captured from.
         val host = ViewModelScenarioHost(this, defaultSession = entry?.defaultSession)
-        val watching = host.sessionsOf(scenario.withSessions(sessionMap))
-        val collectors =
-            watching.map { (title, session) ->
-                viewModelScope.launch(Dispatchers.IO) {
-                    session.messages.collect { recorder.observe(title, it.filterIsInstance<FixMessage>()) }
+        val resolved = scenario.withSessions(sessionMap)
+        // **Watched as they appear, not resolved once.** A session that preflight auto-connects does not
+        // exist when the run starts, so a collector list taken here was missing it and the entry came out
+        // PASSED with an empty record: the first entry of every set that had to bring its sessions up
+        // showed no grid, while the second, which found them connected, showed seventeen messages. The
+        // watcher re-resolves the scenario's sessions until the run is over and subscribes to each one the
+        // first time it is there.
+        val watcher =
+            viewModelScope.launch(Dispatchers.IO) {
+                val collecting = mutableSetOf<FixMessageSession>()
+                while (isActive) {
+                    host.sessionsOf(resolved).forEach { (title, session) ->
+                        if (collecting.add(session)) {
+                            launch { session.messages.collect { recorder.observe(title, it.filterIsInstance<FixMessage>()) } }
+                        }
+                    }
+                    delay(RECORDER_RESOLVE_MS)
                 }
             }
         try {
@@ -3194,7 +3207,11 @@ class FixMessageViewModel(
                     entry?.seed.orEmpty(),
                     { name -> entry?.sourceOf(name) ?: VariableSource.ROW },
                 )
-            watching.forEach { (title, session) -> recorder.observe(title, session.messages.value.filterIsInstance<FixMessage>()) }
+            // Resolved again now the run is over, for the same reason: a direct sample of every session the
+            // scenario touched, including any the run itself brought up.
+            host.sessionsOf(resolved).forEach { (title, session) ->
+                recorder.observe(title, session.messages.value.filterIsInstance<FixMessage>())
+            }
             // Published while the run slot is still held: a verdict that lands after the slot is free can
             // land on top of the *next* run's freshly-cleared state, and the report would then name one
             // run while the assertion results underneath it belong to another.
@@ -3204,7 +3221,7 @@ class FixMessageViewModel(
             showNotification("Scenario run failed: ${e.message}", NotificationType.ERROR)
             throw e
         } finally {
-            collectors.forEach { it.cancel() }
+            watcher.cancel()
         }
     }
 
@@ -5804,3 +5821,6 @@ private const val TIME_OF_DAY = 12
 
 /** `09:35:44` — the clock the reference chip and the grid row are both read against. */
 private val CLOCK_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+
+/** How often a run re-resolves the sessions its scenario names, to catch one the run itself connected. */
+private const val RECORDER_RESOLVE_MS = 100L

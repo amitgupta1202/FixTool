@@ -34,7 +34,6 @@ import com.knapsack.fixtool.model.FixMessageSession
 import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.ReplyStepApply
 import com.knapsack.fixtool.service.SessionIdentityResolver
-import com.knapsack.fixtool.service.demo.DemoServerManager
 
 @Composable
 fun ConnectionPanel(
@@ -52,10 +51,6 @@ fun ConnectionPanel(
     selectionRequest: String? = null,
     /** Names the enum values an auto-response condition can be built from. */
     dictionary: FixDictionary? = null,
-    demoServerRunning: Boolean = false,
-    demoServerFixVersion: FixVersion? = null,
-    onStartDemoServer: ((FixVersion) -> Unit)? = null,
-    onStopDemoServer: (() -> Unit)? = null,
     /** Loads one reply step into the message editor. Null where there is no editor to load it into. */
     onOpenReplyStepInEditor: ((profileId: String, ruleIndex: Int, stepIndex: Int, template: String) -> Unit)? = null,
     /** A step the editor has finished with, to be verified and staged here. Consumed by [onReplyStepConsumed]. */
@@ -1669,124 +1664,6 @@ fun ConnectionPanel(
                         latency = acceptorLatency,
                         onLatencyChange = { acceptorLatency = it },
                     )
-                }
-            }
-
-            // Demo Server section (collapsible)
-            if (onStartDemoServer != null && onStopDemoServer != null) {
-                var showDemoServer by remember { mutableStateOf(demoServerRunning) }
-
-                // Auto-expand when server starts running
-                LaunchedEffect(demoServerRunning) {
-                    if (demoServerRunning) showDemoServer = true
-                }
-
-                HorizontalDivider(
-                    color = AppTheme.Separators.color,
-                    thickness = AppTheme.Separators.dividerThickness,
-                    modifier = Modifier.padding(vertical = 4.dp),
-                )
-
-                // Collapsible header row
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { showDemoServer = !showDemoServer }
-                            .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Computer,
-                        contentDescription = "Demo Server",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = iconSize16,
-                    )
-
-                    Text(
-                        text = "Demo Server",
-                        color = AppTheme.Colors.textSecondary,
-                        fontSize = 10.sp,
-                    )
-
-                    // Status dot
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(8.dp)
-                                .background(
-                                    if (demoServerRunning) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
-                                    RoundedCornerShape(4.dp),
-                                ),
-                    )
-
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    Icon(
-                        imageVector = if (showDemoServer) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Toggle Demo Server",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = iconSize16,
-                    )
-                }
-
-                // Expanded content
-                if (showDemoServer) {
-                    if (demoServerRunning) {
-                        // Running state: show status and stop button
-                        // What is installed, not whether a socket is bound. The venue is an ordinary
-                        // profile in the list above with a state dot of its own, and that dot is the
-                        // honest answer about whether it is listening.
-                        Text(
-                            text =
-                                "${DemoServerManager.VENUE_NAME} on localhost:${DemoServerManager.currentPort} · " +
-                                    "${DemoServerManager.DEMO_CLIENTS.size} clients · " +
-                                    (demoServerFixVersion?.displayName ?: "Unknown"),
-                            color = AppTheme.Colors.primary,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        )
-
-                        SlimButton(
-                            text = "Stop Demo Server",
-                            onClick = { onStopDemoServer() },
-                            containerColor = AppTheme.Colors.warning,
-                            contentColor = AppTheme.Colors.background,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    } else {
-                        // Stopped state: show version picker and start button
-                        var demoFixVersion by remember { mutableStateOf(FixVersion.DEFAULT) }
-
-                        Column {
-                            Text(
-                                text = "FIX Version",
-                                color = AppTheme.Colors.textSecondary,
-                                fontSize = 9.sp,
-                                modifier = Modifier.padding(bottom = 2.dp),
-                            )
-
-                            SlimDropdown(
-                                value = demoFixVersion,
-                                options = FixVersion.entries.toList(),
-                                onValueChange = { it?.let { version -> demoFixVersion = version } },
-                                displayText = { it.displayName },
-                                placeholder = "Select FIX Version",
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        SlimButton(
-                            text = "Start Demo Server",
-                            onClick = { onStartDemoServer(demoFixVersion) },
-                            containerColor = AppTheme.Colors.primary,
-                            contentColor = AppTheme.Colors.background,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
                 }
             }
         }

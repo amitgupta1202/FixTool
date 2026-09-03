@@ -62,19 +62,19 @@ fun SplitView(
     followedTraceIds: Set<String> = emptySet(),
     onFollowTrace: ((String) -> Unit)? = null,
     onUnfollowTrace: (() -> Unit)? = null,
+    /** For the empty state only. See [NoSessionsPlaceholder]. */
+    demoWorkspaceInstalled: Boolean = false,
+    onStartDemoWorkspace: (() -> Unit)? = null,
+    onOpenConnectionPanel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     if (sessions.isEmpty()) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "No active sessions. Click the connection button to connect to a FIX server.",
-                color = emptyStateTextColor,
-                fontSize = 14.sp,
-            )
-        }
+        NoSessionsPlaceholder(
+            demoWorkspaceInstalled = demoWorkspaceInstalled,
+            onStartDemoWorkspace = onStartDemoWorkspace,
+            onOpenConnectionPanel = onOpenConnectionPanel,
+            modifier = modifier,
+        )
         return
     }
 
@@ -628,7 +628,6 @@ private fun SessionPanel(
 }
 
 // Constants
-private val emptyStateTextColor = AppTheme.Colors.textDisabled
 private val borderColor = AppTheme.Colors.border
 private val panelBackgroundColor = AppTheme.Colors.background
 private val headerBackgroundColor = AppTheme.Colors.surface

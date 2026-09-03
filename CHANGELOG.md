@@ -5,6 +5,12 @@ All notable changes to FixTool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🔧 Changed
+
+- **The demo moved out of the profile form.** Start Demo Server sat at the bottom of the Connection panel, under sections that all describe one profile, and once the venue was selected its 21 auto-expanded rule cards stood between the top of the form and Stop. The demo is a workspace action, not a profile setting, so it now lives where its audience is: a **Start demo workspace** button in the empty session area of a fresh install, and a trailing **Start demo workspace…** / **Stop demo workspace** item in the toolbar's **Quick Connect ▾** menu, after the profiles, the way *Edit Configurations…* trails a run-configuration list. The menu route picks the FIX version; the button takes the default. Quick Connect now shows with no saved profiles, which is the one moment the item matters. The section's own status dot is gone: the venue is an ordinary profile in that same menu with a state dot of its own. `POST /demo` and the `fixtool_demo` MCP tool are unchanged.
+
 ## [1.14.0] - 2026-09-03
 
 The release where the latency figure stopped including the tool that reports it: round trips are

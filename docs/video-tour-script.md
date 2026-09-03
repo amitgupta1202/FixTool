@@ -45,13 +45,13 @@ grid, the FX Demo Venue pane beside it, a green scenario run visible in the rail
 **SCREEN:** fresh app, no profiles.
 
 **ACTIONS:**
-1. Open the connection panel → **Demo Server** section → **Start Demo Server**.
+1. Click **Start demo workspace** in the empty session area.
 2. Let the three profiles appear: *FX Demo Venue*, *Demo Client 1*, *Demo Client 2*.
 3. Let the clients log on; point the cursor at the venue's pane title *FX Demo Venue ← DEMO_CLIENT1*.
 
 **NARRATION** (~150 words):
 
-> I'm starting from an empty install. One click — Start Demo — and FixTool builds a small FX
+> I'm starting from an empty install. One click — Start demo workspace — and FixTool builds a small FX
 > workspace: one venue, two clients, and a set of message templates.
 >
 > The important thing here is what the venue *is*. It is not a canned simulator — it's FixTool's own
@@ -330,7 +330,8 @@ a spare editor tab before recording. Keep the same line for every take.
 
 - Launch for staging: `FIXTOOL_CONTROL_PORT=8765 ./gradlew :composeApp:run` (the same port the MCP
   chapter uses; enable Automation control in settings once, on camera, in Chapter 6).
-- **Reset between takes:** Stop Demo Server → Start Demo Server restores the venue, clients,
+- **Reset between takes:** **Quick Connect ▾ → Stop demo workspace**, then **Start demo workspace**
+  (from the empty session area) restores the venue, clients,
   templates and the bundled scenario to their shipped state; delete any captured `gbp-fill`
   scenario and revert any rule edit before re-rolling Chapters 4–6.
 - Chapter 1's opening frame is recorded **last** — it's the end state of a full rehearsal run.

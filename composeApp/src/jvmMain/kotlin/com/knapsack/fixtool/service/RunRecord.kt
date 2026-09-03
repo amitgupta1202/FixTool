@@ -126,6 +126,22 @@ class RunRecorder {
         messages.forEach { seen.putIfAbsent(it.uid, Seen(session, it)) }
     }
 
+    /**
+     * **A snapshot taken while the entry is running.** Nothing in it is history unless [observe] already
+     * said so: a session first seen here did not exist when the entry began — preflight brought it up —
+     * so everything on it is this entry's traffic, however late the watcher got to it.
+     *
+     * This is the half of the watermark [observe] could not carry alone. The watcher finds an
+     * auto-connected session on a poll, and a message that lands on it between the session appearing and
+     * the poll used to be in the first snapshot the recorder saw, and so was filed as history. The
+     * record of the very entry that connected the session then came out empty.
+     */
+    @Synchronized
+    fun observeLive(session: String?, messages: List<FixMessage>) {
+        started.add(session)
+        messages.forEach { seen.putIfAbsent(it.uid, Seen(session, it)) }
+    }
+
     /** How many distinct messages have been seen, before any cap. */
     val size: Int @Synchronized get() = seen.size
 

@@ -6,8 +6,8 @@ import com.knapsack.fixtool.model.FixVersion
 import com.knapsack.fixtool.model.scenario.BindScope
 import com.knapsack.fixtool.model.scenario.Expectation
 import com.knapsack.fixtool.model.scenario.FieldExpectation
-import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.Lane
+import com.knapsack.fixtool.model.scenario.Matcher
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
 import com.knapsack.fixtool.model.scenario.RunSet
@@ -75,6 +75,36 @@ class RunRecordTest {
 
         assertEquals(2, recorder.size)
         assertEquals(listOf(0, 1), recorder.build(emptyMap(), cap = 0).messages.map { it.index })
+    }
+
+    /**
+     * **A session the run itself brought up has no history.** The watcher finds an auto-connected session
+     * on a poll, and whatever landed on it before that poll is this entry's traffic, not something the
+     * entry inherited — however full the first snapshot is.
+     */
+    @Test
+    fun `a session first seen live contributes everything it shows`() {
+        val recorder = RunRecorder()
+        val landedBeforeThePoll = message("0", at = 5, incoming = true)
+        val later = message("8", at = 20, incoming = true)
+
+        recorder.observeLive("S", listOf(landedBeforeThePoll))
+        recorder.observeLive("S", listOf(landedBeforeThePoll, later))
+
+        assertEquals(listOf(5L, 20L), recorder.build(emptyMap(), cap = 0).messages.map { it.atMicros })
+    }
+
+    /** And the watermark still holds for a session that was there at the start, whichever call sees it later. */
+    @Test
+    fun `history seen at the start stays history when the same session is then observed live`() {
+        val recorder = RunRecorder()
+        val history = message("8", at = 1, incoming = true)
+        val ours = message("8", at = 20, incoming = true)
+
+        recorder.observe("CLI", listOf(history))
+        recorder.observeLive("CLI", listOf(history, ours))
+
+        assertEquals(listOf(20L), recorder.build(emptyMap(), cap = 0).messages.map { it.atMicros })
     }
 
     /**

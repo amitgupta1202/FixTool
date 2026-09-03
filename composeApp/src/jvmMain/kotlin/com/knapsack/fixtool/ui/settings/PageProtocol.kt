@@ -132,15 +132,15 @@ private fun ProtocolContent(context: SettingsContext) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SettingsButton(
                 text = "Venue tag roles…",
-                onClick = context.openVenueTagRoles,
+                onClick = context.venueTags.open,
                 containerColor = AppTheme.Colors.surface,
                 contentColor = AppTheme.Colors.text,
                 modifier = Modifier.testTag("open-venue-tag-roles"),
             )
             Text(
-                text = context.venueTagNote,
+                text = context.venueTags.note,
                 fontSize = 11.sp,
-                color = if (context.venueTagNoteIsFresh) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                color = if (context.venueTags.noteIsFresh) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
             )
         }
     }

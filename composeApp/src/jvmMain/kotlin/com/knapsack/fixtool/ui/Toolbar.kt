@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
@@ -70,6 +71,12 @@ fun Toolbar(
     onToggleGridView: (() -> Unit)? = null,
     onQuickConnect: ((String, FixConnectionProfile) -> Unit)? = null,
     onGetProfileConnectionState: ((String) -> FixConnectionState)? = null,
+    /**
+     * The workspace's environments. Empty — which is every workspace until someone extracts some —
+     * leaves Quick Connect exactly as it was: pick a profile and it connects.
+     */
+    environments: List<Environment> = emptyList(),
+    onConnectProfileIn: ((FixConnectionProfile, Environment) -> Unit)? = null,
     /** A project workspace is open rather than the installation's own directory. Decides Close vs nothing. */
     workspaceOpen: Boolean = false,
     /** The name of the open workspace, shown on the menu's own header row. */
@@ -336,9 +343,13 @@ fun Toolbar(
             // until Back or a pick — rather than opening a second popup over the first. Reset with the
             // menu so it never reopens on the recent page.
             var pickingRecent by remember { mutableStateOf(false) }
+            // Which profile is being asked "in which environment?". Null means the profile list is
+            // showing. Reset with the menu, so it never reopens on an environment page.
+            var pickingEnvironmentFor by remember { mutableStateOf<FixConnectionProfile?>(null) }
             val close = {
                 expanded = false
                 pickingRecent = false
+                pickingEnvironmentFor = null
             }
 
             Box {
@@ -380,7 +391,70 @@ fun Toolbar(
                             .background(AppTheme.Colors.surface)
                             .widthIn(min = 200.dp),
                 ) {
-                    if (pickingRecent) {
+                    val choosingEnvironment = pickingEnvironmentFor
+                    if (choosingEnvironment != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "${choosingEnvironment.name} in…",
+                                    color = AppTheme.Colors.textSecondary,
+                                    fontSize = 11.sp,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.ChevronLeft,
+                                    contentDescription = "Back",
+                                    tint = AppTheme.Colors.textSecondary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            onClick = { pickingEnvironmentFor = null },
+                            modifier = Modifier.testTag("environment-back"),
+                        )
+                        environments.forEach { environment ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(text = environment.name, color = AppTheme.Colors.text, fontSize = 11.sp)
+                                        Text(
+                                            text = environment.host.ifBlank { "the profile's own host" },
+                                            color = AppTheme.Colors.textDisabled,
+                                            fontSize = 9.sp,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    close()
+                                    onConnectProfileIn?.invoke(choosingEnvironment, environment)
+                                },
+                                modifier = Modifier.testTag("environment-${environment.name}"),
+                            )
+                        }
+                        // The endpoint the profile already names is an environment nobody extracted, and
+                        // refusing to offer it would make the feature a downgrade for anything it did
+                        // not manage to classify.
+                        HorizontalDivider(
+                            color = AppTheme.Separators.color,
+                            thickness = AppTheme.Separators.dividerThickness,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "As saved (${choosingEnvironment.config.host})",
+                                    color = AppTheme.Colors.text,
+                                    fontSize = 11.sp,
+                                )
+                            },
+                            onClick = {
+                                close()
+                                onQuickConnect?.invoke(choosingEnvironment.id, choosingEnvironment)
+                            },
+                            modifier = Modifier.testTag("environment-as-saved"),
+                        )
+                    } else if (pickingRecent) {
                         DropdownMenuItem(
                             text = {
                                 Text(
@@ -460,10 +534,25 @@ fun Toolbar(
                                             )
                                         }
                                     },
-                                    onClick = {
-                                        close()
-                                        onQuickConnect(profile.id, profile)
+                                    trailingIcon = {
+                                        if (environments.isNotEmpty()) {
+                                            Icon(
+                                                imageVector = Icons.Default.ChevronRight,
+                                                contentDescription = "Choose an environment",
+                                                tint = AppTheme.Colors.textSecondary,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        }
                                     },
+                                    onClick = {
+                                        if (environments.isEmpty()) {
+                                            close()
+                                            onQuickConnect(profile.id, profile)
+                                        } else {
+                                            pickingEnvironmentFor = profile
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("quick-connect-${profile.name}"),
                                 )
                             }
                         }

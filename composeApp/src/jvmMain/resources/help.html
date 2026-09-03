@@ -545,6 +545,27 @@
     code. A leading <code>~</code> is expanded, because a CI config file is not a shell.
     <code>fixtool run --home</code> still wins over it for the length of one run.</p>
 
+    <h3 id="environments">Environments</h3>
+    <p>An <strong>environment</strong> is where a counterparty is, as distinct from who it is: a host, a
+    port, a TLS flag. A profile answers both questions at once, which is how a desk ends up with
+    <code>UAT1-BuySide</code>, <code>QA1-BuySide</code> and <code>DEV1-BuySide</code> &mdash; three
+    profiles carrying one counterparty's CompIDs and differing only in an endpoint. Every rule change
+    then has to be made three times.</p>
+    <p>With environments, a connection is a counterparty <em>times</em> an environment: pick a profile in
+    <strong>Quick Connect &#9662;</strong> and it asks which environment to reach it in. The profile on
+    disk is not touched, so choosing UAT does not rewrite it and leave the next person guessing where it
+    was last pointed.</p>
+    <p><strong>The session qualifier is the environment's name</strong>, and that is load-bearing:
+    QuickFIX/J keys its sequence-number store on BeginString, SenderCompID, TargetCompID and the
+    qualifier, so two environments reached by one counterparty would otherwise share a store and fight
+    over sequence numbers. Naming the qualifier after the environment makes that impossible to get wrong
+    by hand.</p>
+    <p>None of this is on until you ask for it. <strong>Settings &rarr; Storage</strong> offers
+    <strong>Extract environments</strong> when your saved profiles already look like a grid, and shows
+    exactly what it would produce first. Extracting adds the environments and changes nothing else: the
+    profiles keep working exactly as they do now, and <em>As saved</em> stays in the menu for the
+    endpoint a profile already names.</p>
+
     <h3>Example workspace</h3>
     <p>For testing and learning, open the example workspace (see <a href="#demo-server">Section 2</a>).
     It provides:</p>

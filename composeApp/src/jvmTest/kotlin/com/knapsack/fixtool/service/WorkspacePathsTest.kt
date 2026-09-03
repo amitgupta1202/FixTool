@@ -51,6 +51,8 @@ class WorkspacePathsTest {
         assertEquals(File("/ws/app_settings.json"), paths.appSettings)
         assertEquals(File("/ws/connection_profiles.json"), paths.connectionProfiles)
         assertEquals(File("/ws/saved_messages.json"), paths.savedMessages)
+        assertEquals(File("/ws/environments.json"), paths.environments)
+        assertEquals(File("/ws/secrets.json"), paths.secrets)
         assertEquals(File("/ws/scenario_view.json"), paths.scenarioViewState)
         assertEquals(File("/ws/layout.json"), paths.layout)
         assertEquals(File("/ws/scenarios"), paths.scenarios)

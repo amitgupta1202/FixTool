@@ -177,57 +177,9 @@ private fun StorageContent(context: SettingsContext) {
     val draft = context.draft
     val settings = draft.value
 
-    // One row, where there were three. The profiles file, the saved-messages file and the scenarios
-    // directory each used to be configured separately, which meant three chances to point a colleague
-    // at two of them: a workspace is the three of them together plus the session store, and moving it
-    // is one decision. The three settings are still honoured (see the overrides block below) so
-    // nobody's existing configuration changed under them, but there is no longer a way to make a new
-    // one by accident.
-    SettingsBlock(
-        title = "Workspace folder",
-        description =
-            "The profiles, saved messages, scenarios and run records you are working with. Everything " +
-                "else — the dictionary, the window layout, these settings — stays with the installation, " +
-                "so opening another workspace does not rearrange the app around you.",
-    ) {
-        Text(
-            text = context.workspaceFolder,
-            fontSize = 11.sp,
-            color = AppTheme.Colors.text,
-            modifier = Modifier.testTag("settings-workspace-folder"),
-        )
-        Text(
-            text =
-                if (context.workspaceIsDefault) {
-                    "This is the installation's own directory, which is where a fresh install keeps everything."
-                } else {
-                    "A project workspace. Close it to go back to the installation's own directory."
-                },
-            fontSize = 11.sp,
-            color = AppTheme.Colors.textDisabled,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SettingsButton(
-                text = "Open workspace…",
-                onClick = context.onOpenWorkspace,
-                modifier = Modifier.testTag("settings-open-workspace"),
-            )
-            SettingsButton(
-                text = "Close workspace",
-                onClick = context.onCloseWorkspace,
-                enabled = !context.workspaceIsDefault,
-                modifier = Modifier.testTag("settings-close-workspace"),
-            )
-        }
-        Text(
-            text =
-                "Set FIXTOOL_WORKSPACE to move the whole installation, settings included — what a build " +
-                    "box wants when the profiles and scenarios under test are the ones checked in beside " +
-                    "the code. `fixtool run --home` wins over it for one run.",
-            fontSize = 11.sp,
-            color = AppTheme.Colors.textDisabled,
-        )
-    }
+    WorkspaceFolder(context)
+
+    Environments(context)
 
     PathOverrides(draft, settings)
 
@@ -292,5 +244,122 @@ private fun PathOverrides(
                 )
             }
         }
+    }
+}
+
+/**
+ * The workspace's environments, and the one-off that proposes them.
+ *
+ * Nothing here is a setting: an environment is workspace data, like a profile. The page shows it
+ * because "which environments does this workspace have" is the same question as "where does my work
+ * come from", and there is nowhere better to ask it.
+ *
+ * The extract action is offered only when the saved profiles actually look like a grid — several
+ * environments each holding several counterparties. A desk with four unrelated profiles is shown
+ * nothing, because for them the answer is no.
+ */
+@Composable
+private fun Environments(context: SettingsContext) {
+    val proposal = context.workspace.environmentProposal
+    if (context.workspace.environments.isEmpty() && proposal == null) {
+        return
+    }
+    SettingsBlock(
+        title = "Environments",
+        description =
+            "Where a counterparty is, as distinct from who it is. A connection is a counterparty times " +
+                "an environment, and the session qualifier is the environment's name — so two " +
+                "environments can never share a sequence-number store by accident.",
+    ) {
+        context.workspace.environments.forEach { environment ->
+            Text(
+                text = "${environment.name} — ${environment.host.ifBlank { "the profile's own host" }}",
+                fontSize = 11.sp,
+                color = AppTheme.Colors.text,
+                modifier = Modifier.testTag("settings-environment-${environment.name}"),
+            )
+        }
+        if (proposal != null) {
+            Text(
+                text =
+                    "Your saved profiles look like ${proposal.environments.size} environments " +
+                        "(${proposal.environments.joinToString { it.name }}) holding " +
+                        "${proposal.counterparties.size} counterparties " +
+                        "(${proposal.counterparties.joinToString()}).",
+                fontSize = 11.sp,
+                color = AppTheme.Colors.textSecondary,
+            )
+            Text(
+                text =
+                    "Extracting them adds the environments and changes nothing else: " +
+                        "${proposal.replaces.joinToString()} keep working exactly as they do now, and " +
+                        "Quick Connect starts offering the environments as well.",
+                fontSize = 11.sp,
+                color = AppTheme.Colors.textDisabled,
+            )
+            SettingsButton(
+                text = "Extract environments",
+                onClick = context.workspace.onExtractEnvironments,
+                modifier = Modifier.testTag("settings-extract-environments"),
+            )
+        }
+    }
+}
+
+/**
+ * The one row that replaced three.
+ *
+ * The connection-profiles file, the saved-messages file and the scenarios directory were each
+ * configured separately, which is three chances to point a colleague at two of them. A workspace is
+ * the three of them together plus the session store, and moving it is one decision. The three
+ * settings are still honoured — see PathOverrides — so nobody's existing configuration changed under
+ * them; there is just no longer a way to make a new one by accident.
+ */
+@Composable
+private fun WorkspaceFolder(context: SettingsContext) {
+    SettingsBlock(
+        title = "Workspace folder",
+        description =
+            "The profiles, saved messages, scenarios and run records you are working with. Everything " +
+                "else — the dictionary, the window layout, these settings — stays with the installation, " +
+                "so opening another workspace does not rearrange the app around you.",
+    ) {
+        Text(
+            text = context.workspace.folder,
+            fontSize = 11.sp,
+            color = AppTheme.Colors.text,
+            modifier = Modifier.testTag("settings-workspace-folder"),
+        )
+        Text(
+            text =
+                if (context.workspace.isDefault) {
+                    "This is the installation's own directory, which is where a fresh install keeps everything."
+                } else {
+                    "A project workspace. Close it to go back to the installation's own directory."
+                },
+            fontSize = 11.sp,
+            color = AppTheme.Colors.textDisabled,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SettingsButton(
+                text = "Open workspace…",
+                onClick = context.workspace.onOpen,
+                modifier = Modifier.testTag("settings-open-workspace"),
+            )
+            SettingsButton(
+                text = "Close workspace",
+                onClick = context.workspace.onClose,
+                enabled = !context.workspace.isDefault,
+                modifier = Modifier.testTag("settings-close-workspace"),
+            )
+        }
+        Text(
+            text =
+                "Set FIXTOOL_WORKSPACE to move the whole installation, settings included — what a build " +
+                    "box wants when the profiles and scenarios under test are the ones checked in beside " +
+                    "the code. `fixtool run --home` wins over it for one run.",
+            fontSize = 11.sp,
+            color = AppTheme.Colors.textDisabled,
+        )
     }
 }

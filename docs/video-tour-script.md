@@ -332,7 +332,7 @@ a spare editor tab before recording. Keep the same line for every take.
 
 - Launch for staging: `FIXTOOL_CONTROL_PORT=8765 ./gradlew :composeApp:run` (the same port the MCP
   chapter uses; enable Automation control in settings once, on camera, in Chapter 6).
-- **Reset between takes:** **Quick Connect ▾ → Close workspace**, then **Open FX Venue example**
+- **Reset between takes:** workspace switcher (top left) **→ Close workspace**, then **Open FX Venue example**
   again — it copies to `fx-venue-2`, `fx-venue-3` and so on. A fresh copy is the reset, so nothing has to be un-edited: the venue, clients,
   templates and bundled scenarios come back in their shipped state and any captured `gbp-fill`
   scenario or rule edit is left behind in the old folder.

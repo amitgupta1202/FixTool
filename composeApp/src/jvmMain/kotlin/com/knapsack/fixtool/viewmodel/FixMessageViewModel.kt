@@ -4101,13 +4101,15 @@ class FixMessageViewModel(
      * The workspaces opened before, newest first, minus any that have since gone.
      *
      * Filtered on read rather than pruned on write, because a folder on a volume that is not mounted
-     * has not been deleted and should come back in the list when the volume does.
+     * has not been deleted and should come back in the list when the volume does. Default is filtered
+     * for a different reason: a list written by an older build may already hold it, and an entry
+     * offering the workspace you return to by closing is noise either way.
      */
     val recentWorkspaces: List<File>
         get() =
             _layoutState.value.recentWorkspaces
                 .map(::File)
-                .filter { it.isDirectory }
+                .filter { it.isDirectory && !isHome(it) }
 
     /**
      * The New workspace dialog is open.
@@ -4172,6 +4174,13 @@ class FixMessageViewModel(
         if (!directory.isDirectory) {
             return Result.failure(IllegalArgumentException("'${directory.absolutePath}' is not a directory"))
         }
+        // Browsing to the installation's own directory is not opening a workspace called `.fixtool`,
+        // it is asking for Default — which is what Close means. Recorded nowhere, because Default is
+        // never something that needs offering back to you.
+        if (isHome(directory)) {
+            closeWorkspace()
+            return Result.success(WorkspacePaths.home.root)
+        }
         logger.info("Opening workspace {}", directory.absolutePath)
         closeEverySession()
         WorkspacePaths.open(directory.absolutePath)
@@ -4186,6 +4195,16 @@ class FixMessageViewModel(
         showNotification("Workspace: ${directory.name}", NotificationType.INFO)
         return Result.success(directory)
     }
+
+    /**
+     * True when [directory] IS the installation's own directory.
+     *
+     * Canonical, because `~/.fixtool` reached through a symlink or a `..` is still Default and must
+     * not become a second entry in Recent that opens the same place.
+     */
+    private fun isHome(directory: File): Boolean =
+        runCatching { directory.canonicalFile == WorkspacePaths.home.root.canonicalFile }
+            .getOrElse { directory.absoluteFile == WorkspacePaths.home.root.absoluteFile }
 
     /** Goes back to keeping project data in the installation's own directory. */
     fun closeWorkspace() {

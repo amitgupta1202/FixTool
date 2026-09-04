@@ -24,7 +24,6 @@ import com.knapsack.fixtool.model.Environment
 import com.knapsack.fixtool.model.FixConnectionProfile
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
-import java.io.File
 
 enum class ViewMode {
     TABS,
@@ -77,24 +76,8 @@ fun Toolbar(
      */
     environments: List<Environment> = emptyList(),
     onConnectProfileIn: ((FixConnectionProfile, Environment) -> Unit)? = null,
-    /** A project workspace is open rather than the installation's own directory. Decides Close vs nothing. */
-    workspaceOpen: Boolean = false,
-    /** The name of the open workspace, shown on the menu's own header row. */
-    workspaceName: String? = null,
-    /** Creates an empty workspace. Null hides the item. */
-    onNewWorkspace: (() -> Unit)? = null,
-    /** Browses to an existing workspace folder. Null hides the Open item. */
-    onOpenWorkspace: (() -> Unit)? = null,
-    /**
-     * The examples Open can offer besides a folder on disk. Each is copied to a workspace of its own
-     * on the way in, because the bundle lives inside the application and cannot be edited in place.
-     */
-    examples: List<Pair<String, String>> = emptyList(),
-    onOpenExample: ((String) -> Unit)? = null,
-    onCloseWorkspace: (() -> Unit)? = null,
-    /** Workspaces opened before, newest first. Empty hides the submenu. */
-    recentWorkspaces: List<File> = emptyList(),
-    onOpenRecentWorkspace: ((File) -> Unit)? = null,
+    /** The workspace switcher, top left. See [WorkspaceMenu]. */
+    workspace: WorkspaceMenuState = WorkspaceMenuState(),
     onSearchAllSessions: (() -> Unit)? = null,
     onAddSeparatorToAll: (() -> Unit)? = null,
     onClearAll: (() -> Unit)? = null,
@@ -152,12 +135,7 @@ fun Toolbar(
             }
         }
 
-        Text(
-            text = "FixTool",
-            color = AppTheme.Colors.text,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(horizontal = 8.dp),
-        )
+        WorkspaceMenu(state = workspace)
 
         Spacer(modifier = Modifier.weight(1f))
 
@@ -341,24 +319,18 @@ fun Toolbar(
         // you can pick, then the thing that makes more of them. Once the workspace is installed its three
         // profiles are ordinary rows above with their own state dots, so there is no second status light
         // here to disagree with them; the item just turns into Stop.
-        val workspaceItemsShown = onNewWorkspace != null || onOpenWorkspace != null
-        if ((onQuickConnect != null && connectionProfiles.isNotEmpty()) || workspaceItemsShown) {
+        if (onQuickConnect != null && connectionProfiles.isNotEmpty()) {
             var expanded by remember { mutableStateOf(false) }
 
             // Recent workspaces are asked for inside the same popup — the list replaces the profiles
             // until Back or a pick — rather than opening a second popup over the first. Reset with the
             // menu so it never reopens on the recent page.
-            var pickingRecent by remember { mutableStateOf(false) }
-            // Open has two kinds of answer — a folder you have, and an example we ship — so it asks
-            // inside the same popup rather than going straight to a file dialog.
-            var pickingOpen by remember { mutableStateOf(false) }
+
             // Which profile is being asked "in which environment?". Null means the profile list is
             // showing. Reset with the menu, so it never reopens on an environment page.
             var pickingEnvironmentFor by remember { mutableStateOf<FixConnectionProfile?>(null) }
             val close = {
                 expanded = false
-                pickingRecent = false
-                pickingOpen = false
                 pickingEnvironmentFor = null
             }
 
@@ -464,96 +436,6 @@ fun Toolbar(
                             },
                             modifier = Modifier.testTag("environment-as-saved"),
                         )
-                    } else if (pickingOpen) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(text = "Open workspace", color = AppTheme.Colors.textSecondary, fontSize = 11.sp)
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.ChevronLeft,
-                                    contentDescription = "Back",
-                                    tint = AppTheme.Colors.textSecondary,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            },
-                            onClick = { pickingOpen = false },
-                            modifier = Modifier.testTag("workspace-open-back"),
-                        )
-                        DropdownMenuItem(
-                            text = { Text(text = "Browse…", color = AppTheme.Colors.text, fontSize = 11.sp) },
-                            onClick = {
-                                close()
-                                onOpenWorkspace?.invoke()
-                            },
-                            modifier = Modifier.testTag("workspace-browse"),
-                        )
-                        if (examples.isNotEmpty()) {
-                            HorizontalDivider(
-                                color = AppTheme.Separators.color,
-                                thickness = AppTheme.Separators.dividerThickness,
-                                modifier = Modifier.padding(vertical = 4.dp),
-                            )
-                            examples.forEach { (id, displayName) ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(text = displayName, color = AppTheme.Colors.text, fontSize = 11.sp)
-                                            Text(
-                                                text = "bundled example, copied to a workspace of its own",
-                                                color = AppTheme.Colors.textDisabled,
-                                                fontSize = 9.sp,
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        close()
-                                        onOpenExample?.invoke(id)
-                                    },
-                                    modifier = Modifier.testTag("workspace-example-$id"),
-                                )
-                            }
-                        }
-                    } else if (pickingRecent) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "Recent workspaces",
-                                    color = AppTheme.Colors.textSecondary,
-                                    fontSize = 11.sp,
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.ChevronLeft,
-                                    contentDescription = "Back",
-                                    tint = AppTheme.Colors.textSecondary,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            },
-                            onClick = { pickingRecent = false },
-                            modifier = Modifier.testTag("workspace-recent-back"),
-                        )
-                        recentWorkspaces.forEach { workspace ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(text = workspace.name, color = AppTheme.Colors.text, fontSize = 11.sp)
-                                        Text(
-                                            text = workspace.parent.orEmpty(),
-                                            color = AppTheme.Colors.textDisabled,
-                                            fontSize = 9.sp,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    close()
-                                    onOpenRecentWorkspace?.invoke(workspace)
-                                },
-                                modifier = Modifier.testTag("workspace-recent-${workspace.name}"),
-                            )
-                        }
                     } else {
                         if (onQuickConnect != null) {
                             if (connectionProfiles.isEmpty()) {
@@ -613,88 +495,6 @@ fun Toolbar(
                                         }
                                     },
                                     modifier = Modifier.testTag("quick-connect-${profile.name}"),
-                                )
-                            }
-                        }
-
-                        if (workspaceItemsShown) {
-                            if (onQuickConnect != null) {
-                                HorizontalDivider(
-                                    color = AppTheme.Separators.color,
-                                    thickness = AppTheme.Separators.dividerThickness,
-                                    modifier = Modifier.padding(vertical = 4.dp),
-                                )
-                            }
-                            if (workspaceName != null) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "Workspace: $workspaceName",
-                                            color = AppTheme.Colors.textDisabled,
-                                            fontSize = 10.sp,
-                                        )
-                                    },
-                                    enabled = false,
-                                    onClick = {},
-                                    modifier = Modifier.testTag("workspace-current"),
-                                )
-                            }
-                            if (onNewWorkspace != null) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(text = "New workspace…", color = AppTheme.Colors.text, fontSize = 11.sp)
-                                    },
-                                    onClick = {
-                                        close()
-                                        onNewWorkspace()
-                                    },
-                                    modifier = Modifier.testTag("workspace-new"),
-                                )
-                            }
-                            if (onOpenWorkspace != null) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(text = "Open workspace", color = AppTheme.Colors.text, fontSize = 11.sp)
-                                    },
-                                    trailingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.ChevronRight,
-                                            contentDescription = "Choose what to open",
-                                            tint = AppTheme.Colors.textSecondary,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    },
-                                    onClick = { pickingOpen = true },
-                                    modifier = Modifier.testTag("workspace-open"),
-                                )
-                            }
-                            if (recentWorkspaces.isNotEmpty() && onOpenRecentWorkspace != null) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(text = "Recent workspaces", color = AppTheme.Colors.text, fontSize = 11.sp)
-                                    },
-                                    trailingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Default.ChevronRight,
-                                            contentDescription = "Choose a recent workspace",
-                                            tint = AppTheme.Colors.textSecondary,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    },
-                                    onClick = { pickingRecent = true },
-                                    modifier = Modifier.testTag("workspace-recent"),
-                                )
-                            }
-                            if (workspaceOpen && onCloseWorkspace != null) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(text = "Close workspace", color = AppTheme.Colors.text, fontSize = 11.sp)
-                                    },
-                                    onClick = {
-                                        close()
-                                        onCloseWorkspace()
-                                    },
-                                    modifier = Modifier.testTag("workspace-close"),
                                 )
                             }
                         }

@@ -17,24 +17,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * **The empty session area is the bundled example's front door.**
+ * **The empty session area, and the three things someone looking at it might want.**
  *
- * The example exists for the person looking at this exact screen — a fresh install with nothing to
- * connect to — so the shortcut to it lives here, not at the bottom of a profile form they have not
- * opened yet. It names the example rather than inventing a verb for it: this is the same thing Quick
- * Connect offers under Open workspace, reached in one click instead of three.
+ * Connect something they already have, open a workspace from somewhere else, or — on a genuinely
+ * fresh install — take the bundled example. The last of those is offered on **no profiles**, not on
+ * "no workspace open": someone sitting on Default with eleven saved profiles and nothing connected is
+ * not a fresh install, and offering them the example is noise in the one place that should be a
+ * signpost.
  *
- * Once a workspace is open the button withdraws, because its profiles are ordinary rows in Quick
- * Connect and the way to another workspace is that menu.
+ * The example is named rather than given a verb of its own, because it is the same thing the
+ * workspace switcher offers under Open — reached in one click instead of three.
  *
  * Shared by the TABS and SPLIT layouts, which used to carry two copies of the same sentence.
  */
 @Composable
 fun NoSessionsPlaceholder(
-    /** A project workspace is open, so the offer to open an example withdraws. */
-    workspaceOpen: Boolean = false,
-    /** Offers the bundled example, through the dialog that names and places the copy. Null hides the button. */
+    /** There are saved profiles, so this is not a fresh install and the example withdraws. */
+    hasProfiles: Boolean = false,
+    /** Copies the bundled example into a workspace and opens it. Null hides the button. */
     onOpenExample: (() -> Unit)? = null,
+    /** Browses to a workspace folder. Null hides the button. */
+    onOpenWorkspace: (() -> Unit)? = null,
     /** Opens (never toggles) the connection panel. Null hides the button. */
     onOpenConnectionPanel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -55,10 +58,10 @@ fun NoSessionsPlaceholder(
             )
             Text(
                 text =
-                    if (workspaceOpen) {
-                        "Reconnect a profile from Quick Connect in the toolbar, or open the connection panel."
+                    if (hasProfiles) {
+                        "Reconnect a profile from Quick Connect in the toolbar, or open another workspace."
                     } else {
-                        "Connect a saved profile, or open the bundled FX Venue example: a venue, two clients, " +
+                        "Open a workspace, or take the bundled FX Venue example: a venue, two clients, " +
                             "message templates and scenarios that run green, copied into a workspace of your own."
                     },
                 color = AppTheme.Colors.textDisabled,
@@ -66,12 +69,19 @@ fun NoSessionsPlaceholder(
                 textAlign = TextAlign.Center,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (onOpenExample != null && !workspaceOpen) {
+                if (onOpenExample != null && !hasProfiles) {
                     SlimButton(
                         text = "Open FX Venue example",
                         onClick = onOpenExample,
                         color = AppTheme.Colors.primary,
                         modifier = Modifier.testTag("empty-open-example"),
+                    )
+                }
+                if (onOpenWorkspace != null) {
+                    SlimButton(
+                        text = "Open workspace…",
+                        onClick = onOpenWorkspace,
+                        modifier = Modifier.testTag("empty-open-workspace"),
                     )
                 }
                 if (onOpenConnectionPanel != null) {

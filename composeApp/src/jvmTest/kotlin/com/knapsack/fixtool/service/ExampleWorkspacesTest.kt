@@ -138,13 +138,41 @@ class ExampleWorkspacesTest {
         }
     }
 
+    /**
+     * Open is idempotent, because it is called Open.
+     *
+     * It used to mint `fx-venue-2` on the second call, which meant opening the example again silently
+     * abandoned whatever the first copy had become — the edited rules, the captured scenarios. Opening
+     * a workspace you already have must give you that workspace.
+     */
     @Test
-    fun `opening onto an existing workspace is refused rather than overwriting it`() {
-        val location = Files.createTempDirectory("example-clash").toFile()
-        ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
-        val second = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location)
-        assertTrue(second.isFailure)
-        assertTrue(second.exceptionOrNull()!!.message!!.contains("already holds a workspace"))
+    fun `opening an example twice returns the copy you already have, edits and all`() {
+        val location = Files.createTempDirectory("example-twice").toFile()
+        val first = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
+        File(first, "scenarios/mine.json").writeText("{}")
+
+        val second = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
+
+        assertEquals(first, second)
+        assertTrue(File(second, "scenarios/mine.json").isFile, "the second open overwrote work in the first")
+        assertEquals(listOf("fx-venue"), location.list()!!.toList(), "a second copy was made beside the first")
+    }
+
+    @Test
+    fun `an empty folder where the example would go is filled rather than treated as taken`() {
+        val location = Files.createTempDirectory("example-empty").toFile()
+        File(location, "fx-venue").mkdirs()
+
+        val opened = ExampleWorkspaces.open(ExampleWorkspaces.FX_VENUE, "FX Venue", location).getOrThrow()
+
+        assertTrue(File(opened, "connection_profiles.json").isFile)
+    }
+
+    @Test
+    fun `where an example lands can be asked before it is opened`() {
+        val location = Files.createTempDirectory("example-where").toFile()
+        assertEquals(File(location, "fx-venue"), ExampleWorkspaces.locationOf(ExampleWorkspaces.FX_VENUE, location))
+        assertEquals(null, ExampleWorkspaces.locationOf("no-such-example", location))
     }
 
     @Test

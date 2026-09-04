@@ -59,7 +59,7 @@ class WorkspaceMenuTest {
             WorkspaceMenu(
                 WorkspaceMenuState(
                     name = "Default",
-                    examples = listOf("fx-venue" to "FX Venue"),
+                    examples = listOf(ExampleEntry("fx-venue", "FX Venue", "opens ~/.fixtool/workspaces/fx-venue")),
                     onNew = { },
                     onBrowse = { browsed = true },
                     onOpenExample = { opened = it },
@@ -83,7 +83,7 @@ class WorkspaceMenuTest {
             WorkspaceMenu(
                 WorkspaceMenuState(
                     name = "Default",
-                    examples = listOf("fx-venue" to "FX Venue"),
+                    examples = listOf(ExampleEntry("fx-venue", "FX Venue", "opens ~/.fixtool/workspaces/fx-venue")),
                     onNew = { },
                     onBrowse = { browsed = true },
                     onOpenExample = { },

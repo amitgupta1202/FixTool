@@ -152,14 +152,14 @@ private fun OpenPage(
             thickness = AppTheme.Separators.dividerThickness,
             modifier = Modifier.padding(vertical = 4.dp),
         )
-        state.examples.forEach { (id, displayName) ->
+        state.examples.forEach { example ->
             TwoLineItem(
-                title = displayName,
-                subtitle = "bundled example, copied to a workspace of its own",
-                testTag = "workspace-example-$id",
+                title = example.displayName,
+                subtitle = example.note,
+                testTag = "workspace-example-${example.id}",
             ) {
                 close()
-                state.onOpenExample?.invoke(id)
+                state.onOpenExample?.invoke(example.id)
             }
         }
     }
@@ -268,8 +268,8 @@ data class WorkspaceMenuState(
     /** The installation's own directory is open, so there is nothing to close. */
     val isDefault: Boolean = true,
     val recents: List<File> = emptyList(),
-    /** Bundled examples, as id to display name. Open offers these below Browse. */
-    val examples: List<Pair<String, String>> = emptyList(),
+    /** Bundled examples. Open offers these below Browse. */
+    val examples: List<ExampleEntry> = emptyList(),
     val onNew: (() -> Unit)? = null,
     val onBrowse: (() -> Unit)? = null,
     val onOpenExample: ((String) -> Unit)? = null,
@@ -283,3 +283,16 @@ internal fun shortPath(file: File): String {
     val path = file.absolutePath
     return if (home.isNotBlank() && path.startsWith(home)) "~" + path.removePrefix(home) else path
 }
+
+/**
+ * A bundled example as the switcher shows it.
+ *
+ * [note] carries where it will land and whether it is already there, because Open is idempotent:
+ * someone who has opened the FX venue before is returning to their copy, not being handed a new one,
+ * and the menu is the only place to say so before they click.
+ */
+data class ExampleEntry(
+    val id: String,
+    val displayName: String,
+    val note: String,
+)

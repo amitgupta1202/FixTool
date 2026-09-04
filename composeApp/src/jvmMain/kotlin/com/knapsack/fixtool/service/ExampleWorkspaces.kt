@@ -65,14 +65,23 @@ object ExampleWorkspaces {
     /** Where a new workspace goes unless the user browses elsewhere. */
     fun defaultLocation(): File = WorkspacePaths.home.workspaces
 
+    /** Where [exampleId] lives once opened, whether or not it has been yet. */
+    fun locationOf(
+        exampleId: String,
+        location: File = defaultLocation(),
+    ): File? = byId(exampleId)?.let { File(location, slug(it.defaultWorkspaceName)) }
+
     /**
-     * Copies [exampleId] into `<location>/<slug of name>` and returns the new workspace directory.
+     * Opens [exampleId] at `<location>/<slug of name>`, copying it out of the build the first time.
      *
-     * The FIX version reaches the copied profiles rather than the app: an example is a set of sessions,
-     * and which FIX version they speak is a property of those sessions, not of the machine opening them.
+     * **Idempotent, because it is called Open.** Opening a workspace you already have must give you
+     * that workspace — with your edits, your captured scenarios, your rule changes — and not a pristine
+     * clone beside it. It used to mint `fx-venue-2`, `fx-venue-3` and so on, which meant the second
+     * Open silently abandoned the first one's contents. The copy happens only when there is nothing
+     * there to open.
      *
-     * Refuses a directory that already holds a workspace, because the alternative is overwriting
-     * someone's edited copy of the example with the pristine one and calling it "open".
+     * A fresh one is a different intent with a different answer: rename or delete the folder, the same
+     * as for any other workspace.
      */
     fun open(
         exampleId: String,
@@ -84,8 +93,9 @@ object ExampleWorkspaces {
             byId(exampleId)
                 ?: return Result.failure(IllegalArgumentException("no bundled example '$exampleId'"))
         val target = File(location, slug(name))
-        if (target.exists() && target.listFiles().orEmpty().isNotEmpty()) {
-            return Result.failure(IllegalStateException("'${target.absolutePath}' already holds a workspace"))
+        if (target.isDirectory && target.listFiles().orEmpty().isNotEmpty()) {
+            logger.info("Example '{}' is already at {}; opening it rather than copying again", exampleId, target)
+            return Result.success(target)
         }
         return runCatching {
             example.files.forEach { relative ->

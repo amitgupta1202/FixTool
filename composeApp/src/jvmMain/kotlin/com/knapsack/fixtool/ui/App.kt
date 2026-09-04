@@ -98,7 +98,7 @@ fun App(
                 name = viewModel.openWorkspaceName,
                 isDefault = viewModel.openWorkspaceIsHome,
                 recents = viewModel.recentWorkspaces,
-                examples = viewModel.bundledExamples().map { it.id to it.displayName },
+                examples = viewModel.exampleEntries().map { (id, name, note) -> ExampleEntry(id, name, note) },
                 onNew = { viewModel.requestNewWorkspace() },
                 onBrowse = browseForWorkspace,
                 onOpenExample = { id -> viewModel.openExample(id) },

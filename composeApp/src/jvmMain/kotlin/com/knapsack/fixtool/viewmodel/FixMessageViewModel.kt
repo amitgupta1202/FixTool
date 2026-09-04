@@ -4154,6 +4154,24 @@ class FixMessageViewModel(
         }
     }
 
+    /**
+     * The examples, each with a line saying where it lands — and whether it is already there.
+     *
+     * Worth saying because Open is idempotent now: someone who has opened the FX venue before should
+     * be told they are returning to their copy, not being handed a new one.
+     */
+    fun exampleEntries(): List<Triple<String, String, String>> =
+        ExampleWorkspaces.all().map { example ->
+            val at = ExampleWorkspaces.locationOf(example.id)
+            val note =
+                when {
+                    at == null -> "bundled example"
+                    at.isDirectory && at.listFiles().orEmpty().isNotEmpty() -> "opens ${at.absolutePath}"
+                    else -> "bundled example, copied to ${at.absolutePath}"
+                }
+            Triple(example.id, example.displayName, note)
+        }
+
     /** Every example that ships with the app. */
     fun bundledExamples(): List<ExampleWorkspaces.Example> = ExampleWorkspaces.all()
 
@@ -4223,39 +4241,21 @@ class FixMessageViewModel(
      * The replacement for Start Demo Server. That installed its profiles, templates and scenarios into
      * the user's own files and had to find them again by id prefix to take them back out; this hands
      * over a directory that is theirs, which needs no uninstall because nothing was mixed in.
+     *
+     * Opening the same example twice gives back the same workspace, edits and all. It used to mint a
+     * numbered copy beside it, which meant the second Open quietly abandoned whatever the first one
+     * had become.
      */
     fun openExample(exampleId: String): Result<File> {
         val example =
             ExampleWorkspaces.byId(exampleId)
                 ?: return Result.failure(IllegalArgumentException("no bundled example '$exampleId'"))
         val location = ExampleWorkspaces.defaultLocation()
-        val name = unusedWorkspaceName(example.defaultWorkspaceName, location)
-        val copied = ExampleWorkspaces.open(exampleId, name, location)
+        val copied = ExampleWorkspaces.open(exampleId, example.defaultWorkspaceName, location)
         copied.exceptionOrNull()?.let {
             showNotification("Could not open ${example.displayName}: ${it.message}", NotificationType.ERROR)
         }
         return copied.mapCatching { created -> openWorkspace(created).getOrThrow() }
-    }
-
-    /**
-     * `FX Venue`, or `FX Venue 2` when that folder is taken.
-     *
-     * Opening an example asks nothing, so it cannot ask what to do about a name already in use — and
-     * refusing would be the wrong answer to "give me a clean one", which is the whole reason someone
-     * opens an example twice.
-     */
-    private fun unusedWorkspaceName(
-        preferred: String,
-        location: File,
-    ): String {
-        if (!File(location, ExampleWorkspaces.slug(preferred)).exists()) {
-            return preferred
-        }
-        var suffix = 2
-        while (File(location, ExampleWorkspaces.slug("$preferred $suffix")).exists()) {
-            suffix++
-        }
-        return "$preferred $suffix"
     }
 
     private fun closeEverySession() {

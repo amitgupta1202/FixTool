@@ -243,8 +243,9 @@
             workspace switcher at the top left, choose <strong>Open workspace</strong> and pick
             <strong>FX Venue</strong> from under Browse&hellip;</li>
         <li>It is copied to <code>~/.fixtool/workspaces/fx-venue</code> and opened. No dialog: the
-            example is one of the things Open can open, and opening it asks nothing. Open it again and
-            you get <code>fx-venue-2</code>, which is how you get a clean one</li>
+            example is one of the things Open can open, and opening it asks nothing. Opening it again
+            returns to that same workspace with your edits in it &mdash; the copy happens once, because
+            Open means open. For a pristine one, rename or delete the folder</li>
         <li>The workspace opens with the venue and its client profiles, the templates and the
             scenarios. Connect the venue first, then the clients</li>
         <li>The venue binds <code>localhost:19876</code> and the clients log on to it</li>
@@ -542,6 +543,10 @@
     the installed app, and the next release would overwrite your work. Once copied it is an ordinary
     workspace with nothing example-ish about it &mdash; same files, same loaders, listed in Recent
     beside any other.</p>
+    <p>The copy happens <strong>once</strong>. Opening the same example again returns to the workspace
+    you already have, with whatever you changed in it; the menu says which it will be. A pristine copy
+    is a different intent with the ordinary answer &mdash; rename or delete the folder, as you would
+    for any workspace.</p>
     <p>What does <em>not</em> move with a workspace is anything belonging to the person at the keyboard:
     the data dictionary, the window layout, the rail's sort order and everything in Settings. Opening a
     second workspace gives you other profiles and other scenarios, not a fresh install.</p>

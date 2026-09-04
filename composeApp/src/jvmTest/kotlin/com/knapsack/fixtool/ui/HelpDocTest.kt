@@ -62,6 +62,14 @@ class HelpDocTest {
                 "an unreachable rule is named" to "never fires",
                 "a step can be edited in the message editor" to "Editing a step in the message editor",
                 "applying a step is not saving it" to "Applying is not saving",
+                // The list is read far more often than it is written, and everything below is
+                // about reading it: the number a card is addressed by everywhere else, the one line it
+                // folds to, and the mark that answers "which rule answered me?".
+                "a card prints the number every other surface names it by" to "sent by rule 7",
+                "a closed card is the rule in a line" to "3 steps over 500ms",
+                "a rule with no conditions is the catch-all" to "any 35=D",
+                "the rule that just answered marks itself" to "fired 09:14:22.418",
+                "the mark is withheld when it could be wrong" to "withheld rather than guessed",
             )
         val flat = chapter.flat()
         val missing = claims.filterValues { it.flat() !in flat }.keys

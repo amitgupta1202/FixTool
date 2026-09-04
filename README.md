@@ -4,17 +4,39 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 
 ## Features
 
+### Connect and send
+
 - **Message Construction**: Build FIX messages with an intuitive UI, supporting standard fields and repeating groups
 - **FIX Client Connectivity**: Connect to FIX servers as a client with configurable connection profiles
-- **FIX Acceptor Mode**: Run FixTool as a FIX server to accept incoming connections and respond to messages
 - **SSL/TLS Support**: Secure connections with full SSL/TLS support for encrypted FIX sessions
 - **Message Inspection**: View and analyze incoming and outgoing FIX messages in real-time
+- **Message Validation**: Validate messages against FIX data dictionaries
+- **Saved Messages**: Save and reuse frequently used message templates, with template expressions (`${uuid}`, `${now+2d}`, `${out.D.11}`) resolved as each message is sent
 - **Session Management**: Manage multiple FIX sessions with connection profiles
 - **Multi-Session Load Testing**: Open up to 100 concurrent sessions from one profile, with per-session identities via `{n}` numbering patterns or comma-separated CompID lists
 - **Bulk Send**: Send one message to all logged-on sessions at once, with template expressions re-resolved per session
-- **Message Validation**: Validate messages against FIX data dictionaries
-- **Saved Messages**: Save and reuse frequently used message templates
+
+### Simulate a counterparty
+
+- **FIX Acceptor Mode**: Run FixTool as a FIX server to accept incoming connections and respond to messages
+- **Auto-Response Rules**: Give an acceptor its behaviour as a readable, reorderable list of rules — a trigger in a matcher vocabulary, a timed multi-step reply, first match wins. No code, and edits reach a session that is already up
+- **Venue Mode**: One acceptor, many clients — `TargetCompID=*` opts in, each counterparty gets its own pane, and refused logons are reported rather than swallowed
+- **Order State**: The venue keeps a book, so rules can answer on what an order *is* — working, filled, cancelled — and a reply carries the reason that chose it
+- **Simulated Latency**: Give replies a plausible delay (fixed, range, normal, with spikes), because a venue that answers instantly is a venue nobody's timeout logic is tested against
+
+### Verify
+
+- **Repeatable Scenarios**: Capture a live exchange into a scenario, then replay it and assert the replies field by field. Run one, or a set of many; read back a record of every run
+- **Reconcile & Diff**: When an assertion fails, open the two messages side by side and repair the expectation from what actually came back
+- **Latency Measurement**: Round trips stamped at the socket rather than in the FIX engine, so the number is the network and the venue — works through TLS, needs no privileges
+- **Cross-Session Trace**: Follow one exchange across every session at once, as a ledger or as swimlanes with the hop times on the arrows
+
+### Organise and automate
+
+- **Workspaces**: A workspace is a folder holding its own profiles, saved messages, scenarios and session store — commit one beside the code it tests, or hand it to a colleague. Logon passwords stay out of the shareable file. A bundled **FX Venue example** opens as a workspace of your own
+- **Environments**: A connection is a counterparty *times* an environment, so one profile reaches UAT, QA and DEV without being rewritten three times
 - **AI / MCP Automation**: Let Claude (or any [MCP](https://modelcontextprotocol.io) client) drive FixTool for automated testing — connect sessions, send messages, verify FIX fields, manage templates, and capture screenshots. An MCP server is **embedded in the app** (no extra install). See the [Automation Guide](docs/AUTOMATION.md)
+- **Headless Runs**: `fixtool run` executes scenarios with no UI and a real exit code, writing JUnit XML for CI
 
 ## Download
 

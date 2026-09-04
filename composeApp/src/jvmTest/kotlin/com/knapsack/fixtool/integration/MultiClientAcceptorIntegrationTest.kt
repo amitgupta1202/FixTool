@@ -401,10 +401,12 @@ class MultiClientAcceptorIntegrationTest {
             ?.substringAfter('=')
 
     private fun awaitCondition(timeoutMs: Long, predicate: () -> Boolean): Boolean {
-        val start = System.currentTimeMillis()
-        while (!predicate() && System.currentTimeMillis() - start < timeoutMs) {
+        // A torn read is 'not yet', not 'no' -- see [settled].
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            if (settled(predicate)) return true
+            if (System.currentTimeMillis() >= deadline) return false
             Thread.sleep(50)
         }
-        return predicate()
     }
 }

@@ -2,6 +2,9 @@ package com.knapsack.fixtool.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -10,14 +13,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixMessageSession
+import java.awt.Cursor
 import java.time.format.DateTimeFormatter
 
 /**
@@ -29,18 +36,22 @@ import java.time.format.DateTimeFormatter
  * rather than an empty grid. A refused logon produces no FIX message anywhere, on either side, so
  * without somewhere to put it the tester sees an acceptor that is running perfectly and a client
  * that cannot connect, with nothing in between to link them.
+ *
+ * Everything drawn here comes from [VenueSummary], which the minimized chip also reads. That is what
+ * keeps the two from drifting: this pane is the full density and the chip is a strict subset, and
+ * neither can show a fact or offer an action the other does not have. See [MinimizedStrip].
  */
 @Composable
 fun AcceptorOverviewPane(
     venue: FixMessageSession,
     clients: List<FixMessageSession>,
     onFocusClient: (FixMessageSession) -> Unit,
+    /** Opens this venue's rules in the connection panel. The venue's main control, at either size. */
+    onEditRules: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val state by venue.connectionState.collectAsState()
+    val summary = rememberVenueSummary(venue, clients)
     val refused by venue.refusedLogons.collectAsState()
-    val config = venue.currentConfig
-    val status = venue.acceptorStatus()
 
     Column(
         modifier =
@@ -52,28 +63,15 @@ fun AcceptorOverviewPane(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text =
-                buildString {
-                    append(config?.senderCompID.orEmpty().ifBlank { "?" })
-                    append("  ·  ")
-                    append(
-                        if (state == FixConnectionState.CONNECTED) {
-                            "listening on ${config?.socketAcceptPort?.ifBlank { config.port }.orEmpty().ifBlank { "?" }}"
-                        } else {
-                            "not listening"
-                        },
-                    )
-                    append("  ·  ")
-                    append(clientCountLabel(clients))
-                },
-            color = if (state == FixConnectionState.CONNECTED) AppTheme.Colors.text else AppTheme.Colors.warning,
+            text = "${summary.senderCompID.ifBlank { "?" }}  ·  ${summary.portLabel()}  ·  ${summary.clientsLabel()}",
+            color = if (summary.listening) AppTheme.Colors.text else AppTheme.Colors.warning,
             fontFamily = FontFamily.Monospace,
             fontSize = 12.sp,
         )
 
         if (clients.isEmpty()) {
             Text(
-                text = "No client has logged on yet. Any counterparty addressing ${config?.senderCompID.orEmpty()} will open its own tab.",
+                text = "No client has logged on yet. Any counterparty addressing ${summary.senderCompID} will open its own tab.",
                 color = AppTheme.Colors.textDisabled,
                 fontSize = 11.sp,
             )
@@ -95,7 +93,7 @@ fun AcceptorOverviewPane(
                 Text(
                     text =
                         "${TIME.format(event.at)}  ${event.sessionId.targetCompID} addressed " +
-                            "${event.sessionId.senderCompID} — this venue is ${config?.senderCompID.orEmpty()}",
+                            "${event.sessionId.senderCompID} — this venue is ${summary.senderCompID}",
                     color = AppTheme.Colors.textSecondary,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
@@ -103,24 +101,60 @@ fun AcceptorOverviewPane(
             }
         }
 
-        if (status != null) {
-            HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-            Text(
-                text =
-                    "rules live ${status.rulesLive}  ·  latency ${if (status.latencyActive) "on" else "off"}  ·  " +
-                        "triggered ${status.triggersMatched}  ·  sent ${status.responsesSent}  ·  " +
-                        "pending ${status.pendingResponses}",
-                color = AppTheme.Colors.textSecondary,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
+        HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
+
+        // The full counters. The chip promotes only the ones that have deviated (see [VenueSummary]);
+        // this is the density that shows them all, because it is the surface you open to read numbers.
+        Text(
+            text = if (summary.noRules) "no rules loaded — this venue will answer nothing" else summary.rulesLabel(),
+            color = if (summary.noRules) AppTheme.Colors.warning else AppTheme.Colors.textSecondary,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
+        )
+        Text(
+            text = "Response rules apply to every client on this venue.",
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 10.sp,
+        )
+
+        // The venue's actions, named. A bare power icon used to be the only one, and on a venue it
+        // unbinds a port that every client on the list is sitting on without ever saying so.
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (onEditRules != null) SlimButton(text = "Rules", onClick = onEditRules)
+            SlimButton(
+                text = if (summary.listening) "Stop" else "Start",
+                onClick = { if (summary.listening) venue.disconnect() else venue.reconnect() },
+                color = if (summary.listening) AppTheme.Colors.warning else AppTheme.Colors.success,
             )
-            Text(
-                text = "Response rules apply to every client on this venue.",
-                color = AppTheme.Colors.textDisabled,
-                fontSize = 10.sp,
-            )
+            if (summary.showRefused) {
+                SlimButton(text = "Clear refused", onClick = { venue.clearRefusedLogons() })
+            }
         }
     }
+}
+
+/**
+ * Reads a venue into the shape both its surfaces draw from.
+ *
+ * Every client's state is collected here rather than inside the row, so the rollup on the chip and the
+ * rows in the pane are counted from the same reading at the same moment.
+ */
+@Composable
+fun rememberVenueSummary(venue: FixMessageSession, clients: List<FixMessageSession>): VenueSummary {
+    val state by venue.connectionState.collectAsState()
+    val refused by venue.refusedLogons.collectAsState()
+    val clientStates = clients.map { it.connectionState.collectAsState().value }
+    val config = venue.currentConfig
+    val up = clientStates.count { it == FixConnectionState.LOGGED_ON }
+    return VenueSummary.of(
+        senderCompID = config?.senderCompID.orEmpty(),
+        port = config?.socketAcceptPort?.ifBlank { config.port }.orEmpty(),
+        listening = state == FixConnectionState.CONNECTED || state == FixConnectionState.LOGGED_ON,
+        clientsConnected = up,
+        clientsGone = clientStates.size - up,
+        refused = refused.size,
+        status = venue.acceptorStatus(),
+    )
 }
 
 @Composable
@@ -129,12 +163,19 @@ private fun ClientRow(client: FixMessageSession, onFocus: (FixMessageSession) ->
     val messages by client.messages.collectAsState()
     val since = messages.firstOrNull()?.timestamp
 
+    // The row has always been a way into that client's pane and has never looked like one, which makes
+    // it an action nobody finds. A hand cursor, a lit edge and a chevron are the whole fix.
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .hoverable(interaction)
+                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
                 .clickable { onFocus(client) }
-                .background(AppTheme.Colors.surfaceVariant)
+                .background(if (hovered) AppTheme.Colors.surface else AppTheme.Colors.surfaceVariant)
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -170,6 +211,11 @@ private fun ClientRow(client: FixMessageSession, onFocus: (FixMessageSession) ->
             color = if ((book?.working ?: 0) > 0) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
             modifier = Modifier.weight(1.6f),
         )
+        Text(
+            text = "›",
+            color = if (hovered) AppTheme.Colors.primary else AppTheme.Colors.textDisabled,
+            fontSize = 11.sp,
+        )
     }
 }
 
@@ -192,24 +238,7 @@ private fun Cell(
     )
 }
 
-/**
- * "3 clients", counting only those actually on the venue right now.
- *
- * Panes outlive their sessions on purpose — a client's history is most wanted just after it drops —
- * so the number of tabs is not the number of connections, and a header that said "5 clients" over
- * two live ones would be the more misleading of the two numbers.
- */
-private fun clientCountLabel(clients: List<FixMessageSession>): String {
-    val live = clients.count { it.connectionState.value == FixConnectionState.LOGGED_ON }
-    val gone = clients.size - live
-    return when {
-        clients.isEmpty() -> "no clients"
-        gone == 0 -> "$live connected"
-        else -> "$live connected, $gone gone"
-    }
-}
-
-private fun stateColor(state: FixConnectionState) =
+internal fun stateColor(state: FixConnectionState) =
     when (state) {
         FixConnectionState.LOGGED_ON -> AppTheme.Colors.success
         FixConnectionState.CONNECTED, FixConnectionState.CONNECTING -> AppTheme.Colors.info

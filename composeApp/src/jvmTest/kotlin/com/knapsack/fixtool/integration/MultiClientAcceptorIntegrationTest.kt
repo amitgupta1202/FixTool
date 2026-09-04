@@ -12,6 +12,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -155,6 +156,77 @@ class MultiClientAcceptorIntegrationTest {
         assertEquals("NOTUS$runId", refused.sessionId.senderCompID, "the venue name the client addressed")
         assertEquals("ALPHA$runId", refused.sessionId.targetCompID, "who was asking")
         assertTrue(viewModel.sessions.none { it.clientSessionId != null }, "no pane for a client we refused")
+    }
+
+    // ------------------------------------------------------------------ minimized
+
+    /**
+     * **A venue's pane starts in the strip, and everything about the venue keeps working.**
+     *
+     * The pane is minimized by default because it holds no traffic of its own — every message on a
+     * venue belongs to one of its clients — so its cell in the grid was a full pane for four lines of
+     * text, and on the shipped example it was the fifth of five panes that the grid rounds up to six
+     * cells with one left blank.
+     *
+     * What must not follow is any of the venue's *behaviour* going with it. The pane is what is hidden,
+     * not the engine: the port stays bound, arrivals still open panes, and a refusal is still recorded.
+     * That last one is the reason to test it rather than assume it, because a refused logon produces no
+     * FIX message on either side and is the one fact the app holds nowhere else — losing it silently is
+     * indistinguishable from a venue that is working.
+     */
+    @Test
+    fun `a venue works minimized - it listens, opens panes for arrivals, and still records a refusal`() {
+        connectVenue()
+        val venue = venuePane()
+        assertTrue(venue.minimized.value, "a venue's own pane starts in the strip")
+        assertTrue(viewModel.visibleSessions().none { it.isVenue }, "and not in the grid")
+
+        // Arrivals: the client's pane appears, and it is a conversation, so it is *not* minimized.
+        connectClient("ALPHA")
+        val alphaPane = awaitPane("ALPHA")
+        assertFalse(alphaPane.minimized.value, "a client's pane is a conversation and belongs in the grid")
+        assertTrue(alphaPane in viewModel.visibleSessions())
+        assertTrue(venue.minimized.value, "and its arrival does not restore the venue")
+
+        // Refusals: recorded on a pane nobody is looking at, which is where the chip's badge reads it.
+        connectClient("BETA", venueName = "NOTUS$runId")
+        assertTrue(
+            awaitCondition(15_000) { venue.refusedLogons.value.isNotEmpty() },
+            "a minimized venue must still record a logon it turned away",
+        )
+        val refusal = venue.refusedLogons.value.first()
+        assertEquals("NOTUS$runId", refusal.sessionId.senderCompID)
+    }
+
+    /**
+     * **Closing a minimized venue still closes its clients.**
+     *
+     * The recursion through `isClientOf` is what stops a client pane outliving the port that holds its
+     * session open, and it is addressed by session now rather than by index — a stale index would close
+     * some other pane, disconnecting it and discarding its log, without anything failing.
+     */
+    @Test
+    fun `closing a minimized venue closes the client panes with it`() {
+        connectVenue()
+        connectClient("ALPHA")
+        connectClient("BETA")
+        awaitPane("ALPHA")
+        awaitPane("BETA")
+
+        val venue = venuePane()
+        assertTrue(venue.minimized.value)
+        val clientPanes = viewModel.sessions.count { it.isClientOf(venue) }
+        assertEquals(2, clientPanes, "both clients should have a pane before the venue closes")
+
+        viewModel.closeSession(venue)
+
+        assertTrue(viewModel.sessions.none { it.isVenue }, "the venue's pane is gone")
+        assertTrue(
+            viewModel.sessions.none { it.clientSessionId != null },
+            "and no client pane is left showing a conversation on an engine that has stopped",
+        )
+        // The clients' own initiator panes are untouched: they are connections of their own.
+        assertTrue(viewModel.sessions.any { it.title == "ALPHA" }, "the client's own pane is not the venue's to close")
     }
 
     /**

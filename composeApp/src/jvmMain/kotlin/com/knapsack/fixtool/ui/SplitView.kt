@@ -40,10 +40,30 @@ fun SplitView(
     sessions: List<FixMessageSession>,
     dictionary: FixDictionary,
     viewMode: FixMessageSession.ViewMode,
-    onCloseSession: (Int) -> Unit,
-    onMoveSession: ((Int, Int) -> Unit)? = null,
+    onCloseSession: (FixMessageSession) -> Unit,
+    /**
+     * Put the first session where the second one is.
+     *
+     * Sessions rather than indices, and that is the whole point of it. The grid is drawn from the
+     * *visible* panes, so a `index - 1` computed here is a position in visible order while the model
+     * orders every pane, minimized ones included — off by however many are hidden to the left. Naming
+     * the neighbour instead of counting to it makes the two orders impossible to confuse, and it is the
+     * same reason [onCloseSession] takes a session: a stale index closes the wrong pane silently, which
+     * is destructive, because closing disconnects.
+     */
+    onMoveSession: ((FixMessageSession, FixMessageSession) -> Unit)? = null,
     /** Bring one session to the front — a venue's overview lists its clients and each one is a way in. */
-    onFocusSession: (Int) -> Unit = {},
+    onFocusSession: (FixMessageSession) -> Unit = {},
+    /** Where the editor's Send goes, so a minimized chip can say so. See [MinimizedStrip]. */
+    activeSession: FixMessageSession? = null,
+    /** Opens a venue's rules in the connection panel, from its pane or its chip. */
+    onEditVenueRules: ((FixMessageSession) -> Unit)? = null,
+    /**
+     * Minimize or restore a pane. Routed out rather than written straight onto the session because the
+     * *decision* is remembered across restarts — see `FixMessageViewModel.setSessionMinimized`. The
+     * default keeps this composable usable on its own, which the tests rely on.
+     */
+    onMinimize: (FixMessageSession, Boolean) -> Unit = { session, on -> session.setMinimized(on) },
     selectedMessage: FixMessage? = null,
     onSelectMessage: ((FixMessage?) -> Unit)? = null,
     onDiffSelected: ((FixMessage, FixMessage) -> Unit)? = null,
@@ -80,6 +100,128 @@ fun SplitView(
         return
     }
 
+    // Which panes are in the layout at all.
+    //
+    // One collector over the combined flows, keyed on the session *identities* rather than on the count.
+    // `sessions.map { it.minimized.collectAsState() }` would call a composable inside a loop over a
+    // mutable list, so the number and order of composition slots would depend on how many panes were
+    // open — the defect the toolbar's grouping indicator already carries a comment about. Keying on the
+    // ids and not the size also survives a reorder, which leaves the count alone and would otherwise
+    // leave `combine` reading the flows in the old order.
+    val identities = sessions.joinToString(",") { it.id }
+    val minimizedFlags by remember(identities) {
+        val flows = sessions.map { it.minimized }
+        if (flows.isEmpty()) {
+            kotlinx.coroutines.flow.flowOf(emptyList<Boolean>())
+        } else {
+            kotlinx.coroutines.flow.combine(flows) { flags -> flags.toList() }
+        }
+    }.collectAsState(initial = sessions.map { it.minimized.value })
+
+    val minimized = sessions.filterIndexed { i, _ -> minimizedFlags.getOrElse(i) { false } }
+    val visible = sessions.filterIndexed { i, _ -> !minimizedFlags.getOrElse(i) { false } }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        MinimizedStrip(
+            minimized = minimized,
+            allSessions = sessions,
+            targetSession = activeSession,
+            onRestore = { onMinimize(it, false) },
+            onRestoreAll = { minimized.forEach { session -> onMinimize(session, false) } },
+            onEditRules = onEditVenueRules,
+        )
+
+        if (visible.isEmpty()) {
+            AllMinimizedPlaceholder(count = minimized.size, modifier = Modifier.weight(1f))
+            return@Column
+        }
+
+        SplitGrid(
+            sessions = visible,
+            allSessions = sessions,
+            dictionary = dictionary,
+            viewMode = viewMode,
+            onCloseSession = onCloseSession,
+            onMoveSession = onMoveSession,
+            onFocusSession = onFocusSession,
+            onEditVenueRules = onEditVenueRules,
+            onMinimize = onMinimize,
+            selectedMessage = selectedMessage,
+            onSelectMessage = onSelectMessage,
+            onDiffSelected = onDiffSelected,
+            onPasteMessage = onPasteMessage,
+            orientation = orientation,
+            gridViewColumns = gridViewColumns,
+            assertionResults = assertionResults,
+            appSettings = appSettings,
+            globalFilter = globalFilter,
+            followedUids = followedUids,
+            followedTraceIds = followedTraceIds,
+            onFollowTrace = onFollowTrace,
+            onUnfollowTrace = onUnfollowTrace,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * Nothing left in the grid, because every pane is in the strip.
+ *
+ * Reachable in one gesture from a two-pane layout, so it needs an answer rather than a blank region.
+ */
+@Composable
+private fun AllMinimizedPlaceholder(count: Int, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize().background(panelBackgroundColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text =
+                if (count == 1) {
+                    "One pane is minimized. Click its chip above to bring it back."
+                } else {
+                    "$count panes are minimized. Click a chip above, or “restore all”."
+                },
+            color = AppTheme.Colors.textDisabled,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+/**
+ * The grid itself, over the panes that are in it.
+ *
+ * Lifted out of [SplitView] when minimizing arrived, because everything here indexes into the list it
+ * is given and that list is now the *visible* panes rather than every pane. Separating them is what
+ * makes that impossible to get wrong by accident: nothing in this function can see a minimized pane.
+ */
+@Composable
+private fun SplitGrid(
+    sessions: List<FixMessageSession>,
+    /** Every pane, only so a venue can find its clients — they may be minimized, it still owns them. */
+    allSessions: List<FixMessageSession>,
+    dictionary: FixDictionary,
+    viewMode: FixMessageSession.ViewMode,
+    onCloseSession: (FixMessageSession) -> Unit,
+    onMoveSession: ((FixMessageSession, FixMessageSession) -> Unit)?,
+    onFocusSession: (FixMessageSession) -> Unit,
+    onEditVenueRules: ((FixMessageSession) -> Unit)?,
+    onMinimize: (FixMessageSession, Boolean) -> Unit,
+    selectedMessage: FixMessage?,
+    onSelectMessage: ((FixMessage?) -> Unit)?,
+    onDiffSelected: ((FixMessage, FixMessage) -> Unit)?,
+    onPasteMessage: ((String) -> Unit)?,
+    orientation: SplitOrientation,
+    gridViewColumns: List<Int>,
+    assertionResults: Map<FixMessage, com.knapsack.fixtool.model.scenario.StepResult>,
+    appSettings: com.knapsack.fixtool.model.AppSettings,
+    globalFilter: MessageFilters.Global,
+    followedUids: Set<Long>?,
+    followedTraceIds: Set<String>,
+    onFollowTrace: ((String) -> Unit)?,
+    onUnfollowTrace: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
     // Calculate grid dimensions based on orientation
     val sessionCount = sessions.size
     val columns: Int
@@ -145,29 +287,35 @@ fun SplitView(
                                         .width(with(density) { (totalWidthPx * columnWeights[col]).toDp() })
                                         .fillMaxHeight(),
                             ) {
+                                val pane = sessions[index]
                                 SessionPanel(
-                                    session = sessions[index],
-                                    venueClients = sessions.filter { it.isClientOf(sessions[index]) },
-                                    onFocusClient = { client ->
-                                        sessions.indexOf(client).takeIf { it >= 0 }?.let(onFocusSession)
-                                    },
+                                    session = pane,
+                                    // From every pane, not the visible ones: a venue owns its clients
+                                    // whether or not they are in the grid, and the overview counts them.
+                                    venueClients = allSessions.filter { it.isClientOf(pane) },
+                                    onFocusClient = onFocusSession,
+                                    onEditVenueRules = onEditVenueRules?.let { edit -> { edit(pane) } },
+                                    onMinimize = { onMinimize(pane, true) },
                                     dictionary = dictionary,
                                     viewMode = viewMode,
-                                    onClose = { onCloseSession(index) },
+                                    onClose = { onCloseSession(pane) },
+                                    // Move to the *visible* neighbour, and withhold the button at visible
+                                    // position 0 rather than at real index 0 — otherwise the leftmost pane
+                                    // grows a dead arrow whenever something is minimized ahead of it.
                                     onMoveLeft =
                                         if (index > 0 && onMoveSession != null) {
-                                            { onMoveSession(index, index - 1) }
+                                            { onMoveSession(pane, sessions[index - 1]) }
                                         } else {
                                             null
                                         },
                                     onMoveRight =
                                         if (index < sessions.size - 1 && onMoveSession != null) {
-                                            { onMoveSession(index, index + 1) }
+                                            { onMoveSession(pane, sessions[index + 1]) }
                                         } else {
                                             null
                                         },
-                                    onConnect = { sessions[index].reconnect() },
-                                    onDisconnect = { sessions[index].disconnect() },
+                                    onConnect = { pane.reconnect() },
+                                    onDisconnect = { pane.disconnect() },
                                     selectedMessage = selectedMessage,
                                     onSelectMessage = onSelectMessage,
                                     onDiffSelected = onDiffSelected,
@@ -272,6 +420,10 @@ private fun SessionPanel(
     session: FixMessageSession,
     venueClients: List<FixMessageSession>,
     onFocusClient: (FixMessageSession) -> Unit,
+    /** Opens this venue's rules, when this pane is one. Null for a conversation, which has none. */
+    onEditVenueRules: (() -> Unit)? = null,
+    /** Sends this pane to the strip. See [MinimizedStrip]. */
+    onMinimize: () -> Unit = { session.setMinimized(true) },
     dictionary: FixDictionary,
     viewMode: FixMessageSession.ViewMode,
     onClose: (() -> Unit)?,
@@ -327,8 +479,14 @@ private fun SessionPanel(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Connect/Disconnect toggle button (replaces drag handle)
-            if (connectionState.canConnect() && onConnect != null) {
+            // Connect/Disconnect toggle button (replaces drag handle).
+            //
+            // Not for a venue: on one, this unbinds a port that every client on its list is sitting on,
+            // and an unlabelled power icon says none of that. The overview draws it as a named Stop or
+            // Start instead — the same button, in the same words, that its minimized chip carries.
+            if (session.isVenue) {
+                Unit
+            } else if (connectionState.canConnect() && onConnect != null) {
                 // Show connect button when disconnected
                 TooltipIconButton(
                     tooltip = "Connect Session",
@@ -395,119 +553,161 @@ private fun SessionPanel(
                     fontSize = 10.sp,
                 )
             }
+            // The count its minimized chip also shows, so a pane reduces to something already seen
+            // rather than to a new readout. Sits in the gap the header already leaves empty.
+            if (!session.isVenue) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "${messages.size}",
+                    color = AppTheme.Colors.textDisabled,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                )
+            }
+
             Spacer(modifier = Modifier.weight(1f))
 
-            // Wrap text toggle (RAW mode only)
-            Spacer(modifier = Modifier.width(4.dp))
+            // Everything from here to the scroll button acts on the message grid, so a venue gets
+            // none of it. Its pane has no grid: every message on the venue belongs to one of its
+            // clients (see QuickFixService.deliver, whose every venue branch routes to a client
+            // channel), so filtering, grouping, blank lines, clearing and scroll-to-bottom were
+            // eleven controls of which four did anything. The filter was the worst of them, drawing
+            // a working-looking regex box above a list it could not touch.
+            if (!session.isVenue) {
+                // Wrap text toggle (RAW mode only)
+                Spacer(modifier = Modifier.width(4.dp))
 
-            if (viewMode == FixMessageSession.ViewMode.RAW) {
-                TooltipIconButton(
-                    tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
-                    onClick = { session.toggleWrapText() },
-                    modifier = Modifier.size(buttonSize),
-                ) {
-                    Icon(
-                        imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
-                        contentDescription = "Toggle Text Wrap",
-                        tint = iconTintColor,
-                        modifier = Modifier.size(iconSize),
-                    )
+                if (viewMode == FixMessageSession.ViewMode.RAW) {
+                    TooltipIconButton(
+                        tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
+                        onClick = { session.toggleWrapText() },
+                        modifier = Modifier.size(buttonSize),
+                    ) {
+                        Icon(
+                            imageVector = if (wrapText) Icons.Default.WrapText else Icons.Default.Notes,
+                            contentDescription = "Toggle Text Wrap",
+                            tint = iconTintColor,
+                            modifier = Modifier.size(iconSize),
+                        )
+                    }
+
+                    // Search button (RAW mode only)
+                    Spacer(modifier = Modifier.width(2.dp))
+
+                    TooltipIconButton(
+                        tooltip = if (searchVisible) "Hide Search" else "Show Search (Ctrl+F)",
+                        onClick = { session.toggleSearch() },
+                        modifier = Modifier.size(buttonSize),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Toggle Search",
+                            tint = if (searchVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
 
-                // Search button (RAW mode only)
+                // Filter button (available for both RAW and PARSED modes)
                 Spacer(modifier = Modifier.width(2.dp))
 
                 TooltipIconButton(
-                    tooltip = if (searchVisible) "Hide Search" else "Show Search (Ctrl+F)",
-                    onClick = { session.toggleSearch() },
+                    tooltip = if (filterVisible) "Hide Filter" else "Show Filter (Regex)",
+                    onClick = { session.toggleFilter() },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FilterAlt,
+                        contentDescription = "Toggle Filter",
+                        tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+
+                // Group this pane's grid by business exchange — per session, like the filter.
+                Spacer(modifier = Modifier.width(2.dp))
+
+                TooltipIconButton(
+                    tooltip =
+                        if (groupedByConversation) {
+                            "Conversations: On (click for a flat list)"
+                        } else {
+                            "Conversations: Off (click to group by exchange)"
+                        },
+                    onClick = { session.toggleGroupByConversation() },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountTree,
+                        contentDescription = "Group by Conversation",
+                        tint = if (groupedByConversation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+
+                // Add blank line button
+                Spacer(modifier = Modifier.width(2.dp))
+
+                TooltipIconButton(
+                    tooltip = "Add Blank Line",
+                    onClick = { session.addSeparator() },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Blank Line",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+
+                // Clear session button
+                Spacer(modifier = Modifier.width(2.dp))
+
+                TooltipIconButton(
+                    tooltip = "Clear All Messages",
+                    onClick = { session.clearMessages() },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Clear All Messages",
+                        tint = AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+
+                // Scroll to bottom button
+                Spacer(modifier = Modifier.width(2.dp))
+
+                TooltipIconButton(
+                    tooltip = "Scroll to Bottom",
+                    onClick = { scrollToBottomTrigger++ },
+                    enabled = !isAtBottom,
                     modifier = Modifier.size(buttonSize),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Toggle Search",
-                        tint = if (searchVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                        modifier = Modifier.size(16.dp),
+                        imageVector = Icons.Default.ArrowDownward,
+                        contentDescription = "Scroll to bottom",
+                        tint = if (!isAtBottom) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                        modifier = Modifier.size(iconSize),
                     )
                 }
             }
 
-            // Filter button (available for both RAW and PARSED modes)
+            // Leaves the layout for a chip in the strip above (see MinimizedStrip). Not a close:
+            // the session keeps running and keeps its log, which closing does not.
             Spacer(modifier = Modifier.width(2.dp))
 
             TooltipIconButton(
-                tooltip = if (filterVisible) "Hide Filter" else "Show Filter (Regex)",
-                onClick = { session.toggleFilter() },
-                modifier = Modifier.size(24.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FilterAlt,
-                    contentDescription = "Toggle Filter",
-                    tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-
-            // Group this pane's grid by business exchange — per session, like the filter.
-            Spacer(modifier = Modifier.width(2.dp))
-
-            TooltipIconButton(
-                tooltip = if (groupedByConversation) "Conversations: On (click for a flat list)" else "Conversations: Off (click to group by exchange)",
-                onClick = { session.toggleGroupByConversation() },
-                modifier = Modifier.size(24.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AccountTree,
-                    contentDescription = "Group by Conversation",
-                    tint = if (groupedByConversation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-
-            // Add blank line button
-            Spacer(modifier = Modifier.width(2.dp))
-
-            TooltipIconButton(
-                tooltip = "Add Blank Line",
-                onClick = { session.addSeparator() },
-                modifier = Modifier.size(24.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Add Blank Line",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-
-            // Clear session button
-            Spacer(modifier = Modifier.width(2.dp))
-
-            TooltipIconButton(
-                tooltip = "Clear All Messages",
-                onClick = { session.clearMessages() },
-                modifier = Modifier.size(24.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Clear All Messages",
-                    tint = AppTheme.Colors.textSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-
-            // Scroll to bottom button
-            Spacer(modifier = Modifier.width(2.dp))
-
-            TooltipIconButton(
-                tooltip = "Scroll to Bottom",
-                onClick = { scrollToBottomTrigger++ },
-                enabled = !isAtBottom,
+                tooltip = "Minimize Pane",
+                onClick = onMinimize,
                 modifier = Modifier.size(buttonSize),
             ) {
                 Icon(
-                    imageVector = Icons.Default.ArrowDownward,
-                    contentDescription = "Scroll to bottom",
-                    tint = if (!isAtBottom) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                    imageVector = Icons.Default.Remove,
+                    contentDescription = "Minimize Pane",
+                    tint = iconTintColor,
                     modifier = Modifier.size(iconSize),
                 )
             }
@@ -521,10 +721,14 @@ private fun SessionPanel(
                     onClick = onMoveLeft,
                     modifier = Modifier.size(buttonSize),
                 ) {
-                    Text(
-                        text = "◀",
-                        color = iconTintColor,
-                        fontSize = 12.sp,
+                    // An icon rather than a "◀" glyph: these two were the only text buttons in a row of
+                    // icons, so they were the only ones with no content description — invisible to a
+                    // screen reader and to a test.
+                    Icon(
+                        imageVector = Icons.Default.ChevronLeft,
+                        contentDescription = "Move Session Left",
+                        tint = iconTintColor,
+                        modifier = Modifier.size(iconSize),
                     )
                 }
             }
@@ -538,10 +742,11 @@ private fun SessionPanel(
                     onClick = onMoveRight,
                     modifier = Modifier.size(buttonSize),
                 ) {
-                    Text(
-                        text = "▶",
-                        color = iconTintColor,
-                        fontSize = 12.sp,
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Move Session Right",
+                        tint = iconTintColor,
+                        modifier = Modifier.size(iconSize),
                     )
                 }
             }
@@ -564,6 +769,20 @@ private fun SessionPanel(
             }
         }
 
+        // A venue leaves first, above the filter bar rather than below it. Drawn after, the bar rendered
+        // its whole regex box over the client list and filtered nothing — a control that looks live and
+        // is not, on the one pane in the app with no message log to apply it to.
+        if (session.isVenue) {
+            AcceptorOverviewPane(
+                venue = session,
+                clients = venueClients,
+                onFocusClient = onFocusClient,
+                onEditRules = onEditVenueRules,
+                modifier = Modifier.weight(1f),
+            )
+            return@Column
+        }
+
         // Filter input section — the same bar the TABS layout draws (see SessionFilterBar).
         if (filterVisible) SessionFilterBar(session)
 
@@ -581,18 +800,6 @@ private fun SessionPanel(
             remember(messages, paneFilters, globalFilter, followedUids) {
                 MessageFilters.apply(messages, paneFilters, globalFilter, followedUids)
             }
-
-        // Panel content. A venue's own pane has no traffic to show — every message on it belongs to
-        // one of its clients, and each of those has a pane of its own.
-        if (session.isVenue) {
-            AcceptorOverviewPane(
-                venue = session,
-                clients = venueClients,
-                onFocusClient = onFocusClient,
-                modifier = Modifier.weight(1f),
-            )
-            return@Column
-        }
 
         FixMessageDisplay(
             messages = filteredMessages,

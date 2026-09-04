@@ -473,19 +473,15 @@ fun App(
 
                                     TabBar(
                                         sessions = viewModel.sessions,
-                                        activeIndex = viewModel.activeSessionIndex,
+                                        activeSession = viewModel.activeSession,
                                         viewMode = globalViewMode,
-                                        onTabClick = { index -> viewModel.setActiveSession(index) },
-                                        onCloseTab = { index -> viewModel.closeSession(index) },
-                                        onToggleWrapText = { index ->
-                                            viewModel.sessions.getOrNull(index)?.toggleWrapText()
-                                        },
-                                        onConnect = { index ->
-                                            viewModel.sessions.getOrNull(index)?.reconnect()
-                                        },
-                                        onDisconnect = { index ->
-                                            viewModel.sessions.getOrNull(index)?.disconnect()
-                                        },
+                                        onTabClick = { session -> viewModel.setActiveSessionByObject(session) },
+                                        onCloseTab = { session -> viewModel.closeSession(session) },
+                                        onToggleWrapText = { session -> session.toggleWrapText() },
+                                        onConnect = { session -> session.reconnect() },
+                                        onDisconnect = { session -> session.disconnect() },
+                                        onMinimize = { session, on -> viewModel.setSessionMinimized(session, on) },
+                                        onEditVenueRules = { session -> viewModel.openVenueRules(session) },
                                         isAtBottom = isAtBottom,
                                         onScrollToBottom = { scrollToBottomTrigger++ },
                                     )
@@ -493,6 +489,26 @@ fun App(
                                     // The centre is always the sessions now — the scenario editor is a
                                     // bottom dock (see ScenarioDock), not a pane that replaces the grid.
                                     viewModel.activeSession?.let { session ->
+                                        // Minimizing does not move the editor's target — silently
+                                        // pointing a loaded order at a different counterparty is how a
+                                        // tester sends to the wrong venue. So the active session can be
+                                        // one that is in the strip, and the centre says so instead of
+                                        // drawing a pane that is not there.
+                                        val activeMinimized by session.minimized.collectAsState()
+                                        if (activeMinimized) {
+                                            Box(
+                                                modifier = Modifier.weight(1f).fillMaxSize(),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    text = "${session.title} is minimized. Click its chip above to bring it back.",
+                                                    color = AppTheme.Colors.textDisabled,
+                                                    fontSize = 12.sp,
+                                                )
+                                            }
+                                            return@let
+                                        }
+
                                         val messages by session.messages.collectAsState()
                                         val wrapText by session.wrapText.collectAsState()
                                         val recentlySentMessageTimestamp by session.recentlySentMessageTimestamp.collectAsState()
@@ -504,12 +520,8 @@ fun App(
                                             AcceptorOverviewPane(
                                                 venue = session,
                                                 clients = viewModel.sessions.filter { it.isClientOf(session) },
-                                                onFocusClient = { client ->
-                                                    viewModel.sessions
-                                                        .indexOf(client)
-                                                        .takeIf { it >= 0 }
-                                                        ?.let { viewModel.setActiveSession(it) }
-                                                },
+                                                onFocusClient = { client -> viewModel.setActiveSessionByObject(client) },
+                                                onEditRules = { viewModel.openVenueRules(session) },
                                                 modifier = Modifier.weight(1f),
                                             )
                                             return@let
@@ -679,6 +691,8 @@ fun App(
                                             },
                                             onClose = { viewModel.toggleConnectionPanel() },
                                             selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
+                                            rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
+                                            onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
                                             dictionary = viewModel.dictionary,
                                             onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
                                                 viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
@@ -951,6 +965,8 @@ fun App(
                                                 },
                                                 onClose = { viewModel.toggleConnectionPanel() },
                                                 selectionRequest = viewModel.connectionPanelSelection.collectAsState().value,
+                                            rulesExpandRequest = viewModel.rulesExpandRequest.collectAsState().value,
+                                            onRulesExpandConsumed = { viewModel.consumeRulesExpandRequest() },
                                                 dictionary = viewModel.dictionary,
                                                 onOpenReplyStepInEditor = { profileId, ruleIndex, stepIndex, template ->
                                                     viewModel.openReplyStep(profileId, ruleIndex, stepIndex, template)
@@ -1146,9 +1162,12 @@ private fun ColumnScope.SplitCentre(
         sessions = viewModel.sessions,
         dictionary = viewModel.dictionary,
         viewMode = globalViewMode,
-        onCloseSession = { index -> viewModel.closeSession(index) },
-        onMoveSession = { from, to -> viewModel.moveSession(from, to) },
-        onFocusSession = { index -> viewModel.setActiveSession(index) },
+        onCloseSession = { session -> viewModel.closeSession(session) },
+        onMoveSession = { session, target -> viewModel.moveSessionTo(session, target) },
+        onFocusSession = { session -> viewModel.setActiveSessionByObject(session) },
+        activeSession = viewModel.activeSession,
+        onEditVenueRules = { session -> viewModel.openVenueRules(session) },
+        onMinimize = { session, on -> viewModel.setSessionMinimized(session, on) },
         selectedMessage = selectedMessage,
         onSelectMessage = { m -> viewModel.selectMessageFromGrid(m) },
         onDiffSelected = { a, b -> viewModel.openDiffSelected(a, b) },

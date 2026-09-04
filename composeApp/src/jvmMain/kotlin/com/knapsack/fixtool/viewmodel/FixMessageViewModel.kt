@@ -2780,6 +2780,31 @@ class FixMessageViewModel(
         _showMessageEditor.value = !_showMessageEditor.value
     }
 
+    /**
+     * **Opens [session]'s rules**, from its pane or from its minimized chip.
+     *
+     * The venue's main control, and until now it was not reachable from the venue at all: rules live in
+     * the profile editor and the pane representing the venue only echoed a count of them.
+     *
+     * Reuses [connectionPanelSelection], the path `POST /panel` already takes, rather than adding a
+     * second way to ask the panel to show a profile. [_rulesExpandRequest] rides alongside it for the
+     * one case the panel cannot infer: a venue with *no* rules, which is exactly when this button is
+     * most likely to have been pressed, and where the panel's own auto-expand has nothing to react to.
+     */
+    fun openVenueRules(session: FixMessageSession) {
+        val profileId = profileIdForSession(session) ?: return
+        _showConnectionPanel.value = true
+        _connectionPanelSelection.value = profileId
+        _rulesExpandRequest.value = profileId
+    }
+
+    private val _rulesExpandRequest = MutableStateFlow<String?>(null)
+    val rulesExpandRequest: StateFlow<String?> = _rulesExpandRequest.asStateFlow()
+
+    fun consumeRulesExpandRequest() {
+        _rulesExpandRequest.value = null
+    }
+
     fun toggleConnectionPanel() {
         _showConnectionPanel.value = !_showConnectionPanel.value
     }
@@ -4555,6 +4580,17 @@ class FixMessageViewModel(
             val session = createNewSession(title, config.sessionQualifier, profileSlot = if (isMultiSession) slot else 0)
             profileToSessionMap.getOrPut(profileId) { mutableListOf() }.add(_sessions.size - 1)
 
+            // A venue's pane starts minimized, and this is the only place that can decide it: the pane
+            // does not know it is a venue until a config is bound, and by then it has already been laid
+            // out. Its own pane holds no traffic to hide — every message belongs to a client — so what
+            // it costs in the grid is a full cell for four lines of text, and what it costs the *demo*
+            // is five panes rounded up to six cells with one of them blank.
+            //
+            // A remembered decision wins over the default, which is why that map holds booleans and not
+            // just names: a user who restored this venue last time gets it restored, not re-minimized.
+            val remembered = _layoutState.value.paneMinimized["$profileId#${if (isMultiSession) slot else 0}"]
+            session.setMinimized(remembered ?: profile.config.acceptsAnyClient())
+
             enableLatencyTrackingIfConfigured(session)
             if (profile.config.acceptsAnyClient()) listenForVenueClients(session, profileId, profile)
             session.connect(config, _appSettings.value, _dictionary.value)
@@ -5371,6 +5407,64 @@ class FixMessageViewModel(
             }
         }
     }
+
+    /**
+     * Closes the pane showing [session], wherever it currently sits.
+     *
+     * The addressed-by-object form, and the one the UI calls. The split grid is drawn from the panes
+     * that are *visible*, so an index computed there counts a different list from this one, and a stale
+     * index here does not fail loudly — it closes the wrong pane, disconnecting a session and discarding
+     * its log. Resolving the position at the moment of the call removes the whole failure class.
+     */
+    fun closeSession(session: FixMessageSession) {
+        val index = _sessions.indexOf(session)
+        if (index >= 0) closeSession(index)
+    }
+
+    /**
+     * Puts [session] where [target] is, and shifts everything between them along.
+     *
+     * Naming the neighbour rather than counting to it, for the reason above: "one to the left" in the
+     * grid means one *visible* pane to the left, which is not one pane to the left once something is
+     * minimized. The caller knows which pane it means; only this function knows where either of them
+     * lives.
+     */
+    fun moveSessionTo(session: FixMessageSession, target: FixMessageSession) {
+        val from = _sessions.indexOf(session)
+        val to = _sessions.indexOf(target)
+        if (from >= 0 && to >= 0 && from != to) moveSession(from, to)
+    }
+
+    /**
+     * Minimizes or restores [session], and remembers the choice.
+     *
+     * The UI calls this rather than [FixMessageSession.setMinimized] directly, because the *decision* is
+     * layout state that should survive a restart while the flow itself is only the current pane. Keyed by
+     * profile and slot: see [LayoutState.paneMinimized] for why not by session id.
+     */
+    fun setSessionMinimized(session: FixMessageSession, minimized: Boolean) {
+        session.setMinimized(minimized)
+        val key = paneKey(session) ?: return
+        updateLayout { it.copy(paneMinimized = it.paneMinimized + (key to minimized)) }
+    }
+
+    /** How a pane is named in [LayoutState.paneMinimized], or null for one that cannot outlive the process. */
+    private fun paneKey(session: FixMessageSession): String? =
+        profileIdForSession(session)?.let { "$it#${session.profileSlot}" }
+
+    /** The profile that owns [session]'s pane, or null for a venue client, which has no profile of its own. */
+    fun profileIdForSession(session: FixMessageSession): String? =
+        _sessions.indexOf(session).takeIf { it >= 0 }?.let { profileIdForSessionIndex(it) }
+
+    /**
+     * **Panes currently minimized**, so a caller that is not Compose can see the layout.
+     *
+     * Used by the control surface and by tests. Order is the model's, not the strip's.
+     */
+    fun minimizedSessions(): List<FixMessageSession> = _sessions.filter { it.minimized.value }
+
+    /** Panes in the split grid, in order: every pane that is not in the strip. See [MinimizedStrip]. */
+    fun visibleSessions(): List<FixMessageSession> = _sessions.filterNot { it.minimized.value }
 
     // Global session operations
     fun addSeparatorToAllSessions() {

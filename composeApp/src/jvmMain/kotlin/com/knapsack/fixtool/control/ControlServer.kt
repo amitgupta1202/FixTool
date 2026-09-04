@@ -226,6 +226,14 @@ class ControlServer(
             put("state", session.connectionState.value.name)
             put("profileSlot", session.profileSlot)
             put("messageCount", session.messages.value.size)
+            // In the strip rather than the grid — see [MinimizedStrip]. Only when true, like `discarded`
+            // below: every healthy conversation reads false, and a field that always reads false teaches
+            // a reader to skip it. Its absence means the pane is in the layout.
+            //
+            // A venue's own pane starts minimized, so a caller counting panes on screen needs this to get
+            // the same answer the window gives. It says nothing about the session: a minimized pane is
+            // still connected, still logging, and still a valid send target.
+            if (session.minimized.value) put("minimized", true)
             // Only when it is not zero. A field that reads 0 on every healthy session teaches a reader to
             // stop looking at it, which is the opposite of what a loss counter is for — see
             // [FixMessageSession.discarded]. Its absence means nothing was lost.

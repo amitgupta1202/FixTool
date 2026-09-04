@@ -249,6 +249,11 @@
         <li>The workspace opens with the venue and its client profiles, the templates and the
             scenarios. Connect the venue first, then the clients</li>
         <li>The venue binds <code>localhost:19876</code> and the clients log on to it</li>
+        <li>Four panes, not five: the venue's own pane starts <strong>minimized</strong>, as a chip in
+            the strip above the grid. It holds no traffic of its own &mdash; every message on a venue
+            belongs to one of its clients &mdash; and the chip carries what the pane says: the port,
+            who is connected, and <strong>Rules</strong> and <strong>Stop</strong>. Click the chip to
+            put the pane back</li>
     </ol>
 
     <div class="tip">
@@ -257,6 +262,16 @@
         <code>localhost:19876</code> with <code>TargetCompID=DEMO_SERVER</code> and it will be accepted
         too &mdash; each counterparty gets its own pane on the venue side.
     </div>
+
+    <h3>Minimizing a Pane</h3>
+    <p>The <strong>&mdash;</strong> button on any pane sends it to the strip above the grid, and its chip
+        brings it back. This is not closing: closing a pane disconnects its session and discards its log,
+        while a minimized session stays connected, keeps logging, and stays the message editor's send
+        target &mdash; a chip marked <code>&rarr; editor</code> is where <strong>Send</strong> will go, so
+        minimizing never quietly points a composed order at a different counterparty.</p>
+    <p>A venue's chip stays quiet while the venue is healthy and grows a badge only when something has
+        deviated: a client gone, a logon refused, replies pending, injected latency on, or no rules
+        loaded. That last one is the answer to a venue that is answering nothing.</p>
 
     <h3>Reading the Venue's Rules</h3>
     <p>Select the <strong>FX Demo Venue</strong> profile and open <strong>Auto-Responses</strong> in the

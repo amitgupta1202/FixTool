@@ -35,6 +35,18 @@ data class LayoutState(
     val terminalMinimized: Boolean = false,
     val scenarioDockMinimized: Boolean = false,
     /**
+     * **Which panes the user has minimized**, keyed `"<profileId>#<slot>"`.
+     *
+     * A map of decisions rather than a list of names, so "restored" is recordable. A venue's pane starts
+     * minimized, so its absence from a list would be indistinguishable from a user who restored it and
+     * wants it to stay restored — an explicit `false` says the difference.
+     *
+     * Keyed by profile and slot and not by [FixMessageSession.id], which is a fresh UUID every run.
+     * Venue *client* panes are absent by design: they are created by a counterparty logging on, and do
+     * not outlive the process for a saved key to name.
+     */
+    val paneMinimized: Map<String, Boolean> = emptyMap(),
+    /**
      * The project workspace open at last exit, so the app comes back where it was left. Empty means
      * the installation's own directory, which is where a fresh install keeps everything.
      *

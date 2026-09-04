@@ -155,6 +155,20 @@ class FixMessageSession(
     val filterVisible: StateFlow<Boolean> = _filterVisible.asStateFlow()
 
     /**
+     * **This pane has left the layout**, and is a chip in the strip above it.
+     *
+     * Here with [filterVisible] and [wrapText] because it is the same kind of fact: a way of looking at
+     * THIS pane. Deliberately not a way of *closing* it — the session keeps running, keeps its log, and
+     * keeps being a valid send target, which is the whole reason the feature exists. Closing a pane
+     * calls [destroy] and disconnects; minimizing one does nothing to the wire.
+     *
+     * A venue starts minimized (set by whoever creates the pane, which is the only thing that knows the
+     * profile before the config is bound). Its own pane holds no traffic to hide — see [isVenue].
+     */
+    private val _minimized = MutableStateFlow(false)
+    val minimized: StateFlow<Boolean> = _minimized.asStateFlow()
+
+    /**
      * **Group this session's grid by business exchange** — per session, like [filterVisible], and for
      * the same reason: it is a way of looking at THIS pane. Held app-globally at first, it had two
      * defects in one flaw: grouping toggled every pane at once, and the collapse set below was keyed by
@@ -268,6 +282,17 @@ class FixMessageSession(
     private val _lastRuleFired = MutableStateFlow<VenueEvent.RuleFired?>(null)
     val lastRuleFired: StateFlow<VenueEvent.RuleFired?> = _lastRuleFired.asStateFlow()
 
+    /**
+     * Forgets the refused logons listed so far.
+     *
+     * Its own action rather than part of [clearMessages], which is about the message log and has never
+     * touched this list — a venue's refusals are not traffic, so "clear the messages" was both the
+     * wrong promise and, on a venue, a no-op on an already-empty list.
+     */
+    fun clearRefusedLogons() {
+        _refusedLogons.value = emptyList()
+    }
+
     /** Where this session's venue events go. Set by whoever owns the pane, before it connects. */
     var venueEventListener: ((VenueEvent) -> Unit)? = null
 
@@ -331,6 +356,14 @@ class FixMessageSession(
 
     fun toggleFilter() {
         _filterVisible.value = !_filterVisible.value
+    }
+
+    fun toggleMinimized() {
+        _minimized.value = !_minimized.value
+    }
+
+    fun setMinimized(on: Boolean) {
+        _minimized.value = on
     }
 
     fun toggleGroupByConversation() {

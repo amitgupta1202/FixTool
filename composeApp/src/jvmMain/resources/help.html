@@ -204,8 +204,8 @@
 
     <h3>Quick Start</h3>
     <ol>
-        <li>Click <strong>Open FX Venue example</strong> in the empty session area (or
-            <strong>Quick Connect &#9662; &rarr; Open workspace &rarr; FX Venue</strong>)</li>
+        <li>Click <strong>Open FX Venue example</strong> in the empty session area (or the workspace
+            switcher at the top left &rarr; <strong>Open workspace &rarr; FX Venue</strong>)</li>
         <li>Select one of the <strong>Demo Client</strong> profiles the example brought with it</li>
         <li>Click <strong>Connect</strong> to establish a FIX session</li>
         <li>Use the pre-loaded FX templates to send orders and receive fills</li>
@@ -239,9 +239,9 @@
 
     <h3>Opening the Example</h3>
     <ol>
-        <li>Click <strong>Open FX Venue example</strong> where the sessions would be, or open
-            <strong>Quick Connect &#9662; &rarr; Open workspace</strong> and pick <strong>FX Venue</strong>
-            from under Browse&hellip;</li>
+        <li>Click <strong>Open FX Venue example</strong> where the sessions would be, or open the
+            workspace switcher at the top left, choose <strong>Open workspace</strong> and pick
+            <strong>FX Venue</strong> from under Browse&hellip;</li>
         <li>It is copied to <code>~/.fixtool/workspaces/fx-venue</code> and opened. No dialog: the
             example is one of the things Open can open, and opening it asks nothing. Open it again and
             you get <code>fx-venue-2</code>, which is how you get a clean one</li>
@@ -352,9 +352,9 @@
     </div>
 
     <h3>Closing the Workspace</h3>
-    <p>Open <strong>Quick Connect &#9662;</strong> in the toolbar and click <strong>Close
-    workspace</strong>. This disconnects the venue and its clients, closes their panes, and puts your
-    own profiles, templates and scenarios back on screen.</p>
+    <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This
+    disconnects the venue and its clients, closes their panes, and puts your own profiles, templates
+    and scenarios back on screen.</p>
 
     <div class="warning">
         <strong>Nothing is deleted.</strong> The workspace folder stays exactly where you put it &mdash;
@@ -520,16 +520,19 @@
     <p><strong>Quick Connect</strong> in the toolbar is the shortcut past the Connection panel: it drops
     down every saved profile, and picking one connects it. Use the panel when you are <em>authoring</em> a
     profile; use this when you already have one and just want it up.</p>
-    <p>The last items in the menu are about workspaces: <strong>New workspace&hellip;</strong>,
-    <strong>Open workspace</strong> (Browse&hellip; to a folder you have, or one of the bundled
-    examples), <strong>Recent workspaces</strong>, and <strong>Close workspace</strong>. The menu shows
-    even with no saved profiles, so a fresh install has a way in.</p>
+    <p>Quick Connect is only about connecting: it lists the profiles in the open workspace, and picking
+    one connects it. Changing <em>which</em> workspace you are in is the switcher at the top left &mdash;
+    see <a href="#workspaces">Workspaces</a> &mdash; because opening a workspace changes which profiles
+    exist at all, and that is a different question from which one to connect.</p>
 
     <h3 id="workspaces">Workspaces</h3>
     <p>A <strong>workspace</strong> is a folder holding the profiles, saved messages, scenarios and run
     records you are working with, plus QuickFIX/J's own sequence store and message log. There is one
     kind of workspace and two ways to get one: <strong>New</strong> makes an empty one,
     <strong>Open</strong> opens a folder you already have or one of the examples FixTool ships.</p>
+    <p>All of it is on the <strong>switcher at the top left</strong>, which shows the open workspace by
+    name and holds New, Open, Recent and Close. It is deliberately not in Quick Connect: that menu
+    connects a profile, and opening a workspace changes which profiles there are.</p>
     <p><strong>Default</strong> is <code>~/.fixtool</code> itself. It is a workspace like any other and
     it is where everyone starts, including everyone who installed FixTool before workspaces existed
     &mdash; so nothing had to move on upgrade, the directory just got a name. Default cannot be closed
@@ -548,6 +551,10 @@
     credential. This is a separation, not encryption: the two files sit in the same directory with the
     same permissions. A workspace opened from an example arrives with a <code>.gitignore</code> already
     covering the secrets, the store, the log and the run records.</p>
+    <p><strong>Recent</strong> lists workspaces by their own path rather than the folder that holds
+    them, because workspaces default to a single <code>workspaces/</code> directory and a parent would
+    read the same on every line. Default never appears there: it is where <strong>Close</strong> takes
+    you, so it is always one click away.</p>
     <p>Set <code>FIXTOOL_WORKSPACE</code> to move the whole installation, Settings included &mdash; what
     a build box wants when the profiles and scenarios under test are the ones checked in beside the
     code. A leading <code>~</code> is expanded, because a CI config file is not a shell.

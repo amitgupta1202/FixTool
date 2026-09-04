@@ -32,10 +32,10 @@ class NoSessionsPlaceholderTest {
     }
 
     @Test
-    fun `an open workspace withdraws the example button`() {
+    fun `saved profiles withdraw the example button`() {
         rule.setContent {
             NoSessionsPlaceholder(
-                workspaceOpen = true,
+                hasProfiles = true,
                 onOpenExample = { },
                 onOpenConnectionPanel = { },
             )

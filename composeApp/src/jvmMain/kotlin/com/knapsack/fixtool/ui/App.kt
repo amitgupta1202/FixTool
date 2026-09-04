@@ -85,6 +85,26 @@ fun App(
         val isDictionaryValid by viewModel.isDictionaryValid.collectAsState()
         // Native folder dialogs suspend, and the Open workspace item is a menu click.
         val workspaceScope = rememberCoroutineScope()
+        val browseForWorkspace = {
+            workspaceScope.launch {
+                chooseDirectory(title = "Open workspace", startIn = viewModel.defaultWorkspaceLocation())
+                    ?.let { folder -> viewModel.openWorkspace(folder) }
+            }
+            Unit
+        }
+        // One object for the switcher, so the empty state below offers exactly the same things.
+        val workspaceMenu =
+            WorkspaceMenuState(
+                name = viewModel.openWorkspaceName,
+                isDefault = viewModel.openWorkspaceIsHome,
+                recents = viewModel.recentWorkspaces,
+                examples = viewModel.bundledExamples().map { it.id to it.displayName },
+                onNew = { viewModel.requestNewWorkspace() },
+                onBrowse = browseForWorkspace,
+                onOpenExample = { id -> viewModel.openExample(id) },
+                onOpenRecent = { viewModel.openWorkspace(it) },
+                onClose = { viewModel.closeWorkspace() },
+            )
         val savedMessages = viewModel.savedMessages
         val editorState by viewModel.editorState.collectAsState()
         val currentProfileId = viewModel.getCurrentProfileId()
@@ -323,20 +343,7 @@ fun App(
                     onGetProfileConnectionState = { profileId ->
                         viewModel.getProfileConnectionState(profileId)
                     },
-                    workspaceOpen = !viewModel.openWorkspaceIsHome,
-                    workspaceName = viewModel.openWorkspaceName,
-                    onNewWorkspace = { viewModel.requestNewWorkspace() },
-                    onOpenWorkspace = {
-                        workspaceScope.launch {
-                            chooseDirectory(title = "Open workspace", startIn = viewModel.defaultWorkspaceLocation())
-                                ?.let { folder -> viewModel.openWorkspace(folder) }
-                        }
-                    },
-                    examples = viewModel.bundledExamples().map { it.id to it.displayName },
-                    onOpenExample = { id -> viewModel.openExample(id) },
-                    onCloseWorkspace = { viewModel.closeWorkspace() },
-                    recentWorkspaces = viewModel.recentWorkspaces,
-                    onOpenRecentWorkspace = { viewModel.openWorkspace(it) },
+                    workspace = workspaceMenu,
                     environments = viewModel.environments,
                     onConnectProfileIn = { profile, environment -> viewModel.connectProfileIn(profile, environment) },
                     onSearchAllSessions = { viewModel.toggleGlobalSearchDialog() },
@@ -563,8 +570,9 @@ fun App(
                                             modifier = Modifier.weight(1f),
                                         )
                                     } ?: NoSessionsPlaceholder(
-                                        workspaceOpen = !viewModel.openWorkspaceIsHome,
+                                        hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
                                         onOpenExample = { viewModel.openExample(ExampleWorkspaces.FX_VENUE) },
+                                        onOpenWorkspace = browseForWorkspace,
                                         onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
                                         modifier = Modifier.weight(1f).fillMaxSize(),
                                     )
@@ -1133,6 +1141,7 @@ private fun ColumnScope.SplitCentre(
     followedTraceIds: Set<String> = emptySet(),
 ) {
     val connectionPanelOpen by viewModel.showConnectionPanel.collectAsState()
+    val splitScope = rememberCoroutineScope()
     SplitView(
         sessions = viewModel.sessions,
         dictionary = viewModel.dictionary,
@@ -1153,8 +1162,14 @@ private fun ColumnScope.SplitCentre(
         followedTraceIds = followedTraceIds,
         onFollowTrace = { id -> viewModel.follow(id) },
         onUnfollowTrace = { viewModel.unfollow() },
-        workspaceOpen = !viewModel.openWorkspaceIsHome,
+        hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
         onOpenExample = { viewModel.openExample(ExampleWorkspaces.FX_VENUE) },
+        onOpenWorkspace = {
+            splitScope.launch {
+                chooseDirectory(title = "Open workspace", startIn = viewModel.defaultWorkspaceLocation())
+                    ?.let { folder -> viewModel.openWorkspace(folder) }
+            }
+        },
         onOpenConnectionPanel = { if (!connectionPanelOpen) viewModel.toggleConnectionPanel() },
         modifier = Modifier.weight(1f),
     )

@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,23 +21,52 @@ import com.knapsack.fixtool.model.FixMessageSession
 
 @Composable
 fun TabBar(
+    /** Every pane. Minimized ones get a chip above rather than a tab. */
     sessions: List<FixMessageSession>,
-    activeIndex: Int,
+    activeSession: FixMessageSession?,
     viewMode: FixMessageSession.ViewMode,
-    onTabClick: (Int) -> Unit,
-    onCloseTab: (Int) -> Unit,
-    onToggleWrapText: (Int) -> Unit,
-    onConnect: (Int) -> Unit,
-    onDisconnect: (Int) -> Unit,
+    onTabClick: (FixMessageSession) -> Unit,
+    onCloseTab: (FixMessageSession) -> Unit,
+    onToggleWrapText: (FixMessageSession) -> Unit,
+    onConnect: (FixMessageSession) -> Unit,
+    onDisconnect: (FixMessageSession) -> Unit,
+    onMinimize: (FixMessageSession, Boolean) -> Unit = { session, on -> session.setMinimized(on) },
+    onEditVenueRules: ((FixMessageSession) -> Unit)? = null,
     isAtBottom: Boolean = true,
     onScrollToBottom: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Same reading as the split grid takes, for the same reason: one combined collector keyed on the
+    // pane identities, never a composable called inside a loop over a mutable list. See [SplitView].
+    val identities = sessions.joinToString(",") { it.id }
+    val minimizedFlags by remember(identities) {
+        val flows = sessions.map { it.minimized }
+        if (flows.isEmpty()) {
+            kotlinx.coroutines.flow.flowOf(emptyList<Boolean>())
+        } else {
+            kotlinx.coroutines.flow.combine(flows) { flags -> flags.toList() }
+        }
+    }.collectAsState(initial = sessions.map { it.minimized.value })
+    val minimized = sessions.filterIndexed { i, _ -> minimizedFlags.getOrElse(i) { false } }
+    val visible = sessions.filterIndexed { i, _ -> !minimizedFlags.getOrElse(i) { false } }
+
     Column(modifier = modifier) {
         // Top border
         androidx.compose.material3.HorizontalDivider(
             color = AppTheme.Separators.color,
             thickness = AppTheme.Separators.dividerThickness,
+        )
+
+        // One strip, in both layouts. A venue starts minimized whichever layout is showing, so its live
+        // state has to be readable here too, and putting it anywhere else would be a second answer to
+        // the same question.
+        MinimizedStrip(
+            minimized = minimized,
+            allSessions = sessions,
+            targetSession = activeSession,
+            onRestore = { onMinimize(it, false) },
+            onRestoreAll = { minimized.forEach { session -> onMinimize(session, false) } },
+            onEditRules = onEditVenueRules,
         )
 
         Row(
@@ -48,113 +78,136 @@ fun TabBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Tab items. Scenario documents no longer share this strip — they live in the scenario dock
-            // (see [ScenarioDock]), so a session tab is active on the active index alone.
-            sessions.forEachIndexed { index, session ->
+            // (see [ScenarioDock]), so a session tab is active on identity alone.
+            visible.forEach { session ->
                 Tab(
                     session = session,
-                    isActive = index == activeIndex,
-                    onClick = { onTabClick(index) },
-                    onClose = { onCloseTab(index) },
+                    isActive = session === activeSession,
+                    onClick = { onTabClick(session) },
+                    onClose = { onCloseTab(session) },
                 )
                 Spacer(modifier = Modifier.width(4.dp))
             }
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Toolbar buttons for active session
-            if (sessions.isNotEmpty() && activeIndex >= 0 && activeIndex < sessions.size) {
-                val activeSession = sessions[activeIndex]
+            // Toolbar buttons for the active session, unless it is in the strip — a minimized pane keeps
+            // its session and its log, but it has no grid on screen for these to act on.
+            if (activeSession != null && activeSession in visible) {
                 val connectionState by activeSession.connectionState.collectAsState()
                 val filterVisible by activeSession.filterVisible.collectAsState()
                 val groupedByConversation by activeSession.groupByConversation.collectAsState()
 
-                // RAW mode specific buttons (wrap, search)
-                if (viewMode == FixMessageSession.ViewMode.RAW) {
-                    RawViewActions(activeSession, activeIndex, onToggleWrapText)
+                // Grid controls, so a venue gets none of them: its pane draws a client list, not a
+                // message log, and every message on the venue belongs to one of its clients. The same
+                // gate as the split layout applies (see SplitView) — one behaviour, both layouts.
+                if (!activeSession.isVenue) {
+                    // RAW mode specific buttons (wrap, search)
+                    if (viewMode == FixMessageSession.ViewMode.RAW) {
+                        RawViewActions(activeSession, onToggleWrapText)
+                    }
+
+                    // Filter button (available for both RAW and PARSED modes - regex, message type, direction filters)
+                    TooltipIconButton(
+                        tooltip = if (filterVisible) "Hide Filter" else "Show Filter (Regex)",
+                        onClick = { activeSession.toggleFilter() },
+                        modifier = toolbarButtonSize,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterAlt,
+                            contentDescription = "Toggle Filter",
+                            tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                            modifier = toolbarIconSize,
+                        )
+                    }
+
+                    // Group this session's grid by business exchange — per session, like the filter.
+                    TooltipIconButton(
+                        tooltip =
+                            if (groupedByConversation) {
+                                "Conversations: On (click for a flat list)"
+                            } else {
+                                "Conversations: Off (click to group by exchange)"
+                            },
+                        onClick = { activeSession.toggleGroupByConversation() },
+                        modifier = toolbarButtonSize,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccountTree,
+                            contentDescription = "Group by Conversation",
+                            tint = if (groupedByConversation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                            modifier = toolbarIconSize,
+                        )
+                    }
+
+                    // Add separator button
+                    TooltipIconButton(
+                        tooltip = "Add Separator",
+                        onClick = { activeSession.addSeparator() },
+                        modifier = toolbarButtonSize,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add Separator",
+                            tint = AppTheme.Colors.textSecondary,
+                            modifier = toolbarIconSize,
+                        )
+                    }
+
+                    // Clear session button
+                    TooltipIconButton(
+                        tooltip = "Clear All Messages",
+                        onClick = { activeSession.clearMessages() },
+                        modifier = toolbarButtonSize,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Clear All Messages",
+                            tint = AppTheme.Colors.textSecondary,
+                            modifier = toolbarIconSize,
+                        )
+                    }
+
+                    // Scroll to bottom button
+                    TooltipIconButton(
+                        tooltip = "Scroll to Bottom",
+                        onClick = onScrollToBottom,
+                        enabled = !isAtBottom,
+                        modifier = toolbarButtonSize,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = "Scroll to bottom",
+                            tint = if (!isAtBottom) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
+                            modifier = toolbarIconSize,
+                        )
+                    }
                 }
 
-                // Filter button (available for both RAW and PARSED modes - regex, message type, direction filters)
+                // Sends this tab to the strip above. Not a close: the session keeps running.
                 TooltipIconButton(
-                    tooltip = if (filterVisible) "Hide Filter" else "Show Filter (Regex)",
-                    onClick = { activeSession.toggleFilter() },
+                    tooltip = "Minimize Pane",
+                    onClick = { onMinimize(activeSession, true) },
                     modifier = toolbarButtonSize,
                 ) {
                     Icon(
-                        imageVector = Icons.Default.FilterAlt,
-                        contentDescription = "Toggle Filter",
-                        tint = if (filterVisible) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                        modifier = toolbarIconSize,
-                    )
-                }
-
-                // Group this session's grid by business exchange — per session, like the filter.
-                TooltipIconButton(
-                    tooltip =
-                        if (groupedByConversation) {
-                            "Conversations: On (click for a flat list)"
-                        } else {
-                            "Conversations: Off (click to group by exchange)"
-                        },
-                    onClick = { activeSession.toggleGroupByConversation() },
-                    modifier = toolbarButtonSize,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AccountTree,
-                        contentDescription = "Group by Conversation",
-                        tint = if (groupedByConversation) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                        modifier = toolbarIconSize,
-                    )
-                }
-
-                // Add separator button
-                TooltipIconButton(
-                    tooltip = "Add Separator",
-                    onClick = { activeSession.addSeparator() },
-                    modifier = toolbarButtonSize,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add Separator",
+                        imageVector = Icons.Default.Remove,
+                        contentDescription = "Minimize Pane",
                         tint = AppTheme.Colors.textSecondary,
                         modifier = toolbarIconSize,
                     )
                 }
 
-                // Clear session button
-                TooltipIconButton(
-                    tooltip = "Clear All Messages",
-                    onClick = { activeSession.clearMessages() },
-                    modifier = toolbarButtonSize,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Clear All Messages",
-                        tint = AppTheme.Colors.textSecondary,
-                        modifier = toolbarIconSize,
-                    )
-                }
-
-                // Scroll to bottom button
-                TooltipIconButton(
-                    tooltip = "Scroll to Bottom",
-                    onClick = onScrollToBottom,
-                    enabled = !isAtBottom,
-                    modifier = toolbarButtonSize,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Scroll to bottom",
-                        tint = if (!isAtBottom) AppTheme.Colors.primary else AppTheme.Colors.textSecondary,
-                        modifier = toolbarIconSize,
-                    )
-                }
-
-                // Connect/Disconnect toggle button
-                if (connectionState.canConnect()) {
+                // Connect/Disconnect toggle button. Withheld for a venue, whose equivalent is the named
+                // Start/Stop its overview and its chip both carry — an unlabelled power icon never said
+                // that it unbinds a port every client on the venue is sitting on.
+                if (activeSession.isVenue) {
+                    Unit
+                } else if (connectionState.canConnect()) {
                     // Show connect button when disconnected
                     TooltipIconButton(
                         tooltip = "Connect Session",
-                        onClick = { onConnect(activeIndex) },
+                        onClick = { onConnect(activeSession) },
                         modifier = toolbarButtonSize,
                     ) {
                         Icon(
@@ -168,7 +221,7 @@ fun TabBar(
                     // Show disconnect button when connected
                     TooltipIconButton(
                         tooltip = "Disconnect Session",
-                        onClick = { onDisconnect(activeIndex) },
+                        onClick = { onDisconnect(activeSession) },
                         modifier = toolbarButtonSize,
                     ) {
                         Icon(
@@ -186,13 +239,13 @@ fun TabBar(
 
 /** The RAW-view-only buttons (wrap, search), lifted out so the tab bar itself stays readable. */
 @Composable
-private fun RawViewActions(session: FixMessageSession, index: Int, onToggleWrapText: (Int) -> Unit) {
+private fun RawViewActions(session: FixMessageSession, onToggleWrapText: (FixMessageSession) -> Unit) {
     val wrapText by session.wrapText.collectAsState()
     val searchVisible by session.searchVisible.collectAsState()
 
     TooltipIconButton(
         tooltip = if (wrapText) "Wrap: On (click to unwrap)" else "Wrap: Off (click to wrap)",
-        onClick = { onToggleWrapText(index) },
+        onClick = { onToggleWrapText(session) },
         modifier = toolbarButtonSize,
     ) {
         Icon(

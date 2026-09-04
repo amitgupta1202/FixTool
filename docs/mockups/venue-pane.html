@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Venue Is Not a Session</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --paper: #F2F4F1; --card: #FFFFFF; --ink: #1A1F1D; --muted: #5E6866; --faint: #8B9592;
+    --rule: #D5DBD6; --accent: #1F6F8B; --accent-soft: #E1EEF3; --warn: #9A5B12; --warn-soft: #F7EBD8;
+    --good: #2E7D46; --bad: #A8433B;
+
+    /* FixTool's own tokens: fixed in both themes, because the frames depict the app and the app is dark. */
+    --fx-bg: #1E1E1E; --fx-header: #202020; --fx-surface: #2B2B2B; --fx-variant: #252525;
+    --fx-border: #3A3A3A; --fx-text: #E0E0E0; --fx-text2: #B0B0B0; --fx-dim: #6A6A6A;
+    --fx-teal: #4EC9B0; --fx-blue: #569CD6; --fx-amber: #CE9178; --fx-purple: #C586C0;
+    --fx-yellow: #DCDCAA; --fx-green: #98C379; --fx-red: #E06C75;
+    --s-client: #4EC9B0; --s-lp1: #569CD6; --s-lp2: #CE9178; --s-lp3: #C586C0;
+
+    --serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    --sans: "Source Sans 3", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --col: 42rem; --wide: 72rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #161A19; --card: #1D2221; --ink: #E2E6E4; --muted: #98A3A0; --faint: #6F7A77;
+      --rule: #2A3230; --accent: #5FB3C9; --accent-soft: #17303A; --warn: #E0A85A; --warn-soft: #33281A;
+      --good: #7FBF95; --bad: #D98A82;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #161A19; --card: #1D2221; --ink: #E2E6E4; --muted: #98A3A0; --faint: #6F7A77;
+    --rule: #2A3230; --accent: #5FB3C9; --accent-soft: #17303A; --warn: #E0A85A; --warn-soft: #33281A;
+    --good: #7FBF95; --bad: #D98A82;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans);
+         font-size: 17px; line-height: 1.58; -webkit-font-smoothing: antialiased; }
+  main { max-width: var(--wide); margin: 0 auto; padding: 2.6rem 1.25rem 5rem; }
+  .col { max-width: var(--col); }
+
+  .eyebrow { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase;
+             color: var(--accent); margin: 0 0 0.9rem; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(2.3rem, 5.2vw, 3.4rem); line-height: 1.02;
+       letter-spacing: -0.02em; margin: 0 0 0.8rem; text-wrap: balance; }
+  .standfirst { font-size: 1.15rem; color: var(--muted); max-width: 36rem; margin: 0 0 1.2rem; }
+  .standfirst strong { color: var(--ink); font-weight: 500; }
+  .meta { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); display: flex; gap: 1.4rem; flex-wrap: wrap; }
+  .meta b { color: var(--muted); font-weight: 500; }
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 1.8rem; margin-bottom: 2.4rem; }
+
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 1.75rem; line-height: 1.12; letter-spacing: -0.012em;
+       margin: 3rem 0 0.5rem; text-wrap: balance; }
+  h3 { font-family: var(--sans); font-weight: 600; font-size: 1.02rem; margin: 1.8rem 0 0.3rem; }
+  p { margin: 0 0 1rem; }
+  p.lede { font-size: 1.08rem; }
+  ul { padding-left: 1.2rem; margin: 0 0 1rem; }
+  li { margin: 0 0 0.35rem; }
+  code { font-family: var(--mono); font-size: 0.84em; background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 3px; }
+  .kicker { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin: 0 0 0.4rem; }
+
+  .facts { border-top: 1px solid var(--rule); margin: 1rem 0 1.4rem; }
+  .fact { display: grid; grid-template-columns: 9.5rem 1fr; gap: 1rem; padding: 0.7rem 0; border-bottom: 1px solid var(--rule); }
+  .fact .k { font-family: var(--mono); font-size: 0.74rem; color: var(--warn); padding-top: 0.25rem; }
+  .fact .v { margin: 0; }
+  .fact .v code { background: transparent; padding: 0; color: var(--muted); }
+
+  /* ---------- app frames ---------- */
+  .frame { margin: 1.3rem 0 0.6rem; }
+  .frame-cap { font-size: 0.9rem; color: var(--muted); margin: 0.45rem 0 1.4rem; max-width: var(--col); }
+  .frame-cap b { color: var(--ink); font-weight: 600; }
+  .app { background: var(--fx-bg); border: 1px solid var(--fx-border); border-radius: 5px; overflow: hidden;
+         font-family: var(--sans); font-size: 13px; color: var(--fx-text); line-height: 1.35; }
+  .app * { font-variant-numeric: tabular-nums; }
+  .toolbar { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: var(--fx-header);
+             border-bottom: 1px solid var(--fx-border); flex-wrap: wrap; }
+  .toolbar .ttl { font-weight: 600; color: var(--fx-text2); font-size: 12px; letter-spacing: 0.02em; }
+  .tb-btn { border: 1px solid var(--fx-border); background: var(--fx-surface); color: var(--fx-text2); border-radius: 3px;
+            padding: 3px 8px; font-size: 12px; font-family: inherit; }
+  .tb-btn.on { border-color: var(--fx-teal); color: var(--fx-teal); }
+
+  .sb { display: inline-block; width: 8px; height: 8px; border-radius: 2px; vertical-align: 0; }
+  .sb.venue { background: var(--fx-amber); } .sb.c1 { background: var(--s-lp1); } .sb.c2 { background: var(--s-lp2); }
+  .sb.live { background: var(--fx-green); border-radius: 999px; }
+
+  /* the split grid, drawn as the app lays it out: fixed columns, rounded-up rows */
+  .grid { display: grid; gap: 1px; background: var(--fx-border); }
+  .grid.c3 { grid-template-columns: repeat(3, 1fr); }
+  .grid.c2 { grid-template-columns: repeat(2, 1fr); }
+  .cell { background: var(--fx-bg); min-width: 0; display: flex; flex-direction: column; min-height: 9.5rem; }
+  .pane-hd { display: flex; align-items: center; gap: 7px; padding: 4px 8px; background: var(--fx-variant);
+             border-bottom: 1px solid var(--fx-border); color: var(--fx-text2); font-size: 12px; }
+  .pane-hd .nm { color: var(--fx-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pane-hd .icons { margin-left: auto; display: flex; gap: 3px; flex-shrink: 0; }
+  .ic { width: 17px; height: 17px; border-radius: 2px; display: grid; place-items: center;
+        font-size: 10px; color: var(--fx-text2); border: 1px solid transparent; }
+  .ic.dead { color: #4A4A4A; position: relative; }
+  .ic.dead::after { content: ""; position: absolute; inset: 3px 1px; border-top: 1px solid var(--fx-red); opacity: 0.55;
+                    transform: rotate(-38deg); transform-origin: center; }
+  .ic.livec { color: var(--fx-teal); }
+  .body { padding: 6px 9px; font-size: 11.5px; color: var(--fx-text2); font-family: var(--mono); flex: 1; overflow: hidden; }
+  .body .row { display: flex; gap: 10px; padding: 2px 0; }
+  .body .row .t { color: var(--fx-dim); }
+  .body .row .out { color: var(--fx-blue); } .body .row .inc { color: var(--fx-teal); }
+  .body .row .mt { color: var(--fx-text); }
+  .body .more { color: var(--fx-dim); padding-top: 3px; }
+
+  /* the empty cell the grid rounds up to */
+  .cell.blank { background: repeating-linear-gradient(45deg, #202020, #202020 7px, #1A1A1A 7px, #1A1A1A 14px);
+                align-items: center; justify-content: center; }
+  .cell.blank span { font-family: var(--mono); font-size: 11px; color: #6B5340; letter-spacing: 0.08em;
+                     text-transform: uppercase; border: 1px dashed #6B5340; padding: 4px 10px; border-radius: 3px;
+                     text-align: center; line-height: 1.5; }
+
+  /* venue overview content */
+  .vhdr { font-family: var(--mono); font-size: 11.5px; color: var(--fx-text); padding: 7px 9px 4px; }
+  .vhdr .dim { color: var(--fx-dim); }
+  .clients { padding: 0 9px; display: flex; flex-direction: column; gap: 1px; }
+  .crow { display: grid; grid-template-columns: 1fr 5rem 4.4rem 4rem; gap: 8px; background: var(--fx-variant);
+          padding: 3px 8px; font-family: var(--mono); font-size: 11px; color: var(--fx-text2); align-items: center; }
+  .crow .who { color: var(--fx-text); }
+  .crow .on { color: var(--fx-green); }
+  .crow .off { color: var(--fx-dim); }
+  .crow.hoverable { border-left: 2px solid transparent; }
+  .crow.hoverable.hov { border-left-color: var(--fx-teal); background: #23302E; cursor: pointer; }
+  .crow .chev { color: var(--fx-teal); text-align: right; }
+  .vrefused { margin: 7px 9px 0; border-top: 1px solid var(--fx-border); padding-top: 5px;
+              font-family: var(--mono); font-size: 10.5px; color: var(--fx-amber); }
+  .vrefused .d { color: var(--fx-text2); }
+  .vstat { margin: 6px 9px 8px; border-top: 1px solid var(--fx-border); padding-top: 5px;
+           font-family: var(--mono); font-size: 10.5px; color: var(--fx-text2); }
+
+  /* the dead filter bar the app draws above the venue list */
+  .filterbar { display: flex; align-items: center; gap: 7px; background: var(--fx-variant); padding: 5px 9px;
+               border-bottom: 1px solid var(--fx-border); font-size: 11px; color: var(--fx-dim); }
+  .filterbar .box { flex: 1; background: var(--fx-surface); border: 1px solid var(--fx-border); border-radius: 2px;
+                    padding: 2px 7px; font-family: var(--mono); color: var(--fx-yellow); }
+  .filterbar .chk { color: var(--fx-text2); }
+
+  /* proposal C: the group strip spanning a venue's client panes */
+  .vstrip { grid-column: 1 / -1; background: var(--fx-header);
+            border-top: 1px solid var(--fx-border); border-bottom: 1px solid var(--fx-border);
+            display: flex; align-items: center; gap: 11px; padding: 6px 10px; font-size: 12px;
+            color: var(--fx-text2); white-space: nowrap; overflow: hidden; }
+  .vstrip > span { flex-shrink: 0; }
+  .vstrip .nm { color: var(--fx-amber); font-family: var(--mono); font-weight: 600; }
+  .vstrip .fig { font-family: var(--mono); font-size: 11px; color: var(--fx-dim); min-width: 0; overflow: hidden;
+                 text-overflow: ellipsis; }
+  .vstrip .badge { font-family: var(--mono); font-size: 11px; color: var(--fx-amber); border: 1px solid var(--fx-amber);
+                   border-radius: 999px; padding: 1px 8px; line-height: 1.3; }
+  .vstrip .acts { margin-left: auto; display: flex; gap: 5px; flex-shrink: 0; }
+  .vstrip .acts .tb-btn { white-space: nowrap; }
+
+  /* connections rail */
+  .withrail { display: grid; grid-template-columns: 15.5rem 1fr; gap: 1px; background: var(--fx-border); }
+  .rail { background: var(--fx-bg); }
+  .rail-hd { padding: 5px 9px; background: var(--fx-header); border-bottom: 1px solid var(--fx-border);
+             color: var(--fx-text2); font-size: 12px; font-weight: 600; }
+  .node { display: flex; align-items: center; gap: 6px; padding: 3px 9px; font-size: 12px; color: var(--fx-text2); }
+  .node.venue { color: var(--fx-text); }
+  .node.child { padding-left: 26px; font-family: var(--mono); font-size: 11px; }
+  .node .meta2 { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--fx-dim); }
+  .node .warnb { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--fx-amber);
+                 border: 1px solid var(--fx-amber); border-radius: 999px; padding: 0 6px; }
+  .node.sel { background: #23302E; border-left: 2px solid var(--fx-teal); padding-left: 24px; }
+  .node .tw { color: var(--fx-dim); width: 0.8em; display: inline-block; }
+  .rail .refused { margin: 4px 9px 8px 26px; border-left: 2px solid var(--fx-amber); padding: 3px 0 3px 8px;
+                   font-family: var(--mono); font-size: 10px; color: var(--fx-amber); }
+
+  /* verdict blocks under each proposal */
+  .verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1px;
+             background: var(--rule); border: 1px solid var(--rule); margin: 0.2rem 0 1.6rem; }
+  .verdict > div { background: var(--card); padding: 0.75rem 0.9rem 0.85rem; }
+  .verdict .k { font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.12em; text-transform: uppercase;
+                color: var(--faint); margin: 0 0 0.3rem; }
+  .verdict p { font-size: 0.88rem; margin: 0; color: var(--muted); }
+  .verdict .yes { color: var(--good); font-weight: 600; }
+  .verdict .no { color: var(--bad); font-weight: 600; }
+  .verdict .mid { color: var(--warn); font-weight: 600; }
+
+  .rec { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1px; background: var(--rule);
+         border: 1px solid var(--rule); margin: 1.2rem 0 1.4rem; }
+  .rec > div { background: var(--card); padding: 1rem 1.1rem 1.1rem; }
+  .rec .k { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); margin: 0 0 0.35rem; }
+  .rec h4 { font-family: var(--sans); font-weight: 600; font-size: 1rem; margin: 0 0 0.4rem; }
+  .rec p { font-size: 0.93rem; color: var(--muted); margin: 0 0 0.4rem; }
+  .rec .pick { border-top: 3px solid var(--accent); }
+  .rec .pick .k { color: var(--accent); }
+  .rec .pick .k::after { content: "  ·  recommended"; letter-spacing: 0.06em; }
+
+
+  /* ---------- D: the minimized strip ---------- */
+  .strip { display: flex; align-items: center; gap: 7px; padding: 5px 8px; background: var(--fx-header);
+           border-bottom: 1px solid var(--fx-border); overflow-x: auto; white-space: nowrap; }
+  .chip2 { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+           background: var(--fx-surface); border: 1px solid var(--fx-border); border-radius: 3px;
+           padding: 3px 9px; font-size: 12px; color: var(--fx-text2); cursor: pointer; }
+  .chip2 .tw { color: var(--fx-dim); font-size: 10px; }
+  .chip2 .nm { color: var(--fx-text); }
+  .chip2 .n { font-family: var(--mono); font-size: 11px; color: var(--fx-dim); }
+  .chip2 .fig { font-family: var(--mono); font-size: 11px; color: var(--fx-dim); }
+  .chip2 .badge { font-family: var(--mono); font-size: 10.5px; color: var(--fx-amber);
+                  border: 1px solid var(--fx-amber); border-radius: 999px; padding: 0 6px; }
+  .chip2 .mini-btn { border: 1px solid var(--fx-border); background: var(--fx-variant); color: var(--fx-text2);
+                     border-radius: 2px; padding: 1px 7px; font-size: 11px; font-family: inherit; }
+  .chip2.venuechip .nm { color: var(--fx-amber); font-family: var(--mono); font-weight: 600; }
+  .chip2.target { border-color: var(--fx-teal); background: #1F2E2C; }
+  .chip2.target .nm { color: var(--fx-teal); }
+  .chip2.target .to { font-family: var(--mono); font-size: 10.5px; color: var(--fx-teal);
+                      border-left: 1px solid #2F4A46; padding-left: 8px; }
+  .chip2.gone { border-style: dashed; }
+  .chip2.gone .nm, .chip2.gone .n { color: var(--fx-dim); }
+  .chip2.flash { box-shadow: 0 0 0 1px var(--fx-teal) inset; }
+  .strip .rest { margin-left: auto; flex-shrink: 0; font-size: 11px; color: var(--fx-dim);
+                 border: 1px solid transparent; border-radius: 2px; padding: 2px 7px; cursor: pointer; }
+  .strip .rest:hover { border-color: var(--fx-border); color: var(--fx-text2); }
+
+  /* chip anatomy callouts */
+  .anat { display: grid; gap: 0.9rem; margin: 1.2rem 0 0.5rem; }
+  .anat .one { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.45rem;
+               border-left: 2px solid var(--rule); padding-left: 0.95rem; }
+  .anat .one > .lab { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.11em;
+                      text-transform: uppercase; color: var(--accent); }
+  .anat .one > .say { font-size: 0.9rem; color: var(--muted); margin: 0; max-width: var(--col); }
+  .anat .holder { background: var(--fx-header); border: 1px solid var(--fx-border); border-radius: 4px;
+                  padding: 7px 8px; overflow-x: auto; }
+
+  /* move-order diagram */
+  .ord { display: grid; gap: 0.5rem; font-family: var(--mono); font-size: 11.5px; margin: 0.9rem 0 0.4rem; }
+  .ord .line { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  .ord .line > .who2 { width: 5.6rem; flex-shrink: 0; color: var(--faint); font-size: 0.66rem;
+                       letter-spacing: 0.1em; text-transform: uppercase; }
+  .ord .box { border: 1px solid var(--rule); border-radius: 3px; padding: 2px 9px; color: var(--ink); background: var(--card); }
+  .ord .box.hid { border-style: dashed; color: var(--faint); background: transparent; }
+  .ord .box.mv { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .ord .arrow { color: var(--faint); }
+
+  /* test list */
+  .tests { border-top: 1px solid var(--rule); margin: 1rem 0 1.5rem; }
+  .tests .t { display: grid; grid-template-columns: 4.6rem 1fr; gap: 1rem; padding: 0.6rem 0;
+              border-bottom: 1px solid var(--rule); align-items: baseline; }
+  .tests .t .id { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); }
+  .tests .t .d { margin: 0; font-size: 0.93rem; }
+  .tests .t .d b { font-weight: 600; }
+  .tests .t .d .why { display: block; color: var(--muted); font-size: 0.86rem; margin-top: 0.15rem; }
+  .tests h3 { margin: 1.6rem 0 0; }
+
+
+  /* alignment contract table */
+  .align { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 1rem 0 0.5rem; }
+  .align th { text-align: left; font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.11em;
+              text-transform: uppercase; color: var(--faint); font-weight: 400; padding: 0 0.8rem 0.4rem 0;
+              border-bottom: 1px solid var(--rule); vertical-align: bottom; }
+  .align td { padding: 0.42rem 0.8rem 0.42rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--muted); }
+  .align td:first-child { color: var(--ink); }
+  .align tr.act td:first-child { font-weight: 600; }
+  .align tr.act { background: var(--accent-soft); }
+  .align tr.act td { border-bottom-color: var(--rule); }
+  .align .y { color: var(--good); font-weight: 600; }
+  .align .n { color: var(--faint); }
+  .align .c { color: var(--warn); }
+  .align code { background: transparent; padding: 0; color: var(--muted); }
+  .align-wrap { overflow-x: auto; }
+  .align-key { font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0 1.4rem; }
+
+  .sb.down { background: transparent; border: 1px solid var(--fx-dim); border-radius: 999px; }
+  .chip2 .warnstate { font-family: var(--mono); font-size: 10.5px; color: var(--fx-amber); }
+  .chip2 .offtxt { font-family: var(--mono); font-size: 11px; color: var(--fx-dim); }
+  .chip2.stopped { border-color: #4A4A4A; }
+  .chip2.stopped .nm { color: var(--fx-dim); }
+  .widths { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .widths .lbl2 { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+                  color: var(--fx-dim); }
+  .widths .pair { display: flex; align-items: center; gap: 10px; }
+
+  /* the aligned pane action row */
+  .vacts { display: flex; align-items: center; gap: 6px; margin: 7px 9px 9px; padding-top: 7px;
+           border-top: 1px solid var(--fx-border); flex-wrap: wrap; }
+  .vacts .tb-btn { font-size: 11px; padding: 2px 8px; }
+  .ctx { background: var(--fx-surface); border: 1px solid var(--fx-border); border-radius: 3px; padding: 3px 0;
+         display: inline-block; min-width: 11rem; font-size: 12px; color: var(--fx-text2); }
+  .ctx div { padding: 2px 11px; }
+  .ctx div.sep { border-top: 1px solid var(--fx-border); margin: 3px 0; padding: 0; }
+  .ctx div.danger { color: var(--fx-red); }
+
+
+  .shipped { border: 1px solid var(--rule); border-left: 3px solid var(--good); margin: 1.4rem 0 1rem; }
+  .shipped > div { padding: 1rem 1.1rem; }
+  .shipped h3 { margin: 0 0 0.5rem; }
+  .shipped ul { margin: 0 0 0.6rem; }
+  .shipped p:last-child { margin: 0; }
+  .shipped .trim { color: var(--warn); font-weight: 600; }
+
+  .scroller { overflow-x: auto; }
+  .scroller > .app, .scroller > .inner { min-width: 46rem; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 720px) { .fact { grid-template-columns: 1fr; gap: 0.2rem; } }
+</style>
+</head>
+<body>
+
+<main>
+<header class="mast">
+  <p class="eyebrow">FixTool · proposal mockup</p>
+  <h1>The Venue Is Not a Session</h1>
+  <p class="standfirst">An acceptor with <code>TargetCompID = *</code> gets a session pane, a session toolbar and a full cell of the split grid, and it is <strong>not a session</strong>. It is the container the sessions live in. Four ways to fix the category error, and the one worth building.</p>
+  <div class="meta"><span><b>Depicts</b> the shipped FX Venue example: DEMO_SERVER on 19876, 21 rules, two demo clients</span><span><b>Reads</b> ui/SplitView.kt · ui/AcceptorOverviewPane.kt · viewmodel/FixMessageViewModel.kt</span></div>
+</header>
+
+<section class="col">
+  <h2>Today: five panes for a two-client demo</h2>
+  <p class="lede">Open the FX Venue example, start all three profiles, and the split grid holds five panes. Four of them are conversations. The fifth is a paragraph of text wearing a message grid's clothes, and because five is odd the grid rounds up to six cells and leaves one empty.</p>
+</section>
+
+<div class="frame scroller">
+  <div class="inner app">
+    <div class="toolbar"><span class="ttl">Sessions</span>
+      <button class="tb-btn on" type="button">Split ▾</button>
+      <button class="tb-btn" type="button">Parsed</button>
+      <button class="tb-btn" type="button">Editor</button>
+      <button class="tb-btn" type="button">Detail</button>
+      <button class="tb-btn" type="button">Order book</button></div>
+    <div class="grid c3">
+
+      <div class="cell">
+        <div class="pane-hd"><span class="sb venue"></span><span class="nm">FX Demo Venue</span>
+          <span class="icons">
+            <span class="ic livec" title="Connect / disconnect: live">&#9211;</span>
+            <span class="ic dead" title="Wrap: nothing to wrap">&#8801;</span>
+            <span class="ic dead" title="Search: nothing to search">&#9906;</span>
+            <span class="ic dead" title="Filter: opens a bar that filters nothing">&#9660;</span>
+            <span class="ic dead" title="Group by conversation: no grid">&#9776;</span>
+            <span class="ic dead" title="Add blank line: writes into an invisible list">+</span>
+            <span class="ic dead" title="Clear all messages: the list is already empty">&#9003;</span>
+            <span class="ic dead" title="Scroll to bottom: not this pane's scroller">&#8595;</span>
+            <span class="ic livec" title="Move left / right: live">&#9664;</span>
+            <span class="ic livec" title="Close: live">&#10005;</span>
+          </span></div>
+        <div class="filterbar"><span>Regex</span><span class="box">35=8</span><span class="chk">&#9745; In</span><span class="chk">&#9745; Out</span></div>
+        <div class="vhdr">DEMO_SERVER <span class="dim">&middot;</span> listening on 19876 <span class="dim">&middot;</span> 2 connected</div>
+        <div class="clients">
+          <div class="crow"><span class="who">DEMO_CLIENT1</span><span class="on">LOGGED_ON</span><span>17:23:17</span><span>34 msgs</span></div>
+          <div class="crow"><span class="who">DEMO_CLIENT2</span><span class="on">LOGGED_ON</span><span>17:23:19</span><span>28 msgs</span></div>
+        </div>
+        <div class="vstat">rules live 21 &middot; latency off &middot; triggered 41 &middot; sent 41 &middot; pending 0</div>
+      </div>
+
+      <div class="cell">
+        <div class="pane-hd"><span class="sb c1"></span><span class="nm">Demo Client 1</span>
+          <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic">&#8595;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">23.104</span><span class="out">OUT</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+          <div class="row"><span class="t">23.147</span><span class="inc">IN</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+          <div class="row"><span class="t">23.402</span><span class="out">OUT</span><span class="mt">D</span><span>NewOrderSingle Buy 1M</span></div>
+          <div class="row"><span class="t">23.451</span><span class="inc">IN</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+          <div class="more">30 more</div>
+        </div>
+      </div>
+
+      <div class="cell">
+        <div class="pane-hd"><span class="sb c2"></span><span class="nm">Demo Client 2</span>
+          <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic">&#8595;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">23.119</span><span class="out">OUT</span><span class="mt">R</span><span>QuoteRequest GBP/USD</span></div>
+          <div class="row"><span class="t">23.163</span><span class="inc">IN</span><span class="mt">S</span><span>Quote 1.26988/1.27018</span></div>
+          <div class="row"><span class="t">23.610</span><span class="out">OUT</span><span class="mt">D</span><span>NewOrderSingle Sell 2M</span></div>
+          <div class="row"><span class="t">23.658</span><span class="inc">IN</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+          <div class="more">24 more</div>
+        </div>
+      </div>
+
+      <div class="cell">
+        <div class="pane-hd"><span class="sb venue"></span><span class="nm">FX Demo Venue &#8592; DEMO_CLIENT1</span>
+          <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic">&#8595;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">23.106</span><span class="inc">IN</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+          <div class="row"><span class="t">23.145</span><span class="out">OUT</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+          <div class="row"><span class="t">23.404</span><span class="inc">IN</span><span class="mt">D</span><span>NewOrderSingle Buy 1M</span></div>
+          <div class="row"><span class="t">23.449</span><span class="out">OUT</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+          <div class="more">30 more</div>
+        </div>
+      </div>
+
+      <div class="cell">
+        <div class="pane-hd"><span class="sb venue"></span><span class="nm">FX Demo Venue &#8592; DEMO_CLIENT2</span>
+          <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic">&#8595;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">23.121</span><span class="inc">IN</span><span class="mt">R</span><span>QuoteRequest GBP/USD</span></div>
+          <div class="row"><span class="t">23.161</span><span class="out">OUT</span><span class="mt">S</span><span>Quote 1.26988/1.27018</span></div>
+          <div class="row"><span class="t">23.612</span><span class="inc">IN</span><span class="mt">D</span><span>NewOrderSingle Sell 2M</span></div>
+          <div class="row"><span class="t">23.656</span><span class="out">OUT</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+          <div class="more">24 more</div>
+        </div>
+      </div>
+
+      <div class="cell blank"><span>cell 6 of 6<br>nothing to put here</span></div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>Struck-through icons are inert.</b> In RAW mode the venue pane carries eleven controls and four of them do something: connect, move left, move right, close. The filter bar below the header is the worst of the seven, because it draws before the venue check in <code>SplitView.kt:587</code> and so renders a working-looking regex box above a list it cannot touch.</p>
+</div>
+
+<section class="col">
+  <h3>Which panes earn their cell</h3>
+  <p>Four of the five do. The two client panes and the two venue-side panes are the same conversations from opposite ends of the wire, which is the FIX equivalent of holding the client log and the server log side by side. They carry different sequence numbers, different socket stamps and different latency. That duplication is the point of the tool, not a bug in it.</p>
+  <p>The fifth pane is the only one that is not a conversation, and it is the only one that is not pulling its weight.</p>
+
+  <div class="facts">
+    <div class="fact"><p class="k">always empty</p><p class="v">A venue's own message list cannot be non-empty. <code>QuickFixService.deliver</code> is the single sink, and for a venue every branch routes to a per-client channel.</p></div>
+    <div class="fact"><p class="k">1 + N, not 2N</p><p class="v">The overview is a fixed extra pane, not a per-client one. Against an external counterparty a venue costs 1 + N panes. It is only in a FixTool-against-FixTool test that one client visibly produces two.</p></div>
+    <div class="fact"><p class="k">odd always wastes</p><p class="v"><code>SplitView.kt:87</code> picks columns from a fixed table and rounds rows up. 3 panes fill 4 cells, 5 fill 6, 7 fill 8. Every odd count leaves exactly one dead cell, in both orientations.</p></div>
+    <div class="fact"><p class="k">controls elsewhere</p><p class="v">Rules and latency, the two things you actually set on a venue, live in the connection profile editor (<code>ConnectionPanel.kt:1559</code> and <code>:1663</code>). The pane only echoes a status line about them.</p></div>
+    <div class="fact"><p class="k">one hidden action</p><p class="v">Clicking a client row focuses that client's pane. It is a bare <code>Row</code> with <code>.clickable</code>, no hover state, no cursor change, no chevron. An action with no affordance is an action nobody finds.</p></div>
+  </div>
+
+  <p>So the venue pane holds one thing that exists nowhere else in the app: <strong>refused logons</strong>. QuickFIX/J answers an unrecognised logon with silence, so a wrong CompID, a wrong port and a closed firewall look identical from both sides. That is a strong argument for the information and a weak one for a grid cell.</p>
+</section>
+
+<h2>A &nbsp;&mdash;&nbsp; Keep the pane, strip the furniture</h2>
+<section class="col">
+  <p>Gate the seven dead controls on <code>!session.isVenue</code>, move the filter bar below the venue check, and give the pane the controls a venue actually has: stop listening, clear the refusal log, jump to the rules. Make the client rows look clickable.</p>
+</section>
+
+<div class="frame scroller">
+  <div class="inner app" style="max-width: 34rem;">
+    <div class="pane-hd"><span class="sb venue"></span><span class="nm">FX Demo Venue</span>
+      <span class="icons"><span class="ic livec">&#9211;</span><span class="ic livec">&#9664;</span><span class="ic livec">&#9654;</span><span class="ic livec">&#10005;</span></span></div>
+    <div class="vhdr">DEMO_SERVER <span class="dim">&middot;</span> listening on 19876 <span class="dim">&middot;</span> 2 connected</div>
+    <div class="clients">
+      <div class="crow hoverable hov"><span class="who">DEMO_CLIENT1</span><span class="on">LOGGED_ON</span><span>17:23:17</span><span class="chev">34 msgs &#8250;</span></div>
+      <div class="crow hoverable"><span class="who">DEMO_CLIENT2</span><span class="on">LOGGED_ON</span><span>17:23:19</span><span class="chev">28 msgs &#8250;</span></div>
+      <div class="crow hoverable"><span class="who">DEMO_CLIENT3</span><span class="off">gone 17:41</span><span>17:31:02</span><span class="chev">9 msgs &#8250;</span></div>
+    </div>
+    <div class="vrefused">&#9888; 17:40:55 &nbsp; BUYSIDE_X addressed DEMO_SRVER <span class="d">&mdash; this venue is DEMO_SERVER</span></div>
+    <div class="vstat">rules live 21 &middot; latency off &middot; triggered 41 &middot; sent 41 &middot; pending 0
+      &nbsp;&nbsp;<span style="color:var(--fx-teal)">Edit rules &#8250;</span></div>
+  </div>
+  <p class="frame-cap"><b>Honest, and still a whole grid cell.</b> Four lines of content in the space of a message grid. The demo stays at five panes and six cells, and the empty one does not go away.</p>
+</div>
+
+<div class="verdict">
+  <div><p class="k">Dead controls</p><p><span class="yes">Fixed</span></p></div>
+  <div><p class="k">Hidden click target</p><p><span class="yes">Fixed</span></p></div>
+  <div><p class="k">Wasted cell</p><p><span class="no">Untouched</span> &mdash; 5 panes, 6 cells</p></div>
+  <div><p class="k">Category error</p><p><span class="no">Untouched</span> &mdash; a venue is still a peer of its own clients</p></div>
+</div>
+
+<h2>B &nbsp;&mdash;&nbsp; Delete the pane, move the venue to the rail</h2>
+<section class="col">
+  <p>The connections rail is already a list of profiles. Make a venue an expandable node whose children are its live clients, put the refusal count on the node as a badge, and stop giving the venue a pane at all. The centre becomes conversations only, and the demo lands on a clean 2&thinsp;&times;&thinsp;2.</p>
+</section>
+
+<div class="frame scroller">
+  <div class="inner app">
+    <div class="withrail">
+      <div class="rail">
+        <div class="rail-hd">Connections</div>
+        <div class="node venue"><span class="tw">&#9662;</span><span class="sb live"></span>FX Demo Venue<span class="meta2">:19876</span></div>
+        <div class="node child sel">DEMO_CLIENT1<span class="meta2">34</span></div>
+        <div class="node child">DEMO_CLIENT2<span class="meta2">28</span></div>
+        <div class="node child" style="color:var(--fx-dim)">DEMO_CLIENT3<span class="meta2">gone</span></div>
+        <div class="node venue" style="color:var(--fx-amber)"><span class="tw">&#9662;</span>Refused<span class="warnb">1</span></div>
+        <div class="refused">17:40:55 BUYSIDE_X<br>addressed DEMO_SRVER</div>
+        <div class="node"><span class="tw"></span><span class="sb live"></span>Demo Client 1<span class="meta2">:19876</span></div>
+        <div class="node"><span class="tw"></span><span class="sb live"></span>Demo Client 2<span class="meta2">:19876</span></div>
+      </div>
+      <div class="grid c2">
+        <div class="cell"><div class="pane-hd"><span class="sb c1"></span><span class="nm">Demo Client 1</span></div>
+          <div class="body">
+            <div class="row"><span class="t">23.104</span><span class="out">OUT</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+            <div class="row"><span class="t">23.147</span><span class="inc">IN</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+            <div class="row"><span class="t">23.402</span><span class="out">OUT</span><span class="mt">D</span><span>NewOrderSingle Buy 1M</span></div>
+            <div class="more">31 more</div></div></div>
+        <div class="cell"><div class="pane-hd"><span class="sb c2"></span><span class="nm">Demo Client 2</span></div>
+          <div class="body">
+            <div class="row"><span class="t">23.119</span><span class="out">OUT</span><span class="mt">R</span><span>QuoteRequest GBP/USD</span></div>
+            <div class="row"><span class="t">23.163</span><span class="inc">IN</span><span class="mt">S</span><span>Quote 1.26988/1.27018</span></div>
+            <div class="row"><span class="t">23.610</span><span class="out">OUT</span><span class="mt">D</span><span>NewOrderSingle Sell 2M</span></div>
+            <div class="more">25 more</div></div></div>
+        <div class="cell"><div class="pane-hd"><span class="sb venue"></span><span class="nm">FX Demo Venue &#8592; DEMO_CLIENT1</span></div>
+          <div class="body">
+            <div class="row"><span class="t">23.106</span><span class="inc">IN</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+            <div class="row"><span class="t">23.145</span><span class="out">OUT</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+            <div class="row"><span class="t">23.404</span><span class="inc">IN</span><span class="mt">D</span><span>NewOrderSingle Buy 1M</span></div>
+            <div class="more">31 more</div></div></div>
+        <div class="cell"><div class="pane-hd"><span class="sb venue"></span><span class="nm">FX Demo Venue &#8592; DEMO_CLIENT2</span></div>
+          <div class="body">
+            <div class="row"><span class="t">23.121</span><span class="inc">IN</span><span class="mt">R</span><span>QuoteRequest GBP/USD</span></div>
+            <div class="row"><span class="t">23.161</span><span class="out">OUT</span><span class="mt">S</span><span>Quote 1.26988/1.27018</span></div>
+            <div class="row"><span class="t">23.612</span><span class="inc">IN</span><span class="mt">D</span><span>NewOrderSingle Sell 2M</span></div>
+            <div class="more">25 more</div></div></div>
+      </div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>Right model, wrong shelf.</b> A venue as a parent node with its sessions as children is exactly the IntelliJ Services idiom, and the rules editor is already one click away in the same panel. But the rail is a <em>setup</em> surface and it is a toggle, so it is shut during the part of the job where the venue's live state matters most.</p>
+</div>
+
+<div class="verdict">
+  <div><p class="k">Dead controls</p><p><span class="yes">Gone with the pane</span></p></div>
+  <div><p class="k">Wasted cell</p><p><span class="yes">Fixed</span> &mdash; 4 panes, 4 cells</p></div>
+  <div><p class="k">Category error</p><p><span class="yes">Fixed</span> &mdash; container, not peer</p></div>
+  <div><p class="k">Live state while testing</p><p><span class="no">Worse</span> &mdash; the one readout for "why can't my client connect" now lives behind a panel you close to see the grids</p></div>
+</div>
+
+<h2>C &nbsp;&mdash;&nbsp; The venue is a group, not a pane</h2>
+<section class="col">
+  <p class="lede">Take B's model and put it where the eyes already are. A venue's client panes sit together in the grid under one thin strip that carries the venue's name, port, live count and refusal badge. The strip costs about 28&thinsp;px instead of a cell, it never leaves the screen, and the grouping states something true: the bottom row is one venue's view of the traffic in the top row.</p>
+</section>
+
+<div class="frame scroller">
+  <div class="inner app">
+    <div class="withrail">
+      <div class="rail">
+        <div class="rail-hd">Connections</div>
+        <div class="node venue"><span class="tw">&#9662;</span><span class="sb live"></span>FX Demo Venue<span class="meta2">:19876</span></div>
+        <div class="node child">DEMO_CLIENT1<span class="meta2">34</span></div>
+        <div class="node child">DEMO_CLIENT2<span class="meta2">28</span></div>
+        <div class="node child" style="color:var(--fx-dim)">DEMO_CLIENT3<span class="meta2">gone</span></div>
+        <div class="node"><span class="tw"></span><span class="sb live"></span>Demo Client 1<span class="meta2">:19876</span></div>
+        <div class="node"><span class="tw"></span><span class="sb live"></span>Demo Client 2<span class="meta2">:19876</span></div>
+      </div>
+      <div class="grid c2">
+        <div class="cell"><div class="pane-hd"><span class="sb c1"></span><span class="nm">Demo Client 1</span>
+            <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic">&#10005;</span></span></div>
+          <div class="body">
+            <div class="row"><span class="t">23.104</span><span class="out">OUT</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+            <div class="row"><span class="t">23.147</span><span class="inc">IN</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+            <div class="row"><span class="t">23.402</span><span class="out">OUT</span><span class="mt">D</span><span>NewOrderSingle Buy 1M</span></div>
+            <div class="row"><span class="t">23.451</span><span class="inc">IN</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+            <div class="more">30 more</div></div></div>
+        <div class="cell"><div class="pane-hd"><span class="sb c2"></span><span class="nm">Demo Client 2</span>
+            <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic">&#10005;</span></span></div>
+          <div class="body">
+            <div class="row"><span class="t">23.119</span><span class="out">OUT</span><span class="mt">R</span><span>QuoteRequest GBP/USD</span></div>
+            <div class="row"><span class="t">23.163</span><span class="inc">IN</span><span class="mt">S</span><span>Quote 1.26988/1.27018</span></div>
+            <div class="row"><span class="t">23.610</span><span class="out">OUT</span><span class="mt">D</span><span>NewOrderSingle Sell 2M</span></div>
+            <div class="row"><span class="t">23.658</span><span class="inc">IN</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+            <div class="more">24 more</div></div></div>
+
+        <div class="vstrip">
+          <span>&#9662;</span><span class="sb live"></span><span class="nm">FX Demo Venue</span>
+          <span class="fig">:19876 &middot; 2 connected, 1 gone &middot; 21 rules &middot; 41 fired</span>
+          <span class="badge">&#9888; 1 refused</span>
+          <span class="acts"><button class="tb-btn" type="button">Rules</button><button class="tb-btn" type="button">Stop</button></span>
+        </div>
+
+        <div class="cell"><div class="pane-hd"><span class="nm">DEMO_CLIENT1</span>
+            <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic">&#10005;</span></span></div>
+          <div class="body">
+            <div class="row"><span class="t">23.106</span><span class="inc">IN</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+            <div class="row"><span class="t">23.145</span><span class="out">OUT</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+            <div class="row"><span class="t">23.404</span><span class="inc">IN</span><span class="mt">D</span><span>NewOrderSingle Buy 1M</span></div>
+            <div class="row"><span class="t">23.449</span><span class="out">OUT</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+            <div class="more">30 more</div></div></div>
+        <div class="cell"><div class="pane-hd"><span class="nm">DEMO_CLIENT2</span>
+            <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic">&#10005;</span></span></div>
+          <div class="body">
+            <div class="row"><span class="t">23.121</span><span class="inc">IN</span><span class="mt">R</span><span>QuoteRequest GBP/USD</span></div>
+            <div class="row"><span class="t">23.161</span><span class="out">OUT</span><span class="mt">S</span><span>Quote 1.26988/1.27018</span></div>
+            <div class="row"><span class="t">23.612</span><span class="inc">IN</span><span class="mt">D</span><span>NewOrderSingle Sell 2M</span></div>
+            <div class="row"><span class="t">23.656</span><span class="out">OUT</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+            <div class="more">24 more</div></div></div>
+      </div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>Four panes, four cells, one strip.</b> The client panes drop the venue prefix from their titles because the strip above them already says whose venue it is, so a narrow pane spends its header on the counterparty rather than on a name repeated four times. The chevron on the strip collapses the whole group when you want the client side alone.</p>
+</div>
+
+<section class="col">
+  <h3>What the strip does that a pane cannot</h3>
+  <ul>
+    <li><strong>It stays.</strong> The refusal badge is next to the traffic, which is where you are looking when a client will not connect. In B that answer is behind a panel you closed to make room for grids.</li>
+    <li><strong>It scales to two venues.</strong> Two strips, two groups, unambiguous. Two overview panes in a flat grid are two more cells and no stated relationship.</li>
+    <li><strong>It survives an empty venue.</strong> A listening venue with no clients is a strip with no panes under it, reading <em>waiting for a client on 19876</em>. That is a better empty state than a pane with an empty table, and it answers the one thing a pane cannot: the venue is up and nobody has arrived.</li>
+    <li><strong>It states the relationship.</strong> A grid of peers says these five things are alike. A group says these two panes belong to that venue, which is what is actually true.</li>
+  </ul>
+
+  <h3>Where I would push back on myself</h3>
+  <p>C is the most work of the three, and the cost is concentrated in one place: <code>SplitView</code>'s grid loop is a flat uniform grid indexed by <code>row * columns + col</code>, and grouping means sorting panes by venue and letting a strip span a row. That is a real rewrite of the layout function, not a guard clause. TABS mode needs an answer too, and the honest one is that the strip becomes a header above the grid whenever the active tab is a venue client, which is cheap.</p>
+  <p>There is also a case for A as a stepping stone, and I would take it, but only as the same afternoon's work rather than as the answer. Gating the dead controls is independent of everything else and makes the venue pane honest while C is built.</p>
+</section>
+
+
+<h2>D &nbsp;&mdash;&nbsp; Minimize, and what it must stay aligned with</h2>
+<section class="col">
+  <p class="lede">Minimize is the better version of A+, because the space win arrives with a feature that stands on its own: today the only way to quiet a pane is to close it, and close calls <code>destroy()</code>, which disconnects the session and throws the log away. There is no way to say <em>not now</em> to a pane.</p>
+  <p>Two designs are possible and only one works here. <strong>Collapse in place</strong> cannot reclaim anything, because a cell is sized from the row and column weights and never from its content, so a collapsed pane is a header floating in a full-size cell. <strong>Minimize out of the grid</strong> works: <code>n</code> drops by one and the existing column arithmetic reflows on its own. So a minimized pane leaves the layout and becomes a chip in one strip above it.</p>
+  <p>The strip is also where the venue lives, minimized by default. One bar, not two, or the space saved goes straight back into stacked chrome.</p>
+</section>
+
+<div class="frame scroller">
+  <div class="inner app">
+    <div class="toolbar"><span class="ttl">Sessions</span>
+      <button class="tb-btn on" type="button">Split &#9662;</button>
+      <button class="tb-btn" type="button">Parsed</button>
+      <button class="tb-btn" type="button">Editor</button>
+      <button class="tb-btn" type="button">Detail</button></div>
+
+    <div class="strip">
+      <span class="chip2 venuechip"><span class="tw">&#9662;</span><span class="sb live"></span><span class="nm">FX Demo Venue</span><span class="fig">:19876 &middot; 2 up, 1 gone</span><span class="badge">&#9888; 1</span><button class="mini-btn" type="button">Rules</button><button class="mini-btn" type="button">Stop</button></span>
+      <span class="chip2 target"><span class="tw">&#9662;</span><span class="sb live"></span><span class="nm">Demo Client 2</span><span class="n">28</span><span class="to">&#8594; editor</span></span>
+      <span class="rest">restore all</span>
+    </div>
+
+    <div class="grid c2">
+      <div class="cell"><div class="pane-hd"><span class="sb c1"></span><span class="nm">Demo Client 1</span>
+          <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic livec" title="Minimize">&#8213;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">23.104</span><span class="out">OUT</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+          <div class="row"><span class="t">23.147</span><span class="inc">IN</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+          <div class="row"><span class="t">23.402</span><span class="out">OUT</span><span class="mt">D</span><span>NewOrderSingle Buy 1M</span></div>
+          <div class="row"><span class="t">23.451</span><span class="inc">IN</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+          <div class="more">30 more</div></div></div>
+      <div class="cell"><div class="pane-hd"><span class="nm">DEMO_CLIENT1</span>
+          <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic livec" title="Minimize">&#8213;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">23.106</span><span class="inc">IN</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+          <div class="row"><span class="t">23.145</span><span class="out">OUT</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+          <div class="row"><span class="t">23.404</span><span class="inc">IN</span><span class="mt">D</span><span>NewOrderSingle Buy 1M</span></div>
+          <div class="row"><span class="t">23.449</span><span class="out">OUT</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+          <div class="more">30 more</div></div></div>
+      <div class="cell"><div class="pane-hd"><span class="nm">DEMO_CLIENT2</span>
+          <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic livec" title="Minimize">&#8213;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">23.121</span><span class="inc">IN</span><span class="mt">R</span><span>QuoteRequest GBP/USD</span></div>
+          <div class="row"><span class="t">23.161</span><span class="out">OUT</span><span class="mt">S</span><span>Quote 1.26988/1.27018</span></div>
+          <div class="row"><span class="t">23.612</span><span class="inc">IN</span><span class="mt">D</span><span>NewOrderSingle Sell 2M</span></div>
+          <div class="row"><span class="t">23.656</span><span class="out">OUT</span><span class="mt">8</span><span>ExecReport &middot; New</span></div>
+          <div class="more">24 more</div></div></div>
+      <div class="cell"><div class="pane-hd"><span class="nm">DEMO_CLIENT3</span>
+          <span class="icons"><span class="ic">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic livec" title="Minimize">&#8213;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">31.002</span><span class="inc">IN</span><span class="mt">A</span><span>Logon</span></div>
+          <div class="row"><span class="t">31.004</span><span class="out">OUT</span><span class="mt">A</span><span>Logon</span></div>
+          <div class="row"><span class="t">41.180</span><span class="inc">IN</span><span class="mt">5</span><span>Logout</span></div>
+          <div class="more">6 more</div></div></div>
+    </div>
+  </div>
+  <p class="frame-cap"><b>Two chips, four cells, a 2&thinsp;&times;&thinsp;2 grid.</b> The venue is minimized because that is its default. Demo Client 2 is minimized because the tester chose to, and it is still the editor's send target, which is what the teal outline and <code>&#8594; editor</code> say. The strip appears only while something is in it, and scrolls sideways rather than wrapping, so it is always exactly one row tall.</p>
+</div>
+
+<section class="col">
+  <h3>One object, two densities</h3>
+  <p>The chip I first drew carried a <code>Rules</code> button, a <code>Stop</code> button and two counters the pane did not have, which quietly made the venue two features instead of one thing at two sizes. The contract that fixes it is a single sentence: <strong>the chip is a strict subset of the pane.</strong> If the chip shows a number, the pane shows it. If the chip offers an action, the pane offers the same action under the same label. Anything that appears only in the chip is a bug, not a feature.</p>
+  <p>What the chip drops is <em>detail</em>, never <em>capability</em>. And what earns a place at either size follows the rule this codebase already states twice, in the refused-logon list and in the discarded-messages badge: <strong>identity and live state always, everything else only when it deviates from boring.</strong> A counter that reads the same on every healthy venue is furniture, and the comment on the discarded badge says exactly that.</p>
+</section>
+
+<div class="align-wrap">
+<table class="align">
+  <thead><tr><th>Venue shows</th><th>Pane, expanded</th><th>Chip, minimized</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>State dot and name</td><td class="y">always</td><td class="y">always</td><td>Identity. A stopped venue must look stopped at both sizes.</td></tr>
+    <tr><td>Port</td><td class="y">always</td><td class="y">always</td><td>Identity too, and the first thing checked when a client cannot connect.</td></tr>
+    <tr><td>Clients connected</td><td>a row each, with state, since, message and order counts</td><td>rollup: <code>2 up</code></td><td>The live answer. Detail drops, the fact does not.</td></tr>
+    <tr><td>Clients gone</td><td>rows, dimmed</td><td class="c"><code>1 gone</code> when &gt; 0</td><td>Zero departed is the boring case and says nothing.</td></tr>
+    <tr><td>Refused logons</td><td>full list, time and both CompIDs</td><td class="c"><code>&#9888;1</code> when &gt; 0</td><td>Exists nowhere else in the app. Loud when present, absent when not.</td></tr>
+    <tr><td>Pending replies</td><td class="c">when &gt; 0</td><td class="c">when &gt; 0</td><td>Replies in flight. Zero is the resting state.</td></tr>
+    <tr><td>Latency injection</td><td class="c">when on</td><td class="c">when on</td><td>Only interesting when your timings are deliberately skewed and you may have forgotten.</td></tr>
+    <tr><td>Rules loaded</td><td class="y">always, as a count</td><td class="c"><code>&#9888; no rules</code> when 0</td><td>Twenty-one rules is furniture. Zero rules is the answer to why the venue is silent.</td></tr>
+    <tr><td>Triggered vs sent</td><td class="y">both numbers</td><td class="c">badge only when they diverge</td><td>Equal is boring. Unequal means replies failed, which is a real finding.</td></tr>
+    <tr><td>Per-client message and order counts</td><td class="y">always</td><td class="n">never</td><td>They belong to the client, and the client has a pane and a chip of its own.</td></tr>
+    <tr class="act"><td>Rules</td><td class="y">button</td><td class="y">button</td><td>Your ask, and correct: the venue's rules are the venue's main control at any size.</td></tr>
+    <tr class="act"><td>Stop / Start</td><td class="y">button</td><td class="y">button</td><td>Binds and unbinds the port. Replaces the bare power icon, which said nothing about what it would take down.</td></tr>
+    <tr class="act"><td>Clear refused</td><td class="c">button when &gt; 0</td><td class="c">right-click when &gt; 0</td><td>The one list on a venue worth clearing. Today <em>Clear all messages</em> does not touch it.</td></tr>
+    <tr class="act"><td>Close</td><td class="y">button</td><td class="c">right-click</td><td>Takes every client pane with it. Too destructive for one click on a chip.</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="align-key">Inline on the chip is the two controls you reach for. Right-click gives the full set, identical at both sizes, the way an IntelliJ tool-window button behaves: click to restore, right-click for everything.</p>
+
+<section class="col">
+  <h3>What that does to the width</h3>
+  <p>This is the payoff for the deviation rule. A healthy venue's chip is short, and it grows only in proportion to how much has gone wrong, which is exactly when you want it to take space.</p>
+</section>
+
+<div class="frame">
+  <div class="app" style="padding: 10px;">
+    <div class="widths">
+      <div class="pair"><span class="lbl2">healthy</span></div>
+      <span class="chip2 venuechip"><span class="tw">&#9662;</span><span class="sb live"></span><span class="nm">FX Demo Venue</span><span class="fig">:19876 &middot; 2 up</span><button class="mini-btn" type="button">Rules</button><button class="mini-btn" type="button">Stop</button></span>
+
+      <div class="pair"><span class="lbl2">a client left, one was refused</span></div>
+      <span class="chip2 venuechip"><span class="tw">&#9662;</span><span class="sb live"></span><span class="nm">FX Demo Venue</span><span class="fig">:19876 &middot; 2 up, 1 gone</span><span class="badge">&#9888; 1</span><button class="mini-btn" type="button">Rules</button><button class="mini-btn" type="button">Stop</button></span>
+
+      <div class="pair"><span class="lbl2">answering nothing, because nothing is loaded</span></div>
+      <span class="chip2 venuechip"><span class="tw">&#9662;</span><span class="sb live"></span><span class="nm">FX Demo Venue</span><span class="fig">:19876 &middot; 1 up</span><span class="warnstate">&#9888; no rules</span><button class="mini-btn" type="button">Rules</button><button class="mini-btn" type="button">Stop</button></span>
+
+      <div class="pair"><span class="lbl2">mid-sequence, and three replies failed</span></div>
+      <span class="chip2 venuechip"><span class="tw">&#9662;</span><span class="sb live"></span><span class="nm">FX Demo Venue</span><span class="fig">:19876 &middot; 2 up</span><span class="badge">3 pending</span><span class="badge">&#9888; 41&#8202;/&#8202;38 sent</span><button class="mini-btn" type="button">Rules</button><button class="mini-btn" type="button">Stop</button></span>
+
+      <div class="pair"><span class="lbl2">port not bound</span></div>
+      <span class="chip2 venuechip stopped"><span class="tw">&#9662;</span><span class="sb down"></span><span class="nm">FX Demo Venue</span><span class="offtxt">:19876 &middot; not listening</span><button class="mini-btn" type="button">Rules</button><button class="mini-btn" type="button">Start</button></span>
+    </div>
+  </div>
+  <p class="frame-cap"><b>The healthy chip is the short one.</b> Which is the right way round: a venue nobody is struggling with should take almost no strip, and the four characters of <code>&#9888;&#8201;1</code> are the ones worth widening for. Every badge here is absent in the resting state, so nothing in this list is a permanent tax on the bar.</p>
+</div>
+
+<section class="col">
+  <h3>And the same alignment, upwards</h3>
+  <p>Applying the subset rule found one thing flowing the other way. My conversation chip showed a message count that the conversation <em>pane</em> does not display anywhere, which breaks the contract just as badly in reverse. The fix is on the pane: its header has a title and then a <code>Spacer(weight = 1f)</code>, so a count costs nothing and is worth having. The chip then becomes a genuine subset rather than a different readout.</p>
+</section>
+
+<div class="anat">
+  <div class="one">
+    <p class="lab">Venue &mdash; expanded, with the aligned action row</p>
+    <div class="holder" style="background: var(--fx-bg); padding: 0;">
+      <div style="max-width: 33rem;">
+        <div class="pane-hd"><span class="sb venue"></span><span class="nm">FX Demo Venue</span>
+          <span class="icons"><span class="ic livec" title="Minimize">&#8213;</span><span class="ic livec">&#9664;</span><span class="ic livec">&#9654;</span><span class="ic livec">&#10005;</span></span></div>
+        <div class="vhdr">DEMO_SERVER <span class="dim">&middot;</span> listening on 19876 <span class="dim">&middot;</span> 2 connected, 1 gone</div>
+        <div class="clients">
+          <div class="crow hoverable hov"><span class="who">DEMO_CLIENT1</span><span class="on">LOGGED_ON</span><span>17:23:17</span><span class="chev">34 msgs &#8250;</span></div>
+          <div class="crow hoverable"><span class="who">DEMO_CLIENT2</span><span class="on">LOGGED_ON</span><span>17:23:19</span><span class="chev">28 msgs &#8250;</span></div>
+          <div class="crow hoverable"><span class="who">DEMO_CLIENT3</span><span class="off">gone 17:41</span><span>17:31:02</span><span class="chev">9 msgs &#8250;</span></div>
+        </div>
+        <div class="vrefused">&#9888; 17:40:55 &nbsp; BUYSIDE_X addressed DEMO_SRVER <span class="d">&mdash; this venue is DEMO_SERVER</span></div>
+        <div class="vstat">21 rules &middot; 41 triggered &middot; 41 sent</div>
+        <div class="vacts"><button class="tb-btn" type="button">Rules</button><button class="tb-btn" type="button">Stop</button><button class="tb-btn" type="button">Clear refused</button></div>
+      </div>
+    </div>
+    <p class="say">Same three labelled actions as the chip's inline pair plus its right-click set, in the same words. <code>latency</code> and <code>pending</code> have left the status line because both are off, and both would reappear in place. The bare power icon is gone: <em>Stop</em> says what it will do, which matters when the thing it stops is a port two clients are on.</p>
+  </div>
+  <div class="one">
+    <p class="lab">Conversation &mdash; pane header gains the count its chip already showed</p>
+    <div class="holder" style="background: var(--fx-bg); padding: 0;">
+      <div style="max-width: 33rem;">
+        <div class="pane-hd"><span class="sb c1"></span><span class="nm">Demo Client 1</span><span class="n" style="font-family: var(--mono); font-size: 11px; color: var(--fx-dim);">34</span>
+          <span class="icons"><span class="ic livec">&#9211;</span><span class="ic">&#9660;</span><span class="ic">&#9776;</span><span class="ic livec" title="Minimize">&#8213;</span><span class="ic">&#10005;</span></span></div>
+        <div class="body">
+          <div class="row"><span class="t">23.104</span><span class="out">OUT</span><span class="mt">R</span><span>QuoteRequest EUR/USD</span></div>
+          <div class="row"><span class="t">23.147</span><span class="inc">IN</span><span class="mt">S</span><span>Quote 1.08993/1.09013</span></div>
+          <div class="more">32 more</div>
+        </div>
+      </div>
+    </div>
+    <p class="say">One number, in the gap that is already empty. Now <code>&#9662; &#9679; Demo Client 1 &nbsp;34</code> minimizes to something the reader has already seen rather than to a new readout.</p>
+  </div>
+  <div class="one">
+    <p class="lab">Right-click, identical at both sizes</p>
+    <div class="holder">
+      <div class="ctx">
+        <div>Restore</div>
+        <div class="sep"></div>
+        <div>Rules&hellip;</div>
+        <div>Latency&hellip;</div>
+        <div>Stop listening</div>
+        <div>Clear refused <span style="color: var(--fx-dim)">(1)</span></div>
+        <div class="sep"></div>
+        <div class="danger">Close venue and 3 client panes</div>
+      </div>
+    </div>
+    <p class="say">The full set lives here, so the inline buttons never have to grow. Close names its blast radius, because on a venue it recurses through <code>isClientOf</code> and takes every client pane with it.</p>
+  </div>
+  <div class="one">
+    <p class="lab">Conversation &mdash; the editor's target, unchanged</p>
+    <div class="holder"><span class="chip2 target"><span class="tw">&#9662;</span><span class="sb live"></span><span class="nm">Demo Client 2</span><span class="n">28</span><span class="to">&#8594; editor</span></span></div>
+    <p class="say">The one chip state that is not a subset of anything, because the pane cannot need it: a visible pane does not have to announce that Send will reach it. It stays.</p>
+  </div>
+</div>
+
+<section class="col">
+  <h3>Moving a pane, with one hidden</h3>
+  <p>This is the part that breaks quietly if it is done by arithmetic. <code>SessionPanel</code> asks for <code>onMoveSession(index, index - 1)</code>, and once the grid is drawn from a filtered list, that <code>index - 1</code> is a position in <em>visible</em> order while <code>moveSession</code> expects one in <em>real</em> order. Off by however many panes are minimized to the left.</p>
+  <p>The rule that works: move to the real index of the previous or next <strong>visible</strong> pane, never to <code>real &plusmn; 1</code>. Moving Client&nbsp;C left with B minimized:</p>
+</section>
+
+<div class="ord">
+  <div class="line"><span class="who2">real, before</span><span class="box">A</span><span class="box hid">B</span><span class="box mv">C</span><span class="box">D</span></div>
+  <div class="line"><span class="who2">visible</span><span class="box">A</span><span class="box mv">C</span><span class="box">D</span><span class="arrow">&nbsp; &#8592; move C left</span></div>
+  <div class="line"><span class="who2">real, after</span><span class="box mv">C</span><span class="box">A</span><span class="box hid">B</span><span class="box">D</span></div>
+  <div class="line"><span class="who2">visible</span><span class="box mv">C</span><span class="box">A</span><span class="box">D</span><span class="arrow">&nbsp; as expected</span></div>
+</div>
+
+<section class="col">
+  <p>Two consequences worth stating rather than discovering. <strong>Move left is withheld at visible position 0</strong>, not at real index 0, or the leftmost pane grows a dead button whenever something is minimized ahead of it. And <strong>a restored pane returns to its place in real order</strong>, which may not be where it sat in visible order when it was minimized, because panes moved around it while it was away. That is the simplest defensible rule and the one I would ship.</p>
+
+  <h3>The editor link, which is safer than it looks</h3>
+  <p>The send path does not use an index at all. <code>App.kt:1211</code> passes <code>selectedSession = activeSession</code>, and <code>sendMessage</code> reads <code>_activeSessionState.value</code>, which holds the session <em>object</em>. So reordering and filtering cannot misdirect a send, and a minimized pane remains a perfectly valid target: the message really is sent, really is logged, and really appears when the pane comes back.</p>
+  <p>What needs care is the parallel index. <code>_activeSessionIndex</code> is maintained by hand alongside the object, and <code>setActiveSession(index)</code> also drives <code>selectedEditorProfile</code> when <code>autoSyncSessionToEditor</code> is on. Hand a filtered index to that function and the editor selects the wrong profile while <code>sendMessage</code> still sends to the right session, which is the worst of both: the header names one counterparty and the wire carries another. Every index crossing the boundary gets mapped, or the callbacks take the session object instead. I would take the object.</p>
+</section>
+
+<section class="col">
+  <h3>Tests to write</h3>
+  <p>Grouped by the thing that would break. The first four are the ones you asked for and the ones I would not ship without.</p>
+</section>
+
+<div class="tests">
+  <div class="t"><p class="id">M1</p><p class="d"><b>A minimized pane is still the editor's target.</b><span class="why">Minimize the active session, then <code>sendMessage</code>. Asserts the message reaches that session, its log grows, and <code>selectedEditorProfile</code> did not change.</span></p></div>
+  <div class="t"><p class="id">M2</p><p class="d"><b>Sends while minimized survive the restore.</b><span class="why">Send three, restore, assert all three are in the pane's grid in order. Proves the pane was hidden and not detached.</span></p></div>
+  <div class="t"><p class="id">M3</p><p class="d"><b>Move with one hidden lands where the eye expects.</b><span class="why">Panes A B C D, minimize B, move C left. Asserts real order C A B D and visible order C A D. The regression that arithmetic-based indexing causes.</span></p></div>
+  <div class="t"><p class="id">M4</p><p class="d"><b>Close with one hidden closes the pane that was clicked.</b><span class="why">Minimize B, close D. Asserts D is gone and A, B, C survive. The silent, destructive failure if indices are not mapped.</span></p></div>
+  <div class="t"><p class="id">M5</p><p class="d"><b>Move left is withheld at visible position zero.</b><span class="why">Minimize A, assert the pane now leftmost offers no move-left. Guards the dead button.</span></p></div>
+  <div class="t"><p class="id">M6</p><p class="d"><b>A refused logon reaches a minimized venue's chip.</b><span class="why">Venue minimized, a client addresses the wrong CompID. Asserts <code>refusedLogons</code> grew and the chip's badge reads it. The one fact that exists nowhere else in the app.</span></p></div>
+  <div class="t"><p class="id">M7</p><p class="d"><b>A client arriving on a minimized venue still gets a pane.</b><span class="why">Venue minimized, a counterparty logs on. Asserts <code>attachVenueClient</code> ran and the new pane is visible, not minimized with its parent.</span></p></div>
+  <div class="t"><p class="id">M8</p><p class="d"><b>Closing a minimized venue still closes its clients.</b><span class="why">Preserves the existing <code>closeSession</code> venue rule, which recurses through <code>isClientOf</code>, when the venue is not in the grid to be clicked.</span></p></div>
+  <div class="t"><p class="id">M9</p><p class="d"><b>The FX Venue example opens as four panes in a 2&thinsp;&times;&thinsp;2.</b><span class="why">The space claim, pinned. Asserts one chip, four cells, no empty cell, and that restoring the venue returns five panes.</span></p></div>
+  <div class="t"><p class="id">M10</p><p class="d"><b>Minimized state survives a restart, by profile and not by index.</b><span class="why">Round-trips through <code>LayoutState</code>. Panes are identified by profile id and slot, because <code>FixMessageSession.id</code> is a fresh UUID each run and a venue client pane does not outlive the process at all.</span></p></div>
+  <div class="t"><p class="id">M11</p><p class="d"><b>Every pane is present exactly once after a minimize, reorder and restore.</b><span class="why">The invariant that catches whatever the enumerated cases missed.</span></p></div>
+</div>
+
+
+<h2>What shipped</h2>
+
+<div class="shipped">
+  <div>
+    <h3>A and D, together</h3>
+    <p>Built as described above, verified against the running FX Venue example: five panes exist, one is a chip, four are in the grid, and the layout is a 2&thinsp;&times;&thinsp;2 with no empty cell. While minimized the venue kept its port bound, kept 21 rules live, fired them (2 triggered, 3 sent), recorded a refused logon, and answered <strong>Stop</strong> from its chip by unbinding the port and dropping both clients. Its own pane held 0 messages throughout, which is the fact that made a grid cell the wrong home for it.</p>
+    <p>One deliberate trim: <span class="trim">no right-click menu</span>. The contract only requires that the chip's actions are a subset of the pane's, and <em>Rules</em>, <em>Stop&thinsp;/&thinsp;Start</em> and <em>Clear refused</em> already are. Close stays pane-only, which is the safer place for something that takes every client pane with it, and restoring the pane is one click. That also avoided introducing a context-menu mechanism to a codebase with no precedent for one.</p>
+    <p>Three things the build found that the drawings had not. Minimizing must not retarget the editor, and the send path made that free rather than fiddly: <code>sendMessage</code> resolves through the session <em>object</em>, so a minimized pane is a valid target and no index can misdirect a send. The parallel <code>_activeSessionIndex</code> is the hazard, since it also drives the editor's profile selection, so every pane is now addressed by session rather than by index — a stale index does not fail loudly, it closes the wrong pane and disconnects it. And the move arrows were the only text glyphs in a row of icons, so they were the only buttons with no accessible name; they are icons now.</p>
+    <p>Twenty-two tests: the deviation rule as pure unit tests, the move-and-close bookkeeping against a real view model, the rendered tree for the gated controls and the withheld move-left, and two venue integration tests for a refusal reaching a minimized venue and a close cascading to its clients.</p>
+  </div>
+</div>
+
+<h2>The recommendation</h2>
+
+<div class="rec">
+  <div><p class="k">A</p><h4>Pane, de-junked</h4><p>Honest but unchanged in shape. The venue still competes with its own clients for a cell, and the odd-count blank stays.</p><p><b>Take it now</b>, as a same-day fix, not as the answer.</p></div>
+  <div><p class="k">B</p><h4>Rail only</h4><p>The correct model on the wrong shelf. Live state ends up behind a panel that is shut exactly when the state matters.</p><p><b>Adopt its rail node</b> as part of C, not instead of it.</p></div>
+  <div><p class="k">C</p><h4>Venue as a group</h4><p>The venue's clients grouped under it in the grid. The best end state, and the only one that stays unambiguous with two venues, but it needs the grid loop rewritten to span a row.</p><p><b>Later</b>, as an upgrade to D's strip.</p></div>
+  <div class="pick"><p class="k">D</p><h4>Minimize, venue minimized by default</h4><p>One mechanism instead of two rules. Any pane can leave the grid for a chip, the venue simply starts that way, and the space win arrives with the non-destructive quiet that split view has never had. Same 2&thinsp;&times;&thinsp;2 as C, without touching the grid loop.</p><p><b>Build this.</b></p></div>
+</div>
+
+<section class="col">
+  <p>Ship A first, because it is independent and takes an afternoon. Then D, which subsumes A+ by making the venue's missing cell a default rather than a special case in the layout code. Fold B's rail node in alongside, since the rail is the right home for setup and for a venue with no clients yet while the strip is the right home for live state. Keep C in view as the upgrade that makes D's single strip into per-venue groups, and build it when a second venue makes the grouping worth the grid rewrite.</p>
+  <p>The whole of D's risk is index arithmetic at one boundary, and the four tests that cover it are M3, M4, M5 and M1. The send path itself is already index-free, which is why this is worth doing now rather than after a refactor.</p>
+</section>
+
+</main>
+</body>
+</html>

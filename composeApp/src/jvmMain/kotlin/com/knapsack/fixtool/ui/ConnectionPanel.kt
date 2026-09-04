@@ -49,6 +49,15 @@ fun ConnectionPanel(
     onClose: () -> Unit,
     /** Profile id or name to load into the form, driven by the control surface. */
     selectionRequest: String? = null,
+    /**
+     * A profile whose auto-response rules should be unfolded, from the venue's own Rules button.
+     *
+     * Needed only for the case the auto-expand below cannot see: a venue with no rules yet. That is the
+     * likeliest reason to have pressed the button, and the least helpful thing to answer with a folded
+     * section. Cleared through [onRulesExpandConsumed] once acted on.
+     */
+    rulesExpandRequest: String? = null,
+    onRulesExpandConsumed: (() -> Unit)? = null,
     /** Names the enum values an auto-response condition can be built from. */
     dictionary: FixDictionary? = null,
     /** Loads one reply step into the message editor. Null where there is no editor to load it into. */
@@ -1453,6 +1462,15 @@ fun ConnectionPanel(
                 // be able to look, at a glance, like one that stays silent.
                 LaunchedEffect(acceptorRules.isNotEmpty()) {
                     if (acceptorRules.isNotEmpty()) showAcceptorRules = true
+                }
+
+                // Asked for by name, so it opens even when there is nothing in it to auto-open for.
+                LaunchedEffect(rulesExpandRequest, selectedProfile?.id) {
+                    val wanted = rulesExpandRequest ?: return@LaunchedEffect
+                    if (selectedProfile?.id == wanted) {
+                        showAcceptorRules = true
+                        onRulesExpandConsumed?.invoke()
+                    }
                 }
 
                 HorizontalDivider(

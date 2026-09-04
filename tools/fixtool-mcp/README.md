@@ -8,7 +8,7 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets Claude Code (or any MCP client)
 drive a running FixTool instance for automated testing — connect sessions, send FIX
-messages, read back parsed messages to verify fields, toggle the built-in demo server, and
+messages, read back parsed messages to verify fields, open the bundled FX venue workspace, and
 capture screenshots.
 
 It is a thin wrapper over FixTool's HTTP **control surface** (see

@@ -83,8 +83,8 @@ extra to install:
    claude mcp add --transport http fixtool http://127.0.0.1:8765/mcp
    ```
 
-3. Ask Claude to drive FixTool — e.g. *"use the fixtool tools to connect to the demo server
-   and send a NewOrderSingle."*
+3. Ask Claude to drive FixTool — e.g. *"use the fixtool tools to open the FX venue example,
+   connect a client and send a NewOrderSingle."*
 
 Full details, the HTTP API, and the tool list are in the **[Automation Guide](docs/AUTOMATION.md)**.
 

@@ -1,0 +1,449 @@
+{
+    "messages": [
+        {
+            "id": "demo-fx-market-buy-eurusd",
+            "name": "FX Market Buy EUR/USD",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "100000"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                },
+                {
+                    "tag": "15",
+                    "value": "USD"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-market-sell-eurusd",
+            "name": "FX Market Sell EUR/USD",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "2"
+                },
+                {
+                    "tag": "40",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "100000"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                },
+                {
+                    "tag": "15",
+                    "value": "USD"
+                },
+                {
+                    "tag": "59",
+                    "value": "0"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-limit-buy-eurusd",
+            "name": "FX Limit Buy EUR/USD",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "1.0850"
+                },
+                {
+                    "tag": "38",
+                    "value": "100000"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                },
+                {
+                    "tag": "15",
+                    "value": "USD"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "64",
+                    "value": "${now+2d:yyyyMMdd}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-limit-sell-eurusd",
+            "name": "FX Limit Sell EUR/USD",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "D"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "2"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "1.0950"
+                },
+                {
+                    "tag": "38",
+                    "value": "100000"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                },
+                {
+                    "tag": "15",
+                    "value": "USD"
+                },
+                {
+                    "tag": "59",
+                    "value": "1"
+                },
+                {
+                    "tag": "64",
+                    "value": "${now+2d:yyyyMMdd}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-order-cancel",
+            "name": "FX Order Cancel Request",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "F"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "41",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-order-replace",
+            "name": "FX Order Cancel/Replace Request",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "G"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "41",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                },
+                {
+                    "tag": "40",
+                    "value": "2"
+                },
+                {
+                    "tag": "44",
+                    "value": "1.08900"
+                },
+                {
+                    "tag": "38",
+                    "value": "500000"
+                },
+                {
+                    "tag": "60",
+                    "value": "${now}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-order-status",
+            "name": "FX Order Status Request",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "H"
+                },
+                {
+                    "tag": "11",
+                    "value": "${outgoing[\"D\"].valueOfTag(11)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${outgoing[\"D\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "${outgoing[\"D\"].valueOfTag(54)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-session-probe",
+            "name": "Session Probe (TestRequest)",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "1"
+                },
+                {
+                    "tag": "112",
+                    "value": "PROBE-${uuid}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0
+        },
+        {
+            "id": "demo-fx-quote-request-eurusd",
+            "name": "FX Quote Request EUR/USD",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-quote-request-gbpusd",
+            "name": "FX Quote Request GBP/USD",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "GBP/USD"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "demo-fx-quote-request-usdjpy",
+            "name": "FX Quote Request USD/JPY",
+            "userTags": [
+                "demo-profile-DEMO_CLIENT1",
+                "demo-profile-DEMO_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "USD/JPY"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        }
+    ]
+}

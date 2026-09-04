@@ -32,6 +32,16 @@ object ExampleWorkspaces {
     /** The bundled FX venue: the demo, as data. */
     const val FX_VENUE = "fx-venue"
 
+    /**
+     * Written into a copy, naming the example it came from.
+     *
+     * Provenance, not content. A copy is otherwise identical to any workspace you made yourself, and
+     * the alternative was working out where it came from by comparing its path against where Open puts
+     * things — which cannot tell a copy apart from a workspace you happened to name "FX Venue", and
+     * would have had the app assert something false about your own work.
+     */
+    const val ORIGIN_FILE = ".fixtool-origin"
+
     private val json = Json { ignoreUnknownKeys = true }
 
     @Serializable
@@ -65,12 +75,6 @@ object ExampleWorkspaces {
     /** Where a new workspace goes unless the user browses elsewhere. */
     fun defaultLocation(): File = WorkspacePaths.home.workspaces
 
-    /** Where [exampleId] lives once opened, whether or not it has been yet. */
-    fun locationOf(
-        exampleId: String,
-        location: File = defaultLocation(),
-    ): File? = byId(exampleId)?.let { File(location, slug(it.defaultWorkspaceName)) }
-
     /**
      * Opens [exampleId] at `<location>/<slug of name>`, copying it out of the build the first time.
      *
@@ -95,6 +99,13 @@ object ExampleWorkspaces {
         val target = File(location, slug(name))
         if (target.isDirectory && target.listFiles().orEmpty().isNotEmpty()) {
             logger.info("Example '{}' is already at {}; opening it rather than copying again", exampleId, target)
+            // A copy made before origin files existed gets one now, so Reset finds it without anyone
+            // having to migrate anything.
+            val origin = File(target, ORIGIN_FILE)
+            if (!origin.isFile) {
+                runCatching { origin.writeText(exampleId + "\n") }
+                    .onFailure { logger.warn("Could not record the origin of {}", target, it) }
+            }
             return Result.success(target)
         }
         return runCatching {
@@ -108,6 +119,7 @@ object ExampleWorkspaces {
             }
             stampTimes(target, now)
             writeGitignore(target)
+            File(target, ORIGIN_FILE).writeText(exampleId + "\n")
             logger.info("Opened example '{}' as '{}' in {}", exampleId, name, target.absolutePath)
             target
         }
@@ -135,6 +147,22 @@ object ExampleWorkspaces {
                 profile.copy(createdAt = now, lastUsedAt = now)
             }
         profiles.saveProfiles(updated)
+    }
+
+    /**
+     * The example [workspace] is a copy of, or null.
+     *
+     * Read from the workspace's own [ORIGIN_FILE] rather than worked out from its path. A path told
+     * you only "it is where Open puts things", which a workspace you made and called "FX Venue" also
+     * satisfies; and it stopped being true the moment anyone moved the folder.
+     */
+    fun exampleAt(workspace: File): Example? {
+        val origin = File(workspace, ORIGIN_FILE)
+        if (!origin.isFile) {
+            return null
+        }
+        val id = runCatching { origin.readText().trim() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
+        return byId(id)
     }
 
     /**

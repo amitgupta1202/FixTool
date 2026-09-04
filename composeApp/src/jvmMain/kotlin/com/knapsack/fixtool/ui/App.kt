@@ -387,6 +387,8 @@ fun App(
                                 onExtractEnvironments = {
                                     viewModel.adoptEnvironments(viewModel.proposeEnvironments())
                                 },
+                                exampleName = viewModel.openWorkspaceExample()?.displayName.orEmpty(),
+                                onResetExample = { viewModel.resetOpenExample() },
                             ),
                     )
                 }

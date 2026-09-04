@@ -54,6 +54,7 @@ import com.knapsack.fixtool.service.AppSettingsService
 import com.knapsack.fixtool.service.ConnectionProfileService
 import com.knapsack.fixtool.service.EntryOutcome
 import com.knapsack.fixtool.service.Environments
+import com.knapsack.fixtool.service.ExampleReset
 import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.ExpectationSeeder
 import com.knapsack.fixtool.service.FanOutPlan
@@ -4187,12 +4188,12 @@ class FixMessageViewModel(
      */
     fun exampleEntries(): List<Triple<String, String, String>> =
         ExampleWorkspaces.all().map { example ->
-            val at = ExampleWorkspaces.locationOf(example.id)
+            val at = File(ExampleWorkspaces.defaultLocation(), ExampleWorkspaces.slug(example.defaultWorkspaceName))
             val note =
-                when {
-                    at == null -> "bundled example"
-                    at.isDirectory && at.listFiles().orEmpty().isNotEmpty() -> "opens ${at.absolutePath}"
-                    else -> "bundled example, copied to ${at.absolutePath}"
+                if (at.isDirectory && at.listFiles().orEmpty().isNotEmpty()) {
+                    "opens ${at.absolutePath}"
+                } else {
+                    "bundled example, copied to ${at.absolutePath}"
                 }
             Triple(example.id, example.displayName, note)
         }
@@ -4281,6 +4282,37 @@ class FixMessageViewModel(
             showNotification("Could not open ${example.displayName}: ${it.message}", NotificationType.ERROR)
         }
         return copied.mapCatching { created -> openWorkspace(created).getOrThrow() }
+    }
+
+    /** The bundled example the open workspace is a copy of, or null. Decides whether Reset is offered. */
+    fun openWorkspaceExample(): ExampleWorkspaces.Example? =
+        if (openWorkspaceIsHome) null else ExampleWorkspaces.exampleAt(openWorkspace)
+
+    /**
+     * Puts the open example copy aside and lays down a fresh one, then opens it.
+     *
+     * Sessions come down as part of opening, and the old copy is renamed rather than deleted — see
+     * [ExampleWorkspaces.resetTo]. The notification names where it went, because a reset that does not
+     * say what it did to your work is not a reset anyone should trust.
+     */
+    fun resetOpenExample(): Result<File> {
+        val example =
+            openWorkspaceExample()
+                ?: return Result.failure(IllegalStateException("the open workspace is not a copy of a bundled example"))
+        // Taken before closing, because closing changes what the open workspace is.
+        val target = openWorkspace
+        closeWorkspace()
+        val reset = ExampleReset.run(example.id, target)
+        reset.exceptionOrNull()?.let {
+            showNotification("Could not reset ${example.displayName}: ${it.message}", NotificationType.ERROR)
+            return Result.failure(it)
+        }
+        val outcome = reset.getOrThrow()
+        val opened = openWorkspace(outcome.workspace)
+        outcome.movedAside?.let {
+            showNotification("${example.displayName} reset. Your previous copy is at ${it.name}", NotificationType.INFO)
+        }
+        return opened
     }
 
     private fun closeEverySession() {

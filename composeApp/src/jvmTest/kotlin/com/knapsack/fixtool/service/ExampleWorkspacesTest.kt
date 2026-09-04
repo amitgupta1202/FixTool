@@ -169,10 +169,9 @@ class ExampleWorkspacesTest {
     }
 
     @Test
-    fun `where an example lands can be asked before it is opened`() {
-        val location = Files.createTempDirectory("example-where").toFile()
-        assertEquals(File(location, "fx-venue"), ExampleWorkspaces.locationOf(ExampleWorkspaces.FX_VENUE, location))
-        assertEquals(null, ExampleWorkspaces.locationOf("no-such-example", location))
+    fun `a name becomes the folder the example lands in`() {
+        val example = assertNotNull(ExampleWorkspaces.byId(ExampleWorkspaces.FX_VENUE))
+        assertEquals("fx-venue", ExampleWorkspaces.slug(example.defaultWorkspaceName))
     }
 
     @Test

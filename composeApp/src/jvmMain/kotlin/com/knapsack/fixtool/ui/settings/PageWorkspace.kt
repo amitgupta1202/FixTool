@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.knapsack.fixtool.model.MessageColorScheme
+import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.ui.AppTheme
 
 // The three pages below hold what belongs to this machine and this pair of eyes: nothing here changes
@@ -178,6 +179,8 @@ private fun StorageContent(context: SettingsContext) {
     val settings = draft.value
 
     WorkspaceFolder(context)
+
+    ResetExample(context)
 
     Environments(context)
 
@@ -362,6 +365,33 @@ private fun WorkspaceFolder(context: SettingsContext) {
                     "the code. `fixtool run --home` wins over it for one run.",
             fontSize = 11.sp,
             color = AppTheme.Colors.textDisabled,
+        )
+    }
+}
+
+/**
+ * Back to the shipped example, for a copy that has been broken.
+ *
+ * Offered only for a workspace still sitting where Open put it — see [ExampleWorkspaces.exampleAt] —
+ * because a workspace someone has moved is theirs. The old copy is renamed, not deleted, which is
+ * why this is a button and not a confirmation dialog: there is nothing here to be sure about.
+ */
+@Composable
+private fun ResetExample(context: SettingsContext) {
+    if (context.workspace.exampleName.isBlank()) {
+        return
+    }
+    SettingsBlock(
+        title = "Reset to the shipped example",
+        description =
+            "This workspace is your copy of ${context.workspace.exampleName}. Reset lays down the " +
+                "shipped one again and renames your current copy rather than deleting it, so anything " +
+                "you want out of it is still there.",
+    ) {
+        SettingsButton(
+            text = "Reset ${context.workspace.exampleName}",
+            onClick = context.workspace.onResetExample,
+            modifier = Modifier.testTag("settings-reset-example"),
         )
     }
 }

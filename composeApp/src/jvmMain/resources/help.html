@@ -559,9 +559,13 @@
     workspace with nothing example-ish about it &mdash; same files, same loaders, listed in Recent
     beside any other.</p>
     <p>The copy happens <strong>once</strong>. Opening the same example again returns to the workspace
-    you already have, with whatever you changed in it; the menu says which it will be. A pristine copy
-    is a different intent with the ordinary answer &mdash; rename or delete the folder, as you would
-    for any workspace.</p>
+    you already have, with whatever you changed in it, and the menu says which it will be.</p>
+    <p>A copy remembers which example it came from, in a small <code>.fixtool-origin</code> file. That
+    is the only thing distinguishing it from a workspace you made yourself, and it is there so
+    <strong>Settings &rarr; Storage</strong> can offer <strong>Reset</strong>: the shipped example laid
+    down again, in the same folder. Your current copy is <em>renamed</em> rather than deleted, to
+    <code>fx-venue-before-reset-&lt;date&gt;</code>, so anything you want out of it is still there.
+    That is why Reset needs no confirmation.</p>
     <p>What does <em>not</em> move with a workspace is anything belonging to the person at the keyboard:
     the data dictionary, the window layout, the rail's sort order and everything in Settings. Opening a
     second workspace gives you other profiles and other scenarios, not a fresh install.</p>

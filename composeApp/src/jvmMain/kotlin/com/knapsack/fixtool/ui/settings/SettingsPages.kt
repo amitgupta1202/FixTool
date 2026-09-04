@@ -57,6 +57,9 @@ data class WorkspaceSettings(
     /** What extracting environments from the saved profiles would produce, or null if not worth it. */
     val environmentProposal: Environments.Companion.Proposal? = null,
     val onExtractEnvironments: () -> Unit = {},
+    /** The bundled example the open workspace is a copy of, or blank when it is not one. */
+    val exampleName: String = "",
+    val onResetExample: () -> Unit = {},
 )
 
 /**

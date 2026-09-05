@@ -62,7 +62,7 @@ object HeadlessRun {
     const val EXIT_USAGE = 2
 
     /** True when [args] ask for a headless run, so `main` knows not to open a window. */
-    fun handles(args: Array<String>): Boolean = args.firstOrNull() in setOf("run", "--help", "-h", "help")
+    fun handles(args: Array<String>): Boolean = args.firstOrNull() in setOf("run", "load", "--help", "-h", "help")
 
     /**
      * Runs the command and puts the workspace back.
@@ -75,6 +75,8 @@ object HeadlessRun {
     fun execute(args: Array<String>, out: Appendable, err: Appendable): Int {
         val previous = WorkspacePaths.current
         try {
+            // The second verb. Same process, same workspace rules, its own arguments and its own exit codes.
+            if (args.firstOrNull() == "load") return HeadlessLoad.execute(args.drop(1), out, err)
             if (args.firstOrNull() != "run") {
                 out.appendLine(USAGE)
                 return if (args.firstOrNull() in setOf("--help", "-h", "help")) EXIT_PASSED else EXIT_USAGE
@@ -392,7 +394,7 @@ object HeadlessRun {
 
     /** The same dictionary the app would have loaded, from the same settings — a headless run must judge the same. */
     @Suppress("TooGenericExceptionCaught")
-    private fun dictionaryFor(settings: AppSettings, err: Appendable): FixDictionaryAdapter =
+    internal fun dictionaryFor(settings: AppSettings, err: Appendable): FixDictionaryAdapter =
         try {
             if (settings.useBundledDictionary || settings.defaultDataDictionary.isBlank()) {
                 FixDictionaryAdapter.forVersion(settings.defaultFixVersion)
@@ -608,23 +610,34 @@ object HeadlessRun {
                 return Options(target, junit, json, sessions, home, set, all, repeat, pauseMs, stopOnFailure, rows, fanOut, over)
             }
 
-            /** `500ms`, `2s`, or a bare number of milliseconds — the three ways somebody writes a pause. */
-            private fun parseDuration(raw: String?): Long? {
-                val text = raw?.trim()?.lowercase() ?: return null
-                return when {
-                    text.endsWith("ms") -> text.dropLast(2).toLongOrNull()
-                    text.endsWith("s") -> text.dropLast(1).toDoubleOrNull()?.let { (it * 1000).toLong() }
-                    else -> text.toLongOrNull()
-                }?.takeIf { it >= 0 }
-            }
         }
     }
+
+    /**
+     * `500ms`, `2s`, `10m`, `1h`, or a bare number of milliseconds — the ways somebody writes a pause, a
+     * settle window or how long a load run should hold its rate. `m` is minutes here, as `--for 10m` reads.
+     */
+    internal fun parseDuration(raw: String?): Long? {
+        val text = raw?.trim()?.lowercase() ?: return null
+        return when {
+            text.endsWith("ms") -> text.dropLast(2).toLongOrNull()
+            text.endsWith("s") -> text.dropLast(1).toDoubleOrNull()?.let { (it * MILLIS_PER_SECOND).toLong() }
+            text.endsWith("m") -> text.dropLast(1).toDoubleOrNull()?.let { (it * MILLIS_PER_MINUTE).toLong() }
+            text.endsWith("h") -> text.dropLast(1).toDoubleOrNull()?.let { (it * MILLIS_PER_HOUR).toLong() }
+            else -> text.toLongOrNull()
+        }?.takeIf { it >= 0 }
+    }
+
+    private const val MILLIS_PER_SECOND = 1_000
+    private const val MILLIS_PER_MINUTE = 60_000
+    private const val MILLIS_PER_HOUR = 3_600_000
 
     private val USAGE =
         """
         fixtool run <scenario> [options]
         fixtool run --set <name> [options]
         fixtool run --all [options]
+        fixtool load <template> --profile <name> (--count <n> | --rate <r>/s --for <d>)   (see fixtool load --help)
 
           <scenario>          a saved scenario's id or name, or a path to a scenario .json file
 

@@ -408,6 +408,19 @@ object LoadReportCodec {
 
     fun fmt(n: Long): String = "%,d".format(n)
 
+    /** `912µs`, `1.4ms`, `212ms`, `1.88s`: a round trip as a person reads it. */
+    fun humanMicros(us: Long): String =
+        when {
+            us < MICROS_PER_MILLI -> "${us}µs"
+            us < TEN_MILLIS_IN_MICROS -> "%.1fms".format(us / MICROS_PER_MILLI.toDouble())
+            us < MICROS_PER_SECOND -> "${us / MICROS_PER_MILLI}ms"
+            else -> "%.2fs".format(us / MICROS_PER_SECOND.toDouble())
+        }
+
+    private const val MICROS_PER_MILLI = 1_000L
+    private const val TEN_MILLIS_IN_MICROS = 10_000L
+    private const val MICROS_PER_SECOND = 1_000_000L
+
     private const val XML_DECLARATION = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     private const val UNMATCHED_NAMED = 20
     private const val MILLIS_PER_SECOND = 1_000L

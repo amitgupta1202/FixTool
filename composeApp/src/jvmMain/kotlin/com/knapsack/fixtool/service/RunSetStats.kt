@@ -26,12 +26,20 @@ import kotlinx.serialization.json.put
  * never offered as the venue's number.
  */
 object RunSetStats {
-    /** A distribution over one set's samples. Empty when nothing was measured — never zeroes. */
+    /**
+     * A distribution over one set's samples. Empty when nothing was measured — never zeroes.
+     *
+     * [min], [p99] and [mean] arrived with the load run, which reports all six. They default so a record
+     * written before they existed reads back with zeros in those three and its p50/p95/max intact.
+     */
     data class Distribution(
         val p50: Long,
         val p95: Long,
         val max: Long,
         val samples: Int,
+        val min: Long = 0,
+        val p99: Long = 0,
+        val mean: Long = 0,
     )
 
     /**
@@ -140,14 +148,25 @@ object RunSetStats {
         val p50 = obj["p50"]?.jsonPrimitive?.longOrNull ?: return null
         val p95 = obj["p95"]?.jsonPrimitive?.longOrNull ?: return null
         val max = obj["max"]?.jsonPrimitive?.longOrNull ?: return null
-        return Distribution(p50, p95, max, obj["samples"]?.jsonPrimitive?.intOrNull ?: 0)
+        return Distribution(
+            p50 = p50,
+            p95 = p95,
+            max = max,
+            samples = obj["samples"]?.jsonPrimitive?.intOrNull ?: 0,
+            min = obj["min"]?.jsonPrimitive?.longOrNull ?: 0,
+            p99 = obj["p99"]?.jsonPrimitive?.longOrNull ?: 0,
+            mean = obj["mean"]?.jsonPrimitive?.longOrNull ?: 0,
+        )
     }
 
     private fun distributionJson(d: Distribution): JsonObject =
         buildJsonObject {
+            put("min", d.min)
             put("p50", d.p50)
             put("p95", d.p95)
+            put("p99", d.p99)
             put("max", d.max)
+            put("mean", d.mean)
             put("samples", d.samples)
         }
 
@@ -174,13 +193,34 @@ object RunSetStats {
      */
     private fun distribution(samples: List<Long>): Distribution? {
         if (samples.isEmpty()) return null
-        val sorted = samples.sorted()
+        return of(samples.toLongArray().also { it.sort() })
+    }
+
+    /**
+     * The distribution over samples **already sorted**, in place, as a primitive array.
+     *
+     * The load run keeps three hundred thousand round trips as a `LongArray` and sorts it once at the end.
+     * Boxing them into a list to reuse [distribution] would allocate three hundred thousand `Long`s for one
+     * sort, so the list path converts and comes here instead of the other way round.
+     */
+    fun of(sorted: LongArray): Distribution? {
+        if (sorted.isEmpty()) return null
+        var sum = 0L
+        for (v in sorted) sum += v
         return Distribution(
             p50 = sorted.nearestRank(P50),
             p95 = sorted.nearestRank(P95),
             max = sorted.last(),
             samples = sorted.size,
+            min = sorted.first(),
+            p99 = sorted.nearestRank(P99),
+            mean = sum / sorted.size,
         )
+    }
+
+    private fun LongArray.nearestRank(percentile: Double): Long {
+        val rank = Math.ceil(percentile * size).toInt().coerceIn(1, size)
+        return this[rank - 1]
     }
 
     private fun List<Long>.nearestRank(percentile: Double): Long {
@@ -190,6 +230,7 @@ object RunSetStats {
 
     private const val P50 = 0.50
     private const val P95 = 0.95
+    private const val P99 = 0.99
 
     /**
      * The step kinds whose `latencyMs` is a round trip. A Wait satisfied by a connection state rather

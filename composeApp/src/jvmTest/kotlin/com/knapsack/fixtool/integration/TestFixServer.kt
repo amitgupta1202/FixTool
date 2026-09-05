@@ -6,7 +6,9 @@ import java.net.SocketException
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.io.OutputStream
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -44,6 +46,39 @@ class TestFixServer {
     /** Raw application-level (non-admin) messages received, in arrival order. */
     val applicationMessages: MutableList<String> = Collections.synchronizedList(mutableListOf())
 
+    /**
+     * **What the venue answers an application message with.** Nothing, by default, so every test written
+     * before this existed is unchanged. A load test sets it: one ExecutionReport per order, two for a
+     * duplicate, none for a chosen ClOrdID, or one routed to another client's connection.
+     */
+    @Volatile
+    var answer: (request: String) -> List<Reply> = { emptyList() }
+
+    /** One reply the venue sends: its type, its body fields, and the client CompID to send it to, or null for the requester. */
+    data class Reply(
+        val msgType: String,
+        val fields: List<String>,
+        val toClient: String? = null,
+    )
+
+    /** One client's connection, so a reply can be routed to it and its sequence numbers kept straight. */
+    private class Connection(
+        val output: OutputStream,
+        var senderCompId: String,
+        var targetCompId: String,
+    ) {
+        var seqNum = 1
+
+        @Synchronized
+        fun write(msgType: String, fields: List<String>) {
+            output.write(buildMessage(msgType, senderCompId, targetCompId, seqNum++, fields).toByteArray(Charsets.ISO_8859_1))
+            output.flush()
+        }
+    }
+
+    /** Connections by the client's own CompID, as its Logon named it. */
+    private val connections = ConcurrentHashMap<String, Connection>()
+
     val port: Int
         get() = serverSocket.localPort
 
@@ -73,10 +108,7 @@ class TestFixServer {
         try {
             socket.use {
                 val input = it.getInputStream()
-                val output = it.getOutputStream()
-                var seqNum = 1
-                var senderCompId = "SERVER"
-                var targetCompId = "CLIENT"
+                val connection = Connection(it.getOutputStream(), senderCompId = "SERVER", targetCompId = "CLIENT")
                 val buffer = StringBuilder()
                 val bytes = ByteArray(8192)
 
@@ -90,39 +122,34 @@ class TestFixServer {
                         when (fieldValue(message, 35)) {
                             "A" -> {
                                 // Reply with comp IDs mirrored from the client's logon
-                                senderCompId = fieldValue(message, 56) ?: senderCompId
-                                targetCompId = fieldValue(message, 49) ?: targetCompId
+                                connection.senderCompId = fieldValue(message, 56) ?: connection.senderCompId
+                                connection.targetCompId = fieldValue(message, 49) ?: connection.targetCompId
+                                connections[connection.targetCompId] = connection
                                 logonCount.incrementAndGet()
-                                logons.add(targetCompId to senderCompId)
+                                logons.add(connection.targetCompId to connection.senderCompId)
                                 val heartBtInt = fieldValue(message, 108) ?: "30"
                                 val ackFields = mutableListOf("98=0", "108=$heartBtInt")
                                 if (fieldValue(message, 141) == "Y") {
                                     ackFields.add("141=Y")
                                 }
-                                output.write(
-                                    buildMessage("A", senderCompId, targetCompId, seqNum++, ackFields)
-                                        .toByteArray(Charsets.ISO_8859_1),
-                                )
+                                connection.write("A", ackFields)
                             }
                             "0" -> {
                                 // Heartbeat - nothing to do
                             }
                             "1" -> {
                                 val testReqId = fieldValue(message, 112)
-                                output.write(
-                                    buildMessage("0", senderCompId, targetCompId, seqNum++, listOfNotNull(testReqId?.let { id -> "112=$id" }))
-                                        .toByteArray(Charsets.ISO_8859_1),
-                                )
+                                connection.write("0", listOfNotNull(testReqId?.let { id -> "112=$id" }))
                             }
-                            "5" -> {
-                                output.write(
-                                    buildMessage("5", senderCompId, targetCompId, seqNum++, emptyList())
-                                        .toByteArray(Charsets.ISO_8859_1),
-                                )
+                            "5" -> connection.write("5", emptyList())
+                            else -> {
+                                applicationMessages.add(message)
+                                for (reply in answer(message)) {
+                                    val target = reply.toClient?.let { client -> connections[client] } ?: connection
+                                    target.write(reply.msgType, reply.fields)
+                                }
                             }
-                            else -> applicationMessages.add(message)
                         }
-                        output.flush()
                     }
                 }
             }
@@ -147,6 +174,33 @@ class TestFixServer {
 
         fun fieldValue(message: String, tag: Int): String? =
             Regex("(^|$SOH)$tag=([^$SOH]*)$SOH").find(message)?.groupValues?.get(2)
+
+        private val execIds = AtomicInteger(0)
+
+        /**
+         * An ExecutionReport answering [request]: the client's ClOrdID echoed, a fresh OrderID and ExecID,
+         * the given OrdStatus. What a venue says to a NewOrderSingle it accepted.
+         */
+        fun executionReportFor(request: String, ordStatus: String = "0", toClient: String? = null): Reply {
+            val clOrdId = fieldValue(request, 11) ?: "?"
+            val n = execIds.incrementAndGet()
+            return Reply(
+                msgType = "8",
+                fields =
+                    listOf(
+                        "37=O-$n",
+                        "11=$clOrdId",
+                        "17=E-$n",
+                        "150=$ordStatus",
+                        "39=$ordStatus",
+                        "55=${fieldValue(request, 55) ?: "EUR/USD"}",
+                        "54=${fieldValue(request, 54) ?: "1"}",
+                        "151=0",
+                        "14=0",
+                    ),
+                toClient = toClient,
+            )
+        }
 
         private fun buildMessage(
             msgType: String,

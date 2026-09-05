@@ -170,9 +170,14 @@ class HeadlessScenarioHost(
      * on every run. A shortfall is reported to the caller by returning fewer lanes than the profile
      * declares, never by refusing: if a venue admits 38 of 50, 38 lanes is a load test and zero is not.
      */
-    fun openLanes(profile: FixConnectionProfile, timeoutMs: Long = LANE_LOGON_TIMEOUT_MS): List<Lane> {
+    fun openLanes(
+        profile: FixConnectionProfile,
+        timeoutMs: Long = LANE_LOGON_TIMEOUT_MS,
+        /** A last word on each lane's config, for a load run's per-run store and log. Identity by default. */
+        configure: (FixConnectionConfig) -> FixConnectionConfig = { it },
+    ): List<Lane> {
         val slots = laneCount(profile)
-        val opened = (1..slots).map { slot -> slot to openSlot(profile, slot, slots) }
+        val opened = (1..slots).map { slot -> slot to openSlot(profile, slot, slots, configure) }
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline &&
             opened.any { (_, sess) -> sess.connectionState.value != FixConnectionState.LOGGED_ON }
@@ -204,14 +209,38 @@ class HeadlessScenarioHost(
      * profile — the same convention [FixMessageSession.profileSlot] uses, and the same titling the app's
      * `createMissingSessions` applies, so a record made headless names its lanes as the window would.
      */
-    private fun openSlot(profile: FixConnectionProfile, slot: Int, slots: Int): FixMessageSession {
+    /**
+     * **One session of a profile, for a load run that only listens on it**: slot 1 of a group, or the single
+     * session. Waits for logon and answers null when it did not arrive, so a listener that never logged on is
+     * reported rather than silently absent from the matching.
+     */
+    fun openSingle(
+        profile: FixConnectionProfile,
+        timeoutMs: Long = LANE_LOGON_TIMEOUT_MS,
+        configure: (FixConnectionConfig) -> FixConnectionConfig = { it },
+    ): FixMessageSession? {
+        val slots = laneCount(profile)
+        val session = openSlot(profile, slot = if (slots > 1) 1 else 0, slots = slots, configure = configure)
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline && session.connectionState.value != FixConnectionState.LOGGED_ON) {
+            sleep(LANE_POLL_MS)
+        }
+        return session.takeIf { it.connectionState.value == FixConnectionState.LOGGED_ON }
+    }
+
+    private fun openSlot(
+        profile: FixConnectionProfile,
+        slot: Int,
+        slots: Int,
+        configure: (FixConnectionConfig) -> FixConnectionConfig = { it },
+    ): FixMessageSession {
         val title = if (slots > 1) "${profile.name} [$slot]" else profile.name
         sessions[title]?.let {
             onLog("reconnecting session '$title'")
             it.reconnect()
             return it
         }
-        val config = if (slots > 1) SessionIdentityResolver.resolve(profile.config, slot, slots) else profile.config
+        val config = configure(if (slots > 1) SessionIdentityResolver.resolve(profile.config, slot, slots) else profile.config)
         val sess =
             FixMessageSession(
                 title = title,

@@ -363,6 +363,20 @@ fun App(
                     onToggleTerminal = { TerminalController.toggle() },
                 )
 
+                // The load run dialog, opened from the editor's Load button with the editor's fields as the template.
+                val loadTemplate by viewModel.loadDialogTemplate.collectAsState()
+                loadTemplate?.let { template ->
+                    LoadRunDialog(
+                        viewModel = viewModel,
+                        fixedTemplate = template,
+                        onDismiss = { viewModel.dismissLoadDialog() },
+                        onRun = { plan ->
+                            viewModel.dismissLoadDialog()
+                            viewModel.startLoadRun(plan)
+                        },
+                    )
+                }
+
                 // Settings Dialog
                 if (showSettingsDialog) {
                     SettingsDialog(
@@ -1365,6 +1379,7 @@ private fun AppMessageEditorPanel(
                 )
             }
         },
+        onLoad = { fields -> viewModel.requestLoadRun(fields) },
         onValidate = { fields ->
             viewModel.validateEditorMessage(fields)
         },

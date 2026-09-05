@@ -75,6 +75,7 @@ import androidx.compose.ui.window.rememberDialogState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.ScenarioSort
+import com.knapsack.fixtool.model.load.LoadReport
 import com.knapsack.fixtool.model.scenario.RunSet
 import com.knapsack.fixtool.model.scenario.RunSetStatus
 import com.knapsack.fixtool.model.scenario.RunSource
@@ -118,6 +119,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var confirmingDeleteId by remember { mutableStateOf<String?>(null) }
     var filter by remember { mutableStateOf("") }
     val activeSet by viewModel.activeRunSet.collectAsState()
+    val activeLoad by viewModel.activeLoadRun.collectAsState()
     // Cmd/Ctrl+A and Esc are handled on the rail's own root, so they need somewhere for focus to land. It is
     // requested on the first pick, never on mount: a pane that grabs focus as it appears steals the keyboard
     // from the grid the author was reading.
@@ -131,6 +133,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var savingSet by remember { mutableStateOf(false) }
     var outlining by remember { mutableStateOf(false) }
     var fanningOut by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
     // The scenario a "Save as scenario…" is being authored for — the dialog outlives the hover that opened it.
     var remapFor by remember { mutableStateOf<Scenario?>(null) }
     remapFor?.let { RemapScenarioDialog(scenario = it, viewModel = viewModel, onDismiss = { remapFor = null }) }
@@ -184,6 +187,17 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
             onRun = { scenario, profileId, leg ->
                 fanningOut = false
                 viewModel.startFanOut(scenario, profileId, leg)
+            },
+        )
+    }
+    if (loading) {
+        LoadRunDialog(
+            viewModel = viewModel,
+            fixedTemplate = null,
+            onDismiss = { loading = false },
+            onRun = { plan ->
+                loading = false
+                viewModel.startLoadRun(plan)
             },
         )
     }
@@ -286,7 +300,10 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         savedSets = remember(scenarios, activeSet) { viewModel.runSetStore.list() },
                         favourites = viewState.favouriteIds.size,
                         filtered = if (filter.isBlank()) 0 else visible.size,
-                        recent = remember(activeSet) { viewModel.runRecordStore.listSets().take(RECENT_RUNS) },
+                        recent =
+                            remember(activeSet, activeLoad) {
+                                RecentRun.merge(viewModel.runRecordStore.listSets(), viewModel.loadRecordStore.list()).take(RECENT_RUNS)
+                            },
                         onRunSaved = { name -> viewModel.startSavedRunSet(name) },
                         onRunFavourites = {
                             viewModel.startRunSet(
@@ -318,7 +335,13 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                             },
                         onRunExamples = { outlining = true },
                         onFanOut = { fanningOut = true },
-                        onOpenRecent = { id -> viewModel.focusRunSet(id) },
+                        onLoadRun = { loading = true },
+                        onOpenRecent = { run ->
+                            when (run) {
+                                is RecentRun.Set -> viewModel.focusRunSet(run.id)
+                                is RecentRun.Load -> viewModel.openLoadRun(run.id)
+                            }
+                        },
                     ),
                 sort = viewState.sortMode,
                 onSort = { viewModel.setScenarioSort(it) },
@@ -991,7 +1014,7 @@ private data class RunMenu(
     val filtered: Int,
     /** How many rows the author has ticked — an ad-hoc set, gone once it runs. */
     val selected: Int,
-    val recent: List<RunSet>,
+    val recent: List<RecentRun>,
     /** How many saved scenarios carry a table — the count on the outline item. */
     val outlines: Int,
     /** How many saved profiles could supply lanes — a multi-session initiator with sessions logged on. */
@@ -1004,8 +1027,45 @@ private data class RunMenu(
     val onRepeat: () -> Unit,
     val onRunExamples: () -> Unit,
     val onFanOut: () -> Unit,
-    val onOpenRecent: (String) -> Unit,
+    val onLoadRun: () -> Unit,
+    val onOpenRecent: (RecentRun) -> Unit,
 )
+
+/**
+ * **One row of Recent, whichever kind of run it was.** A run set and a load run keep different records in
+ * different directories, and the menu lists them together by time, each with its own mark and fraction.
+ */
+internal sealed interface RecentRun {
+    val id: String
+    val startedAt: Long
+
+    /** The row as the menu prints it. */
+    val line: String
+
+    data class Set(
+        val set: RunSet,
+    ) : RecentRun {
+        override val id: String get() = set.id
+        override val startedAt: Long get() = set.startedAt
+        override val line: String get() = "${if (set.status == RunSetStatus.PASSED) "✓" else "✗"} ${set.label}  (${set.passed}/${set.total})"
+    }
+
+    data class Load(
+        val report: LoadReport,
+    ) : RecentRun {
+        override val id: String get() = report.id
+        override val startedAt: Long get() = report.startedAt
+        override val line: String
+            get() =
+                "⚡ ${report.label}  (${"%,d".format(report.replies.matched)}/${"%,d".format(report.issue.leftSocket)})" +
+                    if (report.verdict.exitCode == 0) "" else " ✗"
+    }
+
+    companion object {
+        fun merge(sets: List<RunSet>, loads: List<LoadReport>): List<RecentRun> =
+            (sets.map(::Set) + loads.map(::Load)).sortedByDescending { it.startedAt }
+    }
+}
 
 /**
  * The four ways to build a set and the one way to look at an old one.
@@ -1058,6 +1118,16 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
         onChose()
         menu.onFanOut()
     }
+    // Under fan-out, with the same count, because fan-out is the feature people reach for first and are
+    // disappointed by: a lane is sequential, so fifty sessions give fifty outstanding, not four thousand.
+    RailMenuItem(
+        "Load run…  (${menu.laneProfiles})",
+        enabled = !running && menu.laneProfiles > 0,
+        tag = "rail-run-load",
+    ) {
+        onChose()
+        menu.onLoadRun()
+    }
     RailMenuItem(
         "Run examples table…  (${menu.outlines})",
         enabled = !running && menu.outlines > 0,
@@ -1072,11 +1142,10 @@ private fun RunMenuContents(menu: RunMenu, running: Boolean, onChose: () -> Unit
     }
     if (menu.recent.isNotEmpty()) {
         HorizontalDivider(color = AppTheme.Separators.color, thickness = AppTheme.Separators.dividerThickness)
-        menu.recent.forEach { set ->
-            val mark = if (set.status == RunSetStatus.PASSED) "✓" else "✗"
-            RailMenuItem("Recent ▸  $mark ${set.label}  (${set.passed}/${set.total})", tag = "rail-recent-${set.id}") {
+        menu.recent.forEach { run ->
+            RailMenuItem("Recent ▸  ${run.line}", tag = "rail-recent-${run.id}") {
                 onChose()
-                menu.onOpenRecent(set.id)
+                menu.onOpenRecent(run)
             }
         }
     }

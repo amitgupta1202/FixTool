@@ -1,0 +1,1475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Load Runs and the Store Under Them</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+
+<style>
+  :root {
+    --ground: #eef0f3;
+    --card: #ffffff;
+    --ink: #191c21;
+    --muted: #5b6570;
+    --faint: #8a939e;
+    --rule: #d7dce3;
+    --accent: #2f6fb0;
+    --accent-soft: #e3ecf6;
+    --good: #3f7d33;
+    --bad: #b8342f;
+    --warn: #9a6a1c;
+    --warn-soft: #f6edd9;
+
+    /* The app's own chrome, fixed in both themes: these panels are the dark tool. */
+    --app-bg: #1e1e1e;
+    --app-surface: #2b2b2b;
+    --app-variant: #252525;
+    --app-header: #202020;
+    --app-text: #e0e0e0;
+    --app-text2: #b0b0b0;
+    --app-dim: #6a6a6a;
+    --app-good: #98c379;
+    --app-warn: #ce9178;
+    --app-bad: #e06c75;
+    --app-info: #61afef;
+    --app-rule: #3a3a3a;
+
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --col: 40rem;
+    --wide: 62rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14171a;
+      --card: #1b1f23;
+      --ink: #e3e7eb;
+      --muted: #98a2ad;
+      --faint: #737d88;
+      --rule: #2a3138;
+      --accent: #61afef;
+      --accent-soft: #1d2a36;
+      --good: #98c379;
+      --bad: #e06c75;
+      --warn: #d9a75a;
+      --warn-soft: #2b2518;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #14171a;
+    --card: #1b1f23;
+    --ink: #e3e7eb;
+    --muted: #98a2ad;
+    --faint: #737d88;
+    --rule: #2a3138;
+    --accent: #61afef;
+    --accent-soft: #1d2a36;
+    --good: #98c379;
+    --bad: #e06c75;
+    --warn: #d9a75a;
+    --warn-soft: #2b2518;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3.5rem) clamp(1.1rem, 4vw, 2rem) 5rem;
+  }
+
+  .col { max-width: var(--col); }
+
+  header.mast { border-bottom: 1px solid var(--rule); padding-bottom: 2rem; margin-bottom: 2.5rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1.1rem;
+  }
+
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.028em;
+    font-size: clamp(2.1rem, 6vw, 3.2rem);
+    line-height: 1.04;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+
+  .standfirst { font-size: 1.12rem; color: var(--muted); max-width: 44rem; margin: 0 0 1.2rem; }
+
+  .mast-meta {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.4rem;
+  }
+
+  h2 {
+    font-family: var(--sans);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-size: 1.55rem;
+    line-height: 1.15;
+    margin: 3.2rem 0 0.8rem;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: -0.008em;
+    margin: 2rem 0 0.35rem;
+  }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.55rem;
+  }
+
+  p { margin: 0 0 1.05rem; }
+  ul, ol { margin: 0 0 1.05rem; padding-left: 1.3rem; }
+  li { margin: 0 0 0.45rem; }
+  li > p { margin: 0; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--accent-soft);
+    color: var(--ink);
+    padding: 0.08em 0.34em;
+    border-radius: 3px;
+  }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    padding: 0.9rem 1rem;
+    overflow-x: auto;
+    margin: 0.8rem 0 1.2rem;
+    border-radius: 3px;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--accent); }
+  pre .bad { color: var(--bad); }
+  pre .good { color: var(--good); }
+  pre .warn { color: var(--warn); }
+
+  /* ---------- verdicts up front ---------- */
+
+  .answers {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 1.4rem 0 1rem;
+  }
+  .answers > div {
+    background: var(--card);
+    padding: 0.95rem 1.15rem 1rem;
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 0 1.1rem;
+    align-items: start;
+  }
+  @media (max-width: 40rem) { .answers > div { grid-template-columns: 1fr; } }
+  .answers .q { font-family: var(--sans); font-weight: 600; font-size: 0.98rem; margin: 0 0 0.3rem; }
+  .answers .a { margin: 0; font-size: 0.95rem; color: var(--muted); }
+  .answers .a b { color: var(--ink); font-weight: 500; }
+
+  /* ---------- tables ---------- */
+
+  .tablewrap { overflow-x: auto; margin: 0.8rem 0 1.3rem; }
+  table.doc { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  table.doc th, table.doc td { text-align: left; vertical-align: top; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--rule); }
+  table.doc th { font-family: var(--sans); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.02em; color: var(--muted); }
+  table.doc td.mono, table.doc th.mono { font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
+  table.doc td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  table.doc tr.pr td:first-child { font-family: var(--sans); font-weight: 600; white-space: nowrap; }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 0.7rem 1rem;
+    margin: 1rem 0 1.3rem;
+    font-size: 0.95rem;
+  }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .decisions { counter-reset: d; list-style: none; padding: 0; margin: 0.6rem 0 1.4rem; }
+  .decisions li {
+    counter-increment: d;
+    display: grid;
+    grid-template-columns: 2.4rem minmax(0, 1fr);
+    gap: 0 0.6rem;
+    padding: 0.7rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .decisions li:last-child { border-bottom: 1px solid var(--rule); }
+  .decisions li::before {
+    content: counter(d, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--accent);
+    padding-top: 0.25rem;
+  }
+  .decisions b { font-family: var(--sans); font-weight: 600; }
+  .decisions .why { color: var(--muted); font-size: 0.93rem; display: block; margin-top: 0.15rem; }
+
+  /* ---------- figures ---------- */
+
+  figure { margin: 1.4rem 0 1.8rem; }
+  figure svg { display: block; max-width: 100%; height: auto; color: var(--ink); font-family: var(--sans); }
+  figure svg text { font-size: 12px; fill: currentColor; }
+  figure svg .mono { font-family: var(--mono); font-size: 11px; }
+  figure svg .small { font-size: 10.5px; fill: var(--muted); }
+  figure svg .box { fill: var(--card); stroke: currentColor; stroke-width: 1; }
+  figure svg .box.soft { fill: var(--ground); stroke: var(--faint); }
+  figure svg .box.hi { stroke: var(--accent); stroke-width: 1.5; }
+  figure svg .box.warn { fill: var(--warn-soft); stroke: var(--warn); }
+  figure svg .box.dash { stroke-dasharray: 4 3; fill: none; stroke: var(--faint); }
+  figure svg .edge { stroke: currentColor; stroke-width: 1.2; fill: none; }
+  figure svg .edge.hi { stroke: var(--accent); stroke-width: 1.6; }
+  figure svg .edge.faint { stroke: var(--faint); stroke-dasharray: 3 3; }
+  figure svg .stamp { fill: var(--accent); }
+  figure svg .brk { stroke: var(--muted); stroke-width: 1; fill: none; }
+  figure svg .accent { fill: var(--accent); }
+  figure svg .bad { fill: var(--bad); }
+  figure svg .good { fill: var(--good); }
+  figcaption { font-size: 0.88rem; color: var(--muted); margin-top: 0.55rem; max-width: 44rem; }
+  figcaption b { color: var(--ink); font-weight: 500; }
+
+  /* ---------- app chrome mockups ---------- */
+
+  .screen {
+    background: var(--app-bg);
+    color: var(--app-text);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.45;
+    border: 1px solid var(--app-rule);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 1rem 0 0.4rem;
+  }
+  .screen-bar {
+    background: var(--app-header);
+    color: var(--app-dim);
+    font-size: 11px;
+    padding: 4px 9px;
+    border-bottom: 1px solid var(--app-rule);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .screen-bar .ttl { color: var(--app-text2); }
+  .screen-bar .grow { flex: 1; }
+
+  .screen .t { color: var(--app-text); }
+  .screen .t2 { color: var(--app-text2); }
+  .screen .dim { color: var(--app-dim); }
+  .screen .ok { color: var(--app-good); }
+  .screen .no { color: var(--app-bad); }
+  .screen .wn { color: var(--app-warn); }
+  .screen .in { color: var(--app-info); }
+  .screen .num { font-variant-numeric: tabular-nums; }
+
+  .duo { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); align-items: start; }
+
+  /* connection panel */
+  .cp { padding: 8px 10px 10px; }
+  .cp .sect { color: var(--app-text2); font-size: 9.5px; letter-spacing: 0.02em; margin: 8px 0 3px; }
+  .cp .row { display: flex; align-items: center; gap: 14px; padding: 2px 0; }
+  .cp .row .lbl { color: var(--app-text2); width: 104px; font-size: 11px; }
+  .cp label { display: inline-flex; align-items: center; gap: 5px; color: var(--app-text2); font-size: 11px; cursor: pointer; }
+  .cp input[type="radio"], .cp input[type="checkbox"] { accent-color: var(--app-good); margin: 0; width: 12px; height: 12px; }
+  .cp .chk { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--app-dim); border-radius: 2px; background: var(--app-surface); vertical-align: -2px; }
+  .cp .chk.on { background: var(--app-good); border-color: var(--app-good); }
+  .cp .hint { font-size: 10.5px; margin-top: 5px; padding: 5px 7px; border-left: 2px solid var(--app-rule); color: var(--app-dim); }
+  .cp .hint.warn { border-left-color: var(--app-warn); color: var(--app-warn); }
+  .cp .hint.ok { border-left-color: var(--app-good); color: var(--app-text2); }
+
+  /* editor send row */
+  .sendrow { display: flex; align-items: flex-end; gap: 18px; padding: 10px 12px 8px; }
+  .sendrow .btn { display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--app-text2); font-size: 10px; }
+  .sendrow .btn .ic {
+    width: 26px; height: 22px; border: 1px solid var(--app-rule); border-radius: 3px;
+    display: grid; place-items: center; background: var(--app-surface); font-size: 12px; color: var(--app-text);
+  }
+  .sendrow .btn.new .ic { border-color: #3c4a35; background: #232a20; color: var(--app-good); }
+  .sendrow .btn.new { color: var(--app-good); }
+  .sendrow .tip { margin-left: auto; color: var(--app-dim); font-size: 10.5px; max-width: 26rem; align-self: center; }
+
+  /* dialog */
+  .dlg { padding: 9px 11px 11px; }
+  .dlg .intro { color: var(--app-text2); font-size: 11px; margin-bottom: 8px; }
+  .dlg .field { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+  .dlg .field label.l { color: var(--app-text2); width: 120px; font-size: 11px; flex: none; }
+  .dlg .box { border: 1px solid var(--app-rule); background: var(--app-surface); padding: 1px 7px; min-width: 56px; color: var(--app-text); }
+  .dlg .box.narrow { min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  .dlg .box.pick::after { content: " ▾"; color: var(--app-dim); }
+  .dlg .sub { color: var(--app-dim); font-size: 10.5px; }
+  .dlg .chip { border: 1px solid var(--app-rule); border-radius: 9px; padding: 0 7px; color: var(--app-text2); font-size: 10.5px; }
+  .dlg .chip.add { color: var(--app-dim); border-style: dashed; }
+  .dlg .opt { display: inline-flex; align-items: center; gap: 5px; color: var(--app-text2); font-size: 11px; cursor: pointer; }
+  .dlg .opt input { accent-color: var(--app-good); margin: 0; }
+  .dlg .opt.on { color: var(--app-text); }
+  .dlg .note { font-size: 10.5px; margin-top: 7px; padding: 5px 7px; border-left: 2px solid var(--app-rule); color: var(--app-dim); }
+  .dlg .note.warn { border-left-color: var(--app-warn); color: var(--app-warn); }
+  .dlg .note.bad { border-left-color: var(--app-bad); color: var(--app-bad); }
+  .dlg .actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 10px; }
+  .dlg .actions .go { color: var(--app-good); border: 1px solid #3c4a35; background: #232a20; padding: 1px 9px; border-radius: 3px; }
+  .dlg .actions .go.off { color: var(--app-dim); border-color: var(--app-rule); background: var(--app-surface); }
+  .dlg .actions .cancel { color: var(--app-text2); border: 1px solid var(--app-rule); padding: 1px 9px; border-radius: 3px; }
+
+  /* load document */
+  .tabs { display: flex; gap: 1px; background: var(--app-rule); border-bottom: 1px solid var(--app-rule); font-size: 11px; overflow-x: auto; }
+  .tabs .tab { background: var(--app-header); color: var(--app-dim); padding: 4px 11px; white-space: nowrap; }
+  .tabs .tab.on { background: var(--app-bg); color: var(--app-text); box-shadow: inset 0 -1px 0 var(--app-info); }
+
+  .moments { display: flex; gap: 6px; padding: 6px 9px 0; }
+  .moments button {
+    font: inherit; font-size: 10.5px; color: var(--app-text2); background: var(--app-surface);
+    border: 1px solid var(--app-rule); border-radius: 3px; padding: 1px 8px; cursor: pointer;
+  }
+  .moments button[aria-selected="true"] { color: var(--app-text); border-color: var(--app-info); }
+  .moments button:focus-visible { outline: 1px solid var(--app-info); outline-offset: 1px; }
+  .moments .at { margin-left: auto; color: var(--app-dim); font-size: 10.5px; align-self: center; }
+
+  .ldoc { padding: 4px 0 8px; }
+  .ldoc .head { display: flex; align-items: center; gap: 8px; padding: 6px 9px 4px; flex-wrap: wrap; }
+  .ldoc .head .label { color: var(--app-text); font-weight: 500; }
+  .ldoc .head .meta { color: var(--app-dim); }
+  .ldoc .head .state { margin-left: auto; font-size: 10.5px; padding: 0 7px; border-radius: 9px; border: 1px solid; }
+  .ldoc .state.run { color: var(--app-info); border-color: var(--app-info); }
+  .ldoc .state.settle { color: var(--app-warn); border-color: var(--app-warn); }
+  .ldoc .state.fail { color: var(--app-bad); border-color: var(--app-bad); }
+  .ldoc .state.pass { color: var(--app-good); border-color: var(--app-good); }
+
+  .bar { height: 3px; background: #303030; border-radius: 2px; overflow: hidden; margin: 0 9px 6px; display: flex; }
+  .bar i { display: block; height: 100%; }
+  .bar .go { background: var(--app-info); }
+  .bar .ok { background: var(--app-good); }
+  .bar .no { background: var(--app-bad); }
+
+  .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--app-rule); border-top: 1px solid var(--app-rule); border-bottom: 1px solid var(--app-rule); }
+  .tiles > div { background: var(--app-variant); padding: 6px 9px 7px; }
+  .tiles .k { color: var(--app-dim); font-size: 10px; letter-spacing: 0.03em; }
+  .tiles .v { color: var(--app-text); font-size: 17px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .tiles .v.no { color: var(--app-bad); }
+  .tiles .v.dim { color: var(--app-dim); }
+  .tiles .s { color: var(--app-dim); font-size: 10px; }
+
+  .lines { padding: 6px 9px 2px; }
+  .lines .ln { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; padding: 2px 0; font-size: 11.5px; }
+  .lines .ln .k { color: var(--app-dim); }
+  .lines .ln .v { color: var(--app-text2); }
+  .lines .ln .v b { color: var(--app-text); font-weight: 500; }
+
+  .hist { display: flex; align-items: flex-end; gap: 3px; height: 54px; padding: 8px 9px 0; }
+  .hist .b { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; }
+  .hist .b i { display: block; width: 100%; background: var(--app-info); border-radius: 2px 2px 0 0; min-height: 1px; opacity: 0.75; }
+  .hist .b.hi i { opacity: 1; }
+  .histx { display: flex; gap: 3px; padding: 2px 9px 6px; font-size: 9.5px; color: var(--app-dim); border-bottom: 1px solid var(--app-rule); }
+  .histx span { flex: 1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .histx span b { display: block; color: var(--app-text2); font-weight: 500; }
+
+  .unm { padding: 6px 9px 4px; }
+  .unm .h { color: var(--app-bad); font-size: 11px; margin-bottom: 3px; }
+  .unm table { border-collapse: collapse; width: 100%; font-size: 11px; }
+  .unm td, .unm th { text-align: left; padding: 2px 8px 2px 0; border-bottom: 1px solid #232323; white-space: nowrap; }
+  .unm th { color: var(--app-dim); font-weight: 500; font-size: 10px; }
+  .unm td { color: var(--app-text2); font-variant-numeric: tabular-nums; }
+  .unm td.id { color: var(--app-text); }
+
+  .verdict { border-top: 1px solid var(--app-rule); background: var(--app-variant); padding: 7px 9px 8px; margin-top: 6px; }
+  .verdict .v { font-weight: 600; letter-spacing: 0.04em; }
+  .verdict .v.fail { color: var(--app-bad); }
+  .verdict .v.pass { color: var(--app-good); }
+  .verdict .line { color: var(--app-text2); font-size: 11px; margin-top: 3px; }
+  .verdict .muted { color: var(--app-dim); }
+
+  /* menu */
+  .menu { padding: 4px 0; }
+  .menu .item { padding: 3px 12px; display: flex; gap: 10px; }
+  .menu .item .grow { flex: 1; }
+  .menu .item .n { color: var(--app-dim); font-variant-numeric: tabular-nums; }
+  .menu .item.hover { background: var(--app-variant); }
+  .menu .sep { height: 1px; background: var(--app-rule); margin: 4px 0; }
+
+  /* terminal */
+  .term { padding: 8px 11px 10px; font-size: 11.5px; line-height: 1.5; white-space: pre; overflow-x: auto; color: var(--app-text2); }
+  .term .p { color: var(--app-dim); }
+  .term .cmd { color: var(--app-text); }
+
+  .phases { list-style: none; padding: 0; margin: 0.6rem 0 1.4rem; display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .phases li { background: var(--card); padding: 0.9rem 1.1rem 1rem; display: grid; grid-template-columns: 4.6rem minmax(0, 1fr); gap: 0.2rem 0.9rem; }
+  .phases .pr { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); padding-top: 0.2rem; }
+  .phases h4 { font-family: var(--sans); font-weight: 600; font-size: 1rem; margin: 0 0 0.3rem; }
+  .phases p { margin: 0 0 0.35rem; font-size: 0.93rem; }
+  .phases .touch { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
+  .phases .size { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); grid-column: 1; }
+
+  .hidden-block[hidden] { display: none !important; }
+
+  @media (max-width: 40rem) {
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .lines .ln { grid-template-columns: 1fr; gap: 0; }
+    .phases li { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+<header class="mast">
+  <p class="eyebrow">FixTool · design note · issues #42 and #43</p>
+  <h1>Load runs, and the store under them</h1>
+  <p class="standfirst">
+    A load run issues a message thousands of times across a profile's sessions without waiting for a reply,
+    then accounts for every reply that lands anywhere. The store and log choice is the small change that has
+    to land first, so the run measures the venue and not FixTool's own disk. This note answers whether the two
+    make sense, how they relate, and in what order to build them, then draws the screens and the mechanism.
+  </p>
+  <div class="mast-meta">
+    <span>status: proposal</span>
+    <span>2026-09-05</span>
+    <span>builds on #41 fan-out lanes, #39 headless run, the 2026-09-03 socket stamps</span>
+    <span>plan: docs/load-run-impl-plan.md</span>
+    <span>sibling: docs/mockups/multi-run-scenarios.html</span>
+  </div>
+</header>
+
+<section class="col">
+  <h2>Two issues, one design, four landings on main</h2>
+
+  <div class="answers">
+    <div>
+      <p class="q">Do they make sense?</p>
+      <p class="a"><b>Yes, both.</b> #43 makes FixTool the load harness the venue proof is currently written by hand
+        around. #42 is a two-field change that a soak run needs on its own, and that #43's issue rate depends on.</p>
+    </div>
+    <div>
+      <p class="q">Separate, or related?</p>
+      <p class="a"><b>Related by dependency, separate in code.</b> #42 sits under #43: the load dialog and the
+        <code>fixtool load</code> command expose the store and log choice per run. But #42 touches the connection
+        manager and the profile, #43 touches the headless runner, a new service and the rail. They do not share a file.</p>
+    </div>
+    <div>
+      <p class="q">One at a time, or together?</p>
+      <p class="a"><b>Design together, land in order.</b> #42 first, as one small landing on main. Then #43 in three
+        landings: the engine with its command, the app surface, the control surface. Main stays usable after every
+        commit of every step.</p>
+    </div>
+  </div>
+
+  <p>
+    One correction to the premise of #42 is worth stating before anything else, because it changes what the
+    change is <em>for</em>. Since the socket stamps landed on 2026-09-03, a round trip is measured between the
+    bytes leaving the kernel and the bytes arriving at the codec. QuickFIX/J's store and log writes happen
+    <em>before</em> the outgoing stamp and <em>after</em> the incoming one, so on the client side they are not
+    inside the stamped round trip at all. What they do is sit on the issue path, where they cap how fast a lane
+    can carry messages, and on the engine's single inbound thread, where they decide whether it keeps up with a
+    reply stream. When FixTool is the venue under test, its own acceptor's writes <em>are</em> inside the number.
+    Section 3 draws this.
+  </p>
+</section>
+
+<section class="col">
+  <h2>What is already there</h2>
+  <p>Most of #43 is assembly. The pieces exist because #41 and the latency work built them for other reasons.</p>
+  <div class="tablewrap">
+    <table class="doc">
+      <thead><tr><th>Piece</th><th>What it gives the load run</th><th>What it lacks</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">HeadlessScenarioHost.openLanes</td><td>Brings up every slot of a multi-session initiator, reports the lanes that logged on, numbered by profile slot.</td><td>Nothing. Reused as is.</td></tr>
+        <tr><td class="mono">SocketStampFilter / deliverStamp</td><td>One <code>(sessionId, direction, wire, micros)</code> per message at the socket, after TLS, before the engine. Exact and unbuffered.</td><td>One sink per session, and only a latency tracker listens. Needs a second listener.</td></tr>
+        <tr><td class="mono">Lane.seed()</td><td>The four names a lane puts in scope: <code>sessionIndex</code> as the profile slot, and three more.</td><td>Nothing per message. <code>messageIndex</code> and seeded values are new.</td></tr>
+        <tr><td class="mono">RunSetStats.Distribution</td><td>Nearest-rank p50, p95, max over samples, JSON in and out, one describing line.</td><td>min, p99 and mean, which #43 asks for. Additive.</td></tr>
+        <tr><td class="mono">FixMessageSession.discarded</td><td>Counts messages the pane's queue threw away. The tool-side half of completeness.</td><td>Nothing. Read per session into the report.</td></tr>
+        <tr><td class="mono">HeadlessRun</td><td>Argument parsing, workspace switching, JUnit and JSON writing, exit codes 0/1/2.</td><td>A second verb. <code>load</code> beside <code>run</code>.</td></tr>
+        <tr><td class="mono">fanOutFarEndNotice</td><td>The warning that the far end is FixTool's own single-threaded acceptor.</td><td>Nothing. Shown in the load dialog too.</td></tr>
+        <tr><td class="mono">FixMessageTemplate</td><td>Variables, shorthand (<code>uuid</code>, <code>utcnow</code>), Kotlin expressions.</td><td>The Kotlin engine is one shared object, not thread-safe, and millisecond-slow. It cannot be on the per-message path.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="col">
+  <h2>#42 &nbsp;The store and the log</h2>
+
+  <h3>Where the writes sit</h3>
+  <figure>
+    <svg viewBox="0 0 940 300" role="img" aria-label="A message's path through QuickFIX/J out to the socket and back, with the store and log writes marked before the outgoing stamp and after the incoming stamp, so the stamped round trip excludes them on the client side">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="arhi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+        </marker>
+      </defs>
+
+      <text x="14" y="42" class="small">out</text>
+      <rect x="14" y="54" width="78" height="40" class="box hi"/>
+      <text x="53" y="78" text-anchor="middle">pacer</text>
+
+      <line x1="92" y1="74" x2="116" y2="74" class="edge" marker-end="url(#ar)"/>
+      <rect x="118" y="54" width="112" height="40" class="box"/>
+      <text x="174" y="72" text-anchor="middle" class="mono">Session.send</text>
+      <text x="174" y="87" text-anchor="middle" class="small">seqnum, header</text>
+
+      <line x1="230" y1="74" x2="254" y2="74" class="edge" marker-end="url(#ar)"/>
+      <rect x="256" y="54" width="180" height="40" class="box warn"/>
+      <text x="346" y="72" text-anchor="middle" class="mono">store.set · log.onOutgoing</text>
+      <text x="346" y="87" text-anchor="middle" class="small">3 file appends today</text>
+
+      <line x1="436" y1="74" x2="460" y2="74" class="edge" marker-end="url(#ar)"/>
+      <rect x="462" y="54" width="96" height="40" class="box"/>
+      <text x="510" y="72" text-anchor="middle" class="mono">MINA write</text>
+      <text x="510" y="87" text-anchor="middle" class="small">async queue</text>
+
+      <line x1="558" y1="74" x2="582" y2="74" class="edge" marker-end="url(#ar)"/>
+      <rect x="584" y="54" width="70" height="40" class="box"/>
+      <text x="619" y="78" text-anchor="middle">kernel</text>
+
+      <circle cx="672" cy="74" r="5" class="stamp"/>
+      <text x="672" y="44" text-anchor="middle" class="mono accent">SEND stamp</text>
+
+      <line x1="678" y1="74" x2="730" y2="74" class="edge hi" marker-end="url(#arhi)"/>
+      <rect x="732" y="40" width="120" height="110" class="box dash"/>
+      <text x="792" y="100" text-anchor="middle">venue</text>
+
+      <text x="14" y="188" class="small">in</text>
+      <line x1="792" y1="150" x2="792" y2="200" class="edge hi"/>
+      <line x1="792" y1="200" x2="678" y2="200" class="edge hi" marker-end="url(#arhi)"/>
+
+      <circle cx="672" cy="200" r="5" class="stamp"/>
+      <text x="672" y="232" text-anchor="middle" class="mono accent">RECEIVE stamp</text>
+
+      <line x1="666" y1="200" x2="656" y2="200" class="edge"/>
+      <rect x="584" y="180" width="70" height="40" class="box"/>
+      <text x="619" y="204" text-anchor="middle">codec</text>
+
+      <line x1="584" y1="200" x2="560" y2="200" class="edge" marker-end="url(#ar)"/>
+      <rect x="256" y="180" width="302" height="40" class="box warn"/>
+      <text x="407" y="198" text-anchor="middle" class="mono">parse · validate · store · log</text>
+      <text x="407" y="213" text-anchor="middle" class="small">one QuickFIX/J processor thread · 2 file appends today</text>
+
+      <line x1="256" y1="200" x2="232" y2="200" class="edge" marker-end="url(#ar)"/>
+      <rect x="118" y="180" width="112" height="40" class="box"/>
+      <text x="174" y="198" text-anchor="middle" class="mono">fromApp</text>
+      <text x="174" y="213" text-anchor="middle" class="small">pane queue, discarded</text>
+
+      <path d="M862,74 L874,74 L874,200 L862,200" class="brk"/>
+      <text x="878" y="132" class="small">stamped</text>
+      <text x="878" y="146" class="small">round trip</text>
+
+      <path d="M256,104 L256,112 L436,112 L436,104" class="brk"/>
+      <text x="346" y="128" text-anchor="middle" class="small">on the issue path: caps how fast a lane carries, not what the venue took</text>
+
+      <path d="M256,230 L256,238 L558,238 L558,230" class="brk"/>
+      <text x="407" y="254" text-anchor="middle" class="small">on the inbound thread: decides whether the engine keeps up with the reply stream</text>
+
+      <text x="14" y="284" class="small">#42 swaps the warm boxes for a heap map (MemoryStoreFactory) and a no-op Log. When FixTool is the venue, the same boxes run inside the dashed one.</text>
+    </svg>
+    <figcaption>
+      The five file appends per exchange are real cost, but on the <b>client</b> side they are outside the
+      stamped round trip. #42 is about issue rate, engine keep-up, unbounded growth on a soak, and repeatable
+      sequence numbers. It is about the measured latency only when FixTool is the venue.
+    </figcaption>
+  </figure>
+
+  <h3>Decisions</h3>
+  <ol class="decisions">
+    <li><span><b>Two fields on the profile</b>, enums, additive on disk: <code>messageStore: FILE | MEMORY</code> and
+      <code>messageLog: FILE | NONE</code>. Default FILE for both, so a saved profile reads exactly as it did.
+      <span class="why">A profile is a way of using a counterparty. A LOADGEN profile with fifty sessions is a load
+        profile all day, and a soak profile is one too. The setting belongs where the session count already lives.</span></span></li>
+    <li><span><b>A per-run override</b> in the load dialog and on the command line (<code>--store memory --log none</code>),
+      applied to the sessions that run opens and never written back.
+      <span class="why">The issue asks for "per profile or per run". Both, because an interactive profile
+        borrowed for one load run should go back untouched.</span></span></li>
+    <li><span><b>Memory store requires Reset on Logon.</b> The dialog and the CLI refuse with a named reason
+      rather than flipping the profile's flag behind the user's back.
+      <span class="why">A memory store starts at 1 on every logon while the venue expects the number it last saw.
+        That is the classic first-run-after-restart failure the issue names. Refusing is the codebase's own
+        habit ("refused rather than guessed").</span></span></li>
+    <li><span><b>The no-op log is a twelve-line class</b>, <code>NoopLogFactory</code>, returning a <code>Log</code> whose
+      methods do nothing. The run record and the pane are still the evidence.
+      <span class="why">QuickFIX/J ships no null log. Its <code>ScreenLogFactory</code> with everything off still
+        formats the line before deciding not to print it.</span></span></li>
+    <li><span><b>Both factories are chosen once</b>, in <code>FixConnectionManager</code>'s init, and passed on to
+      <code>VenueSessionProvider</code> unchanged. <code>clearStoreFiles()</code> is skipped for a memory store.
+      <span class="why">The venue path already takes the factories as parameters. Choosing them in one place means
+        an acceptor profile set to MEMORY gets it for every client session it creates.</span></span></li>
+  </ol>
+
+  <h3>Mockup A · Connection panel, Advanced Settings</h3>
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="ttl">Connection</span><span>LOADGEN</span><span class="grow"></span><span>Advanced Settings</span></div>
+      <div class="cp">
+        <div class="sect">Reset Options</div>
+        <div class="row">
+          <label><span class="chk" id="cp-reset"></span> Logon</label>
+          <label><span class="chk"></span> Logout</label>
+          <label><span class="chk"></span> Disconnect</label>
+          <button type="button" id="cp-reset-toggle" style="font:inherit;font-size:10px;color:var(--app-dim);background:none;border:1px dashed var(--app-rule);border-radius:3px;padding:0 6px;cursor:pointer;margin-left:6px">toggle Logon in this mockup</button>
+        </div>
+        <div class="sect">Store and log</div>
+        <div class="row">
+          <span class="lbl">Message store</span>
+          <label><input type="radio" name="cp-store" value="file" checked> File</label>
+          <label><input type="radio" name="cp-store" value="memory"> Memory</label>
+        </div>
+        <div class="row">
+          <span class="lbl">Message log</span>
+          <label><input type="radio" name="cp-log" value="file" checked> File</label>
+          <label><input type="radio" name="cp-log" value="none"> None</label>
+        </div>
+        <div class="hint" id="cp-hint">Sequence numbers and the per-session message log are kept under store/ and log/ in the workspace. Resend works. The default for interactive use.</div>
+      </div>
+    </div>
+    <figcaption>Two radio rows under Reset Options, in the section the panel already hides the store path in.
+      The hint line reads the two choices together: with Memory and Reset on Logon off it turns amber and says what
+      will happen at the next logon. Try the radios and the toggle.</figcaption>
+  </figure>
+
+  <h3>What changes in code</h3>
+  <div class="tablewrap">
+    <table class="doc">
+      <thead><tr><th>File</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">model/FixConnectionConfig.kt</td><td>Two enum fields with FILE defaults. Serialization stays additive.</td></tr>
+        <tr><td class="mono">service/FixConnectionManager.kt</td><td><code>init</code> picks <code>FileStoreFactory</code> or <code>MemoryStoreFactory</code>, <code>FileLogFactory</code> or <code>NoopLogFactory</code>. <code>start()</code> skips <code>clearStoreFiles()</code> on MEMORY. Refuses MEMORY without <code>resetOnLogon</code>.</td></tr>
+        <tr><td class="mono">service/NoopLogFactory.kt</td><td>New. <code>LogFactory</code> and a <code>Log</code> that does nothing.</td></tr>
+        <tr><td class="mono">ui/ConnectionPanel.kt</td><td>Two radio rows and the hint, beside Reset Options. Load and save with the rest of the form.</td></tr>
+        <tr><td class="mono">control/ControlServer.kt · McpTools.kt · docs/AUTOMATION.md</td><td>The fields pass through <code>GET/POST /profiles</code> like any other config field. Documented.</td></tr>
+        <tr><td class="mono">jvmTest</td><td>Factory choice per enum; refusal on MEMORY without reset; a venue profile on MEMORY writes nothing under store/; a round trip on a memory-store session still lands in the pane and the run record.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="col">
+  <h2>#43 &nbsp;The load run</h2>
+
+  <h3>One feature, two parameters</h3>
+  <p>
+    A scenario step sends and then expects. A load run <em>issues</em>, and the accounting happens afterwards
+    over the whole population. Burst and sustained rate are the same run with a different pacer: a burst is
+    "issue N, as fast as the lanes carry", a rate is "issue at R per second for D, on a schedule". Everything
+    downstream of the pacer is identical, which is why this is one feature.
+  </p>
+
+  <h3>How a run works</h3>
+  <figure>
+    <svg viewBox="0 0 940 490" role="img" aria-label="Data flow of a load run: a template is prepared per lane and per message, a pacer hands ready messages to the lanes, socket stamps for every send and receive feed one population-wide matcher, and the matcher writes the report. The pane path is shown as a separate consumer of the same traffic.">
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <marker id="ar2hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+        </marker>
+        <marker id="ar2f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--faint)"/>
+        </marker>
+      </defs>
+
+      <rect x="14" y="20" width="240" height="56" class="box"/>
+      <text x="24" y="40" class="mono">saved message · 35=D</text>
+      <text x="24" y="56" class="mono">11=ORD-${run}-${messageIndex}</text>
+      <text x="24" y="70" class="mono">60=${utcnow} · 55=EUR/USD</text>
+
+      <line x1="134" y1="76" x2="134" y2="98" class="edge" marker-end="url(#ar2)"/>
+
+      <rect x="14" y="100" width="240" height="90" class="box hi"/>
+      <text x="24" y="118">prepare</text>
+      <text x="24" y="136" class="small">per lane, once: ${sessionIndex}, Kotlin</text>
+      <text x="24" y="150" class="small">per message: ${messageIndex}, ${run},</text>
+      <text x="24" y="164" class="small">${uuid}, ${utcnow}, by substitution</text>
+      <text x="24" y="182" class="mono">→ quickfix.Message, ready</text>
+
+      <line x1="134" y1="190" x2="134" y2="212" class="edge" marker-end="url(#ar2)"/>
+
+      <rect x="14" y="214" width="240" height="78" class="box hi"/>
+      <text x="24" y="232">pacer</text>
+      <text x="24" y="250" class="small">burst: next lane, as fast as it carries</text>
+      <text x="24" y="265" class="small">rate: t(i) = t0 + i/R, round-robin</text>
+      <text x="24" y="282" class="small">never skips; runs late and records lag</text>
+
+      <line x1="254" y1="253" x2="298" y2="253" class="edge" marker-end="url(#ar2)"/>
+      <text x="276" y="244" text-anchor="middle" class="small">sendToTarget</text>
+
+      <rect x="300" y="96" width="150" height="38" class="box"/>
+      <text x="375" y="119" text-anchor="middle" class="mono">LOADGEN [1]</text>
+      <rect x="300" y="144" width="150" height="38" class="box"/>
+      <text x="375" y="167" text-anchor="middle" class="mono">LOADGEN [2]</text>
+      <text x="375" y="206" text-anchor="middle" class="mono">⋮</text>
+      <rect x="300" y="234" width="150" height="38" class="box"/>
+      <text x="375" y="257" text-anchor="middle" class="mono">LOADGEN [50]</text>
+      <rect x="300" y="292" width="150" height="38" class="box soft"/>
+      <text x="375" y="308" text-anchor="middle" class="mono">DROPCOPY</text>
+      <text x="375" y="323" text-anchor="middle" class="small">listens, never issues</text>
+
+      <line x1="288" y1="253" x2="288" y2="115" class="edge"/>
+      <line x1="288" y1="115" x2="300" y2="115" class="edge"/>
+      <line x1="288" y1="163" x2="300" y2="163" class="edge"/>
+
+      <rect x="482" y="80" width="26" height="260" class="box soft"/>
+      <text x="495" y="210" text-anchor="middle" transform="rotate(-90 495 210)" class="mono">SocketStampFilter</text>
+
+      <line x1="450" y1="115" x2="480" y2="115" class="edge" marker-end="url(#ar2)"/>
+      <line x1="450" y1="163" x2="480" y2="163" class="edge" marker-end="url(#ar2)"/>
+      <line x1="450" y1="253" x2="480" y2="253" class="edge" marker-end="url(#ar2)"/>
+      <line x1="480" y1="311" x2="452" y2="311" class="edge" marker-end="url(#ar2)"/>
+
+      <rect x="560" y="80" width="110" height="260" class="box dash"/>
+      <text x="615" y="205" text-anchor="middle">venue</text>
+      <text x="615" y="222" text-anchor="middle" class="small">answers on any</text>
+      <text x="615" y="236" text-anchor="middle" class="small">session it likes</text>
+
+      <line x1="508" y1="140" x2="558" y2="140" class="edge hi" marker-end="url(#ar2hi)"/>
+      <text x="533" y="131" text-anchor="middle" class="mono accent">SEND</text>
+      <line x1="558" y1="280" x2="510" y2="280" class="edge hi" marker-end="url(#ar2hi)"/>
+      <text x="533" y="298" text-anchor="middle" class="mono accent">RECEIVE</text>
+
+      <path d="M495,340 L495,372 L716,372" class="edge hi"/>
+      <line x1="716" y1="372" x2="730" y2="372" class="edge hi" marker-end="url(#ar2hi)"/>
+      <text x="605" y="364" text-anchor="middle" class="small">every stamp, every session, one object</text>
+
+      <rect x="732" y="330" width="194" height="100" class="box hi"/>
+      <text x="742" y="348">matcher</text>
+      <text x="742" y="365" class="mono">pending { id → sendµs }</text>
+      <text x="742" y="381" class="small">SEND with tag 11 → pending</text>
+      <text x="742" y="395" class="small">first RECEIVE with 11 → matched</text>
+      <text x="742" y="409" class="small">again → duplicate</text>
+      <text x="742" y="423" class="small">after settle closes → late</text>
+
+      <line x1="829" y1="330" x2="829" y2="298" class="edge" marker-end="url(#ar2)"/>
+      <rect x="732" y="200" width="194" height="96" class="box"/>
+      <text x="742" y="218">report</text>
+      <text x="742" y="235" class="small">issued ×3 · matched · unmatched</text>
+      <text x="742" y="249" class="small">duplicates · late · two timings</text>
+      <text x="742" y="263" class="small">distribution, per-second buckets</text>
+      <text x="742" y="277" class="small">tool: discarded, never left, lag</text>
+      <text x="742" y="291" class="small">load.json · JUnit · exit code</text>
+
+      <path d="M495,372 L495,440 L256,440" class="edge faint" marker-end="url(#ar2f)"/>
+      <rect x="14" y="418" width="240" height="44" class="box soft"/>
+      <text x="24" y="436" class="small">engine → fromApp → pane queue → grid</text>
+      <text x="24" y="451" class="small">ring of 1,000 · discarded counted · not the count</text>
+
+      <path d="M134,462 L134,478 L829,478 L829,430" class="edge faint"/>
+      <text x="605" y="474" text-anchor="middle" class="small">discarded per session → the report's tool block</text>
+    </svg>
+    <figcaption>
+      <b>The matcher reads the socket stamps, not the pane.</b> That is what makes the counts exact however
+      many messages a pane retains, what lets a reply on DROPCOPY match a request from lane 12, and what keeps
+      the round trip on the same clock the latency panel uses. The pane path still runs, for the grid and for
+      the <code>discarded</code> counter the tool block reports.
+    </figcaption>
+  </figure>
+
+  <h3>What the clock measures</h3>
+  <figure>
+    <svg viewBox="0 0 900 246" role="img" aria-label="Timeline of one load run: prepare, first send, last send, last matched reply, settle closing, and teardown, with brackets for issue span, drain, elapsed, the settle window and late replies">
+      <defs>
+        <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <line x1="30" y1="120" x2="880" y2="120" class="edge" marker-end="url(#ar3)"/>
+
+      <!-- ticks -->
+      <g class="mono">
+        <line x1="70" y1="112" x2="70" y2="128" class="edge"/>
+        <text x="70" y="146" text-anchor="middle">prepare</text>
+        <text x="70" y="160" text-anchor="middle" class="small">96ms</text>
+
+        <line x1="170" y1="112" x2="170" y2="128" class="edge hi"/>
+        <text x="170" y="146" text-anchor="middle">first send</text>
+        <text x="170" y="160" text-anchor="middle" class="small">14:02:11.204</text>
+
+        <line x1="350" y1="112" x2="350" y2="128" class="edge hi"/>
+        <text x="350" y="146" text-anchor="middle">last send</text>
+        <text x="350" y="160" text-anchor="middle" class="small">14:02:12.017</text>
+
+        <line x1="500" y1="112" x2="500" y2="128" class="edge hi"/>
+        <text x="500" y="146" text-anchor="middle">last matched</text>
+        <text x="500" y="160" text-anchor="middle" class="small">14:02:13.905</text>
+
+        <line x1="720" y1="112" x2="720" y2="128" class="edge"/>
+        <text x="720" y="146" text-anchor="middle">settle closes</text>
+        <text x="720" y="160" text-anchor="middle" class="small">last send + 60s</text>
+
+        <line x1="820" y1="112" x2="820" y2="128" class="edge"/>
+        <text x="820" y="146" text-anchor="middle">teardown</text>
+        <text x="820" y="160" text-anchor="middle" class="small">logout</text>
+      </g>
+
+      <!-- brackets above -->
+      <path d="M170,96 L170,88 L350,88 L350,96" class="brk"/>
+      <text x="260" y="82" text-anchor="middle" class="small">issue span 813ms → 4,920/s</text>
+
+      <path d="M350,96 L350,88 L500,88 L500,96" class="brk"/>
+      <text x="425" y="82" text-anchor="middle" class="small">drain 1.89s</text>
+
+      <path d="M170,64 L170,56 L500,56 L500,64" class="brk"/>
+      <text x="335" y="50" text-anchor="middle" class="small">elapsed 2.70s</text>
+
+      <path d="M170,32 L170,24 L720,24 L720,32" class="brk"/>
+      <text x="445" y="18" text-anchor="middle" class="small">a send is never aged out of matching before settle closes</text>
+
+      <!-- brackets below -->
+      <path d="M350,176 L350,184 L720,184 L720,176" class="brk"/>
+      <text x="535" y="200" text-anchor="middle" class="small">settle window · ends early when nothing is pending</text>
+
+      <path d="M720,176 L720,184 L880,184 L880,176" class="brk"/>
+      <text x="800" y="200" text-anchor="middle" class="small">late: counted, not matched</text>
+
+      <text x="30" y="224" class="small">round trip per message = RECEIVE(first reply) − SEND(request), both taken at the socket.</text>
+      <text x="30" y="240" class="small">rate-mode lag = actual send − scheduled send, reported beside the round trip and never folded into it.</text>
+    </svg>
+    <figcaption>The numbers are the burst in Mockup D. Elapsed and drain are the two timings the issue asks for.
+      The settle window ends the moment the pending set empties, which is why a clean run finishes in seconds and
+      an unclean one waits its full sixty.</figcaption>
+  </figure>
+
+  <h3>States</h3>
+  <figure>
+    <svg viewBox="0 0 900 134" role="img" aria-label="State machine of a load run: planned, preparing, issuing, settling, then a verdict of complete, unmatched or stopped. Planned can be refused with exit 2.">
+      <defs>
+        <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g class="mono">
+        <rect x="14" y="30" width="100" height="36" class="box"/>
+        <text x="64" y="52" text-anchor="middle">planned</text>
+        <line x1="114" y1="48" x2="150" y2="48" class="edge" marker-end="url(#ar4)"/>
+        <text x="132" y="40" text-anchor="middle" class="small">lanes up</text>
+
+        <rect x="152" y="30" width="100" height="36" class="box"/>
+        <text x="202" y="52" text-anchor="middle">preparing</text>
+        <line x1="252" y1="48" x2="288" y2="48" class="edge" marker-end="url(#ar4)"/>
+
+        <rect x="290" y="30" width="100" height="36" class="box hi"/>
+        <text x="340" y="52" text-anchor="middle">issuing</text>
+        <line x1="390" y1="48" x2="426" y2="48" class="edge" marker-end="url(#ar4)"/>
+        <text x="408" y="40" text-anchor="middle" class="small">last send</text>
+
+        <rect x="428" y="30" width="100" height="36" class="box hi"/>
+        <text x="478" y="52" text-anchor="middle">settling</text>
+        <line x1="528" y1="48" x2="564" y2="48" class="edge" marker-end="url(#ar4)"/>
+        <text x="546" y="40" text-anchor="middle" class="small">empty or 60s</text>
+
+        <rect x="566" y="14" width="150" height="26" class="box"/>
+        <text x="641" y="31" text-anchor="middle" class="good">complete · exit 0</text>
+        <rect x="566" y="46" width="150" height="26" class="box"/>
+        <text x="641" y="63" text-anchor="middle" class="bad">unmatched · exit 1</text>
+        <rect x="566" y="78" width="150" height="26" class="box soft"/>
+        <text x="641" y="95" text-anchor="middle">stopped · exit 1</text>
+
+        <path d="M340,66 L340,91 L564,91" class="edge faint"/>
+        <path d="M478,66 L478,91" class="edge faint"/>
+        <text x="452" y="105" text-anchor="middle" class="small">Stop from the document, or Ctrl-C</text>
+
+        <line x1="64" y1="66" x2="64" y2="112" class="edge faint"/>
+        <text x="72" y="122" class="small">refused, exit 2: no lane logged on · memory store without Reset on Logon · template not found</text>
+
+        <text x="730" y="31" class="small">rate shortfall is its own</text>
+        <text x="730" y="45" class="small">verdict; --strict-rate</text>
+        <text x="730" y="59" class="small">promotes it to exit 1.</text>
+        <text x="730" y="73" class="small">tool-limited (discarded,</text>
+        <text x="730" y="87" class="small">never left) is always exit 1.</text>
+      </g>
+    </svg>
+    <figcaption>Five states, three verdicts. Stop is honoured in issuing and settling, and a stopped run still
+      writes its report with what it had, because a partial count is evidence too.</figcaption>
+  </figure>
+
+  <h3>Where I would sharpen the issue</h3>
+  <p>The acceptance criteria hold. These are the places where the implementation should differ from the
+    obvious reading, each with the reason.</p>
+  <ol class="decisions">
+    <li><span><b>Per-message resolution is string substitution, not the expression engine.</b> A template is
+      compiled once into literal segments and slots. Slots for <code>${messageIndex}</code>, seeded values,
+      <code>${uuid}</code> and <code>${utcnow}</code> are filled per message. Kotlin expressions are evaluated once per lane
+      at prepare time, and the report names which tags were per-message and which were fixed.
+      <span class="why">The JSR-223 engine is one shared object, not thread-safe, and costs milliseconds. At
+        500/s it is the whole budget. The acceptance criterion about "an expression in every field" is met by
+        making the per-message path cheap by construction.</span></span></li>
+    <li><span><b><code>${sessionIndex}</code> is the profile slot</b>, as a fan-out lane defines it, not the position
+      in the logged-on list that Bulk Send uses.
+      <span class="why">Two-phase runs address what the first run created. That only works if lane 12 is the same
+        client on both runs.</span></span></li>
+    <li><span><b>"Issued" is three numbers.</b> Requested, handed to the engine (<code>sendToTarget</code> returned true),
+      and left the socket (SEND stamps carrying the request tag). Completeness is judged over the last one.
+      <span class="why">The gap between them is FixTool's, and the issue's last criterion asks for exactly that
+        gap to be visible rather than hidden in a flattering total.</span></span></li>
+    <li><span><b>The pacer never skips a scheduled message.</b> It runs late, catches up, and the report gives the
+      lag spans: when it fell behind, for how long, the minimum achieved rate, the maximum lag.
+      <span class="why">Holding rate by issuing fewer would put a second unknown into every downstream count.
+        Lag is tool-owned and round trip is venue-owned, so they are reported side by side and never summed.</span></span></li>
+    <li><span><b>The record does not keep every message.</b> It keeps the report, the wire of every unmatched
+      request (capped at 1,000 with a count of the rest), and fifty specimen pairs.
+      <span class="why">A 300,000-message record is the disk problem #42 removes, moved one directory over.
+        The unmatched requests are the evidence anyone actually opens.</span></span></li>
+    <li><span><b>The correlation tag is inferred from the template</b> when <code>--match</code> is not given: the first
+      standard correlation tag the message carries, on both sides.
+      <span class="why">A NewOrderSingle with tag 11 wants 11 to 11. Making the common case say nothing keeps
+        the CLI to the two lines the issue proposed.</span></span></li>
+    <li><span><b>A load run is not a run set.</b> It has no steps and no <code>ScenarioResult</code>. It gets its own record
+      under <code>loads/</code>, its own document, and Recent lists both kinds by time.
+      <span class="why">Wrapping the counts in a fake step would make every downstream reader special-case it.
+        What is shared is shared as functions: <code>Distribution</code>, the JUnit helpers, <code>openLanes</code>,
+        <code>Lane.seed</code>, the far-end notice.</span></span></li>
+    <li><span><b>Two doors, one dialog.</b> The Message Editor gets a Load button beside Send to all, because the
+      template lives there. The rail's Run menu gets "Load run…" beside "Fan out over sessions…", because that is
+      where people look for run modes. Both open the same dialog.
+      <span class="why">The rail's menu is scenario-typed and a template-typed item is a small impurity. It is
+        worth it: fan-out is the feature people will reach for first and be disappointed by.</span></span></li>
+  </ol>
+
+  <h3>How the template is compiled</h3>
+  <p>
+    Today every <code>${…}</code> in a message takes the same road. The shorthand expander rewrites
+    <code>${uuid}</code> into <code>UUID.randomUUID().toString()</code> and <code>${utcnow}</code> into a
+    <code>LocalDateTime</code> call, then the evaluator looks at what is left: a bare name is a map lookup, and
+    anything else, including those rewritten generators, is handed to one process-wide Kotlin script engine
+    inside a <code>synchronized</code> block. The file's own KDoc has the costs: about 140ms to construct the
+    engine, about 1.4s for its first evaluation while 11,000 classes load, and 44 to 82ms for every evaluation
+    after that. A compiled-script cache was tried and refused because a cached script returns the bindings it
+    was compiled with. An engine per thread was refused because it multiplies the start-up cost by the lane
+    count and still costs 50ms per call.
+  </p>
+  <p>
+    For a click that is invisible. For a load run it is the whole budget. A burst of 4,000 with one generator
+    per message would spend four minutes preparing a message that should leave in under a second, and a rate
+    of 500 per second allows 2ms per message with everything queued behind one lock. So the load run reads the
+    template once, before the clock starts, and sorts every field into one of four kinds.
+  </p>
+  <div class="tablewrap">
+    <table class="doc">
+      <thead><tr><th>Tag</th><th class="mono">as written</th><th>Kind</th><th>When it is resolved</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">11</td><td class="mono">ORD-${run}-${messageIndex}</td><td>variables</td><td>Per message. Two map lookups into the message's scope: the run seeds, the lane's four names, and <code>messageIndex</code>.</td></tr>
+        <tr><td class="mono">60</td><td class="mono">${utcnow}</td><td>generator</td><td>Per message, natively: a cached <code>DateTimeFormatter</code> and the UTC clock. Same for <code>${uuid}</code>, <code>${uuid:20}</code>, <code>${now+1h}</code>. No engine.</td></tr>
+        <tr><td class="mono">55 54 38 40 44 59</td><td class="mono">EUR/USD · 1 · 1000000 · 2 · 1.0842 · 0</td><td>literal</td><td>Never. Baked into the prototype.</td></tr>
+        <tr><td class="mono">1</td><td class="mono">${sessionSenderCompID}</td><td>lane variable</td><td>Once per lane at prepare time, then a literal for that lane.</td></tr>
+        <tr><td class="mono">58</td><td class="mono">${out.D.11} · ${incoming["8"].valueOfTag(37)} · ${id = uuid}</td><td>Kotlin</td><td>Once per lane at prepare time, through the existing evaluator under its lock: fifty lanes cost at most four seconds, all before the first send. Frozen into that lane's prototype. The report lists the tag under <b>fixed</b> so nobody believes it was re-read per message.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    The prepared shape is one <code>quickfix.Message</code> prototype per lane with the per-message tags left
+    as slots. Issuing a message is a clone, a <code>setString</code> on each slotted tag, and
+    <code>Session.sendToTarget</code>. The interactive send path's dictionary lint, validation and second parse
+    are run once against the template at plan time and never per message. The dialog and the JSON both state
+    the split, as <em>per message: 11, 60 · fixed: the rest</em>. A template whose per-message need is anything
+    other than an index, a seed, an id or a timestamp is asking for something a load run should not be doing.
+  </p>
+
+  <h3>Mockup B · The editor's send row</h3>
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="ttl">Message Editor</span><span>NOS EUR/USD 1M</span><span class="grow"></span><span>LOADGEN [1]</span></div>
+      <div class="sendrow">
+        <div class="btn"><span class="ic">▶</span><span>Send</span></div>
+        <div class="btn"><span class="ic">⇶</span><span>Send to all (50)</span></div>
+        <div class="btn new"><span class="ic">⚡</span><span>Load…</span></div>
+        <div class="tip">Issue this message N times, or at a rate, across a profile's sessions, and account for every reply. Opens the Load run dialog with this template.</div>
+      </div>
+    </div>
+    <figcaption>The third send mode. Disabled, with the reason as its tooltip, when the editor holds a reply step or the message has no correlation tag to match on.</figcaption>
+  </figure>
+
+  <h3>Mockup C · The Load run dialog</h3>
+  <figure>
+    <div class="screen" style="max-width: 600px">
+      <div class="screen-bar"><span class="ttl">Load run</span></div>
+      <div class="dlg">
+        <div class="intro">Issues this message across a profile's sessions without waiting for replies, then accounts for every reply that lands on any session that is logged on.</div>
+
+        <div class="field"><label class="l">Template</label><span class="box pick">NOS EUR/USD 1M</span><span class="sub">35=D · per message: 11, 60 · fixed: 55, 54, 38, 40, 44, 59</span></div>
+        <div class="field"><label class="l">Issue on</label><span class="box pick">LOADGEN</span><span class="sub">50 lanes logged on · LOADGEN01 … LOADGEN50</span></div>
+        <div class="field"><label class="l">Also match on</label><span class="chip">DROPCOPY</span><span class="chip add">+ session</span><span class="sub">listen only, never issue</span></div>
+
+        <div class="field">
+          <label class="l">Shape</label>
+          <label class="opt on"><input type="radio" name="shape" value="burst" checked> Burst</label>
+          <span class="shape-burst hidden-block"><span class="box narrow">4000</span> <span class="sub">messages, as fast as the lanes carry them</span></span>
+          <label class="opt" style="margin-left:14px"><input type="radio" name="shape" value="rate"> Rate</label>
+          <span class="shape-rate hidden-block" hidden><span class="box narrow">500</span><span class="sub">/s for</span> <span class="box narrow">10m</span></span>
+        </div>
+
+        <div class="field"><label class="l">Match</label><span class="sub">request</span><span class="box narrow">11</span><span class="sub">→ reply</span><span class="box narrow">11</span><span class="sub">reply type</span><span class="box pick">8</span><span class="sub">optional</span></div>
+        <div class="field"><label class="l">Settle</label><span class="box narrow">60s</span><span class="sub">how long to wait for replies after the last send</span></div>
+        <div class="field"><label class="l">Seed</label><span class="box">run=b7f2</span><span class="sub">in scope as ${run}; a second run can address what this one creates</span></div>
+
+        <div class="field" style="align-items:flex-start">
+          <label class="l">Store and log</label>
+          <span style="display:flex;flex-direction:column;gap:3px">
+            <label class="opt"><input type="radio" name="sl" value="profile"> As the profile: file store, file log</label>
+            <label class="opt on"><input type="radio" name="sl" value="memory" checked> Memory store, no log <span class="sub">recommended for a load run</span></label>
+          </span>
+        </div>
+
+        <div class="note bad" id="dlg-note">LOADGEN has Reset on Logon off. A memory store starts at 1 on every logon, and the venue expects the number it last saw. Turn Reset on Logon on for LOADGEN, or run with the file store.</div>
+        <div class="note warn">The far end is 'FX Venue', FixTool's own acceptor. It answers every session on one thread, so the numbers will be the tool's ceiling, not a venue's.</div>
+
+        <div class="actions"><span class="cancel">Cancel</span><span class="go off" id="dlg-go">Run</span></div>
+      </div>
+    </div>
+    <figcaption>The same shape as the fan-out dialog, one row per decision. The red note is a refusal and keeps
+      Run disabled; the amber one is the existing far-end notice and does not. Switch the shape radio and the
+      store choice to see the rows and the notes respond.</figcaption>
+  </figure>
+
+  <h3>Mockup D · The Load run document</h3>
+  <figure>
+    <div class="screen">
+      <div class="tabs"><span class="tab">book-a-trade</span><span class="tab">nightly (12) · 2026-09-04</span><span class="tab on">⚡ NOS EUR/USD 1M ×4,000 · LOADGEN</span></div>
+      <div class="moments" role="tablist" aria-label="moments of the run">
+        <button type="button" role="tab" aria-selected="false" data-m="0">issuing · t+0.4s</button>
+        <button type="button" role="tab" aria-selected="false" data-m="1">settling · t+1.6s</button>
+        <button type="button" role="tab" aria-selected="true" data-m="2">verdict · t+60.8s</button>
+        <span class="at">one document, three moments</span>
+      </div>
+
+      <!-- moment 0 -->
+      <div class="ldoc hidden-block" data-moment="0" hidden>
+        <div class="head"><span class="label">⚡ NOS EUR/USD 1M ×4,000</span><span class="meta">on LOADGEN (50 lanes) · burst · settle 60s · run=b7f2 · memory store, no log</span><span class="state run">issuing</span></div>
+        <div class="bar"><i class="ok" style="width:27%"></i><i class="go" style="width:22%"></i></div>
+        <div class="tiles">
+          <div><div class="k">issued</div><div class="v num">1,968</div><div class="s">of 4,000</div></div>
+          <div><div class="k">matched</div><div class="v num">1,102</div><div class="s">first reply</div></div>
+          <div><div class="k">pending</div><div class="v num">866</div><div class="s">awaiting a reply</div></div>
+          <div><div class="k">duplicates</div><div class="v num">3</div><div class="s">same id again</div></div>
+          <div><div class="k">late</div><div class="v num dim">—</div><div class="s">settle not open</div></div>
+        </div>
+        <div class="lines">
+          <div class="ln"><span class="k">issue</span><span class="v">first send <b>14:02:11.204</b> · so far <b>4,870/s</b> · prepared 4,000 in 96ms</span></div>
+          <div class="ln"><span class="k">round trip</span><span class="v">p50 <b>12ms</b> · p95 <b>164ms</b> · max <b>0.9s</b> · 1,102 so far</span></div>
+          <div class="ln"><span class="k">tool</span><span class="v">0 discarded on 50 sessions · 0 handed to the engine that have not left</span></div>
+        </div>
+        <div class="verdict"><span class="dim">Stop ends issuing now and settles what is pending.</span> <span class="dim" style="float:right">■ Stop</span></div>
+      </div>
+
+      <!-- moment 1 -->
+      <div class="ldoc hidden-block" data-moment="1" hidden>
+        <div class="head"><span class="label">⚡ NOS EUR/USD 1M ×4,000</span><span class="meta">on LOADGEN (50 lanes) · burst · settle 60s · run=b7f2 · memory store, no log</span><span class="state settle">settling · 58.4s left</span></div>
+        <div class="bar"><i class="ok" style="width:85%"></i><i class="go" style="width:15%"></i></div>
+        <div class="tiles">
+          <div><div class="k">issued</div><div class="v num">4,000</div><div class="s">all left the socket</div></div>
+          <div><div class="k">matched</div><div class="v num">3,410</div><div class="s">first reply</div></div>
+          <div><div class="k">pending</div><div class="v num">590</div><div class="s">awaiting a reply</div></div>
+          <div><div class="k">duplicates</div><div class="v num">9</div><div class="s">same id again</div></div>
+          <div><div class="k">late</div><div class="v num dim">—</div><div class="s">settle open</div></div>
+        </div>
+        <div class="lines">
+          <div class="ln"><span class="k">issue</span><span class="v">4,000 left the socket in <b>813ms</b> (14:02:11.204 → 12.017) · <b>4,920/s</b> · prepared in 96ms</span></div>
+          <div class="ln"><span class="k">round trip</span><span class="v">p50 <b>13ms</b> · p95 <b>201ms</b> · max <b>1.4s</b> · 3,410 so far</span></div>
+          <div class="ln"><span class="k">tool</span><span class="v">0 discarded on 50 sessions · 0 handed to the engine that have not left</span></div>
+        </div>
+        <div class="verdict"><span class="dim">Waiting for 590 replies. The window closes early the moment nothing is pending.</span> <span class="dim" style="float:right">■ Stop</span></div>
+      </div>
+
+      <!-- moment 2 -->
+      <div class="ldoc hidden-block" data-moment="2">
+        <div class="head"><span class="label">⚡ NOS EUR/USD 1M ×4,000</span><span class="meta">on LOADGEN (50 lanes) · burst · settle 60s · run=b7f2 · memory store, no log</span><span class="state fail">unmatched 4</span></div>
+        <div class="bar"><i class="ok" style="width:99.9%"></i><i class="no" style="width:0.1%;min-width:3px"></i></div>
+        <div class="tiles">
+          <div><div class="k">issued</div><div class="v num">4,000</div><div class="s">all three counts agree</div></div>
+          <div><div class="k">matched</div><div class="v num">3,996</div><div class="s">first reply, on any session</div></div>
+          <div><div class="k">unmatched</div><div class="v num no">4</div><div class="s">no reply within 60s</div></div>
+          <div><div class="k">duplicates</div><div class="v num">12</div><div class="s">reported, not judged</div></div>
+          <div><div class="k">late</div><div class="v num">0</div><div class="s">after settle closed</div></div>
+        </div>
+        <div class="lines">
+          <div class="ln"><span class="k">issue</span><span class="v">4,000 left the socket in <b>813ms</b> (14:02:11.204 → 12.017) · <b>4,920/s</b> · prepared in 96ms</span></div>
+          <div class="ln"><span class="k">timing</span><span class="v">elapsed <b>2.70s</b> (first send → last matched) · drain <b>1.89s</b> (last send → last matched)</span></div>
+          <div class="ln"><span class="k">round trip</span><span class="v">min <b>0.9ms</b> · p50 <b>14ms</b> · p95 <b>212ms</b> · p99 <b>640ms</b> · max <b>1.88s</b> · mean 41ms · 3,996 round trips</span></div>
+        </div>
+        <div class="hist" aria-label="round trips by bucket">
+          <div class="b" title="under 1ms: 38"><i style="height:3%"></i></div>
+          <div class="b" title="1 to 10ms: 1,412"><i style="height:84%"></i></div>
+          <div class="b hi" title="10 to 50ms: 1,690, holds the median"><i style="height:100%"></i></div>
+          <div class="b" title="50 to 200ms: 654"><i style="height:39%"></i></div>
+          <div class="b" title="200 to 500ms: 148"><i style="height:9%"></i></div>
+          <div class="b" title="0.5 to 1s: 39"><i style="height:3%"></i></div>
+          <div class="b" title="1 to 2s: 15"><i style="height:2%"></i></div>
+        </div>
+        <div class="histx">
+          <span><b>38</b>&lt;1ms</span><span><b>1,412</b>1–10</span><span><b>1,690</b>10–50</span><span><b>654</b>50–200</span><span><b>148</b>200–500</span><span><b>39</b>0.5–1s</span><span><b>15</b>1–2s</span>
+        </div>
+        <div class="lines">
+          <div class="ln"><span class="k">tool</span><span class="v"><span class="ok">clean</span> · 0 discarded on 50 sessions · 0 handed to the engine that never left the socket · burst, so no schedule to lag</span></div>
+        </div>
+        <div class="unm">
+          <div class="h">4 unanswered within 60s</div>
+          <table>
+            <thead><tr><th>ClOrdID (11)</th><th>lane</th><th>sent</th><th></th></tr></thead>
+            <tbody>
+              <tr><td class="id">ORD-b7f2-1187</td><td>37 · LOADGEN37</td><td>14:02:11.443</td><td class="dim">wire ›</td></tr>
+              <tr><td class="id">ORD-b7f2-2410</td><td>10 · LOADGEN10</td><td>14:02:11.694</td><td class="dim">wire ›</td></tr>
+              <tr><td class="id">ORD-b7f2-2411</td><td>11 · LOADGEN11</td><td>14:02:11.694</td><td class="dim">wire ›</td></tr>
+              <tr><td class="id">ORD-b7f2-3902</td><td>2 · LOADGEN02</td><td>14:02:11.998</td><td class="dim">wire ›</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="verdict">
+          <div class="v fail">UNMATCHED &nbsp;4 of 4,000</div>
+          <div class="line">exit 1 · completeness <span class="no">unmatched</span> · rate <span class="muted">n/a (burst)</span> · tool <span class="ok">clean</span></div>
+          <div class="line muted">records: ~/.fixtool/loads/20260905-140211-nos-eur-usd-1m/ · load.json · unmatched.fix · specimens.fix</div>
+        </div>
+      </div>
+    </div>
+    <figcaption>
+      Opens in the document pane the moment Run is clicked, and is what Recent reopens later. The five tiles
+      are the headline the issue asks for. Below them: the issue line, the two timings, the distribution with
+      its buckets, the tool's own contribution, and the unmatched requests as a table you can open the wire of.
+      The verdict line names the three separate judgements.
+    </figcaption>
+  </figure>
+
+  <h3>Mockup F · Recent, with both kinds</h3>
+  <div class="duo">
+    <figure>
+      <div class="screen">
+        <div class="screen-bar"><span class="ttl">Run ▾</span></div>
+        <div class="menu">
+          <div class="item"><span class="grow">Run set ▸ &nbsp;nightly</span><span class="n">12</span></div>
+          <div class="item"><span class="grow">Repeat a scenario ×N…</span></div>
+          <div class="item"><span class="grow">Fan out over sessions…</span><span class="n">1</span></div>
+          <div class="item hover"><span class="grow">Load run…</span><span class="n">1</span></div>
+          <div class="item"><span class="grow">Run examples table…</span><span class="n">2</span></div>
+          <div class="sep"></div>
+          <div class="item"><span class="grow">Recent ▸ &nbsp;<span class="no">⚡</span> NOS EUR/USD 1M ×4,000</span><span class="n">3,996/4,000</span></div>
+          <div class="item"><span class="grow">Recent ▸ &nbsp;<span class="ok">✓</span> book-a-trade [50 lanes]</span><span class="n">50/50</span></div>
+          <div class="item"><span class="grow">Recent ▸ &nbsp;<span class="ok">✓</span> nightly</span><span class="n">12/12</span></div>
+        </div>
+      </div>
+      <figcaption>"Load run…" sits under fan-out with the same lane count. Recent merges the two record stores by time; a load entry is marked ⚡ and its fraction is matched over issued.</figcaption>
+    </figure>
+    <figure>
+      <div class="screen">
+        <div class="screen-bar"><span class="ttl">~/.fixtool</span></div>
+        <div class="term"><span class="p">runs/</span>
+  20260904-221001-nightly/        <span class="p">set.json + one record per entry</span>
+  20260905-093312-book-a-trade/   <span class="p">fan-out, 50 records</span>
+<span class="p">loads/</span>
+  20260905-140211-nos-eur-usd-1m/
+    load.json                     <span class="p">the report, everything below is derived from it</span>
+    unmatched.fix                 <span class="p">wire of the 4 unanswered requests</span>
+    specimens.fix                 <span class="p">first 50 matched pairs, request then reply</span></div>
+      </div>
+      <figcaption>A load record is small on purpose. Pruning keeps the same count the runs directory keeps.</figcaption>
+    </figure>
+  </div>
+
+  <h3>Mockup E · Headless</h3>
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="ttl">zsh</span><span>a burst that leaves four unanswered</span></div>
+      <div class="term"><span class="p">$</span> <span class="cmd">fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s \
+    --set run=b7f2 --store memory --log none --json reports/load.json</span>
+fixtool: opening 50 lanes of 'LOADGEN' (memory store, no log)
+fixtool: 50 lanes logged on
+fixtool: prepared 4000 messages in 96ms (per message: 11, 60)
+fixtool: issuing 4000 as a burst
+fixtool: 4000 left the socket in 813ms (4,920/s)
+fixtool: settling, 590 pending, up to 60s
+fixtool: settling, 4 pending, 58s left
+fixtool: settle closed with 4 pending
+
+issued       4,000   requested 4,000 · handed to engine 4,000 · left socket 4,000
+matched      3,996
+unmatched        <span class="no">4</span>   ORD-b7f2-1187 (lane 37) · ORD-b7f2-2410 (lane 10) · ORD-b7f2-2411 (lane 11) · ORD-b7f2-3902 (lane 2)
+duplicates      12
+late             0
+timing       elapsed 2.70s · drain 1.89s
+round trip   min 0.9ms · p50 14ms · p95 212ms · p99 640ms · max 1.88s · mean 41ms  (3,996)
+tool         <span class="ok">clean</span> · 0 discarded on 50 sessions · 0 never left the socket
+<span class="no">UNMATCHED</span>    4 of 4,000 unanswered within 60s
+             records: ~/.fixtool/loads/20260905-140211-nos-eur-usd-1m/
+<span class="p">$</span> <span class="cmd">echo $?</span>
+1</div>
+    </div>
+  </figure>
+
+  <figure>
+    <div class="screen">
+      <div class="screen-bar"><span class="ttl">zsh</span><span>a sustained run that fell behind for nineteen seconds</span></div>
+      <div class="term"><span class="p">$</span> <span class="cmd">fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m \
+    --set run=c118 --store memory --log none --json reports/soak.json</span>
+fixtool: opening 50 lanes of 'LOADGEN' (memory store, no log)
+fixtool: 50 lanes logged on
+fixtool: issuing at 500/s for 10m, 10/s per lane
+fixtool: 14:21:07 behind schedule, 412/s
+fixtool: 14:21:31 back on schedule, 1,672 caught up
+fixtool: last send 14:30:52.204, settling, 0 pending
+
+issued     300,000   requested 300,000 · handed to engine 300,000 · left socket 300,000
+rate       500/s requested · held 9m 41s · <span class="wn">behind 14:21:07 → 14:21:26 (19s, min 412/s, 1,672 behind)</span> · max lag 2.3s
+matched    300,000   unmatched 0 · duplicates 1,204 · late 0
+timing     elapsed 10m 0.9s · drain 0.9s
+round trip min 0.7ms · p50 11ms · p95 48ms · p99 131ms · max 2.41s · mean 19ms  (300,000)
+tool       <span class="ok">clean</span>
+<span class="ok">COMPLETE</span>   300,000 of 300,000 answered · <span class="wn">RATE SHORTFALL 19s</span>
+           exit 0 · --strict-rate would exit 1
+<span class="p">$</span> <span class="cmd">echo $?</span>
+0</div>
+    </div>
+    <figcaption>The second transcript is the reason the verdicts are separate: the venue answered everything,
+      and the tool could not hold the rate for nineteen seconds. One line says both, and the exit code says
+      what the build asked it to gate on.</figcaption>
+  </figure>
+
+  <h3>Where the report shows up</h3>
+  <p>
+    One record, three ways to read it. Every run, however it was started, writes <code>load.json</code> under
+    <code>loads/&lt;id&gt;/</code> in the workspace. The screen, the files and the control surface are all views
+    over that one record, so a run started from the command line overnight is the same document in Recent the
+    next morning, provided both point at the same workspace.
+  </p>
+  <div class="tablewrap">
+    <table class="doc">
+      <thead><tr><th>Surface</th><th>While it runs</th><th>Afterwards</th><th>Lands in</th></tr></thead>
+      <tbody>
+        <tr><td><b>App</b></td><td>The Load run document opens the moment Run is clicked: counters, distribution, tool block and Stop, updating live (Mockup D).</td><td>Recent ▸ reopens it from <code>load.json</code>. Unmatched rows open their wire. Same tab, same layout.</td><td>Step 3</td></tr>
+        <tr><td><b>Command line</b></td><td>Progress lines on stderr: lanes up, prepared, issuing, settling with the pending count.</td><td>A summary block on stdout (Mockup E), the exit code, and <code>--json</code> / <code>--junit</code> files where a build wants them. The record is written whether or not <code>--json</code> is given.</td><td>Step 2</td></tr>
+        <tr><td><b>Control surface</b></td><td><code>POST /load</code> starts a job and returns its id; <code>GET /loads/&lt;id&gt;</code> polls the same counters the document shows.</td><td>The same GET returns the finished report as JSON; MCP <code>fixtool_load</code> wraps both.</td><td>Step 4</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    So the JSON file is not the only report, and it is not the primary one for a person. It is the artifact a
+    build attaches. The document is the report a person reads. After Step 2 a person can already read the summary
+    block in the terminal and open <code>load.json</code>; after Step 3 they get the screen.
+  </p>
+
+  <h3>The command</h3>
+<pre><code>fixtool load &lt;template&gt; --profile &lt;name&gt; (--count &lt;n&gt; | --rate &lt;r&gt;/s --for &lt;d&gt;) [options]
+
+  &lt;template&gt;             a saved message's name or id, or a path to a .fix file holding one message
+  --profile &lt;name&gt;       the multi-session initiator profile whose lanes issue
+  --count &lt;n&gt;            burst: issue n messages as fast as the lanes carry them
+  --rate &lt;r&gt;/s --for &lt;d&gt;  sustained: issue r per second for d (90s, 10m)
+  --settle &lt;d&gt;           wait this long for replies after the last send (default 60s)
+  --listen &lt;profile&gt;     also match replies landing on this profile's sessions (repeatable)
+  --match &lt;req&gt;=&lt;rep&gt;    request tag to reply tag (default: the template's first correlation tag, both sides)
+  --reply-type &lt;35&gt;      count only replies of this MsgType as answers
+  --set &lt;k&gt;=&lt;v&gt;          seed a value into every message's scope as ${k} (repeatable)
+  --store file|memory    message store for this run's sessions (default: the profile's)
+  --log file|none        message log for this run's sessions (default: the profile's)
+  --strict-rate          exit 1 on a rate shortfall, not only on unmatched replies
+  --json &lt;file&gt;          write the load report
+  --junit &lt;file&gt;         write one &lt;testsuite&gt; with three cases: completeness, rate, tool
+  --home &lt;dir&gt;           read profiles and templates from &lt;dir&gt; instead of ~/.fixtool
+
+Exits 0 when every message that left the socket was answered and the tool stayed out of the way.
+Exits 1 when anything was unmatched, when the tool limited the run, or on a shortfall under --strict-rate.
+Exits 2 when it could not be run: no lane logged on, memory store without Reset on Logon, template not found.</code></pre>
+
+  <h3>The report</h3>
+<pre><code>{
+  "id": "20260905-140211-nos-eur-usd-1m",
+  "template": { "name": "NOS EUR/USD 1M", "msgType": "D", "perMessageTags": [11, 60] },
+  "profile": "LOADGEN", "lanes": 50, "listen": ["DROPCOPY"],
+  "shape": { "kind": "burst", "count": 4000 },              <span class="c">// or { "kind": "rate", "perSecond": 500, "forMs": 600000 }</span>
+  "match": { "requestTag": 11, "replyTag": 11, "replyType": "8" },
+  "settleMs": 60000, "seed": { "run": "b7f2" },
+  "storeAndLog": { "store": "memory", "log": "none" },
+
+  "issue": { "requested": 4000, "handedToEngine": 4000, "leftSocket": 4000,
+             "firstSendAt": 1788616931204, "lastSendAt": 1788616932017, "spanMs": 813,
+             "achievedPerSecond": 4920, "prepareMs": 96 },
+  "rate": null,                                              <span class="c">// rate runs: { requestedPerSecond, heldForMs, shortfalls: [{fromMs, toMs, minPerSecond, behind}], maxLagMs }</span>
+  "replies": { "matched": 3996, "unmatched": 4, "duplicates": 12, "late": 0, "lastMatchedAt": 1788616933905 },
+  "timing": { "elapsedMs": 2701, "drainMs": 1888 },
+  "roundTrip": { "minUs": 912, "p50Us": 14020, "p95Us": 212300, "p99Us": 640100, "maxUs": 1880400, "meanUs": 41200, "samples": 3996 },
+  "perSecond": [ { "second": 0, "issued": 4000, "matched": 2210, "p95Us": 188000 }, { "second": 1, "issued": 0, "matched": 1740, "p95Us": 402000 }, … ],
+  "tool": { "discarded": 0, "neverLeftSocket": 0, "issueFailures": 0 },
+  "unmatched": [ { "id": "ORD-b7f2-1187", "lane": 37, "sentAt": 1788616931443 }, … ],
+  "verdict": { "completeness": "UNMATCHED", "rate": "N/A", "tool": "CLEAN", "exitCode": 1 }
+}</code></pre>
+  <p>
+    The JUnit file is one <code>&lt;testsuite&gt;</code> named for the run, with three <code>&lt;testcase&gt;</code> elements:
+    <code>completeness</code> fails with the unmatched ids in its message, <code>rate</code> is skipped for a burst and
+    fails only under <code>--strict-rate</code> (otherwise the shortfall goes to <code>system-out</code>), and <code>tool</code>
+    fails when the tool limited the run. A build that already ingests <code>fixtool run</code>'s XML needs no change.
+  </p>
+</section>
+
+<section class="col">
+  <h2>Order of work</h2>
+  <p>Four steps, committed straight to main as the repo works. A step is several commits, not one; the rule is that
+    main builds, tests green and is usable after every commit, so a step can pause anywhere.</p>
+  <ol class="phases">
+    <li>
+      <span class="pr">Step 1 · #42</span>
+      <div>
+        <h4>Selectable store and log</h4>
+        <p>The two profile fields, the factory choice, the no-op log, the refusal rule, the panel rows, the control surface passthrough, tests. No load code. Three or four commits: model and manager, panel, control surface and docs.</p>
+        <p class="touch">FixConnectionConfig · FixConnectionManager · NoopLogFactory (new) · ConnectionPanel · ControlServer · AUTOMATION.md</p>
+      </div>
+      <span class="size">small</span>
+    </li>
+    <li>
+      <span class="pr">Step 2 · #43</span>
+      <div>
+        <h4>The engine and the command</h4>
+        <p><code>LoadPlan</code>, the compiled template, the pacer (burst and rate), the stamp matcher, <code>LoadReport</code> with JSON and JUnit, the record under <code>loads/</code>, <code>fixtool load</code> with its exit codes. Tested against a loopback venue with the demo rules and its simulated latency off, including a lane that never answers and a reply routed to a listen-only session.</p>
+        <p class="touch">service/load/* (new) · FixMessageSession.addStampListener · RunSetStats.Distribution (+min, p99, mean) · HeadlessRun · headless/HeadlessLoad (new)</p>
+      </div>
+      <span class="size">large</span>
+    </li>
+    <li>
+      <span class="pr">Step 3 · #43</span>
+      <div>
+        <h4>The app surface</h4>
+        <p>The Load button in the editor, the Run menu item, the dialog, the live document with Stop, Recent listing both stores. The dialog reuses the far-end notice and the lane availability check fan-out already has.</p>
+        <p class="touch">MessageEditorPanel · ScenariosRail · LoadRunDialog (new) · LoadRunDocument (new) · ScenarioDocuments · FixMessageViewModel</p>
+      </div>
+      <span class="size">medium</span>
+    </li>
+    <li>
+      <span class="pr">Step 4 · #43</span>
+      <div>
+        <h4>The control surface</h4>
+        <p><code>POST /load</code> as a job, the same start, poll, fetch, stop shape as a run set, and MCP <code>fixtool_load</code>. Documented in AUTOMATION.md.</p>
+        <p class="touch">ControlServer · McpTools · AUTOMATION.md</p>
+      </div>
+      <span class="size">small</span>
+    </li>
+  </ol>
+</section>
+
+<section class="col">
+  <h2>Open questions, each with a recommendation</h2>
+  <ol class="decisions">
+    <li><span><b>May a load run use a profile whose sessions are already open in the app?</b>
+      <span class="why">Recommend: yes, and it claims them the way a fan-out claims its lanes. A scenario on
+        those sessions is refused while the run holds them, with the run named in the refusal.</span></span></li>
+    <li><span><b>What happens when one pacer thread cannot prepare fast enough for the requested rate?</b>
+      <span class="why">Recommend: preparation runs ahead on its own thread into a bounded queue of ready messages,
+        about two seconds deep. If the queue runs dry the pacer records lag like any other cause, so the
+        report still says where the tool fell short.</span></span></li>
+    <li><span><b>Do the listen-only sessions' own outgoing messages count as issued?</b>
+      <span class="why">Recommend: no. Only the issuing lanes' SEND stamps count. A drop-copy session's heartbeats
+        and any manual send during the run stay out of the total.</span></span></li>
+    <li><span><b>Should a burst be allowed to exceed the pane queue's floor of 20,000?</b>
+      <span class="why">Recommend: allow it and say so. A burst of 40,000 will discard from the pane on a slow
+        drain, which the tool block reports, while the matcher stays exact because it never went through the
+        pane. That is the point of putting the matcher on the stamps.</span></span></li>
+  </ol>
+</section>
+
+</div>
+
+<script>
+  (function () {
+    // Mockup A: the hint reads store, log and Reset on Logon together.
+    var reset = true;
+    var resetBox = document.getElementById('cp-reset');
+    var hint = document.getElementById('cp-hint');
+    function paintA() {
+      var store = document.querySelector('input[name="cp-store"]:checked').value;
+      var log = document.querySelector('input[name="cp-log"]:checked').value;
+      resetBox.className = 'chk' + (reset ? ' on' : '');
+      hint.className = 'hint';
+      if (store === 'memory' && !reset) {
+        hint.className = 'hint warn';
+        hint.textContent = 'Memory store, and Reset on Logon is off. The next logon will start at 1 while the venue expects the number it last saw. Turn Reset on Logon on, or keep the file store.';
+      } else if (store === 'memory') {
+        hint.className = 'hint ok';
+        hint.textContent = 'Sequence numbers start at 1 on every logon and nothing is written under store/. Resend cannot replay earlier messages.' + (log === 'none' ? ' No per-session message log; the pane and run records remain the evidence.' : '');
+      } else {
+        hint.textContent = 'Sequence numbers and the per-session message log are kept under store/ and log/ in the workspace. Resend works. The default for interactive use.' + (log === 'none' ? ' Message log off: the pane and run records remain the evidence.' : '');
+      }
+    }
+    document.querySelectorAll('input[name="cp-store"], input[name="cp-log"]').forEach(function (r) { r.addEventListener('change', paintA); });
+    document.getElementById('cp-reset-toggle').addEventListener('click', function () { reset = !reset; paintA(); });
+    paintA();
+
+    // Mockup C: shape rows and the store note.
+    var burst = document.querySelector('.shape-burst');
+    var rate = document.querySelector('.shape-rate');
+    document.querySelectorAll('input[name="shape"]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        var isBurst = r.value === 'burst';
+        burst.hidden = !isBurst;
+        rate.hidden = isBurst;
+        document.querySelectorAll('input[name="shape"]').forEach(function (x) { x.parentElement.classList.toggle('on', x.checked); });
+      });
+    });
+    var note = document.getElementById('dlg-note');
+    var go = document.getElementById('dlg-go');
+    document.querySelectorAll('input[name="sl"]').forEach(function (r) {
+      r.addEventListener('change', function () {
+        var mem = r.value === 'memory';
+        note.hidden = !mem;
+        go.classList.toggle('off', mem);
+        document.querySelectorAll('input[name="sl"]').forEach(function (x) { x.parentElement.classList.toggle('on', x.checked); });
+      });
+    });
+
+    // Mockup D: three moments of one document.
+    var tabs = document.querySelectorAll('.moments [role="tab"]');
+    var moments = document.querySelectorAll('[data-moment]');
+    tabs.forEach(function (t) {
+      t.addEventListener('click', function () {
+        tabs.forEach(function (x) { x.setAttribute('aria-selected', String(x === t)); });
+        moments.forEach(function (m) { m.hidden = m.getAttribute('data-moment') !== t.getAttribute('data-m'); });
+      });
+    });
+  })();
+</script>
+</body>
+</html>

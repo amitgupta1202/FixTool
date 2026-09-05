@@ -129,6 +129,14 @@ interface SessionEndpoint {
 
     fun send(rawMessage: String, dictionary: FixDictionary): SendResult
 
+    /**
+     * Sends a message that was built and validated ahead of time, straight to the engine.
+     *
+     * None of [send]'s lint, validation or re-parse: those are per-click costs, and a load run pays them
+     * once against the template. True when QuickFIX/J accepted the message for its session.
+     */
+    fun sendPrepared(message: Message): Boolean
+
     fun logout()
 
     fun resetSequenceNumbers(sender: Int?, target: Int?): Boolean
@@ -1121,6 +1129,18 @@ class QuickFixService(
 
         override fun send(rawMessage: String, dictionary: FixDictionary): SendResult =
             sendMessage(resolve(), rawMessage, dictionary)
+
+        @Suppress("SwallowedException")
+        override fun sendPrepared(message: Message): Boolean {
+            val id = resolve() ?: return false
+            return try {
+                Session.sendToTarget(message, id)
+            } catch (e: quickfix.SessionNotFound) {
+                // The session went away between the lane check and the send: a false here becomes the
+                // report's issueFailures, which is the honest place for it.
+                false
+            }
+        }
 
         override fun logout() = this@QuickFixService.logout(resolve())
 

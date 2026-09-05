@@ -418,20 +418,5 @@ class LatencyTrackingService(
      * replaces was compiled afresh on each call. Accepts SOH or pipe as the delimiter so the same code
      * reads the bytes as sent and the form the tool shows.
      */
-    private fun tagValue(message: String, tag: Int): String? {
-        val needle = "$tag="
-        var from = 0
-        while (true) {
-            val at = message.indexOf(needle, from)
-            if (at < 0) return null
-            val atFieldStart = at == 0 || message[at - 1] == SOH || message[at - 1] == '|'
-            if (atFieldStart) {
-                val valueStart = at + needle.length
-                var end = valueStart
-                while (end < message.length && message[end] != SOH && message[end] != '|') end++
-                return if (end > valueStart) message.substring(valueStart, end) else null
-            }
-            from = at + 1
-        }
-    }
+    private fun tagValue(message: String, tag: Int): String? = WireTags.tagValue(message, tag)
 }

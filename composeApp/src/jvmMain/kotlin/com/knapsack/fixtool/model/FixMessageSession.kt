@@ -856,12 +856,46 @@ class FixMessageSession(
 
     /**
      * A message crossed this session's socket — the connection's [com.knapsack.fixtool.service.SocketStampFilter]
-     * saw it, QuickFixService routed it here. On the MINA I/O thread; with tracking off it costs one null check.
+     * saw it, QuickFixService routed it here. On the MINA I/O thread; with tracking off and no listener it
+     * costs one null check and one empty-list check.
      */
-    private fun onSocketStamp(stamp: SocketStamp) {
-        val tracker = latencyTracker ?: return
-        tracker.record(stamp.direction, stamp.wire, stamp.micros)
+    internal fun onSocketStamp(stamp: SocketStamp) {
+        latencyTracker?.record(stamp.direction, stamp.wire, stamp.micros)
+        for (listener in stampListeners) listener(stamp)
     }
+
+    /**
+     * **Whoever else wants every stamp this session's socket produces.**
+     *
+     * A load run's matcher reads the socket stamps rather than the pane, because the pane is a ring buffer
+     * that evicts and a queue that discards, and a count taken from it is exact only by luck. The stamps
+     * are exact by construction: one per message, taken before the engine, never buffered. This is the
+     * second door onto them, beside the latency tracker. A `CopyOnWriteArrayList` because the listener is
+     * added and removed a handful of times per run and read once per message on the I/O thread.
+     *
+     * The returned handle removes the listener. A run that forgets to close it leaves a closure on a hot
+     * path for the life of the session, so the runner closes it in a `finally`.
+     */
+    fun addStampListener(listener: (SocketStamp) -> Unit): AutoCloseable {
+        stampListeners.add(listener)
+        return AutoCloseable { stampListeners.remove(listener) }
+    }
+
+    private val stampListeners = java.util.concurrent.CopyOnWriteArrayList<(SocketStamp) -> Unit>()
+
+    /**
+     * **Sends a message that was built and validated ahead of time**, with none of the interactive path.
+     *
+     * [sendFixMessage] lints the raw string against the dictionary, validates it, parses it twice, and
+     * launches a three-second highlight coroutine per send. Those are the right costs for a click and the
+     * wrong ones at five hundred messages a second: a coroutine per message is exactly the kind of work a
+     * load run exists to keep out of the number. The engine still stamps the bytes at the socket and still
+     * calls `toApp`, so the pane sees the outgoing message as it would any other.
+     */
+    fun sendPrepared(message: quickfix.Message): Boolean = endpoint?.sendPrepared(message) ?: false
+
+    /** The QuickFIX/J session this pane speaks through, once the engine has created it. */
+    fun sessionId(): SessionID? = endpoint?.sessionId
 
     /**
      * Clear latency statistics

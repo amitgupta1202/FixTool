@@ -39,6 +39,9 @@ class WorkspacePaths(
     val runs: File get() = File(root, "runs")
     val sets: File get() = File(root, "sets")
 
+    /** Load run records: one directory per run, holding `load.json` and the wire of what went unanswered. */
+    val loads: File get() = File(root, "loads")
+
     /** QuickFIX/J's own two directories: the sequence-number store and its message log. */
     val sessionStore: File get() = File(root, "store")
     val sessionLog: File get() = File(root, "log")

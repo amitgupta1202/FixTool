@@ -503,7 +503,16 @@ connection panel produces, so the result is immediately connectable via `/connec
 `config` object only needs the fields that differ from the model defaults; everything in
 `FixConnectionConfig` is accepted (host, port, senderCompID, targetCompID, beginString,
 connectionType, heartBtInt, resetOnLogon, useSSL/keyStorePath/…, applVerID, sessionCount,
-logonFields, acceptorResponseRules, acceptorLatency, …).
+logonFields, acceptorResponseRules, acceptorLatency, messageStore, messageLog, …).
+
+**Store and log.** `messageStore` is `FILE` (the default: sequence numbers and sent messages under
+the workspace's `store/`, so resend works) or `MEMORY` (a heap map, sequence numbers start at 1 on
+every logon, nothing written). `messageLog` is `FILE` (the per-session QuickFIX/J log under `log/`)
+or `NONE`. Both matter for a load or soak run, where the per-message file appends cap how fast a
+session can issue and a store that grows for the length of the run is not wanted. A `MEMORY` store
+with `resetOnLogon: false` is accepted by `POST /profiles` with a `warnings` entry and **refused by
+`/connect`** with the same sentence, because the next logon would start at 1 while the venue expects
+the number it last saw.
 
 **Updating merges.** A `config` posted with an `id` sets the keys it carries and leaves every
 other key exactly as it was, so adding one setting cannot silently delete the rest. This used to

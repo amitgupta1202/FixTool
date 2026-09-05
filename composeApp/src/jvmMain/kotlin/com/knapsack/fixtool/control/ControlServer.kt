@@ -419,7 +419,10 @@ class ControlServer(
                 put("mode", if (replace || existing == null) "replace" else "merge")
                 put("applied", buildJsonArray { incoming.keys.sorted().forEach { add(it) } })
                 liveAcceptorSessions(profile)?.let { put("appliedToLiveSessions", it) }
-                acceptorProblems(config).takeIf { it.isNotEmpty() }?.let { problems ->
+                // The store refusal is a warning here and a refusal at connect: a caller may save a
+                // half-edited profile and fix Reset on Logon next, but it must be told in the same words.
+                val problems = acceptorProblems(config) + listOfNotNull(config.storeProblem())
+                if (problems.isNotEmpty()) {
                     put("warnings", buildJsonArray { problems.forEach { add(it) } })
                 }
             }
@@ -2283,6 +2286,9 @@ class ControlServer(
         val profile =
             onEdt { viewModel.connectionProfiles.firstOrNull { it.id == key || it.name == key } }
                 ?: return errorObject("profile not found: $key")
+        // Refused here rather than discovered as an ERROR state a poll later: the connection manager
+        // would refuse the same config in the same words, but a caller deserves them in the reply.
+        profile.config.storeProblem()?.let { return errorObject(it) }
         onEdt { viewModel.connectProfile(profile.id, profile) }
         return buildJsonObject {
             put("status", "connecting")

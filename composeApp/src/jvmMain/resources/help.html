@@ -410,6 +410,24 @@
         <li>Click <strong>Connect</strong> to start the session</li>
     </ol>
 
+    <h3 id="store-and-log">Store and log</h3>
+    <p>Under <strong>Advanced Settings</strong>, beside Reset Options, a profile chooses where QuickFIX/J
+        keeps its state for the session:</p>
+    <ul>
+        <li><strong>Message store: File</strong> (the default) keeps sequence numbers and sent messages under
+            <code>store/</code> in the workspace, so they survive a restart and resend works.
+            <strong>Memory</strong> keeps them on the heap: sequence numbers start at 1 on every logon and
+            nothing is written.</li>
+        <li><strong>Message log: File</strong> (the default) writes QuickFIX/J's per-session message and event
+            log under <code>log/</code>. <strong>None</strong> writes nothing. The session pane and the run
+            records remain the tool's own evidence either way.</li>
+    </ul>
+    <p>Pick Memory and None for a load or soak run: the per-message file appends cap how fast a session can
+        issue, and a store that grows for the length of the run is not wanted. A memory store needs
+        <strong>Reset on Logon</strong>, and the panel says so: without it the next logon would start at 1
+        while the venue expects the number it last saw, so the connection is refused rather than fixed
+        behind your back.</p>
+
     <h3 id="multi-session">Multiple Sessions per Profile (Load Testing)</h3>
     <p>A profile can open several concurrent FIX sessions in one click - useful for market data
         load testing. Set the <strong>Sessions</strong> field (initiator connections only, 1-100)

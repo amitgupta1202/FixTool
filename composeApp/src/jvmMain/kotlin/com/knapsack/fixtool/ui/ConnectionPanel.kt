@@ -4,6 +4,8 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -17,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -88,6 +91,8 @@ fun ConnectionPanel(
     var resetOnLogon by remember { mutableStateOf(true) }
     var resetOnLogout by remember { mutableStateOf(false) }
     var resetOnDisconnect by remember { mutableStateOf(false) }
+    var messageStore by remember { mutableStateOf(FixConnectionConfig.MessageStoreKind.FILE) }
+    var messageLog by remember { mutableStateOf(FixConnectionConfig.MessageLogKind.FILE) }
     var showHeartbeat by remember { mutableStateOf(true) }
     var connectionType by remember { mutableStateOf(FixConnectionConfig.ConnectionType.INITIATOR) }
     var socketAcceptPort by remember { mutableStateOf("") }
@@ -174,6 +179,8 @@ fun ConnectionPanel(
         resetOnLogon = profile.config.resetOnLogon
         resetOnLogout = profile.config.resetOnLogout
         resetOnDisconnect = profile.config.resetOnDisconnect
+        messageStore = profile.config.messageStore
+        messageLog = profile.config.messageLog
         showHeartbeat = profile.config.showHeartbeat
         connectionType = profile.config.connectionType
         socketAcceptPort = profile.config.socketAcceptPort
@@ -341,6 +348,8 @@ fun ConnectionPanel(
                             resetOnLogon = resetOnLogon,
                             resetOnLogout = resetOnLogout,
                             resetOnDisconnect = resetOnDisconnect,
+                            messageStore = messageStore,
+                            messageLog = messageLog,
                             showHeartbeat = showHeartbeat,
                             useSSL = useSSL,
                             keyStorePath = keyStorePath,
@@ -432,6 +441,8 @@ fun ConnectionPanel(
                     resetOnLogon = clonedProfile.config.resetOnLogon
                     resetOnLogout = clonedProfile.config.resetOnLogout
                     resetOnDisconnect = clonedProfile.config.resetOnDisconnect
+                    messageStore = clonedProfile.config.messageStore
+                    messageLog = clonedProfile.config.messageLog
                     showHeartbeat = clonedProfile.config.showHeartbeat
                     connectionType = clonedProfile.config.connectionType
                     socketAcceptPort = clonedProfile.config.socketAcceptPort
@@ -1019,6 +1030,69 @@ fun ConnectionPanel(
                         )
                     }
                 }
+
+                // Store and log. Two choices a load or soak run makes and interactive use never has to:
+                // the QuickFIX/J store and log used to be file factories unconditionally. The hint reads
+                // the two choices together with Reset on Logon, because a memory store without it is
+                // refused at connect, and the refusal is better read here than in an error toast.
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Store and log",
+                    color = AppTheme.Colors.textSecondary,
+                    fontSize = 9.sp,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Message store",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 9.sp,
+                        modifier = Modifier.width(80.dp),
+                    )
+                    SlimChoice(
+                        label = "File",
+                        selected = messageStore == FixConnectionConfig.MessageStoreKind.FILE,
+                        tag = "store-file",
+                    ) { messageStore = FixConnectionConfig.MessageStoreKind.FILE }
+                    SlimChoice(
+                        label = "Memory",
+                        selected = messageStore == FixConnectionConfig.MessageStoreKind.MEMORY,
+                        tag = "store-memory",
+                    ) { messageStore = FixConnectionConfig.MessageStoreKind.MEMORY }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Message log",
+                        color = AppTheme.Colors.textSecondary,
+                        fontSize = 9.sp,
+                        modifier = Modifier.width(80.dp),
+                    )
+                    SlimChoice(
+                        label = "File",
+                        selected = messageLog == FixConnectionConfig.MessageLogKind.FILE,
+                        tag = "log-file",
+                    ) { messageLog = FixConnectionConfig.MessageLogKind.FILE }
+                    SlimChoice(
+                        label = "None",
+                        selected = messageLog == FixConnectionConfig.MessageLogKind.NONE,
+                        tag = "log-none",
+                    ) { messageLog = FixConnectionConfig.MessageLogKind.NONE }
+                }
+                val storeProblem =
+                    FixConnectionConfig(resetOnLogon = resetOnLogon, messageStore = messageStore).storeProblem()
+                Text(
+                    text = storeProblem ?: storeHint(messageStore, messageLog),
+                    color = if (storeProblem != null) AppTheme.Colors.warning else AppTheme.Colors.textDisabled,
+                    fontSize = 9.sp,
+                    modifier = Modifier.testTag("store-hint"),
+                )
 
                 // SSL/TLS Configuration Section
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1779,6 +1853,8 @@ fun ConnectionPanel(
                             resetOnLogon = resetOnLogon,
                             resetOnLogout = resetOnLogout,
                             resetOnDisconnect = resetOnDisconnect,
+                            messageStore = messageStore,
+                            messageLog = messageLog,
                             showHeartbeat = showHeartbeat,
                             useSSL = useSSL,
                             keyStorePath = keyStorePath,
@@ -2128,6 +2204,55 @@ private fun SlimButton(
 
 // Component-specific color constants (not in AppTheme)
 private val errorBackgroundColor = Color(0xFF3A1F1F)
+
+/**
+ * One option of a two-way choice, drawn like the panel's checkboxes but round, so a reader sees at a
+ * glance that exactly one of the row applies. `selectable` gives it the Selected semantic a test reads.
+ */
+@Composable
+private fun SlimChoice(label: String, selected: Boolean, tag: String, onSelect: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.selectable(selected = selected, onClick = onSelect).testTag(tag),
+    ) {
+        Box(
+            modifier =
+                checkboxSize14
+                    .background(color = AppTheme.Colors.surface, shape = CircleShape)
+                    .border(width = 1.dp, color = checkboxBorderColor(selected), shape = CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (selected) {
+                Box(modifier = Modifier.size(6.dp).background(AppTheme.Colors.primary, CircleShape))
+            }
+        }
+        Text(text = label, color = AppTheme.Colors.textSecondary, fontSize = 9.sp)
+    }
+}
+
+/** What the two choices mean together, when nothing about them is wrong. */
+private fun storeHint(
+    store: FixConnectionConfig.MessageStoreKind,
+    log: FixConnectionConfig.MessageLogKind,
+): String {
+    val storePart =
+        when (store) {
+            FixConnectionConfig.MessageStoreKind.FILE ->
+                "Sequence numbers and sent messages are kept under store/ in the workspace, so resend works."
+            FixConnectionConfig.MessageStoreKind.MEMORY ->
+                "Sequence numbers start at 1 on every logon and nothing is written under store/. " +
+                    "Resend cannot replay earlier messages."
+        }
+    val logPart =
+        when (log) {
+            FixConnectionConfig.MessageLogKind.FILE ->
+                " The per-session message log is written under log/."
+            FixConnectionConfig.MessageLogKind.NONE ->
+                " No message log is written. The pane and the run records remain the evidence."
+        }
+    return storePart + logPart
+}
 
 // Helper functions for conditional colors
 private fun checkboxBackgroundColor(checked: Boolean) = if (checked) AppTheme.Colors.primary else AppTheme.Colors.surface

@@ -7,7 +7,11 @@ mockups, the mechanism diagrams and the reasoning. This is the task-level breakd
 which files it touches, the new types and their signatures, the tests, and the exit criteria that
 gate the next step.
 
-**Status: plan, 2026-09-05. Nothing here is implemented.**
+**Status: delivered, 2026-09-05.** All four steps landed on `main` the same day the plan was written,
+each as the commits it describes. Two things in the plan were not built as written and are noted where they
+apply: rendering happens on the pacer's thread rather than through a render-ahead producer (2.4), because a
+render is a clone and a `setString` and the lag spans would say if that ever changed, and the live
+verification with the `verify` skill (3.5) was left for a session with the app running.
 
 Work lands as commits straight to `main`, as this repo does. A step is several commits, not one.
 The one rule: `main` builds, its tests are green and the app is usable after every commit, so any
@@ -177,7 +181,7 @@ Tests, `StampMatcherTest`, fed synthetic `SocketStamp`s with two `SessionID`s:
 |---|---|---|
 | Pacer | `service/load/Pacer.kt` (new) | `class Pacer(private val shape: LoadShape, private val lanes: Int, private val clock: Clock)` where `Clock` is `nanoTime` plus `parkNanos`, replaceable in tests. `fun run(issue: (laneIndex: Int, messageIndex: Int) -> Boolean, cancelled: () -> Boolean): IssueStats`. Burst: message `i` goes to lane `i % lanes` as soon as the previous returned. Rate: `scheduled(i) = t0 + i * 1_000_000_000L / perSecond`, park until 200µs before, spin to the mark, issue, record `lag = now - scheduled`. Never skips (D9). |
 | Stats | same | `data class IssueStats(requested, handedToEngine, issueFailures, firstIssueNanos, lastIssueNanos, perSecondIssued: IntArray, maxLagNanos, shortfalls: List<Shortfall(fromSecond, toSecond, minPerSecond, behind)>)`. A shortfall span is consecutive seconds where issued fell below `perSecond` by more than 2 percent. The tolerance is a constant and is written into the report as `tolerance`. |
-| Ahead | `service/load/PreparedQueue.kt` (new) | A producer thread renders ahead into an `ArrayBlockingQueue<Prepared(laneIndex, messageIndex, message)>` of depth `min(2 * perSecond, 10_000)` for rate and `10_000` for burst. The pacer takes from it. A dry queue shows up as lag like any other cause, which is the honest answer to the open question in the design note. |
+| Ahead | not built | Rendering happens on the pacer's thread, per message: a clone and a `setString` or two, far inside a two-millisecond budget. A render-ahead producer stays the follow-on if a template ever makes it otherwise, and the pacer's lag spans would say so. |
 
 Tests, `PacerTest` with a fake clock: a burst of 100 over 4 lanes issues 25 per lane in round-robin order. A rate of 1,000/s for 3 seconds schedules 3,000 with the right spacing. A clock that stalls 1.5s mid-run produces one shortfall span with the right bounds and no skipped index. `cancelled()` returning true stops after the current message and reports what was issued.
 

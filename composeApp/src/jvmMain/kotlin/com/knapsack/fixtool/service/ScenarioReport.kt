@@ -219,7 +219,7 @@ object ScenarioReport {
      * that says so of every step from an older run has quietly invented a measurement. [Locale.ROOT]
      * because a machine whose locale writes `1,234` would emit an attribute no XML consumer can parse.
      */
-    private fun timeAttr(ms: Long?): String =
+    internal fun timeAttr(ms: Long?): String =
         ms?.let { String.format(java.util.Locale.ROOT, " time=\"%.3f\"", it / 1000.0) } ?: ""
 
     /** `step 3 expect (steps)` for a step; `traffic (steps)` for a row no step produced. */
@@ -264,7 +264,7 @@ object ScenarioReport {
     /** XML 1.0 cannot carry most control characters at all, whether escaped or not. */
     private fun carriable(c: Char): Boolean = c.code >= 0x20 || c in "\t\n\r"
 
-    private fun esc(s: String): String =
+    internal fun esc(s: String): String =
         s.map { c -> if (carriable(c)) c else ' ' }
             .joinToString("")
             .replace("&", "&amp;")

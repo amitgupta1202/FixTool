@@ -209,6 +209,9 @@ class StampMatcher(
         }
     }
 
+    /** The round trips so far, sorted, for a progress line's distribution. A copy: the run keeps writing. */
+    fun roundTripsSoFar(): LongArray = synchronized(samples) { samples.toArray().also { it.sort() } }
+
     /** Everything, once. Closes the settle window if nobody has. */
     fun finish(): Result {
         val unmatched = closeSettle()

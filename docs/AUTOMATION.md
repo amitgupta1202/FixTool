@@ -140,6 +140,73 @@ installed build it is the packaged binary (`FixTool.app/Contents/MacOS/FixTool r
 macOS). Any invocation whose first argument is `run`, `--help`, `-h` or `help` goes headless — with no
 arguments the app opens normally, so double-clicking is unaffected.
 
+## Running a load without the app (`fixtool load`)
+
+A scenario answers *does this flow hold*. A load run answers *how does the venue behave when several
+thousand messages arrive at once*: it issues one message across a profile's sessions **without waiting
+for replies**, then accounts for every reply that lands on any participating session.
+
+```bash
+fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s --json reports/load.json
+fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --set run=c118 --junit reports/soak.xml
+echo $?      # 0 everything answered · 1 unmatched, tool-limited, stopped, or a strict-rate shortfall · 2 could not run
+```
+
+```
+fixtool load <template> --profile <name> (--count <n> | --rate <r>/s --for <d>) [options]
+
+  <template>             a saved message's name or id, or a path to a .fix file holding one message
+  --profile <name>       the multi-session initiator profile whose lanes issue
+  --count <n>            burst: issue n messages as fast as the lanes carry them
+  --rate <r>/s --for <d>  sustained: issue r per second for d (90s, 10m, 1h)
+  --settle <d>           wait this long for replies after the last send (default 60s); the window
+                         closes early when nothing is pending
+  --listen <profile>     also match replies landing on this profile's sessions (repeatable)
+  --match <req>=<rep>    request tag to reply tag (default: the template's first correlation tag, both sides)
+  --reply-type <35>      count only replies of this MsgType as answers
+  --set <k>=<v>          seed a value into every message's scope as ${k} (repeatable)
+  --store file|memory    message store for this run's sessions (default: the profile's)
+  --log file|none        message log for this run's sessions (default: the profile's)
+  --strict-rate          exit 1 on a rate shortfall, not only on unmatched replies
+  --json <file>          write the load report
+  --junit <file>         write one <testsuite> with three cases: completeness, rate, tool
+  --home <dir>           read profiles and templates from <dir> instead of ~/.fixtool
+```
+
+**What varies per message.** `${messageIndex}` (1-based), the `--set` seeds, `${uuid}`, `${uuid:N}`,
+`${now}` and `${utcnow}` with their offsets and patterns are rendered per message by string substitution.
+`${sessionIndex}` and the other lane names are the lane's, as in a fan-out. Anything else, a `${out.D.11}`
+or a Kotlin expression, is evaluated **once per lane** and frozen, and the report lists its tag under
+`fixedTags` so nobody believes it was re-read per message. A `${name}` nothing seeds is refused before a
+lane dials, with the `--set` that would fix it.
+
+**How replies are matched.** One matcher reads the socket stamps of every participating session, the lanes
+and the `--listen` sessions alike. A request is pending from its SEND stamp until the first reply carrying
+its id arrives anywhere, which is the match and the round trip. A repeat is a **duplicate** (reported, not
+judged: an order legitimately draws several ExecutionReports). A reply matching nothing issued is a
+**stray**. Nothing is aged out before the settle window closes, and a reply after that is **late**.
+
+**Three verdicts, one exit code.** `completeness` fails on anything unanswered within the settle window.
+`rate` is not applicable to a burst, `HELD`, or `SHORTFALL` when the achieved rate fell more than 2%
+under the requested one for a full second or more; a shortfall exits 0 unless `--strict-rate`, because the
+venue answered everything and a build that wants to gate on the tool's own pacing has to say so. `tool`
+is `LIMITED` when FixTool itself got in the way: messages the panes discarded, messages handed to the engine
+that never left the socket, or sends the engine refused. `issued` is therefore three numbers, requested,
+handed to the engine and left the socket, and completeness is judged over the last.
+
+**The report.** `loads/<id>/load.json` in the workspace, written as the run progresses and once more at the
+end, beside `unmatched.fix` (the wire of every unanswered request) and `specimens.fix` (fifty matched
+pairs, request then reply). Never every message. The JSON carries `issue`, `rate`, `replies`, `timing`
+(`elapsedMs` first send to last matched reply, `drainMs` last send to last matched reply), `roundTrip`
+(min, p50, p95, p99, max, mean, samples), `perSecond` buckets, `tool`, the first 1,000 `unmatched` with
+`unmatchedTotal`, and `verdict`. The JUnit file is one `<testsuite>` with the three cases, so a build that
+already ingests `fixtool run`'s XML needs no change.
+
+**Store and log for a load run.** Pass `--store memory --log none` unless the profile already says so: the
+per-message file appends cap how fast a lane can issue, and a store that grows for the length of a soak is
+not wanted. A memory store needs Reset on Logon on the profile, and the command exits 2 with the reason
+when it is off.
+
 ## HTTP API
 
 Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are JSON.

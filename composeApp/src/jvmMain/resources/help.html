@@ -549,6 +549,39 @@
         </ul>
     </div>
 
+    <h3 id="load-runs">Load runs</h3>
+    <p>A fan-out answers <em>does this flow hold with fifty clients</em>. A load run answers <em>how does the
+        venue behave when several thousand messages arrive at once</em>: it issues one message across a
+        profile's sessions <strong>without waiting for replies</strong>, then accounts for every reply that
+        lands on any participating session. From the command line:</p>
+    <pre><code>fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s --json reports/load.json
+fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --set run=c118</code></pre>
+    <ul>
+        <li><strong>Burst or rate.</strong> <code>--count 4000</code> issues four thousand as fast as the lanes
+            carry them. <code>--rate 500/s --for 10m</code> issues on a schedule the run never skips: a message
+            that could not go on time goes as soon as it can, and the report says where the run fell behind and
+            by how much.</li>
+        <li><strong>Per-message values.</strong> <code>11=ORD-${run}-${messageIndex}</code> gives every message
+            its own ClOrdID, with <code>run</code> seeded by <code>--set run=b7f2</code> so a second run can
+            address what the first created. <code>${uuid}</code> and <code>${utcnow}</code> render per message.
+            <code>${sessionIndex}</code> is the lane's slot, as in a fan-out. Anything else is evaluated once per
+            lane, and the report lists its tag under <em>fixed</em>.</li>
+        <li><strong>Matching.</strong> A reply is matched wherever it lands, on the lane that sent or on a
+            <code>--listen</code> session such as a drop-copy. The first reply carrying the request's id is the
+            match and the round trip; a repeat is a duplicate, reported rather than judged. Nothing is forgotten
+            before the settle window closes.</li>
+        <li><strong>Three verdicts.</strong> Completeness (anything unanswered fails), rate (held, or a shortfall,
+            which exits 0 unless <code>--strict-rate</code>), and tool (whether FixTool itself discarded traffic or
+            could not get a message onto the socket). Issued is three numbers for the same reason: requested,
+            handed to the engine, left the socket.</li>
+        <li><strong>The record.</strong> <code>loads/&lt;id&gt;/load.json</code> in the workspace, with the wire
+            of every unanswered request beside it and fifty specimen pairs. <code>--json</code> and
+            <code>--junit</code> write the report where a build wants it.</li>
+    </ul>
+    <p>Pick <strong>Memory</strong> and <strong>None</strong> under <a href="#store-and-log">Store and log</a> for
+        the load profile, or pass <code>--store memory --log none</code>, so the run measures the venue's
+        keep-up rather than FixTool's file appends. A memory store needs Reset on Logon.</p>
+
     <h3 id="quick-connect">Quick Connect</h3>
 
     <p><strong>Quick Connect</strong> in the toolbar is the shortcut past the Connection panel: it drops
@@ -814,6 +847,8 @@
         <li>Sessions that are not logged on are skipped</li>
         <li>A notification summarizes the result and names any sessions where the send failed</li>
     </ul>
+    <p>Send to All is one message on every session, once. To issue thousands and account for every reply, see
+        <a href="#load-runs">Load runs</a>.</p>
 
     <h3>Saving Message Templates</h3>
     <p>Save frequently used messages for reuse:</p>

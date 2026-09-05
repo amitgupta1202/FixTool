@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -36,6 +37,7 @@ import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.FixDictionaryAdapter
 import com.knapsack.fixtool.model.FixMessageSession
+import com.knapsack.fixtool.model.load.LoadTemplate
 import com.knapsack.fixtool.service.FixMessageHelper.normalizeFixMessage
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.compare.GroupOverlay
@@ -289,6 +291,8 @@ fun MessageEditorPanel(
     onClose: () -> Unit,
     onSend: (fields: List<FixField>) -> Unit,
     onSendToAll: ((fields: List<FixField>) -> Unit)? = null,
+    /** The third send mode: issue this message N times, or at a rate, across a profile's lanes. Opens the load dialog. */
+    onLoad: ((fields: List<FixField>) -> Unit)? = null,
     onValidate: (fields: List<FixField>) -> List<String>,
     validationErrors: List<String>,
     onClearValidationErrors: () -> Unit,
@@ -687,6 +691,38 @@ fun MessageEditorPanel(
                             contentDescription = "Send to All Sessions",
                             modifier = iconSize18,
                             tint = if (canSendToAll) AppTheme.Colors.primary else disabledIconColor,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+
+                // Button 0c: Load run. Send is one message on one session, Send to All is one message on
+                // every session once, and this is thousands with the accounting afterwards. The editor's
+                // fields are the template; the dialog decides everything else.
+                if (visibleButtonsCount > 0 && onLoad != null && replyStep == null) {
+                    val loadable =
+                        fields.filter { !it.excluded && it.tag.isNotBlank() && it.value.isNotBlank() && it.tag !in managedTags }
+                    val asTemplate = LoadTemplate("message editor", loadable.mapNotNull { f -> f.tag.toIntOrNull()?.let { it to f.value } })
+                    val canLoad = asTemplate.msgType != null && asTemplate.inferMatch() != null
+                    TooltipIconButton(
+                        tooltip =
+                            if (canLoad) {
+                                "Load run: issue this message across a profile's sessions and account for every reply"
+                            } else {
+                                "Cannot load: the message needs a MsgType (35) and a correlation tag such as ClOrdID (11)"
+                            },
+                        onClick = {
+                            onClearValidationErrors()
+                            onLoad(loadable)
+                        },
+                        enabled = canLoad,
+                        modifier = iconSize28.testTag("editor-load"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = "Load run",
+                            modifier = iconSize18,
+                            tint = if (canLoad) AppTheme.Colors.primary else disabledIconColor,
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))

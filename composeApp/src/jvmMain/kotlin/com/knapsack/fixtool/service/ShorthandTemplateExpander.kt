@@ -98,6 +98,52 @@ object ShorthandTemplateExpander {
         )
 
     /**
+     * **A generator shorthand, read for a caller that will render it natively** rather than through the
+     * script engine: the load run's compiled template. Same regexes as [expand], so `${utcnow+5min}` means
+     * the same thing in a load message as in a scenario step.
+     */
+    sealed interface Generator {
+        /** `uuid`, or `uuid:N` for a dash-less UUID cut to N characters. */
+        data class Uuid(
+            val length: Int?,
+        ) : Generator
+
+        /** `now` or `utcnow`, with an optional `+/-` offset and an optional `:pattern`. */
+        data class Timestamp(
+            val utc: Boolean,
+            val sign: String?,
+            val amount: Long?,
+            val unit: String?,
+            val pattern: String?,
+        ) : Generator
+    }
+
+    /** The generator [expression] names, or null when it is not one of the shorthand generators. */
+    @Suppress("ReturnCount")
+    fun generatorOf(expression: String): Generator? {
+        val e = expression.trim()
+        if (UUID_PATTERN.matches(e)) return Generator.Uuid(null)
+        UUID_LEN_PATTERN.matchEntire(e)?.let { m ->
+            val n = m.groupValues[1].toIntOrNull()
+            return if (n != null && n in UUID_LEN_RANGE) Generator.Uuid(n) else null
+        }
+        TIMESTAMP_PATTERN.matchEntire(e)?.let { m -> return Generator.Timestamp(m.utc(), null, null, null, null) }
+        TIMESTAMP_FORMAT_PATTERN.matchEntire(e)?.let { m ->
+            return Generator.Timestamp(m.utc(), null, null, null, m.groupValues[2].trim())
+        }
+        TIMESTAMP_OFFSET_PATTERN.matchEntire(e)?.let { m ->
+            return Generator.Timestamp(m.utc(), m.groupValues[2], m.groupValues[3].toLong(), m.groupValues[4], null)
+        }
+        TIMESTAMP_OFFSET_FORMAT_PATTERN.matchEntire(e)?.let { m ->
+            return Generator.Timestamp(m.utc(), m.groupValues[2], m.groupValues[3].toLong(), m.groupValues[4], m.groupValues[5].trim())
+        }
+        return null
+    }
+
+    /** The FIX UTCTimestamp pattern a bare `${now}` renders with. */
+    const val DEFAULT_TIMESTAMP_PATTERN = "yyyyMMdd-HH:mm:ss.SSS"
+
+    /**
      * Expands shorthand syntax in a template string.
      * Non-shorthand expressions are left unchanged for backwards compatibility.
      *
@@ -332,7 +378,7 @@ object ShorthandTemplateExpander {
             } else {
                 ""
             }
-        val formatPattern = pattern ?: "yyyyMMdd-HH:mm:ss.SSS"
+        val formatPattern = pattern ?: DEFAULT_TIMESTAMP_PATTERN
         return """$nowCall$offset.format(DateTimeFormatter.ofPattern("$formatPattern"))"""
     }
 

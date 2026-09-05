@@ -553,7 +553,16 @@
     <p>A fan-out answers <em>does this flow hold with fifty clients</em>. A load run answers <em>how does the
         venue behave when several thousand messages arrive at once</em>: it issues one message across a
         profile's sessions <strong>without waiting for replies</strong>, then accounts for every reply that
-        lands on any participating session. From the command line:</p>
+        lands on any participating session.</p>
+    <p>Two doors, one dialog. In the <strong>Message Editor</strong>, the <strong>&#9889; Load</strong> button
+        beside Send and Send to All opens the Load run dialog with the editor's fields as the template. In the
+        Scenarios rail, <strong>Run &#9662; &rarr; Load run&hellip;</strong> opens the same dialog with a picker over
+        the saved messages. The dialog is one row per decision: the template and which of its tags vary per
+        message, the profile whose lanes issue, other logged-on profiles that only listen, burst or rate, the tag
+        pair a reply is matched on, the settle window, the seeds, and the store and log for this run. Every
+        refusal is a sentence on screen and Run is what refuses. The run opens as a document tab that updates
+        live and has <strong>Stop</strong>, and <strong>Recent &#9656;</strong> lists it with &#9889; beside the run
+        sets, opening the same document over the record afterwards. From the command line:</p>
     <pre><code>fixtool load "NOS EUR/USD 1M" --profile LOADGEN --count 4000 --settle 60s --json reports/load.json
 fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --set run=c118</code></pre>
     <ul>

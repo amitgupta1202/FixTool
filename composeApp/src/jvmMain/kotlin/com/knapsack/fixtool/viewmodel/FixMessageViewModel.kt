@@ -113,6 +113,13 @@ import com.knapsack.fixtool.ui.diff.SeedFrom
 import com.knapsack.fixtool.ui.diff.ViewerSlot
 import com.knapsack.fixtool.ui.firstFailure
 import com.knapsack.fixtool.ui.sessionOrNull
+import com.knapsack.fixtool.model.load.LoadPlan
+import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.service.load.LoadRecordStore
+import com.knapsack.fixtool.service.load.LoadRefused
+import com.knapsack.fixtool.service.load.LoadRunner
+import com.knapsack.fixtool.service.load.LoadTemplates
 import com.knapsack.fixtool.util.NotifyingLogger
 import com.knapsack.fixtool.util.Rebuildable
 import kotlinx.coroutines.CoroutineScope
@@ -2208,6 +2215,20 @@ class FixMessageViewModel(
         }
     val runSetStore by runSetHolder
 
+    /**
+     * Where a load run writes its record: `loads/<id>/` beside `runs/`. Its own store because a load run is
+     * not a run set. It has no steps and no `ScenarioResult`, and Recent lists both kinds by time.
+     */
+    private val loadRecordHolder =
+        Rebuildable {
+            LoadRecordStore(
+                customDir = resolveStoragePath("", "loads"),
+                onError = { errorMsg -> showNotification(errorMsg, NotificationType.ERROR) },
+                isLive = { id -> isLoadRunning(id) },
+            )
+        }
+    val loadRecordStore by loadRecordHolder
+
     // The rail's view-chrome store — a small local JSON beside app_settings.json, never in the scenarios dir.
     private val scenarioViewStateService by lazy {
         ScenarioViewStateService(
@@ -3514,6 +3535,113 @@ class FixMessageViewModel(
         ) : FanOutLanes
     }
 
+    // ---- Load runs -------------------------------------------------------------------------------------
+
+    /** The load run in progress, as the document draws it. Null when none is. */
+    private val _activeLoadRun = MutableStateFlow<LoadReport?>(null)
+    val activeLoadRun: StateFlow<LoadReport?> = _activeLoadRun.asStateFlow()
+
+    /** The template the editor asked to load with, while the dialog for it is open. */
+    private val _loadDialogTemplate = MutableStateFlow<LoadTemplate?>(null)
+    val loadDialogTemplate: StateFlow<LoadTemplate?> = _loadDialogTemplate.asStateFlow()
+
+    /** The editor's Load button: open the dialog with the editor's fields as the template. */
+    fun requestLoadRun(fields: List<FixField>) {
+        val template =
+            LoadTemplate(
+                name = "message editor",
+                fields = fields.mapNotNull { f -> f.tag.trim().toIntOrNull()?.let { it to f.value } },
+            )
+        _loadDialogTemplate.value = template
+    }
+
+    fun dismissLoadDialog() {
+        _loadDialogTemplate.value = null
+    }
+
+    /** Every saved message a load run could issue, the issuing profile's first. */
+    fun loadTemplates(profileId: String?): List<LoadTemplate> {
+        val ordered = listOfNotNull(profileId) + _connectionProfiles.map { it.id }.filter { it != profileId }
+        return ordered
+            .flatMap { pid -> savedMessagesService.loadMessagesForProfile(pid) }
+            .distinctBy { it.id }
+            .map(LoadTemplates::of)
+            .filter { it.msgType != null }
+    }
+
+    /** Whether a profile can supply lanes for a load run: the same question, and the same sentences, as fan-out. */
+    fun loadLanes(profileId: String): FanOutLanes = fanOutLanes(profileId)
+
+    fun isLoadRunning(id: String): Boolean = claims.any { it.setId == id }
+
+    fun stopLoadRun(id: String) {
+        claims.filter { it.setId == id }.forEach { it.stop.set(true) }
+    }
+
+    /** Opens the document over a load record, live or from disk. What Recent does for a load row. */
+    fun openLoadRun(id: String) {
+        openDocument(ScenarioDoc.LoadRunView(id))
+    }
+
+    /**
+     * **Starts a load run over this window's live sessions.** Null when it cannot, with the reason shown.
+     *
+     * The lanes are the profile's logged-on sessions, gathered here on the caller's thread and claimed the
+     * way a fan-out claims its lanes, so a scenario on those sessions is refused while the run holds them
+     * and the refusal names the run. The document opens the moment the run starts, and is what Recent
+     * reopens later.
+     */
+    fun startLoadRun(plan: LoadPlan): LoadPlan? {
+        val lanes =
+            when (val available = fanOutLanes(plan.profileId)) {
+                is FanOutLanes.Unavailable -> {
+                    showNotification(available.why, NotificationType.ERROR)
+                    return null
+                }
+                is FanOutLanes.Available -> {
+                    available.shortfall?.let { showNotification(it, NotificationType.WARNING) }
+                    available.lanes.mapNotNull { lane -> _sessions.firstOrNull { it.title == lane.sessionTitle }?.let { lane to it } }
+                }
+            }
+        val listeners =
+            plan.listenProfileIds.flatMap { pid ->
+                getProfileSessions(pid).filter { it.connectionState.value == FixConnectionState.LOGGED_ON }
+            }
+        val touched = RunSessions.Touched(sessions = (lanes.map { it.second.title } + listeners.map { it.title }).toSet())
+        val reserved = plan.copy(id = loadRecordStore.reserve(plan.id))
+        val claim =
+            claimSessions(touched, reserved.label, reserved.id) ?: run {
+                showNotification(runBusyReason(), NotificationType.ERROR)
+                return null
+            }
+        val host =
+            ViewModelLoadHost(
+                lanes = lanes,
+                listeners = listeners,
+                resolve = { template, scope, sessionTitle -> ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle) },
+                dictionary = { _dictionary.value },
+                appSettings = { _appSettings.value },
+            )
+        _activeLoadRun.value = null
+        openLoadRun(reserved.id)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                LoadRunner(host, loadRecordStore).run(reserved, cancelled = { claim.stop.get() }) { progress ->
+                    _activeLoadRun.value = progress
+                }
+            } catch (e: LoadRefused) {
+                showNotification(e.message ?: "the load run could not start", NotificationType.ERROR)
+            } catch (e: Exception) {
+                logger.error("Load run failed: ${e.message}", e, notifyUser = true)
+            } finally {
+                host.release()
+                release(claim)
+                loadRecordStore.prune(_appSettings.value.runRecordsKept)
+            }
+        }
+        return reserved
+    }
+
     fun startRepeat(scenario: Scenario, times: Int, pauseMs: Long): RunSet? =
         startRunSet(
             RunSets.repeat(scenario, times, System.currentTimeMillis(), RunPolicy(pauseBetweenMs = pauseMs)),
@@ -4328,6 +4456,7 @@ class FixMessageViewModel(
         scenarioStore.reset()
         runRecordHolder.reset()
         runSetHolder.reset()
+        loadRecordHolder.reset()
 
         loadConnectionProfiles()
         loadEnvironments()

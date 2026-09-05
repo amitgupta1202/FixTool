@@ -168,11 +168,26 @@ sealed interface ScenarioDoc {
         override val scenarioId: String? get() = null
     }
 
+    /**
+     * **A load run, as a thing to read**: the five counts, the two timings, the distribution, the tool's own
+     * part, the unanswered requests, the verdict. Live while it runs and reopened from Recent afterwards,
+     * from the same record, so it says the same thing at both moments.
+     */
+    data class LoadRunView(
+        val loadId: String,
+    ) : ScenarioDoc {
+        override val id: String get() = loadRunId(loadId)
+        override val glyph: String get() = "⚡"
+        override val scenarioId: String? get() = null
+    }
+
     companion object {
         /** There is one session scan at a time, so there is one capture review at a time. */
         const val CAPTURE_ID = "capture"
 
         fun runSetId(setId: String): String = "runset:$setId"
+
+        fun loadRunId(loadId: String): String = "load:$loadId"
 
         fun editorId(scenarioId: String): String = "editor:$scenarioId"
     }
@@ -434,6 +449,7 @@ fun documentTabsOf(documents: List<ScenarioDoc>, workspace: Map<String, Scenario
             is ScenarioDoc.Capture -> DocumentTab(doc.id, doc.title, doc.glyph, doc.dirty)
             // Never dirty: a record is what happened, and nothing in this tab can edit it.
             is ScenarioDoc.RunSetView -> DocumentTab(doc.id, "run: ${doc.setId.substringAfter('-', doc.setId).takeLast(RUN_TAB_TITLE)}", doc.glyph, dirty = false)
+            is ScenarioDoc.LoadRunView -> DocumentTab(doc.id, "load: ${doc.loadId.substringAfter('-', doc.loadId).takeLast(RUN_TAB_TITLE)}", doc.glyph, dirty = false)
             is ScenarioDoc.Editor -> {
                 val scenario = workspace[doc.scenarioId]
                 DocumentTab(

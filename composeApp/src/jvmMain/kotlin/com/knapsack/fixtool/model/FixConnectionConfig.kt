@@ -55,11 +55,53 @@ data class FixConnectionConfig(
     val acceptorResponseRules: List<AcceptorResponseRule> = emptyList(),
     // Acceptor mode only: how long the venue waits before an auto-response goes out (default: no delay)
     val acceptorLatency: AcceptorLatencyConfig = AcceptorLatencyConfig(),
+    /**
+     * Where QuickFIX/J keeps this session's sequence numbers and sent messages. [MessageStoreKind.FILE]
+     * is the interactive default: resend works and the numbers survive a restart. [MessageStoreKind.MEMORY]
+     * is for a load or soak run, where the per-message file appends cap how fast a lane can issue and a
+     * store that grows for the length of the run is not wanted. See [storeProblem].
+     */
+    val messageStore: MessageStoreKind = MessageStoreKind.FILE,
+    /**
+     * Whether QuickFIX/J writes its per-session message and event log under [fileLogPath]. The pane and
+     * the run records are the tool's own evidence, so [MessageLogKind.NONE] loses nothing they keep.
+     */
+    val messageLog: MessageLogKind = MessageLogKind.FILE,
 ) {
     enum class ConnectionType {
         INITIATOR, // Client - initiates connection
         ACCEPTOR, // Server - accepts connections
     }
+
+    /** The QuickFIX/J message store behind a session: files under [fileStorePath], or a map on the heap. */
+    enum class MessageStoreKind {
+        FILE,
+        MEMORY,
+    }
+
+    /** The QuickFIX/J message log behind a session: files under [fileLogPath], or nothing at all. */
+    enum class MessageLogKind {
+        FILE,
+        NONE,
+    }
+
+    /**
+     * **Why this configuration must not be connected**, or null when it may.
+     *
+     * A memory store starts every logon at sequence number 1, while a venue that was not told to reset
+     * expects the number it last saw. That is the classic failure that appears only on the first run
+     * after a restart, and the whole point of a memory store is a repeatable run. So a memory store
+     * without Reset on Logon is refused, in one sentence owned here, rather than fixed behind the user's
+     * back by flipping a flag on a profile they did not ask to change. The connection manager, the
+     * connection panel, the load dialog and the command line all read the same words from this one place.
+     */
+    fun storeProblem(): String? =
+        if (messageStore == MessageStoreKind.MEMORY && !resetOnLogon) {
+            "Memory store, and Reset on Logon is off: the next logon will start at 1 while the venue expects " +
+                "the number it last saw. Turn Reset on Logon on, or keep the file store."
+        } else {
+            null
+        }
 
     /**
      * **Does this acceptor accept a logon from any counterparty**, creating a session per client?

@@ -29,18 +29,33 @@ class FixConnectionManager(
     private val messageFactory: MessageFactory
 
     init {
-        // Ensure directories exist
-        File(config.fileStorePath).mkdirs()
-        File(config.fileLogPath).mkdirs()
+        // Refused before any directory is made or any socket is opened: a memory store without Reset on
+        // Logon would fight the venue's sequence numbers at the next logon, and the sentence that says so
+        // is owned by the config so every surface refuses in the same words.
+        config.storeProblem()?.let { throw IllegalArgumentException(it) }
 
-        // Create factories - these will be initialized with settings during start()
+        // Only the kinds that write files need their directory. A memory store with no log leaves the
+        // workspace exactly as it found it, which is half of what a soak run wants from it.
+        if (config.messageStore == FixConnectionConfig.MessageStoreKind.FILE) File(config.fileStorePath).mkdirs()
+        if (config.messageLog == FixConnectionConfig.MessageLogKind.FILE) File(config.fileLogPath).mkdirs()
+
+        // Chosen once, here, and handed on unchanged to the venue's session provider, so an acceptor
+        // profile set to a memory store gets it for every client session it creates.
         val settings = createSessionSettings()
-        messageStoreFactory = FileStoreFactory(settings)
+        messageStoreFactory =
+            when (config.messageStore) {
+                FixConnectionConfig.MessageStoreKind.FILE -> FileStoreFactory(settings)
+                FixConnectionConfig.MessageStoreKind.MEMORY -> MemoryStoreFactory()
+            }
         // Plain FileLogFactory. This used to be wrapped in a RawMessageCapturingLogFactory that stashed
         // every incoming string in a process-wide map so the wire bytes could be recovered later; QFJ
         // already retains them (Message.toRawString()), so the wrapper was a second, leakier answer to a
         // question QuickFIX had already answered. See QuickFixService.wireBytesOf.
-        logFactory = FileLogFactory(settings)
+        logFactory =
+            when (config.messageLog) {
+                FixConnectionConfig.MessageLogKind.FILE -> FileLogFactory(settings)
+                FixConnectionConfig.MessageLogKind.NONE -> NoopLogFactory
+            }
         messageFactory = DefaultMessageFactory()
     }
 
@@ -225,8 +240,9 @@ class FixConnectionManager(
      */
     fun start() {
         try {
-            // If resetOnLogon is true, clear the store files to avoid sequence number issues
-            if (config.resetOnLogon) {
+            // If resetOnLogon is true, clear the store files to avoid sequence number issues. A memory
+            // store has no files and starts at 1 by construction, so there is nothing to clear.
+            if (config.resetOnLogon && config.messageStore == FixConnectionConfig.MessageStoreKind.FILE) {
                 clearStoreFiles()
             }
 

@@ -523,6 +523,54 @@ object McpTools {
                 required = listOf("runSet", "entry"),
             ),
             tool(
+                "fixtool_load",
+                "Start a LOAD RUN and return at once: issue one message across a multi-session profile's lanes " +
+                    "WITHOUT waiting for replies, as a burst (count=N) or at a rate (rate=R per second, forMs=D), then " +
+                    "account for every reply that lands on any participating session. Not a scenario: a scenario " +
+                    "step sends and expects, a lane is sequential, and fifty lanes give fifty outstanding rather " +
+                    "than four thousand issued. The template is a saved message by name, fields=[{tag,value}] or " +
+                    "raw='8=FIX.4.4|35=D|…'. \${messageIndex}, seed values, \${uuid} and \${utcnow} vary per " +
+                    "message; \${sessionIndex} is the lane; anything else is evaluated once per lane and reported " +
+                    "under fixedTags. Replies are matched on the template's first correlation tag unless match " +
+                    "says otherwise; a repeat is a duplicate, a reply to nothing issued is a stray, nothing is " +
+                    "aged out before settleMs closes. Poll with fixtool_load_status. Prefer store=memory, log=none " +
+                    "so the run measures the venue rather than FixTool's file appends; a memory store needs Reset " +
+                    "on Logon on the profile. Returns {load, status, label} or an error naming what is wrong.",
+                props(
+                    "profile" to string("the multi-session initiator profile whose lanes issue (name or id)"),
+                    "template" to string("a saved message's name"),
+                    "fields" to arraySchema(objectSchema("{tag, value}"), "the message as tag-value pairs (alternative to template)"),
+                    "raw" to string("the message as one wire line, | or SOH delimited (alternative to template)"),
+                    "count" to integer("burst: issue this many as fast as the lanes carry them"),
+                    "rate" to integer("sustained: messages per second (with forMs)"),
+                    "forMs" to integer("sustained: how long to hold the rate, milliseconds"),
+                    "settleMs" to integer("how long to wait for replies after the last send (default 60000)"),
+                    "listen" to arraySchema(string(), "profiles whose sessions take part in matching but never issue"),
+                    "match" to objectSchema("{requestTag, replyTag?, replyType?}: how a reply is paired with its request"),
+                    "seed" to objectSchema("values every message can read as \${name}, e.g. {run: 'b7f2'}"),
+                    "store" to enumStr("file", "memory"),
+                    "log" to enumStr("file", "none"),
+                    "strictRate" to boolean("make a rate shortfall a failing verdict (default false)"),
+                ),
+                required = listOf("profile"),
+            ),
+            tool(
+                "fixtool_load_status",
+                "Where a load run has got to, or its finished report: {status: running|done|stopped, phase, issue:" +
+                    "{requested, handedToEngine, leftSocket, …}, replies:{matched, unmatched, duplicates, late, strays}, " +
+                    "timing:{elapsedMs, drainMs}, roundTrip:{min,p50,p95,p99,max,mean,samples}, tool:{discarded, " +
+                    "neverLeftSocket, issueFailures}, unmatched:[{id, lane, sentAt}], verdict:{completeness, rate, " +
+                    "tool, exitCode}}. Issued is three numbers on purpose: the gap between handedToEngine and " +
+                    "leftSocket is FixTool's own. A rate shortfall is a separate verdict and does not fail the run " +
+                    "unless strictRate asked. Pass wait=<ms> (up to 10000) to hold the call; with no load it lists " +
+                    "recent runs, newest first. The state is read from disk, so it survives a restart of the app.",
+                props(
+                    "load" to string("the id returned by fixtool_load; omit to list recent load runs"),
+                    "wait" to integer("milliseconds to wait for the run to finish (max 10000)"),
+                    "stop" to boolean("ask the running load to stop where it is"),
+                ),
+            ),
+            tool(
                 "fixtool_reconcile",
                 "Open the reconcile diff on a step that failed the last run — the one surface in the app that " +
                     "can author or repair an assertion. With no argument it takes the run's first failing step, " +

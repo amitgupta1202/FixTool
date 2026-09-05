@@ -19,6 +19,15 @@ import com.knapsack.fixtool.model.SavedFixField
 import com.knapsack.fixtool.model.SavedFixMessage
 import com.knapsack.fixtool.model.TagRole
 import com.knapsack.fixtool.model.TagRoleOverlay
+import com.knapsack.fixtool.model.load.LoadMatch
+import com.knapsack.fixtool.model.load.LoadPlan
+import com.knapsack.fixtool.model.load.LoadReport
+import com.knapsack.fixtool.model.load.LoadShape
+import com.knapsack.fixtool.model.load.LoadStatus
+import com.knapsack.fixtool.model.load.LoadTemplate
+import com.knapsack.fixtool.model.load.StoreAndLogOverride
+import com.knapsack.fixtool.service.load.LoadReportCodec
+import com.knapsack.fixtool.service.load.LoadTemplates
 import com.knapsack.fixtool.model.scenario.MatchMode
 import com.knapsack.fixtool.model.scenario.RunEntry
 import com.knapsack.fixtool.model.scenario.RunPolicy
@@ -166,6 +175,8 @@ class ControlServer(
         httpServer.createContext("/scenarios/diff") { ex -> handle(ex) { diffMessages(ex) } }
         httpServer.createContext("/scenarios/run") { ex -> handleCoded(ex) { runScenario(ex) } }
         httpServer.createContext("/scenarios/runs") { ex -> handleCoded(ex) { runSets(ex) } }
+        httpServer.createContext("/load") { ex -> handleCoded(ex) { startLoad(readJson(ex)) } }
+        httpServer.createContext("/loads") { ex -> handleCoded(ex) { loads(ex) } }
         httpServer.createContext("/scenarios/capture") { ex -> handle(ex) { captureScenario(ex) } }
         httpServer.createContext("/scenarios/capture-paste") { ex -> handle(ex) { capturePaste(ex) } }
         httpServer.createContext("/scenarios") { ex -> handle(ex) { scenariosEndpoint(ex) } }
@@ -1731,6 +1742,170 @@ class ControlServer(
         val n = args["entry"]?.jsonPrimitive?.intOrNull ?: return errorObject("entry is required (1-based)")
         val record = viewModel.runRecordStore.readEntry(setId, n) ?: return errorObject("no record for entry $n of '$setId'")
         return RunRecordCodec.toJson(record)
+    }
+
+    /**
+     * **Starts a load run as a job**: 202 and an id, 409 when the lanes are held or none is logged on, and a
+     * plain error object when the plan itself is wrong, including a memory store without Reset on Logon.
+     *
+     * The template is a saved message by name or id, `fields` as `[{tag, value}]`, or `raw` as one wire
+     * line. The shape is `count` for a burst or `rate` with `forMs` for a sustained run. Everything else has
+     * the command line's defaults, and the store and log follow the profile unless `store` or `log` say.
+     */
+    @Suppress("ReturnCount", "LongMethod", "CyclomaticComplexMethod")
+    private fun startLoad(body: JsonObject): Coded {
+        val profileKey = body["profile"]?.jsonPrimitive?.contentOrNull ?: return Coded(HTTP_OK, errorObject("a load run needs a 'profile'"))
+        val profile =
+            onEdt { viewModel.connectionProfiles.firstOrNull { it.id == profileKey || it.name == profileKey } }
+                ?: return Coded(HTTP_NOT_FOUND, errorObject("no saved profile '$profileKey'"))
+        val template =
+            when {
+                body["raw"] != null -> LoadTemplates.fromRaw(body["name"]?.jsonPrimitive?.contentOrNull ?: "raw", body["raw"]!!.jsonPrimitive.content)
+                body["fields"] != null ->
+                    LoadTemplate(
+                        body["name"]?.jsonPrimitive?.contentOrNull ?: "fields",
+                        body["fields"]!!.jsonArray.mapNotNull { f ->
+                            val o = f.jsonObject
+                            o["tag"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()?.let { it to (o["value"]?.jsonPrimitive?.contentOrNull ?: "") }
+                        },
+                    )
+                body["template"] != null -> {
+                    val key = body["template"]!!.jsonPrimitive.content
+                    onEdt { viewModel.loadTemplates(profile.id) }.firstOrNull { it.name.equals(key, ignoreCase = true) }
+                        ?: return Coded(HTTP_NOT_FOUND, errorObject("no saved message named '$key' for '${profile.name}'"))
+                }
+                else -> return Coded(HTTP_OK, errorObject("a load run needs a 'template' (saved message name), 'fields' or 'raw'"))
+            }
+        if (template.msgType == null) return Coded(HTTP_OK, errorObject("the template has no MsgType (35)"))
+        val count = body["count"]?.jsonPrimitive?.intOrNull
+        val perSecond = body["rate"]?.jsonPrimitive?.intOrNull
+        val forMs = body["forMs"]?.jsonPrimitive?.longOrNull
+        val shape =
+            when {
+                count != null && count > 0 && perSecond == null -> LoadShape.Burst(count)
+                perSecond != null && perSecond > 0 && forMs != null && forMs > 0 && count == null -> LoadShape.Rate(perSecond, forMs)
+                else -> return Coded(HTTP_OK, errorObject("say either 'count' for a burst, or 'rate' with 'forMs' for a sustained run"))
+            }
+        val match =
+            (body["match"] as? JsonObject)?.let { m ->
+                val req = m["requestTag"]?.jsonPrimitive?.intOrNull ?: return Coded(HTTP_OK, errorObject("match needs a requestTag"))
+                LoadMatch(req, m["replyTag"]?.jsonPrimitive?.intOrNull ?: req, m["replyType"]?.jsonPrimitive?.contentOrNull)
+            } ?: template.inferMatch()?.copy(replyType = body["replyType"]?.jsonPrimitive?.contentOrNull)
+                ?: return Coded(HTTP_OK, errorObject("'${template.name}' carries no tag a reply is matched on — pass match:{requestTag, replyTag}"))
+        val store = body["store"]?.jsonPrimitive?.contentOrNull?.let { k -> FixConnectionConfig.MessageStoreKind.entries.firstOrNull { it.name.equals(k, true) } }
+        val log = body["log"]?.jsonPrimitive?.contentOrNull?.let { k -> FixConnectionConfig.MessageLogKind.entries.firstOrNull { it.name.equals(k, true) } }
+        val override = if (store != null || log != null) StoreAndLogOverride(store ?: profile.config.messageStore, log ?: profile.config.messageLog) else null
+        (override?.applyTo(profile.config) ?: profile.config).storeProblem()?.let { return Coded(HTTP_OK, errorObject(it)) }
+        val listen =
+            (body["listen"] as? JsonArray).orEmpty().mapNotNull { e ->
+                val key = e.jsonPrimitive.content
+                onEdt { viewModel.connectionProfiles.firstOrNull { it.id == key || it.name == key } }?.id
+            }
+        val label = LoadPlan.label(template, shape, profile.name)
+        val plan =
+            LoadPlan(
+                id = RunSets.id(System.currentTimeMillis(), label),
+                label = label,
+                template = template,
+                profileId = profile.id,
+                profileName = profile.name,
+                listenProfileIds = listen,
+                shape = shape,
+                match = match,
+                settleMs = body["settleMs"]?.jsonPrimitive?.longOrNull ?: LoadPlan.DEFAULT_SETTLE_MS,
+                seed = (body["seed"] as? JsonObject).orEmpty().mapValues { it.value.jsonPrimitive.content },
+                storeAndLog = override,
+                strictRate = body["strictRate"]?.jsonPrimitive?.booleanOrNull ?: false,
+            )
+        val started =
+            onEdt { viewModel.startLoadRun(plan) }
+                ?: return Coded(
+                    HTTP_CONFLICT,
+                    errorObject(
+                        (onEdt { viewModel.loadLanes(profile.id) } as? FixMessageViewModel.FanOutLanes.Unavailable)?.why
+                            ?: viewModel.runBusyReason(),
+                    ),
+                )
+        return Coded(
+            HTTP_ACCEPTED,
+            buildJsonObject {
+                put("load", started.id)
+                put("status", "running")
+                put("label", started.label)
+                onEdt { viewModel.fanOutFarEndNotice(profile.id) }?.let { put("notice", it) }
+            },
+        )
+    }
+
+    /**
+     * `/loads` — list, poll one, stop one. The state comes off disk, as the run set's does, so a run started
+     * headless leaves exactly the same thing to read, and the answer survives a restart.
+     */
+    @Suppress("ReturnCount")
+    private fun loads(ex: HttpExchange): Coded {
+        val parts = ex.requestURI.path.trim('/').split('/')
+        // /loads -> ["loads"]; /loads/<id>[/stop]
+        val id = parts.getOrNull(1) ?: return Coded(HTTP_OK, loadList())
+        if (parts.getOrNull(2) == "stop") {
+            if (!viewModel.isLoadRunning(id)) return Coded(HTTP_CONFLICT, errorObject("load run '$id' is not running"))
+            viewModel.stopLoadRun(id)
+            return Coded(HTTP_ACCEPTED, buildJsonObject { put("status", "stopping"); put("load", id) })
+        }
+        val waitMs = queryParams(ex)["wait"]?.toLongOrNull()?.coerceIn(0, MAX_SET_WAIT_MS) ?: 0
+        val report = awaitLoad(id, waitMs) ?: return Coded(HTTP_NOT_FOUND, errorObject("no load run '$id'"))
+        return Coded(HTTP_OK, LoadReportCodec.toJson(report))
+    }
+
+    /** `fixtool_load_status`: the listing, the poll and the stop behind one tool, as `fixtool_run_status` is. */
+    private fun loadStatusTool(args: JsonObject): JsonElement {
+        val id = args["load"]?.jsonPrimitive?.contentOrNull ?: return loadList()
+        if (args["stop"]?.jsonPrimitive?.booleanOrNull == true) {
+            if (!viewModel.isLoadRunning(id)) return errorObject("load run '$id' is not running")
+            viewModel.stopLoadRun(id)
+        }
+        val waitMs = args["wait"]?.jsonPrimitive?.longOrNull?.coerceIn(0, MAX_SET_WAIT_MS) ?: 0
+        val report = awaitLoad(id, waitMs) ?: return errorObject("no load run '$id'")
+        return LoadReportCodec.toJson(report)
+    }
+
+    /** The live report while the run is this process's, the record otherwise, held up to [waitMs] for it to finish. */
+    private fun awaitLoad(id: String, waitMs: Long): LoadReport? {
+        val deadline = System.currentTimeMillis() + waitMs
+        fun current(): LoadReport? = viewModel.activeLoadRun.value?.takeIf { it.id == id } ?: viewModel.loadRecordStore.read(id)
+        var report = current() ?: return null
+        while (report.status == LoadStatus.RUNNING && System.currentTimeMillis() < deadline) {
+            Thread.sleep(WAIT_POLL_MS)
+            report = current() ?: report
+        }
+        return report
+    }
+
+    private fun loadList(): JsonObject {
+        val loads = viewModel.loadRecordStore.list()
+        return buildJsonObject {
+            put("count", loads.size)
+            put(
+                "loads",
+                buildJsonArray {
+                    loads.forEach { r ->
+                        add(
+                            buildJsonObject {
+                                put("id", r.id)
+                                put("label", r.label)
+                                put("status", r.status.name.lowercase())
+                                put("phase", r.phase.name.lowercase())
+                                put("issued", r.issue.leftSocket)
+                                put("matched", r.replies.matched)
+                                put("unmatched", r.replies.unmatched)
+                                put("startedAt", r.startedAt)
+                                r.finishedAt?.let { put("finishedAt", it) }
+                                r.verdict.exitCode?.let { put("exitCode", it) }
+                            },
+                        )
+                    }
+                },
+            )
+        }
     }
 
     private fun runSetSummary(set: RunSet): JsonObject =
@@ -3639,6 +3814,8 @@ class ControlServer(
             "fixtool_run_set" to { a -> startRunSet(a).body },
             "fixtool_run_status" to { a -> runStatusTool(a) },
             "fixtool_run_entry" to { a -> runEntryTool(a) },
+            "fixtool_load" to { a -> startLoad(a).body },
+            "fixtool_load_status" to { a -> loadStatusTool(a) },
             "fixtool_reconcile" to { a -> reconcile(mcpExchange(a)) },
             "fixtool_diff" to { a -> diffMessages(mcpExchange(a)) },
             "fixtool_delete_scenario" to { a -> deleteScenario(mcpExchange(a)) },

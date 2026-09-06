@@ -42,17 +42,17 @@
         "mode": "open",
         "fields": [
           {
-            "tag": 131,
-            "matcher": {
-              "type": "exact",
-              "value": "DEMO-RFQ-1"
-            }
-          },
-          {
             "tag": 117,
             "matcher": {
               "type": "exact",
               "value": "Q-DEMO-RFQ-1"
+            }
+          },
+          {
+            "tag": 131,
+            "matcher": {
+              "type": "exact",
+              "value": "DEMO-RFQ-1"
             }
           },
           {

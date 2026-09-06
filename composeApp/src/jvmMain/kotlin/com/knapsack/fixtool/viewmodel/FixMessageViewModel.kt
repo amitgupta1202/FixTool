@@ -3619,8 +3619,8 @@ class FixMessageViewModel(
                 lanes = lanes,
                 listeners = listeners,
                 resolve = { template, scope, sessionTitle -> ViewModelScenarioHost(this).resolve(template, scope.toMutableMap(), sessionTitle) },
-                dictionary = { _dictionary.value },
-                appSettings = { _appSettings.value },
+                dictionaryProvider = { _dictionary.value },
+                settingsProvider = { _appSettings.value },
             )
         _activeLoadRun.value = null
         openLoadRun(reserved.id)
@@ -3631,11 +3631,16 @@ class FixMessageViewModel(
                 }
             } catch (e: LoadRefused) {
                 showNotification(e.message ?: "the load run could not start", NotificationType.ERROR)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable, not Exception: the first live run died of a StackOverflowError, which slipped past
+                // an Exception catch and left the live flow holding a "preparing" report for ever.
                 logger.error("Load run failed: ${e.message}", e, notifyUser = true)
             } finally {
                 host.release()
                 release(claim)
+                // Whatever the run left behind, the live flow says what the record says: with the claim gone,
+                // a record still marked running heals to stopped on this read, and a poller sees the truth.
+                _activeLoadRun.value = loadRecordStore.read(reserved.id)
                 loadRecordStore.prune(_appSettings.value.runRecordsKept)
             }
         }

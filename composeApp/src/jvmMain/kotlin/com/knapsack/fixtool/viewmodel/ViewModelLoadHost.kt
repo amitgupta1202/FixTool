@@ -25,8 +25,13 @@ class ViewModelLoadHost(
     private val lanes: List<Pair<Lane, FixMessageSession>>,
     private val listeners: List<FixMessageSession>,
     private val resolve: (template: String, scope: Map<String, String>, sessionTitle: String) -> String,
-    private val dictionary: () -> FixDictionaryAdapter,
-    private val appSettings: () -> AppSettings,
+    /**
+     * Named for what they are, not what they return. A constructor property called `dictionary` beside
+     * `override fun dictionary()` resolves the call inside the override to the function itself, and the first
+     * live run found that as a StackOverflowError before a single message left.
+     */
+    private val dictionaryProvider: () -> FixDictionaryAdapter,
+    private val settingsProvider: () -> AppSettings,
 ) : LoadHost {
     private val logger = LoggerFactory.getLogger(ViewModelLoadHost::class.java)
 
@@ -45,7 +50,7 @@ class ViewModelLoadHost(
 
     override fun resolveOnce(template: String, scope: Map<String, String>, lane: LoadLane): String = resolve(template, scope, lane.lane.sessionTitle)
 
-    override fun dictionary(): FixDictionaryAdapter = dictionary()
+    override fun dictionary(): FixDictionaryAdapter = dictionaryProvider()
 
     /** Puts every overridden session back on its own config. The sessions stay up: they are the user's. */
     override fun release() {
@@ -76,7 +81,7 @@ class ViewModelLoadHost(
     private fun reconnect(session: FixMessageSession, config: FixConnectionConfig): Boolean {
         session.disconnect()
         awaitState(session, RECONNECT_TIMEOUT_MS) { it != FixConnectionState.LOGGED_ON && it != FixConnectionState.CONNECTED && it != FixConnectionState.CONNECTING }
-        session.connect(config, appSettings(), dictionary())
+        session.connect(config, settingsProvider(), dictionaryProvider())
         return awaitState(session, RECONNECT_TIMEOUT_MS) { it == FixConnectionState.LOGGED_ON }
     }
 

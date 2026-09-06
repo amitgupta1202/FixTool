@@ -75,7 +75,11 @@ object McpTools {
             ),
             tool(
                 "fixtool_delete_profile",
-                "Delete a connection profile by id (demo profiles are protected).",
+                // There is no protection and never was: deleteProfile has always passed the id straight
+                // through. Saying otherwise invited a caller to try it on something it cared about.
+                "Delete a connection profile by id. Nothing is protected — a profile the example " +
+                    "workspace shipped deletes like any other, and reopening the example does not put it back " +
+                    "(Settings -> Storage -> Reset does).",
                 props("id" to string("profile id")),
                 required = listOf("id"),
             ),
@@ -153,13 +157,14 @@ object McpTools {
                 "Open or close the FX venue example workspace: an 'FX Demo Venue' acceptor on 19876 carrying " +
                     "the FX venue rule bundle, two 'Demo Client N' initiator profiles, FX templates and " +
                     "bundled scenarios. The venue accepts any CompID. start copies the example into a " +
-                    "workspace of its own and opens it (name defaults to 'FX Venue'); stop closes the " +
-                    "workspace without deleting it.",
-                props(
-                    "action" to enumStr("start", "stop"),
-                    "name" to string("workspace name for start (default 'FX Venue')"),
-                    "fixVersion" to string("FIX version the copied sessions speak (default FIX 4.4)"),
-                ),
+                    "workspace called 'FX Venue' and opens it, or reopens that copy if it is already " +
+                    "there; stop closes the workspace without deleting it. To open it somewhere else, or " +
+                    "under another name, use fixtool_workspace.",
+                // Neither `name` nor `fixVersion` was ever read. They were advertised anyway, which is
+                // worse than not offering them: a caller passing fixVersion="FIX.4.2" got a 4.4 session
+                // and no warning — the same theatre the New workspace dialog dropped this release,
+                // because a loaded data dictionary decides the wire version at connect time.
+                props("action" to enumStr("start", "stop")),
             ),
             tool(
                 "fixtool_workspace",

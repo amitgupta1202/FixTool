@@ -1,0 +1,377 @@
+{
+    "profiles": [
+        {
+            "id": "demo-profile-venue",
+            "name": "FX Demo Venue",
+            "config": {
+                "senderCompID": "DEMO_SERVER",
+                "targetCompID": "*",
+                "port": "19876",
+                "socketAcceptPort": "19876",
+                "connectionType": "ACCEPTOR",
+                "acceptorResponseRules": [
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "EUR/USD"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|117=${uuid}|131=${req.131}|55=EUR/USD|132=${bid = \"%.5f\".format(java.util.Locale.US, 1.08990 + (0..9).random() * 1.0E-5)}|133=${\"%.5f\".format(java.util.Locale.US, bid.toDouble() + 2.0E-4)}|15=USD|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "GBP/USD"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|117=${uuid}|131=${req.131}|55=GBP/USD|132=${bid = \"%.5f\".format(java.util.Locale.US, 1.26985 + (0..9).random() * 1.0E-5)}|133=${\"%.5f\".format(java.util.Locale.US, bid.toDouble() + 3.0E-4)}|15=USD|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "USD/JPY"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|117=${uuid}|131=${req.131}|55=USD/JPY|132=${bid = \"%.3f\".format(java.util.Locale.US, 149.490 + (0..9).random() * 1.0E-3)}|133=${\"%.3f\".format(java.util.Locale.US, bid.toDouble() + 2.0E-2)}|15=JPY|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "steps": [
+                            {
+                                "template": "35=AG|131=${req.131}|658=1|146=1|55=${req.55}|58=Symbol not supported"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=6|58=ClOrdID is already in use on this session|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=6|58=ClOrdID is already in use on this session|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "pending"
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "range",
+                                    "min": 1.0E7,
+                                    "minInclusive": false
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=3|58=Order exceeds the venue size limit|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "EUR/USD",
+                                        "GBP/USD",
+                                        "USD/JPY"
+                                    ]
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=1|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38 / 2}|151=${req.38 - req.38 / 2}|31=${req.44}|32=${req.38 / 2}|6=${req.44}|60=${now}",
+                                "delayMillis": 250
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|31=${req.44}|32=${req.38 - req.38 / 2}|6=${req.44}|60=${now}",
+                                "delayMillis": 250
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "EUR/USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|32=${req.38}|31=${px = \"%.5f\".format(java.util.Locale.US, 1.08995 + (0..9).random() * 1.0E-5)}|6=${px}|60=${now}",
+                                "delayMillis": 250
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "GBP/USD"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|32=${req.38}|31=${px = \"%.5f\".format(java.util.Locale.US, 1.26995 + (0..9).random() * 1.0E-5)}|6=${px}|60=${now}",
+                                "delayMillis": 250
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "USD/JPY"
+                                }
+                            },
+                            {
+                                "tag": 40,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=0|39=0|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=${req.38}|151=0|32=${req.38}|31=${px = \"%.3f\".format(java.util.Locale.US, 149.495 + (0..9).random() * 1.0E-3)}|6=${px}|60=${now}",
+                                "delayMillis": 250
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "D",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=8|39=8|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=0|6=0|103=1|58=Symbol not supported by this venue|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=9|37=NONE|11=${req.11}|41=${req.41}|39=8|434=1|102=1|58=Unknown order|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "unknown"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=6|39=6|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ],
+                        "whenOrder": "pending"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=6|39=6|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}"
+                            },
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=4|39=4|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|14=0|151=0|6=0|60=${now}",
+                                "delayMillis": 150
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "F",
+                        "steps": [
+                            {
+                                "template": "35=9|37=${order.orderId}|11=${req.11}|41=${req.41}|39=${order.ordStatus}|434=1|102=0|58=Too late to cancel|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "done"
+                    },
+                    {
+                        "whenMsgType": "G",
+                        "conditions": [
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=5|39=0|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|38=${req.38}|14=${order.cumQty}|151=${req.38}|6=0|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "G",
+                        "conditions": [
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=5|39=0|11=${req.11}|41=${req.41}|55=${req.55}|54=${req.54}|38=${req.38}|14=0|151=${req.38}|6=0|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=j|372=H|379=${req.11}|380=1|58=Unknown order"
+                            }
+                        ],
+                        "whenOrder": "unknown"
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=I|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "working"
+                    },
+                    {
+                        "whenMsgType": "H",
+                        "steps": [
+                            {
+                                "template": "35=8|37=${order.orderId}|17=${uuid}|150=I|11=${req.11}|39=${order.ordStatus}|14=${order.cumQty}|151=${order.leavesQty}|55=${order.symbol}|54=${order.side}|38=${order.orderQty}|60=${now}"
+                            }
+                        ],
+                        "whenOrder": "done"
+                    }
+                ],
+                "acceptorLatency": {
+                    "mode": "RANDOM_RANGE",
+                    "minMillis": 40,
+                    "maxMillis": 80
+                }
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "demo-profile-DEMO_CLIENT1",
+            "name": "Demo Client 1",
+            "config": {
+                "senderCompID": "DEMO_CLIENT1",
+                "targetCompID": "DEMO_SERVER",
+                "port": "19876",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "demo-profile-DEMO_CLIENT2",
+            "name": "Demo Client 2",
+            "config": {
+                "senderCompID": "DEMO_CLIENT2",
+                "targetCompID": "DEMO_SERVER",
+                "port": "19876",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        }
+    ]
+}

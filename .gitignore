@@ -46,3 +46,10 @@ detekt-report.md
 **/connection_profiles.json
 **/app_settings.json
 **/saved_messages.json
+
+# ...but not the bundled example workspaces, which are source rather than anybody's
+# configuration. The patterns above are written to catch a file wherever it turns up, and an
+# example ships exactly those filenames: without this the manifest names two files the build
+# does not have, and opening the example fails on every clean checkout. They carry no
+# credentials, which ExampleWorkspacesTest asserts of every file the manifest names.
+!composeApp/src/jvmMain/resources/examples/**

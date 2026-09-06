@@ -98,8 +98,9 @@ card unreadable for the sake of a number nobody asserts on. The venue cannot rej
 passed: 62 is optional on an AJ, so it is only there if the client echoes it, and the matcher vocabulary
 has `today` and `within N seconds of now` but no `before now`, so even an echoed 62 cannot be tested
 against the clock by a rule. Expiry belongs to quote state, where the venue remembers what it quoted and
-when, and a rule can ask `whenQuote = expired`. The interactive templates do echo 62, so the second slice
-has something to read.
+when, and a rule can ask `whenQuote = expired`. The bundled templates do not echo 62 either: a template that
+read it from a quote lacking one would put `62=null` on the wire, and the second slice reads the venue's own
+memory of the quote, not an echo.
 
 **The venue injects no latency.** The FX venue simulates 40 to 80 ms so replies do not land instantly.
 This venue is a load target, and a fixed sleep in the venue would be the largest term in every round trip

@@ -3,7 +3,7 @@
 FixTool ships an optional, loopback-only HTTP **control surface** that lets external tools —
 Claude Code via the [MCP server](../tools/fixtool-mcp/README.md), plain `curl`, or CI
 scripts — drive a running instance for automated testing: connect sessions, send FIX
-messages, read back parsed messages to verify fields, install the demo FX venue workspace, and
+messages, read back parsed messages to verify fields, open the bundled FX venue workspace, and
 capture screenshots.
 
 ## Why a control surface (and not "Playwright for the UI")
@@ -98,6 +98,12 @@ tells the same story a hand-connected one would.
 **`--home` is what makes this work on a build box**, which has no `~/.fixtool` and should not be made
 to grow one. Point it at a directory holding `connection_profiles.json`, `app_settings.json` and
 `scenarios/`, versioned beside the code under test.
+
+**`FIXTOOL_WORKSPACE` says the same thing for a whole process.** Every path FixTool keeps something
+at derives from one root: the default is `~/.fixtool`, and that variable moves it, so a build box can
+export it once rather than passing `--home` to every invocation. A leading `~` is expanded, because a
+CI config file is not a shell. `--home` still wins over it, and puts the previous root back when the
+run finishes.
 
 The report goes to stdout and progress to stderr, so `fixtool run … > report.txt` keeps them apart.
 
@@ -220,17 +226,19 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | -------------------- | -------------------------------------- | ---------------------------------------------------- |
 | `GET /syntax`        | —                                      | `text/markdown`: the template-expression + matcher reference (see below) |
 | `GET /health`        | —                                      | `{status, sessionCount, version}`                    |
-| `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …); an ACCEPTOR session also carries an `acceptor` block, and a venue's per-client session carries `venueClientOf` — see below |
+| `GET /sessions`      | —                                      | array of sessions (index, id, title, state, …); an ACCEPTOR session also carries an `acceptor` block, and a venue's per-client session carries `venueClientOf` — see below. A pane sent to the strip above the grid reports `minimized: true`, which is what a caller counting panes on screen needs; it says nothing about the session, which keeps running |
 | `GET /profiles`      | —                                      | array of connection profiles (summary: id, name, type, host, port, CompIDs) |
 | `GET /profiles?profile=` | query: `profile` (id or name)      | **one profile's whole config** — every field, for a read → edit → save round-trip. Passwords read as `[REDACTED]` |
 | `POST /profiles`     | `{"name", "config":{…}, "id"?, "replace"?}` | create, or **merge** into an existing profile if `id` is given → `{status, id, name, mode, applied[], warnings?}`. `replace:true` replaces the whole config instead |
-| `DELETE /profiles`   | `{"id"}` (or `?id=`)                   | delete a profile (demo profiles are protected)       |
+| `DELETE /profiles`   | `{"id"}` (or `?id=`)                   | delete a profile                                     |
 | `POST /panel`        | `{"panel":"connection\|editor\|detail\|settings\|scenarios\|conversations\|trace\|orderbook", "show"?, "follow"?, "render"?, "profile"?, "rule"?, "step"?, "action"?}` | show/hide a panel (`scenarios` toggles the Scenarios rail; `conversations` sets group-by-conversation — per session with `"session"`, all sessions without; `trace` opens the Trace panel and takes `"follow"`: a whole correlation value to narrow every pane to that exchange, or `null` to stop, and `"render"`: `ledger` (the grid, every trace) or `lanes` (the followed trace as swimlanes) — see [Following one exchange across every session](#following-one-exchange-across-every-session); `connection` takes `"profile"` to load that profile onto the form, as clicking it in the list does; `editor` with a `profile` and a `rule` (+ optional `step`) opens that acceptor rule's reply step in the message editor, and `action:apply`/`action:cancel` finishes it) |
 | `GET /templates`     | query: `profile`?                      | list saved templates (name, type, userTags, isFavorite, fields) |
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
 | `POST /templates/load` | `{"id"}`                             | load a template into the editor (opens the editor panel; may switch the active session — see [Message templates](#message-templates)) |
-| `POST /demo`         | `{"action":"start"\|"stop"}`           | `{status, action, running, venue, port}`             |
+| `POST /demo`         | `{"action":"start"\|"stop"}`           | the FX venue example, by its old name: `start` opens it as a workspace, `stop` closes that workspace (the copy stays on disk — it is yours) → `{status, action, workspace, running, venue, port}` |
+| `GET /workspace`     | —                                      | the open workspace and the ways to change it: `{status, workspace, isDefault, recent[], environments[], examples[]}` |
+| `POST /workspace`    | `{"workspace":"<folder>"}` or `{"example":"<id>"}` | open a folder as the workspace, or copy a bundled example out and open that. `{"workspace":""}` closes and returns to the installation's own directory. **Opening one takes every session down first** |
 | `POST /connect`      | `{"profile":"<name or id>"}`           | `{status, profile}` (logon is async)                 |
 | `POST /disconnect`   | `{"profile":"<name or id>"}`           | `{status, profile}`                                  |
 | `POST /send`         | `{"raw":"8=FIX.4.4|35=D|…", "session"?, "resolve"?}` | `{status, result}`; `resolve` (default **false**) resolves `${…}` first — without it `raw` goes on the wire verbatim |

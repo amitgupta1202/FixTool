@@ -161,6 +161,87 @@ class HelpDocTest {
     }
 
     /**
+     * The workspace chapter, by the facts that decide whether a reader loses work.
+     *
+     * A workspace is where a user's profiles and scenarios now live, so every claim here is one that
+     * costs something to get wrong: that Default is the old `~/.fixtool` and nothing moved on upgrade,
+     * that opening an example twice is not how you get a clean one, that Reset renames rather than
+     * deletes, and that Close leaves the copy on disk. This chapter shipped with the feature; the pin
+     * is so it stays shipped. See the acceptor chapter's note on pinning facts rather than sentences.
+     */
+    @Test
+    fun `the settings chapter states what a workspace is and what it takes with it`() {
+        val chapter = html.substringAfter("""id="workspaces"""").substringBefore("""<h2 id="viewing-messages"""")
+
+        val claims =
+            mapOf(
+                "a workspace is a folder, and there is one kind" to "There is one",
+                "New makes an empty one and Open opens a folder or an example" to
+                    "<strong>New</strong> makes an empty one",
+                "the switcher is at the top left, not in Quick Connect" to "switcher at the top left",
+                "Default is ~/.fixtool and nothing moved on upgrade" to "nothing had to move on upgrade",
+                "Default cannot be closed and is not in Recent" to "never appears in Recent",
+                "an example is copied out because the bundle cannot be edited in place" to
+                    "editing the installed app",
+                // The bug d3b7255 fixed, and the one a reader is most likely to walk into: a second
+                // Open is not how you get a pristine copy, and believing it silently abandons the first.
+                "the copy happens once, so opening it again is not a clean one" to
+                    "The copy happens <strong>once</strong>",
+                "provenance is the .fixtool-origin file" to ".fixtool-origin",
+                "Reset renames the old copy rather than deleting it" to
+                    "<em>renamed</em> rather than deleted",
+                "preferences stay with the person, not the workspace" to "not a fresh install",
+                "passwords are in secrets.json, and that is separation not encryption" to
+                    "This is a separation, not encryption",
+                "FIXTOOL_WORKSPACE moves the installation" to "FIXTOOL_WORKSPACE",
+                "an environment is where a counterparty is, not who it is" to
+                    "as distinct from who it is",
+                // Load-bearing: two environments on one counterparty would otherwise share a
+                // sequence-number store, which is a corruption a user cannot see coming.
+                "the session qualifier is the environment's name" to
+                    "The session qualifier is the environment's name",
+                "environments are off until Extract environments is used" to "Extract environments",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the workspace/environments chapter no longer says: $missing")
+    }
+
+    /**
+     * The example chapter, by what a first-run reader has to be told.
+     *
+     * It is the chapter a new user reads first and a demo uses exclusively, and it names UI the release
+     * can rename underneath it: the guide told readers to look for an "Open example…" menu item for a
+     * release after that item was folded into Open workspace, which is precisely the failure this pins.
+     */
+    @Test
+    fun `the example chapter states how to open it and what it lands as`() {
+        val chapter = html.substringAfter("""id="demo-server"""").substringBefore("""<h2 id="connections"""")
+
+        val claims =
+            mapOf(
+                "the example is listed under Open workspace" to "<strong>Open workspace</strong>",
+                "the empty-state button is named as the app names it" to "Open FX Venue example",
+                "it lands in workspaces/fx-venue" to "~/.fixtool/workspaces/fx-venue",
+                "opening it again returns the copy with your edits" to "the copy happens once",
+                "a pristine one means renaming or deleting the folder" to "rename or delete the folder",
+                "nothing is mixed in, so there is nothing to uninstall" to "nothing to uninstall",
+                "the venue is open to any CompID on 19876" to "open to any CompID",
+                "the venue's own pane starts minimized" to "starts <strong>minimized</strong>",
+                "a venue pane holds no traffic of its own" to "It holds no traffic of its own",
+                // Minimizing must never retarget a composed order: the chip says where Send goes.
+                "a minimized session stays connected and stays the send target" to "&rarr; editor",
+                "minimizing is not closing" to "This is not closing",
+                "a healthy venue's chip stays quiet" to "stays quiet while the venue is healthy",
+            )
+        val flat = chapter.flat()
+        val missing = claims.filterValues { it.flat() !in flat }.keys
+
+        assertTrue(missing.isEmpty(), "the example chapter no longer says: $missing")
+    }
+
+    /**
      * The two corrections that actively mislead when wrong, rather than merely being absent.
      *
      * The guide told authors to filter on `ClOrdID=…`, which cannot match — the pattern is run against

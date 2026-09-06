@@ -317,8 +317,51 @@ sessions, and `log/` likewise. Nothing named `FIX.4.4-RFQLG…` appeared for the
 - **The far-end notice's explanation was incomplete.** It says one thread. The cost that mattered was a
   compile per reply, which one thread only made serial. The notice is still true and is left as it is.
 
+### Verified in the UI, by clicking
+
+A second pass on 2026-09-06 drove the app through its own screen with real clicks (System Events) and
+captured windows by id, so a terminal in front of the app could stay there. Screenshots under the same
+scratchpad, `ui/`, and handed over as files.
+
+- **The switcher.** Closing to Default and opening the workspace switcher: `Open workspace` lists `FX Venue`
+  and `RFQ Venue` with where each lands (`ui/22-open-workspace-submenu.png`). Clicking `RFQ Venue` opened
+  the copy. The empty session area offered no example buttons because Default holds saved profiles, which
+  is the designed withdrawal.
+- **The venue's rules from its chip.** With the venue and seven client sessions connected, `Rules` on the
+  venue chip opened the connection panel on RFQ Demo Venue with `Auto-Responses (18)` unfolded and the
+  cards readable (`ui/25-venue-rules.png`).
+- **The flow, message by message, on RFQ Client 1.** A QuoteRequest for GBP/USD 500,000 drew a Quote with
+  `117=Q-UI-RFQ-1`, `131=UI-RFQ-1`, `132=1.26985`, `133=1.27015`, sizes 500,000 and `62` a minute out
+  (`ui/33-quote-detail.png`). A QuoteResponse `694=1` at the offer, naming `11=UI-TRADE-1`, drew an
+  ExecutionReport `150=F 39=2 31=1.27015 6=1.27015 32=500000`, echoing `11` and `693=UI-RESP-1`
+  (`ui/32-trade-booked-detail.png`, the detail panel).
+- **The rail door to a load run.** After the lane-count fix below, `Run ▾` reads `Fan out over sessions…  (1)`
+  and `Load run…  (1)`, enabled (`ui/40-run-menu-after-fix.png`). `Load run…` opened the dialog as its own
+  window with the template `RFQ Load QuoteRequest` (per message 131, fixed 35, 146, 55, 54, 38), `RFQ Load
+  Client` with its five lanes named, the match prefilled 131 to 131, and the red refusal *The template reads
+  ${run} and nothing seeds it* with Run disabled (`ui/41-load-dialog-from-rail.png`). Typing `run=ui1` and a
+  count of 500 cleared the refusal (`ui/42-load-dialog-ready.png`). Clicking Run closed the dialog and opened
+  the document: issued 500, matched 500, unmatched 0, complete, exit 0, round trip p50 59.6 ms and max
+  80.7 ms, store and log recorded as MEMORY and NONE (`ui/44-load-document-done.png`).
+
+Two things the clicking found that the control surface had not:
+
+- **The Run menu's lane count was stale.** It read `(0)` for both items with five lanes logged on, because
+  it was remembered on the active run set alone and computed before any lane had logged on. Fixed in
+  `fix(scenarios): the Run menu's lane count follows sessions logging on`, with a Compose test that draws
+  the rail first and connects two lanes to a loopback venue afterwards.
+- **The bundled scenario fails in this installation's app, and the reason is its dictionary.** `RFQ book a
+  trade` went red on its Quote step with `132 TargetLocationID … moved`. Settings → Protocol on this machine
+  points at a dealer's dialect (`fix-dictionary-4-4.xml` under a `brokertec-quote` checkout) in which tag 132
+  is `TargetLocationID` and a header field, and BidPx does not exist. The venue's message builder honours the
+  loaded dictionary's header section, so the quote's `132` was placed in the header and the expectation's row
+  order no longer held. Under the bundled FIX 4.4 dictionary, which the tests and the CLI use, the same
+  scenario runs green twice. The help's examples chapter now says the examples are written to the bundled
+  dictionary and what a dialect does to them. Not changed: the scenario, since a dictionary without BidPx
+  cannot run an RFQ example meaningfully whatever order its rows are in.
+
 ### Not verified
 
-The load dialog (Compose tests only), the venue's behaviour after ValidUntilTime passes (not enforced in
+The editor's ⚡ Load button (Compose tests only; the rail door was clicked), the venue's behaviour after ValidUntilTime passes (not enforced in
 this slice by design), and the FX venue's throughput (implied by the same mechanism at 59 ms a compile,
 not measured).

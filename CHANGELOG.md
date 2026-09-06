@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🐛 Fixed
 
+- **The Scenarios rail's Run menu no longer shows "Fan out over sessions…  (0)" and "Load run…  (0)" while a multi-session profile is logged on.** The lane count was computed once when the rail was first drawn and remembered until a run set started, so a load client that logged on afterwards left both items disabled. The count now follows each session's connection state. Found by driving the rail with the RFQ example's five-lane load client connected.
 - **An acceptor reply with a shorthand timestamp no longer costs a Kotlin compile per message.** `${utcnow+1min}`, `${now-2d:yyyyMMdd}` or `${uuid:8}` in a response rule were turned into Kotlin expressions and compiled by the script engine on every reply, about 60 ms each on the one dispatch thread every reply shares. Found by the first load run against the RFQ venue: a burst of 500 quote requests left 77 unanswered inside a 30 second settle window. The send-time pass now renders every pure shorthand generator itself, through the renderer the load run's compiled template already uses, so the same field costs microseconds and produces the same string. `${uuid}` and `${now}` keep their exact meaning, and a price expression, an assignment or a book read is left for the script engine as before. The FX venue's prices are Kotlin expressions by design and still compile, so its ceiling is about seventeen quotes a second, which is why the RFQ venue is the example to run load against.
 
 ## [1.16.0] - 2026-09-04

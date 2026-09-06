@@ -174,7 +174,7 @@
         <h2>Table of Contents</h2>
         <ul>
             <li><a href="#getting-started">1. Getting Started</a></li>
-            <li><a href="#demo-server">2. The FX Venue Example</a></li>
+            <li><a href="#demo-server">2. The Examples</a></li>
             <li><a href="#connections">3. Managing Connections</a></li>
             <li><a href="#viewing-messages">4. Viewing Messages</a></li>
             <li><a href="#sending-messages">5. Sending Messages</a></li>
@@ -217,52 +217,59 @@
 
     <div class="back-to-top"><a href="#top">↑ Back to Top</a></div>
 
-    <h2 id="demo-server">2. The FX Venue Example</h2>
+    <h2 id="demo-server">2. The Examples</h2>
 
     <h3>Overview</h3>
-    <p>FixTool's example is not a black box. Opening it &mdash; it is listed under
-    <strong>Open workspace</strong>, beside Browse&hellip; &mdash; copies a
+    <p>FixTool ships two examples, and neither is a black box. Each is listed under
+    <strong>Open workspace</strong>, beside Browse&hellip;, and opening one copies a
     <em>workspace</em> built entirely out of features you already have: an acceptor profile whose venue
     behaviour is a list of rules you can read, client profiles pointed at it, message templates to
     drive it, and repeatable scenarios that run green out of the box.</p>
-    <p>That means everything the example does, you can open, change, reorder or switch off &mdash; and
+    <ul>
+        <li><a href="#fx-venue"><strong>FX Venue</strong></a>: an FX dealer on <code>localhost:19876</code> that
+            quotes three pairs with a live price, fills orders, and answers cancels, replaces and status requests
+            from its order book. Two clients.</li>
+        <li><a href="#rfq-venue"><strong>RFQ Venue</strong></a>: a request-for-quote desk on
+            <code>localhost:19877</code> that quotes firm and books a hit at the quoted price. Two clients, and a
+            five-session load client on a memory store, so the first <a href="#load-runs">load run</a> needs no
+            profile edits.</li>
+    </ul>
+    <p>That means everything an example does, you can open, change, reorder or switch off, and
     everything you learn from it applies directly to simulating a real counterparty.</p>
-    <p>It is a <em>copy</em>, into a folder you name. Nothing is mixed into your own profiles or
+    <p>An example is a <em>copy</em>, into a folder you name. Nothing is mixed into your own profiles or
     scenarios, so there is nothing to uninstall, and what you change in it is yours to keep or commit.
     Open it again under a different name whenever you want a clean one.</p>
-    <ul>
-        <li>An <strong>FX Demo Venue</strong> acceptor on <code>localhost:19876</code>, open to any CompID</li>
-        <li>Response rules covering quotes, orders, cancels, replaces and order status</li>
-        <li>Priced pairs, quoted live &mdash; every quote prices slightly differently</li>
-        <li>A simulated <strong>40&ndash;80ms</strong> venue latency, so replies do not land instantly</li>
-        <li>No external dependencies, no configuration</li>
-    </ul>
 
-    <h3>Opening the Example</h3>
+    <h3>Opening an Example</h3>
     <ol>
-        <li>Click <strong>Open FX Venue example</strong> where the sessions would be, or open the
-            workspace switcher at the top left, choose <strong>Open workspace</strong> and pick
-            <strong>FX Venue</strong> from under Browse&hellip;</li>
-        <li>It is copied to <code>~/.fixtool/workspaces/fx-venue</code> and opened. No dialog: the
-            example is one of the things Open can open, and opening it asks nothing. Opening it again
-            returns to that same workspace with your edits in it &mdash; the copy happens once, because
-            Open means open. For a pristine one, rename or delete the folder</li>
+        <li>Click <strong>Open FX Venue example</strong> or <strong>Open RFQ Venue example</strong> where the
+            sessions would be, or open the workspace switcher at the top left, choose
+            <strong>Open workspace</strong> and pick the example from under Browse&hellip;</li>
+        <li>It is copied to <code>~/.fixtool/workspaces/fx-venue</code> or
+            <code>~/.fixtool/workspaces/rfq-venue</code> and opened. No dialog: an example is one of the things
+            Open can open, and opening it asks nothing. Opening it again returns to that same workspace with your
+            edits in it: the copy happens once, because Open means open. For a pristine one, rename or
+            delete the folder</li>
         <li>The workspace opens with the venue and its client profiles, the templates and the
             scenarios. Connect the venue first, then the clients</li>
-        <li>The venue binds <code>localhost:19876</code> and the clients log on to it</li>
-        <li>Four panes, not five: the venue's own pane starts <strong>minimized</strong>, as a chip in
-            the strip above the grid. It holds no traffic of its own &mdash; every message on a venue
-            belongs to one of its clients &mdash; and the chip carries what the pane says: the port,
-            who is connected, and <strong>Rules</strong> and <strong>Stop</strong>. Click the chip to
-            put the pane back</li>
+        <li>The venue binds its port and the clients log on to it</li>
+        <li>The venue's own pane starts <strong>minimized</strong>, as a chip in the strip above the grid. It
+            holds no traffic of its own, since every message on a venue belongs to one of its clients, and
+            the chip carries what the pane says: the port, who is connected, and <strong>Rules</strong> and
+            <strong>Stop</strong>. Click the chip to put the pane back</li>
     </ol>
 
     <div class="tip">
-        <strong>Tip:</strong> The venue accepts <em>any</em> SenderCompID (its TargetCompID is
-        <code>*</code>), so you can point your own connection profile at
-        <code>localhost:19876</code> with <code>TargetCompID=DEMO_SERVER</code> and it will be accepted
-        too &mdash; each counterparty gets its own pane on the venue side.
+        <strong>Tip:</strong> Each venue accepts <em>any</em> SenderCompID (its TargetCompID is
+        <code>*</code>), so you can point your own connection profile at <code>localhost:19876</code> with
+        <code>TargetCompID=DEMO_SERVER</code>, or at <code>localhost:19877</code> with
+        <code>TargetCompID=RFQ_SERVER</code>, and it will be accepted too. Each counterparty gets its own
+        pane on the venue side.
     </div>
+
+    <p>From a script or an agent, <code>POST /workspace {"example":"rfq-venue"}</code> opens an example by its
+    id, and <code>POST /demo</code> keeps opening the FX venue under its old name. See
+    <a href="#automation">11. Automation &amp; AI Control</a>.</p>
 
     <h3>Minimizing a Pane</h3>
     <p>The <strong>&mdash;</strong> button on any pane sends it to the strip above the grid, and its chip
@@ -275,14 +282,24 @@
         loaded. That last one is the answer to a venue that is answering nothing.</p>
 
     <h3>Reading the Venue's Rules</h3>
-    <p>Select the <strong>FX Demo Venue</strong> profile and open <strong>Auto-Responses</strong> in the
-    Connection panel. Each rule is a card: what it triggers on, and what it replies with. First match
-    wins, top to bottom, which is why the order matters &mdash; the size-limit reject sits above the
-    fill rules so a huge order is rejected rather than filled.</p>
+    <p>Select the venue profile, <strong>FX Demo Venue</strong> or <strong>RFQ Demo Venue</strong>, and open
+    <strong>Auto-Responses</strong> in the Connection panel. Each rule is a card: what it triggers on, and what
+    it replies with. First match wins, top to bottom, which is why the order matters: the FX venue's
+    size-limit reject sits above its fill rules so a huge order is rejected rather than filled, and the RFQ
+    venue's bookings sit above its wrong-price refusal so a hit at the quoted price is booked rather than
+    refused.</p>
     <p>Change a price, reorder a card, or switch one off, and the venue behaves differently on the next
-    message. Nothing is compiled in.</p>
+    message. Nothing is compiled in. Both bundles are also in the rule editor's preset menu, under
+    <strong>Bundles</strong>, so you can drop either venue's rules onto an acceptor of your own.</p>
 
-    <h3>Priced Currency Pairs</h3>
+    <h3 id="fx-venue">The FX Venue</h3>
+    <p>An <strong>FX Demo Venue</strong> acceptor on <code>localhost:19876</code>, open to any CompID, with
+    response rules covering quotes, orders, cancels, replaces and order status, priced pairs quoted live so
+    every quote prices slightly differently, and a simulated <strong>40&ndash;80ms</strong> venue latency so
+    replies do not land instantly. Two clients, <strong>Demo Client 1</strong> and <strong>Demo Client 2</strong>,
+    are pointed at it.</p>
+
+    <h4>Priced Currency Pairs</h4>
     <table>
         <tr><th>Symbol</th><th>Mid</th><th>Spread</th><th>Decimals</th></tr>
         <tr><td>EUR/USD</td><td>1.09000</td><td>2 pips</td><td>5</td></tr>
@@ -293,7 +310,7 @@
     bid is drawn once and the ask derived from it, so the spread never varies and never inverts.
     Anything else &mdash; another pair, an unknown symbol &mdash; is refused the way a venue refuses it.</p>
 
-    <h3>What the Venue Answers</h3>
+    <h4>What the Venue Answers</h4>
     <table>
         <tr><th>You send</th><th>The venue replies</th></tr>
         <tr><td>QuoteRequest (35=R) for a priced pair</td>
@@ -328,7 +345,7 @@
     <em>from</em>. Ten of the twenty-one rules carry a <a href="#when-order"><code>whenOrder</code></a>
     constraint; open any of them and the word is on the card.</p>
 
-    <h3>Demo Message Templates</h3>
+    <h4>Demo Message Templates</h4>
     <p>Eleven templates are installed, ready to send from the message editor:</p>
     <table>
         <tr><th>Template</th><th>Type</th><th>Notes</th></tr>
@@ -342,7 +359,7 @@
         <tr><td>Session Probe (TestRequest)</td><td>35=1</td><td>FIX's own ping. The venue's session engine echoes the id in a Heartbeat; with latency tracking on, each send is one session-layer round trip in the Latency panel</td></tr>
     </table>
 
-    <h3>The Bundled Scenarios</h3>
+    <h4>The Bundled Scenarios</h4>
     <p>The example brings scenarios that pass as soon as its sessions are up. <strong>EUR/USD order
     lifecycle</strong> is a limit order acknowledged, half-filled, filled, and then a cancel that is
     correctly refused as too late. Open the Scenarios rail and run it.</p>
@@ -367,6 +384,108 @@
         price. Run it again &mdash; it goes red, and the reconcile view shows exactly which field moved
         and what it moved to.
     </div>
+
+    <h3 id="rfq-venue">The RFQ Venue</h3>
+    <p>An <strong>RFQ Demo Venue</strong> acceptor on <code>localhost:19877</code>, open to any CompID, that
+    plays a request-for-quote desk: a client asks for a quote with <strong>QuoteRequest (35=R)</strong>, is quoted
+    with <strong>Quote (35=S)</strong>, hits or lifts it with <strong>QuoteResponse (35=AJ)</strong>, and is booked
+    with <strong>ExecutionReport (35=8)</strong>. Everything a QuoteResponse can say that cannot be booked is
+    answered with a <strong>QuoteStatusReport (35=AI)</strong> that says why in QuoteStatus (297) and Text (58),
+    never left in silence. Two clients, <strong>RFQ Client 1</strong> and <strong>RFQ Client 2</strong>, and an
+    <strong>RFQ Load Client</strong> of five sessions are pointed at it. The venue injects no latency, because
+    it is the venue a load run is measured against.</p>
+    <p>Two things differ from the FX venue on purpose. <strong>The QuoteID follows from the QuoteReqID</strong>:
+    a request with <code>131=RFQ-7</code> is quoted as <code>117=Q-RFQ-7</code>, so a client can address a quote
+    it never saw, which is what a load run's second phase has to do. And <strong>the prices are firm</strong>:
+    every quote for a pair carries the same bid and offer, the FX venue's mid-market price with no movement,
+    so a rule can know the quoted price and refuse a hit at any other. The shapes follow the bundled FIX 4.4
+    dictionary: a QuoteResponse carries no QuoteReqID and an ExecutionReport carries neither QuoteID nor
+    QuoteReqID, so the trade report ties back by <strong>QuoteRespID (693)</strong> and the
+    <strong>ClOrdID (11)</strong> the client named its trade with.</p>
+
+    <h4>Firm Prices</h4>
+    <table>
+        <tr><th>Symbol</th><th>Bid</th><th>Offer</th><th>Decimals</th></tr>
+        <tr><td>EUR/USD</td><td>1.08990</td><td>1.09010</td><td>5</td></tr>
+        <tr><td>GBP/USD</td><td>1.26985</td><td>1.27015</td><td>5</td></tr>
+        <tr><td>USD/JPY</td><td>149.490</td><td>149.510</td><td>3</td></tr>
+    </table>
+    <p>A buy lifts the offer and a sell hits the bid. The quote is for the size the request asked
+    (<code>134</code> and <code>135</code> echo <code>38</code>), and it is valid for a minute
+    (<code>62</code>), though this venue keeps no quote state and does not yet refuse a late hit.</p>
+
+    <h4>What the Venue Answers</h4>
+    <table>
+        <tr><th>You send</th><th>The venue replies</th></tr>
+        <tr><td>QuoteRequest (35=R) for a priced pair, with OrderQty</td>
+            <td>Quote (35=S): <code>117=Q-</code>&lt;your 131&gt;, the pair's firm bid and offer, your size, <code>62</code> a minute out</td></tr>
+        <tr><td>QuoteRequest for a priced pair without OrderQty</td>
+            <td>QuoteRequestReject (35=AG), 658=99, &ldquo;this venue quotes a size&rdquo;</td></tr>
+        <tr><td>QuoteRequest for anything else</td>
+            <td>QuoteRequestReject (35=AG), 658=1 Unknown symbol</td></tr>
+        <tr><td>QuoteResponse (35=AJ) 694=1 hit or lift, on the quoted side at the quoted price, with ClOrdID and OrderQty</td>
+            <td>ExecutionReport (35=8), 150=F 39=2, filled at the quoted price, echoing your 11 and 693</td></tr>
+        <tr><td>Hit or lift at any other price</td>
+            <td>QuoteStatusReport (35=AI), 297=5, &ldquo;Price is not the quoted price&rdquo;</td></tr>
+        <tr><td>Hit or lift without ClOrdID or OrderQty</td>
+            <td>QuoteStatusReport, 297=5, naming the two tags a booking needs</td></tr>
+        <tr><td>QuoteResponse 694=2 counter</td>
+            <td>QuoteStatusReport, 297=5, &ldquo;this venue quotes firm&rdquo;</td></tr>
+        <tr><td>QuoteResponse 694=6 pass</td>
+            <td>QuoteStatusReport, 297=11 Pass</td></tr>
+        <tr><td>Any other QuoteRespType, or an unpriced symbol</td>
+            <td>QuoteStatusReport, 297=5, saying which</td></tr>
+        <tr><td>QuoteResponse without a QuoteID</td>
+            <td>BusinessMessageReject (35=j), 380=5, because a QuoteStatusReport needs a QuoteID to name</td></tr>
+    </table>
+    <p>Eighteen rules, and none of them asks the venue's <a href="#order-book">order book</a>: the first slice of
+    this venue is built from the triggering message and the rule's own content. A trade it books shows on the
+    venue side's book as an unattributed report, because no order was ever placed for it. A quote book, keyed by
+    QuoteID and able to refuse a response to a quote the venue never sent, is the next slice.</p>
+
+    <h4>RFQ Message Templates</h4>
+    <table>
+        <tr><th>Template</th><th>Type</th><th>Notes</th></tr>
+        <tr><td>RFQ Quote Request EUR/USD, GBP/USD, USD/JPY</td><td>35=R</td>
+            <td>Symbol inside NoRelatedSym, with a size, as a real client sends it</td></tr>
+        <tr><td>RFQ Lift last quote (buy at the offer)</td><td>35=AJ</td>
+            <td>Reads the last Quote received: its QuoteID, symbol, size and offer</td></tr>
+        <tr><td>RFQ Hit last quote (sell at the bid)</td><td>35=AJ</td><td>The same, at the bid</td></tr>
+        <tr><td>RFQ Counter last quote (buy at the bid)</td><td>35=AJ</td><td>Refused: the venue quotes firm</td></tr>
+        <tr><td>RFQ Pass last quote</td><td>35=AJ</td><td>Acknowledged as a pass</td></tr>
+        <tr><td>RFQ Load QuoteRequest</td><td>35=R</td>
+            <td>For the load client: <code>131=RFQ-${run}-${messageIndex}</code></td></tr>
+        <tr><td>RFQ Load QuoteResponse</td><td>35=AJ</td>
+            <td>For the load client: lifts <code>117=Q-RFQ-${run}-${messageIndex}</code> at the EUR/USD offer,
+                naming the trade <code>11=RFQ-${run}-${messageIndex}</code></td></tr>
+    </table>
+
+    <h4>The Bundled Scenarios</h4>
+    <p><strong>RFQ book a trade</strong> requests a EUR/USD quote, expects a Quote whose QuoteID is
+    <code>Q-</code> plus the QuoteReqID with both prices present, lifts it at the offer it was quoted
+    (<code>44=${in.S.133}</code>), and expects an ExecutionReport with <code>150=F</code> and a LastPx equal to
+    that offer. <strong>RFQ pass and counter</strong> asks for a GBP/USD quote and then passes, counters and hits
+    at the wrong price, expecting the three QuoteStatusReports that say why. Both clear the client pane and the
+    venue pane's book in their setup, as the FX scenarios do, and both run green twice.</p>
+
+    <h4 id="rfq-load">The Load Client, and a Load Run Against This Venue</h4>
+    <p>The <strong>RFQ Load Client</strong> is a profile of five sessions, <code>RFQLG1</code> to
+    <code>RFQLG5</code>, on a <strong>memory store</strong> with <strong>no message log</strong> and Reset on
+    Logon, which is the setting a <a href="#load-runs">load run</a> wants and the one
+    <a href="#store-and-log">Store and log</a> describes. Connect it and its five lanes log on to the venue,
+    each with its own pane on the venue side.</p>
+    <p>The two load templates are written for a two-phase run. Issue <strong>RFQ Load QuoteRequest</strong>
+    with a seed, say <code>run=b7</code>, and every lane sends requests numbered <code>RFQ-b7-1</code>,
+    <code>RFQ-b7-2</code>, and so on, each answered with a Quote whose QuoteID is <code>Q-RFQ-b7-</code>&lt;n&gt;.
+    The match infers as QuoteReqID to QuoteReqID. Then issue <strong>RFQ Load QuoteResponse</strong> with the
+    same seed and the same count, and every message lifts the quote the first phase created, without having
+    seen it, naming the trade <code>RFQ-b7-</code>&lt;n&gt;. The match infers as ClOrdID to ClOrdID, and matched
+    in the second run equals issued in the first. That is the multi-phase case load runs were built for, and it
+    is why this venue's QuoteID follows from the QuoteReqID.</p>
+    <p>Read the numbers for what they are. FixTool's own acceptor answers every session on one thread, so a
+    round trip measured against this venue is the tool's ceiling, not a venue's, and a shortfall at a high
+    rate is a fact about the acceptor. The load dialog and <code>POST /load</code> say so in their far-end
+    notice. Point the load client at a real RFQ venue and the same two templates measure that venue instead.</p>
 
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This
@@ -666,13 +785,15 @@ fixtool load "NOS EUR/USD 1M" --profile LOADGEN --rate 500/s --for 10m --set run
     profiles keep working exactly as they do now, and <em>As saved</em> stays in the menu for the
     endpoint a profile already names.</p>
 
-    <h3>Example workspace</h3>
-    <p>For testing and learning, open the example workspace (see <a href="#demo-server">Section 2</a>).
-    It provides:</p>
+    <h3>Example workspaces</h3>
+    <p>For testing and learning, open one of the example workspaces (see <a href="#demo-server">Section 2</a>).
+    Each provides:</p>
     <ul>
-        <li>An FX venue acceptor on port 19876 whose behaviour is a list of rules you can read and edit</li>
-        <li>Two client profiles already pointed at it, ready to log on as soon as the venue is up</li>
-        <li>Message templates and a scenario that runs green on a fresh install</li>
+        <li>A venue acceptor, the FX venue on port 19876 or the RFQ venue on port 19877, whose behaviour is a
+            list of rules you can read and edit</li>
+        <li>Client profiles already pointed at it, ready to log on as soon as the venue is up. The RFQ venue's
+            include a five-session load client on a memory store</li>
+        <li>Message templates and scenarios that run green on a fresh install</li>
         <li>No external dependencies required</li>
     </ul>
 

@@ -33,7 +33,7 @@ A desktop UI-based FIX client tool for manual testing of FIX protocol communicat
 
 ### Organise and automate
 
-- **Workspaces**: A workspace is a folder holding its own profiles, saved messages, scenarios and session store — commit one beside the code it tests, or hand it to a colleague. Logon passwords stay out of the shareable file. A bundled **FX Venue example** opens as a workspace of your own
+- **Workspaces**: A workspace is a folder holding its own profiles, saved messages, scenarios and session store — commit one beside the code it tests, or hand it to a colleague. Logon passwords stay out of the shareable file. Two bundled examples, an **FX Venue** and an **RFQ Venue** with a load-ready client, open as workspaces of your own
 - **Environments**: A connection is a counterparty *times* an environment, so one profile reaches UAT, QA and DEV without being rewritten three times
 - **AI / MCP Automation**: Let Claude (or any [MCP](https://modelcontextprotocol.io) client) drive FixTool for automated testing — connect sessions, send messages, verify FIX fields, manage templates, and capture screenshots. An MCP server is **embedded in the app** (no extra install). See the [Automation Guide](docs/AUTOMATION.md)
 - **Headless Runs**: `fixtool run` executes scenarios with no UI and a real exit code, writing JUnit XML for CI

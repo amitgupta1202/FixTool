@@ -485,7 +485,11 @@
     <p>Read the numbers for what they are. FixTool's own acceptor answers every session on one thread, so a
     round trip measured against this venue is the tool's ceiling, not a venue's, and a shortfall at a high
     rate is a fact about the acceptor. The load dialog and <code>POST /load</code> say so in their far-end
-    notice. Point the load client at a real RFQ venue and the same two templates measure that venue instead.</p>
+    notice. This venue's replies carry no Kotlin expression, so that ceiling is the socket and the panes: on
+    a laptop it held 100 requests a second with a median round trip under a millisecond, and a burst of
+    500 drained in about 100 ms. The FX venue's prices are Kotlin expressions, compiled per quote at about
+    60 ms each, so it answers roughly seventeen quotes a second and is not the example to run load against.
+    Point the load client at a real RFQ venue and the same two templates measure that venue instead.</p>
 
     <h3>Closing the Workspace</h3>
     <p>Open the workspace switcher at the top left and click <strong>Close workspace</strong>. This

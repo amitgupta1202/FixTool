@@ -178,4 +178,147 @@ Against a build of this branch on `FIXTOOL_CONTROL_PORT=8799`, the RFQ example o
 5. `GET /screenshot` after each run.
 6. Nothing under the workspace's `store/` named `FIX.4.4-RFQLG…`.
 
-Results go under **Verified** below once the runs have happened.
+## Verified
+
+Run on 2026-09-06 against a build of `main` at the docs commit, launched with `FIXTOOL_CONTROL_PORT=8799`
+(no user instance was on 8765, and 19876 and 19877 were free), the RFQ example opened through
+`POST /workspace {"example":"rfq-venue"}`, which copied it to `~/.fixtool/workspaces/rfq-venue`, the venue
+and the load client connected, five lanes `LOGGED_ON` within a second. Every `POST /load` answered 202 with
+the far-end notice: *The far end is 'RFQ Demo Venue', FixTool's own acceptor. It answers every session on one
+thread, so the latencies below are the tool's own ceiling, not a venue's.* Artefacts were kept under the session's scratchpad
+(`/private/tmp/claude-501/-Users-amit-gupta-FixTool/a9eb1768-7c36-4326-8499-ab8ce3a0f569/scratchpad/verify/`,
+session-local, so the screenshots and the two CLI reports were also handed over as files): the report JSON of every run, the CLI's `r.json`, `r.xml`, `r-fail.json` and
+`r-fail.xml`, six screenshots, and `verify.log`.
+
+### The finding, before anything else
+
+The first burst did not complete, and the harness said so rather than flattering the venue.
+
+```
+POST /load {"profile":"RFQ Load Client","template":"RFQ Load QuoteRequest","count":500,"seed":{"run":"v1"},"settleMs":30000}
+```
+
+| | requested | engine | socket | span | matched | unmatched | dup | late | round trip min / p50 / p95 / p99 / max | tool | exit |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| run v1 (before) | 500 | 500 | 500 | 38 ms | 423 | 77 | 0 | 0 | 358 ms / 17.0 s / 28.8 s / 29.8 s / 30.0 s | clean | 1 |
+
+The 77 unanswered were indices 424 to 500, spread evenly over the five lanes, and the venue's own counters
+after the run read `triggersMatched 500, responsesSent 500`: every reply was eventually built and sent, 77 of
+them after the settle window had closed and the lanes had gone. A 200-message probe answered all 200 in
+11.8 s, 59 ms apiece. Ten `jstack` samples of the `fixtool-acceptor-response` thread during that probe
+showed it inside the Kotlin compiler every time it was busy: `org.jetbrains.kotlin.cli.jvm.compiler`, ASM
+`ClassReader`, call resolution, IR lowering. The quote template's one expression was `62=${utcnow+1min}`.
+The shorthand expander turns that into a Kotlin expression rather than a value, and the script engine
+compiles it per reply.
+
+This is the acceptor, not the harness: issued was 500 on all three numbers, `discarded`, `neverLeftSocket`
+and `issueFailures` were 0, and the report's verdict was `UNMATCHED`, exit 1. It is also not what the
+far-end notice says it is. "One thread" was true and was not the cost. The fix landed as
+`fix(acceptor): a shorthand timestamp in a reply no longer costs a Kotlin compile per message`: the
+send-time pass renders pure shorthand generators through the renderer the load run's compiled template
+already had, so the same field now costs microseconds and produces the same string. The FX venue's prices
+are Kotlin expressions by design and still compile, so its ceiling stays near 17 quotes a second. That is
+now a known number rather than an unexplained one, and it is why the RFQ venue and not the FX venue is
+the load target.
+
+Screenshot of the failed run's document: `verify/01-after-burst-quote-requests.png`, the five tiles with
+`unmatched 77` and the red verdict, over the five lane panes and the five venue panes. The unmatched table
+sits below the visible area and there is no HTTP hook to scroll to it, so it is not in the picture. The
+wire of all 77 is in the record's `unmatched.fix`.
+
+### The six steps, on the fixed build
+
+The app was restarted on the fixed build, the workspace reopened (it was remembered), the venue and the
+load client reconnected.
+
+**1. Burst of quote requests.** Same command with `"run":"v2"`. Match inferred as 131 to 131,
+`perMessageTags [131]`, `fixedTags [35, 146, 55, 54, 38]`.
+
+**2. Second phase books the quotes the first created.**
+
+```
+POST /load {"profile":"RFQ Load Client","template":"RFQ Load QuoteResponse","count":500,"seed":{"run":"v2"},"settleMs":30000}
+```
+
+Match inferred as 11 to 11, `perMessageTags [693, 117, 11]`, `fixedTags [35, 694, 55, 54, 38, 44]`.
+Matched equals the first run's issued. The record's fifty specimen pairs are all a `35=AJ` answered by a
+`35=8` with `150=F`, `39=2`, `31=1.09010`, `6=1.09010`, `11` and `693` echoed. Not one `35=AI` among them.
+
+**3. Sustained rate.**
+
+```
+POST /load {"profile":"RFQ Load Client","template":"RFQ Load QuoteRequest","rate":100,"forMs":10000,"seed":{"run":"r1"},"settleMs":30000}
+```
+
+| | requested | engine | socket | span | matched | unmatched | dup | late | round trip min / p50 / p95 / p99 / max | tool | exit |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1. burst 500 (v2) | 500 | 500 | 500 | 50 ms | 500 | 0 | 0 | 0 | 21.3 ms / 64.0 ms / 96.9 ms / 98.1 ms / 98.4 ms | clean | 0 |
+| 2. book 500 (v2) | 500 | 500 | 500 | 24 ms | 500 | 0 | 0 | 0 | 6.5 ms / 51.3 ms / 65.7 ms / 67.4 ms / 67.6 ms | clean | 0 |
+| 3. rate 100/s × 10 s | 1000 | 1000 | 1000 | 9.99 s | 1000 | 0 | 0 | 0 | 286 µs / 562 µs / 818 µs / 1.24 ms / 10.3 ms | clean | 0 |
+
+The rate run's verdict was `HELD`: achieved 100 a second, held for the nine full seconds the tolerance is
+judged over, no shortfall spans, maximum lag 10 ms against a 2 percent tolerance, `pendingPeak 2`. Every
+per-second bucket issued 100 and matched 100, one boundary split as 101 and 99. The venue keeps up with 100
+a second with two requests outstanding at any moment, so the question "what rate can it hold" was not
+reached. The burst numbers are the tool's ceiling under a queue: 500 requests arrive in 50 ms and drain in
+about 100 ms, so the median request waits behind roughly half the burst.
+
+**4. Exit codes from the command line.** The app's load client was disconnected first, because the CLI
+opens the same five CompIDs. The command ran as `java -cp <the module's runtime classpath>
+com.knapsack.fixtool.MainKt load …`, which is what the `fixtool` launcher runs.
+
+```
+fixtool load "RFQ Load QuoteRequest" --profile "RFQ Load Client" --count 500 --set run=cli1 --settle 30s \
+  --json r.json --junit r.xml --home ~/.fixtool/workspaces/rfq-venue
+```
+
+Exit 0. `500 of 500 answered`, elapsed 55 ms, drain 5 ms, round trip min 943 µs, p50 10 ms, p95 12 ms,
+p99 12 ms, max 13 ms. `r.xml` is one `<testsuite tests="3" failures="0" skipped="1">`, the rate case
+skipped for a burst. Then the failure path:
+
+```
+fixtool load "RFQ Load QuoteRequest" --profile "RFQ Load Client" --count 500 --set run=cli2 --match 131=117 \
+  --settle 15s --json r-fail.json --junit r-fail.xml --home ~/.fixtool/workspaces/rfq-venue
+```
+
+Exit 1. Matched 0, unmatched 500, `strays 500` ("replies to nothing this run issued", which is exactly
+what a reply matched on the wrong tag is), the summary names the first six unmatched ids with their lanes,
+`r-fail.xml` has `failures="1"` with the first twenty ids and "and 480 more", and `r-fail.json` carries
+`unmatchedTotal 500`. Both records were written under the workspace's `loads/`, so the app's Recent list
+showed seven runs afterwards, the two CLI ones included.
+
+**5. The app surface.** `verify/11-after-burst-quote-requests.png` (the document with `matched 500`,
+`complete`), `verify/12-after-burst-quote-responses.png` (two document tabs in the dock, the booking run's
+five tiles), `verify/13-after-rate-run.png` (three tabs, `issued 1,000`, `matched 1,000`),
+`verify/14-after-cli-runs.png` (after the lanes were reconnected). The load document opened in the scenario
+dock on every `POST /load` without any click. No dialog was opened, since it has no HTTP hook, so nothing is
+claimed about it here beyond its Compose tests.
+
+**6. #42 on this venue.** After every run, in the app and from the CLI, the workspace's `store/` held
+exactly 25 files, all `FIX.4.4-RFQ_SERVER-RFQLG{1..5}.*`, the venue's own file store for its five client
+sessions, and `log/` likewise. Nothing named `FIX.4.4-RFQLG…` appeared for the lanes.
+
+### Where the result differs from the expectation, and why
+
+- **The first burst failed.** Expected `matched 500`, got 423. Cause and fix above. The rerun matched 500.
+- **Phase two is matched on 11, not 131.** Expected from the brief, changed in the design because the
+  dictionary gives an ExecutionReport no 131. The inferred match was 11 to 11 and matched 500.
+- **`perMessageTags` is `[131]`, not `[131, 60]`.** The request template carries no TransactTime, since a
+  QuoteRequest has none in FIX 4.4.
+- **In-app lanes read slower than headless lanes against the same venue.** A 500 burst from the app's
+  lanes drained in 97 ms with p50 64 ms. The same burst from the CLI's lanes drained in 5 ms with p50 10 ms.
+  The venue was the same process both times, so about 90 ms of the in-app figure is the app's own
+  client-side path, the lane panes ingesting 500 replies, not the venue. At 100 a second the in-app p50 was
+  562 µs, so per message the path is fast and the cost only shows under a queue. That is the tool's ceiling
+  the notice talks about, and it is now a measured number.
+- **The CLI, run from a classpath, prints logback INFO lines on stdout before the summary block.** The
+  automation guide says the report goes to stdout and progress to stderr. Whether the packaged launcher
+  configures logging differently was not checked here.
+- **The far-end notice's explanation was incomplete.** It says one thread. The cost that mattered was a
+  compile per reply, which one thread only made serial. The notice is still true and is left as it is.
+
+### Not verified
+
+The load dialog (Compose tests only), the venue's behaviour after ValidUntilTime passes (not enforced in
+this slice by design), and the FX venue's throughput (implied by the same mechanism at 59 ms a compile,
+not measured).

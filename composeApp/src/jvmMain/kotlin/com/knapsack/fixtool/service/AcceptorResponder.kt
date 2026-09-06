@@ -10,6 +10,7 @@ import com.knapsack.fixtool.model.OrderBook
 import com.knapsack.fixtool.model.OrderConstraint
 import com.knapsack.fixtool.model.ResponseStep
 import com.knapsack.fixtool.model.scenario.Matcher
+import com.knapsack.fixtool.service.load.CompiledTemplate
 import quickfix.Message
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -498,11 +499,34 @@ object AcceptorResponder {
         }
     }
 
-    /** The half of [resolve] that reads the clock and the id generator. Re-run for every step sent. */
-    fun resolveAtSendTime(template: String): String =
-        template
-            .replace("\${uuid}", UUID.randomUUID().toString())
-            .replace("\${now}", LocalDateTime.now(ZoneOffset.UTC).format(NOW_FORMAT))
+    /**
+     * The half of [resolve] that reads the clock and the id generator. Re-run for every step sent.
+     *
+     * `${uuid}` and `${now}` are the two spellings every rule written before shorthands existed uses,
+     * and they keep their exact meaning: a UUID with dashes, and the UTC clock in FIX's timestamp
+     * pattern. Every other **pure shorthand generator**, `${utcnow+1min}`, `${now-2d:yyyyMMdd}`,
+     * `${uuid:8}`, is rendered here too, natively, through the renderer the load run's compiled
+     * template already uses, so it never reaches the script engine.
+     *
+     * **Measured, not assumed.** The expander turns a shorthand into a Kotlin expression, which the
+     * script engine then compiles, and compiling costs about 60 ms per reply on the one dispatch
+     * thread every acceptor reply shares. The RFQ venue's quote carried a single `${utcnow+1min}` and
+     * answered fourteen requests a second because of it: a burst of 500 left 77 unanswered inside a
+     * 30 s settle window. Rendered here, the same field costs microseconds and the output is the same
+     * string the compiled expression would have produced. Anything that is not a pure generator, a
+     * price expression, an assignment, `${order.…}`, is left exactly as it was for the passes after
+     * this one.
+     */
+    fun resolveAtSendTime(template: String): String {
+        val literal =
+            template
+                .replace("\${uuid}", UUID.randomUUID().toString())
+                .replace("\${now}", LocalDateTime.now(ZoneOffset.UTC).format(NOW_FORMAT))
+        if (!literal.contains("\${")) return literal
+        return ANY_EXPR.replace(literal) { m ->
+            ShorthandTemplateExpander.generatorOf(m.groupValues[1])?.let { CompiledTemplate.generate(it) } ?: m.value
+        }
+    }
 
     /**
      * Builds a QuickFIX message from a resolved raw template.

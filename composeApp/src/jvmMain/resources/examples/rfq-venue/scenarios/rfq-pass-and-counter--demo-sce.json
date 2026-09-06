@@ -129,7 +129,7 @@
             "tag": 58,
             "matcher": {
               "type": "regex",
-              "pattern": "quotes firm"
+              "pattern": ".*quotes firm"
             }
           },
           {
@@ -171,7 +171,7 @@
             "tag": 58,
             "matcher": {
               "type": "regex",
-              "pattern": "quoted price"
+              "pattern": ".*quoted price"
             }
           },
           {

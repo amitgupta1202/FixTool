@@ -18,7 +18,6 @@ import com.knapsack.fixtool.model.EditorTarget
 import com.knapsack.fixtool.model.FixMessage
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.SavedFixMessage
-import com.knapsack.fixtool.service.ExampleWorkspaces
 import com.knapsack.fixtool.service.FixMessageTemplate
 import com.knapsack.fixtool.service.ReplyShape
 import com.knapsack.fixtool.service.TraceLanes
@@ -599,7 +598,8 @@ fun App(
                                         )
                                     } ?: NoSessionsPlaceholder(
                                         hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
-                                        onOpenExample = { viewModel.openExample(ExampleWorkspaces.FX_VENUE) },
+                                        examples = workspaceMenu.examples,
+                                        onOpenExample = workspaceMenu.onOpenExample,
                                         onOpenWorkspace = browseForWorkspace,
                                         onOpenConnectionPanel = { if (!showConnectionPanel) viewModel.toggleConnectionPanel() },
                                         modifier = Modifier.weight(1f).fillMaxSize(),
@@ -861,6 +861,8 @@ fun App(
                                     Column(modifier = Modifier.weight(1f)) {
                                         SplitCentre(
                                             viewModel = viewModel,
+                                            examples = workspaceMenu.examples,
+                                            onOpenExample = workspaceMenu.onOpenExample,
                                             orientation = splitOrientation,
                                             globalViewMode = globalViewMode,
                                             selectedMessage = selectedMessage,
@@ -1074,6 +1076,8 @@ fun App(
                             Column(modifier = Modifier.weight(1f)) {
                                 SplitCentre(
                                     viewModel = viewModel,
+                                    examples = workspaceMenu.examples,
+                                    onOpenExample = workspaceMenu.onOpenExample,
                                     orientation = splitOrientation,
                                     globalViewMode = globalViewMode,
                                     selectedMessage = selectedMessage,
@@ -1165,6 +1169,9 @@ private fun ScenariosRailDock(
 @Composable
 private fun ColumnScope.SplitCentre(
     viewModel: FixMessageViewModel,
+    /** For the empty state only: the bundled examples the switcher offers, and what opening one does. */
+    examples: List<ExampleEntry>,
+    onOpenExample: ((String) -> Unit)?,
     orientation: SplitOrientation,
     globalViewMode: com.knapsack.fixtool.model.FixMessageSession.ViewMode,
     selectedMessage: FixMessage?,
@@ -1198,7 +1205,8 @@ private fun ColumnScope.SplitCentre(
         onFollowTrace = { id -> viewModel.follow(id) },
         onUnfollowTrace = { viewModel.unfollow() },
         hasProfiles = viewModel.connectionProfiles.isNotEmpty(),
-        onOpenExample = { viewModel.openExample(ExampleWorkspaces.FX_VENUE) },
+        examples = examples,
+        onOpenExample = onOpenExample,
         onOpenWorkspace = {
             splitScope.launch {
                 chooseDirectory(title = "Open workspace", startIn = viewModel.defaultWorkspaceLocation())

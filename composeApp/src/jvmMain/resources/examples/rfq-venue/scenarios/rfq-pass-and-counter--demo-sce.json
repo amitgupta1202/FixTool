@@ -1,0 +1,191 @@
+{
+  "id": "rfq-scenario-pass-and-counter",
+  "name": "RFQ pass and counter",
+  "binding": "this_run",
+  "createdAt": 1788700000001,
+  "setup": [
+    {
+      "stepId": "8786f48a-9146-4b50-92d7-5bbd2fcdc1f6",
+      "type": "clearMessages",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "c0552baf-4bc8-4eb1-8c50-57504a3f09a4",
+      "type": "clearOrderBook",
+      "session": "RFQ Demo Venue ← RFQ_CLIENT1"
+    }
+  ],
+  "steps": [
+    {
+      "stepId": "6a210353-62f7-4272-bc93-382c87f3fecb",
+      "type": "send",
+      "raw": "35=R|131=DEMO-RFQ-2|146=1|55=GBP/USD|54=1|38=500000",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "05e60894-6a79-46ab-af2d-d2371944d357",
+      "type": "expect",
+      "session": "RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "S",
+        "fields": [
+          {
+            "tag": 131,
+            "value": "DEMO-RFQ-2"
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "S",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 117,
+            "matcher": {
+              "type": "exact",
+              "value": "Q-DEMO-RFQ-2"
+            }
+          },
+          {
+            "tag": 134,
+            "matcher": {
+              "type": "exact",
+              "value": "500000"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "82da5cc4-bc85-41e2-b8e4-4dbc729d3e42",
+      "type": "send",
+      "raw": "35=AJ|693=DEMO-RESP-2|694=6|117=Q-DEMO-RFQ-2|55=GBP/USD",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "cd6e89ea-ef3b-484e-afdb-c1c1dfad046d",
+      "type": "expect",
+      "session": "RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "AI",
+        "fields": [
+          {
+            "tag": 693,
+            "value": "DEMO-RESP-2"
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "AI",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 117,
+            "matcher": {
+              "type": "exact",
+              "value": "Q-DEMO-RFQ-2"
+            }
+          },
+          {
+            "tag": 297,
+            "matcher": {
+              "type": "exact",
+              "value": "11"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "d0be0c9a-c6b7-4c40-b44c-a7cb09dd1c28",
+      "type": "send",
+      "raw": "35=AJ|693=DEMO-RESP-3|694=2|117=Q-DEMO-RFQ-2|11=DEMO-TRADE-3|55=GBP/USD|54=1|38=500000|44=${in.S.132}",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "50fc28da-e62d-40ec-be1c-770f7d1fd48b",
+      "type": "expect",
+      "session": "RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "AI",
+        "fields": [
+          {
+            "tag": 693,
+            "value": "DEMO-RESP-3"
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "AI",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 58,
+            "matcher": {
+              "type": "regex",
+              "pattern": "quotes firm"
+            }
+          },
+          {
+            "tag": 297,
+            "matcher": {
+              "type": "exact",
+              "value": "5"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "stepId": "cccb2330-b218-45b7-8840-399fdf8626bb",
+      "type": "send",
+      "raw": "35=AJ|693=DEMO-RESP-4|694=1|117=Q-DEMO-RFQ-2|11=DEMO-TRADE-4|55=GBP/USD|54=1|38=500000|44=${in.S.132}",
+      "session": "RFQ Client 1"
+    },
+    {
+      "stepId": "847cf483-6ec5-4921-bba4-9342fdf75fb6",
+      "type": "expect",
+      "session": "RFQ Client 1",
+      "direction": "in",
+      "match": {
+        "messageType": "AI",
+        "fields": [
+          {
+            "tag": 693,
+            "value": "DEMO-RESP-4"
+          }
+        ]
+      },
+      "timeoutMs": 10000,
+      "expectation": {
+        "messageType": "AI",
+        "mode": "open",
+        "fields": [
+          {
+            "tag": 58,
+            "matcher": {
+              "type": "regex",
+              "pattern": "quoted price"
+            }
+          },
+          {
+            "tag": 297,
+            "matcher": {
+              "type": "exact",
+              "value": "5"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "teardown": [],
+  "userTags": [],
+  "version": 1
+}

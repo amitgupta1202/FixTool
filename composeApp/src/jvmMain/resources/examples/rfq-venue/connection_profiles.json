@@ -1,0 +1,694 @@
+{
+    "profiles": [
+        {
+            "id": "rfq-profile-venue",
+            "name": "RFQ Demo Venue",
+            "config": {
+                "senderCompID": "RFQ_SERVER",
+                "targetCompID": "*",
+                "port": "19877",
+                "socketAcceptPort": "19877",
+                "connectionType": "ACCEPTOR",
+                "acceptorResponseRules": [
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "EUR/USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=Q-${req.131}|55=EUR/USD|132=1.08990|133=1.09010|134=${req.38}|135=${req.38}|15=USD|62=${utcnow+1min}|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "GBP/USD"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=Q-${req.131}|55=GBP/USD|132=1.26985|133=1.27015|134=${req.38}|135=${req.38}|15=USD|62=${utcnow+1min}|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "USD/JPY"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=S|131=${req.131}|117=Q-${req.131}|55=USD/JPY|132=149.490|133=149.510|134=${req.38}|135=${req.38}|15=JPY|62=${utcnow+1min}|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "conditions": [
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "EUR/USD",
+                                        "GBP/USD",
+                                        "USD/JPY"
+                                    ]
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AG|131=${req.131}|658=99|146=1|55=${req.55}|58=QuoteRequest without OrderQty: this venue quotes a size"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "R",
+                        "steps": [
+                            {
+                                "template": "35=AG|131=${req.131}|658=1|146=1|55=${req.55}|58=Symbol not supported"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "EUR/USD"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1.09010"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|693=${req.693}|14=${req.38}|151=0|32=${req.38}|31=1.09010|6=1.09010|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "EUR/USD"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1.08990"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|693=${req.693}|14=${req.38}|151=0|32=${req.38}|31=1.08990|6=1.08990|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "GBP/USD"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1.27015"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|693=${req.693}|14=${req.38}|151=0|32=${req.38}|31=1.27015|6=1.27015|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "GBP/USD"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1.26985"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|693=${req.693}|14=${req.38}|151=0|32=${req.38}|31=1.26985|6=1.26985|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "USD/JPY"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "149.510"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|693=${req.693}|14=${req.38}|151=0|32=${req.38}|31=149.510|6=149.510|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "USD/JPY"
+                                }
+                            },
+                            {
+                                "tag": 54,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 44,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "149.490"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=8|37=${req.uuid}|17=${uuid}|150=F|39=2|11=${req.11}|55=${req.55}|54=${req.54}|38=${req.38}|693=${req.693}|14=${req.38}|151=0|32=${req.38}|31=149.490|6=149.490|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 11,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 38,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "EUR/USD",
+                                        "GBP/USD",
+                                        "USD/JPY"
+                                    ]
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${req.55}|297=5|58=Price is not the quoted price|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "1"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "EUR/USD",
+                                        "GBP/USD",
+                                        "USD/JPY"
+                                    ]
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${req.55}|297=5|58=A hit needs ClOrdID (11) and OrderQty (38) to book|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "2"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "EUR/USD",
+                                        "GBP/USD",
+                                        "USD/JPY"
+                                    ]
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${req.55}|297=5|58=Counter not accepted: this venue quotes firm|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 694,
+                                "matcher": {
+                                    "type": "exact",
+                                    "value": "6"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "EUR/USD",
+                                        "GBP/USD",
+                                        "USD/JPY"
+                                    ]
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${req.55}|297=11|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            },
+                            {
+                                "tag": 55,
+                                "matcher": {
+                                    "type": "oneOf",
+                                    "values": [
+                                        "EUR/USD",
+                                        "GBP/USD",
+                                        "USD/JPY"
+                                    ]
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${req.55}|297=5|58=QuoteRespType not accepted: hit or lift, counter, or pass|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "conditions": [
+                            {
+                                "tag": 117,
+                                "matcher": {
+                                    "type": "presence"
+                                }
+                            }
+                        ],
+                        "steps": [
+                            {
+                                "template": "35=AI|117=${req.117}|693=${req.693}|55=${req.55}|297=5|58=Unknown symbol|60=${now}"
+                            }
+                        ]
+                    },
+                    {
+                        "whenMsgType": "AJ",
+                        "steps": [
+                            {
+                                "template": "35=j|372=AJ|379=${req.693}|380=5|58=QuoteID (117) is required to answer a quote"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "rfq-profile-RFQ_CLIENT1",
+            "name": "RFQ Client 1",
+            "config": {
+                "senderCompID": "RFQ_CLIENT1",
+                "targetCompID": "RFQ_SERVER",
+                "port": "19877",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "rfq-profile-RFQ_CLIENT2",
+            "name": "RFQ Client 2",
+            "config": {
+                "senderCompID": "RFQ_CLIENT2",
+                "targetCompID": "RFQ_SERVER",
+                "port": "19877",
+                "reconnectInterval": "5",
+                "resetOnLogon": true
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        },
+        {
+            "id": "rfq-profile-RFQ_LOAD",
+            "name": "RFQ Load Client",
+            "config": {
+                "senderCompID": "RFQLG{n}",
+                "targetCompID": "RFQ_SERVER",
+                "sessionCount": 5,
+                "port": "19877",
+                "reconnectInterval": "5",
+                "resetOnLogon": true,
+                "messageStore": "MEMORY",
+                "messageLog": "NONE"
+            },
+            "createdAt": 0,
+            "lastUsedAt": 0
+        }
+    ]
+}

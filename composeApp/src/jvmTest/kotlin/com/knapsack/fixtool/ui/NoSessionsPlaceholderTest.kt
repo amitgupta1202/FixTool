@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Rule
 import org.junit.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /** The empty session area is where a fresh install meets the bundled example. */
@@ -15,19 +16,26 @@ class NoSessionsPlaceholderTest {
 
     @Test
     fun `a fresh install is offered the bundled example and the connection panel`() {
-        var started = false
+        val started = mutableListOf<String>()
         var opened = false
         rule.setContent {
             NoSessionsPlaceholder(
-                onOpenExample = { started = true },
+                examples =
+                    listOf(
+                        ExampleEntry("fx-venue", "FX Venue", "bundled"),
+                        ExampleEntry("rfq-venue", "RFQ Venue", "bundled"),
+                    ),
+                onOpenExample = { started += it },
                 onOpenConnectionPanel = { opened = true },
             )
         }
 
         rule.onNodeWithText("No active sessions").assertExists()
-        rule.onNodeWithTag("empty-open-example").performClick()
+        rule.onNodeWithText("Open FX Venue example").assertExists()
+        rule.onNodeWithTag("empty-open-example-fx-venue").performClick()
+        rule.onNodeWithTag("empty-open-example-rfq-venue").performClick()
         rule.onNodeWithTag("empty-open-connection").performClick()
-        assertTrue(started)
+        assertEquals(listOf("fx-venue", "rfq-venue"), started)
         assertTrue(opened)
     }
 
@@ -36,12 +44,13 @@ class NoSessionsPlaceholderTest {
         rule.setContent {
             NoSessionsPlaceholder(
                 hasProfiles = true,
+                examples = listOf(ExampleEntry("fx-venue", "FX Venue", "bundled")),
                 onOpenExample = { },
                 onOpenConnectionPanel = { },
             )
         }
 
-        rule.onNodeWithTag("empty-open-example").assertDoesNotExist()
+        rule.onNodeWithTag("empty-open-example-fx-venue").assertDoesNotExist()
         rule.onNodeWithTag("empty-open-connection").assertExists()
     }
 }

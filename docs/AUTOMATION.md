@@ -236,7 +236,7 @@ Base URL: `http://127.0.0.1:$FIXTOOL_CONTROL_PORT`. Request/response bodies are 
 | `POST /templates`    | `{"profile", "name", "fields"\|"raw", "userTags"?, "isFavorite"?, "id"?}` | create/update a template |
 | `DELETE /templates`  | `{"id", "profile"?}`                   | delete a template                                    |
 | `POST /templates/load` | `{"id"}`                             | load a template into the editor (opens the editor panel; may switch the active session — see [Message templates](#message-templates)) |
-| `POST /demo`         | `{"action":"start"\|"stop"}`           | the FX venue example, by its old name: `start` opens it as a workspace, `stop` closes that workspace (the copy stays on disk — it is yours) → `{status, action, workspace, running, venue, port}` |
+| `POST /demo`         | `{"action":"start"\|"stop"}`           | the FX venue example, by its old name, and it stays the FX venue for compatibility: `start` opens it as a workspace, `stop` closes that workspace (the copy stays on disk — it is yours) → `{status, action, workspace, running, venue, port}`. The RFQ venue example opens through `POST /workspace {"example":"rfq-venue"}` |
 | `GET /workspace`     | —                                      | the open workspace and the ways to change it: `{status, workspace, isDefault, recent[], environments[], examples[]}` |
 | `POST /workspace`    | `{"workspace":"<folder>"}` or `{"example":"<id>"}` | open a folder as the workspace, or copy a bundled example out and open that. `{"workspace":""}` closes and returns to the installation's own directory. **Opening one takes every session down first** |
 | `POST /connect`      | `{"profile":"<name or id>"}`           | `{status, profile}` (logon is async)                 |

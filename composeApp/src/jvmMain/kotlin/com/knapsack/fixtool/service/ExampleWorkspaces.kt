@@ -32,6 +32,9 @@ object ExampleWorkspaces {
     /** The bundled FX venue: the demo, as data. */
     const val FX_VENUE = "fx-venue"
 
+    /** The bundled RFQ venue: a request-for-quote desk, and the first real use case for a load run. */
+    const val RFQ_VENUE = "rfq-venue"
+
     /**
      * Written into a copy, naming the example it came from.
      *

@@ -1,0 +1,388 @@
+{
+    "messages": [
+        {
+            "id": "rfq-quote-request-eurusd",
+            "name": "RFQ Quote Request EUR/USD",
+            "userTags": [
+                "rfq-profile-RFQ_CLIENT1",
+                "rfq-profile-RFQ_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "1000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "rfq-quote-request-gbpusd",
+            "name": "RFQ Quote Request GBP/USD",
+            "userTags": [
+                "rfq-profile-RFQ_CLIENT1",
+                "rfq-profile-RFQ_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "GBP/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "1000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "rfq-quote-request-usdjpy",
+            "name": "RFQ Quote Request USD/JPY",
+            "userTags": [
+                "rfq-profile-RFQ_CLIENT1",
+                "rfq-profile-RFQ_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "USD/JPY"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "1000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "rfq-lift-last-quote",
+            "name": "RFQ Lift last quote (buy at the offer)",
+            "userTags": [
+                "rfq-profile-RFQ_CLIENT1",
+                "rfq-profile-RFQ_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "1"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "${incoming[\"S\"].valueOfTag(135)}"
+                },
+                {
+                    "tag": "44",
+                    "value": "${incoming[\"S\"].valueOfTag(133)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "rfq-hit-last-quote",
+            "name": "RFQ Hit last quote (sell at the bid)",
+            "userTags": [
+                "rfq-profile-RFQ_CLIENT1",
+                "rfq-profile-RFQ_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "1"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "2"
+                },
+                {
+                    "tag": "38",
+                    "value": "${incoming[\"S\"].valueOfTag(134)}"
+                },
+                {
+                    "tag": "44",
+                    "value": "${incoming[\"S\"].valueOfTag(132)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "rfq-counter-last-quote",
+            "name": "RFQ Counter last quote (buy at the bid)",
+            "userTags": [
+                "rfq-profile-RFQ_CLIENT1",
+                "rfq-profile-RFQ_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "2"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "11",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "${incoming[\"S\"].valueOfTag(135)}"
+                },
+                {
+                    "tag": "44",
+                    "value": "${incoming[\"S\"].valueOfTag(132)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "rfq-pass-last-quote",
+            "name": "RFQ Pass last quote",
+            "userTags": [
+                "rfq-profile-RFQ_CLIENT1",
+                "rfq-profile-RFQ_CLIENT2"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "${uuid}"
+                },
+                {
+                    "tag": "694",
+                    "value": "6"
+                },
+                {
+                    "tag": "117",
+                    "value": "${incoming[\"S\"].valueOfTag(117)}"
+                },
+                {
+                    "tag": "55",
+                    "value": "${incoming[\"S\"].valueOfTag(55)}"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "rfq-load-quote-request",
+            "name": "RFQ Load QuoteRequest",
+            "userTags": [
+                "rfq-profile-RFQ_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "R"
+                },
+                {
+                    "tag": "131",
+                    "value": "RFQ-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "146",
+                    "value": "1"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "1000000"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        },
+        {
+            "id": "rfq-load-quote-response",
+            "name": "RFQ Load QuoteResponse",
+            "userTags": [
+                "rfq-profile-RFQ_LOAD"
+            ],
+            "fields": [
+                {
+                    "tag": "35",
+                    "value": "AJ"
+                },
+                {
+                    "tag": "693",
+                    "value": "AJ-RFQ-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "694",
+                    "value": "1"
+                },
+                {
+                    "tag": "117",
+                    "value": "Q-RFQ-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "11",
+                    "value": "RFQ-${run}-${messageIndex}"
+                },
+                {
+                    "tag": "55",
+                    "value": "EUR/USD"
+                },
+                {
+                    "tag": "54",
+                    "value": "1"
+                },
+                {
+                    "tag": "38",
+                    "value": "1000000"
+                },
+                {
+                    "tag": "44",
+                    "value": "1.09010"
+                }
+            ],
+            "createdAt": 0,
+            "lastUsedAt": 0,
+            "modifiedAt": 0,
+            "isFavorite": true
+        }
+    ]
+}

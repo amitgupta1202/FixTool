@@ -3,11 +3,16 @@ package com.knapsack.fixtool.ui
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import com.knapsack.fixtool.integration.TestFixServer
+import com.knapsack.fixtool.model.FixConnectionConfig
+import com.knapsack.fixtool.model.FixConnectionProfile
+import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.service.load.LoadFixtures
 import com.knapsack.fixtool.viewmodel.FixMessageViewModel
 import org.junit.After
@@ -48,6 +53,65 @@ class LoadRunRailTest {
         composeTestRule.waitForIdle()
 
         composeTestRule.onNodeWithTag("rail-run-load").assertIsDisplayed().assertIsNotEnabled().assertTextContains("Load run…  (0)")
+    }
+
+    /**
+     * **The count follows the sessions, not the moment the rail was drawn.** It used to be remembered on the
+     * active run set alone, so a five-lane profile that logged on after the rail was first composed left
+     * Fan out and Load run reading (0) and disabled until a run set happened to start. Found by driving the
+     * rail with the RFQ example's load client connected. The rail is composed first here, on purpose.
+     */
+    @Test
+    fun `the lane count follows a profile whose lanes log on after the rail was drawn`() {
+        val server = TestFixServer()
+        server.start()
+        val runId = System.nanoTime().toString().takeLast(6)
+        try {
+            composeTestRule.setContent { ScenariosRail(viewModel, modifier = Modifier.fillMaxSize()) }
+            composeTestRule.waitForIdle()
+
+            val profile =
+                FixConnectionProfile(
+                    name = "LoadGen",
+                    config =
+                        FixConnectionConfig(
+                            connectionType = FixConnectionConfig.ConnectionType.INITIATOR,
+                            senderCompID = "RAIL{nn}$runId",
+                            targetCompID = "VENUE$runId",
+                            sessionCount = 2,
+                            host = "localhost",
+                            port = server.port.toString(),
+                            socketConnectHost = "localhost",
+                            beginString = "FIX.4.4",
+                            autoReconnect = false,
+                            resetOnLogon = true,
+                            fileStorePath = File(testDir, "store").absolutePath,
+                            fileLogPath = File(testDir, "log").absolutePath,
+                        ),
+                )
+            viewModel.saveConnectionProfile(profile)
+            viewModel.connectProfile(profile.id, profile)
+            composeTestRule.waitUntil(25_000) {
+                val lanes = viewModel.getProfileSessions(profile.id)
+                lanes.count { it.connectionState.value == FixConnectionState.LOGGED_ON } == 2
+            }
+            composeTestRule.waitForIdle()
+
+            composeTestRule.onNodeWithTag("rail-run-menu").performClick()
+            composeTestRule.waitForIdle()
+            composeTestRule
+                .onNodeWithTag("rail-run-load")
+                .assertIsDisplayed()
+                .assertIsEnabled()
+                .assertTextContains("Load run…  (1)")
+            composeTestRule
+                .onNodeWithTag("rail-run-fanout")
+                .assertIsEnabled()
+                .assertTextContains("Fan out over sessions…  (1)")
+        } finally {
+            viewModel.disconnectAllSessions()
+            server.stop()
+        }
     }
 
     @Test

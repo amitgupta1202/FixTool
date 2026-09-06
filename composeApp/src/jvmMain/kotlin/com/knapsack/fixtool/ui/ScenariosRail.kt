@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.rememberDialogState
+import com.knapsack.fixtool.model.FixConnectionState
 import com.knapsack.fixtool.model.FixDictionary
 import com.knapsack.fixtool.model.NotificationType
 import com.knapsack.fixtool.model.ScenarioSort
@@ -120,6 +121,12 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
     var filter by remember { mutableStateOf("") }
     val activeSet by viewModel.activeRunSet.collectAsState()
     val activeLoad by viewModel.activeLoadRun.collectAsState()
+    // Which sessions are logged on, observed here so the Run menu's lane count follows them. The count
+    // used to be remembered on the active set alone, so a five-lane profile that logged on after the rail
+    // was first drawn left "Fan out over sessions…" and "Load run…" reading (0) and disabled until a run
+    // set happened to start. Found by driving the rail with the RFQ example's load client connected.
+    val loggedOnSessions =
+        viewModel.sessions.map { it.connectionState.collectAsState().value == FixConnectionState.LOGGED_ON }
     // Cmd/Ctrl+A and Esc are handled on the rail's own root, so they need somewhere for focus to land. It is
     // requested on the first pick, never on mount: a pane that grabs focus as it appears steals the keyboard
     // from the grid the author was reading.
@@ -328,7 +335,7 @@ fun ScenariosRail(viewModel: FixMessageViewModel, modifier: Modifier = Modifier)
                         onSaveAsSet = { savingSet = true },
                         onRepeat = { repeating = true },
                         laneProfiles =
-                            remember(activeSet) {
+                            remember(activeSet, loggedOnSessions, viewModel.connectionProfiles.size) {
                                 viewModel.connectionProfiles.count {
                                     viewModel.fanOutLanes(it.id) is FixMessageViewModel.FanOutLanes.Available
                                 }

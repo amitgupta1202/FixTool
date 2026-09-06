@@ -63,7 +63,7 @@ object FxVenuePreset {
      * and printing five decimals yields prices that always end in `0`, which reads as a placeholder —
      * the opposite of what the jitter is for.
      */
-    private data class FxPair(
+    internal data class FxPair(
         val symbol: String,
         val quoteCurrency: String,
         /** Decimals the pair is quoted to — 5 for the dollar majors, 3 for JPY. The realism flex. */
@@ -76,7 +76,7 @@ object FxVenuePreset {
         val tick: String,
     )
 
-    private val PAIRS =
+    internal val PAIRS =
         listOf(
             FxPair(
                 "EUR/USD",
@@ -211,7 +211,7 @@ object FxVenuePreset {
      * first-match-wins does it, provided this sits below the three that name a pair. [AcceptorPresets.insert]
      * puts it there — see the ordering note on [preset].
      */
-    private val quoteUnknownSymbol =
+    internal val quoteUnknownSymbol =
         AcceptorResponseRule(whenMsgType = "R", steps = listOf(ResponseStep(QUOTE_REQUEST_REJECT)))
 
     private fun marketRule(pair: FxPair) =

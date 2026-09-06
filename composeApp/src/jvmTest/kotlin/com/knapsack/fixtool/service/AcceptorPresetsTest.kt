@@ -61,6 +61,14 @@ class AcceptorPresetsTest {
                     (if (market) "|40=1" else "|40=2|44=185.25") +
                     "|60=20260730-09:14:22.000"
             "R" -> "35=R|131=Q-1|55=$symbol|54=1|38=1000000"
+            // The RFQ venue's hit: the response type, side and price come from the rule's own trigger,
+            // because its booking rules name all three and its refusals name some of them.
+            "AJ" -> {
+                val respType = (rule.trigger().firstOrNull { it.tag == 694 }?.parsed() as? Matcher.Exact)?.value ?: "1"
+                val side = (rule.trigger().firstOrNull { it.tag == 54 }?.parsed() as? Matcher.Exact)?.value ?: "1"
+                val price = (rule.trigger().firstOrNull { it.tag == 44 }?.parsed() as? Matcher.Exact)?.value ?: "1.09010"
+                "35=AJ|693=RESP-1|694=$respType|117=Q-RFQ-1|11=TRD-1|55=$symbol|54=$side|38=1000000|44=$price"
+            }
             "F" -> cancel
             "G" -> replace
             "H" -> statusRequest

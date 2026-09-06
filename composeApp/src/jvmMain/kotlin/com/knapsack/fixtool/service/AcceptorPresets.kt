@@ -590,6 +590,7 @@ object AcceptorPresets {
                     ),
             ),
             FxVenuePreset.preset,
+            RfqVenuePreset.preset,
             AcceptorPreset(
                 id = "order-ack",
                 name = "Order acknowledged",
